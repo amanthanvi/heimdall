@@ -117,6 +117,13 @@
         "store": {
           "description": "Store kind.",
           "$ref": "#/$defs/StoreKind"
+        },
+        "store_locator": {
+          "description": "⟨ADR-0008 §17.22 item 12⟩ The CA's K_ca store item as this installation\nrecorded it (the locator the ceremony reported). While `state` is `unloaded`\nthe retirement waits for the owner-present CLI to delete exactly this item and\nconfirm it (`issuer.retire` with `deleted_locator`). Absent when none was\nrecorded: that retirement stops at `unloaded`, `issuer_store_locator_unrecorded`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -217,7 +224,7 @@
       ]
     },
     "OrphanStoreItem": {
-      "description": "A store item no registration names (ADR-0008 D4 item 1 crash points).",
+      "description": "A store item no registration names (ADR-0008 D4 item 1 crash points), or\n⟨§17.22 item 12⟩ one a restore displaced: listed until the owner-present CLI\ndeletes it and confirms (`issuer.retire` with `deleted_locator`).",
       "type": "object",
       "properties": {
         "fingerprint": {
@@ -229,6 +236,13 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "locator": {
+          "description": "⟨§17.22 item 12⟩ Its exact locator, when known (a displaced item: the locator\nrecorded before the restore's compare-and-swap).",
+          "type": [
+            "string",
+            "null"
           ]
         },
         "store": {

@@ -13,9 +13,17 @@
 //! again; an absent store item counts as deleted).
 //!
 //! [`admissible`] is the precondition (§17.1 item 7): every enrollment of the CA is
-//! final or `abandoned`. [`StoreItemDeletion`] is the `unloaded → deleted` effect over
-//! a [`SecretStore`], as `app::operations::CaStoreItemDeletion`, the port restart
-//! recovery (`Operations::resume_ca_retirements`) calls.
+//! final or `abandoned`.
+//!
+//! ⟨ADR-0008 §17.22 item 12; D3⟩ **Who deletes the store item.** Neither the runtime
+//! nor the issuer child ever writes or deletes the platform store (the child only
+//! reads it). The `unloaded → deleted` effect is the **owner-present CLI's**:
+//! [`delete_awaiting`] deletes exactly the locator `issuer.status` names for an
+//! `unloaded` CA (`CaStatus::store_locator`) or for a displaced item
+//! (`orphan_store_items`), re-reads the store, and only then does the CLI confirm it
+//! on `issuer.retire` with `deleted_locator` (the runtime then records `deleted` and
+//! `retired`). Round 2's runtime-side port (`StoreItemDeletion` over
+//! `app::operations::CaStoreItemDeletion`) is removed.
 //!
 //! **Exact identity** (ADR-0008 §17.17 item 3; D1). `put` returns the item's
 //! [`StoreItemRef`]; this installation records it, and retirement deletes **only that
@@ -23,18 +31,18 @@
 //! to be absent. It never deletes everything `list()` reports for a fingerprint, so a
 //! second installation of the same OS user holding the same (restored) CA keeps its
 //! item. A CA with **no recorded locator** is refused, with nothing deleted: its item
-//! stays, as an orphan to report. The recorded locators come from [`RecordedItems`];
-//! until the runtime persists them (U10), production passes [`NoRecordedItems`], so
-//! the step refuses and the CA stays `unloaded` (fail closed).
+//! stays, as an orphan to report. ⟨ADR-0008 §17.21 item 3; §17.22 item 12⟩ The
+//! runtime records the locator the ceremony reported in the CA's `issuers` row and
+//! names it in `issuer.status`; a CA without one stops at `unloaded`
+//! (`issuer_store_locator_unrecorded`) and nothing here is called. [`StoreEffects`]
+//! takes its locators from a [`RecordedItems`] instead ([`NoRecordedItems`] refuses
+//! every deletion).
 //!
 //! [`uninstall_store_plan`] is D4 item 6's rule for U12's uninstall: the item is kept,
 //! with its reason, while any enrollment under its CA is not final; otherwise deleting
 //! it (the retirement steps run to `retired`) is offered behind a typed confirmation.
 
-use heimdall_app::operations::CaStoreItemDeletion;
-use heimdall_app::ports::IssuerError;
 use heimdall_contract::enrollment::{EnrollmentState, EnrollmentView};
-use heimdall_contract::envelope::reason;
 use heimdall_contract::ids::{CaFingerprint, EnrollmentId};
 use heimdall_contract::issuer::{CaState, StoreKind};
 use heimdall_domain::issuance::{CaEvent, ca_transition};
@@ -192,8 +200,8 @@ pub fn admissible(
 /// [`RetireError::LocatorMismatch`] when it names another CA or store kind (nothing is
 /// deleted in either case); [`RetireError::Store`] when the store cannot delete or
 /// list, or the locator is still there.
-pub fn delete_recorded(
-    store: &dyn SecretStore,
+pub fn delete_recorded<S: SecretStore + ?Sized>(
+    store: &S,
     ca: &CaFingerprint,
     recorded: Option<&StoreItemRef>,
 ) -> Result<(), RetireError> {
@@ -218,45 +226,45 @@ pub fn delete_recorded(
     Ok(())
 }
 
-/// The `unloaded → deleted` effect over a [`SecretStore`], for restart recovery
-/// (`app::operations::CaStoreItemDeletion`).
-pub struct StoreItemDeletion<'a> {
-    store: &'a dyn SecretStore,
-    recorded: &'a (dyn RecordedItems + Sync),
-}
-
-impl<'a> StoreItemDeletion<'a> {
-    /// The deletion step over `store`, deleting only the items in `recorded`
-    /// ([`NoRecordedItems`] refuses every deletion).
-    #[must_use]
-    pub fn new(store: &'a dyn SecretStore, recorded: &'a (dyn RecordedItems + Sync)) -> Self {
-        Self { store, recorded }
+/// ⟨ADR-0008 §17.22 item 12⟩ The owner-present CLI's deletion (U12's `issuer retire`
+/// after the child unloaded the CA, and the resolution of a displaced item): delete
+/// exactly `locator`, the store item `issuer.status` names for `ca` in a store of kind
+/// `store` (`CaStatus::store_locator` while `unloaded`, or an `orphan_store_items`
+/// entry's `locator`), then re-read the store. `Ok` only when the re-read no longer
+/// finds that locator (an item already absent counts as deleted); the CLI then sends
+/// `issuer.retire` with `deleted_locator: locator`.
+///
+/// Refused, deleting nothing: `store` is not this store's product kind (another store,
+/// or a test-configuration store, S3), an empty locator, or a store listing that shows
+/// `locator` holding **another** CA ([`RetireError::LocatorMismatch`]). Items of `ca`
+/// under other locators (another installation's) are never touched.
+///
+/// # Errors
+/// [`RetireError::LocatorMismatch`] as above; [`RetireError::Store`] when the store
+/// cannot list or delete, or the locator is still there.
+pub fn delete_awaiting<S: SecretStore + ?Sized>(
+    secret_store: &S,
+    ca: &CaFingerprint,
+    store: StoreKind,
+    locator: &str,
+) -> Result<(), RetireError> {
+    let kind = secret_store.kind();
+    if kind.product() != Some(store) || locator.is_empty() {
+        return Err(RetireError::LocatorMismatch);
     }
-}
-
-impl CaStoreItemDeletion for StoreItemDeletion<'_> {
-    /// Refuses when `store` is not this store's product kind (a CA registered in
-    /// another store, or a test-configuration store, S3): nothing is deleted.
-    fn delete_confirmed_absent(
-        &self,
-        ca: &CaFingerprint,
-        store: StoreKind,
-    ) -> Result<(), IssuerError> {
-        if self.store.kind().product() != Some(store) {
-            return Err(IssuerError::Unavailable(
-                reason::ISSUER_STORE_UNAVAILABLE.to_owned(),
-            ));
-        }
-        let recorded = self.recorded.recorded(ca);
-        delete_recorded(self.store, ca, recorded.as_ref()).map_err(|e| match e {
-            RetireError::Store(StoreError::Unavailable(a)) => IssuerError::Unavailable(
-                a.refusal_reason()
-                    .unwrap_or(reason::ISSUER_STORE_UNAVAILABLE)
-                    .to_owned(),
-            ),
-            _ => IssuerError::Unavailable(reason::ISSUER_STORE_UNAVAILABLE.to_owned()),
-        })
+    let listed = secret_store.list().map_err(RetireError::Store)?;
+    if listed
+        .iter()
+        .any(|i| i.kind == kind && i.locator == locator && i.fingerprint != *ca)
+    {
+        return Err(RetireError::LocatorMismatch);
     }
+    let item = StoreItemRef {
+        kind,
+        fingerprint: ca.clone(),
+        locator: locator.to_owned(),
+    };
+    delete_recorded(secret_store, ca, Some(&item))
 }
 
 /// [`RetireEffects`] over a store, with the unload left to `unload` (U3's issuer

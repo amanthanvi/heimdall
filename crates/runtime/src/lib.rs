@@ -19,6 +19,9 @@ pub mod connections;
 pub mod dispatch;
 pub mod instance;
 pub mod launcher;
+// ⟨M03⟩ wave 4 (U10): the managed adapter's store-backed sources (ADR-0008 §17.20 "For
+// U10": `ManagedSourceRead`, `GrantScopes`, `SlotStore`, the production `InstallView`).
+pub mod managed_store;
 pub mod paths;
 pub mod platform;
 pub mod service;

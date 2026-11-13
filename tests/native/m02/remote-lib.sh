@@ -37,7 +37,8 @@ hm2_sanitize_env() {
         HM_FIXTURE_SSHD_HOST HM_FIXTURE_SSHD_PORT HM_FIXTURE_SSHD_HOST_KEY \
         HM_FIXTURE_SSHD_AUTHORIZED_KEYS HM_FIXTURE_SSHD_LOG HM_FIXTURE_SSHD_USER \
         HM_FIXTURE_SSHD_STRICT_PORT HM_FIXTURE_SSHD_STRICT_HOST_KEY \
-        HM_FIXTURE_SSHD_STRICT_AUTHORIZED_KEYS HM_FIXTURE_SSHD_STRICT_LOG HM_FIXTURE_HOOK HM_REPO_ROOT
+        HM_FIXTURE_SSHD_STRICT_AUTHORIZED_KEYS HM_FIXTURE_SSHD_STRICT_LOG HM_FIXTURE_HOOK HM_REPO_ROOT \
+        HM_FIXTURE_SSHD_REGISTRY HM_FIXTURE_SSHD_REGISTRY_REMOTE
     echo "inherited-ssh-auth-sock=$sock (unset for the run)"
     echo "inherited-git-variables=$n_git (unset for the run)"
     echo "inherited-heimdall-variables=$n_hm (unset for the run)"
@@ -139,17 +140,21 @@ hm2_start_time() {
     fi
 }
 
-# hm2_sshd_config PORT DIR AUTHKEYS PENALTIES [MAXAUTHTRIES]: the fixture configuration
-# (as in heimdall-testkit's LoopbackSshd: loopback only, public keys only, restrict).
-# MAXAUTHTRIES defaults to 6; the Windows local runner's strict sshd passes 3
-# (HM_FIXTURE_SSHD_STRICT_*; ADR-0007 §12.47 item 8, WU-0).
+# hm2_sshd_config PORT DIR AUTHKEYS PENALTIES [MAXAUTHTRIES [REGISTRY]]: the fixture
+# configuration (as in heimdall-testkit's LoopbackSshd: loopback only, public keys only,
+# restrict). MAXAUTHTRIES defaults to 6; the Windows local runner's strict sshd passes 3
+# (HM_FIXTURE_SSHD_STRICT_*; ADR-0007 §12.47 item 8, WU-0). REGISTRY (M03 wave 4,
+# W4-N01), when given, is a second AuthorizedKeysFile: the enrollment registry on the
+# target's own file system (HM_FIXTURE_SSHD_REGISTRY*).
 hm2_sshd_config() {
+    local akf="\"$3\""
+    [ -n "${6:-}" ] && akf="$akf \"$6\""
     cat <<EOF
 ListenAddress 127.0.0.1
 Port $1
 AddressFamily inet
 HostKey "$2/host_ed25519"
-AuthorizedKeysFile "$3"
+AuthorizedKeysFile $akf
 PidFile none
 StrictModes no
 UsePAM no
@@ -171,13 +176,16 @@ EOF
     [ "$4" = 1 ] && echo "PerSourcePenalties no"
 }
 
-# hm2_sshd_start DIR AUTHKEYS LOG [MAXAUTHTRIES]: start the fixture sshd (config and host
-# key in DIR, created here with mode 700; authorized keys AUTHKEYS, created empty if
-# absent; log LOG; MaxAuthTries MAXAUTHTRIES, default 6). On success sets HM2_SSHD_PID, HM2_SSHD_PORT, HM2_SSHD_HOSTKEY ("<type> <base64>")
+# hm2_sshd_start DIR AUTHKEYS LOG [MAXAUTHTRIES [REGISTRY]]: start the fixture sshd (config
+# and host key in DIR, created here with mode 700; authorized keys AUTHKEYS, created empty
+# if absent; log LOG; MaxAuthTries MAXAUTHTRIES, default 6). REGISTRY (M03 wave 4,
+# W4-N01), when given, is a second AuthorizedKeysFile, created here empty (mode 600) in
+# its own new mode-700 directory (an existing directory is refused), so the enrollment
+# scripts accept it as an account-form registry. On success sets HM2_SSHD_PID, HM2_SSHD_PORT, HM2_SSHD_HOSTKEY ("<type> <base64>")
 # and HM2_SSHD_START, writes DIR/state (pid, start time) and returns 0. Otherwise sets
 # HM2_SSHD_WHY (no path, no user) and returns 1.
 hm2_sshd_start() {
-    local dir=$1 ak=$2 log=$3 tries=${4:-6} sshd attempt port pen i
+    local dir=$1 ak=$2 log=$3 tries=${4:-6} reg=${5:-} sshd attempt port pen i
     HM2_SSHD_PID="" HM2_SSHD_PORT="" HM2_SSHD_HOSTKEY="" HM2_SSHD_START="" HM2_SSHD_WHY=""
     case "$tries" in '' | *[!0-9]* | 0*) HM2_SSHD_WHY="MaxAuthTries is not a positive number"; return 1 ;; esac
     sshd=$(hm2_sshd_bin) || { HM2_SSHD_WHY="sshd is not installed"; return 1; }
@@ -187,14 +195,20 @@ hm2_sshd_start() {
         { HM2_SSHD_WHY="ssh-keygen failed"; return 1; }
     [ -e "$ak" ] || : >"$ak"
     chmod 600 "$ak" 2>/dev/null || true
+    if [ -n "$reg" ]; then
+        mkdir -m 700 -- "$(dirname -- "$reg")" 2>/dev/null ||
+            { HM2_SSHD_WHY="registry directory exists or cannot be created"; return 1; }
+        (umask 077 && : >"$reg") || { HM2_SSHD_WHY="registry cannot be created"; return 1; }
+        chmod 600 "$reg" 2>/dev/null || true
+    fi
     for attempt in 1 2 3 4 5; do
         port=$(hm2_port)
         pen=1
-        hm2_sshd_config "$port" "$dir" "$ak" 1 "$tries" >"$dir/sshd_config"
+        hm2_sshd_config "$port" "$dir" "$ak" 1 "$tries" "$reg" >"$dir/sshd_config"
         if ! "$sshd" -t -f "$dir/sshd_config" </dev/null >/dev/null 2>&1; then
             # Servers before OpenSSH 9.8 do not know PerSourcePenalties.
             pen=0
-            hm2_sshd_config "$port" "$dir" "$ak" 0 "$tries" >"$dir/sshd_config"
+            hm2_sshd_config "$port" "$dir" "$ak" 0 "$tries" "$reg" >"$dir/sshd_config"
             "$sshd" -t -f "$dir/sshd_config" </dev/null >/dev/null 2>&1 ||
                 { HM2_SSHD_WHY="sshd -t rejected the fixture configuration"; return 1; }
         fi

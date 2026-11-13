@@ -2174,20 +2174,34 @@ async fn issuing_ca_set_updated_by_e5_and_removal() {
 // E10: cancel of an enrollment operation
 // =================================================================================
 
+/// ⟨M03 wave 4, U10⟩ Before any remote mutation was attempted, cancelling an open
+/// enrollment operation is allowed by the rule and the driver now does it (phase 1
+/// refused it `driver_unavailable`): the operation settles `cancelled`, reporting no
+/// external effect.
+#[tokio::test]
+async fn enrollment_cancel_before_attempt_cancels() {
+    let w = World::new().await;
+    let op = seed_verify_operation(&w, 61, VerifyMode::Presence, 1);
+    let cancel = CancelRequest {
+        operation_id: op.clone(),
+    };
+    let _ = w.ops.cancel(&unattended(), cancel).await;
+    let after = w.tx(|tx| tx.operation(&op)).unwrap();
+    assert_eq!(after.state, OperationState::Cancelled);
+    assert_eq!(after.effect_status, EffectStatus::None);
+    assert_eq!(
+        after.cancellation.map(|c| c.may_have_external_effect),
+        Some(false)
+    );
+}
+
 #[tokio::test]
 async fn enrollment_cancel_refused_writes_nothing() {
     let w = World::new().await;
     let op = seed_verify_operation(&w, 60, VerifyMode::Presence, 1);
-    let before = w.tx(|tx| tx.operation(&op)).unwrap();
-    let receipts = w.tx(|tx| tx.stage_receipts(&op)).len();
     let cancel = CancelRequest {
         operation_id: op.clone(),
     };
-    let e = err(w.ops.cancel(&unattended(), cancel.clone()).await);
-    assert_eq!(e.code, Code::CapabilityUnavailable);
-    assert_eq!(e.reason.as_deref(), Some("driver_unavailable"));
-    assert_eq!(w.tx(|tx| tx.operation(&op)).unwrap(), before, "unchanged");
-    assert_eq!(w.tx(|tx| tx.stage_receipts(&op)).len(), receipts);
     // Once a remote mutation's `Attempted` receipt exists: remote_step_in_progress.
     w.tx(|tx| {
         tx.append_stage_receipt(

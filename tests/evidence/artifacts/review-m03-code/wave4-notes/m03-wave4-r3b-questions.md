@@ -1,0 +1,11 @@
+# M03 wave 4, round 3b (W4-N01 + §17.23): questions
+
+## X-M
+## X-B
+| ID | Question | Options | Evidence | Taken now (switch) |
+|---|---|---|---|---|
+| R3BB-Q1 | §17.23 item 3 says a mismatched report refuses with no decision created. The runtime cannot tell a report from a first registration that carries a locator, so must **every** locator-carrying `issuer.register` of an **unregistered** CA that repeats no live pending registration be refused (never create one)? Under D4 item 1 the put (step 6) follows `register` (step 3), so no ceremony sends a locator first; only a registered CA's log-intact restore does, which is unchanged. | (a) refuse, never create (`CONFIG_CONFLICT` if a registration of that CA is pending with other facts, `DECISION_STALE` if none is); (b) create a new decision when none of that CA is pending (only a mismatch against a pending one refuses) | `crates/app/src/operations/issuer_m03.rs` `issuer_register` (block after the join: `if ask.store_locator.is_some() && tx.issuer(&ask.fingerprint)?.is_none()`); `crates/issuer/src/ceremony.rs` `report_store_item`, `restore` (~994) | (a), the stricter reading (no authority widened; it only removes a one-shot form no caller uses). Switch: that block; (b) is narrowing it to `pending_for_ca`. Ratification asked, not blocking |
+## W
+| ID | Question | Options | Evidence | Taken now (switch) |
+|---|---|---|---|---|
+| R3BW-Q1 | The in-box Win32 client (`OpenSSH_for_Windows_9.5p2`) has no trace row in `crates/enroll/src/trace.rs` `RECORDED`, so every Windows verification is inconclusive and 15 ported/new Windows tests cannot pass. Who records the row, and from which run? | (a) the orchestrator records it in `trace.rs` from the native run's `windows_client_trace_row_observation` lines (observed output only); (b) leave the Windows verification flows failing until a separate unit | `crates/enroll/src/trace.rs` module docs ("The Windows clients are not recorded until their native runs"); `World::require_recorded_client`; `enroll_m03/windows.rs` `windows_client_trace_row_observation` | Tests fail with `client_trace_family_unrecorded …` (never pass/skip); the observation test prints the lines. Not mine to record (`trace.rs` not in my region) |

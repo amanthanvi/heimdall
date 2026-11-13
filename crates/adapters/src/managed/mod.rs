@@ -22,7 +22,10 @@
 //!   * `reconcile`: `NotApplied` when nothing is published, `Applied` when every pair
 //!     is published and installed (with the outcome U10 recorded), else `Unknown`.
 //!   * `revoke(grant, now)` (D7 item 2): K_env of the grant and of its cascade is
-//!     destroyed (zeroized and unlisted, in memory, under the gates the caller holds);
+//!     destroyed (zeroized and unlisted, in memory), ⟨§17.21 item 1⟩ every binding the
+//!     effects materialized for it loses its endpoint and files
+//!     ([`effects::ManagedEffectsImpl::clear_bindings_of`]), then ⟨wave 4⟩ the runtime's
+//!     [`EndCleanup`] removes the slot files and closes the owned connections;
 //!     the residual is the maximum `valid_before` over `reserved`|`published` entries
 //!     (voided excluded), and `remote_effects` has one row per (destination,
 //!     account) with its clock and D7 item 3 status. Files are not removed here (D7
@@ -117,6 +120,23 @@ pub fn baseline_enforcement() -> Enforcement {
     }
 }
 
+/// ⟨M03 wave 4, ADR-0008 §17.23 item 1 (R3A-Q2)⟩ What the mechanism's descriptor
+/// advertises it **can** deliver: the [`baseline_enforcement`] with
+/// `destination_scope: verified_server_principals`, which a managed grant achieves for
+/// a pair whose enrollment evidence holds (§17.22 item 7). Resolution compares a
+/// caller's `destination_scope_at_least` with this; each pair's evidence comparison in
+/// `prepare_from` then decides whether the request gets it (invalid or absent evidence
+/// reports `unknown`, and a minimum that needs the scope is refused there,
+/// `minimum_not_met`). Only the managed descriptor advertises it; no M01/M02 adapter's
+/// descriptor changes.
+#[must_use]
+pub fn advertised_enforcement() -> Enforcement {
+    Enforcement {
+        destination_scope: DestinationScopeEnforcement::VerifiedServerPrincipals,
+        ..baseline_enforcement()
+    }
+}
+
 /// What [`ManagedCertificateAdapter::reissue_from`] needs beside the request: the
 /// grant as the store holds it and the time assessment, read in one store
 /// transaction by the supervisor's `managed_reissue_pass` (U10).
@@ -136,6 +156,27 @@ pub struct ReissueInput<'a> {
     pub read: &'a StoreRead,
 }
 
+/// ⟨M03⟩ wave 4 (U10-C): the cleanup after a managed grant ended, outside every gate
+/// (ADR-0008 D7 item 2 step 4, item 7, item 8; U0b row 20 (10)): the slot and binding
+/// files removed by generation and the owned connections closed as the grant's end
+/// requires (revocation: masters and dedicated connections; release and expiry:
+/// masters, dedicated ones by the policy). The runtime implements it over the store,
+/// the effects and the connection supervisor
+/// (`heimdall_runtime::managed_store::StoreCleanup`); without one nothing beyond the
+/// key destruction is done here (the supervisor's passes still close connections).
+pub trait EndCleanup: Send + Sync {
+    /// Clean up after the end of every grant in `grants` (the grant and its cascade).
+    ///
+    /// # Errors
+    /// [`AdapterError`] when any part could not be done, a discovery failure (W3-R11)
+    /// included: the caller keeps its cleanup intent (the revocation round stays
+    /// unconfirmed) and retries (D7 item 2).
+    fn after_end<'a>(
+        &'a self,
+        grants: &'a [GrantId],
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AdapterError>> + Send + 'a>>;
+}
+
 /// The managed credential adapter (module docs).
 pub struct ManagedCertificateAdapter {
     descriptor: AdapterDescriptor,
@@ -143,6 +184,7 @@ pub struct ManagedCertificateAdapter {
     effects: Option<ManagedEffectsImpl>,
     layout: Option<EndpointLayout>,
     platform: Platform,
+    cleanup: Option<Arc<dyn EndCleanup>>,
 }
 
 impl std::fmt::Debug for ManagedCertificateAdapter {
@@ -189,7 +231,7 @@ impl ManagedCertificateAdapter {
             external_side_effects: true,
             interaction: InteractionRequirement::None,
             enforcement: EnforcementEvidence {
-                report: baseline_enforcement(),
+                report: advertised_enforcement(),
                 evidence: Vec::new(),
             },
             lock_continuity: lock_continuity_from(&claims, &platform),
@@ -201,7 +243,16 @@ impl ManagedCertificateAdapter {
             effects,
             layout,
             platform,
+            cleanup: None,
         }
+    }
+
+    /// With the cleanup [`CredentialAdapter::revoke`] runs after the key destruction
+    /// (the runtime's; module docs of [`EndCleanup`]).
+    #[must_use]
+    pub fn with_cleanup(mut self, cleanup: Arc<dyn EndCleanup>) -> Self {
+        self.cleanup = Some(cleanup);
+        self
     }
 
     /// The effects this adapter destroys keys through.
@@ -435,6 +486,16 @@ impl CredentialAdapter for ManagedCertificateAdapter {
         }
         if let Some(effects) = &self.effects {
             effects.destroy(&grants).await?;
+            // ⟨§17.21 item 1⟩ Every binding this process materialized for the
+            // cascade, committed or not: its endpoint and files go (a failure leaves
+            // the round unconfirmed, so it is retried).
+            effects.clear_bindings_of(&grants)?;
+        }
+        // ⟨wave 4⟩ D7 item 2 step 4: the files and the owned connections, after the
+        // gates (the revocation round runs after the narrowing released them). A
+        // failure leaves the round unconfirmed, so its intent is kept and retried.
+        if let Some(cleanup) = &self.cleanup {
+            cleanup.after_end(&grants).await?;
         }
         Ok(self.residual(&grants, now))
     }

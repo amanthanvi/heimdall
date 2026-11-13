@@ -317,6 +317,10 @@ pub mod reason {
     pub const ISSUER_STORE_LOCKED: &str = "issuer_store_locked";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The issuer's platform store is unavailable.
     pub const ISSUER_STORE_UNAVAILABLE: &str = "issuer_store_unavailable";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A CA's retirement stops at `unloaded`: this
+    /// installation recorded no store locator for its key item, so nothing is deleted
+    /// (ADR-0008 §17.21 item 3, §17.17 item 3).
+    pub const ISSUER_STORE_LOCATOR_UNRECORDED: &str = "issuer_store_locator_unrecorded";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair has no `verified` enrollment.
     pub const PAIR_NOT_ENROLLED: &str = "pair_not_enrolled";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair is not in the catalog.
@@ -381,6 +385,9 @@ pub mod reason {
     pub const EXISTING_ACCESS_CHANGED: &str = "existing_access_changed";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The bundle's host and port differ from the alias's evaluated ones.
     pub const BUNDLE_HOST_MISMATCH: &str = "bundle_host_mismatch";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A held foreign removal names another descriptor
+    /// than the request's (ADR-0008 §17.22 item 1).
+    pub const DESCRIPTOR_MISMATCH: &str = "descriptor_mismatch";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The registry directory's parent is absent.
     pub const REGISTRY_PARENT_ABSENT: &str = "registry_parent_absent";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The target cannot report a process start identity.
@@ -443,6 +450,7 @@ pub mod reason {
         (ISSUER_UNAVAILABLE, Code::CapabilityUnavailable),
         (ISSUER_STORE_LOCKED, Code::CapabilityUnavailable),
         (ISSUER_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
+        (ISSUER_STORE_LOCATOR_UNRECORDED, Code::CapabilityUnavailable),
         (PAIR_NOT_ENROLLED, Code::CapabilityUnavailable),
         (PAIR_NOT_ADOPTED, Code::CapabilityUnavailable),
         (ENROLLMENT_UNVERIFIED, Code::CapabilityUnavailable),
@@ -484,6 +492,7 @@ pub mod reason {
         ),
         (EXISTING_ACCESS_CHANGED, Code::CapabilityUnavailable),
         (BUNDLE_HOST_MISMATCH, Code::CapabilityUnavailable),
+        (DESCRIPTOR_MISMATCH, Code::CapabilityUnavailable),
         (REGISTRY_PARENT_ABSENT, Code::CapabilityUnavailable),
         (START_IDENTITY_UNAVAILABLE, Code::CapabilityUnavailable),
         (NO_PROCESS_GROUP, Code::CapabilityUnavailable),

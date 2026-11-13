@@ -16,7 +16,9 @@
 //!   destination holds is `CONFIG_CONFLICT`, reason `alias_collision`; a managed
 //!   destination names an adopted identity;
 //! * `RemoveDestination` changes no file: the projection is stale until the next
-//!   `setup apply`, whose plan shows the removal (ADR-0007 §5.5);
+//!   `setup apply`, whose plan shows the removal (ADR-0007 §5.5); ⟨M03⟩ its pair
+//!   preferences return to `projection: pending` in the same transaction (ADR-0008
+//!   §17.22 item 16, R2F-Q3);
 //! * `AdoptIdentity` parses the OpenSSH one-line **public** key and records its
 //!   `SHA256:` fingerprint; its interaction profile is ADR-0007 §7's default, never
 //!   the request's. Adopting a key already adopted updates that identity (its
@@ -730,7 +732,18 @@ fn apply_action(
             Step::Done(serde_json::json!({ "destination": json(&record)? }))
         }
         CatalogAction::RemoveDestination { id } => {
+            // ⟨§17.22 item 16 (R2F-Q3)⟩ The destination's pair preferences return to
+            // `pending` in this transaction (read before the row goes).
+            let preferences = preferences_of_destination(tx, id)?;
             let removed = tx.remove_destination(id)?;
+            if removed {
+                for mut p in preferences {
+                    if p.projection != ProjectionStatus::Pending {
+                        p.projection = ProjectionStatus::Pending;
+                        tx.set_pair_preference(&p, now)?;
+                    }
+                }
+            }
             Step::Done(serde_json::json!({ "destination_id": id, "removed": removed }))
         }
         CatalogAction::AdoptIdentity { identity } => {
@@ -880,6 +893,44 @@ fn apply_action(
 }
 
 // --- ⟨M03⟩ U0b row 22: pair preferences (m03-plan §5 item 4b; ADR-0008 D5 §6.6) -------
+
+/// ⟨ADR-0008 §17.22 item 16 (R2F-Q3)⟩ Every stored pair preference of destination `id`.
+/// A preference is created only for a pair with an enrollment (`SetPreference`,
+/// `add_issuing_ca`), and enrollment records are never deleted, so the pair's accounts
+/// are those of its enrollments (under every CA, in every state) and its managed
+/// definition's account. A `RemoveDestination` returns each to `projection: pending` in
+/// its own transaction (the preference and its issuing CAs are kept: the mechanism the
+/// owner chose survives, and P renders nothing for the removed alias, so nothing is
+/// applied for it until a later apply renders it again). Pending, a removed pair never
+/// resolves to `managed_certificate`.
+fn preferences_of_destination(
+    tx: &mut Txn<'_>,
+    id: &DestinationId,
+) -> heimdall_store::Result<Vec<PairPreference>> {
+    let mut accounts: BTreeSet<AccountName> = BTreeSet::new();
+    if let Some(d) = tx.destination(id)?
+        && let DestinationDefinition::Managed { account, .. } = d.definition
+    {
+        accounts.insert(account);
+    }
+    for issuer in tx.issuers()? {
+        for e in tx.enrollments_for_ca(&issuer.ca_fingerprint)? {
+            if &e.destination == id {
+                accounts.insert(e.account);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for account in accounts {
+        if let Some(p) = tx.pair_preference(&AccessPair {
+            destination: id.clone(),
+            account,
+        })? {
+            out.push(p);
+        }
+    }
+    Ok(out)
+}
 
 fn pair_not_enrolled(pair: &AccessPair) -> OpError {
     OpError::new(

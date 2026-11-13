@@ -1,0 +1,6 @@
+{
+  "op": "issuer",
+  "action": "retire",
+  "ca_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "deleted_locator": "/org/freedesktop/secrets/collection/login/fixture2"
+}

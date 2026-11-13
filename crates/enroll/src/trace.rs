@@ -25,10 +25,18 @@
 //!   lines (both attempts against a changed host key, exit 255). Its
 //!   [`TracePatterns::host_key_failure`] set holds only that changed-key path's lines;
 //!   the unknown-host lines (`No … host key is known for`) were not observed on 9.6p1
-//!   and are not in it.
+//!   and are not in it;
+//! * win32 `9.5p2` (the Windows PC's in-box `OpenSSH_for_Windows_9.5p2, LibreSSL
+//!   3.8.2`), observed in two native runs of `e2e_enroll_m03` against the harness's WSL
+//!   fixture `sshd` (`OpenSSH_9.6p1 Ubuntu-3ubuntu13.20`): at `4866642d`,
+//!   `windows_client_trace_row_observation`'s lines (positive accepted, negative
+//!   refused, host key matched); at `a533fc40`, the changed-host-key and unknown-host
+//!   observations' `field=host_key_failure` and `field=host_key_unknown` lines (both
+//!   exit 255). Its [`TracePatterns::host_key_failure`] set holds only those lines'
+//!   strings, so of the unknown-host lines only the ED25519 one.
 //!
-//! The Windows clients are **not recorded** until their native runs (the orchestrator's
-//! rows); they are inconclusive until then, never assumed.
+//! Every other Windows client is **not recorded**; it is inconclusive until a native
+//! run records it, never assumed.
 //!
 //! [`parse`] extracts the events with one family's patterns. It is bounded by the
 //! caller (`verification_trace_max`, 64 KiB) and reads nothing else.
@@ -248,6 +256,59 @@ pub const RECORDED: &[TracePatterns] = &[
             " has changed and you have requested strict checking.",
         ],
     },
+    // Observed on the Windows PC in two native runs of `e2e_enroll_m03` (the redacted
+    // bundles' `m03 observation: client_trace_row family=win32 version=9.5p2` lines):
+    // the in-box `OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2` against the harness's WSL
+    // fixture sshd `OpenSSH_9.6p1 Ubuntu-3ubuntu13.20`. Each string below is a prefix,
+    // suffix or substring of one observed line; nothing is inferred.
+    //
+    // First run, at `4866642d` (`windows::windows_client_trace_row_observation`, all
+    // fields but host_key_failure; parsed with the 10.5p1 row, enrollment Verified):
+    // * "debug1: Remote protocol version 2.0, remote software version OpenSSH_9.6p1
+    //   Ubuntu-3ubuntu13.20" (both attempts);
+    // * "debug1: Host 'hm-verify-…' is known and matches the ED25519 host key." (both);
+    // * "debug1: Offering public key: <scratch>/…/positive-cert.pub ED25519-CERT
+    //   SHA256:… explicit" (the negative offered its certificate and `k_verify.pub
+    //   ED25519 SHA256:… explicit agent`);
+    // * "debug1: Server accepts key: <scratch>/…/positive-cert.pub ED25519-CERT SHA256:…
+    //   explicit" (positive only);
+    // * "debug1: Authentications that can continue: publickey" (positive once, negative
+    //   three times);
+    // * "<user>@127.0.0.1: Permission denied (publickey)." (negative's last line).
+    //
+    // Second run, at `a533fc40` (2026-11-13):
+    // * `windows::windows_client_trace_row_host_key_changed_observation`, both attempts
+    //   against a changed host key through the real verifier (HOST_TRUST_CHANGED
+    //   `enrollment_host_key_mismatch`, held), each printing
+    //   "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @",
+    //   "Host key for hm-verify-… has changed and you have requested strict checking."
+    //   and "Host key verification failed." (each attempt's last line);
+    // * `windows::windows_client_trace_row_host_key_unknown_observation`, the client run
+    //   directly with empty known-hosts files (exit 255): "No ED25519 host key is known
+    //   for hm-verify-… and you have requested strict checking." and "Host key
+    //   verification failed.". The ECDSA and RSA forms the 10.5p1 row carries were not
+    //   observed and are not recorded.
+    TracePatterns {
+        family: ClientFamily::Win32,
+        from: v(ClientFamily::Win32, 9, 5, 2),
+        to: v(ClientFamily::Win32, 9, 5, 2),
+        evidence: "e2e_enroll_m03 on the Windows PC (in-box OpenSSH_for_Windows_9.5p2 client \
+                   against the harness's WSL sshd OpenSSH_9.6p1 Ubuntu-3ubuntu13.20), M03 \
+                   wave 4: windows_client_trace_row_observation at 4866642d; the changed- \
+                   and unknown-host-key observations at a533fc40",
+        server_version: "debug1: Remote protocol version 2.0, remote software version ",
+        host_key_matched: ("debug1: Host ", " is known and matches the "),
+        offered: "debug1: Offering public key: ",
+        accepted: "debug1: Server accepts key: ",
+        can_continue: "debug1: Authentications that can continue: ",
+        publickey_failure: ": Permission denied (publickey).",
+        host_key_failure: &[
+            "Host key verification failed.",
+            "REMOTE HOST IDENTIFICATION HAS CHANGED",
+            " has changed and you have requested strict checking.",
+            "No ED25519 host key is known for",
+        ],
+    },
 ];
 
 /// The patterns for `family` at `version`: the recorded row whose range holds it.
@@ -374,6 +435,9 @@ mod tests {
         assert_eq!(p.family, ClientFamily::Portable);
         let d = patterns_for(ClientFamily::Portable, v(ClientFamily::Portable, 9, 6, 1)).unwrap();
         assert_eq!(d.from, v(ClientFamily::Portable, 9, 6, 1));
+        let w = patterns_for(ClientFamily::Win32, v(ClientFamily::Win32, 9, 5, 2)).unwrap();
+        assert_eq!(w.family, ClientFamily::Win32);
+        assert_eq!((w.from, w.to), (v(ClientFamily::Win32, 9, 5, 2), w.from));
         // A recorded row recognizes a host-key failure (else that failure would be
         // transport-inconclusive on its client).
         for row in RECORDED {
@@ -385,7 +449,8 @@ mod tests {
             v(ClientFamily::Portable, 10, 3, 1),
             v(ClientFamily::Portable, 10, 6, 1),
             v(ClientFamily::Win32, 10, 5, 1),
-            v(ClientFamily::Win32, 9, 5, 2),
+            v(ClientFamily::Win32, 9, 5, 1),
+            v(ClientFamily::Win32, 9, 8, 1),
         ] {
             let e = patterns_for(unrecorded.family, unrecorded).unwrap_err();
             assert_eq!(e.version, unrecorded);
@@ -393,6 +458,7 @@ mod tests {
         }
         // A family that does not match the version is never borrowed from another row.
         assert!(patterns_for(ClientFamily::Win32, v(ClientFamily::Portable, 10, 5, 1)).is_err());
+        assert!(patterns_for(ClientFamily::Portable, v(ClientFamily::Win32, 9, 5, 2)).is_err());
     }
 
     /// The 9.6p1 row's host-key-failure strings each come from a line the devbox's
@@ -436,5 +502,124 @@ Host key verification failed.
         let parsed = parse(p, OBSERVED, &ctx);
         assert!(parsed.host_key_failure);
         assert_eq!(parsed.events, TraceEvents::default());
+    }
+
+    fn win32_9_5p2() -> &'static TracePatterns {
+        patterns_for(ClientFamily::Win32, v(ClientFamily::Win32, 9, 5, 2)).unwrap()
+    }
+
+    /// The Win32 9.5p2 row against the lines `windows_client_trace_row_observation`
+    /// printed at `4866642d`, as printed (redacted: `<scratch>`, `<user>`, `<fp>`): the
+    /// positive attempt is accepted, and the negative is refused after offering its
+    /// certificate, with the host key matched and the server's version read in both.
+    #[test]
+    fn windows_9_5p2_observed_attempts_parse_as_accepted_and_refused() {
+        const POSITIVE: &str = "\
+debug1: Remote protocol version 2.0, remote software version OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
+debug1: Host 'hm-verify-af363490c8d7c6f4' is known and matches the ED25519 host key.
+debug1: Authentications that can continue: publickey
+debug1: Offering public key: <scratch>/rt2/v/af363490c8d7c6f4/positive-cert.pub ED25519-CERT SHA256:<fp> explicit
+debug1: Server accepts key: <scratch>/rt2/v/af363490c8d7c6f4/positive-cert.pub ED25519-CERT SHA256:<fp> explicit
+Authenticated to 127.0.0.1 ([127.0.0.1]:29648) using \"publickey\".
+";
+        const NEGATIVE: &str = "\
+debug1: Remote protocol version 2.0, remote software version OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
+debug1: Host 'hm-verify-af363490c8d7c6f4' is known and matches the ED25519 host key.
+debug1: Authentications that can continue: publickey
+debug1: Offering public key: <scratch>/rt2/v/af363490c8d7c6f4/negative-cert.pub ED25519-CERT SHA256:<fp> explicit
+debug1: Authentications that can continue: publickey
+debug1: Offering public key: <scratch>/rt2/v/af363490c8d7c6f4/k_verify.pub ED25519 SHA256:<fp> explicit agent
+debug1: Authentications that can continue: publickey
+<user>@127.0.0.1: Permission denied (publickey).
+";
+        let p = win32_9_5p2();
+        let ctx = TraceContext {
+            host_key_alias: "hm-verify-af363490c8d7c6f4",
+            cert_type: "ED25519-CERT",
+            key_fingerprint: "SHA256:<fp>",
+        };
+        let server = Some("OpenSSH_9.6p1 Ubuntu-3ubuntu13.20".to_owned());
+        let positive = parse(p, POSITIVE, &ctx);
+        assert_eq!(
+            positive.events,
+            TraceEvents {
+                server_version: server.clone(),
+                host_key_matched: true,
+                offered_certificate: true,
+                accepted: true,
+                ..TraceEvents::default()
+            }
+        );
+        assert!(!positive.host_key_failure);
+        let negative = parse(p, NEGATIVE, &ctx);
+        assert_eq!(
+            negative.events,
+            TraceEvents {
+                server_version: server,
+                host_key_matched: true,
+                offered_certificate: true,
+                not_accepted: true,
+                publickey_failure_final: true,
+                ..TraceEvents::default()
+            }
+        );
+        assert!(!negative.host_key_failure);
+    }
+
+    /// Every host-key-failure string of the Win32 9.5p2 row comes from a line one of the
+    /// `a533fc40` observations printed (redacted as printed: `<scratch>`, `<fp>`; the
+    /// truncated `Add correct host key in …` line is as printed), and both traces parse
+    /// as a host-key failure with no other event. The changed-key trace is one attempt's
+    /// (both attempts printed the same lines); the unknown-host trace is the direct run's.
+    #[test]
+    fn windows_9_5p2_changed_and_unknown_host_key_traces_are_host_key_failures() {
+        const CHANGED: &str = "\
+OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: Server host key: ssh-ed25519 SHA256:<fp>
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+It is also possible that a host key has just been changed.
+The fingerprint for the ED25519 key sent by the remote host is
+SHA256:<fp>.
+Please contact your system administrator.
+Add correct host key in <scratch>/rt2/v/db to get rid of this message.
+Offending ED25519 key in <scratch>/rt2/v/db8fc30540db2d45/known_hosts:1
+Host key for hm-verify-db8fc30540db2d45 has changed and you have requested strict checking.
+Host key verification failed.
+";
+        const UNKNOWN: &str = "\
+OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: Server host key: ssh-ed25519 SHA256:<fp>
+No ED25519 host key is known for hm-verify-0000000000000000 and you have requested strict checking.
+Host key verification failed.
+";
+        let p = win32_9_5p2();
+        for s in p.host_key_failure {
+            assert!(
+                CHANGED
+                    .lines()
+                    .chain(UNKNOWN.lines())
+                    .any(|l| l.contains(s)),
+                "{s:?} was not observed"
+            );
+        }
+        for (alias, trace) in [
+            ("hm-verify-db8fc30540db2d45", CHANGED),
+            ("hm-verify-0000000000000000", UNKNOWN),
+        ] {
+            let ctx = TraceContext {
+                host_key_alias: alias,
+                cert_type: "ED25519-CERT",
+                key_fingerprint: "SHA256:<fp>",
+            };
+            let parsed = parse(p, trace, &ctx);
+            assert!(parsed.host_key_failure, "{alias}");
+            assert_eq!(parsed.events, TraceEvents::default(), "{alias}");
+        }
     }
 }

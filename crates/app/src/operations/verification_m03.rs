@@ -9,15 +9,16 @@
 //!
 //! **The operation facts** the predicate needs come from the store, never from the
 //! request:
-//! * *kind and authorization*: an `enrollment.verify` whose stored request names
-//!   this enrollment in mode `presence` or `absence` is authorized (it needs no
-//!   decision). A target-change verify needs `ApproveTargetChange` and an
-//!   `enrollment.apply` needs its `EnrollAccount` approval basis; neither decision
-//!   completes in wave 0 (U0b row 14), so both are unauthorized here and refused
-//!   `operation_not_verifying` (fail closed; U10 records the basis);
-//! * *the verification stage*: the operation is `running`, the enrollment is
-//!   `verifying` or `reverifying`, and an attempt has started (an
-//!   `enroll.verify.started` receipt);
+//! * *kind, authorization and stage* (⟨wave 4⟩ ADR-0008 §17.21 item 5): each
+//!   verification has its own predicate, `enrollment_m03::verification_authority`:
+//!   wave 0's presence check (an `enrollment.verify` whose stored request names this
+//!   enrollment in mode `presence`; no decision), the system form's absence check
+//!   (mode `absence`, the system-form record `removal_verifying`), an
+//!   `enrollment.apply`'s initial verification (its approved `EnrollAccount`, the
+//!   record `verifying` after a confirmed append) and a target change's (its approved
+//!   `ApproveTargetChange` with the proposed target, the record `reverifying` from
+//!   `held`). No other open operation may drive the record, and an attempt must have
+//!   started (an `enroll.verify.started` receipt);
 //! * *the plan's pair and CA*: the enrollment record's;
 //! * *attempts*: the operation's `enroll.verify.started` receipts; *entries in the
 //!   attempt*: its entries reserved at or after the last of them.
@@ -27,12 +28,10 @@
 
 use std::collections::BTreeSet;
 
-use heimdall_contract::enrollment::{EnrollmentRequest, EnrollmentState, VerifyMode};
 use heimdall_contract::ids::{CaFingerprint, EnrollmentId, IssuanceId, OperationId};
-use heimdall_contract::request::Request;
-use heimdall_contract::{Code, OperationState, Timestamp};
+use heimdall_contract::{Code, Timestamp};
 use heimdall_domain::issuance::{CertificateBounds, IssuanceState};
-use heimdall_domain::operation::{OperationKind, enrollment_stage};
+use heimdall_domain::operation::enrollment_stage;
 use heimdall_domain::scope::AccessPair;
 use heimdall_domain::time::TimeStatus;
 use heimdall_domain::verification::{
@@ -99,25 +98,12 @@ fn operation_facts(
     let Some(record) = tx.enrollment(enrollment)? else {
         return Ok(Err(VerificationRefusal::OperationNotVerifying));
     };
-    let stored = tx
-        .recovery_intent(operation)?
-        .and_then(|i| serde_json::from_value::<Request>(i.request).ok());
-    let authorized = match (op.kind, stored) {
-        (
-            OperationKind::EnrollmentVerify,
-            Some(Request::Enrollment(EnrollmentRequest::Verify {
-                enrollment_id,
-                mode,
-                ..
-            })),
-        ) => {
-            enrollment_id == *enrollment
-                && matches!(mode, VerifyMode::Presence | VerifyMode::Absence)
-        }
-        // `enrollment.apply` (its `EnrollAccount` basis) and a target change (its
-        // `ApproveTargetChange`) are U10's: unauthorized in wave 0.
-        _ => false,
-    };
+    // ⟨M03⟩ wave 4 (§17.21 item 5): each verification has its own predicate, from
+    // the store (`enrollment_m03::verification_authority`): wave 0's presence check
+    // by the stored request, the system form's absence check, an `enrollment.apply`'s
+    // initial verification and a target change's. The authority must name this
+    // enrollment, and the operation must be at that verification's own stage.
+    let authority = super::enrollment_m03::verification_authority(tx, &op)?;
     let receipts = tx.stage_receipts(operation)?;
     let starts: Vec<Timestamp> = receipts
         .iter()
@@ -125,12 +111,10 @@ fn operation_facts(
         .map(|r| r.recorded_at)
         .collect();
     let attempts = u32::try_from(starts.len()).unwrap_or(u32::MAX);
-    let at_verification_stage = op.state == OperationState::Running
-        && matches!(
-            record.state,
-            EnrollmentState::Verifying | EnrollmentState::Reverifying
-        )
-        && attempts > 0;
+    let (authorized, at_verification_stage) = match &authority {
+        Some(a) if a.enrollment == *enrollment => (a.authorized, a.at_stage && attempts > 0),
+        _ => (false, false),
+    };
     let entries_in_attempt = match starts.iter().max() {
         Some(last) => {
             let n = tx
@@ -189,12 +173,10 @@ fn run_check(
 }
 
 /// ⟨M03⟩ U3 (ADR-0008 D3 item 4 step 2): the verification predicate over the stored
-/// `entry`, read-only, for the issuer child: the same [`operation_facts`] and
-/// [`run_check`] as [`Operations::publish_verification`]. The enrollment is the one
-/// the operation's stored request names; an operation whose stored request names
-/// none (anything but an `enrollment.verify`, which is also the only kind
-/// `operation_facts` authorizes in this wave) is refused `operation_not_verifying`.
-/// Reads only.
+/// `entry`, read-only, for the issuer child and the signing admission: the same
+/// [`operation_facts`] and [`run_check`] as [`Operations::publish_verification`]. The
+/// enrollment is the one the operation's own verification authority names (§17.21
+/// item 5); an operation with none is refused `operation_not_verifying`. Reads only.
 pub(crate) fn verification_check_read_only(
     tx: &mut Txn<'_>,
     entry: &VerificationEntry,
@@ -203,15 +185,13 @@ pub(crate) fn verification_check_read_only(
     now: Timestamp,
     max_validity: std::time::Duration,
 ) -> heimdall_store::Result<Result<(), VerificationRefusal>> {
-    let enrollment = tx
-        .recovery_intent(&entry.operation)?
-        .and_then(|i| serde_json::from_value::<Request>(i.request).ok())
-        .and_then(|r| match r {
-            Request::Enrollment(EnrollmentRequest::Verify { enrollment_id, .. }) => {
-                Some(enrollment_id)
-            }
-            _ => None,
-        });
+    // The enrollment the operation's own verification authority names (§17.21
+    // item 5): its stored `enrollment.verify` request, or an `enrollment.apply`'s
+    // journal.
+    let enrollment = match tx.operation(&entry.operation)? {
+        Some(op) => super::enrollment_m03::verification_authority(tx, &op)?.map(|a| a.enrollment),
+        None => None,
+    };
     let Some(enrollment) = enrollment else {
         return Ok(Err(VerificationRefusal::OperationNotVerifying));
     };

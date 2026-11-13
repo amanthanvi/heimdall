@@ -15,12 +15,16 @@
 
 pub mod catalog;
 pub mod context;
+// ⟨M03⟩ wave 4 (U10): the enrollment stage driver's public surface (ADR-0008 D5).
+pub mod enrollment;
 pub mod ensure;
 pub mod error;
 pub mod events;
 // ⟨M02⟩ U8: launch-binding holder release (`Operations::release_exited_holders`).
 pub mod holders;
 pub mod ids;
+// ⟨M03⟩ wave 4 (U10): the issuer request handling and lifecycle port (ADR-0008 D3, D4).
+pub mod issuer;
 // ⟨M03⟩ U3: the read-only issuance check (body U3's; fail closed in wave 0).
 pub mod issuance_ro;
 // ⟨M03⟩ U9: the effective lock behaviour (ADR-0008 D9; §17.15 item 12).

@@ -1588,6 +1588,19 @@ impl Txn<'_> {
         )
     }
 
+    /// ⟨M03 wave 4, ADR-0008 §17.21 item 7⟩ Every credential instance of `grant`, in
+    /// any state, ordered by ID. No migration: `credential_instances.grant_id` is a
+    /// column of the 0006 table.
+    pub fn credential_instances_for_grant(
+        &mut self,
+        grant: &GrantId,
+    ) -> Result<Vec<CredentialInstance>> {
+        self.docs(
+            "SELECT record_json FROM credential_instances WHERE grant_id = ?1 ORDER BY id",
+            [grant.as_str()],
+        )
+    }
+
     /// Update a credential instance's state and certificate list.
     ///
     /// Only `state` and `certificates` are taken from `instance`; the grant and key

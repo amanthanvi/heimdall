@@ -47,6 +47,11 @@ const META_LOCK_DISCLOSURE_ACK: &str = "lock_disclosure_acknowledged_at";
 /// `meta`: the session-lock epoch the revocation pass last acknowledged (ADR-0008 D9;
 /// §17.1 item 9). Never lowers.
 const META_LOCK_ACK_EPOCH: &str = "session_lock_acknowledged_epoch";
+/// `meta` (⟨wave 4, round 5, W4-C01⟩; no schema, as `cleanup_intent:`): one row per
+/// released managed binding whose endpoint and files are not yet recorded removed
+/// (`Txn::record_released_binding_cleanup`). Key `<prefix><binding>`, value the
+/// binding ID.
+const META_RELEASED_BINDING_CLEANUP_PREFIX: &str = "managed_released_binding_cleanup:";
 
 /// A registered CA, one `issuers` row (ADR-0008 D4; m03-plan §5 item 18). Public
 /// metadata only: the CA's **public** key, digests and dates.
@@ -74,6 +79,43 @@ pub struct IssuerRecord {
     pub retired_at: Option<Timestamp>,
 }
 
+/// ⟨ADR-0008 §17.21 item 3⟩ The longest store locator recorded.
+const MAX_STORE_LOCATOR_BYTES: usize = 4096;
+
+/// ⟨ADR-0008 §17.21 item 3⟩ An `issuers.record_json` document: the [`IssuerRecord`]
+/// and the additive `store_locator` ([`Txn::issuer_store_locator`]). The locator is
+/// deliberately not a field of `IssuerRecord`, so the record's shape (and every
+/// caller building one) is unchanged; a document without the key (written before
+/// it) reads as no recorded locator.
+///
+/// ⟨ADR-0008 §17.22 item 12⟩ And the additive `displaced_store_locators`: the items a
+/// restore's compare-and-swap displaced ([`Txn::replace_issuer_store_locator`]), each
+/// kept until the owner-present CLI confirms its deletion
+/// ([`Txn::resolve_displaced_store_locator`]).
+#[derive(Serialize, Deserialize)]
+struct IssuerDoc {
+    #[serde(flatten)]
+    record: IssuerRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    store_locator: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    displaced_store_locators: Vec<String>,
+}
+
+/// ⟨ADR-0008 §17.21 item 3⟩ A recordable store locator: 1 to 4096 bytes, no control
+/// characters.
+fn check_store_locator(locator: &str) -> Result<()> {
+    if locator.is_empty()
+        || locator.len() > MAX_STORE_LOCATOR_BYTES
+        || locator.chars().any(char::is_control)
+    {
+        return Err(codec::doc_error(
+            "a store locator is 1 to 4096 bytes without control characters",
+        ));
+    }
+    Ok(())
+}
+
 /// One `managed_slots` row (ADR-0008 D10 item 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedSlot {
@@ -97,6 +139,58 @@ pub struct LostInstances {
     pub lost: Vec<CredentialInstance>,
     /// `pending` instances, now `destroyed`.
     pub destroyed: Vec<CredentialInstance>,
+}
+
+/// ⟨ADR-0008 §17.23 item 3⟩ Whether two `RegisterIssuer` kinds name exactly the
+/// same registration: every recorded fact equal (fingerprint, public key, store kind,
+/// backup digest and time, rotation, key-only restore, expected locator). Only the
+/// reported `store_locator` and the `disclosures` shown (derived from the runtime's
+/// acknowledgement state, not from the request) are not facts. Anything other than
+/// two registrations is `false`. Destructured exhaustively: a new field must be
+/// classified here before this compiles.
+#[must_use]
+pub fn same_registration_facts(
+    a: &heimdall_domain::decision::DecisionKind,
+    b: &heimdall_domain::decision::DecisionKind,
+) -> bool {
+    use heimdall_domain::decision::DecisionKind;
+    let (
+        DecisionKind::RegisterIssuer {
+            ca_fingerprint: a_fp,
+            store: a_store,
+            backup_sha256: a_digest,
+            rotation_of: a_rotation,
+            restored_without_log: a_key_only,
+            disclosures: _,
+            ca_public_key: a_key,
+            backup_created_at: a_created,
+            store_locator: _,
+            expected_store_locator: a_expected,
+        },
+        DecisionKind::RegisterIssuer {
+            ca_fingerprint: b_fp,
+            store: b_store,
+            backup_sha256: b_digest,
+            rotation_of: b_rotation,
+            restored_without_log: b_key_only,
+            disclosures: _,
+            ca_public_key: b_key,
+            backup_created_at: b_created,
+            store_locator: _,
+            expected_store_locator: b_expected,
+        },
+    ) = (a, b)
+    else {
+        return false;
+    };
+    a_fp == b_fp
+        && a_store == b_store
+        && a_digest == b_digest
+        && a_rotation == b_rotation
+        && a_key_only == b_key_only
+        && a_key == b_key
+        && a_created == b_created
+        && a_expected == b_expected
 }
 
 fn missing() -> StoreError {
@@ -288,35 +382,242 @@ impl Txn<'_> {
         event: CaEvent,
         at: Timestamp,
     ) -> Result<std::result::Result<IssuerRecord, InvalidCaTransition>> {
-        let Some(mut issuer) = self.issuer(ca)? else {
+        // ⟨§17.21 item 3⟩ Read and written whole, so the recorded store locator stays.
+        let Some(mut doc) = self.issuer_doc(ca)? else {
             return Err(missing());
         };
-        if issuer.state != expected {
+        if doc.record.state != expected {
             return Err(conflict(format!("issuer {ca} is not {expected:?}")));
         }
         let next = match ca_transition(expected, event) {
             Ok(next) => next,
             Err(refused) => return Ok(Err(refused)),
         };
-        issuer.state = next;
+        doc.record.state = next;
         if next == CaState::Retired {
-            issuer.retired_at = Some(at);
+            doc.record.retired_at = Some(at);
         }
         let n = self.tx.execute(
             "UPDATE issuers SET state = ?2, retired_at = ?3, record_json = ?4
              WHERE ca_fingerprint = ?1 AND state = ?5",
             rusqlite::params![
                 ca.as_str(),
-                codec::enum_str(&issuer.state)?,
-                issuer.retired_at.map(codec::ts),
-                codec::doc(&issuer)?,
+                codec::enum_str(&doc.record.state)?,
+                doc.record.retired_at.map(codec::ts),
+                codec::doc(&doc)?,
                 codec::enum_str(&expected)?,
             ],
         )?;
         if n == 0 {
             return Err(conflict(format!("issuer {ca} is not {expected:?}")));
         }
-        Ok(Ok(issuer))
+        Ok(Ok(doc.record))
+    }
+
+    /// ⟨ADR-0008 §17.21 item 3; §17.17 item 3⟩ The exact store locator this
+    /// installation recorded for `ca`'s K_ca item (the `StoreItemRef::locator` its
+    /// `put` returned; the store kind is the record's `store_kind`), kept in the
+    /// row's `record_json` under the additive key `store_locator`. `None` when the
+    /// CA is not registered or nothing was recorded (a record written before the key:
+    /// its retirement stops at `unloaded`, `issuer_store_locator_unrecorded`).
+    pub fn issuer_store_locator(&mut self, ca: &CaFingerprint) -> Result<Option<String>> {
+        Ok(self.issuer_doc(ca)?.and_then(|d| d.store_locator))
+    }
+
+    fn issuer_doc(&mut self, ca: &CaFingerprint) -> Result<Option<IssuerDoc>> {
+        self.one_doc(
+            "SELECT record_json FROM issuers WHERE ca_fingerprint = ?1",
+            [ca.as_str()],
+        )
+    }
+
+    /// ⟨ADR-0008 §17.21 item 3⟩ Record `locator` as `ca`'s K_ca store item, **once**,
+    /// while the CA is `active` or `pending` (retirement deletes exactly this
+    /// locator). Recording the same locator again is a no-op. Refused, writing
+    /// nothing: a missing CA (`QueryReturnedNoRows`); a CA in a retirement state, or
+    /// one that already has **another** locator ([`StoreError::GenerationConflict`]:
+    /// this never replaces a recorded locator; only a restore's compare-and-swap does,
+    /// [`Txn::replace_issuer_store_locator`], and never once a retirement began); an
+    /// empty or oversized locator, or one with control characters (a document error).
+    pub fn set_issuer_store_locator(&mut self, ca: &CaFingerprint, locator: &str) -> Result<()> {
+        check_store_locator(locator)?;
+        let Some(mut doc) = self.issuer_doc(ca)? else {
+            return Err(missing());
+        };
+        match doc.store_locator.as_deref() {
+            Some(l) if l == locator => return Ok(()),
+            Some(_) => {
+                return Err(conflict(format!(
+                    "issuer {ca} already has a recorded store locator"
+                )));
+            }
+            None => {}
+        }
+        let state = doc.record.state;
+        if !matches!(state, CaState::Active | CaState::Pending) {
+            return Err(conflict(format!(
+                "issuer {ca} is {state:?}: its store locator is fixed"
+            )));
+        }
+        doc.store_locator = Some(locator.to_owned());
+        self.write_issuer_doc(ca, &doc, state)
+    }
+
+    /// Write `doc` back, a compare-and-swap on the stored state `state`.
+    fn write_issuer_doc(
+        &mut self,
+        ca: &CaFingerprint,
+        doc: &IssuerDoc,
+        state: CaState,
+    ) -> Result<()> {
+        let n = self.tx.execute(
+            "UPDATE issuers SET record_json = ?2 WHERE ca_fingerprint = ?1 AND state = ?3",
+            rusqlite::params![ca.as_str(), codec::doc(doc)?, codec::enum_str(&state)?],
+        )?;
+        if n == 0 {
+            return Err(conflict(format!("issuer {ca} is not {state:?}")));
+        }
+        Ok(())
+    }
+
+    /// ⟨ADR-0008 §17.22 item 12⟩ The store items a restore displaced from `ca`
+    /// ([`Txn::replace_issuer_store_locator`]) and whose deletion is not yet
+    /// confirmed, in displacement order. Empty for an unknown CA.
+    pub fn issuer_displaced_store_locators(&mut self, ca: &CaFingerprint) -> Result<Vec<String>> {
+        Ok(self
+            .issuer_doc(ca)?
+            .map(|d| d.displaced_store_locators)
+            .unwrap_or_default())
+    }
+
+    /// ⟨ADR-0008 §17.22 item 12⟩ A restore's compare-and-swap of `ca`'s recorded store
+    /// locator: `expected` must equal the recorded one (`None`: none recorded), and
+    /// the CA must be `active` or `pending`. The recorded locator becomes `new`; the
+    /// one it replaces (if any) is kept in the displaced list until its deletion is
+    /// confirmed (`new` itself leaves that list if it was there). `new` equal to the
+    /// recorded locator is a no-op. Refused, writing nothing: a missing CA
+    /// (`QueryReturnedNoRows`); a recorded locator other than `expected`, or a CA in a
+    /// retirement state ([`StoreError::GenerationConflict`]); a malformed `new` (a
+    /// document error).
+    pub fn replace_issuer_store_locator(
+        &mut self,
+        ca: &CaFingerprint,
+        expected: Option<&str>,
+        new: &str,
+    ) -> Result<()> {
+        check_store_locator(new)?;
+        let Some(mut doc) = self.issuer_doc(ca)? else {
+            return Err(missing());
+        };
+        if doc.store_locator.as_deref() != expected {
+            return Err(conflict(format!(
+                "issuer {ca}'s recorded store locator is not the expected one"
+            )));
+        }
+        let state = doc.record.state;
+        if !matches!(state, CaState::Active | CaState::Pending) {
+            return Err(conflict(format!(
+                "issuer {ca} is {state:?}: its store locator is fixed"
+            )));
+        }
+        if expected == Some(new) {
+            return Ok(());
+        }
+        doc.displaced_store_locators.retain(|l| l != new);
+        if let Some(old) = doc.store_locator.replace(new.to_owned()) {
+            doc.displaced_store_locators.push(old);
+        }
+        self.write_issuer_doc(ca, &doc, state)
+    }
+
+    /// ⟨ADR-0008 §17.22 item 12⟩ The owner-present CLI confirmed it deleted the
+    /// displaced item `locator` of `ca`: it leaves the displaced list, in any CA
+    /// state. `Ok(false)`, writing nothing, when `locator` is not displaced from `ca`
+    /// (an unknown CA included).
+    pub fn resolve_displaced_store_locator(
+        &mut self,
+        ca: &CaFingerprint,
+        locator: &str,
+    ) -> Result<bool> {
+        let Some(mut doc) = self.issuer_doc(ca)? else {
+            return Ok(false);
+        };
+        let before = doc.displaced_store_locators.len();
+        doc.displaced_store_locators.retain(|l| l != locator);
+        if doc.displaced_store_locators.len() == before {
+            return Ok(false);
+        }
+        let state = doc.record.state;
+        self.write_issuer_doc(ca, &doc, state)?;
+        Ok(true)
+    }
+
+    /// ⟨ADR-0008 §17.22 item 12, §17.23 item 3⟩ Record the ceremony's store-item
+    /// report on the pending `RegisterIssuer` decision `id`, once. `report` is the
+    /// report as a `RegisterIssuer`: it must repeat **every** recorded fact exactly
+    /// ([`same_registration_facts`]) and carry the item in its `store_locator`; it
+    /// only attaches that locator. Compare-and-swap on `pending` and on no locator
+    /// recorded yet; the same locator again is a no-op. The ID, facts, disclosures,
+    /// generation, creation and expiry are unchanged. A fact mismatch, another
+    /// recorded locator, a decision not pending or not a registration is a
+    /// [`StoreError::GenerationConflict`] (nothing written); a missing decision is
+    /// `QueryReturnedNoRows`; a report without a locator, or a malformed one, a
+    /// document error. Returns the record after the change.
+    pub fn attach_register_issuer_store_locator(
+        &mut self,
+        id: &heimdall_contract::ids::DecisionId,
+        report: &heimdall_domain::decision::DecisionKind,
+    ) -> Result<heimdall_domain::decision::DecisionRecord> {
+        use heimdall_domain::decision::{DecisionKind, DecisionState};
+        let DecisionKind::RegisterIssuer {
+            store_locator: Some(locator),
+            ..
+        } = report
+        else {
+            return Err(codec::doc_error(
+                "a store-item report is a registration carrying its store locator",
+            ));
+        };
+        check_store_locator(locator)?;
+        let Some(mut record) = self.decision(id)? else {
+            return Err(missing());
+        };
+        if record.state != DecisionState::Pending {
+            return Err(conflict(format!("decision {id} is not pending")));
+        }
+        if !matches!(record.kind, DecisionKind::RegisterIssuer { .. }) {
+            return Err(conflict(format!("decision {id} is not a registration")));
+        }
+        if !same_registration_facts(&record.kind, report) {
+            return Err(conflict(format!(
+                "the store-item report does not repeat decision {id}'s registration"
+            )));
+        }
+        match &mut record.kind {
+            DecisionKind::RegisterIssuer { store_locator, .. } => match store_locator {
+                Some(l) if l == locator => return Ok(record),
+                Some(_) => {
+                    return Err(conflict(format!(
+                        "decision {id} already records another store item"
+                    )));
+                }
+                None => *store_locator = Some(locator.clone()),
+            },
+            _ => return Err(conflict(format!("decision {id} is not a registration"))),
+        }
+        let n = self.tx.execute(
+            "UPDATE decisions SET kind_json = ?2, record_json = ?3 WHERE id = ?1 AND state = ?4",
+            rusqlite::params![
+                id.as_str(),
+                codec::doc(&record.kind)?,
+                codec::doc(&record)?,
+                codec::enum_str(&DecisionState::Pending)?,
+            ],
+        )?;
+        if n == 0 {
+            return Err(conflict(format!("decision {id} is not pending")));
+        }
+        Ok(record)
     }
 
     // --- enrollments (ADR-0008 D5 §6.2) ---------------------------------------------------
@@ -1074,7 +1375,200 @@ impl Txn<'_> {
             .collect()
     }
 
+    /// ⟨M03 wave 4, round 2⟩ ADR-0008 §17.21 item 11: the slots of `environment` that
+    /// are still `held` or `clearing` for a binding whose grant has ended (any terminal
+    /// state, or `revoking`), with that grant, in (grant, destination, account) order.
+    /// The supervisor's end-of-grant pass clears each by its own generation. A slot row
+    /// whose binding has no grant row is not listed (the foreign keys forbid it).
+    pub fn held_slots_of_ended_grants(
+        &mut self,
+        environment: &EnvironmentId,
+    ) -> Result<Vec<(GrantId, ManagedSlot)>> {
+        type Row = (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            i64,
+            String,
+            String,
+            String,
+        );
+        let rows: Vec<Row> = {
+            let mut stmt = self.tx.prepare_cached(
+                "SELECT s.environment_id, s.destination_id, s.account, s.state, s.binding_id,
+                        s.generation, s.updated_at, g.id, g.state
+                 FROM managed_slots s
+                 JOIN bindings b ON b.id = s.binding_id
+                 JOIN grants g ON g.id = b.grant_id
+                 WHERE s.environment_id = ?1 AND s.state IN ('held', 'clearing')
+                 ORDER BY g.id, s.destination_id, s.account",
+            )?;
+            let rows = stmt.query_map([environment.as_str()], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                ))
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut out = Vec::new();
+        for (env, destination, account, state, holder, generation, updated, grant, grant_state) in
+            rows
+        {
+            let grant_state: heimdall_contract::GrantState = codec::enum_parse(&grant_state)?;
+            if !(grant_state.is_terminal()
+                || grant_state == heimdall_contract::GrantState::Revoking)
+            {
+                continue;
+            }
+            let grant = GrantId::parse(&grant)
+                .map_err(|_| codec::doc_error("stored grant id is malformed"))?;
+            out.push((
+                grant,
+                ManagedSlot {
+                    environment: parse_env(&env)?,
+                    pair: AccessPair {
+                        destination: parse_destination(&destination)?,
+                        account: parse_account(&account)?,
+                    },
+                    state: slot_from_columns(&state, holder.as_deref(), generation)?,
+                    binding: holder.as_deref().map(parse_binding).transpose()?,
+                    updated_at: codec::parse_ts(&updated)?,
+                },
+            ));
+        }
+        Ok(out)
+    }
+
+    /// ⟨M03 wave 4, round 3⟩ ADR-0008 §17.22 item 7 (W4-R07) and item 10 (W4-R08):
+    /// every binding whose grant is `grant`, in any state (a released binding has no
+    /// grant reference any more, yet its files may remain), in ID order.
+    pub fn bindings_of_grant(&mut self, grant: &GrantId) -> Result<Vec<BindingId>> {
+        let ids: Vec<String> = {
+            let mut stmt = self
+                .tx
+                .prepare_cached("SELECT id FROM bindings WHERE grant_id = ?1 ORDER BY id")?;
+            let rows = stmt.query_map([grant.as_str()], |r| r.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        ids.iter().map(|b| parse_binding(b)).collect()
+    }
+
+    /// ⟨M03 wave 4, round 3⟩ ADR-0008 §17.22 items 4, 9 and 10: the grants of
+    /// `environment` that still owe a managed cleanup, found from durable rows only
+    /// (never from in-memory state, never only from held slots), in grant order:
+    ///
+    /// * a grant in a **terminal** state (not `revoking`, which its revocation round
+    ///   owns) with a credential instance that is not `destroyed` (`pending`,
+    ///   `installed` or `lost`): its K_env, its instance and gate, its binding
+    ///   endpoints and files are owed (D1, D2 table, D7 items 7–8). The instance
+    ///   moves to `destroyed` last, so this row is the obligation until the rest is
+    ///   done;
+    /// * a grant, in any state, with a slot `held` or `clearing` for a **released**
+    ///   binding (D10 item 2: `held(b, g)` → `clearing` when `b` is released, even
+    ///   while the grant lives on through another reference). The slot is freed last,
+    ///   so its row is the obligation for that binding's slot, files and mux path;
+    /// * ⟨round 5, W4-C01⟩ a grant, in any state, with a **released** binding whose
+    ///   release cleanup is not recorded done
+    ///   ([`Self::record_released_binding_cleanup`], written in the release
+    ///   transaction): the binding's endpoint and files of every generation it was
+    ///   materialized at, with or without a slot. The row is removed only once they are
+    ///   gone ([`Self::released_binding_cleanup_done`]).
+    pub fn managed_cleanup_owed(&mut self, environment: &EnvironmentId) -> Result<Vec<GrantId>> {
+        let mut out: BTreeSet<String> = BTreeSet::new();
+        {
+            let sql = format!(
+                "SELECT DISTINCT g.id, g.state FROM credential_instances c
+                 JOIN grants g ON g.id = c.grant_id
+                 WHERE g.environment = ?1 AND c.state IN ({})",
+                sql_in_list(&[
+                    CredentialState::Pending,
+                    CredentialState::Installed,
+                    CredentialState::Lost,
+                ])?
+            );
+            let mut stmt = self.tx.prepare_cached(&sql)?;
+            let rows: Vec<(String, String)> = stmt
+                .query_map([environment.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<std::result::Result<_, _>>()?;
+            for (grant, state) in rows {
+                let state: heimdall_contract::GrantState = codec::enum_parse(&state)?;
+                if state.is_terminal() {
+                    out.insert(grant);
+                }
+            }
+        }
+        {
+            let mut stmt = self.tx.prepare_cached(
+                "SELECT DISTINCT b.grant_id FROM managed_slots s
+                 JOIN bindings b ON b.id = s.binding_id
+                 WHERE s.environment_id = ?1 AND s.state IN ('held', 'clearing')
+                   AND b.state = 'released'",
+            )?;
+            let rows: Vec<String> = stmt
+                .query_map([environment.as_str()], |r| r.get(0))?
+                .collect::<std::result::Result<_, _>>()?;
+            out.extend(rows);
+        }
+        for b in self.meta_with_prefix(META_RELEASED_BINDING_CLEANUP_PREFIX)? {
+            let binding = parse_binding(&b)?;
+            if let Some(record) = self.binding(&binding)?
+                && record.environment == *environment
+            {
+                out.insert(record.grant.as_str().to_owned());
+            }
+        }
+        out.iter()
+            .map(|g| {
+                GrantId::parse(g).map_err(|_| codec::doc_error("stored grant id is malformed"))
+            })
+            .collect()
+    }
+
+    /// ⟨M03 wave 4, round 5 (W4-C01)⟩ ADR-0008 §17.22 items 9–10: in the release
+    /// transaction of the managed binding `binding`, the durable obligation for its
+    /// endpoint and files (every resource generation it was materialized at, a
+    /// re-issue's included), held or not a slot. Idempotent. Listed through
+    /// [`Self::managed_cleanup_owed`] until [`Self::released_binding_cleanup_done`].
+    pub fn record_released_binding_cleanup(&mut self, binding: &BindingId) -> Result<()> {
+        self.set_meta(
+            &format!("{META_RELEASED_BINDING_CLEANUP_PREFIX}{binding}"),
+            binding.as_str(),
+        )
+    }
+
+    /// ⟨W4-C01⟩ Whether `binding`'s release cleanup is still owed.
+    pub fn released_binding_cleanup_owed(&mut self, binding: &BindingId) -> Result<bool> {
+        Ok(self
+            .meta(&format!("{META_RELEASED_BINDING_CLEANUP_PREFIX}{binding}"))?
+            .is_some())
+    }
+
+    /// ⟨W4-C01⟩ Record `binding`'s release cleanup done (its endpoint and files gone);
+    /// nothing when none was owed.
+    pub fn released_binding_cleanup_done(&mut self, binding: &BindingId) -> Result<()> {
+        self.delete_meta(&format!("{META_RELEASED_BINDING_CLEANUP_PREFIX}{binding}"))
+    }
+
     // --- owned connections (ADR-0008 D8 item 2) ------------------------------------------
+
+    /// ⟨M03 wave 4, round 2⟩ §17.21 item 11 (`inspect connections`, read-only): every
+    /// owned connection, in every state, oldest first.
+    pub fn owned_connections(&mut self) -> Result<Vec<OwnedConnection>> {
+        self.docs(
+            "SELECT record_json FROM owned_connections ORDER BY started_at, id",
+            [],
+        )
+    }
 
     /// Insert an owned connection, `up` (written at bind on Unix, at registration on
     /// Windows). Its binding and grant must exist (a foreign-key violation is a SQLite

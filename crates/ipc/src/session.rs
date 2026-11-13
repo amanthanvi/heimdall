@@ -104,6 +104,13 @@ use crate::frame::{FrameError, encode_frame};
 /// gate, without dispatch. A runtime without a projection writer answers every
 /// Setup request `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) in the application.
 /// `Operations::inspect` lists the same set.
+///
+/// ⟨M03⟩ m03-plan U0b row 13, phase 2 (wave 4, the activation change set): the four M03
+/// capabilities (`capability::M03_DECLARED`: `issuer/1`, `enrollment/1`,
+/// `managed-credentials/1`, `connections/1`) are offered. A session that did not
+/// negotiate one is still refused `SCHEMA_UNSUPPORTED` by the gate for its requests; a
+/// runtime whose M03 ports are not wired answers them `CAPABILITY_UNAVAILABLE`
+/// (`driver_unavailable`) before any record is written.
 #[must_use]
 pub fn server_capabilities() -> BTreeSet<String> {
     [
@@ -115,6 +122,7 @@ pub fn server_capabilities() -> BTreeSet<String> {
         capability::SETUP_V1,
     ]
     .into_iter()
+    .chain(capability::M03_DECLARED)
     .map(str::to_owned)
     .collect()
 }

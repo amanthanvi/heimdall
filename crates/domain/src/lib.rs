@@ -30,6 +30,7 @@ pub mod principal;
 pub mod procstat;
 pub mod profile;
 pub mod projection;
+pub mod reissue;
 pub mod resource;
 pub mod revocation;
 pub mod scope;

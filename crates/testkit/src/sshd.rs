@@ -42,11 +42,25 @@
 //!   applies only where nothing earlier sets `User`. It never goes on a client's command
 //!   line (ADR-0007 §9 item 1). Unset, nothing changes.
 //!
+//! * ⟨M03 wave 4, W4-N01⟩ **Its enrollment registry.** The harness authorized-keys file
+//!   lives on the Windows file system (`/mnt/<drive>/…` from WSL); without the `metadata`
+//!   mount option every directory there reads `drwxrwxrwx`, so the enrollment scripts
+//!   refuse it as a registry (`dir_writable_by_others`). The default harness sshd
+//!   therefore reads a second `AuthorizedKeysFile` in an owner-only directory of the WSL
+//!   scratch (tests/native/m02/run-windows-local.ps1, `hm2_sshd_start`'s REGISTRY
+//!   argument): `HM_FIXTURE_SSHD_REGISTRY` names it as the tests reach it (its Windows
+//!   path) and `HM_FIXTURE_SSHD_REGISTRY_REMOTE` as the server's account sees it. A config
+//!   with a [`SshdConfig::registry_seed`] on the default harness server writes its keys
+//!   there (the seed first, as on a local server) and empties the authorized-keys file;
+//!   [`LoopbackSshd::registry_path`] is then the registry and
+//!   [`LoopbackSshd::registry_remote_path`] its remote path. Without both variables
+//!   nothing changes (the keys file, no remote path); every other config is unchanged.
+//!
 //! **M03 extensions** (m03-plan U11; ADR-0008 D13 item 2), all local servers only. A
 //! harness server cannot honour them, so a config that sets any of them is
 //! [`SshdUnavailable`] there (never silently ignored), except
-//! [`SshdConfig::registry_seed`], which a harness server's authorized-keys file can
-//! carry:
+//! [`SshdConfig::registry_seed`], which a harness server's authorized-keys file (or its
+//! enrollment registry, above) can carry:
 //! * the **account form**: the scratch `AuthorizedKeysFile` is the explicit registry
 //!   ([`LoopbackSshd::registry_path`]), seeded with [`SshdConfig::registry_seed`]
 //!   (for example [`enrollable_like_seed`]);
@@ -270,6 +284,11 @@ pub struct LoopbackSshd {
     destination_id: Option<String>,
     /// ⟨M03⟩ The `AuthorizedKeysFile` (the account form's explicit registry).
     registry: Option<PathBuf>,
+    /// ⟨W4-N01⟩ The registry as the server's account names it (a local server: the same
+    /// path; the harness: `HM_FIXTURE_SSHD_REGISTRY_REMOTE`).
+    registry_remote: Option<String>,
+    /// ⟨W4-N01⟩ The harness enrollment registry this fixture wrote (emptied on drop).
+    harness_registry: Option<PathBuf>,
     /// ⟨M03⟩ The `TrustedUserCAKeys` file.
     ca_keys: Option<PathBuf>,
     /// ⟨M03⟩ The `AuthorizedPrincipalsFile` directory (`<dir>/%u`).
@@ -388,6 +407,31 @@ fn harness_for(config: &SshdConfig) -> Result<(&'static str, usize), SshdUnavail
     }
 }
 
+/// ⟨W4-N01⟩ The harness enrollment registry a config uses on the harness server of
+/// `prefix`: `(local, remote)` from `HM_FIXTURE_SSHD_REGISTRY` and
+/// `HM_FIXTURE_SSHD_REGISTRY_REMOTE` (module documentation), only for the default harness
+/// server and a config with a [`SshdConfig::registry_seed`], and only when both are set.
+/// A remote path that is not an absolute single-line POSIX path is refused.
+fn harness_registry(
+    prefix: &str,
+    config: &SshdConfig,
+    local: Option<std::ffi::OsString>,
+    remote: Option<String>,
+) -> Result<Option<(PathBuf, String)>, SshdUnavailable> {
+    if prefix != "HM_FIXTURE_SSHD_" || config.registry_seed.is_none() {
+        return Ok(None);
+    }
+    let (Some(local), Some(remote)) = (local, remote) else {
+        return Ok(None);
+    };
+    if !remote.starts_with('/') || remote.chars().any(char::is_control) {
+        return Err(unavailable(
+            "HM_FIXTURE_SSHD_REGISTRY_REMOTE is not an absolute POSIX path",
+        ));
+    }
+    Ok(Some((PathBuf::from(local), remote)))
+}
+
 /// A user name `User` can carry unquoted: ASCII letters, digits, `.`, `_` and `-`, not
 /// starting with `-`, at most 64 bytes.
 fn is_plain_account(name: &str) -> bool {
@@ -455,10 +499,29 @@ impl LoopbackSshd {
         {
             return Err(unavailable(format!("{keys_var} is not set")));
         }
+        let enrollment_registry = harness_registry(
+            prefix,
+            config,
+            std::env::var_os("HM_FIXTURE_SSHD_REGISTRY"),
+            std::env::var("HM_FIXTURE_SSHD_REGISTRY_REMOTE").ok(),
+        )?;
         let lease = HarnessLease::acquire(&HARNESS_SLOTS[slot], LEASE_WAIT)?;
-        if let Some(path) = &keys_file {
-            fs::write(path, authorized_keys_text(config))
-                .map_err(|_| unavailable("cannot write the harness authorized-keys file"))?;
+        match (&enrollment_registry, &keys_file) {
+            // The keys go to the registry; the authorized-keys file holds none.
+            (Some((registry, _)), keys) => {
+                if let Some(path) = keys {
+                    fs::write(path, b"").map_err(|_| {
+                        unavailable("cannot write the harness authorized-keys file")
+                    })?;
+                }
+                fs::write(registry, authorized_keys_text(config))
+                    .map_err(|_| unavailable("cannot write the harness enrollment registry"))?;
+            }
+            (None, Some(path)) => {
+                fs::write(path, authorized_keys_text(config))
+                    .map_err(|_| unavailable("cannot write the harness authorized-keys file"))?;
+            }
+            (None, None) => {}
         }
         let log = std::env::var_os(format!("{prefix}LOG")).map(PathBuf::from);
         let log_start = log
@@ -476,7 +539,14 @@ impl LoopbackSshd {
             log,
             log_start,
             child: None,
-            registry: keys_file.clone(),
+            registry: match &enrollment_registry {
+                Some((registry, _)) => Some(registry.clone()),
+                None => keys_file.clone(),
+            },
+            registry_remote: enrollment_registry
+                .as_ref()
+                .map(|(_, remote)| remote.clone()),
+            harness_registry: enrollment_registry.map(|(registry, _)| registry),
             harness_keys: keys_file,
             destination_id: None,
             ca_keys: None,
@@ -605,6 +675,8 @@ impl LoopbackSshd {
                         child: Some(child),
                         harness_keys: None,
                         destination_id: None,
+                        registry_remote: Some(authorized.to_string_lossy().into_owned()),
+                        harness_registry: None,
                         registry: Some(authorized),
                         ca_keys: config.trusted_user_ca_keys.clone(),
                         principals_dir,
@@ -699,6 +771,29 @@ impl LoopbackSshd {
             .collect()
     }
 
+    /// ⟨M03 wave 4⟩ The server log's current length: a mark for
+    /// [`log_lines_since`](Self::log_lines_since), so a test reads only what one attempt
+    /// logged (0 when there is no log).
+    #[must_use]
+    pub fn log_mark(&self) -> u64 {
+        self.log
+            .as_ref()
+            .and_then(|p| fs::metadata(p).ok())
+            .map_or(0, |m| m.len())
+            .max(self.log_start)
+    }
+
+    /// ⟨M03 wave 4⟩ The server log lines containing `needle` logged after `mark`
+    /// ([`log_mark`](Self::log_mark)).
+    #[must_use]
+    pub fn log_lines_since(&self, mark: u64, needle: &str) -> Vec<String> {
+        self.log_text_from(mark.max(self.log_start))
+            .lines()
+            .filter(|l| l.contains(needle))
+            .map(str::to_owned)
+            .collect()
+    }
+
     /// ⟨M03⟩ Every log line (from where this fixture started) containing `needle`, for
     /// the transport-failure oracles of [`Faults`] (`drop connection`, …).
     #[must_use]
@@ -745,6 +840,16 @@ impl LoopbackSshd {
     #[must_use]
     pub fn registry_path(&self) -> Option<&Path> {
         self.registry.as_deref()
+    }
+
+    /// ⟨W4-N01⟩ The registry as the server's account names it, for an enrollment's
+    /// explicit `registry_path`: the same path for a local server; for the harness, its
+    /// enrollment registry's `HM_FIXTURE_SSHD_REGISTRY_REMOTE` (module documentation).
+    /// `None` when the server's account cannot name it (a harness server without the
+    /// enrollment registry).
+    #[must_use]
+    pub fn registry_remote_path(&self) -> Option<&str> {
+        self.registry_remote.as_deref()
     }
 
     /// ⟨M03⟩ The `TrustedUserCAKeys` file, when configured.
@@ -796,14 +901,36 @@ impl LoopbackSshd {
     /// ⟨M03⟩ Append one line to the account-form registry (as an administrator or the
     /// enrollment would; scratch only). A missing final newline is added first.
     ///
+    /// ⟨round 5, Y-W⟩ The write is read back through the same path: the file must be
+    /// its earlier bytes, then the line and one `\n` (no `\r`), or this fails. A setup
+    /// that plants damage (a duplicate or damaged marker line) therefore never falls
+    /// through silently to a run without it (a replaced, lost or CRLF write). Whether
+    /// the server read it through its own path is the inspect reading's to show.
+    ///
     /// # Errors
-    /// No registry, or the write fails.
+    /// No registry, the write fails, or the read-back differs.
     pub fn append_registry_line(&self, line: &str) -> io::Result<()> {
         let path = self
             .registry
             .as_ref()
             .ok_or_else(|| io::Error::other("this fixture sshd has no registry"))?;
-        append_line(path, line)
+        if line.contains(['\n', '\r']) {
+            return Err(io::Error::other("a registry line is one line"));
+        }
+        let before = fs::read(path).unwrap_or_default();
+        append_line(path, line)?;
+        let mut expected = before;
+        if expected.last().is_some_and(|&b| b != b'\n') {
+            expected.push(b'\n');
+        }
+        expected.extend_from_slice(line.as_bytes());
+        expected.push(b'\n');
+        if fs::read(path)? != expected {
+            return Err(io::Error::other(
+                "the registry line did not land: the read-back differs",
+            ));
+        }
+        Ok(())
     }
 
     fn publickey_log(&self, marker: &str) -> Vec<AcceptedKey> {
@@ -856,6 +983,9 @@ impl Drop for LoopbackSshd {
         // A harness server's keys do not outlive the fixture; the lease (a later
         // field) is released after this.
         if let Some(path) = self.harness_keys.take() {
+            let _ = fs::write(path, b"");
+        }
+        if let Some(path) = self.harness_registry.take() {
             let _ = fs::write(path, b"");
         }
     }
@@ -1972,6 +2102,46 @@ mod tests {
         }
     }
 
+    /// ⟨W4-N01⟩ The harness enrollment registry: only the default harness server, only a
+    /// config with a registry seed, only when both paths are given; a remote path that
+    /// is not an absolute single-line POSIX path is refused, never used.
+    #[test]
+    fn harness_registry_needs_both_paths_on_the_default_server() {
+        let seeded = SshdConfig {
+            registry_seed: Some(Vec::new()),
+            ..SshdConfig::default()
+        };
+        let local = || Some(std::ffi::OsString::from("L"));
+        let remote = || Some("/home/u/r/authorized_keys".to_owned());
+        assert_eq!(
+            harness_registry("HM_FIXTURE_SSHD_", &seeded, local(), remote()),
+            Ok(Some((
+                PathBuf::from("L"),
+                "/home/u/r/authorized_keys".to_owned()
+            )))
+        );
+        for (prefix, config, l, r) in [
+            ("HM_FIXTURE_SSHD_STRICT_", &seeded, local(), remote()),
+            (
+                "HM_FIXTURE_SSHD_",
+                &SshdConfig::default(),
+                local(),
+                remote(),
+            ),
+            ("HM_FIXTURE_SSHD_", &seeded, None, remote()),
+            ("HM_FIXTURE_SSHD_", &seeded, local(), None),
+        ] {
+            assert_eq!(harness_registry(prefix, config, l, r), Ok(None), "{prefix}");
+        }
+        for bad in ["home/u/r", "/a\nHost *"] {
+            assert!(
+                harness_registry("HM_FIXTURE_SSHD_", &seeded, local(), Some(bad.to_owned()))
+                    .is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
     #[test]
     fn account_names_are_plain_or_refused() {
         for ok in ["wsluser", "a.b_c-d", "U1"] {
@@ -2051,6 +2221,8 @@ mod tests {
             harness_keys: None,
             destination_id: None,
             registry: None,
+            registry_remote: None,
+            harness_registry: None,
             ca_keys: None,
             principals_dir: None,
             _lease: None,
@@ -2064,5 +2236,48 @@ mod tests {
         );
         assert_eq!(sshd.listening(), ["127.0.0.1:22"]);
         assert_eq!(sshd.account(), None);
+    }
+
+    /// ⟨round 5, Y-W⟩ A registry write is read back: the earlier bytes kept, the line
+    /// and one `\n` added (a missing final newline first), a multi-line "line" refused
+    /// with nothing written, no registry an error.
+    #[test]
+    fn registry_append_is_read_back_or_fails() {
+        let scratch = Scratch::new().unwrap();
+        let registry = scratch.path().join("authorized_keys");
+        fs::write(&registry, b"keep-me").unwrap();
+        let mut sshd = LoopbackSshd {
+            host: LOOPBACK.to_owned(),
+            port: 22,
+            host_key_line: String::new(),
+            account: None,
+            log: None,
+            log_start: 0,
+            child: None,
+            harness_keys: None,
+            destination_id: None,
+            registry: Some(registry.clone()),
+            registry_remote: None,
+            harness_registry: None,
+            ca_keys: None,
+            principals_dir: None,
+            _lease: None,
+        };
+        sshd.append_registry_line("a b heimdall:enr_x").unwrap();
+        sshd.append_registry_line("a b heimdall:enr_x x").unwrap();
+        assert_eq!(
+            fs::read(&registry).unwrap(),
+            b"keep-me\na b heimdall:enr_x\na b heimdall:enr_x x\n"
+        );
+        for bad in ["one\ntwo", "crlf\r"] {
+            assert!(sshd.append_registry_line(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(
+            fs::read(&registry).unwrap(),
+            b"keep-me\na b heimdall:enr_x\na b heimdall:enr_x x\n",
+            "nothing written for a refused line"
+        );
+        sshd.registry = None;
+        assert!(sshd.append_registry_line("x").is_err());
     }
 }

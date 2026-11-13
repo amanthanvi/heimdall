@@ -247,6 +247,11 @@ function Get-SshdAtEnd([string]$Output, [string]$Key = 'stop') {
 # log, serves `MaxAuthTries 3` (heimdall-testkit's LoopbackSshd selects it for a config with
 # max_auth_tries 3 and refuses any other value). Arguments: the WSL scratch directory, then the
 # Windows paths of the authorized-keys file and log of the default and of the strict sshd.
+# ⟨M03 wave 4, W4-N01⟩ The default sshd also reads the enrollment registry
+# `<WSL scratch>/registry/authorized_keys` (owner-only, on the WSL file system: a drvfs path
+# reads `drwxrwxrwx` and the enrollment scripts refuse it), reported as `registry=` (its
+# Windows path) and `registryremote=` (as the WSL account names it), exported as
+# HM_FIXTURE_SSHD_REGISTRY and HM_FIXTURE_SSHD_REGISTRY_REMOTE.
 function Get-SshdStartScript {
     return @'
 set -u
@@ -256,10 +261,12 @@ lg=$(wslpath -u "$3")
 aks=$(wslpath -u "$4")
 lgs=$(wslpath -u "$5")
 hm2_sanitize_env >/dev/null
-if hm2_sshd_start "$d/sshd" "$ak" "$lg"; then
+if hm2_sshd_start "$d/sshd" "$ak" "$lg" 6 "$d/registry/authorized_keys"; then
     p1=$HM2_SSHD_PID
     echo "port=$HM2_SSHD_PORT"
     echo "hostkey=$HM2_SSHD_HOSTKEY"
+    rw=$(wslpath -w "$d/registry/authorized_keys" 2>/dev/null) && echo "registry=$rw"
+    echo "registryremote=$d/registry/authorized_keys"
     p2=""
     if hm2_sshd_start "$d/sshd-strict" "$aks" "$lgs" 3; then
         p2=$HM2_SSHD_PID
@@ -313,6 +320,11 @@ function Get-FixtureEnvironment([hashtable]$Fx, [bool]$Reachable, [bool]$StrictR
         $e['HM_FIXTURE_SSHD_STRICT_LOG'] = $LogStrict
     }
     if (Test-PlainAccount $Account) { $e['HM_FIXTURE_SSHD_USER'] = $Account }
+    # ⟨W4-N01⟩ The enrollment registry: both paths or neither.
+    if ($Fx['registry'] -and $Fx['registryremote'] -and ([string]$Fx['registryremote']).StartsWith('/')) {
+        $e['HM_FIXTURE_SSHD_REGISTRY'] = $Fx['registry']
+        $e['HM_FIXTURE_SSHD_REGISTRY_REMOTE'] = $Fx['registryremote']
+    }
     return $e
 }
 
@@ -436,6 +448,16 @@ function Invoke-SelfTest([string]$OutDir) {
     Check 'U02 no account unless it is a plain name; no strict variables unless the strict sshd is reachable; nothing unless the default one is' (
         -not ($noUser -contains $true) -and (Test-PlainAccount 'a.b_c-d') -and -not $noStrict.ContainsKey('HM_FIXTURE_SSHD_STRICT_PORT') -and
         $noStrict['HM_FIXTURE_SSHD_USER'] -ceq 'wslfixture' -and (Get-FixtureEnvironment $fxBoth $false $true 'a' 'l' 'as' 'ls' 'wslfixture').Count -eq 0)
+    # ⟨M03 wave 4, W4-N01⟩ The enrollment registry: both paths or neither.
+    $fxReg = $fxBoth.Clone(); $fxReg['registry'] = '\\wsl.localhost\d\h\r\authorized_keys'; $fxReg['registryremote'] = '/h/r/authorized_keys'
+    $feReg = Get-FixtureEnvironment $fxReg $true $true 'a' 'l' 'as' 'ls' 'wslfixture'
+    $fxHalf = $fxBoth.Clone(); $fxHalf['registry'] = 'x'
+    $fxRel = $fxReg.Clone(); $fxRel['registryremote'] = 'h/r'
+    Check 'U03 the enrollment registry is exported as HM_FIXTURE_SSHD_REGISTRY and _REMOTE only when both are reported (the remote one absolute)' (
+        $feReg['HM_FIXTURE_SSHD_REGISTRY'] -eq '\\wsl.localhost\d\h\r\authorized_keys' -and $feReg['HM_FIXTURE_SSHD_REGISTRY_REMOTE'] -eq '/h/r/authorized_keys' -and $feReg.Count -eq 12 -and
+        -not (Get-FixtureEnvironment $fxHalf $true $true 'a' 'l' 'as' 'ls' 'wslfixture').ContainsKey('HM_FIXTURE_SSHD_REGISTRY') -and
+        -not (Get-FixtureEnvironment $fxRel $true $true 'a' 'l' 'as' 'ls' 'wslfixture').ContainsKey('HM_FIXTURE_SSHD_REGISTRY_REMOTE') -and
+        (Get-FixtureEnvironment $fxReg $false $true 'a' 'l' 'as' 'ls' 'wslfixture').Count -eq 0)
     $runRules = Get-RunRedactionRules @{ wsluser = 'wslfixture'; wslhome = '/home/wslfixture'; wslhost = 'mac' } 'C:\S\hm-m02-local-0' 'C:\Users\fixtureuser' 'fixtureuser' 'FIXTUREHOST' 'fixturehost'
     $fixOut = "Accepted publickey for wslfixture from 127.0.0.1 port 50000 ssh2: ED25519 SHA256:x`nwslfixture@127.0.0.1: Permission denied (publickey).`nUser WSLFIXTURE`n"
     $pr = Protect-BundleFiles @{ 'tests.txt' = $fixOut } $runRules
@@ -450,9 +472,14 @@ function Invoke-SelfTest([string]$OutDir) {
     $libPath = Join-Path $PSScriptRoot 'remote-lib.sh'
     $lib = if (Test-Path -LiteralPath $libPath) { (Get-Content -LiteralPath $libPath -Raw) -replace "`r`n", "`n" } else { '' }
     Check 'X01 the start script starts a second, strict sshd (MaxAuthTries 3) in its own directory with its own keys and log, and reports it before ready' (
-        $ss.Contains('hm2_sshd_start "$d/sshd" "$ak" "$lg"; then') -and $ss.Contains('hm2_sshd_start "$d/sshd-strict" "$aks" "$lgs" 3;') -and
+        $ss.Contains('hm2_sshd_start "$d/sshd" "$ak" "$lg" 6 "$d/registry/authorized_keys"; then') -and $ss.Contains('hm2_sshd_start "$d/sshd-strict" "$aks" "$lgs" 3;') -and
         $ss.IndexOf('echo "strictport=') -lt $ss.IndexOf('echo "ready=1"') -and $ss.IndexOf('echo "strictwhy=') -lt $ss.IndexOf('echo "ready=1"') -and
         $lib.Contains('MaxAuthTries ${5:-6}') -and $lib.Contains('tries=${4:-6}') -and $lib.Contains('hm2_sshd_config "$port" "$dir" "$ak" 1 "$tries"'))
+    # ⟨M03 wave 4, W4-N01⟩ The default sshd's enrollment registry on the WSL file system.
+    Check 'X03 the default sshd also reads the enrollment registry in its own owner-only WSL directory, reported (both paths) before ready; the strict one does not' (
+        $ss.IndexOf('echo "registryremote=$d/registry/authorized_keys"') -gt 0 -and $ss.IndexOf('echo "registryremote=') -lt $ss.IndexOf('echo "ready=1"') -and
+        $ss.Contains('wslpath -w "$d/registry/authorized_keys"') -and -not $ss.Contains('"$lgs" 3 "') -and
+        $lib.Contains('AuthorizedKeysFile $akf') -and $lib.Contains('mkdir -m 700 -- "$(dirname -- "$reg")"') -and $lib.Contains('(umask 077 && : >"$reg")'))
     $stopOut2 = "stop=stopped`r`nstopstrict=gone`r`n"
     Check 'X02 the stop step stops both sshds; the strict one counts as stopped only when stopped or gone, or with no record when it never started' (
         (Get-SshdStopScript).Contains('hm2_stop_recorded "$1/sshd-strict"') -and (Get-SshdAtEnd $stopOut2) -eq 'stopped' -and (Get-SshdAtEnd $stopOut2 'stopstrict') -eq 'gone' -and
@@ -790,6 +817,14 @@ try {
                 Add-Command 1 'HM_FIXTURE_SSHD_USER exported from the WSL account'
             }
             $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $slog $akStrict $slogStrict $wv['wsluser']
+            # ⟨M03 wave 4, W4-N01⟩ The enrollment registry on the WSL file system.
+            if ($fixtureEnv.ContainsKey('HM_FIXTURE_SSHD_REGISTRY')) {
+                Add-Fact 'fixture-sshd-registry' 'exported as HM_FIXTURE_SSHD_REGISTRY and HM_FIXTURE_SSHD_REGISTRY_REMOTE (owner-only, WSL scratch)'
+                Add-Command 0 'fixture sshd enrollment registry in WSL scratch exported'
+            } else {
+                Add-Fact 'fixture-sshd-registry' 'not reported; the enrollment e2e tests fail with that reason'
+                Add-Command 1 'fixture sshd enrollment registry in WSL scratch exported'
+            }
         } else {
             Add-Fact 'fixture-sshd-harness' 'failed: not reachable from Windows; the tests run without HM_FIXTURE_SSHD_*'
             Add-Command 1 'fixture sshd in WSL scratch reachable from Windows on 127.0.0.1'
@@ -814,6 +849,10 @@ try {
         if ($sk -and $sk -contains '*') { [void]$skipped.Append("$($b.Name): not run on windows (build_host_paths)`n"); continue }
         $a = @()
         if ($sk) { $a += '--exact'; foreach ($n in $sk) { $a += @('--skip', $n) } }
+        # ⟨M03 wave 4, W4-N01⟩ Every e2e_enroll_m03 test holds the one harness sshd (its
+        # registry) for its whole run, some for over a minute; one thread keeps every wait for
+        # the harness lease short of LoopbackSshd's 600 s bound.
+        if ($b.Name -eq 'e2e_enroll_m03') { $a += '--test-threads=1' }
         $a += '--show-output'
         $r = Invoke-Bounded $b.Exe $a $testEnv $b.Cwd $TimeoutSeconds
         [void]$tests.Append((Format-TargetOutput $b.Name $r.Output $r.Code))

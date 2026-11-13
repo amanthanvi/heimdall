@@ -34,10 +34,12 @@
 //!
 //! **Verification endpoints** (reading R3, INT-Q13): a verification signature is sent
 //! only with a permit, like a grant's ([`VERIFICATION_UNGATED_SIGNING`] is `false`).
-//! Production `Operations` refuses every verification subject, so until the
-//! orchestrator rules INT-Q13 every verification signature is refused. The endpoint
-//! counts sign requests per key fingerprint and session-binds received (D5 §6.5
-//! item 1; [`VerificationCounters`]).
+//! ⟨M03 wave 4, ADR-0008 §17.19 item 5⟩ Production `Operations` admits one only
+//! through the operation's verification signing gate (opened by
+//! `EndpointRegistry::create_verification` with the plan's CA and pair, closed when the
+//! session drops) and the D5 §6.5 predicate under it. The endpoint counts sign
+//! requests per key fingerprint and session-binds received (D5 §6.5 item 1;
+//! [`VerificationCounters`]).
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -61,9 +63,9 @@ use crate::table::{SignTarget, SignerTable};
 
 /// ⟨INT-Q13⟩ Whether a verification-endpoint signature may be sent **without** a
 /// permit. `false`: no ungated path exists; a verification signature needs a permit
-/// from the `SignatureAuthority` exactly like a grant's (reading R3). In production
-/// `Operations` refuses every `SignatureSubject::Verification`, so every verification
-/// signature is refused until the orchestrator rules INT-Q13.
+/// from the `SignatureAuthority` exactly like a grant's (reading R3). ⟨§17.19 item 5⟩
+/// In production that permit is built over the operation's verification signing gate
+/// (`app::managed::SigningGates::permit_verification`), never without one.
 pub const VERIFICATION_UNGATED_SIGNING: bool = false;
 
 /// How many refusal codes a signer keeps for inspection (oldest dropped first).

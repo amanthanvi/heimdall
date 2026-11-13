@@ -230,6 +230,14 @@ const REQUIRED_COLUMNS: &[(&str, &str)] = &[("grants", "approval_json"), ("grant
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
+/// ⟨M03⟩ ADR-0008 D10 item 1: the installation's Windows environment pipe token.
+const META_WINDOWS_PIPE_TOKEN: &str = "windows_environment_pipe_token";
+
+/// A Windows pipe token: 1 to 64 ASCII letters or digits (the credential crate's
+/// `pipe_token_ok`, which the store cannot name).
+fn pipe_token_valid(token: &str) -> bool {
+    !token.is_empty() && token.len() <= 64 && token.bytes().all(|b| b.is_ascii_alphanumeric())
+}
 /// Per-environment retention boundary: `event_tail:<environment id>`.
 const META_EVENT_TAIL_PREFIX: &str = "event_tail:";
 
@@ -1206,6 +1214,41 @@ impl Txn<'_> {
         }
     }
 
+    /// ⟨M03⟩ ADR-0008 D10 item 1, §17.21 item 8: this installation's stable Windows
+    /// environment pipe token (`meta: windows_environment_pipe_token`), created once
+    /// and reused by every runtime start, so P keeps naming the live pipe. `None`
+    /// before the first managed start. A stored value that is not 1 to 64 ASCII
+    /// letters or digits is [`StoreError::Corrupt`] (never a pipe name).
+    pub fn windows_pipe_token(&mut self) -> Result<Option<String>> {
+        match self.meta(META_WINDOWS_PIPE_TOKEN)? {
+            Some(t) if pipe_token_valid(&t) => Ok(Some(t)),
+            Some(_) => Err(StoreError::Corrupt(
+                "windows environment pipe token is malformed".into(),
+            )),
+            None => Ok(None),
+        }
+    }
+
+    /// ⟨M03⟩ Record the installation's Windows pipe token once (§17.21 item 8).
+    /// Recording the same token again is a no-op; a different one is refused with
+    /// [`StoreError::GenerationConflict`] (the token is stable: a new one would make
+    /// P name a pipe nobody serves). A token that is not 1 to 64 ASCII letters or
+    /// digits is refused as malformed.
+    pub fn set_windows_pipe_token(&mut self, token: &str) -> Result<()> {
+        if !pipe_token_valid(token) {
+            return Err(codec::doc_error(
+                "a windows pipe token is 1 to 64 ASCII letters or digits",
+            ));
+        }
+        match self.windows_pipe_token()? {
+            Some(existing) if existing == token => Ok(()),
+            Some(_) => Err(StoreError::GenerationConflict(
+                "the windows environment pipe token is already recorded".into(),
+            )),
+            None => self.set_meta(META_WINDOWS_PIPE_TOKEN, token),
+        }
+    }
+
     // --- managed resources (spec §13.5) ------------------------------------------------
 
     /// Upsert with compare-and-swap on generation.
@@ -2040,6 +2083,7 @@ mod tests {
                 adapter: None,
                 approval,
                 covered: None,
+                binding_id: None,
             }),
             local: None,
         }
@@ -2552,5 +2596,36 @@ mod tests {
             Store::open(&db, Arc::new(NoFaults)),
             Err(StoreError::Corrupt(_))
         ));
+    }
+
+    /// ⟨M03⟩ §17.21 item 8: the Windows environment pipe token is recorded once and
+    /// read back unchanged by every later transaction (and a reopened store); a second,
+    /// different token is refused; a malformed one is never stored.
+    #[test]
+    fn windows_pipe_token_recorded_once_and_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        {
+            let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+            assert_eq!(s.transaction(|tx| tx.windows_pipe_token()).unwrap(), None);
+            s.transaction(|tx| tx.set_windows_pipe_token("abc123DEF"))
+                .unwrap();
+            s.transaction(|tx| tx.set_windows_pipe_token("abc123DEF"))
+                .unwrap();
+            assert!(matches!(
+                s.transaction(|tx| tx.set_windows_pipe_token("other")),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            for bad in ["", "has-dash", "x".repeat(65).as_str(), "sp ace"] {
+                assert!(s.transaction(|tx| tx.set_windows_pipe_token(bad)).is_err());
+            }
+        }
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(
+            s.transaction(|tx| tx.windows_pipe_token())
+                .unwrap()
+                .as_deref(),
+            Some("abc123DEF")
+        );
     }
 }

@@ -420,3 +420,35 @@ fn connect_existing_access_pair_flow_unchanged_from_m02() {
     let argv = std::fs::read(&recorded).unwrap();
     assert_eq!(argv, b"obs\0", "M02's launch: `ssh <alias>`, nothing added");
 }
+
+// =================================================================================
+// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 11; W4-R09)⟩ existing-access byte identity
+// =================================================================================
+
+#[path = "m02_ensure_golden.rs"]
+mod m02_ensure_golden;
+
+/// §17.22 item 11: an existing-access `ensure` (one pair, the fixture `native_agent`
+/// adapter, a fixed clock and fixed request) produces, byte for byte, the result
+/// (`EnsureData`), the wire envelope, the stored recovery-intent bytes and the request
+/// hash that the base commit `d6593a7c` (M03 wave 3, before wave 4) produced for the same
+/// scenario (`tests/e2e/m02_ensure_golden.rs`, compiled unchanged into the base tree;
+/// the procedure is in that file's module docs). Only the three CSPRNG-minted IDs are
+/// normalized (`m02_ensure_golden::NORMALIZED`).
+#[tokio::test]
+async fn existing_access_ensure_bytes_match_base_goldens() {
+    let dir = tempfile::tempdir().unwrap();
+    let got = m02_ensure_golden::produce(dir.path()).await;
+    let golden = |name: &str| {
+        let path = heimdall_testkit::repo::repo_root()
+            .join("tests/contracts/golden/m02-existing-access-ensure")
+            .join(name);
+        let bytes =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        bytes.strip_suffix('\n').unwrap_or(&bytes).to_owned()
+    };
+    assert_eq!(got.result, golden("result.json"), "EnsureData bytes");
+    assert_eq!(got.envelope, golden("envelope.json"), "envelope bytes");
+    assert_eq!(got.intent, golden("intent.json"), "recovery-intent bytes");
+    assert_eq!(got.request_hash, golden("request-hash.txt"), "request hash");
+}

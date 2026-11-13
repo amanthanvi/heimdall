@@ -333,7 +333,14 @@ pub enum SelectionClass {
 
 /// ⟨U6-Q3⟩ Whether a managed alias's static selection is classified (D10 item 6;
 /// U0b phase 2, wave 4, files not U6's). `false`: callers pass `Undetermined`.
-pub const MANAGED_SELECTION_CLASSIFIED: bool = false;
+///
+/// ⟨wave 4⟩ `true`: `heimdall_localenv::projection::observe` classifies a managed
+/// alias by its slot entries in the selected `ManagedIdentityForm`
+/// (`heimdall_sshconf::relevant::managed_identity_selection`: `exclusive` only with the
+/// slot's own entries under `IdentitiesOnly yes`, `not_exclusive` with an inherited
+/// `IdentityFile` or `CertificateFile`, `undetermined` otherwise), so callers map the
+/// observed `IdentitySelection` to [`SelectionClass`].
+pub const MANAGED_SELECTION_CLASSIFIED: bool = true;
 
 /// Platform facts [`compute`] reports conditions from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

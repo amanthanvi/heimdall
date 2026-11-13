@@ -30,13 +30,13 @@
 //!
 //! **⟨M03⟩ A managed binding** (ADR-0008 D8 item 2, D10 item 5; m03-plan U8), after
 //! step 4:
-//! * **the slot check:** the binding must hold the slot of every managed pair. A free
-//!   slot is claimed (auto-materialize); a slot another binding holds (or that is still
-//!   clearing) is refused before launch, `CONFIG_CONFLICT` `managed_slot_held`
-//!   ([`require_slots`]). The slot table is the runtime's (U6's files, U10's wiring);
-//!   this build has no request for it, so the production [`ManagedSlots`] refuses
-//!   `driver_unavailable` (fail closed). Today a managed pair never gets this far:
-//!   `ensure` refuses it `driver_unavailable` until the managed adapter is registered;
+//! * **the slot check:** the binding must hold the slot of every managed pair.
+//!   ⟨ADR-0008 §17.21 item 2⟩ The runtime claims them in the launch `bind` itself (the
+//!   store CAS, the slot files, the signer's listing): a free slot is claimed
+//!   (auto-materialize), and a slot another binding holds (or that is still clearing)
+//!   refuses the bind, `CONFIG_CONFLICT` `managed_slot_held`, before launch. The CLI
+//!   claims nothing: [`ManagedSlots`] only reads the bind's outcome ([`BoundSlots`])
+//!   and [`require_slots`] refuses a pair it does not show held;
 //! * **an owned launch** (the program is the verified `ssh` client): the foreground pins
 //!   right after the program name, and the refusal of `-f`, `-M`, `-S`, `-O` and the
 //!   `-o` forms of `ForkAfterAuthentication`, `ControlMaster`, `ControlPath` and
@@ -282,7 +282,7 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
             &args.argv,
             &data.binding_id,
             &bound_data.consumer.pairs,
-            &mut UnavailableSlots,
+            &mut BoundSlots::of(&bound),
         )
         .map_err(|f| (f, Some(ids.clone())))?;
         // 5. Git's selection in the child's directory, with the child's environment.
@@ -358,75 +358,64 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
 
 // --- ⟨M03⟩ the managed checks (ADR-0008 D8 item 2, D10 item 5) ---------------------------
 
-/// The slot table of the managed pairs, as `run` needs it (D10 item 2). The runtime owns
-/// it (U6's files, U10's wiring); the CLI reaches it only through a request, which this
-/// build does not have ([`UnavailableSlots`]).
+/// The managed pairs' slots as `run` reads them (D10 items 2 and 5). ⟨ADR-0008 §17.21
+/// item 2⟩ The runtime claims them in the launch `bind` (store CAS, files, listing); this
+/// is a reader of that outcome only, with no claim of its own.
 pub(crate) trait ManagedSlots {
-    /// The slot's state for `pair`.
-    fn state(
-        &mut self,
-        pair: &heimdall_contract::request::PairIntegration,
-    ) -> Result<heimdall_domain::managed::SlotState, Failure>;
-    /// Claim the free slot of `pair` for `binding` (auto-materialize: the files are
-    /// written, then the environment endpoint lists the key).
-    fn claim(
+    /// Whether `binding` holds `pair`'s slot.
+    fn held(
         &mut self,
         binding: &heimdall_contract::ids::BindingId,
         pair: &heimdall_contract::request::PairIntegration,
-    ) -> Result<(), Failure>;
+    ) -> Result<bool, Failure>;
 }
 
-/// The production slot table of this build: none (fail closed).
-pub(crate) struct UnavailableSlots;
+/// The slots a launch `bind` reply shows: a successful launch bind of a managed binding
+/// means the runtime holds every managed pair's slot for it (a slot it could not claim
+/// refuses the bind, `managed_slot_held`); any other reply shows none held.
+pub(crate) struct BoundSlots {
+    claimed: bool,
+}
 
-impl ManagedSlots for UnavailableSlots {
-    fn state(
-        &mut self,
-        _pair: &heimdall_contract::request::PairIntegration,
-    ) -> Result<heimdall_domain::managed::SlotState, Failure> {
-        Err(launch_flow::managed_unavailable("the managed slot table"))
+impl BoundSlots {
+    /// The slots `bound`, the launch bind's reply, shows.
+    pub(crate) fn of(bound: &heimdall_contract::envelope::Envelope<serde_json::Value>) -> Self {
+        Self {
+            claimed: bound.code == Code::AccessReady,
+        }
     }
+}
 
-    fn claim(
+impl ManagedSlots for BoundSlots {
+    fn held(
         &mut self,
         _binding: &heimdall_contract::ids::BindingId,
         _pair: &heimdall_contract::request::PairIntegration,
-    ) -> Result<(), Failure> {
-        Err(launch_flow::managed_unavailable("the managed slot table"))
+    ) -> Result<bool, Failure> {
+        Ok(self.claimed)
     }
 }
 
-/// D10 item 5: `binding` must hold the slot of every managed pair of `pairs`. Every
-/// slot is read first; any slot another binding holds, or one still clearing, refuses
-/// the launch (`managed_slot_held`) before anything is claimed. Then each free slot is
-/// claimed (the domain's `slot_transition` decides each case). Returns how many slots
-/// were claimed.
+/// D10 item 5: `binding` must hold the slot of every managed pair of `pairs`, as the
+/// bind's outcome shows; a pair it does not hold refuses the launch
+/// (`managed_slot_held`). Nothing is claimed here. Returns how many managed slots are
+/// held.
 pub(crate) fn require_slots(
     slots: &mut dyn ManagedSlots,
     binding: &heimdall_contract::ids::BindingId,
     pairs: &[heimdall_contract::request::PairIntegration],
 ) -> Result<usize, Failure> {
-    use heimdall_domain::managed::{SlotEvent, SlotState, slot_transition};
-    let claim = SlotEvent::Claim {
-        binding: binding.clone(),
-    };
-    let mut free = Vec::new();
+    let mut held = 0;
     for pair in pairs
         .iter()
         .filter(|p| p.mechanism == launch_flow::MANAGED_CERTIFICATE)
     {
-        let state = slots.state(pair)?;
-        match slot_transition(&state, &claim) {
-            Ok(next) if next == state => {}
-            Ok(_) if matches!(state, SlotState::Free { .. }) => free.push(pair),
-            // Held by another binding, clearing, or anything this build cannot claim.
-            _ => return Err(launch_flow::managed_slot_held(binding)),
+        if !slots.held(binding, pair)? {
+            return Err(launch_flow::managed_slot_held(binding));
         }
+        held += 1;
     }
-    for pair in &free {
-        slots.claim(binding, pair)?;
-    }
-    Ok(free.len())
+    Ok(held)
 }
 
 /// ⟨M03⟩ The checks of a managed binding (module docs): `None` for a binding with no
@@ -607,7 +596,6 @@ mod tests {
         EvidenceBasis, IdentitySelection, InteractionKind, NoninteractiveEligibility,
     };
     use heimdall_contract::request::PairIntegration;
-    use heimdall_domain::managed::SlotState;
 
     fn pair(n: u8, mechanism: &str) -> PairIntegration {
         PairIntegration {
@@ -633,88 +621,72 @@ mod tests {
         }
     }
 
-    /// A fake slot table: each pair's state by destination, and the claims made.
+    /// A fake reading: the destinations whose slot the binding holds, and the reads.
     struct FakeSlots {
-        states: Vec<(DestinationId, SlotState)>,
-        claims: Vec<DestinationId>,
+        held: Vec<DestinationId>,
+        reads: usize,
     }
 
     impl ManagedSlots for FakeSlots {
-        fn state(&mut self, pair: &PairIntegration) -> Result<SlotState, Failure> {
-            Ok(self
-                .states
-                .iter()
-                .find(|(d, _)| *d == pair.destination)
-                .map_or(SlotState::Free { generation: 0 }, |(_, s)| s.clone()))
-        }
-        fn claim(&mut self, _binding: &BindingId, pair: &PairIntegration) -> Result<(), Failure> {
-            self.claims.push(pair.destination.clone());
-            Ok(())
+        fn held(&mut self, _binding: &BindingId, pair: &PairIntegration) -> Result<bool, Failure> {
+            self.reads += 1;
+            Ok(self.held.contains(&pair.destination))
         }
     }
 
-    /// ADR-0008 D10 item 5, against a fake slot table: free slots are claimed, a slot
-    /// the binding holds is kept, a slot another binding holds (or one still clearing)
-    /// refuses before any claim (`CONFIG_CONFLICT`, `managed_slot_held`, next
-    /// `release_binding`), and existing-access pairs need no slot.
+    /// ADR-0008 D10 item 5 and §17.21 item 2: the slot check reads the bind's outcome
+    /// and claims nothing; every managed pair must be held, a pair that is not refuses
+    /// (`CONFIG_CONFLICT`, `managed_slot_held`, next `release_binding`), and
+    /// existing-access pairs need no slot. A successful launch bind shows every slot
+    /// held; any other reply shows none.
     #[test]
-    fn the_slot_check_claims_free_slots_and_refuses_a_held_one_before_any_claim() {
+    fn the_slot_check_reads_the_bind_outcome_and_claims_nothing() {
         let me = BindingId::from_random_bytes([1; 16]);
-        let other = BindingId::from_random_bytes([2; 16]);
         let pairs = [
             pair(1, launch_flow::MANAGED_CERTIFICATE),
             pair(2, launch_flow::MANAGED_CERTIFICATE),
             pair(3, "native_agent"),
         ];
         let mut slots = FakeSlots {
-            states: vec![(
-                pairs[1].destination.clone(),
-                SlotState::Held {
-                    binding: me.clone(),
-                    generation: 4,
-                },
-            )],
-            claims: Vec::new(),
+            held: vec![pairs[0].destination.clone(), pairs[1].destination.clone()],
+            reads: 0,
         };
-        assert_eq!(require_slots(&mut slots, &me, &pairs).ok(), Some(1));
-        assert_eq!(slots.claims, [pairs[0].destination.clone()]);
-
-        for blocking in [
-            SlotState::Held {
-                binding: other.clone(),
-                generation: 7,
-            },
-            SlotState::Clearing { generation: 7 },
-        ] {
-            let mut slots = FakeSlots {
-                states: vec![(pairs[1].destination.clone(), blocking)],
-                claims: Vec::new(),
-            };
-            let Err(f) = require_slots(&mut slots, &me, &pairs) else {
-                panic!("a held slot must refuse");
-            };
-            assert!(
-                slots.claims.is_empty(),
-                "nothing is claimed before the refusal"
-            );
-            assert_eq!(f.env.code, heimdall_contract::Code::ConfigConflict);
-            assert_eq!(f.env.data["error"]["reason"], "managed_slot_held");
-            assert_eq!(
-                f.env.next.as_ref().map(|n| n.action.as_str()),
-                Some("release_binding")
-            );
-        }
+        assert_eq!(require_slots(&mut slots, &me, &pairs).ok(), Some(2));
+        assert_eq!(slots.reads, 2, "only the managed pairs are read");
+        let mut partial = FakeSlots {
+            held: vec![pairs[0].destination.clone()],
+            reads: 0,
+        };
+        let Err(f) = require_slots(&mut partial, &me, &pairs) else {
+            panic!("an unheld slot must refuse");
+        };
+        assert_eq!(f.env.code, heimdall_contract::Code::ConfigConflict);
+        assert_eq!(f.env.data["error"]["reason"], "managed_slot_held");
+        assert_eq!(
+            f.env.next.as_ref().map(|n| n.action.as_str()),
+            Some("release_binding")
+        );
         // No managed pair: no slot is read.
         let mut none = FakeSlots {
-            states: Vec::new(),
-            claims: Vec::new(),
+            held: Vec::new(),
+            reads: 0,
         };
         assert_eq!(require_slots(&mut none, &me, &pairs[2..]).ok(), Some(0));
-        // The production table of this build refuses, fail closed.
-        let Err(f) = require_slots(&mut UnavailableSlots, &me, &pairs) else {
-            panic!("no slot table in this build");
+        assert_eq!(none.reads, 0);
+        // The bind's reply: success shows every slot held, a refusal none.
+        let ok = heimdall_contract::envelope::Envelope {
+            code: heimdall_contract::Code::AccessReady,
+            ..heimdall_contract::envelope::Envelope::ok(serde_json::json!({}))
         };
-        assert_eq!(f.env.data["error"]["reason"], "driver_unavailable");
+        assert_eq!(
+            require_slots(&mut BoundSlots::of(&ok), &me, &pairs).ok(),
+            Some(2)
+        );
+        let refused = heimdall_contract::envelope::Envelope {
+            code: heimdall_contract::Code::ConfigConflict,
+            ..heimdall_contract::envelope::Envelope::ok(serde_json::json!({}))
+        };
+        assert!(require_slots(&mut BoundSlots::of(&refused), &me, &pairs).is_err());
     }
 
     #[test]

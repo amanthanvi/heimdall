@@ -838,6 +838,7 @@ async fn held_plan(
         consent: heimdall_domain::projection::ConsentRecord::default(),
         files: Vec::new(),
         summary: None,
+        managed_pairs: Default::default(),
     })
 }
 
@@ -2379,6 +2380,92 @@ fn committed_record(
     record
 }
 
+/// ⟨M03 wave 4, round 2 (R2-F)⟩ The preference switch (ADR-0008 D5 §6.6; m03-plan U0b
+/// row 9): in the SSH item's commit transaction, a pair whose preference is
+/// `managed_certificate` is recorded `projection: applied { generation }` exactly when
+/// the committed plan rendered its managed section ([`SetupIntent::managed_pairs`],
+/// computed with the rendering at preview; never the preference read here alone), and
+/// `pending` when the committed P does not render it (a rollback, an apply that renders
+/// its existing-access block or no longer renders the alias). A block repair
+/// (`remove_duplicate_markers`, `move_include_to_top`) leaves P as it is, so it changes
+/// nothing here. Store reads only for an M02 intent.
+///
+/// ⟨§17.22 item 16 (R2F-Q1)⟩ A stored preference that is `existing` is recorded
+/// `applied { generation }` when the committed P renders the pair's **existing-access**
+/// block: its alias is among the aliases the committed SSH item renders (`aliases`, P's
+/// as committed) and the plan did not render it as a managed certificate; otherwise
+/// (a rollback, an alias P no longer renders, a managed rendering) it is `pending`.
+/// **No row is ever created:** a pair without a stored preference (every M02 pair) is
+/// skipped. ⟨R2F-Q4⟩ A `manual_mode` plan (P written, the owner inserts the include
+/// block) is M02's journaled apply of P, so it counts as applied like any other apply;
+/// its manual-include diagnostic and the slot disclosure stay in the plan.
+fn record_managed_projection(
+    tx: &mut Txn<'_>,
+    intent: &SetupIntent,
+    aliases: &[String],
+    generation: u64,
+    at: Timestamp,
+) -> heimdall_store::Result<()> {
+    use heimdall_contract::managed::PreferredMechanism;
+    use heimdall_contract::setup::RepairResolution as R;
+    use heimdall_domain::enrollment::ProjectionStatus;
+    use heimdall_domain::scope::AccessPair;
+    let none = BTreeSet::new();
+    let rendered = match &intent.intent {
+        PreviewIntent::Repair {
+            resolution: R::RemoveDuplicateMarkers | R::MoveIncludeToTop,
+            ..
+        } => return Ok(()),
+        PreviewIntent::Apply { .. }
+        | PreviewIntent::Repair {
+            resolution: R::Rerender | R::ManualMode,
+            ..
+        } => Some(&intent.managed_pairs),
+        // A rollback removes P; any other intent renders no section.
+        _ => None,
+    };
+    let managed = rendered.unwrap_or(&none);
+    let mut pairs: BTreeMap<AccessPair, Option<String>> =
+        managed.iter().map(|p| (p.clone(), None)).collect();
+    for d in tx.destinations()? {
+        if let DestinationDefinition::Managed { account, .. } = d.definition {
+            pairs.insert(
+                AccessPair {
+                    destination: d.id,
+                    account,
+                },
+                Some(d.alias),
+            );
+        }
+    }
+    for (pair, alias) in pairs {
+        let Some(mut preference) = tx.pair_preference(&pair)? else {
+            continue;
+        };
+        let next = match preference.mechanism {
+            PreferredMechanism::ManagedCertificate if managed.contains(&pair) => {
+                ProjectionStatus::Applied { generation }
+            }
+            PreferredMechanism::Existing
+                if rendered.is_some()
+                    && !managed.contains(&pair)
+                    && alias.is_some_and(|a| aliases.contains(&a)) =>
+            {
+                ProjectionStatus::Applied { generation }
+            }
+            PreferredMechanism::ManagedCertificate | PreferredMechanism::Existing => {
+                ProjectionStatus::Pending
+            }
+            _ => continue,
+        };
+        if preference.projection != next {
+            preference.projection = next;
+            tx.set_pair_preference(&preference, at)?;
+        }
+    }
+    Ok(())
+}
+
 impl StageSink for StoreSink {
     fn append(&mut self, receipt: &LocalReceipt) -> Result<(), SinkError> {
         let stage = StageReceipt {
@@ -2431,7 +2518,17 @@ impl StageSink for StoreSink {
                     record,
                     ..commit.clone()
                 };
-                tx.commit_projection_item(op, &full, &receipt)
+                tx.commit_projection_item(op, &full, &receipt)?;
+                if commit.item == ProjectionItem::Ssh {
+                    let aliases = full
+                        .record
+                        .items
+                        .get(&ProjectionItem::Ssh)
+                        .map(|i| i.aliases.clone())
+                        .unwrap_or_default();
+                    record_managed_projection(tx, intent, &aliases, commit.generation, now)?;
+                }
+                Ok(())
             })
             .map_err(|e| SinkError(format!("commit not durable: {e}")))?;
         self.wrote = true;
@@ -2490,6 +2587,7 @@ mod tests {
                 restore: Vec::new(),
                 diff_text: "+".repeat(n),
             }),
+            managed_pairs: Default::default(),
         }
     }
 
@@ -2755,6 +2853,7 @@ mod tests {
             approval: None,
             consent: ConsentRecord::default(),
             files: Vec::new(),
+            managed_pairs: Default::default(),
         };
         let commit = |item: ProjectionItem, generation: u64, include_file: Option<&str>| {
             let record = ProjectionRecord {

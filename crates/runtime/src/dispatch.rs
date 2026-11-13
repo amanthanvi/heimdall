@@ -56,6 +56,8 @@ use heimdall_ipc::session::{Dispatcher, LiveEvent, SessionInfo, SubscriptionStar
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+use crate::supervisor::ManagedConnections;
+
 /// The authenticated caller for one request: principal and role from the
 /// transport, interaction and attendance from the session (never from request
 /// fields).
@@ -94,6 +96,31 @@ pub fn owner_only_m03(request: &Request) -> bool {
             ConnectionsRequest::Close { .. } | ConnectionsRequest::Register { .. }
         )
     )
+}
+
+/// ⟨M03⟩ `Request::Connections` (m03-plan §5 item 4a) over the wired connection
+/// control. The owner role was checked first by the dispatcher.
+async fn connections_request(
+    c: &ManagedConnections,
+    r: ConnectionsRequest,
+) -> OpResult<serde_json::Value> {
+    match r {
+        ConnectionsRequest::Close { connection_id } => c.close_request(&connection_id).await,
+        ConnectionsRequest::Register {
+            binding_id,
+            pid,
+            created_at,
+            image,
+        } => {
+            c.register_request(&binding_id, pid, created_at, &image)
+                .await
+        }
+        // A future action this build does not know is never executed.
+        _ => Err(OpError::new(
+            Code::UsageError,
+            "this connections action is not supported by this runtime",
+        )),
+    }
 }
 
 /// Render a value envelope; a payload that cannot be serialized becomes an
@@ -147,6 +174,14 @@ pub struct OperationsDispatcher {
     clock: Arc<dyn Clock>,
     /// The service's stop token, when this dispatcher may stop the service.
     stop: Option<CancellationToken>,
+    /// ⟨M03⟩ wave 4: connection control for `Request::Connections` (`None`: an unwired
+    /// runtime, which answers `driver_unavailable`).
+    connections: Option<Arc<ManagedConnections>>,
+    /// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 13; R2C-Q2)⟩ The runtime registry's
+    /// live binding endpoints, which a managed `bind` result names
+    /// ([`Self::with_binding_endpoints`]). `None`: no managed wiring, so no endpoint is
+    /// named.
+    binding_endpoints: Option<Arc<dyn crate::connections::BindingEndpoints>>,
 }
 
 impl std::fmt::Debug for OperationsDispatcher {
@@ -165,7 +200,53 @@ impl OperationsDispatcher {
             relay,
             clock,
             stop: None,
+            connections: None,
+            binding_endpoints: None,
         }
+    }
+
+    /// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 13; R2C-Q2)⟩ Name the binding's
+    /// endpoint in a managed `bind` result: `consumer.signing_endpoint` is read from
+    /// `endpoints` (the runtime's endpoint registry) for **that exact** binding at the
+    /// moment the result is answered, and is absent when the registry has no live
+    /// endpoint for it, so `connect` refuses before launch (it never guesses one). The
+    /// stored operation result is unchanged (it keeps no live state); a replay of the
+    /// bind reads the registry again. Results of every other mechanism are returned as
+    /// the application answered them (existing access unchanged).
+    #[must_use]
+    pub fn with_binding_endpoints(
+        mut self,
+        endpoints: Arc<dyn crate::connections::BindingEndpoints>,
+    ) -> Self {
+        self.binding_endpoints = Some(endpoints);
+        self
+    }
+
+    /// The managed `bind` result with its live binding endpoint ([`Self::with_binding_endpoints`]).
+    fn bind_result(
+        &self,
+        result: OpResult<heimdall_contract::request::EnsureData>,
+    ) -> OpResult<heimdall_contract::request::EnsureData> {
+        result.map(|mut done| {
+            if done.data.credential_mechanism == heimdall_app::operations::MANAGED_CERTIFICATE {
+                done.data.consumer.signing_endpoint = self
+                    .binding_endpoints
+                    .as_ref()
+                    .and_then(|e| e.endpoint(&done.data.binding_id))
+                    .map(|e| e.locator);
+            }
+            done
+        })
+    }
+
+    /// ⟨M03⟩ wave 4 (U0b row 13, phase 2): route `Connections::{Close, Register}` to
+    /// `connections` (U7's supervisor with the `Connection` events). Without it they
+    /// answer `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) before any record is
+    /// written.
+    #[must_use]
+    pub fn with_connections(mut self, connections: Arc<ManagedConnections>) -> Self {
+        self.connections = Some(connections);
+        self
     }
 
     /// Let owner `Shutdown` requests stop the service by cancelling `stop` (the
@@ -210,7 +291,7 @@ impl OperationsDispatcher {
         match request {
             Request::Inspect(r) => render(ops.inspect(&caller, r).await),
             Request::Ensure(r) => render(ops.ensure(&caller, r).await),
-            Request::Bind(r) => render(ops.bind(&caller, r).await),
+            Request::Bind(r) => render(self.bind_result(ops.bind(&caller, r).await)),
             Request::Delegate(r) => render(ops.delegate(&caller, r).await),
             Request::Observe(r) => render(ops.observe(&caller, r).await),
             Request::Cancel(r) => render(ops.cancel(&caller, r).await),
@@ -229,12 +310,12 @@ impl OperationsDispatcher {
             // (row 18). Neither request reaches the wildcard below.
             Request::Setup(r) => render(ops.setup(&caller, r).await),
             Request::Catalog(r) => render(ops.catalog(&caller, r).await),
-            // ⟨M03⟩ m03-plan U0b row 13, phase 1: `CAPABILITY_UNAVAILABLE`
-            // (`driver_unavailable`) before any record is written; phase 2 routes
-            // them to U10's drivers. The owner-only requests (F20) are refused for
-            // any other role first: authorization before capability, so a
-            // non-owner learns nothing about this build's drivers, and neither
-            // answer reads or writes the store.
+            // ⟨M03⟩ m03-plan U0b row 13, phase 2 (wave 4): routed to U10's drivers;
+            // a driver or port that is not wired answers `CAPABILITY_UNAVAILABLE`
+            // (`driver_unavailable`) before any record is written. The owner-only
+            // requests (F20) are refused for any other role first: authorization
+            // before capability, so a non-owner learns nothing about this build's
+            // drivers, and the refusal reads and writes nothing.
             Request::Issuer(_) | Request::Enrollment(_) | Request::Connections(_) => {
                 if owner_only_m03(&request) && !caller.context.is_owner() {
                     return error_value(
@@ -245,9 +326,24 @@ impl OperationsDispatcher {
                         .with_effect(EffectStatus::None),
                     );
                 }
-                error_value(OpError::driver_unavailable(
-                    "this request is not available in this build",
-                ))
+                // ⟨M03⟩ U0b row 13, phase 2 (wave 4): U10's drivers. A runtime whose
+                // M03 ports are not wired answers `driver_unavailable` from them,
+                // before any record is written.
+                match request {
+                    Request::Issuer(r) => render(ops.issuer_request(&caller, r).await),
+                    Request::Enrollment(r) => render(ops.enrollment_request(&caller, r).await),
+                    // ⟨M03⟩ wave 4: U7's connection control, with the `Connection`
+                    // events (U7-Q3); an unwired runtime answers `driver_unavailable`.
+                    Request::Connections(r) => match &self.connections {
+                        Some(c) => render(connections_request(c, r).await),
+                        None => error_value(OpError::driver_unavailable(
+                            "connection control is not available in this runtime",
+                        )),
+                    },
+                    _ => error_value(OpError::driver_unavailable(
+                        "this request is not available in this build",
+                    )),
+                }
             }
             // A request kind this build does not know is never executed.
             _ => error_value(OpError::new(

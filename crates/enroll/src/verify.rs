@@ -33,11 +33,11 @@
 //!   inconclusive and [`VerifierReport::unrecorded`] names it for the doctor.
 //! * `log_attestation` is [`LogAttestation::Unavailable`] (ADR-0005 §3.3).
 //!
-//! The outcome classification is `heimdall_domain::verification::classify` (wave 0's
-//! body answers inconclusive; the table's body lives in the reserved `domain` crate,
-//! U5IO-Q4). [`classify_evidence`] is the D5 §6.5 table over this module's richer
-//! evidence (it also sees a host-key failure, an unrecorded client and the clock
-//! skew), proposed as that body; nothing in production calls it.
+//! The outcome classification is `heimdall_domain::verification::classify` (ADR-0008
+//! §17.17 item 14, U5IO-Q4: the D5 §6.5 table). The port's outcome carries what it
+//! needs: each attempt's trace has `host_key_failure`, and
+//! `VerificationOutcome::unrecorded` names an unrecorded client.
+//! [`classify_evidence`] applies it to this module's richer report.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -175,6 +175,7 @@ impl VerifierReport {
                 positive: AttemptResult::default(),
                 negative: AttemptResult::default(),
                 client,
+                unrecorded: false,
             },
             positive: AttemptEvidence::default(),
             negative: AttemptEvidence::default(),
@@ -287,6 +288,7 @@ impl Verifier {
             Err(unrecorded) => {
                 let mut r = VerifierReport::not_run(Some(client_label), None);
                 r.unrecorded = Some(unrecorded);
+                r.outcome.unrecorded = true;
                 return r;
             }
         };
@@ -396,6 +398,7 @@ impl Verifier {
                 positive: positive_evidence.result.clone(),
                 negative: negative_evidence.result.clone(),
                 client: Some(client_label),
+                unrecorded: false,
             },
             positive: positive_evidence,
             negative: negative_evidence,
@@ -543,7 +546,10 @@ async fn attempt(
             result: AttemptResult {
                 exit_status: exit,
                 signatures,
-                trace: parsed.events,
+                trace: heimdall_domain::verification::TraceEvents {
+                    host_key_failure: parsed.host_key_failure,
+                    ..parsed.events
+                },
                 remote_now: reading.map(|(remote, _)| remote),
             },
             host_key_failure: parsed.host_key_failure,
@@ -900,71 +906,16 @@ pub fn generated_config(c: &GeneratedConfig<'_>) -> Option<String> {
     Some(out)
 }
 
-// --- the classification table over the Verifier's evidence (proposed; U5IO-Q4) --------
+// --- the classification table over the Verifier's evidence (U5IO-Q4) -----------------
 
-/// A known offset of the destination clock (ADR-0008 D5 §6.5 "The skew rule"): the
-/// remote clock minus local time, with its uncertainty (1 s plus the round trip).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KnownOffset {
-    /// Remote minus local, in milliseconds (negative: the destination lags).
-    pub remote_minus_local_ms: i64,
-    /// The uncertainty, in milliseconds.
-    pub uncertainty_ms: u64,
-}
+/// The known offset of the destination clock: `heimdall_domain::verification`'s
+/// (ADR-0008 §17.17 item 14 moved the table there).
+pub use heimdall_domain::verification::KnownOffset;
 
-impl KnownOffset {
-    /// Whether the interval reaches a lag of `lag_ms` or a lead of `lead_ms` (the
-    /// `verification_skew_allowance`: 60 s and 300 s).
-    #[must_use]
-    pub fn beyond(&self, lag_ms: u64, lead_ms: u64) -> bool {
-        let o = i128::from(self.remote_minus_local_ms);
-        let u = i128::from(self.uncertainty_ms);
-        u - o >= i128::from(lag_ms) || o + u >= i128::from(lead_ms)
-    }
-}
-
-fn positive_passed(a: &AttemptResult) -> bool {
-    let t = &a.trace;
-    a.exit_status == Some(0)
-        && t.server_version.is_some()
-        && t.host_key_matched
-        && t.offered_certificate
-        && t.accepted
-        && a.signatures == 1
-        && a.remote_now.is_some()
-}
-
-fn refused(a: &AttemptResult) -> bool {
-    let t = &a.trace;
-    a.exit_status.is_some_and(|c| c != 0)
-        && t.server_version.is_some()
-        && t.host_key_matched
-        && t.offered_certificate
-        && t.not_accepted
-        && !t.accepted
-        && t.publickey_failure_final
-        && a.signatures == 0
-}
-
-fn accepted_or_signed(a: &AttemptResult) -> bool {
-    a.exit_status == Some(0) || a.trace.accepted || a.signatures > 0
-}
-
-/// The ADR-0008 D5 §6.5 classification over the Verifier's evidence (proposed as the
-/// body of `domain::verification::classify`, U5IO-Q4; nothing in production calls it):
-///
-/// 1. an unrecorded client: inconclusive, `unrecorded_client_family`;
-/// 2. a host-key failure in either attempt: `host_key_mismatch`;
-/// 3. positive passed and negative refused: `passed`; positive passed and the negative
-///    accepted or signed: `principals_not_enforced`; positive passed otherwise:
-///    inconclusive (`transport`);
-/// 4. positive refused: inconclusive `destination_clock_skew` when `offset` is beyond
-///    the allowance (`skew_lag_ms`, `skew_lead_ms`), else `positive_refused`;
-/// 5. anything else: inconclusive (`transport`; a transport failure is never a
-///    refusal).
-///
-/// The verdict does not depend on the phase or the form; the state each verdict leads
-/// to does (`heimdall_domain::enrollment::transition`).
+/// The ADR-0008 D5 §6.5 classification over the Verifier's evidence: the domain's
+/// `heimdall_domain::verification::classify` (§17.17 item 14, U5IO-Q4), with this
+/// report's host-key failures, unrecorded client and refusal folded in. A run the
+/// Verifier refused (nothing ran) is inconclusive (`unclassified`).
 #[must_use]
 pub fn classify_evidence(
     report: &VerifierReport,
@@ -972,33 +923,28 @@ pub fn classify_evidence(
     skew_lag_ms: u64,
     skew_lead_ms: u64,
 ) -> VerificationVerdict {
-    let inconclusive = |reason| VerificationVerdict::Inconclusive { reason };
-    if report.unrecorded.is_some() {
-        return inconclusive(InconclusiveReason::UnrecordedClientFamily);
+    if report.unrecorded.is_none() && report.refused.is_some() {
+        return VerificationVerdict::Inconclusive {
+            reason: InconclusiveReason::Unclassified,
+        };
     }
-    if report.refused.is_some() {
-        return inconclusive(InconclusiveReason::Unclassified);
-    }
-    if report.positive.host_key_failure || report.negative.host_key_failure {
-        return VerificationVerdict::HostKeyMismatch;
-    }
-    let (p, n) = (&report.positive.result, &report.negative.result);
-    if positive_passed(p) {
-        if refused(n) {
-            return VerificationVerdict::Passed;
-        }
-        if accepted_or_signed(n) {
-            return VerificationVerdict::PrincipalsNotEnforced;
-        }
-        return inconclusive(InconclusiveReason::Transport);
-    }
-    if refused(p) {
-        if offset.is_some_and(|o| o.beyond(skew_lag_ms, skew_lead_ms)) {
-            return inconclusive(InconclusiveReason::DestinationClockSkew);
-        }
-        return VerificationVerdict::PositiveRefused;
-    }
-    inconclusive(InconclusiveReason::Transport)
+    let fold = |e: &AttemptEvidence| {
+        let mut r = e.result.clone();
+        r.trace.host_key_failure |= e.host_key_failure;
+        r
+    };
+    heimdall_domain::verification::classify(
+        &fold(&report.positive),
+        &fold(&report.negative),
+        heimdall_domain::verification::VerificationPhase::Initial,
+        heimdall_contract::enrollment::EnrollmentForm::Account,
+        &heimdall_domain::verification::ClassifyContext {
+            unrecorded: report.unrecorded.is_some(),
+            offset,
+            skew_lag_ms,
+            skew_lead_ms,
+        },
+    )
 }
 
 #[cfg(test)]

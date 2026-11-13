@@ -1111,6 +1111,10 @@ fn decision_kind_wire_forms() {
                 rotation_of: Some(ca(1)),
                 restored_without_log: false,
                 disclosures: vec![DisclosureKind::SameUserIssuerBoundary],
+                ca_public_key: None,
+                backup_created_at: None,
+                store_locator: None,
+                expected_store_locator: None,
             },
             "register_issuer",
             &[
@@ -1120,6 +1124,60 @@ fn decision_kind_wire_forms() {
                 "rotation_of",
                 "restored_without_log",
                 "disclosures",
+            ],
+        ),
+        // ⟨ADR-0008 §17.21 item 3⟩ The additive registration facts, present.
+        (
+            DecisionKind::RegisterIssuer {
+                ca_fingerprint: ca(0),
+                store: StoreKind::WindowsDpapi,
+                backup_sha256: "2".repeat(64),
+                rotation_of: None,
+                restored_without_log: false,
+                disclosures: vec![DisclosureKind::SameUserIssuerBoundary],
+                ca_public_key: Some("ssh-ed25519 AAAASYNTHETICPLACEHOLDERNOTAKEY".into()),
+                backup_created_at: Some(t("2026-11-10T21:00:00Z")),
+                store_locator: None,
+                expected_store_locator: None,
+            },
+            "register_issuer",
+            &[
+                "ca_fingerprint",
+                "store",
+                "backup_sha256",
+                "rotation_of",
+                "restored_without_log",
+                "disclosures",
+                "ca_public_key",
+                "backup_created_at",
+            ],
+        ),
+        // ⟨ADR-0008 §17.22 item 12⟩ The additive store-item facts, present.
+        (
+            DecisionKind::RegisterIssuer {
+                ca_fingerprint: ca(0),
+                store: StoreKind::LinuxSecretService,
+                backup_sha256: "2".repeat(64),
+                rotation_of: None,
+                restored_without_log: false,
+                disclosures: vec![DisclosureKind::SameUserIssuerBoundary],
+                ca_public_key: Some("ssh-ed25519 AAAASYNTHETICPLACEHOLDERNOTAKEY".into()),
+                backup_created_at: Some(t("2026-11-10T21:00:00Z")),
+                store_locator: Some("/org/fixture/item/2".into()),
+                expected_store_locator: Some("/org/fixture/item/1".into()),
+            },
+            "register_issuer",
+            &[
+                "ca_fingerprint",
+                "store",
+                "backup_sha256",
+                "rotation_of",
+                "restored_without_log",
+                "disclosures",
+                "ca_public_key",
+                "backup_created_at",
+                "store_locator",
+                "expected_store_locator",
             ],
         ),
         (
@@ -1201,6 +1259,24 @@ fn decision_kind_wire_forms() {
         let back: DecisionKind = serde_json::from_value(v.clone()).unwrap();
         assert_eq!(back, kind, "{tag}: round trip");
     }
+    // ⟨ADR-0008 §17.21 item 3⟩ A `RegisterIssuer` written before the additive fields
+    // decodes with both absent and re-encodes byte-identically.
+    let old = r#"{"kind":"register_issuer","ca_fingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","store":"linux_secret_service","backup_sha256":"2222222222222222222222222222222222222222222222222222222222222222","rotation_of":null,"restored_without_log":false,"disclosures":[]}"#;
+    let decoded: DecisionKind = serde_json::from_str(old).unwrap();
+    let DecisionKind::RegisterIssuer {
+        ca_public_key,
+        backup_created_at,
+        store_locator,
+        expected_store_locator,
+        ..
+    } = &decoded
+    else {
+        panic!("{decoded:?}");
+    };
+    assert_eq!((ca_public_key, backup_created_at), (&None, &None));
+    // ⟨§17.22 item 12⟩ Nor the store-item facts.
+    assert_eq!((store_locator, expected_store_locator), (&None, &None));
+    assert_eq!(serde_json::to_string(&decoded).unwrap(), old);
     // The foreign removal descriptor travels whole (the decision covers every field).
     let remove = serde_json::to_value(DecisionKind::RemoveEnrollment {
         operation: OperationId::from_random_bytes([5; 16]),

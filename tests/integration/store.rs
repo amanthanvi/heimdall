@@ -363,6 +363,7 @@ fn resolved_intent() -> ResolvedIntent {
         adapter: None,
         approval: None,
         covered: None,
+        binding_id: None,
     }
 }
 
@@ -3936,6 +3937,7 @@ mod m02 {
                 ),
                 displaced_name: None,
             }],
+            managed_pairs: Default::default(),
         }
     }
 

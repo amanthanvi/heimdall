@@ -18,6 +18,22 @@
 //!   the expiry on both clocks and safe time. The whole call is bounded by
 //!   `signature_authorization_timeout`.
 //!
+//! **Verification signatures** (⟨M03 wave 4⟩ ADR-0008 D2 item 3 "for verification,
+//! the D5 §6.5 predicate"; §17.19 item 5, INT-Q13 option (a)). A K_verify signature
+//! is admitted only through its operation's **verification gate**
+//! (`SigningGates::admit_verification`; opened when the verification endpoint is
+//! created with the plan, closed when the session drops): no gate, a closed gate, or
+//! an endpoint other than the operation's own refuses `key_not_served`. Under the
+//! gate, one fresh store transaction (time assessed inside it, as for a grant) finds
+//! the operation's **published positive** verification entry for exactly the
+//! presented K_verify, the request's pair, and the gate's (the plan's) CA and pair,
+//! within its validity, and re-runs `verification::check` over it
+//! (`verification_check_read_only`: the operation is an authorized `enrollment.apply`
+//! or `enrollment.verify` at its verification stage, the pair and CA are the plan's,
+//! time `Safe`, …). The permit's wall bound is the entry's `valid_before`; its release
+//! check also refuses once the gate is closed. Nothing here is ungated
+//! (`heimdall_credential::signer::VERIFICATION_UNGATED_SIGNING` stays `false`).
+//!
 //! The time seam (integrator reading; questions file G-Q3): [`AuthorizationTime::Peek`]
 //! evaluates the gate's rules over the authorization's own transaction, persisting
 //! nothing; [`AuthorizationTime::ReadOnly`] is `TimeGate::assess_read_only` (U3), the
@@ -30,18 +46,25 @@ use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use heimdall_contract::ids::GrantId;
+use heimdall_contract::ids::{GrantId, OperationId};
 use heimdall_contract::managed::LockBehavior;
 use heimdall_contract::{GrantState, Timestamp};
+use heimdall_domain::issuance::IssuanceState;
 use heimdall_domain::managed::SlotState;
 use heimdall_domain::time::{self as dtime, Admission, Clock, GateInput, TimeAnchor, TimeStatus};
+use heimdall_domain::verification::VerificationPurpose;
 use heimdall_store::Txn;
 use tokio::time::Instant;
 
 use super::lock::effective_lock_behavior;
 use super::narrowing::AuthorizationTime;
-use super::{Operations, bound_of, grant_context, mechanism_refuses, plus, revalidate_chain};
-use crate::managed::{GateError, PermitExpiry, SafeTime, SignPermit, SigningGates};
+use super::{
+    Operations, bound_of, grant_context, mechanism_refuses, plus, revalidate_chain,
+    verification_check_read_only,
+};
+use crate::managed::{
+    GateError, PermitExpiry, SafeTime, SignPermit, SigningGates, VerificationScope,
+};
 use crate::ports::{
     LockState, SessionLockSource, SignRefusal, SignatureAuthority, SignatureRequestFacts,
     SignatureSubject, SignerEndpoint,
@@ -269,13 +292,150 @@ impl Operations {
         .map_err(|_| SignRefusal::Unavailable)?
     }
 
+    /// ⟨INT-Q13⟩ One fresh verification read (module docs): the time assessment,
+    /// then the operation's published positive entry for this K_verify under the
+    /// gate's CA and pair, re-checked by `verification::check`, in one transaction.
+    async fn verification_read(
+        &self,
+        facts: &SignatureRequestFacts,
+        operation: &OperationId,
+        scope: &VerificationScope,
+    ) -> Result<Authorized, SignRefusal> {
+        let mode = *self
+            .inner
+            .narrowing
+            .authorization_time
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        let clock = Arc::clone(&self.inner.config.clock);
+        let sync = Arc::clone(&self.inner.config.time_sync);
+        let policy = self.inner.config.time_policy;
+        let gate = self.inner.timegate.in_txn();
+        let max_validity = self.inner.config.limits.verification_max_validity;
+        let op = operation.clone();
+        let scope = scope.clone();
+        let pair = facts.pair.clone();
+        let key = facts.key_fingerprint.clone();
+        self.write(move |tx, _| {
+            let assessed = match mode {
+                AuthorizationTime::ReadOnly => gate.assess_read_only(tx)?.2,
+                _ => assess_in(tx, clock.as_ref(), sync.as_ref(), &policy)?,
+            };
+            let Some(safe) = assessed else {
+                return Ok(Err(SignRefusal::TimeUncertain));
+            };
+            if pair != scope.pair {
+                return Ok(Err(SignRefusal::KeyNotServed));
+            }
+            let now = safe.wall();
+            let entry = tx.verification_entries(&op)?.into_iter().find(|e| {
+                e.state == IssuanceState::Published
+                    && e.purpose == VerificationPurpose::Positive
+                    && e.operation == op
+                    && e.pair == scope.pair
+                    && e.bounds.ca_fingerprint.as_ref() == Some(&scope.ca)
+                    && e.bounds.subject_fingerprint == key
+                    && e.bounds.valid_after <= now
+                    && now < e.bounds.valid_before
+            });
+            let Some(entry) = entry else {
+                return Ok(Err(SignRefusal::KeyNotServed));
+            };
+            if let Err(refused) =
+                verification_check_read_only(tx, &entry, true, TimeStatus::Safe, now, max_validity)?
+            {
+                return Ok(Err(SignRefusal::Verification(refused)));
+            }
+            Ok(Ok(Authorized {
+                safe,
+                bound: entry.bounds.valid_before,
+                budget_end: None,
+            }))
+        })
+        .await
+        .map_err(|_| SignRefusal::Unavailable)?
+    }
+
+    /// ⟨INT-Q13⟩ The permit's expiry from a passing read (§17.16, R4): the earliest
+    /// of the holder bound, the wall bound and the continuous budget, each mapped
+    /// through the step's one paired observation.
+    fn permit_expiry(
+        &self,
+        step_start: Instant,
+        paired: &TimeAnchor,
+        auth: &Authorized,
+    ) -> Result<(PermitExpiry, Arc<dyn SafeTime>), SignRefusal> {
+        let limits = *self.limits();
+        if auth.safe.anchor.boot_id != paired.boot_id {
+            return Err(SignRefusal::TimeUncertain);
+        }
+        // The instant at which the continuous clock reads `c`, and the wall clock `w`.
+        let at_continuous = |c: Duration| step_start + c.saturating_sub(paired.continuous);
+        let at_wall = |w: Timestamp| {
+            step_start + Duration::try_from(w.duration_since(paired.wall)).unwrap_or(Duration::ZERO)
+        };
+        let mut continuous = (step_start + limits.signing_holder_max).min(at_wall(auth.bound));
+        if let Some(end) = auth.budget_end {
+            continuous = continuous.min(at_continuous(end));
+        }
+        // A bound that ended while the authorization ran refuses here.
+        if continuous <= Instant::now() {
+            return Err(SignRefusal::DeadlinePassed);
+        }
+        let wall = auth.bound.min(plus(
+            paired.wall,
+            continuous.saturating_duration_since(step_start),
+        ));
+        let time: Arc<dyn SafeTime> = Arc::new(AdmittedTime {
+            clock: Arc::clone(&self.inner.config.clock),
+            admitted: auth.safe.anchor.clone(),
+            skew: self.inner.config.time_policy.max_tolerated_skew,
+        });
+        Ok((PermitExpiry::new(wall, continuous), time))
+    }
+
+    /// ⟨INT-Q13⟩ `admit` for a verification subject (module docs).
+    async fn admit_verification_signature(
+        &self,
+        facts: &SignatureRequestFacts,
+        operation: &OperationId,
+    ) -> Result<SignPermit, SignRefusal> {
+        // The key belongs to its own operation's endpoint only.
+        if facts.endpoint != SignerEndpoint::Verification(operation.clone()) {
+            return Err(SignRefusal::KeyNotServed);
+        }
+        let limits = *self.limits();
+        let shared = self
+            .signing_gates()
+            .admit_verification(operation, limits.signing_gate_wait)
+            .await
+            .map_err(|e| match e {
+                GateError::NoGate => SignRefusal::KeyNotServed,
+                GateError::Timeout => SignRefusal::GateTimeout,
+                _ => SignRefusal::Unavailable,
+            })?;
+        let step_start = Instant::now();
+        let paired = self.inner.config.clock.observe();
+        let auth = self
+            .verification_read(facts, operation, shared.scope())
+            .await?;
+        // The gate closed while the read ran: refuse (dropping `shared` releases it).
+        if !shared.is_open() {
+            return Err(SignRefusal::KeyNotServed);
+        }
+        let (expiry, time) = self.permit_expiry(step_start, &paired, &auth)?;
+        Ok(SigningGates::permit_verification(shared, expiry, time))
+    }
+
     async fn admit_signature(
         &self,
         facts: &SignatureRequestFacts,
     ) -> Result<SignPermit, SignRefusal> {
-        let SignatureSubject::Grant(gid) = &facts.subject else {
-            // The verification endpoint's predicate is U5's (fail closed).
-            return Err(SignRefusal::Unavailable);
+        let gid = match &facts.subject {
+            SignatureSubject::Grant(gid) => gid,
+            SignatureSubject::Verification(op) => {
+                return self.admit_verification_signature(facts, op).await;
+            }
         };
         let limits = *self.limits();
         // Already marked: refuse without queueing behind the narrowing (the pre-check's
@@ -303,49 +463,36 @@ impl Operations {
         let paired = self.inner.config.clock.observe();
         // The fresh read under the gate (dropping `shared` on refusal releases it).
         let auth = self.authorization_read(facts, gid).await?;
-        if auth.safe.anchor.boot_id != paired.boot_id {
-            return Err(SignRefusal::TimeUncertain);
-        }
-        // The instant at which the continuous clock reads `c`, and the wall clock `w`.
-        let at_continuous = |c: Duration| step_start + c.saturating_sub(paired.continuous);
-        let at_wall = |w: Timestamp| {
-            step_start + Duration::try_from(w.duration_since(paired.wall)).unwrap_or(Duration::ZERO)
-        };
-        let mut continuous = (step_start + limits.signing_holder_max).min(at_wall(auth.bound));
-        if let Some(end) = auth.budget_end {
-            continuous = continuous.min(at_continuous(end));
-        }
-        // A bound that ended while the authorization ran refuses here.
-        if continuous <= Instant::now() {
-            return Err(SignRefusal::DeadlinePassed);
-        }
-        let wall = auth.bound.min(plus(
-            paired.wall,
-            continuous.saturating_duration_since(step_start),
-        ));
-        let time: Arc<dyn SafeTime> = Arc::new(AdmittedTime {
-            clock: Arc::clone(&self.inner.config.clock),
-            admitted: auth.safe.anchor.clone(),
-            skew: self.inner.config.time_policy.max_tolerated_skew,
-        });
-        Ok(SigningGates::permit(
-            shared,
-            PermitExpiry::new(wall, continuous),
-            time,
-        ))
+        let (expiry, time) = self.permit_expiry(step_start, &paired, &auth)?;
+        Ok(SigningGates::permit(shared, expiry, time))
     }
 }
 
 #[async_trait]
 impl SignatureAuthority for Operations {
     async fn precheck(&self, facts: &SignatureRequestFacts) -> Result<(), SignRefusal> {
-        let SignatureSubject::Grant(gid) = &facts.subject else {
-            return Err(SignRefusal::Unavailable);
+        let bound = self.limits().signature_authorization_timeout;
+        let gid = match &facts.subject {
+            SignatureSubject::Grant(gid) => gid,
+            // ⟨INT-Q13⟩ No gate is taken: the gate's open state, then the same read.
+            SignatureSubject::Verification(op) => {
+                if facts.endpoint != SignerEndpoint::Verification(op.clone()) {
+                    return Err(SignRefusal::KeyNotServed);
+                }
+                let Some(scope) = self.signing_gates().verification_scope(op) else {
+                    return Err(SignRefusal::KeyNotServed);
+                };
+                return match tokio::time::timeout(bound, self.verification_read(facts, op, &scope))
+                    .await
+                {
+                    Ok(r) => r.map(|_| ()),
+                    Err(_) => Err(SignRefusal::AuthorizationTimeout),
+                };
+            }
         };
         if self.signing_gates().is_pending(gid) {
             return Err(SignRefusal::NarrowingPending);
         }
-        let bound = self.limits().signature_authorization_timeout;
         match tokio::time::timeout(bound, self.authorization_read(facts, gid)).await {
             Ok(r) => r.map(|_| ()),
             Err(_) => Err(SignRefusal::AuthorizationTimeout),

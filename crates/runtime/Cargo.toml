@@ -128,3 +128,9 @@ path = "../../tests/integration/session_lock.rs"
 [[test]]
 name = "integration_connections"
 path = "../../tests/integration/connections.rs"
+
+# ⟨M03⟩ wave 4 (U10): the issuer request handling and the verification gate
+# (ADR-0008 D3, D4; §17.19 item 5, INT-Q13).
+[[test]]
+name = "integration_issuer_m03"
+path = "../../tests/integration/issuer_m03.rs"

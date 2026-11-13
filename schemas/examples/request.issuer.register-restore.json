@@ -1,0 +1,10 @@
+{
+  "op": "issuer",
+  "action": "register",
+  "ca_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFNZTlRIRVRJQy1QTEFDRUhPTERFUi1OT1QtQS1LRVk=",
+  "store": "linux_secret_service",
+  "backup_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "backup_created_at": "2026-11-10T14:00:00Z",
+  "store_locator": "/org/freedesktop/secrets/collection/login/fixture2",
+  "expected_store_locator": "/org/freedesktop/secrets/collection/login/fixture1"
+}

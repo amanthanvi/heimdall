@@ -111,6 +111,18 @@
 //!     for re-issuing lost credentials (U6/U10), a no-op while the managed adapter is
 //!     unregistered.
 //!
+//! * ⟨M03⟩ **Wave 4** (m03-plan U10), with [`Supervisor::with_connections`]: after every
+//!   `tick`, [`Supervisor::connection_end_sweep`] closes the owned connections of the
+//!   grants that ended (deadline or cutoff, revocation, release; by their stored state),
+//!   with the `Connection` events ([`ManagedConnections`]); when the time gate leaves
+//!   `Safe`, `time_uncertain_close`; and every [`SupervisorConfig::managed_interval`]
+//!   ([`Supervisor::managed_pass`]) the sweep again (the retry of a discovery failure:
+//!   the durable rows are the cleanup intent, D7 item 2), the reap pass,
+//!   `Operations::issuer_supervision_pass`, `reverify_pass` and
+//!   `enrollment_step_timeout_pass`. With [`Supervisor::with_session_lock`] the lock
+//!   passes (`heimdall_app::lock::run_lock_passes`) run beside the loops. The holder
+//!   pass stays M02's.
+//!
 //! **Wake-ups.** [`Supervisor::run`] runs the time guard at start and every
 //! `anchor_interval`, and a scheduler pass at start, at the next wake instant a
 //! pass returns (never later than `max_idle_sleep`), shortly after any committed
@@ -134,9 +146,21 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use heimdall_app::Operations;
+use heimdall_app::error::Completed;
+use heimdall_app::lock::LockPassConfig;
 use heimdall_app::operations::{BoundedReport, IntentOutcome, only_bounded};
-use heimdall_app::ports::{AdapterError, ProcessLiveness, ResourceCleaner};
+use heimdall_app::ports::{
+    AdapterError, ConnError, ConnectionControl, ProcessLiveness, ResourceCleaner, SessionLockSource,
+};
+use heimdall_app::{OpError, OpResult, Operations};
+use heimdall_contract::envelope::{EffectStatus, reason};
+use heimdall_contract::ids::ConnectionId;
+use heimdall_contract::managed::{CloseReason, ConnectionEventKind, ConnectionEventPayload};
+use heimdall_domain::connection::ConnectionKind;
+use heimdall_domain::managed::{OwnedConnection, OwnedConnectionState};
+use heimdall_domain::scope::AccessPair;
+
+use crate::connections::{ConnectionSupervisor, PassReport, PassResult};
 use heimdall_app::reconcile::{
     Action, Backoff, CleanupHook, CleanupPoint, guard_cleanup, plan, should_retry,
 };
@@ -172,7 +196,16 @@ pub struct SupervisorConfig {
     /// into `[interval / 2, interval]`); clamped to at least
     /// [`MIN_HOLDER_INTERVAL`]. Default [`DEFAULT_HOLDER_INTERVAL`].
     pub holder_interval: Duration,
+    /// ⟨M03⟩ wave 4 (m03-plan U10): the base interval of the M03 passes (the
+    /// connection-end sweep, the reap pass, issuer supervision, re-verification and the
+    /// enrollment step timeout), jittered like the holder pass and clamped to at least
+    /// [`MIN_HOLDER_INTERVAL`]. Default [`DEFAULT_MANAGED_INTERVAL`]. Used only by a
+    /// supervisor with M03 wiring ([`Supervisor::with_connections`]).
+    pub managed_interval: Duration,
 }
+
+/// ⟨M03⟩ Default base interval of the M03 passes.
+pub const DEFAULT_MANAGED_INTERVAL: Duration = Duration::from_secs(5);
 
 /// ⟨M02⟩ Default base interval of the holder pass.
 pub const DEFAULT_HOLDER_INTERVAL: Duration = Duration::from_secs(5);
@@ -196,6 +229,7 @@ impl Default for SupervisorConfig {
             time_policy: TimePolicy::default(),
             resume_check_interval: Duration::from_secs(2),
             holder_interval: DEFAULT_HOLDER_INTERVAL,
+            managed_interval: DEFAULT_MANAGED_INTERVAL,
         }
     }
 }
@@ -307,6 +341,11 @@ pub struct Supervisor {
     /// ⟨M03⟩ U0b row 7: the back-off of kept cleanup intents, per (grant,
     /// operation), when an adapter with a remote credential effect is configured.
     intents: tokio::sync::Mutex<HashMap<(GrantId, OperationId), IntentRetry>>,
+    /// ⟨M03⟩ wave 4: connection control and the M03 passes (`None`: an M01/M02
+    /// supervisor, unchanged).
+    managed: Option<ManagedSupervision>,
+    /// ⟨M03⟩ wave 4 (U9): the session-lock source the lock passes read.
+    lock: Option<(Arc<dyn SessionLockSource>, LockPassConfig)>,
 }
 
 /// ⟨M03⟩ U0b row 7 (ADR-0007 §12.13; ADR-0008 D7 item 5): the retry schedule of one
@@ -441,7 +480,52 @@ impl Supervisor {
             jitter: Arc::new(RandomJitter),
             liveness: Arc::new(PlatformLiveness),
             intents: tokio::sync::Mutex::new(HashMap::new()),
+            managed: None,
+            lock: None,
         }
+    }
+
+    /// ⟨M03⟩ wave 4 (m03-plan U10): run the M03 passes over `connections` (module docs):
+    /// the connection-end sweep after every `tick`, `time_uncertain_close` when the gate
+    /// leaves `Safe`, and every [`SupervisorConfig::managed_interval`] the sweep again,
+    /// the reap pass, issuer supervision, re-verification and the enrollment step
+    /// timeout.
+    #[must_use]
+    pub fn with_connections(mut self, connections: Arc<ManagedConnections>) -> Self {
+        self.managed = Some(ManagedSupervision {
+            connections,
+            finished: tokio::sync::Mutex::new(std::collections::BTreeSet::new()),
+            uncertain_close_owed: std::sync::atomic::AtomicBool::new(false),
+            end_cleanup: None,
+        });
+        self
+    }
+
+    /// ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11): the managed adapter's
+    /// end-of-grant cleanup (`StoreCleanup` behind the runtime's late binding), which
+    /// [`Self::ended_slot_pass`] runs for every ended grant that still holds a slot.
+    /// Effective only after [`Self::with_connections`].
+    #[must_use]
+    pub fn with_end_cleanup(
+        mut self,
+        cleanup: Arc<dyn heimdall_adapters::managed::EndCleanup>,
+    ) -> Self {
+        if let Some(m) = self.managed.as_mut() {
+            m.end_cleanup = Some(cleanup);
+        }
+        self
+    }
+
+    /// ⟨M03⟩ wave 4 (U9): drive `heimdall_app::lock::run_lock_passes` over `source`
+    /// beside the other loops in [`Self::run`], until shutdown.
+    #[must_use]
+    pub fn with_session_lock(
+        mut self,
+        source: Arc<dyn SessionLockSource>,
+        config: LockPassConfig,
+    ) -> Self {
+        self.lock = Some((source, config));
+        self
     }
 
     /// ⟨r2.7⟩ Bound the repeated adapter `revoke()` rounds of pending remote
@@ -525,8 +609,31 @@ impl Supervisor {
         self
     }
 
-    /// Run all loops until cancelled.
+    /// Run all loops until cancelled. ⟨M03⟩ With a session-lock source
+    /// ([`Self::with_session_lock`]) the lock passes run beside them, until the same
+    /// cancellation.
     pub async fn run(self, shutdown: CancellationToken) {
+        match self.lock.clone() {
+            Some((source, config)) => {
+                let stop = shutdown.clone();
+                let lock = heimdall_app::lock::run_lock_passes(
+                    self.operations.clone(),
+                    source,
+                    config,
+                    async move { stop.cancelled().await },
+                );
+                let ((), report) = tokio::join!(self.run_loops(shutdown), lock);
+                tracing::debug!(
+                    passes = report.passes,
+                    failures = report.failures,
+                    "lock passes ended"
+                );
+            }
+            None => self.run_loops(shutdown).await,
+        }
+    }
+
+    async fn run_loops(&self, shutdown: CancellationToken) {
         let mut events = Some(self.operations.events().live_receiver());
         let start = Instant::now();
         let mut next_guard = start;
@@ -534,12 +641,17 @@ impl Supervisor {
         // ⟨M02⟩ U8: the first holder pass runs at start (holders that exited while the
         // runtime was down are released), then every jittered interval.
         let mut next_holder = start;
+        // ⟨M03⟩ The M03 passes run at start, then every jittered interval.
+        let mut next_managed = start;
         let mut last_safe: Option<bool> = None;
         let mut last_mono = start;
         let mut last_cont = self.state.as_ref().map(|(_, c)| c.continuous());
         let resume_bound = self.config.resume_bound();
         loop {
             let mut wake = next_guard.min(next_pass).min(next_holder);
+            if self.managed.is_some() {
+                wake = wake.min(next_managed);
+            }
             if self.state.is_some() {
                 // Bounded wait: re-check for a system sleep at least this often
                 // (review B04); such a wake costs one clock read.
@@ -585,6 +697,8 @@ impl Supervisor {
                             tracing::warn!(
                                 "time is uncertain; activation, signing and issuance are stopped"
                             );
+                            // ⟨M03⟩ D7 item 10: the gate left `Safe`.
+                            self.time_uncertain_close().await;
                         }
                         last_safe = Some(safe);
                     }
@@ -600,6 +714,10 @@ impl Supervisor {
                     Ok(_) => {}
                     Err(e) => tracing::warn!(code = %e.code, "holder pass failed"),
                 }
+            }
+            if self.managed.is_some() && now >= next_managed {
+                next_managed = now + self.managed_wait();
+                self.managed_pass(last_safe == Some(false)).await;
             }
             if now >= next_pass {
                 next_pass = match self.scheduler_pass().await {
@@ -658,6 +776,13 @@ impl Supervisor {
         &self,
     ) -> Result<Option<heimdall_contract::Timestamp>, heimdall_app::OpError> {
         self.operations.tick().await?;
+        // ⟨M03⟩ The owned connections of the grants this tick ended (deadline, cutoff,
+        // re-validation): closed by the policy, with their events.
+        if self.managed.is_some() {
+            let _ = self.connection_end_sweep().await;
+            // ⟨§17.21 item 11⟩ Then the slots those grants still hold.
+            let _ = self.ended_slot_pass().await;
+        }
         let mut bounded_at = None;
         let retry_in = match self.revocation_pass().await {
             Ok(report) => {
@@ -977,9 +1102,203 @@ impl Supervisor {
     /// # Errors
     /// None in wave 0; U6/U10's body reports a store failure as
     /// `STATE_UNAVAILABLE`.
-    #[allow(clippy::unused_async)] // the U6/U10 body awaits the managed driver
     pub async fn managed_reissue_pass(&self) -> Result<Vec<GrantId>, heimdall_app::OpError> {
-        Ok(Vec::new())
+        // ⟨M03⟩ wave 4: the body is `Operations::managed_reissue_pass` (U10), a no-op
+        // while the managed adapter is unwired.
+        self.operations.managed_reissue_pass().await
+    }
+
+    /// ⟨M03⟩ The jittered wait before the next M03 pass: `[interval / 2, interval]`,
+    /// the interval clamped to at least [`MIN_HOLDER_INTERVAL`].
+    fn managed_wait(&self) -> Duration {
+        self.config
+            .managed_interval
+            .max(MIN_HOLDER_INTERVAL)
+            .mul_f64(0.5 + 0.5 * self.jitter.unit().clamp(0.0, 1.0))
+    }
+
+    /// ⟨M03⟩ wave 4 (m03-plan U10; exposed for tests): one round of the M03 passes, each
+    /// logged and retried by the next round on failure: the connection-end sweep, the
+    /// ended-grant slot pass ([`Self::ended_slot_pass`]), the owed `time_uncertain_close` while time stays uncertain (`uncertain`), the reap
+    /// pass, issuer supervision, re-verification and the enrollment step timeout. A
+    /// supervisor without M03 wiring does nothing.
+    pub async fn managed_pass(&self, uncertain: bool) {
+        let Some(m) = &self.managed else {
+            return;
+        };
+        let _ = self.connection_end_sweep().await;
+        let _ = self.ended_slot_pass().await;
+        if uncertain
+            && m.uncertain_close_owed
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            self.time_uncertain_close().await;
+        }
+        if let Err(f) = m.connections.reap_pass().await {
+            tracing::warn!(word = f.word(), "reap pass could not enumerate; retrying");
+        }
+        if let Err(e) = self.operations.issuer_supervision_pass().await {
+            tracing::warn!(code = %e.code, "issuer supervision pass failed");
+        }
+        if let Err(e) = self.operations.reverify_pass().await {
+            tracing::warn!(code = %e.code, "re-verification pass failed");
+        }
+        if let Err(e) = self.operations.enrollment_step_timeout_pass().await {
+            tracing::warn!(code = %e.code, "enrollment step timeout pass failed");
+        }
+    }
+
+    /// ⟨M03⟩ D7 item 10 (exposed for tests): `time_uncertain_close` with its events;
+    /// a discovery failure keeps it owed, so the next M03 pass retries it while time
+    /// stays uncertain (D7 item 2). Without M03 wiring, nothing.
+    pub async fn time_uncertain_close(&self) {
+        let Some(m) = &self.managed else {
+            return;
+        };
+        let owed = match m.connections.time_uncertain_close().await {
+            Ok(r) => !r.pending.is_empty() || !r.failed.is_empty(),
+            Err(f) => {
+                tracing::warn!(word = f.word(), "time-uncertain close could not enumerate");
+                true
+            }
+        };
+        m.uncertain_close_owed
+            .store(owed, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// ⟨M03⟩ wave 4 (exposed for tests): close the owned connections of every ended
+    /// grant that still has open rows, by the reason its stored state gives
+    /// ([`close_reason_for`]): `connection_deadline_pass` for an expired grant,
+    /// `revocation_close` for a revoked one, `release_close` for a released one, each
+    /// with its events. The durable rows are the cleanup intent (D7 item 2): a grant
+    /// whose pass left a row pending or failed, or could not read its rows
+    /// (`DiscoveryFailed`), is passed again by the next sweep; a grant whose pass
+    /// finished (rows closed, or kept by the policy) is not passed again. Without M03
+    /// wiring, nothing.
+    pub async fn connection_end_sweep(&self) -> ConnectionSweep {
+        let mut sweep = ConnectionSweep::default();
+        let Some(m) = &self.managed else {
+            return sweep;
+        };
+        let Some((store, _)) = &self.state else {
+            return sweep;
+        };
+        let open = match read_store(store, grants_with_open_connections).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(code = %e.code, "connection sweep could not enumerate; retrying");
+                sweep.discovery_failed = true;
+                return sweep;
+            }
+        };
+        let mut finished = m.finished.lock().await;
+        finished.retain(|g| open.iter().any(|(o, _)| o == g));
+        for (grant, state) in open {
+            let Some(reason) = close_reason_for(state) else {
+                continue;
+            };
+            if finished.contains(&grant) {
+                continue;
+            }
+            let result = m.connections.close_by_reason(&grant, reason).await;
+            match result {
+                Ok(r) if r.pending.is_empty() && r.failed.is_empty() => {
+                    finished.insert(grant.clone());
+                    sweep.handled.push((grant, reason));
+                }
+                Ok(_) => sweep.retry.push(grant),
+                Err(f) => {
+                    tracing::warn!(word = f.word(), "connection pass could not read its rows");
+                    sweep.retry.push(grant);
+                }
+            }
+        }
+        sweep
+    }
+
+    /// ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11; exposed for tests): slot
+    /// cleanup when a grant ends; ⟨round 3, §17.22 items 4, 9, 10⟩ the ended-grant and
+    /// ended-binding cleanup pass, discovered from durable rows only, never from held
+    /// slots alone:
+    ///
+    /// * every grant of this environment that has ended (terminal, or `revoking`)
+    ///   while a binding of it still holds (or is clearing) a managed slot
+    ///   (`Txn::held_slots_of_ended_grants`);
+    /// * every terminal grant with a credential instance not yet `destroyed`, and
+    ///   every grant (live ones included) with a slot held or clearing for a released
+    ///   binding, ⟨round 5, W4-C01⟩ or with a released binding whose release cleanup
+    ///   (its endpoint and files of every generation, slot or no slot) is not yet
+    ///   recorded done (`Txn::managed_cleanup_owed`; `StoreCleanup` records it done).
+    ///
+    /// For each: an ended managed grant's K_env is destroyed in memory
+    /// (`Operations::managed_end_destroy_keys`); the managed adapter's end cleanup
+    /// runs (`StoreCleanup`: each slot cleared by its own store generation, the binding
+    /// endpoints and files removed by generation, the mux paths, the slots freed last,
+    /// the owned connections closed; for a live grant only its released bindings); and
+    /// only when that completed do the ended grant's instances become `destroyed`
+    /// (`Operations::managed_end_instances_destroyed`, the gate released). It runs
+    /// after every scheduler `tick` and in every M03 pass, so a failed, missed or
+    /// crashed cleanup is retried (the `clearing` slot row and the undestroyed
+    /// instance row are the cleanup intent). Returns the grants whose cleanup
+    /// succeeded, in grant order. Without M03 wiring, an end cleanup or state,
+    /// nothing.
+    ///
+    /// # Errors
+    /// The store read failed (nothing was cleaned; the next pass retries).
+    pub async fn ended_slot_pass(&self) -> Result<Vec<GrantId>, heimdall_app::OpError> {
+        let (Some(m), Some((store, _))) = (&self.managed, &self.state) else {
+            return Ok(Vec::new());
+        };
+        let Some(cleanup) = &m.end_cleanup else {
+            return Ok(Vec::new());
+        };
+        let environment = self.operations.environment().clone();
+        let owed = match read_store(store, move |tx| {
+            let mut owed: std::collections::BTreeSet<GrantId> = tx
+                .held_slots_of_ended_grants(&environment)?
+                .into_iter()
+                .map(|(g, _)| g)
+                .collect();
+            owed.extend(tx.managed_cleanup_owed(&environment)?);
+            Ok(owed)
+        })
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(code = %e.code, "ended-grant slot pass could not enumerate; retrying");
+                return Err(e);
+            }
+        };
+        let mut cleaned = Vec::new();
+        for grant in owed {
+            let ended = match self.operations.managed_end_destroy_keys(&grant).await {
+                Ok(ended) => ended,
+                Err(e) => {
+                    tracing::warn!(code = %e.code, "an ended grant could not be read; retrying");
+                    continue;
+                }
+            };
+            if cleanup
+                .after_end(std::slice::from_ref(&grant))
+                .await
+                .is_err()
+            {
+                tracing::warn!("an ended grant's slot cleanup is incomplete; retrying");
+                continue;
+            }
+            if ended
+                && let Err(e) = self
+                    .operations
+                    .managed_end_instances_destroyed(&grant)
+                    .await
+            {
+                tracing::warn!(code = %e.code, "an ended grant's instances could not be updated; retrying");
+                continue;
+            }
+            cleaned.push(grant);
+        }
+        Ok(cleaned)
     }
 
     async fn next_wake(&self) -> Result<Option<Timestamp>, heimdall_app::OpError> {
@@ -1215,6 +1534,483 @@ impl Supervisor {
             "safe time could not be established consistently",
         ))
     }
+}
+
+// --- ⟨M03⟩ wave 4 (U10): connection control with its events -----------------------------
+
+/// ⟨M03⟩ m03-plan U10 (U7-Q3 option (a), ADR-0008 §17.20 item 14): U7's
+/// [`ConnectionSupervisor`] with the `Connection` events. It implements
+/// [`ConnectionControl`] itself, so every close made through it emits one `Connection`
+/// event (`{connection_id, kind, event, reason}`) per row it actually closed: the
+/// owner's `Connections::Close` (`owner_request`), the supervisor's passes (the reason of
+/// the pass), and the revoke and release paths of `Operations` through
+/// `ManagedWiring.connections` (their reason). A start or a registration emits
+/// `started`. A pass emits from its `PassReport::closed`, so a row closed once is never
+/// reported closed again. Events carry IDs and fixed words only (no PID, no path).
+pub struct ManagedConnections {
+    supervisor: Arc<ConnectionSupervisor>,
+    store: Arc<Store>,
+    operations: Operations,
+}
+
+impl std::fmt::Debug for ManagedConnections {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManagedConnections").finish_non_exhaustive()
+    }
+}
+
+/// The `Connection` event payload of one row.
+fn connection_payload(
+    id: &ConnectionId,
+    kind: ConnectionKind,
+    event: ConnectionEventKind,
+    reason: Option<CloseReason>,
+) -> serde_json::Value {
+    serde_json::to_value(ConnectionEventPayload {
+        connection_id: id.clone(),
+        kind,
+        event,
+        reason,
+    })
+    .unwrap_or(serde_json::Value::Null)
+}
+
+impl ManagedConnections {
+    /// Connection control over `supervisor`, reading rows from `store` and publishing
+    /// events through `operations`.
+    #[must_use]
+    pub fn new(
+        supervisor: Arc<ConnectionSupervisor>,
+        store: Arc<Store>,
+        operations: Operations,
+    ) -> Self {
+        Self {
+            supervisor,
+            store,
+            operations,
+        }
+    }
+
+    /// U7's supervisor.
+    #[must_use]
+    pub fn supervisor(&self) -> &Arc<ConnectionSupervisor> {
+        &self.supervisor
+    }
+
+    fn emit(
+        &self,
+        id: &ConnectionId,
+        kind: ConnectionKind,
+        event: ConnectionEventKind,
+        reason: Option<CloseReason>,
+    ) {
+        let payload = connection_payload(id, kind, event, reason);
+        if let Err(e) = self
+            .operations
+            .events()
+            .publish(EventType::Connection, None, payload)
+        {
+            tracing::warn!(code = %e.code, "connection event was not recorded");
+        }
+    }
+
+    /// Emit `closed` with `reason` for every row `closed` names (its kind read from the
+    /// store; a row that cannot be read is reported by its ID with the kind the store
+    /// last had, or not at all when it is gone).
+    async fn emit_closed(&self, closed: &[ConnectionId], reason: Option<CloseReason>) {
+        if closed.is_empty() {
+            return;
+        }
+        let ids = closed.to_vec();
+        let rows = read_store(&self.store, move |tx| {
+            let mut out = Vec::new();
+            for id in &ids {
+                if let Some(c) = tx.owned_connection(id)? {
+                    out.push((c.id, c.kind));
+                }
+            }
+            Ok(out)
+        })
+        .await;
+        match rows {
+            Ok(rows) => {
+                for (id, kind) in rows {
+                    self.emit(&id, kind, ConnectionEventKind::Closed, reason);
+                }
+            }
+            Err(e) => tracing::warn!(code = %e.code, "connection events could not be read"),
+        }
+    }
+
+    /// Emit the events of one pass result and return it unchanged.
+    async fn reported(&self, result: PassResult, reason: Option<CloseReason>) -> PassResult {
+        let report = match &result {
+            Ok(r) => r,
+            Err(f) => &f.report,
+        };
+        self.emit_closed(&report.closed, reason).await;
+        result
+    }
+
+    /// `connection_restart_pass` (first at start), with its events. A master closed here
+    /// is reported with the reason its grant's stored state gives
+    /// ([`close_reason_for`]), `time_uncertain` when the grant is still live.
+    ///
+    /// # Errors
+    /// [`crate::connections::DiscoveryFailed`] (U7).
+    pub async fn restart_pass(&self) -> PassResult {
+        let result = self.supervisor.connection_restart_pass().await;
+        let report = match &result {
+            Ok(r) => r,
+            Err(f) => &f.report,
+        };
+        if !report.closed.is_empty() {
+            let ids = report.closed.clone();
+            let rows = read_store(&self.store, move |tx| {
+                let mut out = Vec::new();
+                for id in &ids {
+                    if let Some(c) = tx.owned_connection(id)? {
+                        let state = tx.grant(&c.grant)?.map(|g| g.state);
+                        out.push((c.id, c.kind, state));
+                    }
+                }
+                Ok(out)
+            })
+            .await
+            .unwrap_or_default();
+            for (id, kind, state) in rows {
+                let reason = state
+                    .and_then(close_reason_for)
+                    .unwrap_or(CloseReason::TimeUncertain);
+                self.emit(&id, kind, ConnectionEventKind::Closed, Some(reason));
+            }
+        }
+        result
+    }
+
+    /// Close the owned connections of `grants` by the reason each grant's stored state
+    /// gives ([`close_reason_for`]), with their events (the end-of-grant cleanup, and
+    /// the sweep). `true` when every pass finished (nothing pending, failed or
+    /// undiscovered); a grant that has not ended is left alone.
+    pub async fn close_ended(&self, grants: &[GrantId]) -> bool {
+        let ids = grants.to_vec();
+        let Ok(states) = read_store(&self.store, move |tx| {
+            let mut out = Vec::new();
+            for g in ids {
+                if let Some(s) = tx.grant(&g)? {
+                    out.push((g, s.state));
+                }
+            }
+            Ok(out)
+        })
+        .await
+        else {
+            return false;
+        };
+        let mut ok = true;
+        for (grant, state) in states {
+            let Some(reason) = close_reason_for(state) else {
+                continue;
+            };
+            ok &= finished(&self.close_by_reason(&grant, reason).await);
+        }
+        ok
+    }
+
+    async fn close_by_reason(&self, grant: &GrantId, reason: CloseReason) -> PassResult {
+        let one = std::slice::from_ref(grant);
+        match reason {
+            CloseReason::Revocation => self.revocation_close(one).await,
+            CloseReason::Release => self.release_close(one).await,
+            _ => self.deadline_pass(one).await,
+        }
+    }
+
+    /// `connection_deadline_pass` with its events (`admission_deadline`).
+    ///
+    /// # Errors
+    /// [`crate::connections::DiscoveryFailed`] (U7).
+    pub async fn deadline_pass(&self, ended: &[GrantId]) -> PassResult {
+        let r = self.supervisor.connection_deadline_pass(ended).await;
+        self.reported(r, Some(CloseReason::AdmissionDeadline)).await
+    }
+
+    /// `revocation_close` with its events (`revocation`): D7 item 2 step 4, after the
+    /// revoke's gates are released.
+    ///
+    /// # Errors
+    /// [`crate::connections::DiscoveryFailed`] (U7).
+    pub async fn revocation_close(&self, cascade: &[GrantId]) -> PassResult {
+        let r = self.supervisor.revocation_close(cascade).await;
+        self.reported(r, Some(CloseReason::Revocation)).await
+    }
+
+    /// `release_close` with its events (`release`).
+    ///
+    /// # Errors
+    /// [`crate::connections::DiscoveryFailed`] (U7).
+    pub async fn release_close(&self, grants: &[GrantId]) -> PassResult {
+        let r = self.supervisor.release_close(grants).await;
+        self.reported(r, Some(CloseReason::Release)).await
+    }
+
+    /// `time_uncertain_close` with its events (`time_uncertain`).
+    ///
+    /// # Errors
+    /// [`crate::connections::DiscoveryFailed`] (U7).
+    pub async fn time_uncertain_close(&self) -> PassResult {
+        let r = self.supervisor.time_uncertain_close().await;
+        self.reported(r, Some(CloseReason::TimeUncertain)).await
+    }
+
+    /// `reap_pass` with its events (`process_exited`).
+    ///
+    /// # Errors
+    /// [`crate::connections::DiscoveryFailed`] (U7).
+    pub async fn reap_pass(&self) -> PassResult {
+        let r = self.supervisor.reap_pass().await;
+        self.reported(r, Some(CloseReason::ProcessExited)).await
+    }
+
+    /// Runtime exit: close this process's masters. The contract has no close reason
+    /// for a runtime stop, so their `closed` events carry none.
+    pub async fn shutdown(&self) -> PassReport {
+        let report = self.supervisor.shutdown().await;
+        self.emit_closed(&report.closed, None).await;
+        report
+    }
+
+    /// `Connections::Close { connection_id }` (m03-plan §5 item 4a; the owner role was
+    /// checked by the dispatcher): close one owned connection through
+    /// `ConnectionControl::close` (reason `owner_request`). An unverifiable process is
+    /// reported, never signalled. A row already ended answers its state again
+    /// (idempotent), emitting nothing.
+    ///
+    /// Data: `{"connection_id", "kind", "state"}`, `state` one of `closed`,
+    /// `unverified`, `closing` (the close is pending and is retried by the reap pass).
+    ///
+    /// # Errors
+    /// `NOT_FOUND` for an unknown connection; `STATE_UNAVAILABLE` when the store cannot
+    /// be read; `SERVICE_UNAVAILABLE` when the close failed (the row stays `closing`).
+    pub async fn close_request(&self, id: &ConnectionId) -> OpResult<serde_json::Value> {
+        let want = id.clone();
+        let row = read_store(&self.store, move |tx| tx.owned_connection(&want)).await?;
+        let Some(row) = row else {
+            return Err(OpError::new(Code::NotFound, "unknown owned connection")
+                .with_resource("connection", Some(id.to_string()))
+                .with_effect(EffectStatus::None));
+        };
+        let state = |s: &str| {
+            Completed::ok(
+                Code::Ok,
+                serde_json::json!({
+                    "connection_id": row.id,
+                    "kind": row.kind,
+                    "state": s,
+                }),
+            )
+        };
+        match row.state {
+            OwnedConnectionState::Closed => return Ok(state("closed")),
+            OwnedConnectionState::Unverified => return Ok(state("unverified")),
+            // `up`, `closing` (and a state this build does not know): close it.
+            _ => {}
+        }
+        match ConnectionControl::close(self, &row, CloseReason::OwnerRequest).await {
+            Ok(()) => Ok(state("closed")),
+            Err(ConnError::Unverified) => Ok(state("unverified")),
+            Err(ConnError::Unavailable(_)) => Ok(state("closing")),
+            Err(_) => Err(OpError::new(
+                Code::ServiceUnavailable,
+                "the owned connection could not be closed; it is retried",
+            )
+            .with_resource("connection", Some(row.id.to_string()))),
+        }
+    }
+
+    /// `Connections::Register` (Windows; m03-plan §5 item 4a, U0b row 26): through
+    /// `ConnectionControl::register`. Data: `{"connection_id", "kind": "dedicated"}`.
+    ///
+    /// # Errors
+    /// `LAUNCH_FAILED` with `connection_registration_refused` for every refusal (the
+    /// launcher then closes its job, fail closed); `CAPABILITY_UNAVAILABLE`
+    /// (`driver_unavailable`) where registration does not exist (Unix).
+    pub async fn register_request(
+        &self,
+        binding: &BindingId,
+        pid: u32,
+        created_at: Timestamp,
+        image: &str,
+    ) -> OpResult<serde_json::Value> {
+        match ConnectionControl::register(self, binding, pid, created_at, image).await {
+            Ok(c) => Ok(Completed::ok(
+                Code::Ok,
+                serde_json::json!({ "connection_id": c.id, "kind": c.kind }),
+            )),
+            Err(ConnError::RegistrationRefused(word))
+                if word == crate::connections::refusal::WINDOWS_ONLY =>
+            {
+                Err(OpError::driver_unavailable(
+                    "connection registration exists on Windows only",
+                ))
+            }
+            Err(ConnError::RegistrationRefused(_)) => Err(OpError::new(
+                Code::LaunchFailed,
+                "the connection registration was refused",
+            )
+            .with_reason(reason::CONNECTION_REGISTRATION_REFUSED)
+            .with_effect(EffectStatus::None)),
+            Err(_) => Err(OpError::new(
+                Code::LaunchFailed,
+                "the connection could not be registered",
+            )
+            .with_reason(reason::CONNECTION_REGISTRATION_FAILED)
+            .with_effect(EffectStatus::None)),
+        }
+    }
+}
+
+/// A pass that left nothing to retry.
+fn finished(r: &PassResult) -> bool {
+    matches!(r, Ok(p) if p.pending.is_empty() && p.failed.is_empty())
+}
+
+/// The close reason a grant's stored state gives (the post-tick sweep and the restart
+/// pass): `expired` (and the other ended states that never served) is the admission
+/// deadline, `revoking`/`revoked` revocation, `released` release; `None` for a grant
+/// that is still live.
+#[must_use]
+pub fn close_reason_for(state: heimdall_contract::GrantState) -> Option<CloseReason> {
+    use heimdall_contract::GrantState as G;
+    match state {
+        G::Expired | G::Denied | G::Cancelled | G::Failed => Some(CloseReason::AdmissionDeadline),
+        G::Revoking | G::Revoked => Some(CloseReason::Revocation),
+        G::Released => Some(CloseReason::Release),
+        _ => None,
+    }
+}
+
+type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+// `heimdall_app::ports::ConnectionControl` is declared with `#[async_trait]`; this is the
+// desugared form (as `connections.rs` does), delegating to U7's supervisor and emitting.
+impl ConnectionControl for ManagedConnections {
+    fn start_master<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        binding: &'life1 BindingId,
+        pair: &'life2 AccessPair,
+    ) -> BoxFuture<'async_trait, Result<OwnedConnection, ConnError>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let c = ConnectionControl::start_master(&*self.supervisor, binding, pair).await?;
+            self.emit(&c.id, c.kind, ConnectionEventKind::Started, None);
+            Ok(c)
+        })
+    }
+
+    fn close<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        c: &'life1 OwnedConnection,
+        reason: CloseReason,
+    ) -> BoxFuture<'async_trait, Result<(), ConnError>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            ConnectionControl::close(&*self.supervisor, c, reason).await?;
+            self.emit(&c.id, c.kind, ConnectionEventKind::Closed, Some(reason));
+            Ok(())
+        })
+    }
+
+    fn register<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        binding: &'life1 BindingId,
+        pid: u32,
+        created_at: Timestamp,
+        image: &'life2 str,
+    ) -> BoxFuture<'async_trait, Result<OwnedConnection, ConnError>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let c = ConnectionControl::register(&*self.supervisor, binding, pid, created_at, image)
+                .await?;
+            self.emit(&c.id, c.kind, ConnectionEventKind::Started, None);
+            Ok(c)
+        })
+    }
+}
+
+/// ⟨M03⟩ The grants with an open owned connection (`up` or `closing`), with their
+/// stored state: the rows of the bindings with a recorded holder and of the bindings
+/// owning a process resource (U7's enumeration; `connections::owned_row_invariant`).
+fn grants_with_open_connections(
+    tx: &mut heimdall_store::Txn<'_>,
+) -> heimdall_store::Result<Vec<(GrantId, heimdall_contract::GrantState)>> {
+    use heimdall_domain::resource::{OwnerRef, ResourceKind};
+    let mut bindings: std::collections::BTreeSet<BindingId> =
+        tx.binding_holders()?.into_iter().map(|(b, _)| b).collect();
+    for (_, json) in tx.raw_documents(heimdall_store::RawDocuments::Resources)? {
+        let Ok(r) = serde_json::from_str::<ManagedResource>(&json) else {
+            continue;
+        };
+        if let (ResourceKind::Process, OwnerRef::Binding { id }) = (r.kind, r.owner) {
+            bindings.insert(id);
+        }
+    }
+    let mut grants = std::collections::BTreeSet::new();
+    for b in bindings {
+        for c in tx.owned_connections_for_binding(&b)? {
+            if matches!(
+                c.state,
+                OwnedConnectionState::Up | OwnedConnectionState::Closing
+            ) {
+                grants.insert(c.grant);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for g in grants {
+        if let Some(snapshot) = tx.grant(&g)? {
+            out.push((g, snapshot.state));
+        }
+    }
+    Ok(out)
+}
+
+/// ⟨M03⟩ What one connection-end sweep did (tests and telemetry).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectionSweep {
+    /// Grants whose rows a pass closed or kept, by the reason applied.
+    pub handled: Vec<(GrantId, CloseReason)>,
+    /// Grants whose pass found rows it could not finish (pending, failed, or a
+    /// discovery failure): retried by the next sweep (D7 item 2).
+    pub retry: Vec<GrantId>,
+    /// The sweep could not enumerate the open rows (retried by the next one).
+    pub discovery_failed: bool,
+}
+
+/// ⟨M03⟩ The supervisor's M03 state: connection control and what the sweep finished.
+struct ManagedSupervision {
+    connections: Arc<ManagedConnections>,
+    /// Ended grants whose last pass finished (every row closed or kept by the policy):
+    /// not passed again while their rows stay as they are.
+    finished: tokio::sync::Mutex<std::collections::BTreeSet<GrantId>>,
+    /// `time_uncertain_close` is owed (the gate left `Safe` and the last attempt failed).
+    uncertain_close_owed: std::sync::atomic::AtomicBool,
+    /// ⟨§17.21 item 11⟩ The end-of-grant cleanup [`Supervisor::ended_slot_pass`] runs.
+    end_cleanup: Option<Arc<dyn heimdall_adapters::managed::EndCleanup>>,
 }
 
 /// Wait for the next committed change (`true`), or forever once the publisher is

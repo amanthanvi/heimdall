@@ -370,6 +370,15 @@ pub struct ResolvedIntent {
     /// replaced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covered: Option<CoveredBasis>,
+    /// ⟨M03 wave 4, ADR-0008 §17.21 item 1⟩ The binding ID minted when the mechanism
+    /// resolved to `managed_certificate`, before preparation: the effect driver
+    /// materializes the binding's endpoint and files under it (D6 item 1 step 6), and
+    /// the commit creates the binding with exactly this ID (then also recorded in
+    /// [`Self::binding`]). Absent for every other mechanism and in every intent
+    /// written before this field existed, which decode and re-encode byte-identically
+    /// (omitted when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_id: Option<heimdall_contract::ids::BindingId>,
 }
 
 /// ⟨r2.4⟩ What re-based a waiting added-authority intent when the owner's saved
@@ -1194,6 +1203,7 @@ mod tests {
             approval: None,
             consent: ConsentRecord::default(),
             files: Vec::new(),
+            managed_pairs: Default::default(),
         });
         let json = serde_json::to_string(&setup).unwrap();
         assert!(

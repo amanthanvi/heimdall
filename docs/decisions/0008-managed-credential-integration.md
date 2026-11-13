@@ -3969,6 +3969,242 @@ Several findings overlap: W3-S01 is W3-R04, W3-S05 is W3-R01, and W3-S03 is part
       - **Not re-checked:** this small, test-only change was not independently re-reviewed.
     - **No product code changed in rounds 3 to 5.**
 
+### 17.21 Orchestrator rulings on wave 4, round 1: the activation's escalations (2026-11-11)
+
+**Sources:**
+- the integrator's report at the round-1 checkpoint, `d74e35cf`;
+- `wave4-notes/m03-wave4-questions.md`, with INT-W4-Q1 to Q6, A-Q1 to Q5, U10B-Q1 to Q5, U10C-Q1 to Q6 and U10-D-Q1 to Q4.
+
+No review has run yet. These rulings complete the wave before its reviews.
+
+1. **INT-W4-Q1 (= U10C-Q1): a managed binding is materialized during preparation, under an ID minted at resolve.** Option (a).
+   - **The defect:** the pipeline minted the binding in `stage_commit`, after `prepare_from`. No production caller created a binding endpoint, so an activated managed grant signed for no one, and `consumer.signing_endpoint` was absent.
+   - **The ruling:**
+     - **The binding ID is minted when the mechanism resolves to `managed_certificate`,** and recorded in the recovery intent. This adds `ResolvedIntent.binding_id: Option<BindingId>`, serde default and omitted when absent, so M01 and M02 intents decode and re-encode byte-identically. That domain change is authorized.
+     - **Step 6 (D6 item 1)** calls the existing `ManagedEffects::materialize`. `ManagedEffectsImpl` creates and attaches the binding endpoint through its `BindingEndpoints` (`EndpointRegistry::create_binding`, `SignerTable::attach_binding`) and writes the binding files. No port gains a method.
+     - **The result:** `prepare_from` names the binding endpoint in `consumer.signing_endpoint`, and `stage_commit` commits the binding under the pre-minted ID.
+     - **A failure before the commit** is cleaned up by the operation's cleanup intent: the endpoint and the files go, and the key is destroyed. A replay of the same `request_id` returns the same binding.
+     - **Existing-access ensures are unchanged.** The M01 and M02 suites and request hashes stay as they are.
+   - **The regressions:**
+     - `enroll_preview_apply_verify_setup_apply_ensure_ssh` exercises its `ensure` and `ssh` legs;
+     - a managed `ensure` names the binding endpoint;
+     - a crash between materialization and commit leaves no endpoint, file or key after recovery;
+     - an existing-access `ensure` is byte-identical to M02.
+2. **INT-W4-Q2 (= U10C-Q2): the runtime claims a managed binding's slots in `bind`.** Option (b).
+   - `BindForm::Launch` of a managed binding claims each pair's environment slot in the runtime. That covers the store compare-and-swap, the files through `ManagedSlotTable`, and the signer's listing. A slot that cannot be claimed refuses the bind, naming the slot's reason.
+   - The CLI's `run_cmd::ManagedSlots` becomes a reader of the bind's outcome, with no claim of its own.
+   - If the reply needs a field, an additive one is authorized. No new request.
+3. **INT-W4-Q3 (= U10B-Q2) and INT-W4-Q4 (= U10B-Q1): registration and retirement facts are persisted.**
+   - **The pending registration:** `DecisionKind::RegisterIssuer` gains additive `ca_public_key` and `backup_created_at` fields (serde default). The pending registration then survives a restart, and approval needs no process memory.
+   - **The store item:** `IssuerRecord`'s `record_json` gains an additive `store_locator`, written from whichever component reports the K_ca put: the ceremony's report or the issuer child's.
+   - **Retirement** deletes exactly that locator (§17.17 item 3).
+   - **Records written before these fields** read as absent:
+     - an approval of such a decision refuses with `DECISION_STALE`;
+     - retirement stops at `unloaded`, reported as `issuer_store_locator_unrecorded`. Nothing is guessed.
+   - These domain and decision-golden changes are authorized. No migration is needed.
+4. **INT-W4-Q5 (= A-Q1): journal receipts are accepted, but minimized.**
+   - The enrollment journal may live in `enroll.journal` stage receipts.
+   - **It never stores the inspected registry's foreign bytes.** Other keys' lines and comments are the server owner's data. Store only:
+     - the registry's SHA-256;
+     - Heimdall's own marker entries;
+     - the parsed facts the stage machine needs.
+   - If a later step needs the full bytes, re-inspect.
+   - **The regression:** after an enrollment against a registry holding foreign lines with comments, no stored receipt contains those comments.
+5. **The verification authorities are extended together: A-Q2 (a) and U10B-Q4 (a).**
+   - `verification_m03::operation_facts` and the read-only check authorize three verifications:
+     - an `enrollment.apply`'s initial verification;
+     - a target change's verification;
+     - the system form's absence check.
+   - That covers reservation and signing alike. Each has its own predicate: it must be that operation's own verification, at its stage.
+   - **The reconcile test:** `enroll_reconcile_applied` then expects `verified`, not "`applied_unverified` or `verified`".
+6. **One re-issue rule: U10C-Q5, amended.**
+   - The pure `reissue::eligible` moves to a crate that both `app` and `adapters` can call, and both call that one implementation. A second, re-implemented copy in `app` is not kept.
+   - **If the crate graph forbids the move,** keep the copy, and add a property test (at least 256 cases) asserting the two agree.
+7. **Credential instances are found by a store query: U10C-Q6, option (a).**
+   - Add `Txn::credential_instances_for_grant`, a store query with no migration.
+   - Do not derive instance IDs from key fingerprints.
+8. **The Windows environment pipe token is stable per installation: U10-D-Q1, option (a).**
+   - Add `Txn::{windows_pipe_token, set_windows_pipe_token}` over the existing `meta` table, with no migration. D10 item 1 requires a stable name.
+   - **The regression:** after a runtime restart on Windows, P still names the live pipe, and `ensure` is not `projection_pending`.
+9. **P renders the stable mux path once owned masters are enabled and applied: U10-D-Q4, option (a).**
+   - The store-backed `ManagedPairSource` reads the effective connection policy, D8 item 1's merge, and renders the mux path only when `owned_masters` is enabled and that rendering is applied by `setup apply`. Until then it renders `ControlPath none`.
+10. **Accepted as built:**
+    - **A-Q3:** the clock measurement is taken outside the Verifier, which is conservative;
+    - **A-Q4:** a fixed supervisor principal. It is unattended, holds the owner role only for re-verification, and is never accepted for an attended decision;
+    - **A-Q5:** the `EnrollmentHost` port;
+    - **U10B-Q3 (b):** `bundle_stale` is true while any enrollment exists, and `orphan_store_items` is empty. U12 may refine it with an additive `last_bundle_at` meta key, which is authorized;
+    - **U10B-Q5:** no test store kind;
+    - **U10C-Q3:** K_env is destroyed under the gates, as now built;
+    - **U10C-Q4:** `NarrowingKind::Enrollment`;
+    - **U10-D-Q2:** the runtime's own stop has no `CloseReason`;
+    - **U10-D-Q3 (= INT-W4-Q6):** `wire_runtime_projection` serves the runtime, and M02's `wire_projection` is kept.
+11. **Also owed in round 2:**
+    - **The selection classification feeds the report.** The managed adapter passes the actual `SelectionClass` from D10 item 6's classification, now that `MANAGED_SELECTION_CLASSIFIED` is true.
+    - **Slot cleanup when a grant ends:** add the store query for the held slots of ended grants (no migration), and run the cleanup from the supervisor.
+    - **`inspect connections`:** implement it read-only over the owned-connection rows, matching the existing example.
+    - **The plan tests not yet written:**
+      - the four fence and terminate tests;
+      - `enroll_remove_lists_affected_grants_and_degrades_them`;
+      - both `target_change_*` tests that remain;
+      - both `held_*` tests that remain;
+      - both `initial_verification_*` tests;
+      - `e5_rotation_keeps_projection_and_adds_issuing_ca` and `rotation_two_accounts_one_unreachable`;
+      - both `a10_narrow_certificate_refused_on_other_host_*` tests;
+      - `issuer_crash_blocks_reissue_not_signing`;
+      - the host-key half of `evidence_invalidated_on_host_key_or_client_change`;
+      - the abandon path of `foreign_removal_held_recovery_by_new_decision_or_abandon`.
+
+### 17.22 Orchestrator rulings on wave 4, round 2: the reviews, the native checks and the round-2 questions (2026-11-11)
+
+**Sources:**
+- **The code review** (Codex, independent): `tests/evidence/artifacts/review-m03-code/wave4.md`. Verdict: fix first, with W4-R01 to W4-R09.
+- **The security review** (Codex, independent; plan §6.7): `wave4-security.md`. Verdict: fix first, with W4-S01 to W4-S03, all three reproduced by probes.
+- **The integrator's round-2 questions:** `wave4-notes/m03-wave4-r2-questions.md`.
+- **The native development checks at `e566cc46`:**
+  - **devbox** (9.6p1): all 14 selected binaries passed (631 passed, 0 failed); canary count 0;
+  - **Windows** (in-box 9.5p2): all 84 binaries passed (2317 passed, 0 failed, 7 ignored); canary count 0. `windows_native_restart_p_still_names_live_pipe_ensure_not_projection_pending` and `reissue_after_runtime_process_restart_same_boot` passed natively.
+    - **But `e2e_enroll_m03` ran no tests on Windows.** The whole file is `#[cfg(unix)]`, and the live binding-endpoint tests are Unix-only too, so U10's acceptance on Windows (m03-plan U10) is not met.
+    - **The ruling (W4-N01):** port the enrollment e2e flows to Windows. They use the in-box `ssh.exe`, the harness's WSL fixture sshd (`HM_FIXTURE_SSHD_*`), and the binding endpoint's pipe form.
+    - A case that truly cannot run on Windows stays gated, with its reason named.
+
+**Findings:**
+1. **W4-S01: a held foreign removal executes only the descriptor that was approved.**
+   - Reusing a held record requires its descriptor to equal the new request's exactly: destination, account, CA, registry and line hash. A mismatch refuses (`descriptor_mismatch`).
+   - The decision's precheck re-checks that equality at approval.
+   - **The regression:** the reviewer's probe. Vary principal, CA and registry. Approving B must never remove A.
+2. **W4-S02: the journal stores no foreign bytes, even on marker-bearing lines.**
+   - Only Heimdall's exact canonical own entry is persisted, and only when it matches.
+   - Any other line that carries the marker is recorded as parsed facts: counts, a classification and a SHA-256. Never its bytes.
+   - **The regression:** a marker-bearing owner comment and an unrelated key whose comment carries the marker, run through the real inspect and `StepResult` path. No receipt holds their bytes in any encoding.
+3. **W4-S03: teardown without `stop` still stops the issuer.**
+   - Dropping a started service, or a failed start unwinding, fences and stops the issuer lifecycle and breaks the `Operations` ↔ endpoint ↔ authority cycles, whether or not `run` was entered.
+   - **The regression:** drop every public strong handle. The fixture child exits by itself, and the vault is not retained.
+4. **W4-R01: expiry destroys the managed key.**
+   - When a grant expires, whether found by the scheduler or at use, K_env is destroyed and its instance moves to `destroyed`. The gate is released, and the binding endpoints and files are removed. This holds with or without a held slot (D1 table, D2 table, D7 item 8).
+   - **The regression:** a real vault expires with and without a held slot. Afterwards the vault is empty, the instance destroyed, the gate released, and the endpoint and files gone.
+5. **W4-R02: a re-issue restores the consumers before it reports the repair.**
+   - After a re-issue, every live binding of the grant gets its endpoint attached, its files replaced at a new generation, and its environment listing and slot content restored from the stored bindings and slot generations. Only then does the grant return to `active` (D6 item 4; D10 item 2).
+   - **The regression:** restart in the same boot. After the re-issue pass, ordinary `ssh` through the slot and through the binding endpoint succeeds with the new key.
+6. **W4-R03: every committed binding is materialized.**
+   - A coalesced or decision-joined follower either has its own binding materialized against the existing grant and key, or is refused before success. It never returns `ACCESS_READY` for an unmaterialized binding.
+   - **The regression:** two distinct `request_id`s coalesce. Both bindings sign, or the follower is refused.
+7. **W4-R04 (with R2A-Q1): evidence is invalidated at the comparison.**
+   - When `inspect` or `ensure` finds that the evaluated host key, the client or the CA differs from the evidence, the evidence is invalid **at once**. The report gives `destination_scope: unknown`, and a minimum that needs it fails. This is independent of the enrollment's state and of any later network attempt.
+   - **A host-key change** never triggers an automatic login (D5 §6.5). The record is `held` until an attended `ApproveTargetChange` verification passes.
+   - **A client or CA change** prompts re-verification (§17.4 item 11). An inconclusive result keeps the evidence invalid; it never restores the old freshness.
+   - `pair_evidence` selects evidence for the CA of the certificate being prepared.
+   - **The regressions:**
+     - an `ensure` before the pass is refused for a scope-needing minimum;
+     - an inconclusive attempt after a client change leaves the scope `unknown`.
+8. **W4-R05 and W4-R06: a cleanup owner exists from the first effect.**
+   - A managed cleanup intent is recorded **before** the first external effect. That is the key generation, the endpoint and the files, not only after a successful `ManagedPrepared`.
+   - Recovery of an `Attempted` or uncertain preparation runs that cleanup.
+   - A failure inside the driver's own cleanup keeps the intent and is retried; it is never logged and forgotten.
+   - **The regressions:**
+     - a crash between `materialize` and the ensure confirmation, which is the interval the reviewer named;
+     - an injected failure inside the driver's cleanup, which is retried until clean.
+9. **W4-R07: an unfinished cleanup stays discoverable.**
+   - Freeing a slot never ends the cleanup obligation while binding files or a mux path remain. The obligation stays durable until all the generation-bound work is done.
+   - **The regression:** an error after the slot's files are removed is retried on the next pass.
+10. **W4-R08: releasing a binding releases its slots.**
+    - `held(b, g)` moves to `clearing` when `b` is released, even while the grant lives on through another reference (D10 item 2).
+    - K_env is destroyed only with the last reference.
+    - **The regression:** a parent binding holding the slot is released while a child keeps the grant live. Another binding can then claim the slot.
+11. **W4-R09: real byte identity.**
+    - Fixed goldens from the base commit `d6593a7c` cover an existing-access `ensure`: its result, its intent bytes and its request hash.
+    - The test compares the current run against them.
+
+**The round-2 questions:**
+
+12. **R2B-Q1 and R2B-Q2: the owner-present CLI deletes the CA's store item.**
+    - **The locator:** the ceremony reports the store item's identity in an additive `store_locator` on `issuer.register`, bound to the CA, the installation and the store. That contract change is authorized. The runtime records it with the approval.
+    - **Retirement:** after the child unloads, the runtime reports `unloaded`, awaiting deletion of that locator. The owner-present CLI (U12) deletes exactly that item, then confirms through an additive confirmation on `issuer.retire` (authorized). Only then does the record reach `retired`.
+    - **Who may write the store:** neither the runtime nor the child ever writes or deletes the platform store; the child only reads (D3).
+    - **A restore** that creates a new item records the new locator by compare-and-swap against the expected old one. The displaced item is listed in `orphan_store_items` until resolved.
+13. **R2C-Q2: the `bind` result names the binding's endpoint,** read from the runtime registry for that exact live binding. If it is absent, `connect` refuses. Managed `connect` then takes D8 item 2's flow.
+14. **R2D-Q1: option (a), documented as a pair-level rendering rule.** P renders the stable mux path only when every standing policy covering the pair has `owned_masters`. Having no applicable policy means disabled. Each master's own grant policy is still checked when it starts.
+15. **R2E-Q2: no grant-state change solely because the issuer is unavailable,** reviewer's option (b). The issuer's state is reported on its own. Installed keys keep signing (D3 item 7).
+16. **The R2F questions:**
+    - **Q1:** record `existing/applied` when its rendering commits. No rows are created for M02 pairs that have no preference.
+    - **Q2:** an approved apply with nothing to replace still commits the generation and the preference metadata, so a toggle back to an already-rendered configuration does not stay `pending`.
+    - **Q3:** removing a destination from the catalog returns its preference to `pending`, or removes it, in the same transaction.
+    - **Q4:** manual mode counts as applied for the journaled P rendering. The manual-include diagnostic and its disclosure stay.
+17. **`SetupIntent.managed_pairs` and `ProjectionPlan.managed_pairs` are ratified** as the durable record of what an approved rendering contains (D5 §6.6; U0b row 9). They are serde-default and omitted when empty.
+18. **The issuer at start (the security review's readiness caveat) is accepted as built.**
+    - The runtime listens after an issuer start *attempt*. A failed start is reported (`issuer_unavailable`), managed issuance and re-issue fail closed, and existing access is unaffected.
+    - The guarantee is that the issuer is started before listening, not that it is ready.
+
+### 17.23 Orchestrator rulings on wave 4, round 3: the round-3 questions (2026-11-11)
+
+**Source:** `wave4-notes/m03-wave4-r3-questions.md`. R3A-Q1 was closed by the integrator: `descriptor_mismatch` is registered, as §17.22 item 1 named it.
+
+1. **R3A-Q2: the managed descriptor advertises the server scope as achievable.**
+   - The mechanism's descriptor advertises `destination_scope: verified_server_principals` as what it *can* deliver.
+   - Each pair's evidence comparison (§17.22 item 7) decides whether the request gets it. Invalid or absent evidence still gives `unknown`, and a minimum that needs the scope is refused.
+   - Without this, A10's guarantee could never be offered.
+   - **The regression:** with fresh, valid evidence, a `verified_server_principals` minimum is met. With invalidated evidence it is refused.
+2. **R3B-Q1:** option (a) is accepted. `CaStatus.store_locator` and `OrphanStoreItem.locator` are additive read fields. A locator identifies a store item and is not a secret.
+3. **R3B-Q2:** option (a) is accepted.
+   - The second `issuer.register` must repeat the pending registration's facts exactly: the fingerprint, public key, store kind and backup digest.
+   - It only attaches the locator, and only once. A mismatch, or a second different locator, refuses.
+4. **R3B-Q3:** option (a) is accepted. A log-intact restore that changes the locator goes through an attended `RegisterIssuer` decision.
+5. **R3C1-Q1: the per-pair identity selection is fed from the classification.**
+   - `PairIntegration.identity_selection` is fed for each pair from D10 item 6's classification of the alias's observed configuration, as §17.21 item 11 required.
+   - A fixture whose managed alias classifies `exclusive` then delegates non-interactively. An `undetermined` alias is still refused.
+   - §17.22 item 10's regression uses a real child delegation.
+6. **R3C2-Q1 and R3C2-Q2: an explicit materialization source.**
+   - **No by-reference convention.** No convention may overload the meaning of `MaterializeSpec`.
+   - **The spec names its source explicitly:** fresh key material, or the existing installed key of a named grant. This is an additive, typed field in `app::ports`, authorized here.
+   - **The locator:** the materialization reports the endpoint locator it actually created, in an additive field of its result. A follower's `consumer.signing_endpoint` is that locator, never one derived by string substitution.
+   - **W4-N01's Windows port** covers the follower's and the re-issued binding's pipe forms.
+
+### 17.24 Orchestrator rulings on wave 4, round 5: the re-check, the Windows port's failures and the round-5 questions (2026-11-13)
+
+**Sources:**
+- **The independent re-check** of `e566cc46..4866642d` (Codex): `tests/evidence/artifacts/review-m03-code/wave4-recheck.md`. Verdict: fix first, with W4-C01 (medium) and W4-C02 (high). Every round-3/4 finding is resolved except W4-R04, which W4-C02 leaves open on one path.
+- **The native Windows run at `4866642d`** (in-box `OpenSSH_for_Windows_9.5p2`, the WSL fixture sshd 9.6p1): the harness exited 1 after 1138 s. W4-N01's port ran, and `e2e_enroll_m03` was the only failing binary (29 passed, 20 failed). Canary count 0.
+  - 15 failures were the expected `client_trace_family_unrecorded`: the Win32 row was not yet recorded, so every verification was inconclusive. `windows_client_trace_row_observation` passed and printed the observation lines the row is recorded from (item 5).
+  - The other 5 are item 3.
+- **The round-5 questions:** `wave4-notes/m03-wave4-r5-questions.md`.
+- **The independent re-check of round 5**, `4866642d..a533fc40` (Codex): `tests/evidence/artifacts/review-m03-code/wave4-recheck5.md`. Verdict: merge. W4-C01, W4-C02 and the Windows correction are resolved, five reverts of its own each failed (exit 101) and passed restored, and it found no new actionable defect (item 6).
+- **The native development checks at `a533fc40`:**
+  - **devbox** (9.6p1): all 20 selected binaries passed (837 passed, 0 failed, 4 ignored), `e2e_enroll_m03` 67 of 67; canary count 0;
+  - **Windows** (in-box 9.5p2): the harness exited 1 after 1173 s. `e2e_enroll_m03` was the only failing binary (37 passed, 16 failed), and all 16 were the expected `client_trace_family_unrecorded`. The five tests of item 3 and the item-4 observations passed. Totals over 84 binaries: 2367 passed, 16 failed, 7 ignored; canary count 0.
+
+**Findings:**
+1. **W4-C02: a follower's scope claim is its own, computed now.**
+   - A joined, coalesced or recovered follower recomputes its managed `destination_scope` from the evidence that holds at its own commit: every pair of the grant, the current client and target, and the CA of the certificate actually installed.
+   - A leader's earlier result never satisfies a follower's present minimum. Invalid or stale evidence gives `unknown`, and a minimum that needs the scope is refused.
+   - This closes W4-R04 on the last path the re-check found.
+   - **The regressions** (`live_tests/follower_scope.rs`): a decision-joined and a coalesced follower are each refused when the verifying client changes after the leader's commit. The refused follower's binding is cleaned up, and the leader stands. A follower with no minimum commits and reports `unknown`, and one with valid evidence meets the minimum.
+2. **W4-C01: releasing a re-issued binding clears what it actually owns.**
+   - Release clears every generation the binding owned, from `BINDING_GENERATION` up to the highest it reached, not only the first. K_env stays while another reference keeps the grant live.
+   - Release records a durable cleanup obligation in the same transaction, with or without a slot. `managed_cleanup_owed` lists it until the binding's directories and endpoint are verified gone.
+   - No migration: the obligation is a store meta row, like `cleanup_intent:`.
+   - **The regressions** (`live_tests/cleanup.rs`): a re-issued, slotless parent binding is released while a child keeps the grant live. Its endpoint and files go, and the child still signs with K_env. When the release cleanup fails, the next pass retries it until clean.
+3. **The Windows failures share one root cause: a foreign removal used the raw catalog locator.**
+   - An own enrollment records the plan's rendered endpoint (`plan::build` step 8). A foreign removal has no plan, and its context took the catalog's raw locator instead. On Windows that is `\\.\pipe\<name>`, never the rendered `//./pipe/<name>`.
+   - The existing-access re-check before every step correctly refused it (`existing_access_changed`). On Unix the socket path renders to itself, so only Windows saw it.
+   - **The fix (Y-W-Q1, accepted):** both the foreign removal and its admission use step 8's rendering (`plan::catalog_endpoint`). The re-check is unchanged.
+   - **The regressions:** `foreign_endpoint_is_the_concrete_rendering`, and the two foreign-removal tests that failed on Windows.
+   - The three held-setup tests discarded the drive's error, so they reported `Removing` instead of the real failure. The setup now asserts that its damage landed and reports the drive's outcome. The testkit's registry append verifies its write by reading it back.
+4. **Y-W-Q2, confirmed: a foreign removal needs a concrete recorded endpoint.**
+   - When the recorded endpoint is absent or not concrete (relative, containing `..`, `SSH_AUTH_SOCK`, or an empty pipe name), admission refuses with `existing_access_endpoint_unrecorded`. Step 8 refuses an own enrollment the same way.
+   - Before this, such a removal was approved and then failed at its first step. On Windows its disclosed invocation was also empty.
+   - **The regression:** `foreign_removal_refuses_non_concrete_recorded_endpoint`, with a relative socket path on Unix and an empty pipe name on Windows. Nothing is written, no operation opens, and the registry is unchanged.
+5. **Round 5 item 4: the Windows client's host-key failure is observed, not assumed.**
+   - Windows-only tests print the in-box client's changed-host-key and unknown-host lines as `m03 observation: client_trace_row … field=host_key_failure` lines, ungated, so the row can be recorded from them.
+   - The ported "a host-key change ends held, with no rollback" test is gated on the recorded row.
+   - **The Win32 9.5p2 row is recorded** in `crates/enroll/src/trace.rs` from native lines only:
+     - its matched-path fields from `windows_client_trace_row_observation` at `4866642d`, which spell every field exactly as the portable rows do;
+     - its `host_key_failure` set from the `a533fc40` observations: `Host key verification failed.`, `REMOTE HOST IDENTIFICATION HAS CHANGED`, ` has changed and you have requested strict checking.` (changed key, through the real verifier, held with `enrollment_host_key_mismatch`), and `No ED25519 host key is known for` (unknown host, exit 255).
+     - The ECDSA and RSA unknown-host forms the 10.5p1 row carries were not observed on 9.5p2 and are not recorded.
+   - **The regressions:** two unit tests parse the observed lines with the row (the positive accepted, the negative refused, both host-key traces failures with no other event). Each fails when its row string is changed to an unobserved one (exit 101) and passes restored. On Windows the 16 gated tests then run conclusively, and the native rerun is their evidence.
+6. **The supervisor's cleanup and re-issue passes stay serial.**
+   - The re-check's adversarial probe ran the ended-binding cleanup pass concurrently with a paused re-issue, and resources were recreated after cleanup had acknowledged the obligation.
+   - Production awaits those passes one after another in one supervisor loop, and the startup re-issue precedes that loop, so the probe's interleaving is not reachable. It is not a finding.
+   - **The constraint:** they must not run concurrently unless a binding-lifecycle fence first orders a re-issue's restoration against the release cleanup of the same binding.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

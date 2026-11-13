@@ -274,6 +274,9 @@ struct Builder<'a> {
     account: Option<String>,
     /// The Git selection now and after the plan, when the plan changes it.
     git_selection: Option<(GitSshSelection, GitSshSelection)>,
+    /// ⟨M03⟩ The pairs whose managed-certificate section the rendered P holds (set
+    /// with the rendering; [`ProjectionPlan::managed_pairs`]).
+    managed_rendered: BTreeSet<heimdall_domain::scope::AccessPair>,
     /// ADR-0007 §12.18 item 3: every file the preview read so far, with the base it
     /// found (absent, or the digest of its bytes). A derived marker binds them.
     reads: BTreeMap<(FileRole, PathBuf), Base>,
@@ -308,6 +311,7 @@ impl<'a> Builder<'a> {
             manual_for: None,
             account: crate::doctor::local_account(),
             git_selection: None,
+            managed_rendered: BTreeSet::new(),
             reads: BTreeMap::new(),
         }
     }
@@ -439,7 +443,16 @@ impl<'a> Builder<'a> {
         self.findings.extend(disclosures);
         self.p_now = self.read(FileRole::ManagedSsh, &p_path)?;
         self.p_after = Some(p.bytes().to_vec());
-        let p_step = self.whole_step(FileRole::ManagedSsh, &p_path, p)?;
+        let unchanged_p = p.clone();
+        let p_step = match self.whole_step(FileRole::ManagedSsh, &p_path, p)? {
+            // ⟨§17.22 item 16 (R2F-Q2)⟩ P is already this rendering, but a rendered pair's
+            // stored preference is still `pending`: P is written again (same bytes) so the
+            // SSH item commits a new generation and records the preference metadata.
+            None if self.projection_pending()? => {
+                Some(self.recommit_step(FileRole::ManagedSsh, &p_path, unchanged_p)?)
+            }
+            step => step,
+        };
         // ADR-0007 §5.3 item 9, §12.48 item 3: a directory this item writes into (P's,
         // a key file's) whose quarantine does not validate makes the item manual at
         // preview, and nothing is planned: a settlement there would fail only after the
@@ -482,6 +495,20 @@ impl<'a> Builder<'a> {
             }
             return Ok(());
         }
+        // ⟨M03⟩ ADR-0008 D5 §6.6: the pairs this rendering of P holds as managed
+        // certificates, taken from the rendering itself (the commit of this plan records
+        // exactly these as applied).
+        self.managed_rendered = self
+            .spec
+            .aliases
+            .iter()
+            .zip(&managed)
+            .filter(|(_, m)| m.is_some())
+            .map(|(a, _)| heimdall_domain::scope::AccessPair {
+                destination: a.destination.clone(),
+                account: a.account.clone(),
+            })
+            .collect();
         self.added = self.spec.aliases.iter().map(|a| a.alias.clone()).collect();
 
         let user = self.config.paths.user_config.clone();
@@ -1705,6 +1732,53 @@ impl<'a> Builder<'a> {
         }))
     }
 
+    /// ⟨§17.22 item 16 (R2F-Q2)⟩ Whether any alias's pair has a stored preference whose
+    /// projection is `pending` ([`super::ManagedPairSource::projection_pending`]); without a
+    /// source, never (M02).
+    fn projection_pending(&self) -> Result<bool, PreviewError> {
+        let Some(source) = self.config.managed.as_ref() else {
+            return Ok(false);
+        };
+        for a in &self.spec.aliases {
+            if source
+                .projection_pending(a)
+                .map_err(|e| PreviewError::Unavailable(format!("managed pair: {e}")))?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// ⟨§17.22 item 16 (R2F-Q2)⟩ A whole-file step that writes `rendered` over the same
+    /// bytes at `path` (base and target the same digest): the file's content does not
+    /// change, so it is no file change of the plan, but it is staged, exchanged and
+    /// committed like any write, so its item commits a new generation. `path` holds
+    /// exactly `rendered` (the caller's [`Self::whole_step`] found it so).
+    fn recommit_step(
+        &mut self,
+        role: FileRole,
+        path: &Path,
+        rendered: Rendered,
+    ) -> Result<FileStep, PreviewError> {
+        let name = file_name(path)?;
+        let staged = self.staged_name(&name)?;
+        let displaced = self.displaced_name(&name, &staged);
+        let digest = rendered.sha256();
+        Ok(FileStep {
+            role,
+            path: path_string(path)?,
+            base: Base::Present {
+                sha256: digest.clone(),
+            },
+            target: Target::Present { sha256: digest },
+            content: rendered.into_whole(),
+            commit: false,
+            staged_name: Some(staged),
+            displaced_name: Some(displaced),
+        })
+    }
+
     fn splice_step(
         &mut self,
         role: FileRole,
@@ -2279,6 +2353,17 @@ impl<'a> Builder<'a> {
                 decided.record
             } else {
                 ConsentRecord::default()
+            },
+            // ⟨M03⟩ Only a plan that writes the SSH item renders P (a conflict plans no
+            // SSH step and commits nothing).
+            managed_pairs: if self
+                .steps
+                .iter()
+                .any(|s| s.role.item() == ProjectionItem::Ssh)
+            {
+                self.managed_rendered
+            } else {
+                BTreeSet::new()
             },
             files: self.steps,
             summary,

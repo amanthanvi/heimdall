@@ -709,12 +709,17 @@ fn projection_pending_until_setup_apply() {
     assert_eq!(sink.0.lock().unwrap().len(), 1, "one item committed");
 }
 
-/// ADR-0008 D10 item 1: the Windows environment pipe name carries the installation token;
-/// a changed token makes P stale, so the setup preview shows an update (and `ensure`
-/// refuses `projection_pending` until it is applied, U0b row 9). The renderer row runs on
-/// every platform; the preview row on Windows (the pipe is a Windows endpoint).
+/// ADR-0008 D10 item 1: the Windows environment pipe name P renders carries the
+/// installation token (`//./pipe/heimdall-<token>-signing`), so P names the live pipe
+/// exactly while the token is the runtime's. ⟨§17.21 item 8⟩ The token is stable per
+/// installation (`Txn::windows_pipe_token`), so a runtime restart changes neither: round
+/// 1's `windows_token_change_makes_p_stale_and_ensure_projection_pending` is replaced by
+/// the runtime's `windows_pipe_token_stable_across_runtime_restart` (every host) and
+/// `windows_native_restart_p_still_names_live_pipe_ensure_not_projection_pending`
+/// (Windows-native) in `integration_runtime_m03`. The renderer row runs on every
+/// platform.
 #[test]
-fn windows_token_change_makes_p_stale_and_ensure_projection_pending() {
+fn windows_environment_pipe_renders_installation_token() {
     let render = |token: &str| {
         let section = Section::ManagedCertificate {
             alias: AliasName::parse("work").unwrap(),
@@ -736,37 +741,13 @@ fn windows_token_change_makes_p_stale_and_ensure_projection_pending() {
         )
         .unwrap()
     };
-    let (a, b) = (render("tokena"), render("tokenb"));
-    assert_ne!(a, b, "a new token is a new P");
+    let (a, again, b) = (render("tokena"), render("tokena"), render("tokenb"));
+    assert_eq!(a, again, "the same token renders the same P");
+    assert_ne!(a, b, "another token would be another P");
     assert!(
         a.contains("//./pipe/heimdall-tokena-signing")
             && b.contains("//./pipe/heimdall-tokenb-signing")
     );
-    #[cfg(windows)]
-    {
-        let fx = Fx::new();
-        let spec = fx.alias("work", "work.example.invalid", None, "deploy");
-        fx.prefer_managed(&spec, fx.environment_endpoint("tokena"));
-        let writer = fx.writer(true);
-        let plan = writer
-            .preview(&fx.spec(vec![spec.clone()]), &apply_intent())
-            .unwrap();
-        writer.apply(&plan.intent(), &mut Sink::default()).unwrap();
-        // The token changes (a state reset): the next preview plans an update of P.
-        fx.prefer_managed(&spec, fx.environment_endpoint("tokenb"));
-        let record = heimdall_domain::projection::ProjectionRecord {
-            environment: fx.env.clone(),
-            items: Default::default(),
-        };
-        let mut next = fx.spec(vec![spec]);
-        next.record = Some(record);
-        let update = writer.preview(&next, &apply_intent()).unwrap();
-        assert!(planned_p(&update).contains("//./pipe/heimdall-tokenb-signing"));
-        assert!(
-            update.files.iter().any(|s| s.role == FileRole::ManagedSsh),
-            "P is stale"
-        );
-    }
 }
 
 /// ADR-0008 D8 item 6 (F15): the deadline wording follows the identity selection: only
@@ -1158,6 +1139,146 @@ impl Ordinary {
             fx.home.decoy_agent().contact_count(),
             0,
             "SSH_AUTH_SOCK never used"
+        );
+    }
+}
+
+// --- ⟨M03⟩ wave 4 (U10-D): the managed alias's identity selection (D10 item 6) ---------
+
+/// ADR-0008 D10 item 6 (§17.19 item 4, last bullets), U0b phase 2: a managed-certificate
+/// alias whose only identity entry is P's slot certificate, in the selected form under
+/// `IdentitiesOnly yes`, is `exclusive`, so the no-interaction path needs no fallback
+/// clearance. An inherited `IdentityFile` from the user's own configuration (`IdentitiesOnly
+/// yes` does not remove it) makes it `not_exclusive`, and M02's fallback clearance over
+/// that report clears nothing (the inherited key is not a declared catalog identity), so
+/// the no-interaction path refuses. An inherited `CertificateFile` does the same.
+#[test]
+fn inherited_identityfile_makes_selection_not_exclusive_and_noninteractive_refused() {
+    use heimdall_contract::provider::{IdentitiesOnly, IdentityEntrySource};
+    let fx = Fx::new();
+    let spec = fx.alias("work", "work.example.invalid", None, "deploy");
+    let endpoint = fx.environment_endpoint("t");
+    fx.prefer_managed(&spec, endpoint.clone());
+    let writer = fx.writer(true);
+    let plan = writer
+        .preview(&fx.spec(vec![spec]), &apply_intent())
+        .unwrap();
+    let sink = Sink::default();
+    writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
+    let record = sink.0.lock().unwrap().last().unwrap().record.clone();
+    let observe = || {
+        writer
+            .observe(&record, &["work".to_owned()])
+            .into_iter()
+            .next()
+            .expect("an observation")
+            .identity_selection
+            .expect("the managed alias's selection is classified")
+    };
+    let clearance = |r: &heimdall_contract::provider::IdentitySelectionReport| {
+        let slot = r
+            .entries
+            .iter()
+            .find(|e| e.source == IdentityEntrySource::Managed)
+            .and_then(|e| e.fingerprint.clone())
+            .unwrap_or_default();
+        heimdall_domain::catalog::fallback_clearance(
+            r,
+            &[],
+            &|_| unreachable!("no catalog identity to judge"),
+            &endpoint,
+            &slot,
+        )
+    };
+
+    // Only the slot certificate: exclusive.
+    let exclusive = observe();
+    assert_eq!(
+        exclusive.selection,
+        IdentitySelection::Exclusive,
+        "{exclusive:?}"
+    );
+    assert_eq!(exclusive.identities_only, IdentitiesOnly::DeterminedYes);
+    assert_eq!(exclusive.entries.len(), 1, "{exclusive:?}");
+    assert_eq!(exclusive.entries[0].source, IdentityEntrySource::Managed);
+
+    // An inherited IdentityFile in the user's configuration: not exclusive, not cleared.
+    let user = std::fs::read_to_string(&fx.home.user_config).unwrap();
+    let inherited = fx.home.ssh_dir.join("id_inherited");
+    std::fs::write(&inherited, b"not a key; never read\n").unwrap();
+    std::fs::write(
+        &fx.home.user_config,
+        format!(
+            "{user}\nHost work\n    IdentityFile \"{}\"\n",
+            inherited.display()
+        ),
+    )
+    .unwrap();
+    let not_exclusive = observe();
+    assert_eq!(
+        not_exclusive.selection,
+        IdentitySelection::NotExclusive,
+        "{not_exclusive:?}"
+    );
+    assert!(
+        not_exclusive
+            .entries
+            .iter()
+            .any(|e| e.source == IdentityEntrySource::User),
+        "{not_exclusive:?}"
+    );
+    let c = clearance(&not_exclusive);
+    assert!(!c.cleared, "the inherited file-backed key is never cleared");
+    assert!(!c.uncleared.is_empty());
+
+    // An inherited CertificateFile alone does the same.
+    std::fs::write(
+        &fx.home.user_config,
+        format!(
+            "{user}\nHost work\n    CertificateFile \"{}\"\n",
+            fx.home.ssh_dir.join("other-cert.pub").display()
+        ),
+    )
+    .unwrap();
+    let cert = observe();
+    assert_eq!(cert.selection, IdentitySelection::NotExclusive, "{cert:?}");
+    assert!(!clearance(&cert).cleared);
+
+    // Restored: exclusive again.
+    std::fs::write(&fx.home.user_config, &user).unwrap();
+    assert_eq!(observe().selection, IdentitySelection::Exclusive);
+}
+
+/// ADR-0008 D10 item 6 with each `ManagedIdentityForm` (the test override renders P and
+/// classifies with the same form): the slot's own entries of that form, and only those,
+/// make the managed alias `exclusive`; a slot `CertificateFile` the form names is the
+/// alias's own entry, not an inherited one.
+#[test]
+fn managed_selection_follows_identity_form() {
+    for form in ManagedIdentityForm::ALL {
+        let fx = Fx::new();
+        let spec = fx.alias("work", "work.example.invalid", None, "deploy");
+        fx.prefer_managed(&spec, fx.environment_endpoint("t"));
+        let mut config = fx.config(true);
+        config.test.managed_identity_form = Some(form);
+        let writer = LocalProjection::writing(config).unwrap();
+        let plan = writer
+            .preview(&fx.spec(vec![spec]), &apply_intent())
+            .unwrap();
+        let sink = Sink::default();
+        writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
+        let record = sink.0.lock().unwrap().last().unwrap().record.clone();
+        let report = writer
+            .observe(&record, &["work".to_owned()])
+            .into_iter()
+            .next()
+            .and_then(|o| o.identity_selection)
+            .expect("classified");
+        assert_eq!(
+            report.selection,
+            IdentitySelection::Exclusive,
+            "{}: {report:?}",
+            form.as_str()
         );
     }
 }

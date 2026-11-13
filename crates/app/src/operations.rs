@@ -239,7 +239,7 @@ mod lock;
 pub mod narrowing;
 pub use lock::LockRevocation;
 pub use restart_m03::{
-    BoundedReport, CaStoreItemDeletion, IntentOutcome, OWNER_RECONCILE, RetirementResume,
+    AWAITING_OWNER_DELETION, BoundedReport, IntentOutcome, OWNER_RECONCILE, RetirementResume,
     only_bounded,
 };
 // ⟨M03⟩ U0b rows 2-4, 9-12, 19, E10 (O): CA issuance, verification issuance, per-pair
@@ -251,8 +251,18 @@ mod lock_connection_m03;
 mod managed_state_m03;
 mod pair_mechanism_m03;
 mod verification_m03;
+// ⟨M03⟩ wave 4 (U10 + U0b phase 2): the enrollment stage driver, the issuer request
+// handling, the managed effect driver's store side and re-issue pass, and the M03
+// decision kinds' completion (each a child of `operations`, sharing the journal's
+// private helpers).
+mod decisions_m03;
+mod enrollment_m03;
+mod issuer_m03;
+mod managed_driver_m03;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
+// ⟨W4-C02⟩ The scope evidence selection a fresh preparation and a follower share.
+pub use managed_driver_m03::pair_evidence_under_ca;
 pub use pair_mechanism_m03::unattended_refusal;
 pub use verification_m03::VerificationRequest;
 // ⟨M03⟩ U3: the issuer's read-only check shares the publish predicate (`issuance_ro`).
@@ -2335,16 +2345,23 @@ struct Ended {
     /// caller's [`Operations::complete_withdrawals`] takes the gates and re-runs
     /// [`end_in`] under them (the narrowing protocol).
     gated: Vec<(GrantId, Timestamp)>,
+    /// ⟨M03 wave 4, round 3; ADR-0008 §17.22 item 4 (W4-R01)⟩ Grants this
+    /// transaction moved to `expired` (an expiry found at use or by the scheduler's
+    /// re-validation): the caller's [`Operations::complete_withdrawals`] runs their
+    /// managed cleanup after the commit, outside every gate (K_env destroyed, the
+    /// binding endpoints and files removed, the instances `destroyed`).
+    expired: Vec<GrantId>,
 }
 
 impl Ended {
     fn is_empty(&self) -> bool {
-        self.withdrawn.is_empty() && self.gated.is_empty()
+        self.withdrawn.is_empty() && self.gated.is_empty() && self.expired.is_empty()
     }
 
     fn extend(&mut self, other: Self) {
         self.withdrawn.extend(other.withdrawn);
         self.gated.extend(other.gated);
+        self.expired.extend(other.expired);
     }
 }
 
@@ -2388,6 +2405,7 @@ fn end_in(
                         Some(resource("grant", &g.id)),
                         serde_json::json!({ "grant_id": g.id, "event": "expired" }),
                     )?;
+                    ended.expired.push(g.id.clone());
                 }
             }
             Some(GrantEnd::Withdrawn) => {
@@ -2632,6 +2650,27 @@ struct Round {
 struct RoundAnswers {
     answers: Vec<(GrantId, AdapterIdentity, bool)>,
     adapter_expiry: Option<Timestamp>,
+    /// ⟨M03⟩ wave 4 (U10-C; D7 item 2 step 5): the managed adapter's per-pair rows,
+    /// carried from its `RevokeOutcome` into the revoke result (one row per
+    /// destination and account: the latest `valid_before` wins).
+    remote_effects: Vec<heimdall_contract::managed::RemoteEffectReport>,
+}
+
+impl RoundAnswers {
+    /// ⟨M03⟩ wave 4 (U10-C): merge `rows` into [`RoundAnswers::remote_effects`].
+    fn merge_remote_effects(&mut self, rows: Vec<heimdall_contract::managed::RemoteEffectReport>) {
+        for r in rows {
+            match self
+                .remote_effects
+                .iter_mut()
+                .find(|x| x.destination == r.destination && x.account == r.account)
+            {
+                Some(x) if r.latest_valid_before > x.latest_valid_before => *x = r,
+                Some(_) => {}
+                None => self.remote_effects.push(r),
+            }
+        }
+    }
 }
 
 /// ⟨r2.10⟩ What `inspect grants` shows of one grant's pending remote part: its own
@@ -3589,17 +3628,29 @@ struct AdapterInfo {
 /// ⟨M02⟩ U0b rows 7 and 9: when the catalog's pairs name a mechanism, only an
 /// adapter of that mechanism is considered; `unattended` is met only by an adapter
 /// that can meet it (never in M02).
+///
+/// ⟨M03 wave 4, round 3b (X-M); ADR-0008 §17.23 item 1⟩ The managed descriptor
+/// advertises `verified_server_principals`, which a managed grant achieves only for a
+/// pair resolved to `managed_certificate` (its applied preference and verified
+/// enrollment; the per-pair evidence comparison then decides). For pairs resolved to no
+/// mechanism (the M01 selection) its scope counts as `unknown`, as before, so no
+/// M01/M02 resolution changes.
 fn select_adapter<'a>(
     adapters: &'a [AdapterInfo],
     required: &RequiredCapabilities,
     mechanism: Option<&str>,
 ) -> Option<&'a AdapterInfo> {
     adapters.iter().find(|a| {
+        let scope = if mechanism.is_none() && a.identity.mechanism == MANAGED_CERTIFICATE {
+            DestinationScopeEnforcement::Unknown
+        } else {
+            a.scope_enforcement
+        };
         mechanism.is_none_or(|m| a.identity.mechanism == m)
             && required.capabilities.is_subset(&a.capabilities)
             && required
                 .destination_scope_at_least
-                .is_none_or(|m| a.scope_enforcement >= m)
+                .is_none_or(|m| scope >= m)
             && (!required.unattended || a.unattended)
     })
 }
@@ -3972,6 +4023,13 @@ fn fresh_fallback_refusal(
                 entries,
             ))
         };
+        // ⟨M03 wave 4, R2C-Q1; ADR-0008 D10 item 6⟩ A managed pair whose alias is not
+        // classified `exclusive` may try an inherited identity that can prompt: refused
+        // non-interactively, without consulting the catalog identity's endpoint (which is
+        // not what signs for it).
+        if pair.mechanism == MANAGED_CERTIFICATE {
+            return Ok(refused(Vec::new()));
+        }
         let Some(identity) = tx.identity(&pair.identity)? else {
             return Ok(refused(Vec::new()));
         };
@@ -4240,6 +4298,8 @@ fn resolve_in(
         && (resolved_pairs.pending_projection
             || resolved_pairs.mechanism == Some(MANAGED_CERTIFICATE))
     {
+        // ⟨wave 4, U10-C⟩ `driver_unavailable` only while no managed adapter is
+        // configured (a configured one is wired: `ensure_precheck` refused otherwise).
         refuse!(pair_mechanism_m03::no_mechanism(
             &inp.spec.required,
             resolved_pairs,
@@ -4249,6 +4309,10 @@ fn resolve_in(
                     .as_ref()
                     .map_or_else(Default::default, |p| p.lock_behavior),
             ),
+            inp.adapters
+                .iter()
+                .find(|a| a.identity.mechanism == MANAGED_CERTIFICATE)
+                .map(|a| a.unattended),
         ));
     }
     let mut capabilities = base.capabilities.clone();
@@ -4353,6 +4417,8 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
         AuthorityDecision::Denied(d) => Err(OpError::from_denial(&d)),
         // ⟨M03⟩ U0b row 9 (O): with its M03 reason (`driver_unavailable`,
         // `projection_pending`, the `unattended` reason); otherwise M01's refusal.
+        // ⟨wave 4, U10-C⟩ `driver_unavailable` only while no managed adapter is
+        // configured (a configured one is wired: `ensure_precheck` refused otherwise).
         _ if r.adapter.is_none() => Err(pair_mechanism_m03::no_mechanism(
             &inp.spec.required,
             r.pairs,
@@ -4362,6 +4428,10 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
                     .as_ref()
                     .map_or_else(Default::default, |p| p.lock_behavior),
             ),
+            inp.adapters
+                .iter()
+                .find(|a| a.identity.mechanism == MANAGED_CERTIFICATE)
+                .map(|a| a.unattended),
         )),
         AuthorityDecision::Allowed(auth) => Ok(Resolution::Allowed(Box::new(ResolvedIntent {
             profile: r.profile.id.clone(),
@@ -4379,6 +4449,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
             adapter: r.adapter.map(|a| a.identity),
             approval: None,
             covered: None,
+            binding_id: None,
         }))),
         AuthorityDecision::ApprovalRequired { delta, .. } => {
             // What approval would grant: exactly the requested scope (covered ∪
@@ -4421,6 +4492,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
                 adapter: r.adapter.map(|a| a.identity),
                 approval: None,
                 covered: None,
+                binding_id: None,
             };
             Ok(Resolution::Approval(Box::new(Approval {
                 intent,
@@ -4974,6 +5046,32 @@ fn fresh_pair(
     pair: &mut PairIntegration,
     now: Timestamp,
 ) -> heimdall_store::Result<()> {
+    // ⟨M03 wave 4, R2C-Q1; ADR-0008 D6 item 7⟩ A `managed_certificate` pair signs with
+    // the in-process signer, never through its catalog identity (the existing access
+    // the enrollment used): its interaction (`none`) and eligibility are the managed
+    // adapter's, and only the check time moves. Its identity selection stays the
+    // adapter's per-pair D10 item 6 classification, which `fresh_fallback_refusal`
+    // judges (a non-exclusive managed alias is refused non-interactively).
+    // ⟨M03 wave 4, round 3b (X-M); ADR-0008 §17.23 item 5⟩ The facts reach the commit
+    // through their history (`Facts::from_outcome` → `history_only`), which resets every
+    // fresh field to its fail-closed placeholder (`unknown`, not eligible), so the
+    // adapter's values are restored here, exactly as `prepare::pair_integrations` sets
+    // them for every managed pair (interaction `none`, inferred: the signer is
+    // in-process; eligible). Without this, every non-interactive managed request (a
+    // delegation is always one) was refused `interaction_unknown` before its selection
+    // was judged.
+    if pair.mechanism == MANAGED_CERTIFICATE {
+        pair.interaction = InteractionKind::None;
+        pair.interaction_basis = EvidenceBasis::Inferred;
+        pair.declaration = None;
+        pair.declared_at = None;
+        pair.noninteractive = NoninteractiveEligibility {
+            eligible: true,
+            reason: None,
+        };
+        pair.eligibility_checked_at = now;
+        return Ok(());
+    }
     let fresh = match tx.identity(&pair.identity)? {
         Some(identity) => Some(fresh_eligibility(
             tx,
@@ -5108,7 +5206,17 @@ fn identity_view(
 /// the `heimdall_contract::doctor::AliasDefinition` names); a managed destination also
 /// carries the fields P renders (`hostname`, `port`, `account`, `identity_id`).
 /// Catalog fields only: no file is read.
-fn destination_view(d: &heimdall_domain::catalog::DestinationRecord) -> serde_json::Value {
+///
+/// ⟨M03⟩ U8-Q6 (additive): a managed destination whose (destination, account) pair has
+/// a stored `pair_preferences` row also carries `"preference": {"mechanism":
+/// <PreferredMechanism>, "projection": <ProjectionStatus>}` (`{"state": "pending"}` or
+/// `{"state": "applied", "generation": N}`), so `connect` takes ADR-0008 D8 item 2's
+/// flow only for `managed_certificate` with `applied`. No row, or an observed
+/// destination: no `preference` key (M02's listing, unchanged).
+fn destination_view(
+    d: &heimdall_domain::catalog::DestinationRecord,
+    preference: Option<&heimdall_domain::enrollment::PairPreference>,
+) -> serde_json::Value {
     use heimdall_contract::doctor::AliasDefinition;
     let mut view = serde_json::json!({
         "destination_id": d.id,
@@ -5138,6 +5246,17 @@ fn destination_view(d: &heimdall_domain::catalog::DestinationRecord) -> serde_js
         map.insert("definition".to_owned(), serde_json::json!(definition));
         if let Some(serde_json::Value::Object(fields)) = rendered {
             map.extend(fields);
+        }
+        if definition == AliasDefinition::Managed
+            && let Some(p) = preference
+        {
+            map.insert(
+                "preference".to_owned(),
+                serde_json::json!({
+                    "mechanism": p.mechanism,
+                    "projection": p.projection,
+                }),
+            );
         }
     }
     view
@@ -5611,10 +5730,11 @@ impl Operations {
             tracing::warn!(code = %e.code, "cleanup intents could not be read at startup");
         }
         // ⟨M03⟩ U0b row 23 (ADR-0008 D4 item 3): CA retirements resume at their next
-        // step. Wave 0 has no issuer child and no store-deletion step, so nothing
-        // external is confirmed: `retiring` and `unloaded` stay (fail closed), and
-        // only `deleted → retired` (a store step alone) can complete.
-        match self.resume_ca_retirements(None, None).await {
+        // step. No issuer child runs yet, and the store item's deletion is the
+        // owner-present CLI's (ADR-0008 §17.22 item 12): `retiring` and `unloaded`
+        // stay (fail closed), and only `deleted → retired` (a store step alone) can
+        // complete.
+        match self.resume_ca_retirements(None).await {
             Ok(r) if !r.stalled.is_empty() => {
                 tracing::info!(
                     count = r.stalled.len(),
@@ -6003,6 +6123,9 @@ impl Operations {
             lock_floor: self.session_lock_floor(),
         };
         let decision_id = crate::ids::new_decision_id()?;
+        // ⟨M03 wave 4, §17.21 item 1⟩ The binding ID of a `managed_certificate`
+        // resolution, minted here and recorded in the intent (unused otherwise).
+        let managed_binding = crate::ids::new_binding_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
         let retention = self.retention();
         let id = st.op.id.clone();
@@ -6044,7 +6167,8 @@ impl Operations {
                     )?;
                 }
                 let resolution = match resolve_in(tx, &inp)? {
-                    Ok(r) => pin(&inp, r),
+                    Ok(r) => pin(&inp, r)
+                        .map(|r| managed_driver_m03::with_managed_binding(r, &managed_binding)),
                     Err(e) => Err(e),
                 };
                 match resolution {
@@ -6691,6 +6815,12 @@ impl Operations {
                 self.fail_running(&id, err, Some(GrantEvent::PreparationFailed))
                     .await
             }
+            // ⟨M03 wave 4, §17.22 item 8 (W4-R05)⟩ A managed preparation's uncertain
+            // effect is never left unresolved: its key lived in the process that drove
+            // it, so it fails, and its cleanup (key, instances, endpoint, files) runs.
+            Ok(ReconcileOutcome::Unknown) | Err(_) if identity.mechanism == MANAGED_CERTIFICATE => {
+                self.fail_unrecoverable_preparation(&id, &grant).await
+            }
             Ok(ReconcileOutcome::Unknown) | Err(_) => Ok(Flow::Stop),
         }
     }
@@ -6838,6 +6968,15 @@ impl Operations {
                     return self.confirm(&id, identity, o, &grant_id, local).await;
                 }
                 Ok(ReconcileOutcome::NotApplied) => {} // a fresh attempt is safe
+                // ⟨M03 wave 4, §17.22 item 8 (W4-R05)⟩ An `Attempted` or uncertain
+                // managed preparation that cannot be confirmed (a crash anywhere between
+                // the attempt and the confirmation, the materialization included): it
+                // fails, and its cleanup intent runs, never left `outcome_unknown`.
+                Ok(ReconcileOutcome::Unknown) | Err(_)
+                    if identity.mechanism == MANAGED_CERTIFICATE =>
+                {
+                    return self.fail_unrecoverable_preparation(&id, &grant_id).await;
+                }
                 Ok(ReconcileOutcome::Unknown) | Err(_) => {
                     return self
                         .mark_uncertain(&id, identity, effect_token.clone(), &grant_id)
@@ -6920,9 +7059,16 @@ impl Operations {
                         // ⟨M02⟩ U0b row 8: the catalog's pairs for the grant's
                         // scope, read with the attempt; a pair naming another
                         // mechanism than the pinned adapter's is refused (P6).
+                        // ⟨M03 wave 4, §17.21 item 1; U0b row 9⟩ For the managed
+                        // adapter the pairs' stored preference decided the mechanism
+                        // at resolve (mixing refused there); the catalog identity of a
+                        // managed pair is its existing access, not its mechanism.
+                        let managed = ident.mechanism == MANAGED_CERTIFICATE;
                         let named = catalog_pairs(tx, &g.scope.pairs)?.and_then(|named| {
                             match catalog_mechanism(&named)? {
-                                Some(m) if m != ident.mechanism => Err(mixed_mechanisms()),
+                                Some(m) if m != ident.mechanism && !managed => {
+                                    Err(mixed_mechanisms())
+                                }
                                 _ => Ok(named),
                             }
                         });
@@ -6945,6 +7091,19 @@ impl Operations {
                                             adapter: Some(ident.clone()),
                                             ..origin
                                         },
+                                    )?;
+                                }
+                                // ⟨M03 wave 4, §17.22 item 8 (W4-R05, W4-R06)⟩ A managed
+                                // preparation's cleanup owner exists from here, before
+                                // its first external effect.
+                                if managed {
+                                    managed_driver_m03::record_preparation_intent_in(
+                                        tx,
+                                        &gid,
+                                        &id2,
+                                        ident.clone(),
+                                        tok.clone(),
+                                        now,
                                     )?;
                                 }
                                 tx.append_stage_receipt(
@@ -7013,13 +7172,14 @@ impl Operations {
         // read here, in this step and before the bound, on the blocking pool. A
         // blocked store or a slow observation delays this step as any store wait
         // does, never the bounded call.
-        let sources = read_prepare_sources(&adapter, &named).await;
-        // ⟨M02⟩ U0b row 24: the bound covers `prepare_from` alone, inside the slot and
-        // the preparing marker; a timed-out call answers `OutcomeUnknown` and takes
-        // the `mark_uncertain` arm below, after both are released.
-        let result = bounded_adapter_call(
-            self.adapter_limit(),
-            adapter.prepare_from(
+        let mut sources = read_prepare_sources(&adapter, &named).await;
+        // ⟨M03⟩ U0b row 21, phase 2 (wave 4): for the managed adapter only, the effect
+        // driver runs here, outside the adapter bound (ADR-0008 D6 item 0), and its
+        // results go into the snapshot `prepare_from` computes from. A driver failure
+        // takes the same arms as a failed `prepare_from` below.
+        let driven = self
+            .run_effect_driver(
+                &adapter,
                 PrepareRequest {
                     grant: &grant,
                     scope: &grant.scope,
@@ -7029,23 +7189,63 @@ impl Operations {
                     now,
                     pairs: &named,
                 },
-                &sources,
-            ),
-        )
-        .await;
+                &mut sources,
+            )
+            .await;
+        // ⟨M02⟩ U0b row 24: the bound covers `prepare_from` alone, inside the slot and
+        // the preparing marker; a timed-out call answers `OutcomeUnknown` and takes
+        // the `mark_uncertain` arm below, after both are released.
+        let result = match driven {
+            Err(e) => Err(e),
+            Ok(()) => {
+                bounded_adapter_call(
+                    self.adapter_limit(),
+                    adapter.prepare_from(
+                        PrepareRequest {
+                            grant: &grant,
+                            scope: &grant.scope,
+                            required: &spec.required,
+                            interactive,
+                            effect_token: &token,
+                            now,
+                            pairs: &named,
+                        },
+                        &sources,
+                    ),
+                )
+                .await
+            }
+        };
         drop(slot);
         drop(preparing);
+        // ⟨M03 wave 4, §17.22 item 8⟩ A managed preparation is local work (its key lives
+        // in this process): it is never left `outcome_unknown`.
+        let managed = identity.mechanism == MANAGED_CERTIFICATE;
         let flow = match result {
             Ok(o) => self.confirm(&id, identity, o, &grant_id, local).await,
-            Err(AdapterError::OutcomeUnknown(_)) => {
+            Err(AdapterError::OutcomeUnknown(_)) if !managed => {
                 self.mark_uncertain(&id, identity, token, &grant_id).await
+            }
+            Err(AdapterError::OutcomeUnknown(_)) => {
+                self.fail_unrecoverable_preparation(&id, &grant_id).await
             }
             Err(e) => {
                 let error = self
                     .prepare_error(&e, &identity, &named, &sources, now)
                     .await;
-                self.fail_running(&id, error, Some(GrantEvent::PreparationFailed))
-                    .await
+                // ⟨M03 wave 4, §17.21 item 1; §17.22 item 8 (W4-R06)⟩ Any managed
+                // failure after the attempt (the driver's own, whose cleanup may not
+                // have completed, or `prepare_from`'s): the failure keeps the cleanup
+                // intent recorded with the attempt, processed just below and retried
+                // until the key, the binding endpoint and the files are gone.
+                if managed {
+                    self.fail_managed_preparation(&id, error, &grant_id)
+                        .await
+                        .map(|_| Flow::Stop)
+                } else {
+                    self.fail_running(&id, error, Some(GrantEvent::PreparationFailed))
+                        .await
+                }
             }
         };
         // ⟨r2.16⟩ ADR-0006 §13.19 item 2: a cleanup intent written while this
@@ -7136,7 +7336,20 @@ impl Operations {
     ///   interaction decides. Never a `decision_ref` (spec §5.5);
     /// * `PROVIDER_LOCKED` carries `next.provider_interaction` `provider_unlock`.
     ///
+    /// ⟨M03 wave 4, round 2 (R2-E)⟩ A managed preparation whose effect driver could not
+    /// have its certificate signed (`Unavailable(`[`ISSUER_SIGN_FAILED`]`)`: the issuer
+    /// refused unavailable, or did not answer within the bound) is
+    /// `CAPABILITY_UNAVAILABLE`, reason `issuer_unavailable` (ADR-0008 D3 item 7: "while
+    /// the issuer is not `ready`, new activations ... fail with `CAPABILITY_UNAVAILABLE`,
+    /// reason `issuer_unavailable`"), not the M01 `SERVICE_UNAVAILABLE` of a local
+    /// adapter dependency. ⟨R2-F⟩ When the issuer answered a store reason
+    /// (`issuer_store_locked`, `issuer_store_unavailable`), that is the reason ("or the
+    /// store reason"; [`issuer_sign_failure_reason`]).
+    ///
     /// Any other adapter keeps the M01 mapping. Adapter text is never echoed.
+    ///
+    /// [`ISSUER_SIGN_FAILED`]: crate::managed::driver::ISSUER_SIGN_FAILED
+    /// [`issuer_sign_failure_reason`]: crate::managed::driver::issuer_sign_failure_reason
     async fn prepare_error(
         &self,
         e: &AdapterError,
@@ -7145,6 +7358,16 @@ impl Operations {
         sources: &IntegrationSnapshot,
         now: Timestamp,
     ) -> OpError {
+        if adapter.mechanism == MANAGED_CERTIFICATE
+            && let Some(why) = crate::managed::driver::issuer_sign_failure_reason(e)
+        {
+            return OpError::new(
+                Code::CapabilityUnavailable,
+                "the issuer is unavailable: no new certificate can be issued",
+            )
+            .with_resource("issuer", None)
+            .with_reason(why);
+        }
         let Some(provider) = existing_access_provider(&adapter.mechanism) else {
             return OpError::from(e.clone());
         };
@@ -7287,7 +7510,21 @@ impl Operations {
     /// record for the next supervisor pass or restart (fail closed). No outcome
     /// leaves an applied effect with neither a live owning obligation nor a call
     /// made after it, or an intent that owes one.
+    ///
+    /// ⟨M03 wave 4, §17.22 items 6 and 8⟩ For a `managed_certificate` grant, first
+    /// (`managed_driver_m03::IntentDisposition`): the intent a managed preparation
+    /// recorded with its attempt is not processed while that preparation lives in this
+    /// process (whatever `origin`); a coalesced follower's intent clears only its own
+    /// uncommitted binding, never the shared grant's key.
     async fn process_cleanup_intent(&self, intent: CleanupIntent, origin: bool) {
+        match self.cleanup_intent_disposition(&intent).await {
+            managed_driver_m03::IntentDisposition::Live => return,
+            managed_driver_m03::IntentDisposition::Follower => {
+                self.cleanup_follower_binding(&intent).await;
+                return;
+            }
+            managed_driver_m03::IntentDisposition::Other => {}
+        }
         let in_flight = intent.in_flight && self.is_preparing(&intent.operation);
         if in_flight && !origin {
             return;
@@ -7371,6 +7608,12 @@ impl Operations {
                 Vec::new()
             }
         };
+        // ⟨M03 wave 4, §17.21 item 1⟩ A managed preparation's key, instances and
+        // uncommitted binding (endpoint and files) go with the call; a failed clear
+        // keeps the intent for the next pass.
+        if !self.cleanup_uncommitted_managed(&intent).await {
+            keep_intent = true;
+        }
         let (g, op) = (intent.grant.clone(), intent.operation.clone());
         let done = self
             .write(move |tx, _| {
@@ -7555,6 +7798,24 @@ impl Operations {
                     };
                     match r {
                         Ok(ReconcileOutcome::Applied(o)) => Some(Facts::from_outcome(&o)),
+                        // ⟨M03 wave 4, §17.21 item 1⟩ A managed preparation's key lives
+                        // in the process that drove it: without its results here (a
+                        // restart), the effect cannot be completed. The operation fails
+                        // with a cleanup intent (key, instances, binding endpoint and
+                        // files), never left running.
+                        _ if a.descriptor().identity.mechanism == MANAGED_CERTIFICATE => {
+                            let error = OpError::new(
+                                Code::ServiceUnavailable,
+                                "the managed credential did not survive the runtime restart",
+                            )
+                            .with_effect(EffectStatus::Partial);
+                            if let Some(intent) =
+                                self.fail_managed_preparation(&id, error, &gid).await?
+                            {
+                                self.process_cleanup_intent(intent, true).await;
+                            }
+                            return Ok(Flow::Stop);
+                        }
                         // ⟨M02⟩ ADR-0007 §12.15 item 7 (E-U6-6): an adapter with no
                         // external effect forgets its integrations at a restart; the
                         // confirmed effect is answered from the facts its `Confirmed`
@@ -7608,7 +7869,48 @@ impl Operations {
             .request()
             .and_then(|r| WorkSpec::from_request(&r, &env))
             .is_none_or(|s| !s.interactive);
-        let binding_id = crate::ids::new_binding_id()?;
+        // ⟨M03 wave 4, §17.21 item 1⟩ A managed binding is committed under the ID minted
+        // at resolve (its endpoint and files were materialized under it).
+        let binding_id = match &resolved.binding_id {
+            Some(b) => b.clone(),
+            None => crate::ids::new_binding_id()?,
+        };
+        // ⟨§17.21 item 1⟩ The binding endpoint this drive's managed preparation named
+        // (`consumer.signing_endpoint`; the stored history keeps none). `None` for
+        // every M01/M02 adapter, whose results are unchanged.
+        let signing_endpoint = local
+            .prepared
+            .as_ref()
+            .and_then(|o| o.integration.signing_endpoint.clone())
+            .filter(|_| !attached);
+        let managed = resolved
+            .adapter
+            .as_ref()
+            .is_some_and(|a| a.mechanism == MANAGED_CERTIFICATE);
+        // ⟨M03 wave 4, §17.22 item 6 (W4-R03)⟩ A coalesced or decision-joined follower of
+        // a managed grant gets its own binding materialized against the existing grant
+        // and key before its commit, or is refused at it: never `ACCESS_READY` for an
+        // unmaterialized binding.
+        let follower = if attached && managed {
+            Some(self.materialize_follower(&id, &gid, &binding_id).await)
+        } else {
+            None
+        };
+        let (follower_endpoint, follower_refusal) = match follower {
+            Some(Ok(endpoint)) => (Some(endpoint), None),
+            Some(Err(e)) => (None, Some(e)),
+            None => (None, None),
+        };
+        // ⟨M03 wave 4, round 5 (W4-C02); §17.22 item 7, §17.23 item 1⟩ Every newly
+        // committed managed follower's scope claim is its own, from evidence read now
+        // (the grant's pairs, the current client and target evaluation, the installed
+        // certificates' CAs), never the leader's historical result: it replaces the
+        // `destination_scope` of the facts below, before the minimums are checked.
+        let follower_scope = if attached && managed {
+            Some(self.follower_scope(&gid, resolved.adapter.as_ref()).await?)
+        } else {
+            None
+        };
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
         let parent_binding = st
@@ -7657,11 +7959,20 @@ impl Operations {
                 let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
                 // ⟨M02⟩ U0b rows 4 and 5: without this drive's facts, the grant's
                 // stored history; then fresh eligibility in this transaction.
-                let facts = match facts {
+                let mut facts = match facts {
                     Some(f) => f,
                     None => Facts::conservative(&g, tx.grant_prepared_facts(&gid)?.as_ref(), now),
                 }
                 .with_eligibility(tx, now)?;
+                // ⟨W4-C02⟩ A managed follower reports, and is held to its minimum by, its
+                // own claim at this commit's time.
+                if let Some(scope) = &follower_scope {
+                    facts.enforcement.destination_scope = scope.claim(now);
+                }
+                // ⟨§17.22 item 6⟩ A follower whose own binding could not be
+                // materialized is refused here, on the attached refusal path (no grant
+                // event: the grant is not its own).
+                let follower_refused = follower_refusal.map(|e| Refusal::new(e, None));
                 let refusal = match activation_refusal(
                     tx, &env, &adapters, &resolved, &g, now, activation,
                 )? {
@@ -7707,6 +8018,7 @@ impl Operations {
                         }
                     }
                 };
+                let refusal = follower_refused.or(refusal);
                 if let Some(refusal) = refusal {
                     if !attached
                         && let Some(ev) = refusal.grant_event
@@ -7741,6 +8053,12 @@ impl Operations {
                         evidence: Vec::new(),
                     };
                     put_grant(tx, emit, &g, Some(&id))?;
+                }
+                // ⟨M03 wave 4, §17.22 items 6 and 8⟩ The commit retires the managed
+                // cleanup intent of this operation (its attempt's, or a follower's
+                // binding's): the grant's lifecycle owns the credential from here.
+                if managed {
+                    tx.clear_cleanup_intent(&gid, &id)?;
                 }
                 if for_others {
                     tx.append_stage_receipt(
@@ -7791,7 +8109,15 @@ impl Operations {
                     r.binding = Some(binding_id.clone());
                 }
                 tx.set_recovery_intent(&id, &intent)?;
-                let data = ensure_data(&binding, &g, &facts, bound);
+                let mut data = ensure_data(&binding, &g, &facts, bound);
+                if signing_endpoint.is_some() {
+                    data.consumer.signing_endpoint = signing_endpoint;
+                }
+                // ⟨§17.22 item 6; §17.23 item 6⟩ A follower's result names its own
+                // binding endpoint: the one its materialization created.
+                if let Some(endpoint) = &follower_endpoint {
+                    managed_driver_m03::name_follower_endpoint(&mut data.consumer, endpoint);
+                }
                 let value = serde_json::to_value(&data)?;
                 settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention)?;
                 tx.append_stage_receipt(
@@ -7809,6 +8135,11 @@ impl Operations {
             Checked::Refused(gid, intent) => {
                 if let Some(intent) = intent {
                     self.process_cleanup_intent(intent, true).await;
+                }
+                // ⟨§17.22 item 6⟩ A refused follower's own binding (materialized or
+                // not) is cleared through its intent.
+                if attached && managed {
+                    self.process_cleanup_intent_of(&gid, &st.op.id).await;
                 }
                 // ⟨r2.5⟩ ADR-0006 §13.8 item 4 (as at `Recheck`).
                 self.end_if_invalid(&gid).await;
@@ -8311,293 +8642,423 @@ impl Operations {
         };
         let ctx = caller.context.clone();
         let environment = self.inner.config.environment.clone();
-        let mut data = match req.subject {
-            // ⟨M02⟩ U0b row 19, phase 2: the same set as
-            // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
-            InspectSubject::Capabilities => serde_json::json!({
-                "capabilities": [
-                    heimdall_contract::ipc::capability::OPERATIONS_V1,
-                    heimdall_contract::ipc::capability::EVENTS_V1,
-                    heimdall_contract::ipc::capability::OWNER_POLICY_V1,
-                    heimdall_contract::ipc::capability::SCHEMA_DISCOVERY_V1,
-                    heimdall_contract::ipc::capability::SERVICE_CONTROL_V1,
-                    heimdall_contract::ipc::capability::SETUP_V1,
-                ],
-                "schemas": heimdall_contract::schema::public_schemas()
-                    .iter()
-                    .map(|s| s.name)
-                    .collect::<Vec<_>>(),
-                "codes": heimdall_contract::schema::code_table()["codes"].clone(),
-                "schema_version": heimdall_contract::SchemaVersion::current(),
-            }),
-            InspectSubject::Environments => {
-                self.write(move |tx, _| {
-                    let record = tx.environment(&environment)?;
-                    Ok(serde_json::json!({
-                        "environment_id": environment,
-                        "enrolled": record.is_some(),
-                        "environments": record.into_iter().collect::<Vec<_>>(),
-                    }))
-                })
-                .await?
-            }
-            // ⟨M02⟩ ADR-0007 §12.24 item 1: the catalog's destinations, each with its
-            // alias and its definition (`managed`, with the rendered fields, or
-            // `observed`), read in one transaction, under the `items` key this subject
-            // always answered with. Owner role only, like the other catalog subjects
-            // (identities, projections, decisions).
-            InspectSubject::Destinations => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "items": [] })
-                } else {
+        let mut data =
+            match req.subject {
+                // ⟨M02⟩ U0b row 19, phase 2: the same set as
+                // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
+                // ⟨M03⟩ U0b row 13, phase 2 (wave 4): and the four M03 capabilities.
+                InspectSubject::Capabilities => serde_json::json!({
+                    "capabilities": [
+                        heimdall_contract::ipc::capability::OPERATIONS_V1,
+                        heimdall_contract::ipc::capability::EVENTS_V1,
+                        heimdall_contract::ipc::capability::OWNER_POLICY_V1,
+                        heimdall_contract::ipc::capability::SCHEMA_DISCOVERY_V1,
+                        heimdall_contract::ipc::capability::SERVICE_CONTROL_V1,
+                        heimdall_contract::ipc::capability::SETUP_V1,
+                        heimdall_contract::ipc::capability::ISSUER_V1,
+                        heimdall_contract::ipc::capability::ENROLLMENT_V1,
+                        heimdall_contract::ipc::capability::MANAGED_CREDENTIALS_V1,
+                        heimdall_contract::ipc::capability::CONNECTIONS_V1,
+                    ],
+                    "schemas": heimdall_contract::schema::public_schemas()
+                        .iter()
+                        .map(|s| s.name)
+                        .collect::<Vec<_>>(),
+                    "codes": heimdall_contract::schema::code_table()["codes"].clone(),
+                    "schema_version": heimdall_contract::SchemaVersion::current(),
+                }),
+                InspectSubject::Environments => {
                     self.write(move |tx, _| {
-                        let items: Vec<serde_json::Value> =
-                            tx.destinations()?.iter().map(destination_view).collect();
-                        Ok(serde_json::json!({ "items": items }))
-                    })
-                    .await?
-                }
-            }
-            // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
-            // definitions, read in one transaction, under `items`. Owner role only, as
-            // for destinations.
-            InspectSubject::Profiles => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "items": [] })
-                } else {
-                    self.write(move |tx, _| {
-                        let items: Vec<serde_json::Value> = tx
-                            .profiles()?
-                            .iter()
-                            .map(|p| {
-                                serde_json::json!({
-                                    "profile_id": p.id,
-                                    "revision": p.revision,
-                                    "label": p.label,
-                                    "pairs": p.scope.pairs,
-                                    "capabilities": p.scope.capabilities,
-                                })
-                            })
-                            .collect();
-                        Ok(serde_json::json!({ "items": items }))
-                    })
-                    .await?
-                }
-            }
-            InspectSubject::Grants | InspectSubject::Bindings => {
-                let subject = req.subject;
-                self.write(move |tx, _| {
-                    let mut grants = Vec::new();
-                    let mut bindings = Vec::new();
-                    // ⟨r2.7⟩ ADR-0006 §13.10 item 3: a pending remote revocation stays
-                    // visible on each grant it covers. ⟨r2.9⟩ §13.12 item 2: with the
-                    // reason `adapter_unavailable` while a responsible adapter of one
-                    // of its obligations is not configured. ⟨r2.10⟩ §13.13: the retry
-                    // count and stop are the grant's own obligations' (item 3), and
-                    // a grant that ended before activation keeps its pending remote
-                    // part visible too (item 2; R-AU-04), so such a terminal grant
-                    // stays listed while it has an obligation.
-                    // ⟨r2.12⟩ §13.15 item 2: every record covering a grant counts.
-                    let mut remote: BTreeMap<GrantId, RemoteView> = BTreeMap::new();
-                    for r in tx.remote_revocations()? {
-                        for g in &r.grants {
-                            let view = RemoteView::of(&r, g);
-                            let view = match remote.remove(g) {
-                                Some(seen) => seen.combine(view),
-                                None => view,
-                            };
-                            remote.insert(g.clone(), view);
-                        }
-                    }
-                    let mut listed: Vec<(GrantSnapshot, bool)> = tx
-                        .grants_due(Timestamp::MAX)?
-                        .into_iter()
-                        .map(|g| (g, false))
-                        .collect();
-                    for gid in remote.keys() {
-                        if let Some(g) = tx.grant(gid)?
-                            && g.state.is_terminal()
-                        {
-                            listed.push((g, true));
-                        }
-                    }
-                    // ⟨r2.17⟩ ADR-0006 §13.20 item 1: a grant whose applied effect still
-                    // waits on a cleanup intent (§13.19 item 2) stays visible, ended or
-                    // not (spec §12.3: a pending remote revocation remains visible).
-                    let cleanup_pending: std::collections::BTreeSet<GrantId> =
-                        tx.cleanup_intents()?.into_iter().map(|i| i.grant).collect();
-                    for gid in &cleanup_pending {
-                        if remote.contains_key(gid) {
-                            continue;
-                        }
-                        if let Some(g) = tx.grant(gid)?
-                            && g.state.is_terminal()
-                        {
-                            listed.push((g, true));
-                        }
-                    }
-                    for (g, ended) in listed {
-                        let refs = tx.grant_references(&g.id)?;
-                        let mut visible = ctx.is_owner();
-                        for r in refs {
-                            // A delegated child's reference on its parent is not a
-                            // binding of the parent.
-                            if let Some(b) = tx.binding(&r.binding)?
-                                && b.grant == g.id
-                                && may_act_on(&b, &ctx)
-                            {
-                                visible = true;
-                                if ended {
-                                    // Listed for its pending remote part only; its
-                                    // bindings are not live.
-                                    continue;
-                                }
-                                bindings.push(serde_json::json!({
-                                    "binding_id": b.id,
-                                    "grant_id": b.grant,
-                                    "work_id": b.work_id,
-                                    "profile": b.profile,
-                                    "profile_revision": b.profile_revision,
-                                    "state": b.state,
-                                    "created_at": b.created_at,
-                                }));
-                            }
-                        }
-                        if visible {
-                            let mut view = serde_json::json!({
-                                "grant_id": g.id,
-                                "state": g.state,
-                                "expires_at": g.deadline.effective,
-                                "parent": g.parent,
-                                "scope": g.scope,
-                            });
-                            // ⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3 (added fields only).
-                            if let serde_json::Value::Object(map) = &mut view {
-                                if g.state == GrantState::Degraded
-                                    && let Some(reason) = tx.grant_degradation(&g.id)?
-                                {
-                                    map.insert(
-                                        "degraded_reason".to_owned(),
-                                        serde_json::to_value(reason)?,
-                                    );
-                                }
-                                if let Some(r) = remote.get(&g.id) {
-                                    map.insert(
-                                        "remote_pending".to_owned(),
-                                        serde_json::json!(true),
-                                    );
-                                    // ⟨r2.12⟩ §13.15 item 2 / §13.16 item 1: every
-                                    // reason present, always as an array (one
-                                    // stable shape, whatever the reason count).
-                                    if !r.reasons.is_empty() {
-                                        map.insert(
-                                            "remote_pending_reasons".to_owned(),
-                                            serde_json::to_value(&r.reasons)?,
-                                        );
-                                    }
-                                    map.insert(
-                                        "remote_retries".to_owned(),
-                                        serde_json::json!({
-                                            "attempts": r.attempts,
-                                            "last_attempt_at": r.last_attempt_at,
-                                            "stopped": r.stopped,
-                                        }),
-                                    );
-                                }
-                                if cleanup_pending.contains(&g.id) {
-                                    map.insert(
-                                        "cleanup_pending".to_owned(),
-                                        serde_json::json!(true),
-                                    );
-                                }
-                            }
-                            grants.push(view);
-                        }
-                    }
-                    Ok(if subject == InspectSubject::Grants {
-                        serde_json::json!({ "grants": grants })
-                    } else {
-                        serde_json::json!({ "bindings": bindings })
-                    })
-                })
-                .await?
-            }
-            InspectSubject::Operations => {
-                self.write(move |tx, _| {
-                    let mut ops = tx.open_operations()?;
-                    ops.extend(tx.unresolved_operations()?);
-                    let counts = tx.operation_counts()?;
-                    Ok(serde_json::json!({
-                        "operations": ops
-                            .iter()
-                            .filter(|o| visible_to(&o.key.caller, &ctx))
-                            .map(operation_view)
-                            .collect::<Vec<_>>(),
-                        "counts": counts
-                            .into_iter()
-                            .map(|(s, n)| serde_json::json!({ "state": s, "count": n }))
-                            .collect::<Vec<_>>(),
-                    }))
-                })
-                .await?
-            }
-            // ⟨M02⟩ U0b row 21: the catalog's identities, each with its fresh
-            // eligibility (row 5; ADR-0007 §7) and its live declaration, read in one
-            // transaction. Owner role only, like decisions (reading; escalated).
-            InspectSubject::Identities => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "identities": [] })
-                } else {
-                    self.write(move |tx, _| {
-                        let mut items = Vec::new();
-                        for identity in tx.identities()? {
-                            items.push(identity_view(tx, &identity, now)?);
-                        }
-                        Ok(serde_json::json!({ "identities": items }))
-                    })
-                    .await?
-                }
-            }
-            // ⟨M02⟩ U0b row 21: this environment's projection resources and record,
-            // read-only. Empty until a projection is committed.
-            InspectSubject::Projections => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "projections": [], "record": null })
-                } else {
-                    self.write(move |tx, _| {
-                        let resources = tx.projection_resources(&environment)?;
-                        let record = tx.projection_record(&environment)?;
+                        let record = tx.environment(&environment)?;
                         Ok(serde_json::json!({
-                            "projections": resources,
-                            "record": record,
+                            "environment_id": environment,
+                            "enrolled": record.is_some(),
+                            "environments": record.into_iter().collect::<Vec<_>>(),
                         }))
                     })
                     .await?
                 }
-            }
-            InspectSubject::Decisions => {
-                if !ctx.is_owner() {
-                    serde_json::json!({ "decisions": [] })
-                } else {
-                    self.write(move |tx, _| {
-                        let pending = tx.pending_decisions()?;
-                        Ok(serde_json::json!({
-                            "decisions": pending
+                // ⟨M02⟩ ADR-0007 §12.24 item 1: the catalog's destinations, each with its
+                // alias and its definition (`managed`, with the rendered fields, or
+                // `observed`), read in one transaction, under the `items` key this subject
+                // always answered with. Owner role only, like the other catalog subjects
+                // (identities, projections, decisions).
+                InspectSubject::Destinations => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "items": [] })
+                    } else {
+                        self.write(move |tx, _| {
+                            let mut items: Vec<serde_json::Value> = Vec::new();
+                            for d in tx.destinations()? {
+                                // ⟨M03⟩ U8-Q6: the managed definition's pair preference.
+                                let preference = match &d.definition {
+                                    DestinationDefinition::Managed { account, .. } => tx
+                                        .pair_preference(&heimdall_domain::scope::AccessPair {
+                                            destination: d.id.clone(),
+                                            account: account.clone(),
+                                        })?,
+                                    DestinationDefinition::Observed => None,
+                                };
+                                items.push(destination_view(&d, preference.as_ref()));
+                            }
+                            Ok(serde_json::json!({ "items": items }))
+                        })
+                        .await?
+                    }
+                }
+                // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
+                // definitions, read in one transaction, under `items`. Owner role only, as
+                // for destinations.
+                InspectSubject::Profiles => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "items": [] })
+                    } else {
+                        self.write(move |tx, _| {
+                            let items: Vec<serde_json::Value> = tx
+                                .profiles()?
                                 .iter()
-                                .map(|d| decision_view(d, now))
+                                .map(|p| {
+                                    serde_json::json!({
+                                        "profile_id": p.id,
+                                        "revision": p.revision,
+                                        "label": p.label,
+                                        "pairs": p.scope.pairs,
+                                        "capabilities": p.scope.capabilities,
+                                    })
+                                })
+                                .collect();
+                            Ok(serde_json::json!({ "items": items }))
+                        })
+                        .await?
+                    }
+                }
+                InspectSubject::Grants | InspectSubject::Bindings => {
+                    let subject = req.subject;
+                    self.write(move |tx, _| {
+                        let mut grants = Vec::new();
+                        let mut bindings = Vec::new();
+                        // ⟨r2.7⟩ ADR-0006 §13.10 item 3: a pending remote revocation stays
+                        // visible on each grant it covers. ⟨r2.9⟩ §13.12 item 2: with the
+                        // reason `adapter_unavailable` while a responsible adapter of one
+                        // of its obligations is not configured. ⟨r2.10⟩ §13.13: the retry
+                        // count and stop are the grant's own obligations' (item 3), and
+                        // a grant that ended before activation keeps its pending remote
+                        // part visible too (item 2; R-AU-04), so such a terminal grant
+                        // stays listed while it has an obligation.
+                        // ⟨r2.12⟩ §13.15 item 2: every record covering a grant counts.
+                        let mut remote: BTreeMap<GrantId, RemoteView> = BTreeMap::new();
+                        for r in tx.remote_revocations()? {
+                            for g in &r.grants {
+                                let view = RemoteView::of(&r, g);
+                                let view = match remote.remove(g) {
+                                    Some(seen) => seen.combine(view),
+                                    None => view,
+                                };
+                                remote.insert(g.clone(), view);
+                            }
+                        }
+                        let mut listed: Vec<(GrantSnapshot, bool)> = tx
+                            .grants_due(Timestamp::MAX)?
+                            .into_iter()
+                            .map(|g| (g, false))
+                            .collect();
+                        for gid in remote.keys() {
+                            if let Some(g) = tx.grant(gid)?
+                                && g.state.is_terminal()
+                            {
+                                listed.push((g, true));
+                            }
+                        }
+                        // ⟨r2.17⟩ ADR-0006 §13.20 item 1: a grant whose applied effect still
+                        // waits on a cleanup intent (§13.19 item 2) stays visible, ended or
+                        // not (spec §12.3: a pending remote revocation remains visible).
+                        let cleanup_pending: std::collections::BTreeSet<GrantId> =
+                            tx.cleanup_intents()?.into_iter().map(|i| i.grant).collect();
+                        for gid in &cleanup_pending {
+                            if remote.contains_key(gid) {
+                                continue;
+                            }
+                            if let Some(g) = tx.grant(gid)?
+                                && g.state.is_terminal()
+                            {
+                                listed.push((g, true));
+                            }
+                        }
+                        for (g, ended) in listed {
+                            let refs = tx.grant_references(&g.id)?;
+                            let mut visible = ctx.is_owner();
+                            for r in refs {
+                                // A delegated child's reference on its parent is not a
+                                // binding of the parent.
+                                if let Some(b) = tx.binding(&r.binding)?
+                                    && b.grant == g.id
+                                    && may_act_on(&b, &ctx)
+                                {
+                                    visible = true;
+                                    if ended {
+                                        // Listed for its pending remote part only; its
+                                        // bindings are not live.
+                                        continue;
+                                    }
+                                    bindings.push(serde_json::json!({
+                                        "binding_id": b.id,
+                                        "grant_id": b.grant,
+                                        "work_id": b.work_id,
+                                        "profile": b.profile,
+                                        "profile_revision": b.profile_revision,
+                                        "state": b.state,
+                                        "created_at": b.created_at,
+                                    }));
+                                }
+                            }
+                            if visible {
+                                let mut view = serde_json::json!({
+                                    "grant_id": g.id,
+                                    "state": g.state,
+                                    "expires_at": g.deadline.effective,
+                                    "parent": g.parent,
+                                    "scope": g.scope,
+                                });
+                                // ⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3 (added fields only).
+                                if let serde_json::Value::Object(map) = &mut view {
+                                    if g.state == GrantState::Degraded
+                                        && let Some(reason) = tx.grant_degradation(&g.id)?
+                                    {
+                                        map.insert(
+                                            "degraded_reason".to_owned(),
+                                            serde_json::to_value(reason)?,
+                                        );
+                                    }
+                                    if let Some(r) = remote.get(&g.id) {
+                                        map.insert(
+                                            "remote_pending".to_owned(),
+                                            serde_json::json!(true),
+                                        );
+                                        // ⟨r2.12⟩ §13.15 item 2 / §13.16 item 1: every
+                                        // reason present, always as an array (one
+                                        // stable shape, whatever the reason count).
+                                        if !r.reasons.is_empty() {
+                                            map.insert(
+                                                "remote_pending_reasons".to_owned(),
+                                                serde_json::to_value(&r.reasons)?,
+                                            );
+                                        }
+                                        map.insert(
+                                            "remote_retries".to_owned(),
+                                            serde_json::json!({
+                                                "attempts": r.attempts,
+                                                "last_attempt_at": r.last_attempt_at,
+                                                "stopped": r.stopped,
+                                            }),
+                                        );
+                                    }
+                                    if cleanup_pending.contains(&g.id) {
+                                        map.insert(
+                                            "cleanup_pending".to_owned(),
+                                            serde_json::json!(true),
+                                        );
+                                    }
+                                }
+                                grants.push(view);
+                            }
+                        }
+                        Ok(if subject == InspectSubject::Grants {
+                            serde_json::json!({ "grants": grants })
+                        } else {
+                            serde_json::json!({ "bindings": bindings })
+                        })
+                    })
+                    .await?
+                }
+                InspectSubject::Operations => {
+                    self.write(move |tx, _| {
+                        let mut ops = tx.open_operations()?;
+                        ops.extend(tx.unresolved_operations()?);
+                        let counts = tx.operation_counts()?;
+                        Ok(serde_json::json!({
+                            "operations": ops
+                                .iter()
+                                .filter(|o| visible_to(&o.key.caller, &ctx))
+                                .map(operation_view)
+                                .collect::<Vec<_>>(),
+                            "counts": counts
+                                .into_iter()
+                                .map(|(s, n)| serde_json::json!({ "state": s, "count": n }))
                                 .collect::<Vec<_>>(),
                         }))
                     })
                     .await?
                 }
-            }
-            // M03 wave 0 (A1): fail closed until U0b: the M03 subjects have no reader yet.
-            InspectSubject::Enrollments | InspectSubject::Issuer | InspectSubject::Connections => {
-                return Err(OpError::driver_unavailable(
-                    "this inspect subject is not available in this build",
-                ));
-            }
-        };
+                // ⟨M02⟩ U0b row 21: the catalog's identities, each with its fresh
+                // eligibility (row 5; ADR-0007 §7) and its live declaration, read in one
+                // transaction. Owner role only, like decisions (reading; escalated).
+                InspectSubject::Identities => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "identities": [] })
+                    } else {
+                        self.write(move |tx, _| {
+                            let mut items = Vec::new();
+                            for identity in tx.identities()? {
+                                items.push(identity_view(tx, &identity, now)?);
+                            }
+                            Ok(serde_json::json!({ "identities": items }))
+                        })
+                        .await?
+                    }
+                }
+                // ⟨M02⟩ U0b row 21: this environment's projection resources and record,
+                // read-only. Empty until a projection is committed.
+                InspectSubject::Projections => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "projections": [], "record": null })
+                    } else {
+                        self.write(move |tx, _| {
+                            let resources = tx.projection_resources(&environment)?;
+                            let record = tx.projection_record(&environment)?;
+                            Ok(serde_json::json!({
+                                "projections": resources,
+                                "record": record,
+                            }))
+                        })
+                        .await?
+                    }
+                }
+                InspectSubject::Decisions => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "decisions": [] })
+                    } else {
+                        self.write(move |tx, _| {
+                            let pending = tx.pending_decisions()?;
+                            Ok(serde_json::json!({
+                                "decisions": pending
+                                    .iter()
+                                    .map(|d| decision_view(d, now))
+                                    .collect::<Vec<_>>(),
+                            }))
+                        })
+                        .await?
+                    }
+                }
+                // ⟨M03⟩ wave 4 (U10): `inspect enrollments` (owner only, like decisions:
+                // the records name hosts and accounts) and `inspect issuer` (the
+                // `issuer.status` view). `inspect connections` has no reader yet (no store
+                // index lists every owned connection, U7-Q4): fail closed.
+                InspectSubject::Enrollments => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "enrollments": [] })
+                    } else {
+                        let view = self
+                            .write(move |tx, _| enrollment_m03::enrollments_view_in(tx))
+                            .await?;
+                        serde_json::to_value(view).map_err(|_| {
+                            OpError::new(Code::InternalError, "enrollments could not be rendered")
+                        })?
+                    }
+                }
+                InspectSubject::Issuer => {
+                    self.issuer_request(caller, heimdall_contract::issuer::IssuerRequest::Status)
+                        .await?
+                        .data
+                }
+                // ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11; §5 item 4): `inspect
+                // connections`, read-only over the owned-connection rows, owner only like
+                // decisions (rows name bindings, grants and destinations). Only live rows
+                // (`up`, `closing`) are listed; PIDs, start tokens, images and control paths
+                // never leave the process. Per row: the destination (a master's from its
+                // stable mux path `<runtime_dir>/mux/<destination-id>`, else the binding's
+                // first destination; a row whose binding is unknown is not listed), the
+                // grant's effective connection policy (D8 item 1's merge: its origin and
+                // every current applicable policy; no origin: `strict`/`disabled`, fail
+                // closed), and `closes_at`: the grant's bound for a master (closed at the
+                // deadline under both policies, D8 item 3) or under `strict`, `null` for a
+                // dedicated connection under `graceful`.
+                InspectSubject::Connections => {
+                    use heimdall_contract::managed::{
+                        ConnectionEntry, ConnectionKind, ConnectionPolicy, ConnectionState,
+                        ConnectionsView, ExistingConnectionsMode, MultiplexingMode,
+                    };
+                    use heimdall_domain::managed::OwnedConnectionState;
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "connections": [] })
+                    } else {
+                        let env = self.inner.config.environment.clone();
+                        let view = self
+                        .write(move |tx, _| {
+                            let mut connections = Vec::new();
+                            for c in tx.owned_connections()? {
+                                let state = match c.state {
+                                    OwnedConnectionState::Up => ConnectionState::Up,
+                                    OwnedConnectionState::Closing => ConnectionState::Closing,
+                                    _ => continue,
+                                };
+                                let Some(binding) = tx.binding(&c.binding)? else {
+                                    continue;
+                                };
+                                let from_mux = c
+                                    .control_path
+                                    .as_deref()
+                                    .filter(|_| c.kind == ConnectionKind::Master)
+                                    .and_then(|p| std::path::Path::new(p).file_name())
+                                    .and_then(|n| n.to_str())
+                                    .and_then(|n| DestinationId::parse(n).ok())
+                                    .filter(|d| {
+                                        binding.scope.pairs.iter().any(|p| &p.destination == d)
+                                    });
+                                let Some(destination_id) = from_mux.or_else(|| {
+                                    binding.scope.pairs.iter().next().map(|p| p.destination.clone())
+                                }) else {
+                                    continue;
+                                };
+                                let grant = tx.grant(&c.grant)?;
+                                let origin = tx.grant_origin(&c.grant)?;
+                                let policy = match (&grant, &origin) {
+                                    (Some(g), Some(o)) => {
+                                        let current: Vec<ConnectionPolicy> = tx
+                                            .policies_for(&o.profile, &g.environment)?
+                                            .iter()
+                                            .map(|p| p.connection)
+                                            .collect();
+                                        heimdall_domain::connection::effective_connection_policy(
+                                            o.connection,
+                                            &current,
+                                            None,
+                                        )
+                                    }
+                                    _ => ConnectionPolicy {
+                                        existing: ExistingConnectionsMode::Strict,
+                                        multiplexing: MultiplexingMode::Disabled,
+                                    },
+                                };
+                                let closes = c.kind == ConnectionKind::Master
+                                    || policy.existing == ExistingConnectionsMode::Strict;
+                                let closes_at = match (&grant, closes) {
+                                    (Some(g), true) => {
+                                        let profile = origin.as_ref().map(|o| &o.profile);
+                                        Some(bound_of(tx, &env, g, profile)?)
+                                    }
+                                    _ => None,
+                                };
+                                connections.push(ConnectionEntry {
+                                    id: c.id,
+                                    kind: c.kind,
+                                    binding_id: c.binding,
+                                    grant_id: c.grant,
+                                    destination_id,
+                                    started_at: c.started_at,
+                                    policy,
+                                    closes_at,
+                                    state,
+                                });
+                            }
+                            Ok(ConnectionsView { connections })
+                        })
+                        .await?;
+                        serde_json::to_value(view).map_err(|_| {
+                            OpError::new(Code::InternalError, "connections could not be rendered")
+                        })?
+                    }
+                }
+            };
         if let Some(preview) = req.preview {
             let p = self.preview(caller, preview, now).await?;
             if let serde_json::Value::Object(map) = &mut data {
@@ -8872,10 +9333,32 @@ impl Operations {
     }
 
     async fn drive_bind(&self, id: &OperationId) -> Result<(), OpError> {
+        // ⟨M03 wave 4, §17.21 item 2⟩ A launch of a managed binding: the first pass
+        // claims every pair's slot (store CAS) and stops; the slot files and the
+        // listing are written; the second pass settles the bind.
+        if let Some(binding) = self.drive_bind_pass(id, false).await? {
+            if let Err(e) = self.write_bind_slots_managed(&binding).await {
+                return self.fail_managed_bind(id, e).await;
+            }
+            self.drive_bind_pass(id, true).await?;
+        }
+        Ok(())
+    }
+
+    /// One settling pass of `drive_bind`. `Some(binding)`: the slots of the managed
+    /// `binding` were claimed in this pass and the bind waits for their files
+    /// (`slots_ready` false only).
+    async fn drive_bind_pass(
+        &self,
+        id: &OperationId,
+        slots_ready: bool,
+    ) -> Result<Option<BindingId>, OpError> {
         let st = self.load_work(id).await?;
         if st.op.state.is_quiescent() {
-            return Ok(());
+            return Ok(None);
         }
+        let claimed: Arc<Mutex<Option<BindingId>>> = Arc::default();
+        let claimed_in = Arc::clone(&claimed);
         let Some(Request::Bind(req)) = st.request() else {
             return Err(internal("the stored request cannot be read"));
         };
@@ -8887,6 +9370,7 @@ impl Operations {
         let none = Ended::default;
         let (r, ended) = self
             .write(move |tx, emit| {
+                *claimed_in.lock().unwrap_or_else(PoisonError::into_inner) = None;
                 let Some(mut op) = tx.operation(&id2)? else {
                     return Ok((Ok(()), none()));
                 };
@@ -8978,6 +9462,7 @@ impl Operations {
                     adapter: None,
                     approval: None,
                     covered: None,
+                    binding_id: None,
                 };
                 // An existing binding is not a new activation (ADR-0006 §13.6 item 1):
                 // a pause does not stop it (nor its re-validation); revocation and
@@ -9029,6 +9514,22 @@ impl Operations {
                     };
                     return fail(tx, emit, &mut op, e).map(|(r, _)| (r, ended));
                 }
+                // ⟨M03 wave 4, §17.21 item 2⟩ A launch of a managed binding claims each
+                // pair's environment slot (store CAS) before anything else is written;
+                // a slot that cannot be claimed refuses the bind with its reason.
+                if !slots_ready
+                    && matches!(req.form, BindForm::Launch(_))
+                    && b.mechanism == MANAGED_CERTIFICATE
+                {
+                    return match managed_driver_m03::claim_bind_slots_in(tx, &env, &b, now)? {
+                        Err(e) => fail(tx, emit, &mut op, e),
+                        Ok(()) => {
+                            *claimed_in.lock().unwrap_or_else(PoisonError::into_inner) =
+                                Some(b.id.clone());
+                            Ok((Ok(()), none()))
+                        }
+                    };
+                }
                 let bound = bound_of(tx, &env, &g, Some(&b.profile))?;
                 // ⟨M02⟩ U0b rows 4 and 5: the grant's stored history, then fresh
                 // eligibility, in this settling transaction.
@@ -9061,7 +9562,11 @@ impl Operations {
             })
             .await?;
         self.complete_withdrawals(ended).await;
-        r
+        r?;
+        Ok(claimed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take())
     }
 
     /// `delegate` (spec §6.7, §8.7). Authorized by parent-binding ownership.
@@ -9272,10 +9777,14 @@ impl Operations {
                 if op.state.is_quiescent() {
                     return Ok(Some(Ok((op, None))));
                 }
-                // ⟨M03⟩ wave-0 E10 (O): an open enrollment operation is not cancelled
-                // here; the refusal writes nothing (`enrollment_cancel_m03`).
+                // ⟨M03⟩ wave-0 E10 (O), ⟨wave 4⟩ U10: an open enrollment operation is
+                // cancelled by the enrollment driver's rule (`enrollment_cancel_m03::
+                // cancel_in`): refused, writing nothing, once a remote mutation's
+                // `Attempted` receipt exists or a step is outstanding; before that,
+                // cancelled (`planned → withdrawn`, `applying → failed_unwritten`, the
+                // pending decision withdrawn).
                 if op.kind.is_enrollment() {
-                    return enrollment_cancel_m03::refusal(tx, &op).map(|e| Some(Err(e)));
+                    return enrollment_cancel_m03::cancel_in(tx, emit, op, now, retention).map(Some);
                 }
                 // ⟨M02⟩ ADR-0007 §12.14 item 3 (E1), phase 2: a setup or catalog
                 // operation is cancelled only before its first commit point (§5.4);
@@ -9457,10 +9966,13 @@ impl Operations {
                     && (binding.state != heimdall_domain::binding::BindingState::Active
                         || tx.binding_holder(&bid)?.as_ref() != Some(expected))
                 {
-                    return Ok(Ok(serde_json::json!({
-                        "binding_id": bid,
-                        "outcome": null,
-                    })));
+                    return Ok(Ok((
+                        serde_json::json!({
+                            "binding_id": bid,
+                            "outcome": null,
+                        }),
+                        false,
+                    )));
                 }
                 // ⟨M03⟩ U0b row 19 (O): the holder pass observed this exact holder
                 // exit (or its exec fail): its `dedicated` owned connection closes.
@@ -9469,6 +9981,11 @@ impl Operations {
                 }
                 let outcome = tx.release_binding(&bid, &ctx, now)?;
                 let mut grant_state = None;
+                // ⟨§17.22 item 10 (W4-R08); D10 item 2⟩ A managed binding released now:
+                // each slot it holds moves to `clearing` in this transaction, even while
+                // its grant lives on through another reference.
+                let slots_cleared = matches!(outcome, ReleaseOutcome::Released { .. })
+                    && managed_driver_m03::release_binding_slots_in(tx, &binding, now)?;
                 match outcome {
                     ReleaseOutcome::NotOwner => {
                         return Ok(Err(OpError::new(
@@ -9495,15 +10012,38 @@ impl Operations {
                         grant_state = tx.grant(&binding.grant)?.map(|g| g.state);
                     }
                 }
-                Ok(Ok(serde_json::json!({
-                    "binding_id": bid,
-                    "outcome": outcome,
-                    "grant_id": binding.grant,
-                    "grant_state": grant_state,
-                })))
+                Ok(Ok((
+                    serde_json::json!({
+                        "binding_id": bid,
+                        "outcome": outcome,
+                        "grant_id": binding.grant,
+                        "grant_state": grant_state,
+                    }),
+                    slots_cleared,
+                )))
             })
             .await?;
-        Ok(Completed::ok(Code::Ok, r?))
+        let (value, managed_released) = r?;
+        // ⟨§17.22 item 10 (W4-R08)⟩ The released managed binding's endpoint, listing
+        // and files go now, after the commit; its slots' files follow in the
+        // supervisor's ended-binding pass (the `clearing` row is the obligation). K_env
+        // is destroyed only with the last reference (below).
+        if managed_released {
+            self.after_binding_release_m03(&req.binding_id).await;
+        }
+        // ⟨M03⟩ wave 4 (U10-C; ADR-0008 D7 item 7): the release of a managed grant's
+        // last reference destroys K_env, removes its files and closes its owned
+        // connections (masters; dedicated ones by the policy), after the commit and
+        // outside every gate. No tombstone, no cascade.
+        if value.get("grant_state").and_then(serde_json::Value::as_str) == Some("released")
+            && let Some(gid) = value
+                .get("grant_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|g| GrantId::parse(g).ok())
+        {
+            self.after_release_m03(&gid, now).await;
+        }
+        Ok(Completed::ok(Code::Ok, value))
     }
 
     /// `revoke` (tombstone before acknowledgment; cascade; residual from the
@@ -9700,6 +10240,17 @@ impl Operations {
                 None,
                 Some(&id3),
             )?;
+            // ⟨M03⟩ wave 4 (U10-C; D7 item 2 steps 5–6, F15): for a cascade with a
+            // managed grant, the adapter's per-pair residual rows, every owned
+            // connection of the cascade (`up`/`closing` → `closing`, `closed`,
+            // `unverified`: `report::owned_connection_reports`' mapping, reproduced
+            // here because `app` has no `adapters` edge) and the fixed note.
+            managed_driver_m03::fill_revoke_data(
+                tx,
+                &grants,
+                &mut data,
+                answers.remote_effects.clone(),
+            )?;
             // ⟨M03⟩ U0b row 27 (G): the stored originals; a replay renders this value.
             data.requested_at = Some(op.created_at);
             data.committed_at = match committed_here {
@@ -9742,7 +10293,9 @@ impl Operations {
                         if let Some(t) = o.latest_possible_credential_expiry {
                             out.adapter_expiry = Some(out.adapter_expiry.map_or(t, |e| e.max(t)));
                         }
-                        o.remote_pending.is_empty()
+                        let confirmed = o.remote_pending.is_empty();
+                        out.merge_remote_effects(o.remote_effects);
+                        confirmed
                     }
                     Err(_) => false,
                 };
@@ -9774,12 +10327,19 @@ impl Operations {
             ended.extend(more);
         }
         ended.gated.clear();
-        if ended.is_empty() {
+        let expired = std::mem::take(&mut ended.expired);
+        if ended.is_empty() && expired.is_empty() {
             return;
         }
         for (root, grants) in ended.withdrawn {
             self.complete_withdrawal(root, grants, RevocationCause::AuthorityWithdrawn)
                 .await;
+        }
+        // ⟨§17.22 item 4 (W4-R01)⟩ An expiry found at use (or by the scheduler's
+        // re-validation): the managed cleanup, after the commit and every gate.
+        if !expired.is_empty() {
+            let now = self.narrowing_now().await;
+            self.after_end_m03(&expired, now).await;
         }
     }
 
@@ -10271,6 +10831,10 @@ impl Operations {
         let retention = self.retention();
         let did = req.decision_id.clone();
         let verdict = req.verdict;
+        // ⟨M03⟩ wave 4: an M03 driver's refusal after completion rolls the transaction
+        // back; its error travels out through this slot.
+        let m03_refused: Arc<Mutex<Option<OpError>>> = Arc::new(Mutex::new(None));
+        let m03_refused2 = Arc::clone(&m03_refused);
         let r = self
             .write(move |tx, emit| {
                 let now = match deny_now {
@@ -10304,6 +10868,9 @@ impl Operations {
                     }
                     return Ok(Err(stale(&DecisionRefusal::Expired)));
                 }
+                // ⟨M03⟩ wave 4: what an M03 kind's precheck found (its waiting
+                // operation, if any); `None` for every M01/M02 kind.
+                let mut m03_waiting: Option<Option<OperationRecord>> = None;
                 let waiting = match &d.kind {
                     DecisionKind::ApproveAuthority { operation, .. } => {
                         match tx.operation(operation)? {
@@ -10351,18 +10918,26 @@ impl Operations {
                         }
                         Some(op)
                     }
-                    // M03 wave 0 (A1): fail closed until U0b: the M03 decision kinds are refused and
-                    // not consumed (m03-plan U0b row 14): nothing is written.
+                    // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver checks the
+                    // record first (`decisions_m03::precheck`); a refusal writes nothing,
+                    // so the record stays pending and is not consumed.
                     DecisionKind::RegisterIssuer { .. }
                     | DecisionKind::RetireIssuer { .. }
                     | DecisionKind::EnrollAccount { .. }
                     | DecisionKind::EnrollSystemForm { .. }
                     | DecisionKind::RemoveEnrollment { .. }
                     | DecisionKind::ApproveTargetChange { .. } => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "this decision kind is not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
+                        match decisions_m03::precheck(tx, &d, verdict, now)? {
+                            Ok(w) => {
+                                m03_waiting = Some(w);
+                                None
+                            }
+                            Err(e) => {
+                                return Ok(Err(
+                                    e.with_resource("decision", Some(did.to_string()))
+                                ));
+                            }
+                        }
                     }
                 };
                 // The waiting grant (shared by every request that joined it).
@@ -10576,7 +11151,10 @@ impl Operations {
                         DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
                         _,
                     ) => {}
-                    // M03 wave 0 (A1): fail closed until U0b (refused before completion above)
+                    // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver, in this
+                    // transaction. A refusal here rolls the whole transaction back
+                    // (nothing consumed): it is returned as a store-level conflict
+                    // carrying no data, then reported from `m03_refusal`.
                     (
                         DecisionKind::RegisterIssuer { .. }
                         | DecisionKind::RetireIssuer { .. }
@@ -10585,12 +11163,35 @@ impl Operations {
                         | DecisionKind::RemoveEnrollment { .. }
                         | DecisionKind::ApproveTargetChange { .. },
                         _,
-                    ) => {}
+                    ) => {
+                        let waiting_op = m03_waiting.take().flatten();
+                        match decisions_m03::apply(
+                            tx, emit, &record, verdict, waiting_op, now, retention,
+                        )? {
+                            Ok(more) => resume.extend(more),
+                            Err(e) => {
+                                *m03_refused2
+                                    .lock()
+                                    .unwrap_or_else(PoisonError::into_inner) = Some(e);
+                                return Err(conflict("m03 decision refused by its driver"));
+                            }
+                        }
+                    }
                 }
                 Ok(Ok((record, op_id, resume)))
             })
-            .await??;
-        let (record, op_id, resume) = r;
+            .await;
+        if let Some(e) = m03_refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            return Err(e.with_resource("decision", Some(req.decision_id.to_string())));
+        }
+        let (record, op_id, resume) = r??;
+        if record.kind.is_m03() {
+            self.m03_after_decision(&record, verdict).await;
+        }
         // Resume the waiting operations, all at once (the record's own operation
         // first), under ONE overall bound for this request (⟨r2.5⟩ ADR-0006 §13.8
         // item 2): when it is reached the durable decision result is returned and
@@ -10840,43 +11441,57 @@ impl Operations {
 
     /// The grant reached its admission deadline: `DeadlineReached`; an operation
     /// waiting for approval on it fails with `CREDENTIAL_EXPIRED` (§13.3).
+    ///
+    /// ⟨M03 wave 4, round 3; ADR-0008 §17.22 item 4 (W4-R01)⟩ After the commit, the
+    /// expired grant's managed cleanup runs (K_env destroyed, its binding endpoints
+    /// and files removed, its instances `destroyed` and the gate released), with or
+    /// without a held slot. Its durable obligation is the instance row
+    /// (`Txn::managed_cleanup_owed`): a crash or a failure before the end of the
+    /// cleanup leaves it for the supervisor's ended-grant pass.
     async fn expire_grant(&self, gid: &GrantId, now: Timestamp) -> Result<(), OpError> {
         let gid = gid.clone();
+        let ended = gid.clone();
         let retention = self.retention();
-        self.write(move |tx, emit| {
-            let Some(mut g) = tx.grant(&gid)? else {
-                return Ok(());
-            };
-            if grant_try(&mut g, GrantEvent::DeadlineReached) {
-                put_grant(tx, emit, &g, None)?;
-                emit.event(
-                    tx,
-                    EventType::CredentialLifecycle,
-                    None,
-                    Some(resource("grant", &gid)),
-                    serde_json::json!({ "grant_id": gid, "event": "expired" }),
-                )?;
-            }
-            for mut op in tx.open_operations()? {
-                if op.state != OperationState::AwaitingApproval {
-                    continue;
+        let expired = self
+            .write(move |tx, emit| {
+                let Some(mut g) = tx.grant(&gid)? else {
+                    return Ok(false);
+                };
+                let expired = grant_try(&mut g, GrantEvent::DeadlineReached);
+                if expired {
+                    put_grant(tx, emit, &g, None)?;
+                    emit.event(
+                        tx,
+                        EventType::CredentialLifecycle,
+                        None,
+                        Some(resource("grant", &gid)),
+                        serde_json::json!({ "grant_id": gid, "event": "expired" }),
+                    )?;
                 }
-                let pinned = tx
-                    .recovery_intent(&op.id)?
-                    .and_then(|i| i.resolved)
-                    .and_then(|r| r.grant);
-                if pinned.as_ref() == Some(&gid) {
-                    let err = OpError::new(
-                        Code::CredentialExpired,
-                        "the requested grant reached its deadline while awaiting approval",
-                    )
-                    .with_resource("grant", Some(gid.to_string()));
-                    settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                for mut op in tx.open_operations()? {
+                    if op.state != OperationState::AwaitingApproval {
+                        continue;
+                    }
+                    let pinned = tx
+                        .recovery_intent(&op.id)?
+                        .and_then(|i| i.resolved)
+                        .and_then(|r| r.grant);
+                    if pinned.as_ref() == Some(&gid) {
+                        let err = OpError::new(
+                            Code::CredentialExpired,
+                            "the requested grant reached its deadline while awaiting approval",
+                        )
+                        .with_resource("grant", Some(gid.to_string()));
+                        settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                    }
                 }
-            }
-            Ok(())
-        })
-        .await
+                Ok(expired)
+            })
+            .await?;
+        if expired {
+            self.after_end_m03(std::slice::from_ref(&ended), now).await;
+        }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------------
@@ -11984,6 +12599,92 @@ impl Operations {
 mod tests {
     use super::*;
 
+    /// ⟨M03 wave 4 round 2, R2C-Q1; ADR-0008 D6 item 7, D10 item 6⟩ A managed pair as the
+    /// managed adapter reports it: interaction `none`, eligible, signing in-process; its
+    /// catalog identity (`ident`) is NOT in the store, so M02's recomputation would make
+    /// it `unknown` and ineligible.
+    fn managed_pair(selection: IdentitySelection) -> PairIntegration {
+        PairIntegration {
+            destination: heimdall_contract::ids::DestinationId::parse("dst-w").unwrap(),
+            account: heimdall_contract::ids::AccountName::parse("deploy").unwrap(),
+            identity: heimdall_contract::ids::IdentityId::from_random_bytes([5; 16]),
+            mechanism: MANAGED_CERTIFICATE.to_owned(),
+            endpoint: None,
+            alias: Some("work".to_owned()),
+            interaction: InteractionKind::None,
+            interaction_basis: EvidenceBasis::Inferred,
+            declared_at: None,
+            identity_selection: selection,
+            selection_observed_at: "2026-10-02T00:00:00Z".parse().unwrap(),
+            declaration: None,
+            noninteractive: NoninteractiveEligibility {
+                eligible: true,
+                reason: None,
+            },
+            eligibility_checked_at: "2026-10-02T00:00:00Z".parse().unwrap(),
+            identity_selection_report: None,
+        }
+    }
+
+    #[test]
+    fn managed_pair_commit_eligibility_is_the_signers_and_follows_its_selection() {
+        let store = Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap();
+        let now: Timestamp = "2026-10-02T00:10:00Z".parse().unwrap();
+        store
+            .transaction(|tx| {
+                // The commit's fresh re-check keeps the signer's facts.
+                let mut p = managed_pair(IdentitySelection::Exclusive);
+                fresh_pair(tx, &mut p, now)?;
+                assert_eq!(p.interaction, InteractionKind::None);
+                assert!(p.noninteractive.eligible, "{:?}", p.noninteractive);
+                assert_eq!(p.eligibility_checked_at, now);
+                // Exclusive: a non-interactive commit is not refused.
+                assert!(
+                    noninteractive_commit_refusal(tx, &[p], MANAGED_CERTIFICATE, now)?.is_none()
+                );
+                // The pair's catalog identity (the enrollment's existing access) exists,
+                // with an agent endpoint and no inherited entries, so M02's fallback
+                // clearance of *that* identity would pass: a managed pair is still judged
+                // by its own selection only.
+                let endpoint = heimdall_contract::provider::EndpointRef {
+                    kind: heimdall_contract::provider::EndpointKind::UnixSocket,
+                    locator: "/fixture/agent.sock".to_owned(),
+                };
+                tx.upsert_identity(&IdentityRecord {
+                    id: heimdall_contract::ids::IdentityId::from_random_bytes([5; 16]),
+                    revision: 1,
+                    source: heimdall_domain::catalog::IdentitySource::NativeAgent {
+                        endpoint: endpoint.clone(),
+                    },
+                    public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl".to_owned(),
+                    fingerprint: "SHA256:fixturefixturefixturefixturefixturefixtur".to_owned(),
+                    interaction: heimdall_domain::catalog::InteractionProfile {
+                        interaction: InteractionKind::None,
+                        basis: EvidenceBasis::Declared,
+                    },
+                    label: None,
+                    adopted_at: now,
+                    updated_at: now,
+                })?;
+                // Not exclusive / undetermined: an inherited identity may prompt.
+                for sel in [IdentitySelection::NotExclusive, IdentitySelection::Undetermined] {
+                    let mut p = managed_pair(sel);
+                    p.endpoint = Some(endpoint.clone());
+                    fresh_pair(tx, &mut p, now)?;
+                    let e = noninteractive_commit_refusal(tx, &[p], MANAGED_CERTIFICATE, now)?
+                        .expect("refused");
+                    assert_eq!(e.code, Code::InteractionRequired, "{sel:?}");
+                    assert_eq!(
+                        e.reason.as_deref(),
+                        Some(heimdall_contract::envelope::reason::FALLBACK_IDENTITY_INTERACTION),
+                        "{sel:?}"
+                    );
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+
     fn r(stage: EnsureStage, effect: EffectReceipt) -> StageReceipt {
         receipt(stage, "2026-10-02T00:00:00Z".parse().unwrap(), effect)
     }
@@ -12651,6 +13352,7 @@ mod tests {
         let confirmed = RoundAnswers {
             answers: vec![(g.clone(), ident(), true)],
             adapter_expiry: None,
+            ..RoundAnswers::default()
         };
         let env = EnvironmentId::from_random_bytes([26; 16]);
         // The publisher reads the store, so it is built outside the transaction.

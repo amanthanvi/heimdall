@@ -89,6 +89,9 @@ pub enum NarrowingKind {
     /// ⟨§17.16 R2⟩ An environment-permission removal
     /// ([`Operations::set_environment_permissions`]).
     EnvironmentPermission,
+    /// ⟨M03 wave 4⟩ An enrollment hold or removal that degrades a pair (U0b row 20;
+    /// ADR-0008 §17.3 item 3: the grants under the removed CA for the pair).
+    Enrollment,
 }
 
 impl NarrowingKind {
@@ -102,6 +105,7 @@ impl NarrowingKind {
             NarrowingKind::SessionLock => "session_lock",
             NarrowingKind::Policy => "policy",
             NarrowingKind::EnvironmentPermission => "environment_permission",
+            NarrowingKind::Enrollment => "enrollment",
         }
     }
 }
@@ -806,6 +810,9 @@ impl Operations {
         };
         let held = narrowing.held();
         // (7) Under the gates: in-memory key destruction and identity unlisting only.
+        // ⟨M03⟩ wave 4 (U10C-Q3; D7 item 2 step 2, U0b row 20 (10)): K_env of every
+        // destroyed grant is zeroized and unlisted here, while the gates are held.
+        self.managed_destroy_under_gates(&ctx.destroy).await;
         self.narrowing_at(
             kind,
             NarrowingPoint::UnderGates {
@@ -849,6 +856,8 @@ impl Operations {
         held: Option<usize>,
     ) -> Narrowed<R> {
         if held.is_none() {
+            // The fast path (no gated member, G-Q1): the same in-memory step.
+            self.managed_destroy_under_gates(&ctx.destroy).await;
             self.narrowing_at(
                 kind,
                 NarrowingPoint::UnderGates {
@@ -861,6 +870,12 @@ impl Operations {
         self.narrowing_at(kind, NarrowingPoint::Released).await;
         // (9) Cleanup outside every gate: slot and binding files, owned processes
         // (U7/U10 wire them here); the callers' adapter rounds follow.
+        // ⟨M03⟩ wave 4 (U10-C; U0b row 20 (10)): the managed keys and credential
+        // instances of the destroyed grants, after the gates (an instance's release
+        // takes its gate exclusively, which this narrowing no longer holds). The files
+        // and the owned connections follow in the managed adapter's `revoke` of the
+        // callers' round, also outside every gate.
+        self.managed_after_narrowing(&ctx.destroy).await;
         self.narrowing_at(
             kind,
             NarrowingPoint::Cleanup {

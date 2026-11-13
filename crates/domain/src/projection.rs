@@ -699,6 +699,13 @@ pub struct SetupIntent {
     pub consent: ConsentRecord,
     /// Every file step, in execution order.
     pub files: Vec<FileStep>,
+    /// ⟨M03⟩ The pairs whose **managed-certificate** section the plan's P renders
+    /// ([`ProjectionPlan::managed_pairs`]; ADR-0008 D5 §6.6, D10 item 1). The SSH item's
+    /// commit records exactly these pairs' preference `projection: applied` (when it is
+    /// still `managed_certificate`), in the commit's transaction. Additive: empty for
+    /// every M02 intent, and then omitted, so M02 intents encode byte-identically.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub managed_pairs: BTreeSet<crate::scope::AccessPair>,
 }
 
 /// Armor suffix of PEM and OpenSSH private keys (as the store refuses for
@@ -1251,6 +1258,13 @@ pub struct ProjectionPlan {
     /// The decision summary, when a decision is required.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<ProjectionSummary>,
+    /// ⟨M03⟩ The pairs whose managed-certificate section this plan's P renders (an
+    /// apply, a `rerender` or `manual_mode` repair; empty for a rollback, a block
+    /// repair, and for every alias the managed source reports as existing access).
+    /// Computed with the rendering itself, so it is exactly what P holds after the
+    /// commit; never derived from a preference read later.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub managed_pairs: BTreeSet<crate::scope::AccessPair>,
 }
 
 impl ProjectionPlan {
@@ -1264,6 +1278,7 @@ impl ProjectionPlan {
             approval: None,
             consent: self.consent.clone(),
             files: self.files.clone(),
+            managed_pairs: self.managed_pairs.clone(),
         }
     }
 }
@@ -2387,6 +2402,7 @@ mod tests {
                 ),
                 b_git,
             ],
+            managed_pairs: Default::default(),
         }
     }
 
@@ -2453,6 +2469,29 @@ mod tests {
         ] {
             assert!(serde_json::from_str::<FileIdentity>(bad).is_err(), "{bad}");
         }
+    }
+
+    /// ⟨M03, R2-F⟩ `managed_pairs` is additive: an intent without managed pairs (every
+    /// M02 intent) encodes without the key, byte for byte as before, and an encoding
+    /// without it decodes to the empty set; a non-empty set round-trips.
+    #[test]
+    fn setup_intent_managed_pairs_additive() {
+        let m02 = intent();
+        let json = serde_json::to_string(&m02).unwrap();
+        assert!(!json.contains("managed_pairs"), "{json}");
+        assert_eq!(serde_json::from_str::<SetupIntent>(&json).unwrap(), m02);
+        let mut m03 = m02.clone();
+        m03.managed_pairs.insert(crate::scope::AccessPair {
+            destination: heimdall_contract::ids::DestinationId::parse("h1").unwrap(),
+            account: heimdall_contract::ids::AccountName::parse("deploy").unwrap(),
+        });
+        let json = serde_json::to_string(&m03).unwrap();
+        assert!(
+            json.contains(r#""managed_pairs":[{"destination":"h1","account":"deploy"}]"#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<SetupIntent>(&json).unwrap(), m03);
+        assert_eq!(m03.without_approval().managed_pairs, m03.managed_pairs);
     }
 
     #[test]

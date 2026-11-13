@@ -945,6 +945,10 @@ pub struct VerificationOutcome {
     /// The verified client that ran them (path and version, for evidence), when it
     /// started.
     pub client: Option<String>,
+    /// ⟨M03 wave 4, ADR-0008 §17.17 item 14 (U5IO-Q4)⟩ The client's trace family or
+    /// version is unrecorded, so no attempt ran: the classification is inconclusive
+    /// (`unrecorded_client_family`) and the doctor names the client.
+    pub unrecorded: bool,
 }
 
 /// Runs the production verification's fresh logins (ADR-0008 D5 §6.5; U5).
@@ -971,13 +975,19 @@ pub trait VerificationRunner: Send + Sync {
 #[async_trait]
 pub trait VerificationEndpoints: Send + Sync {
     /// Create `operation`'s verification endpoint with a fresh K_verify, whose public
-    /// key is registered at creation.
+    /// key is registered at creation. ⟨M03 wave 4, ADR-0008 §17.19 item 5 (INT-Q13)⟩
+    /// The factory receives the `plan`: every certificate the session installs must be
+    /// signed by the plan's CA, and the positive one must name the plan's pair. The
+    /// implementation also opens `operation`'s verification signing gate
+    /// (`app::managed::SigningGates::open_verification`), which closes when the
+    /// session is dropped.
     ///
     /// # Errors
     /// [`AdapterError`].
     async fn create(
         &self,
         operation: &OperationId,
+        plan: &EnrollmentPlan,
     ) -> Result<Box<dyn VerificationSession>, AdapterError>;
 }
 
@@ -1032,15 +1042,43 @@ pub struct MaterializedCertificate {
     pub certificate: String,
 }
 
+/// ⟨M03 wave 4, ADR-0008 §17.23 item 6⟩ Where a materialization's key and
+/// certificates come from, named explicitly: no value of another field selects it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MaterializeSource {
+    /// Fresh key material the caller holds: K_env's OpenSSH public-key line
+    /// (`key.pub`) and one certificate per pair (`cert-<destination-id>.pub`); a new
+    /// activation's binding. The key must be the live K_env of the binding's grant
+    /// (the attached grant, else the one whose key it is), and the certificates must
+    /// not be empty.
+    Fresh {
+        /// K_env's OpenSSH public-key line.
+        public_key: String,
+        /// One certificate per pair.
+        certificates: Vec<MaterializedCertificate>,
+    },
+    /// The existing, installed K_env of `grant` (a coalesced or decision-joined
+    /// follower's own binding; a re-issue's restoration of a grant's consumers): the
+    /// effects read its key line and, for each pair of the grant's stored scope, its
+    /// installed certificate. Refused when no live key of `grant` is held, a pair is
+    /// not installed, or the binding is attached to another grant.
+    InstalledKeyOf {
+        /// The grant whose installed key the binding uses.
+        grant: GrantId,
+    },
+    /// No binding files: only the environment slots of a binding already attached
+    /// to its grant (the launch bind's slot claim, a re-issue's slot restoration).
+    /// Requires [`MaterializeSpec::environment_slots`].
+    SlotsOnly,
+}
+
 /// The per-binding files to write (ADR-0008 D6 item 1 step 6; D10).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterializeSpec {
     /// The resource generation the files carry.
     pub generation: u64,
-    /// K_env's OpenSSH public-key line (`key.pub`).
-    pub public_key: String,
-    /// One `cert-<destination-id>.pub` per pair.
-    pub certificates: Vec<MaterializedCertificate>,
+    /// ⟨§17.23 item 6⟩ The key and certificates' source.
+    pub source: MaterializeSource,
     /// Also fill the environment slots (a materialized binding holding them).
     pub environment_slots: bool,
 }
@@ -1054,6 +1092,11 @@ pub struct MaterializedFiles {
     pub files: Vec<PathBuf>,
     /// The generation.
     pub generation: u64,
+    /// ⟨§17.23 item 6⟩ The binding endpoint this call **created** (at `generation`),
+    /// as the endpoint registry returned it. `None` when it created none (a slots-only
+    /// call, or an endpoint already ran for the binding). A result naming a binding's
+    /// endpoint names exactly this locator, never one derived from another.
+    pub endpoint: Option<EndpointRef>,
 }
 
 /// ⟨r2⟩ The managed credential adapter's effects (ADR-0008 D6 item 0), implemented by

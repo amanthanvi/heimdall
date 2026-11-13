@@ -23,12 +23,14 @@ use heimdall_contract::provider::{
 use heimdall_contract::setup::ProjectionItem;
 use heimdall_domain::operation::StageReceipt;
 use heimdall_domain::projection::{FileRole, ProjectionRecord, SetupIntent};
+use heimdall_sshconf::directive::KnownKeyword;
 use heimdall_sshconf::eval::{
-    Candidate, Evaluation, Invocation, OpenSshVersion, Query, Resolved, Value, evaluate,
+    Candidate, Evaluation, Invocation, OpenSshVersion, Query, Resolved, SourceRole, Value, evaluate,
 };
-use heimdall_sshconf::include::{ConfigSet, Roots};
+use heimdall_sshconf::include::{ConfigSet, ConfigSource, Roots};
 use heimdall_sshconf::limits::Limits;
-use heimdall_sshconf::relevant::{identity_selection, relevant};
+use heimdall_sshconf::relevant::{identity_selection, managed_identity_selection, relevant};
+use heimdall_sshconf::render::ManagedIdentityForm;
 
 use super::ProjectionConfig;
 use crate::clients::ClientKind;
@@ -312,8 +314,14 @@ pub fn observe_as(
             let is_managed = managed.contains(&alias.as_str());
             let behavior = behavior_of(&evaluation, config);
             let identity_selection = if is_managed {
-                adopted_key(&evaluation, &key_files, config.platform.is_windows())
-                    .map(|adopted| identity_selection(&evaluation, Path::new(adopted), &source))
+                match adopted_key(&evaluation, &key_files, config.platform.is_windows()) {
+                    Some(adopted) => {
+                        Some(identity_selection(&evaluation, Path::new(adopted), &source))
+                    }
+                    // ⟨M03⟩ A managed-certificate alias names no adopted key file: its
+                    // selection is the slot's (ADR-0008 D10 item 6).
+                    None => managed_slot_selection(&evaluation, config, &source),
+                }
             } else {
                 None
             };
@@ -357,6 +365,79 @@ fn adopted_key<'k>(
             .copied()
             .find(|k| key_matches(k, arg, windows))
     })
+}
+
+/// ⟨M03⟩ ADR-0008 D10 item 6 (§17.19 item 4, last bullets): the identity selection of a
+/// managed-certificate alias. The slot is the one whose file P (the managed role) names
+/// as the alias's `IdentityFile`, under `<state_dir>/managed/<destination-id>/`
+/// (`content::managed_slot_paths`); the selected `ManagedIdentityForm` (the test
+/// override, else `ManagedIdentityForm::select` for the selected client) says which
+/// slot files are the alias's own entries. Only those make it `exclusive`; an inherited
+/// `IdentityFile` or `CertificateFile` makes it `not_exclusive`, anything undeterminable
+/// `undetermined` (`relevant::managed_identity_selection`). `None` when no state
+/// directory is configured or P names no slot file for the alias (no selection is
+/// claimed, as for an M02 alias whose key file is not found).
+fn managed_slot_selection(
+    evaluation: &Evaluation,
+    config: &ProjectionConfig,
+    source: &dyn ConfigSource,
+) -> Option<IdentitySelectionReport> {
+    let state_dir = config.state_dir.as_ref()?;
+    let windows = config.platform.is_windows();
+    let slash = |s: &str| {
+        if windows {
+            s.replace('\\', "/")
+        } else {
+            s.to_owned()
+        }
+    };
+    let root = format!(
+        "{}/",
+        slash(&state_dir.join("managed").to_string_lossy()).trim_end_matches('/')
+    );
+    let entries = evaluation
+        .accumulated
+        .get(&KnownKeyword::IdentityFile)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let destination = entries
+        .iter()
+        .filter(|c| c.value.role == SourceRole::Managed)
+        .find_map(|c| {
+            let arg = c.value.args.first()?.trim_matches('"');
+            // P may name the slot under the account home as `~/…`.
+            let arg = match arg.strip_prefix("~/") {
+                Some(rest) => slash(&source.account_home().join(rest).to_string_lossy()),
+                None => slash(arg),
+            };
+            let rest = arg.strip_prefix(&root)?;
+            let (component, file) = rest.split_once('/')?;
+            matches!(file, "cert.pub" | "key.pub")
+                .then(|| heimdall_contract::ids::DestinationId::parse(component).ok())
+                .flatten()
+        })?;
+    let slot = super::content::managed_slot_paths(state_dir, &destination).ok()?;
+    let version = config
+        .clients
+        .selected(ClientKind::Ssh)
+        .and_then(|c| c.version);
+    let form = config
+        .test
+        .managed_identity_form
+        .unwrap_or_else(|| ManagedIdentityForm::select(version));
+    let (identity, certificate) = match form {
+        ManagedIdentityForm::D10AsWritten => (&slot.key_pub, Some(slot.cert_pub.as_path())),
+        ManagedIdentityForm::CertificateAsIdentityFile => (&slot.cert_pub, None),
+        ManagedIdentityForm::CertificateAsIdentityFileAndCertificateFile => {
+            (&slot.cert_pub, Some(slot.cert_pub.as_path()))
+        }
+    };
+    Some(managed_identity_selection(
+        evaluation,
+        identity,
+        certificate,
+        source,
+    ))
 }
 
 /// Whether a record's key file `k` is the `IdentityFile` argument `arg` that P names

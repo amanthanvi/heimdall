@@ -200,6 +200,7 @@ impl OwnerSession for FakeRuntime {
             backup_created_at: request.backup_created_at,
             restored_without_log: false,
             enrollments: EnrollmentCounts::default(),
+            store_locator: request.store_locator.clone(),
         });
         self.permissions = vec!["managed_signing".into(), "issuer_access".into()];
         Ok(())
@@ -260,6 +261,7 @@ fn run_case(case: &str, dir: &Path) {
                     "backup_sha256": r.backup_sha256,
                     "rotation_of": r.rotation_of.as_ref().map(CaFingerprint::as_str),
                     "restored_without_log": r.restored_without_log,
+                    "store_locator": r.store_locator,
                 }))
                 .collect::<Vec<_>>()
         ),
@@ -651,9 +653,17 @@ fn init_ceremony_registers_ca_and_environment_permissions() {
     assert_eq!(result["outcome"], "registered", "{result}");
     assert_eq!(
         result["events"],
-        serde_json::json!(["status", "attend", "register", "approve"])
+        serde_json::json!(["status", "attend", "register", "register", "approve"])
     );
     let registered = &result["registered"][0];
+    // ⟨ADR-0008 §17.22 item 12⟩ Step 3 carries no store item; after the put the same
+    // registration reports the put's exact locator (the fake joins the same decision).
+    assert_eq!(registered["store_locator"], serde_json::Value::Null);
+    let report = &result["registered"][1];
+    assert_eq!(report["store_locator"], result["item"]);
+    for k in ["ca_public_key", "store", "backup_sha256", "rotation_of"] {
+        assert_eq!(report[k], registered[k], "{k}");
+    }
     assert_eq!(registered["ca_public_key"], result["public_key"]);
     assert!(
         registered["ca_public_key"]
