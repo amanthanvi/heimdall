@@ -320,6 +320,8 @@ fn lock_signal_name(signal: heimdall_app::lock::LockSignal) -> &'static str {
 /// ⟨M03-U3⟩ The directory of the scratch test store under the state directory (D1
 /// "Test K_ca": under the scratch state directory). U10's runtime wiring and U12's
 /// ceremony select the same directory.
+/// (Read by [`issuer_store`]'s debug-only scratch branch.)
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub(crate) const SCRATCH_STORE_DIR: &str = "scratch-secret-store";
 
 /// ⟨M03-U3⟩ `heimdall internal issuer` on a pipe (ADR-0008 D3 item 1): the child the
@@ -365,7 +367,12 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
     let Ok(Some(environment)) = environment else {
         return EXIT_UNAVAILABLE;
     };
-    let Some(store) = issuer_store(ctx, &paths, &environment, m03.scratch_secret_store) else {
+    // ⟨ADR-0008 §17.25 item 7 (b)⟩ The same selection as the CLI's (`issuer_cmd`): a
+    // refused product-file store is a refused configuration.
+    let Ok(test) = crate::testcfg::test_store(&m03, ctx.home.as_deref()) else {
+        return EXIT_USAGE;
+    };
+    let Some(store) = issuer_store(ctx, &paths, &environment, &test) else {
         return EXIT_UNAVAILABLE;
     };
     heimdall_issuer::child::run(
@@ -394,25 +401,44 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
 /// a release build refuses every `HEIMDALL_TEST_*` variable before this runs (U0b row
 /// 16), and its `scratch` flag is then never set; this branch is compiled out of it
 /// regardless. Its kind is the testkit's `scratch_test`, never a product kind (F23).
+///
+/// ⟨ADR-0008 §17.25 item 7 (b)⟩ The product-file test store
+/// (`HEIMDALL_TEST_SECRET_STORE=product-file:<abs path>`, [`crate::testcfg::TestStore`])
+/// is the platform's product implementation at the test's path
+/// (`heimdall_issuer::store::test_product::open`: a file keychain outside the search
+/// list on macOS, a DPAPI directory on Windows, none on Linux), in a **debug** build
+/// only, re-checked here (`test_product::refusal`) against the explicit home. A release
+/// build refuses the variable first, and this branch answers `None` there.
 pub(crate) fn issuer_store(
     ctx: &Ctx,
     paths: &heimdall_runtime::paths::Paths,
     environment: &heimdall_contract::ids::EnvironmentId,
-    scratch: bool,
+    test: &crate::testcfg::TestStore,
 ) -> Option<Box<dyn heimdall_issuer::store::SecretStore>> {
-    if scratch {
+    use crate::testcfg::TestStore;
+    match test {
+        TestStore::Platform => {}
         #[cfg(debug_assertions)]
-        {
+        TestStore::Scratch => {
             return Some(Box::new(
                 heimdall_testkit::scratch_store::ScratchSecretStore::new(
                     paths.state_dir.join(SCRATCH_STORE_DIR),
                 ),
             ));
         }
-        #[cfg(not(debug_assertions))]
-        {
-            return None;
+        #[cfg(debug_assertions)]
+        TestStore::ProductFile(path) => {
+            let home = ctx.home.as_deref()?;
+            let account = heimdall_localenv::sys::account_home().ok();
+            if heimdall_issuer::store::test_product::refusal(path, home, account.as_deref())
+                .is_some()
+            {
+                return None;
+            }
+            return heimdall_issuer::store::test_product::open(path, environment);
         }
+        #[cfg(not(debug_assertions))]
+        TestStore::Scratch | TestStore::ProductFile(_) => return None,
     }
     let _ = (ctx, paths, environment);
     #[cfg(target_os = "macos")]
@@ -710,7 +736,9 @@ mod tests {
             "owned_masters",
         ],
         &["connections", "close"],
-        &["uninstall", "--keep-remote-enrollments"],
+        // ⟨§17.25 item 11⟩ `--keep-remote-enrollments` alone is accepted (it acknowledges a
+        // plain uninstall); `--bundle` still needs both flags.
+        &["uninstall", "--keep-remote-enrollments", "--bundle", "f"],
         &["uninstall", "--purge-state", "--bundle", "f"],
     ];
 

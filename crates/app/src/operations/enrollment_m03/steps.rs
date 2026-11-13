@@ -30,7 +30,7 @@ use heimdall_store::Txn;
 use super::super::{Emit, Operations, internal, op_to};
 use super::{
     adapter, journal_of, move_record, new_step_token, next, pair_of, put_journal, receipt, refuse,
-    result_of, settle_ok, settle_open, store_conflict,
+    result_for, settle_ok, settle_open, store_conflict,
 };
 use crate::context::Caller;
 use crate::enrollment::{
@@ -582,7 +582,7 @@ impl Operations {
                     .result
                     .clone()
                     .and_then(|v| serde_json::from_value(v).ok())
-                    .unwrap_or_else(|| result_of(&ctx.record, None));
+                    .unwrap_or_else(|| result_for(&ctx.record, Some(&ctx.alias), None));
                 Ok(StepAnswer::Done {
                     result: Box::new(result),
                 })
@@ -599,17 +599,18 @@ impl Operations {
             .with_next(next("reconcile", Some(&ctx.op.id)))
             .with_operation(ctx.op.id.clone())),
             OperationState::Running | OperationState::OutcomeUnknown => Ok(StepAnswer::Done {
-                result: Box::new(result_of(&ctx.record, None)),
+                result: Box::new(result_for(&ctx.record, Some(&ctx.alias), None)),
             }),
             _ => {
                 let caller = Caller::unattended(ctx.op.key.caller.clone());
                 match self.enrollment_respond(&ctx.op.id, &caller).await {
-                    Ok(c) => Ok(StepAnswer::Done {
-                        result: Box::new(
-                            serde_json::from_value(c.data)
-                                .unwrap_or_else(|_| result_of(&ctx.record, None)),
-                        ),
-                    }),
+                    Ok(c) => {
+                        Ok(StepAnswer::Done {
+                            result: Box::new(serde_json::from_value(c.data).unwrap_or_else(|_| {
+                                result_for(&ctx.record, Some(&ctx.alias), None)
+                            })),
+                        })
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -805,6 +806,22 @@ impl Operations {
             }
             step::check_effective(&out, &remote.pins).map_err(|_| unpinnable())?;
             checked = Some(gss);
+        }
+        // ⟨§17.25 item 3⟩ Test configuration, debug builds only: the test form's pause
+        // points, inserted into the release script the runtime just built (the pins,
+        // the command and the token are unchanged). Before anything is written, so an
+        // unusable directory or a failed insertion refuses the step, never runs it
+        // unpaused.
+        #[cfg(debug_assertions)]
+        if let Some(pause) = self.script_pause() {
+            let dir = pause.map_err(|()| {
+                OpError::driver_unavailable(
+                    "the test configuration's script pause directory is not usable",
+                )
+            })?;
+            remote.script =
+                heimdall_registry::script::test_form::insert_pause_points(&remote.script, &dir)
+                    .map_err(|_| internal("the test form's pause points cannot be inserted"))?;
         }
         let issued = IssuedStep {
             stage,
@@ -1006,7 +1023,7 @@ impl Operations {
                     .result
                     .clone()
                     .and_then(|v| serde_json::from_value(v).ok())
-                    .unwrap_or_else(|| result_of(&ctx.record, None)),
+                    .unwrap_or_else(|| result_for(&ctx.record, Some(&ctx.alias), None)),
             )
         });
         let error = (settled && !succeeded)
@@ -1639,7 +1656,7 @@ fn removal_confirmed(
         .with_effect(EffectStatus::Applied);
         settle_open(tx, emit, &mut ctx.op, &err, now, retention)
     } else {
-        let data = serde_json::to_value(result_of(&ctx.record, None))
+        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
             .map_err(|_| store_conflict("result"))?;
         settle_ok(tx, emit, &mut ctx.op, data, now, retention)
     }
@@ -1842,7 +1859,7 @@ fn record_reconcile(
                     )?;
                     if !r.approval_valid {
                         let data = serde_json::to_value({
-                            let mut res = result_of(&ctx.record, None);
+                            let mut res = result_for(&ctx.record, Some(&ctx.alias), None);
                             res.commands =
                                 vec![format!("heimdall enroll verify {}", ctx.record.id)];
                             res
@@ -1981,7 +1998,7 @@ fn record_reconcile(
                 append_confirmed(tx, ctx, now)?;
             }
             move_ctx(tx, emit, ctx, event, &updated)?;
-            let data = serde_json::to_value(result_of(&ctx.record, None))
+            let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
                 .map_err(|_| store_conflict("result"))?;
             if ctx.record.state.is_final() || ctx.record.state == EnrollmentState::AppliedUnverified
             {

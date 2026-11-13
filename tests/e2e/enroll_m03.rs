@@ -7223,3 +7223,195 @@ async fn inconclusive_reverification_after_client_change_keeps_scope_unknown() {
     );
     assert_scope_unknown(&w, &record, "inc").await;
 }
+
+// =================================================================================
+// ⟨M03 wave 5, round 2⟩ ADR-0008 §17.25 items 18 and 21 (worker R2)
+// =================================================================================
+
+/// ⟨§17.25 item 18 (Q-R1 (a))⟩ A managed `ensure` over the real pipeline (the production
+/// `ManagedCertificateAdapter`'s `prepare_from`, then the commit) carries the managed
+/// report's six fields, and `connection_policy` holds the effective policy with the
+/// exact D8 wording: `graceful` without a connection request, `strict` with
+/// `--strict` (`connection.existing: strict`). The alias is not observed by this
+/// harness's sources, so its selection is `undetermined` and the wording is D8 item 6's
+/// qualified text (`DEADLINE_{GRACEFUL,STRICT}_NOT_EXCLUSIVE`), as the adapter's
+/// `connection_wording` composes it.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn managed_ensure_result_carries_d8_connection_policy_graceful_and_strict() {
+    use heimdall_contract::ids::{ProfileId, WorkId};
+    use heimdall_contract::managed::{
+        ConnectionRequest, ExistingConnectionsMode, MultiplexingMode,
+    };
+    use heimdall_contract::request::{EnsureRequest, RequiredCapabilities};
+    use heimdall_localenv::projection::plan::{
+        DEADLINE_GRACEFUL_NOT_EXCLUSIVE, DEADLINE_STRICT_NOT_EXCLUSIVE,
+    };
+    for strict in [false, true] {
+        let tag = if strict { "r2strict" } else { "r2graceful" };
+        let w = World::with(WorldOptions {
+            managed: true,
+            ..WorldOptions::default()
+        })
+        .await;
+        w.require_recorded_client();
+        let op = w.approved(&w.spec(), &format!("req_{tag}")).await;
+        assert_eq!(w.drive(&op).await.unwrap().state, EnrollmentState::Verified);
+        w.setup_apply(tag).await;
+        let data = w
+            .ops
+            .ensure(
+                &unattended(),
+                EnsureRequest {
+                    profile: ProfileId::parse("dev").unwrap(),
+                    profile_revision: None,
+                    scope: [w.pair()].into_iter().collect(),
+                    environment: None,
+                    work_id: WorkId::parse(&format!("w-{tag}")).unwrap(),
+                    until: None,
+                    required_capabilities: RequiredCapabilities::default(),
+                    request_id: RequestId::parse(&format!("r-{tag}")).unwrap(),
+                    interaction: InteractionMode::Interactive,
+                    wait: WaitMode::Sync { timeout_ms: 30_000 },
+                    connection: strict.then_some(ConnectionRequest {
+                        existing: Some(ExistingConnectionsMode::Strict),
+                    }),
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("ensure {tag}: {} {:?} {}", e.code, e.reason, e.message))
+            .data;
+        let policy = data
+            .connection_policy
+            .clone()
+            .unwrap_or_else(|| panic!("{tag}: the managed result carries connection_policy"));
+        let (existing, wording) = if strict {
+            (
+                ExistingConnectionsMode::Strict,
+                DEADLINE_STRICT_NOT_EXCLUSIVE,
+            )
+        } else {
+            (
+                ExistingConnectionsMode::Graceful,
+                DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+            )
+        };
+        assert_eq!(policy.existing, existing, "{tag}");
+        assert_eq!(policy.multiplexing, MultiplexingMode::Disabled, "{tag}");
+        assert_eq!(policy.wording, wording, "{tag}");
+        assert_eq!(
+            policy.wording,
+            heimdall_adapters::managed::report::connection_wording(
+                heimdall_adapters::managed::report::SelectionClass::Undetermined,
+                &heimdall_contract::managed::ConnectionPolicy {
+                    existing,
+                    multiplexing: MultiplexingMode::Disabled,
+                },
+                &heimdall_adapters::managed::report::current_platform(),
+            ),
+            "{tag}: the adapter's wording, verbatim"
+        );
+        // The other report fields are present too (§17.25 item 18: all six).
+        assert!(data.lock_continuity.is_some(), "{tag}: {data:?}");
+        assert!(data.refresh_condition.is_some(), "{tag}: {data:?}");
+        assert!(data.revocation.is_some(), "{tag}: {data:?}");
+        // The wire form the CLI renders.
+        let wire = serde_json::to_value(&data).unwrap();
+        assert_eq!(wire["connection_policy"]["wording"], wording, "{wire}");
+        assert_eq!(
+            wire["connection_policy"]["existing"],
+            if strict { "strict" } else { "graceful" }
+        );
+    }
+}
+
+/// ⟨§17.25 item 21 (Q-T5); ADR-0008 D9 item 1⟩ Approving an `EnrollAccount` decision that
+/// displayed the lock disclosure (`lock_continuity_once` among its plan's disclosures)
+/// records `lock_disclosure_acknowledged_at`, once: a second such decision, displayed
+/// before the first was approved, neither records it again nor raises it when approved
+/// later, and a plan built after the acknowledgement no longer shows the disclosure.
+/// (Before §17.25 only an approved `RegisterIssuer` recorded it.)
+// Unix only: needs a second sshd (`add_destination`); the Windows harness serves one account-form server.
+#[cfg(unix)]
+#[tokio::test]
+async fn enroll_account_approval_records_lock_disclosure_acknowledgement_once() {
+    use heimdall_contract::enrollment::DisclosureKind;
+    let w = World::new().await;
+    let second = w.add_destination(2);
+    assert_eq!(w.tx(|tx| tx.lock_disclosure_ack()), None);
+    let spec = w.spec();
+    let plan = w.preview(&spec).await;
+    assert!(
+        plan.disclosures
+            .contains(&DisclosureKind::LockContinuityOnce),
+        "the first EnrollAccount shows the lock disclosure: {:?}",
+        plan.disclosures
+    );
+    let first = w
+        .apply(
+            &attended(),
+            &spec,
+            &plan,
+            "req_ack_1",
+            InteractionMode::NonInteractive,
+        )
+        .await;
+    assert_eq!(first.code, Code::ApprovalRequired, "{first:?}");
+    let spec2 = EnrollmentSpec {
+        destination: second.destination.clone(),
+        account: None,
+        form: EnrollmentForm::Account,
+        registry_path: Some(second.registry.display().to_string()),
+        ca_fingerprint: None,
+    };
+    let plan2 = w.preview(&spec2).await;
+    assert!(
+        plan2
+            .disclosures
+            .contains(&DisclosureKind::LockContinuityOnce),
+        "not acknowledged yet, so shown again"
+    );
+    let other = w
+        .apply(
+            &attended(),
+            &spec2,
+            &plan2,
+            "req_ack_2",
+            InteractionMode::NonInteractive,
+        )
+        .await;
+    assert_eq!(other.code, Code::ApprovalRequired, "{other:?}");
+    assert_eq!(
+        w.tx(|tx| tx.lock_disclosure_ack()),
+        None,
+        "showing it records nothing"
+    );
+    w.decide(&first, Verdict::Approve).await.unwrap();
+    let at = w
+        .tx(|tx| tx.lock_disclosure_ack())
+        .expect("approving the EnrollAccount that displayed it records the acknowledgement");
+    w.clock.advance(std::time::Duration::from_secs(120));
+    w.decide(&other, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.tx(|tx| tx.lock_disclosure_ack()),
+        Some(at),
+        "recorded once: a later approval neither re-records nor raises it"
+    );
+    let third = w.add_destination(3);
+    let plan3 = w
+        .preview(&EnrollmentSpec {
+            destination: third.destination.clone(),
+            account: None,
+            form: EnrollmentForm::Account,
+            registry_path: Some(third.registry.display().to_string()),
+            ca_fingerprint: None,
+        })
+        .await;
+    assert!(
+        !plan3
+            .disclosures
+            .contains(&DisclosureKind::LockContinuityOnce),
+        "shown once: {:?}",
+        plan3.disclosures
+    );
+}

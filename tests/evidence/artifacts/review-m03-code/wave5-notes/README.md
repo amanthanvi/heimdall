@@ -21,3 +21,22 @@ the rule text `HEIMDALL_CANARY_*` in the brief, as in wave 4.
 
 The validation commands and their exit codes are in `m03-wave5-worklog-I.md`. The full logs were
 local scratch and are not kept.
+
+## Round 2 (base `dd08b282`; implements ADR-0008 §17.25 items 1–23)
+
+These were moved here from the worktree root at the end of round 2. They have been scanned for
+home paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r2-brief.md` | The common round-2 brief (round 1's, plus the §17.25 specifics) |
+| `m03-wave5-r2-api.md` | R0: the contract and port seams worker C landed (exact types, keys and placeholders). R1: round-2 ownership and the integrator's readings on C-Q1 to C-Q5. Then the worker sections and requests |
+| `m03-wave5-r2-questions.md` | Round-2 questions: Q-I-R2-1 (the managed-activation validity fix, A2-Q1), Q-I-R2-2, C-Q1 to C-Q5, E2, IS2-1 to 5, U2-1 and 2, R2-1 to 3, A2-Q1 (fixed). Q-T2-1 and Q-T2-2 are marked ANSWERED (orchestrator, to become §17.26) |
+| `m03-wave5-r2-worklog-I.md` | The integrator's round-2 worklog: state, the Windows help-golden fix, validation and revert proofs |
+| `m03-wave5-r2-worklog-C.md` | C: the seams for items 4, 8, 15, 18, 19, 21 and 22, the ADR-0006 §16.5 rows, schemas and goldens |
+| `m03-wave5-r2-worklog-E2.md` | E2: runtime-inserted pause points (item 3), `hold` (4), `slot_free_command` moved to domain (5), the handoff notice, the prompt timeout |
+| `m03-wave5-r2-worklog-IS2.md` | IS2: the `product-file:` test store selector (item 7b), exact-locator deletion (7d), `BundleWritten` (8), the retire entry (9), `disclosure_text` (10), Ctrl-C at ceremony prompts |
+| `m03-wave5-r2-worklog-U2.md` | U2: uninstall digest match (item 8), inline retire (9), the plain-uninstall acknowledgement (11), the chore predicate (12), three doctor findings (13) |
+| `m03-wave5-r2-worklog-R2.md` | R2: the `TIME_UNCERTAIN` reason (item 15), `PrepareOutcome.managed` (18), `connection_policy` (19), capabilities `lock` plus the acknowledgement fix (21), policy results (22), the lock signal (23) |
+| `m03-wave5-r2-worklog-T2.md` | T2: the TUI reads the runtime data (items 4, 15, 19 to 21), read-only CLI-decided kinds with Deny allowed (10; Q-T2-1 and Q-T2-2) |
+| `m03-wave5-r2-worklog-A2.md` | A2: the close exit follows the code (item 16), rendering (19, 22), the managed halves through the real binary, IS2-R1 and IS2-R4; found A2-Q1 |

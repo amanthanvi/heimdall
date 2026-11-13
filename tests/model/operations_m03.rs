@@ -190,6 +190,7 @@ fn outcome() -> PrepareOutcome {
             }],
             ..ConsumerIntegration::default()
         },
+        managed: None,
     }
 }
 
@@ -1987,10 +1988,18 @@ async fn existing_access_prepare_contract_unchanged() {
         .filter(|p| p.extension().is_some_and(|x| x == "rs"))
         .collect();
     sources.push(root.join("crates/app/src/operations.rs"));
+    // ⟨M03 wave 5, round 2; ADR-0008 §17.25 item 18⟩ The only other `.managed` reads
+    // allowed: the managed adapter's *result* facts (`PrepareOutcome.managed`, carried in
+    // `Facts.managed` and copied by `ensure_data` for a managed binding only), which
+    // are not the snapshot's sources and are `None` for every existing-access adapter.
+    let result_facts = ["managed: o.managed.clone(),", "let managed = facts.managed"];
     for path in sources {
         let text = std::fs::read_to_string(&path).unwrap();
         for (i, line) in text.lines().enumerate() {
             let code = line.split("//").next().unwrap_or("");
+            if result_facts.iter().any(|r| code.trim().starts_with(r)) {
+                continue;
+            }
             assert!(
                 !code.contains(".managed") || code.contains("::managed"),
                 "{}:{} reads `.managed`",

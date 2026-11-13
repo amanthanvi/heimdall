@@ -13,54 +13,41 @@
 //! * **`slot_free`** (D10 item 2): the doctor's finding, with the command that holds a
 //!   slot ([`slot_free_command`], the doctor's own);
 //! * **the time-confirmation chore** after a reboot (F14), from the runtime's
-//!   `TIME_UNCERTAIN` warning on its `inspect` answers;
+//!   `TIME_UNCERTAIN` warning whose reason is `time_confirmation_after_reboot`
+//!   (§17.25 item 15: keyed on the reason, never on the code alone);
 //! * **the M03 decision kinds' recorded requests**, readably: the target change as a
 //!   key diff, the enrollment plan with its disclosures, the lock disclosure where the
-//!   record carries it (shown once: the runtime records it only until acknowledged).
+//!   record carries it (shown once: until `capabilities.lock.acknowledged_at`).
 //!
-//! **Wording is never retyped** (ADR-0008 §17.20 item 9; `.m03-wave5-api.md` R3): the
-//! deadline text is the runtime's own (`connection_policy.wording`) when it sends it,
-//! else U8's `deadline_wording` for the identity selection and the `existing` mode.
+//! **Wording is never retyped** (ADR-0008 §17.20 item 9, §17.25 items 10, 17, 19, 20):
+//! the deadline text is the runtime's own (`preference.connection_policy.wording`) or
+//! "unknown"; a disclosure's text is `heimdall_issuer::ceremony::disclosure_text`'s; the
+//! lock disclosure is `capabilities.lock.disclosure`; the ordinary-ssh sentence is
+//! `output::ORDINARY_CONNECTIONS_NOTE`.
 //!
-//! **Fail-closed switches** (the data sources the runtime does not expose yet; see the
-//! questions file, heading "T (TUI)"): [`switch`].
+//! **Approve in the TUI** (§17.25 item 10): only for a decision kind whose follow-through
+//! needs no owner-present CLI step, and only when every disclosure can be shown. Every
+//! other M03 kind is shown read-only with its CLI command ([`cli_only`]). No fail-closed
+//! switch remains in this module.
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::envelope::Warning;
 use heimdall_contract::managed::{ExistingConnectionsMode, MultiplexingMode};
-use heimdall_contract::provider::IdentitySelection;
-use heimdall_localenv::projection::plan::{deadline_wording, slot_free_command};
+use heimdall_localenv::projection::plan::slot_free_command;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use serde_json::Value;
 
 use super::data::{Catalog, Decision, clean, items, text, time};
 
-/// The named fail-closed switches of the M03 views (Q-T1..Q-T5).
-pub(crate) mod switch {
-    /// Q-T3: D8 item 3's owned-masters sentence, appended to the deadline wording when
-    /// owned masters are applied and the runtime sent no wording of its own. `None`:
-    /// `heimdall` cannot name `heimdall_adapters::managed::report::
-    /// OWNED_MASTERS_DISCLOSURE` (a dev-only dependency), so the line says it is not
-    /// known here instead of retyping the sentence.
-    pub(crate) const OWNED_MASTERS_LINE: Option<&str> = None;
-
-    /// Q-T4: the text of an enrollment or issuer disclosure, by its wire name. `None`
-    /// for every kind until one shared text source exists (worker I's
-    /// `heimdall_issuer::ceremony::disclosure_text` is private): the modal names the
-    /// disclosure and **Approve is not offered** in the TUI (Deny still is), so no
-    /// approval is ever sent for a disclosure the owner was not shown.
-    pub(crate) fn disclosure_text(_kind: &str) -> Option<&'static str> {
-        None
-    }
-}
-
 /// The time warning every `inspect` answer carries while safe time is not established
 /// (`Operations::inspect`).
 pub(crate) const TIME_UNCERTAIN: &str = "TIME_UNCERTAIN";
 
-/// The chore's code (ADR-0008 D2 item 6, F14: `conditions` names it so).
-pub(crate) const TIME_CHORE: &str = "time_confirmation_after_reboot";
+/// The chore's code, and the `TIME_UNCERTAIN` warning's reason when its cause is no
+/// time reference for this boot (ADR-0008 D2 item 6, F14; §17.25 items 12, 15).
+pub(crate) const TIME_CHORE: &str =
+    heimdall_contract::envelope::m03_warning::TIME_CONFIRMATION_AFTER_REBOOT;
 
 /// The chore's one command.
 pub(crate) const TIME_CONFIRM_COMMAND: &str = "heimdall time confirm";
@@ -127,7 +114,8 @@ pub(crate) enum Projection {
 }
 
 /// The effective connection policy of a pair, as the runtime reports it
-/// (`ConnectionPolicyReport`; Q-T2: not in `inspect destinations` yet).
+/// (`inspect destinations` `preference.connection_policy`, the serde form of
+/// `ConnectionPolicyReport`; §17.25 item 19).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct PolicyReport {
     /// `existing`.
@@ -155,7 +143,7 @@ pub(crate) struct Preference {
     pub mechanism: String,
     /// The projection status, when sent.
     pub projection: Option<Projection>,
-    /// The pair's effective connection policy, when sent (Q-T2).
+    /// The pair's effective connection policy, when sent (§17.25 item 19).
     pub policy: Option<PolicyReport>,
 }
 
@@ -189,14 +177,16 @@ impl Preference {
     }
 }
 
-/// A held record's reason (Q-T1: the runtime does not send it yet; parsed from an
-/// additive `hold {reason, next}` when it does).
+/// A held record's reason and next steps (`EnrollmentView.hold {reason, next}`,
+/// §17.25 item 4): the app computes `next`, so `enroll status` and the TUI show the
+/// same commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Hold {
     /// `HoldReason` wire name.
     pub reason: String,
-    /// The runtime's next step, when it sends one.
-    pub next: Option<String>,
+    /// The runtime's next steps in order (commands or a manual instruction); empty when
+    /// it names none.
+    pub next: Vec<String>,
 }
 
 /// One enrollment record (`inspect enrollments`, `EnrollmentView`).
@@ -236,7 +226,7 @@ pub(crate) struct Enrollment {
     pub open_operation: Option<String>,
     /// The `late_write` residual exists.
     pub possible_late_write: bool,
-    /// A held record's reason (Q-T1).
+    /// A held record's reason and next steps (§17.25 item 4).
     pub hold: Option<Hold>,
 }
 
@@ -273,7 +263,7 @@ impl Enrollment {
             hold: v.get("hold").and_then(|h| {
                 Some(Hold {
                     reason: text(h, "reason")?,
-                    next: text(h, "next"),
+                    next: strings(h, "next"),
                 })
             }),
         })
@@ -317,14 +307,17 @@ impl Connection {
     }
 }
 
-/// The current lock behaviour and its disclosure (Q-T5: D9 names `inspect
-/// capabilities`; parsed from an additive `lock {behavior, disclosure}` when sent).
+/// The current lock behaviour and its disclosure (`inspect capabilities` `lock
+/// {behavior, disclosure, acknowledged_at?}`, from `Operations::lock_disclosure`;
+/// §17.25 item 21).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LockReport {
     /// `continue` or `revoke_on_lock`.
     pub behavior: String,
     /// The runtime's D9 disclosure text.
     pub disclosure: Option<String>,
+    /// When the owner acknowledged it (D9 item 1: shown once, until then).
+    pub acknowledged_at: Option<Timestamp>,
 }
 
 /// The M03 part of one refresh.
@@ -334,9 +327,10 @@ pub(crate) struct Listings {
     pub enrollments: Vec<Enrollment>,
     /// Owned connections that are up or closing.
     pub connections: Vec<Connection>,
-    /// The runtime's `TIME_UNCERTAIN` message, while it reports one.
+    /// The runtime's `TIME_UNCERTAIN` message, while it reports one with the reason
+    /// `time_confirmation_after_reboot` (§17.25 item 15).
     pub time_uncertain: Option<String>,
-    /// The lock behaviour (Q-T5).
+    /// The lock behaviour (§17.25 item 21).
     pub lock: Option<LockReport>,
 }
 
@@ -361,12 +355,13 @@ impl Listings {
                 .collect(),
             time_uncertain: warnings
                 .iter()
-                .find(|w| w.code == TIME_UNCERTAIN)
+                .find(|w| w.code == TIME_UNCERTAIN && w.reason.as_deref() == Some(TIME_CHORE))
                 .map(|w| clean(&w.message)),
             lock: capabilities.get("lock").and_then(|l| {
                 Some(LockReport {
                     behavior: text(l, "behavior")?,
                     disclosure: text(l, "disclosure"),
+                    acknowledged_at: time(l, "acknowledged_at"),
                 })
             }),
         }
@@ -447,23 +442,21 @@ pub(crate) fn enrollment_row(catalog: &Catalog, e: &Enrollment) -> String {
     )
 }
 
-/// The next step of a held record: the runtime's own when it sends one, else the one
-/// the plan names for the reason (m03-plan U12 r3), else unknown.
-fn held_next(e: &Enrollment, hold: &Hold) -> String {
-    if let Some(next) = &hold.next {
-        return next.clone();
+/// A held record's next steps, exactly as the runtime names them (§17.25 item 4): a
+/// command is quoted, a manual instruction is shown as it is; none named reads so.
+fn held_next_lines(hold: &Hold) -> Vec<Line<'static>> {
+    if hold.next.is_empty() {
+        return vec![plain("  next: none named by the runtime")];
     }
-    match hold.reason.as_str() {
-        "host_key_changed" => format!(
-            "review the new host key: `heimdall enroll verify {} --approve-target-change`, or `heimdall enroll remove {}`",
-            e.id, e.id
-        ),
-        "lock_holder_unresolved" => format!(
-            "after you remove the remote lock by hand: `heimdall enroll reconcile {} --after-manual-recovery`",
-            e.open_operation.as_deref().unwrap_or("<operation>")
-        ),
-        _ => "unknown (the runtime does not name one for this reason)".to_owned(),
+    let mut lines = vec![plain("  next:")];
+    for n in &hold.next {
+        lines.push(plain(if n.starts_with("heimdall ") {
+            format!("    - `{n}`")
+        } else {
+            format!("    - {n}")
+        }));
     }
+    lines
 }
 
 /// The `late_write` residual's lines (ADR-0008 D5 §6.7; the runtime's note command).
@@ -525,7 +518,7 @@ pub(crate) fn enrollment_lines(catalog: &Catalog, id: &str) -> Vec<Line<'static>
         match &e.hold {
             Some(h) => {
                 lines.push(bold(format!("[!!] Held: {}", h.reason)));
-                lines.push(plain(format!("  next: {}", held_next(e, h))));
+                lines.extend(held_next_lines(h));
             }
             None => {
                 lines.push(bold(
@@ -543,37 +536,16 @@ pub(crate) fn enrollment_lines(catalog: &Catalog, id: &str) -> Vec<Line<'static>
 
 // ---- managed readiness -----------------------------------------------------------------
 
-/// The D8 deadline wording of a managed pair (ADR-0008 D8 item 6, §17.20 item 9): the
-/// runtime's own text when it sends one; else U8's `deadline_wording` for the identity
-/// selection (unknown reads `undetermined`, which gets the qualified text) and the
-/// `existing` mode, with D8 item 3's owned-masters line when masters are applied
-/// ([`switch::OWNED_MASTERS_LINE`]); else unknown.
+/// The D8 deadline wording of a managed pair (ADR-0008 D8 items 3 and 6; §17.25 items
+/// 19 and 20): the runtime's own `connection_wording`, verbatim (D8 item 3's
+/// owned-masters sentence reaches the TUI only inside it); with no wording reported it
+/// is unknown, never derived here.
 #[must_use]
-pub(crate) fn deadline_lines(
-    selection: Option<IdentitySelection>,
-    policy: Option<&PolicyReport>,
-    windows: bool,
-) -> Vec<String> {
-    if let Some(w) = policy.and_then(|p| p.wording.as_deref()) {
-        return vec![w.to_owned()];
-    }
-    let Some((existing, policy)) = policy.and_then(|p| p.existing.map(|e| (e, p))) else {
-        return vec!["unknown: no connection policy is reported for this pair".to_owned()];
-    };
-    let base = deadline_wording(
-        selection.unwrap_or(IdentitySelection::Undetermined),
-        existing,
-    );
-    let masters = policy.multiplexing == Some(MultiplexingMode::OwnedMasters) && !windows;
-    match (masters, switch::OWNED_MASTERS_LINE) {
-        (false, _) => vec![base.to_owned()],
-        (true, Some(line)) => vec![format!("{base} {line}")],
-        (true, None) => vec![
-            base.to_owned(),
-            "[??] owned masters are applied: what happens to sessions shared through them is not known here"
-                .to_owned(),
-        ],
-    }
+pub(crate) fn deadline_line(policy: Option<&PolicyReport>) -> String {
+    policy.and_then(|p| p.wording.as_deref()).map_or_else(
+        || "unknown: the runtime reports no connection policy for this pair".to_owned(),
+        clean,
+    )
 }
 
 /// The managed block of a destination detail (only for a managed-certificate pair).
@@ -581,7 +553,6 @@ pub(crate) fn deadline_lines(
 pub(crate) fn managed_lines(
     catalog: &Catalog,
     destination: &super::data::Destination,
-    selection: Option<IdentitySelection>,
 ) -> Vec<Line<'static>> {
     let Some(p) = destination
         .preference
@@ -610,9 +581,7 @@ pub(crate) fn managed_lines(
         )));
     }
     lines.push(plain("  At the deadline:"));
-    for l in deadline_lines(selection, p.policy.as_ref(), cfg!(windows)) {
-        lines.push(plain(format!("    {l}")));
-    }
+    lines.push(plain(format!("    {}", deadline_line(p.policy.as_ref()))));
     let live: Vec<_> = catalog
         .m03
         .connections
@@ -632,10 +601,12 @@ pub(crate) fn managed_lines(
             when(c.closes_at)
         )));
     }
-    lines.push(plain(match &catalog.m03.lock {
-        Some(l) => format!("  Lock behaviour: {}", l.behavior),
-        None => "  Lock behaviour: unknown (not reported by the runtime)".to_owned(),
-    }));
+    // §17.25 item 17: the one ordinary-ssh sentence, shared with the CLI.
+    lines.push(plain(format!(
+        "  Note: {}",
+        crate::output::ORDINARY_CONNECTIONS_NOTE
+    )));
+    lines.extend(lock_lines(catalog.m03.lock.as_ref()));
     for e in catalog
         .m03
         .enrollments
@@ -647,6 +618,29 @@ pub(crate) fn managed_lines(
             "  {marker} Enrollment{}",
             enrollment_row(catalog, e)
         )));
+    }
+    lines
+}
+
+/// The current lock behaviour (D9 item 1: "the TUI detail always shows the current
+/// behaviour"), and its disclosure while it is not acknowledged (shown once; §17.25
+/// item 21), both from `inspect capabilities` `lock`.
+fn lock_lines(lock: Option<&LockReport>) -> Vec<Line<'static>> {
+    let Some(l) = lock else {
+        return vec![plain(
+            "  Lock behaviour: unknown (not reported by the runtime)",
+        )];
+    };
+    let mut lines = vec![plain(format!("  Lock behaviour: {}", clean(&l.behavior)))];
+    match (l.acknowledged_at, &l.disclosure) {
+        (Some(at), _) => lines.push(plain(format!("  Lock disclosure acknowledged {}", hms(at)))),
+        (None, Some(text)) => lines.push(plain(format!(
+            "  Lock disclosure (not yet acknowledged): {}",
+            clean(text)
+        ))),
+        (None, None) => lines.push(plain(
+            "  Lock disclosure: not acknowledged; its text is not reported by the runtime",
+        )),
     }
     lines
 }
@@ -697,30 +691,92 @@ fn disclosures(d: &Decision) -> Vec<String> {
     strings(from, "disclosures")
 }
 
-/// The text of disclosure `kind` for decision `d`, if the TUI can show it: the lock
-/// disclosure from the runtime (Q-T5), the slot disclosure from the doctor's text, and
-/// otherwise [`switch::disclosure_text`].
+/// The text of disclosure `kind` (a wire name) for decision `d`: the one shared text,
+/// `heimdall_issuer::ceremony::disclosure_text` (§17.25 item 10), with the record's
+/// alias and the runtime's own lock disclosure (`capabilities.lock.disclosure`, §17.25
+/// item 21) as its context. `None` for a kind this build does not know: the modal then
+/// shows the shared `UNKNOWN_DISCLOSURE` text and Approve is not offered. Nothing here
+/// retypes a disclosure.
 fn disclosure_text(catalog: &Catalog, d: &Decision, kind: &str) -> Option<String> {
-    match kind {
-        LOCK_DISCLOSURE => catalog.m03.lock.as_ref().and_then(|l| l.disclosure.clone()),
-        "ordinary_ssh_needs_held_slot" => {
-            let summary = d.request.get("summary")?;
-            let alias = text(summary, "alias")?;
-            let id =
-                heimdall_contract::ids::DestinationId::parse(&text(summary, "destination_id")?)
-                    .ok()?;
-            Some(clean(
-                &heimdall_localenv::projection::plan::slot_free_disclosure(&alias, &id).message,
-            ))
-        }
-        other => switch::disclosure_text(other).map(str::to_owned),
-    }
+    use heimdall_issuer::ceremony::{DisclosureContext, disclosure_text};
+    let known: heimdall_contract::enrollment::DisclosureKind =
+        serde_json::from_value(Value::String(kind.to_owned())).ok()?;
+    let alias = d.request.get("summary").and_then(|p| text(p, "alias"));
+    let lock = catalog.m03.lock.as_ref().and_then(|l| l.disclosure.clone());
+    let shown = disclosure_text(
+        known,
+        &DisclosureContext {
+            alias: alias.as_deref(),
+            lock: lock.as_deref(),
+        },
+    );
+    (shown != heimdall_issuer::ceremony::UNKNOWN_DISCLOSURE).then(|| clean(&shown))
 }
 
-/// Why Approve is not offered for `d` in the TUI: a disclosure whose text cannot be
-/// shown (Q-T4, Q-T5). `None` for every other kind.
+/// The CLI command that completes an M03 decision the TUI shows read-only (§17.25 item
+/// 10, §17.26): its follow-through needs the owner at a CLI terminal (the enrollment
+/// and removal step loop, which runs `ssh` there; the issuer ceremony's passphrase; the
+/// retirement's exact-locator deletion), so the TUI never offers or sends Approve for
+/// it. Deny (narrowing, nothing to follow through) is its one verdict here, after the
+/// usual typed `yes`. `None` for every other kind.
+#[must_use]
+pub(crate) fn cli_only(d: &Decision) -> Option<String> {
+    let r = &d.request;
+    let summary = r.get("summary").unwrap_or(&Value::Null);
+    let alias = || text(summary, "alias").unwrap_or_else(|| s(summary, "destination_id"));
+    Some(match d.kind.as_str() {
+        "enroll_account" => format!("heimdall enroll {}", alias()),
+        "enroll_system_form" => format!("heimdall enroll {} --form system", alias()),
+        "remove_enrollment" => {
+            let t = r.get("target").unwrap_or(&Value::Null);
+            match text(t, "kind").as_deref() {
+                Some("enrollment") => {
+                    format!("heimdall enroll remove {}", s(t, "enrollment_id"))
+                }
+                _ => format!(
+                    "heimdall enroll remove --from-bundle <file> --marker {} --alias {}",
+                    s(t, "marker"),
+                    s(t, "local_alias")
+                ),
+            }
+        }
+        "register_issuer" => {
+            if text(r, "rotation_of").is_some() {
+                "heimdall issuer rotate begin --backup-out <path>".to_owned()
+            } else if r.get("restored_without_log").and_then(Value::as_bool) == Some(true)
+                || text(r, "expected_store_locator").is_some()
+            {
+                "heimdall issuer restore --backup <file>".to_owned()
+            } else {
+                "heimdall issuer init --backup-out <path>".to_owned()
+            }
+        }
+        "retire_issuer" => format!("heimdall issuer retire {}", s(r, "ca_fingerprint")),
+        _ => return None,
+    })
+}
+
+/// The read-only notice of a [`cli_only`] decision: what to run to approve it, and that
+/// only Deny can be sent from here.
+#[must_use]
+pub(crate) fn cli_only_notice(command: &str) -> String {
+    format!(
+        "Read-only in the TUI: this decision is approved only in the CLI, on the terminal that runs `{command}` (its follow-through needs you there). Approve is not offered here; you can deny it here with a typed yes."
+    )
+}
+
+/// Why Approve is not offered for `d` in the TUI: a decision decided only in the CLI
+/// ([`cli_only`]), or an M03 decision with a disclosure this build cannot show (a kind
+/// it does not know).
+/// `None` for every other kind.
 #[must_use]
 pub(crate) fn approve_block(catalog: &Catalog, d: &Decision) -> Option<String> {
+    if let Some(command) = cli_only(d) {
+        return Some(format!(
+            "{} is approved only in the CLI: run `{command}`",
+            clean(&d.kind)
+        ));
+    }
     if !M03_KINDS.contains(&d.kind.as_str()) {
         return None;
     }
@@ -730,7 +786,7 @@ pub(crate) fn approve_block(catalog: &Catalog, d: &Decision) -> Option<String> {
         .collect();
     (!missing.is_empty()).then(|| {
         format!(
-            "the TUI cannot show the text of {}; approve it where its disclosures are shown (the CLI), or deny it here",
+            "the TUI cannot show the text of {}; decide it where its disclosures are shown (the CLI)",
             missing.join(", ")
         )
     })
@@ -790,17 +846,25 @@ fn disclosure_lines(catalog: &Catalog, d: &Decision) -> Vec<Line<'static>> {
     for k in kinds {
         let shown = disclosure_text(catalog, d, &k);
         if k == LOCK_DISCLOSURE {
+            // D9 item 1: shown once, until the runtime reports it acknowledged.
+            if let Some(at) = catalog.m03.lock.as_ref().and_then(|l| l.acknowledged_at) {
+                lines.push(plain(format!(
+                    "  * Lock disclosure: acknowledged {}; not shown again",
+                    hms(at)
+                )));
+                continue;
+            }
             lines.push(bold(
-                "  * Lock disclosure (shown once; recorded when you approve):",
+                "  * Lock disclosure (shown once; recorded when the decision is approved):",
             ));
             lines.push(plain(format!(
                 "    {}",
-                shown.unwrap_or_else(|| "[text not available in the TUI]".to_owned())
+                shown.unwrap_or_else(|| heimdall_issuer::ceremony::UNKNOWN_DISCLOSURE.to_owned())
             )));
         } else {
             lines.push(plain(format!(
                 "  * {k}: {}",
-                shown.unwrap_or_else(|| "[text not available in the TUI]".to_owned())
+                shown.unwrap_or_else(|| heimdall_issuer::ceremony::UNKNOWN_DISCLOSURE.to_owned())
             )));
         }
     }
@@ -934,7 +998,9 @@ pub(crate) fn decision_lines(catalog: &Catalog, d: &Decision) -> Option<Vec<Line
         }
         _ => return None,
     }
-    if let Some(why) = approve_block(catalog, d) {
+    if let Some(command) = cli_only(d) {
+        lines.push(bold(format!("[!!] {}", cli_only_notice(&command))));
+    } else if let Some(why) = approve_block(catalog, d) {
         lines.push(bold(format!("[!!] Approve is not offered here: {why}")));
     }
     Some(lines)
@@ -1030,7 +1096,103 @@ pub(crate) mod fixtures {
         )
     }
 
-    /// An `inspect enrollments` entry for `dst-alpha` in `state`.
+    /// A pending `RegisterIssuer` decision: an init, or a rotation of the fixture CA, or
+    /// a key-only restore.
+    pub(crate) fn register_decision(id: &str, rotation: bool, restore: bool) -> Decision {
+        decision(
+            id,
+            "register_issuer",
+            &DecisionKind::RegisterIssuer {
+                ca_fingerprint: CaFingerprint::parse(&format!("SHA256:{}", "B".repeat(43)))
+                    .unwrap(),
+                store: heimdall_contract::issuer::StoreKind::MacosLoginKeychain,
+                backup_sha256: "cd".repeat(32),
+                rotation_of: rotation.then(ca),
+                restored_without_log: restore,
+                disclosures: vec![
+                    DisclosureKind::SameUserIssuerBoundary,
+                    DisclosureKind::LockContinuityOnce,
+                ],
+                ca_public_key: Some("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfixture".to_owned()),
+                backup_created_at: Some(t("2026-11-03T08:59:00Z")),
+                store_locator: None,
+                expected_store_locator: None,
+            },
+        )
+    }
+
+    /// A pending `RetireIssuer` decision for the fixture CA.
+    pub(crate) fn retire_decision(id: &str) -> Decision {
+        decision(
+            id,
+            "retire_issuer",
+            &DecisionKind::RetireIssuer {
+                ca_fingerprint: ca(),
+                abandoned_enrollments: Vec::new(),
+            },
+        )
+    }
+
+    /// A pending `RemoveEnrollment` decision for enrollment `[n; 16]`.
+    pub(crate) fn remove_decision(id: &str, n: u8) -> Decision {
+        decision(
+            id,
+            "remove_enrollment",
+            &DecisionKind::RemoveEnrollment {
+                operation: OperationId::parse("op_remove1").unwrap(),
+                target: heimdall_contract::enrollment::RemovalTarget::Enrollment {
+                    enrollment_id: heimdall_contract::ids::EnrollmentId::from_random_bytes([n; 16]),
+                },
+                invocation: vec!["ssh".to_owned(), "alpha".to_owned()],
+                affected_grants: Vec::new(),
+                pair_residual_until: None,
+                fresh_target: None,
+            },
+        )
+    }
+
+    /// A pending `EnrollSystemForm` decision for `alpha`.
+    pub(crate) fn system_form_decision(id: &str) -> Decision {
+        let DecisionKind::EnrollAccount {
+            operation,
+            plan_digest,
+            summary,
+        } = serde_json::from_value(enroll_decision(id, Vec::new()).request).unwrap()
+        else {
+            panic!("an enroll_account fixture")
+        };
+        decision(
+            id,
+            "enroll_system_form",
+            &DecisionKind::EnrollSystemForm {
+                operation,
+                plan_digest,
+                summary: EnrollmentPlanSummary {
+                    form: EnrollmentForm::System,
+                    ..summary
+                },
+                sshd_lines: heimdall_domain::decision::SystemFormLines {
+                    trusted_user_ca_keys_line: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfixture"
+                        .to_owned(),
+                    principals_line: "fixture".to_owned(),
+                    sshd_directives: Vec::new(),
+                },
+            },
+        )
+    }
+
+    /// The runtime's next steps of a held record (`EnrollmentView.hold.next`), as the
+    /// app computes them for a host-key change (`enroll_cmd::render::held_next`).
+    pub(crate) fn host_key_next(id: &str) -> Vec<String> {
+        vec![
+            format!("heimdall enroll verify {id} --approve-target-change"),
+            format!("heimdall enroll remove {id}"),
+        ]
+    }
+
+    /// An `inspect enrollments` entry for `dst-alpha` in `state`; a held one carries
+    /// `hold {reason, next}` (§17.25 item 4), `next` the host-key change's two exits for
+    /// `host_key_changed` and none for any other reason.
     pub(crate) fn enrollment(n: u8, state: &str, late_write: bool, hold: Option<&str>) -> Value {
         let id = heimdall_contract::ids::EnrollmentId::from_random_bytes([n; 16]);
         let mut v = serde_json::json!({
@@ -1047,7 +1209,11 @@ pub(crate) mod fixtures {
             v["possible_late_write"] = Value::Bool(true);
         }
         if let Some(reason) = hold {
-            v["hold"] = serde_json::json!({"reason": reason});
+            v["hold"] = if reason == "host_key_changed" {
+                serde_json::json!({"reason": reason, "next": host_key_next(&id.to_string())})
+            } else {
+                serde_json::json!({"reason": reason})
+            };
         }
         v
     }
@@ -1077,6 +1243,7 @@ mod tests {
             &[Warning {
                 code: TIME_UNCERTAIN.to_owned(),
                 message: "m\u{1b}[2J".to_owned(),
+                reason: Some(TIME_CHORE.to_owned()),
             }],
         );
         assert_eq!(l.enrollments.len(), 1, "an entry without an ID is skipped");

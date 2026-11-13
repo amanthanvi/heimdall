@@ -64,8 +64,26 @@ pub fn classify(line: Option<&str>) -> Answer {
     }
 }
 
-/// Show `text`, then ask for a typed `yes` (default No).
+/// Show `text`, then ask for a typed `yes` (default No), reading one line of stdin
+/// within [`PROMPT_TIMEOUT`].
 pub async fn ask(text: &str) -> Answer {
+    ask_within(text, read_stdin_line, PROMPT_TIMEOUT).await
+}
+
+/// One line of stdin: `(bytes read, line)`; 0 bytes is end of input.
+fn read_stdin_line() -> std::io::Result<(usize, String)> {
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line).map(|n| (n, line))
+}
+
+/// [`ask`] with its line reader and its bound: `read` runs on its own thread and
+/// answers `(bytes read, line)`; no answer within `timeout` is [`Answer::TimedOut`]
+/// (the caller then sends nothing). The unit tests give a reader that never answers
+/// and a short bound, so the timeout case needs no 120 s wait and no variable.
+pub(crate) async fn ask_within<R>(text: &str, read: R, timeout: Duration) -> Answer
+where
+    R: FnOnce() -> std::io::Result<(usize, String)> + Send + 'static,
+{
     crate::output::prompt(text);
     crate::output::prompt("Type 'yes' to confirm [y/N]: ");
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -74,9 +92,7 @@ pub async fn ask(text: &str) -> Answer {
     let spawned = std::thread::Builder::new()
         .name("heimdall-prompt".into())
         .spawn(move || {
-            let mut line = String::new();
-            let r = std::io::stdin().read_line(&mut line).map(|n| (n, line));
-            let _ = tx.send(r);
+            let _ = tx.send(read());
         });
     if spawned.is_err() {
         return Answer::Unreadable;
@@ -88,7 +104,7 @@ pub async fn ask(text: &str) -> Answer {
             _ => Answer::Unreadable,
         },
         _ = tokio::signal::ctrl_c() => Answer::Interrupted,
-        () = tokio::time::sleep(PROMPT_TIMEOUT) => Answer::TimedOut,
+        () = tokio::time::sleep(timeout) => Answer::TimedOut,
     };
     if answer != Answer::Yes {
         crate::output::diagnostic("");
@@ -111,5 +127,44 @@ mod tests {
             assert_eq!(classify(Some(no)), Answer::No, "{no:?}");
         }
         assert_eq!(classify(None), Answer::Eof);
+    }
+
+    /// A reader that never answers: blocked until the test drops its sender.
+    fn never_answers() -> (
+        std::sync::mpsc::Sender<()>,
+        impl FnOnce() -> std::io::Result<(usize, String)> + Send + 'static,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        (tx, move || {
+            let _ = rx.recv();
+            Err(std::io::Error::other("released"))
+        })
+    }
+
+    fn block_on<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|_| unreachable!())
+            .block_on(f)
+    }
+
+    /// No answer within the bound is `TimedOut` (the 120 s bound, shortened), never a
+    /// confirmation; an answer within it is classified as usual.
+    #[test]
+    fn no_answer_in_time_is_timed_out() {
+        let (release, read) = never_answers();
+        let started = std::time::Instant::now();
+        let a = block_on(ask_within("t", read, Duration::from_millis(50)));
+        assert_eq!(a, Answer::TimedOut);
+        assert_eq!(a.reason(), "no answer in time");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        drop(release);
+        let yes = || Ok((4, "yes\n".to_owned()));
+        assert_eq!(
+            block_on(ask_within("t", yes, Duration::from_secs(30))),
+            Answer::Yes
+        );
+        assert_eq!(PROMPT_TIMEOUT, Duration::from_secs(120));
     }
 }

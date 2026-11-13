@@ -593,8 +593,11 @@ impl Service {
             ));
         }
         // ⟨M03⟩ U6's managed adapter, after M02's (their order is unchanged).
-        if let Some(parts) = &managed_parts {
-            adapters.push(parts.adapter(wired.as_ref().map(|w| Arc::clone(&w.writer))));
+        let managed_adapter = managed_parts
+            .as_ref()
+            .map(|parts| parts.adapter(wired.as_ref().map(|w| Arc::clone(&w.writer))));
+        if let Some(a) = &managed_adapter {
+            adapters.push(Arc::clone(a) as Arc<dyn CredentialAdapter>);
         }
         let operations = Operations::start(OperationsConfig {
             store: store.clone(),
@@ -612,6 +615,12 @@ impl Service {
         // ⟨M03⟩ U9 (R3): the `[session] lock_behavior` floor, in every runtime.
         let floor = crate::session_lock::lock_floor(&config.session);
         operations.set_session_lock_floor(floor);
+        // ⟨M03; ADR-0008 §17.25 item 19⟩ `inspect destinations`' D8 wording: the managed
+        // adapter's own (`connection_policy_report`), so the destination view and the
+        // ensure result say the same sentence. Without the managed wiring, none.
+        if let Some(a) = managed_adapter {
+            operations.set_connection_wording(Arc::new(AdapterWording(a)));
+        }
         let background = StopOnDrop(shutdown.child_token());
         let relay = EventRelay::spawn(&operations, background.0.clone());
 
@@ -1819,6 +1828,20 @@ pub fn store_pair_source(
     })
 }
 
+/// ⟨§17.25 item 19⟩ The runtime's [`heimdall_app::operations::ConnectionWording`]: the
+/// managed adapter's report for the alias (its observed selection, D8 wording).
+struct AdapterWording(Arc<ManagedCertificateAdapter>);
+
+impl heimdall_app::operations::ConnectionWording for AdapterWording {
+    fn report(
+        &self,
+        alias: &str,
+        policy: &heimdall_contract::managed::ConnectionPolicy,
+    ) -> Option<heimdall_contract::managed::ConnectionPolicyReport> {
+        Some(self.0.connection_policy_report(alias, policy))
+    }
+}
+
 /// What the managed adapter needs before `Operations::start`.
 struct ManagedParts {
     vault: Arc<KeyVault>,
@@ -2176,7 +2199,7 @@ impl ManagedParts {
     fn adapter(
         &self,
         writer: Option<Arc<dyn heimdall_app::ports::ProjectionWriter>>,
-    ) -> Arc<dyn CredentialAdapter> {
+    ) -> Arc<ManagedCertificateAdapter> {
         let cleanup: Arc<dyn heimdall_adapters::managed::EndCleanup> = self.cleanup.clone();
         Arc::new(
             ManagedCertificateAdapter::new(
@@ -2267,6 +2290,16 @@ impl ManagedParts {
         if let Some(s) = &lock_source {
             ops.set_session_lock_source(Arc::clone(s));
         }
+        // ⟨§17.25 item 23 (Q-R3)⟩ The platform source names its signal explicitly, so the
+        // `signal_unverified` label never relies on `LockSignal::of_platform`'s default.
+        // A source reading `unavailable` reports `LockSignal::None`, which is not stored:
+        // `Operations::session_lock_signal` already answers `None` while it reads so, and
+        // a stored `None` would drop the label if the source later read a state.
+        if let Some(p) = &platform_lock
+            && p.signal() != heimdall_app::lock::LockSignal::None
+        {
+            ops.set_session_lock_signal(p.signal());
+        }
         let state = lock_source
             .as_ref()
             .map_or(LockState::Unavailable, |s| s.state());
@@ -2326,6 +2359,11 @@ impl ManagedParts {
         if let Some(i) = &issuer {
             self.sources.set_issuer(Arc::new(i.clone()));
         }
+        // ⟨ADR-0008 §17.25 item 3⟩ Test configuration, debug builds only: the same
+        // directory pauses the enrollment scripts, whose points the app inserts when it
+        // builds a step (the CLI only validates the variable).
+        #[cfg(debug_assertions)]
+        ops.set_script_pause_dir(m.script_pause_dir.as_deref());
         let verifier = match (ssh, ssh.and_then(|c| c.version)) {
             (Some(c), Some(v)) => {
                 let client = VerifierClient {

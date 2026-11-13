@@ -1910,6 +1910,30 @@
           "required": [
             "action"
           ]
+        },
+        {
+          "description": "⟨ADR-0008 §17.25 item 8⟩ The CLI's confirmation that it wrote a recovery\nbundle completely and fsynced it. kind `issuer.bundle_written`; synchronous\n(it records `last_bundle_at` and the digest, which never lower). The record\nnever stores the file's path. Sent only after the write; a bundle the CLI\nfailed to write is never confirmed.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "bundle_written"
+            },
+            "created_at": {
+              "description": "The written bundle's `created_at` (`RecoveryBundle::created_at`).",
+              "type": "string",
+              "format": "date-time"
+            },
+            "sha256": {
+              "description": "Hex SHA-256 of the exact bytes written (lowercase, 64 characters; the\nform of `Register.backup_sha256`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "created_at",
+            "sha256"
+          ]
         }
       ]
     },

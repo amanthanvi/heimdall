@@ -370,7 +370,6 @@ fn m03_cli_commands_answer_without_a_runtime_and_never_panic() {
         &["enroll"],
         &["enroll", "remove"],
         &["access", "lock-behavior", "--policy", "pol", "sometimes"],
-        &["uninstall", "--keep-remote-enrollments"],
         &["uninstall", "--purge-state", "--bundle", "f"],
     ] {
         let mut argv = vec!["--json"];
@@ -562,30 +561,91 @@ fn m03_test_gates_are_validated_before_anything_else() {
         assert_eq!(debug_build, cfg!(debug_assertions), "{out:?}");
     }
 
-    // An absolute directory: a debug build refuses it too, naming the variable
-    // (`enroll_cmd::SCRIPT_PAUSE_POINTS_CONSUMED = false`: the pause points are not
-    // consumed CLI-side yet, so a set directory fails closed before any contact); a
-    // release build refuses the variable with its release message.
+    // An absolute directory. A release build refuses the variable with its release
+    // message (exit 2, nothing created; `tools/validation/release-gate.sh` is the
+    // release-build half). A debug build only validates it (ADR-0008 §17.25 item 3: the
+    // runtime inserts the pause points when it builds a step, from its own test
+    // configuration), so `enroll` goes on: `enroll status`, which never starts a
+    // runtime, reports that none runs, names no variable and starts nothing.
     let abs = scratch.path().join("pause");
     let abs = abs.to_string_lossy().into_owned();
-    let out = run(
-        &home,
-        &account,
-        &["--json", "enroll", "lab"],
-        &[("HEIMDALL_TEST_SCRIPT_PAUSE_DIR", &abs)],
-    );
-    assert_eq!(out.code, 2, "{out:?}");
     if debug_build {
+        let out = run(
+            &home,
+            &account,
+            &["--json", "enroll", "status"],
+            &[("HEIMDALL_TEST_SCRIPT_PAUSE_DIR", &abs)],
+        );
+        assert_ne!(out.code, 2, "{out:?}");
+        assert_ne!(out.code, 0, "no runtime runs: {out:?}");
         assert!(
-            out.message().contains("HEIMDALL_TEST_SCRIPT_PAUSE_DIR"),
+            !out.message().contains("HEIMDALL_TEST_SCRIPT_PAUSE_DIR"),
             "{out:?}"
         );
+        assert_ne!(out.message(), not_available_text(), "{out:?}");
+        assert!(!home.join("run").join("instance.json").exists());
+        // A form that the round-1 CLI refused with the variable set (exit 2): a foreign
+        // removal from a redacted bundle now reaches its own local check (exit 4,
+        // `bundle_redacted`, before any runtime contact).
+        let bundle = scratch.path().join("bundle.json");
+        let marker = "heimdall:enr_00112233445566778899aabbccddeeff";
+        std::fs::write(
+            &bundle,
+            serde_json::json!({
+                "schema": "heimdall-recovery-bundle/1",
+                "created_at": "2026-11-01T00:00:00Z",
+                "redacted": true,
+                "cas": [],
+                "enrollments": [{
+                    "marker": marker, "destination_id": "dst_lab", "alias": "lab",
+                    "hostname": null, "port": null, "account": "deploy",
+                    "registry": {"resolved_by": "remote_home"},
+                    "registry_path_display": "$HOME/.ssh/authorized_keys",
+                    "form": "account", "state": "verified",
+                    "ca_fingerprint": format!("SHA256:{}", "A".repeat(43)),
+                    "ca_public_key": "ssh-ed25519 AAAA",
+                    "line_sha256": "ab".repeat(32),
+                }],
+                "instructions": [],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let bundle = bundle.to_string_lossy().into_owned();
+        let out = run(
+            &home,
+            &account,
+            &[
+                "--json",
+                "enroll",
+                "remove",
+                "--from-bundle",
+                &bundle,
+                "--marker",
+                marker,
+                "--alias",
+                "lab",
+            ],
+            &[("HEIMDALL_TEST_SCRIPT_PAUSE_DIR", &abs)],
+        );
+        assert_eq!(out.code, 4, "{out:?}");
+        assert!(
+            !out.message().contains("HEIMDALL_TEST_SCRIPT_PAUSE_DIR"),
+            "{out:?}"
+        );
+        assert!(!home.join("run").join("instance.json").exists());
     } else {
+        let out = run(
+            &home,
+            &account,
+            &["--json", "enroll", "lab"],
+            &[("HEIMDALL_TEST_SCRIPT_PAUSE_DIR", &abs)],
+        );
+        assert_eq!(out.code, 2, "{out:?}");
         assert!(out.message().contains("HEIMDALL_TEST_"), "{out:?}");
+        assert_ne!(out.message(), not_available_text(), "{out:?}");
+        assert!(!home.exists());
     }
-    assert_ne!(out.message(), not_available_text(), "{out:?}");
-    assert!(!home.exists());
-    assert!(!home.join("run").exists());
 
     // `service run`: a malformed value of each M03 variable ends the command at once
     // (exit 2, the variable named), before a runtime exists.
@@ -705,8 +765,9 @@ fn seed_state(home: &Path, states: &[EnrollmentState]) -> PathBuf {
 /// `uninstall_refuses_purge_with_live_enrollments`: a non-final enrollment refuses
 /// `--purge-state` before the confirmation, the rollback or any runtime contact, and
 /// lists marker, destination and state; `--keep-remote-enrollments` needs a bundle
-/// (`bundle_required`, exit 4) and a `--bundle` is refused the same way until a bundle
-/// write is recorded (`uninstall_cmd::BUNDLE_WRITE_RECORD_REQUIRED`); final enrollments
+/// (`bundle_required`, exit 4) and a `--bundle` this installation never recorded is
+/// refused the same way (ADR-0008 §17.25 item 8: content check plus a recorded digest);
+/// final enrollments
 /// do not refuse. (The plain `uninstall` listing and acknowledgement are
 /// `uninstall_doctor`'s.)
 #[test]
@@ -782,9 +843,9 @@ fn uninstall_refuses_purge_with_live_enrollments() {
         1
     );
 
-    // ...and with one, nothing records which bundle was written yet
-    // (`uninstall_cmd::BUNDLE_WRITE_RECORD_REQUIRED = true`): every bundle is refused
-    // `bundle_required` (exit 4), the enrollments listed, nothing changed.
+    // ...and with one whose digest this installation never recorded (§17.25 item 8):
+    // refused `bundle_required` (exit 4), the enrollments listed, nothing changed. The
+    // accepted case is `uninstall_doctor::uninstall_purge_keeping_enrollments_requires_fresh_bundle`.
     let bundle = scratch.path().join("bundle.json");
     let bundle_arg = bundle.to_string_lossy().into_owned();
     let out = run(

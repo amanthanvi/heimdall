@@ -11,11 +11,16 @@
 //! files (stdin and stderr on the pty when a case says so), so the test can show what
 //! reaches the terminal only. Without a slave the session has no controlling terminal.
 //!
-//! **S3 (`.m03-wave5-questions.md` Q-IS1).** The scratch store is a test-configuration
-//! kind: `issuer init|rotate begin|restore` stop at the registration with
-//! `issuer_store_unavailable` (nothing written), and the R2B deletion of `issuer retire`
-//! stops at `unloaded` unless `S3_TEST_STORE_DELETION` (mirrored here) is switched on.
-//! The assertions that need the ruling are named in each test.
+//! **Stores (ADR-0008 §17.25 item 7).** The scratch store is a test-configuration kind:
+//! `issuer init|rotate begin|restore` stop at its registration (a test kind is never on
+//! the wire), but `issuer retire` deletes its item by exact locator in a debug build (item
+//! 7 (d)). On macOS the **product-file** test store
+//! (`HEIMDALL_TEST_SECRET_STORE=product-file:<path>`, item 7 (b)) is a file keychain this
+//! test creates in its scratch `HEIMDALL_HOME`, never added to the search list (checked
+//! before and after, by digest, nothing printed) and removed at the end: there the whole
+//! registration, passphrase and R2B chain runs on the keychain code path. Never the login
+//! keychain. Windows DPAPI under the scratch home and Linux (no disposable Secret Service)
+//! are named in each test.
 //!
 //! **Isolation.** Cleared environments (`PATH`, a scratch `HOME`, the scratch
 //! `HEIMDALL_HOME`, the scratch store); fixture keys are generated per run; no owner key,
@@ -42,10 +47,6 @@ use serde_json::Value;
 
 use super::{Out, bin, run};
 
-/// Mirrors `issuer_cmd::S3_TEST_STORE_DELETION` (the binary's switch): with it on, the
-/// R2B retire case asserts the whole chain to `retired`.
-const S3_TEST_STORE_DELETION: bool = false;
-
 const SLAVE: &str = "HM_I_PTY_SLAVE";
 const ARGV: &str = "HM_I_ARGV";
 const ENVS: &str = "HM_I_ENV";
@@ -65,12 +66,15 @@ struct Running {
     issuer: Option<heimdall_issuer::client::ChildIssuer>,
 }
 
-/// A scratch installation: its home, an account directory, the in-process runtime.
+/// A scratch installation: its home, an account directory, the in-process runtime, and
+/// (macOS) the product-file test store's keychain.
 struct Rig {
     tmp: tempfile::TempDir,
     home: PathBuf,
     account: PathBuf,
     service: Option<Running>,
+    /// The product-file test store this test created (`None`: the scratch store).
+    product: Option<PathBuf>,
 }
 
 /// A directory created owner-only (the devbox's umask is 002).
@@ -84,22 +88,83 @@ fn private_dir(path: &Path) {
 }
 
 impl Rig {
-    /// A started runtime with no CA.
+    /// A started runtime with no CA, on the scratch store.
     fn new() -> Rig {
+        Rig::with_store(false)
+    }
+
+    /// A started runtime with no CA, on the product-file test store: a file keychain this
+    /// test creates (marker first) in its scratch home (macOS).
+    #[cfg(target_os = "macos")]
+    fn product() -> Rig {
+        Rig::with_store(true)
+    }
+
+    fn with_store(product: bool) -> Rig {
         let tmp = tempfile::Builder::new().prefix("hm-i-").tempdir().unwrap();
         private_dir(tmp.path());
         let home = tmp.path().join("hh");
         heimdall_runtime::Paths::under(&home).ensure().unwrap();
         let account = tmp.path().join("account");
         private_dir(&account);
+        let product = product.then(|| {
+            let path = home.join("test-ca.keychain-db");
+            create_product_store(&path);
+            path
+        });
         let mut rig = Rig {
             tmp,
             home,
             account,
             service: None,
+            product,
         };
         rig.start();
+        // The native environment's record (a `setup` would make it), its managed
+        // permissions off: the RegisterIssuer approval turns them on (D4 item 1 step 7).
+        let env = rig
+            .store()
+            .transaction(|tx| tx.self_environment())
+            .unwrap()
+            .unwrap();
+        rig.store()
+            .transaction(|tx| {
+                if tx.environment(&env)?.is_none() {
+                    tx.upsert_environment(&heimdall_domain::environment::EnvironmentRecord {
+                        id: env.clone(),
+                        device: heimdall_contract::ids::DeviceId::from_random_bytes([8; 16]),
+                        kind: heimdall_domain::environment::EnvironmentKind::NativeSession,
+                        label: None,
+                        permissions: heimdall_domain::environment::EnvironmentPermissions {
+                            automatic_activation: false,
+                            managed_signing: false,
+                            issuer_access: false,
+                        },
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
         rig
+    }
+
+    /// `HEIMDALL_TEST_SECRET_STORE`'s value for this rig.
+    fn store_value(&self) -> String {
+        match &self.product {
+            Some(p) => format!("product-file:{}", p.display()),
+            None => "scratch".to_owned(),
+        }
+    }
+
+    /// The product-file test store, as this installation's environment sees it (macOS).
+    #[cfg(target_os = "macos")]
+    fn product_store(&self) -> Box<dyn SecretStore> {
+        let env = self
+            .store()
+            .transaction(|tx| tx.self_environment())
+            .unwrap()
+            .unwrap();
+        heimdall_issuer::store::test_product::open(self.product.as_ref().unwrap(), &env).unwrap()
     }
 
     fn state_dir(&self) -> PathBuf {
@@ -123,7 +188,10 @@ impl Rig {
             ("PATH".into(), "/usr/bin:/bin".into()),
             ("HOME".into(), self.account.clone().into()),
             ("HEIMDALL_HOME".into(), self.home.clone().into()),
-            ("HEIMDALL_TEST_SECRET_STORE".into(), "scratch".into()),
+            (
+                "HEIMDALL_TEST_SECRET_STORE".into(),
+                self.store_value().into(),
+            ),
             ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
             ("TERM".into(), "dumb".into()),
         ]
@@ -137,7 +205,10 @@ impl Rig {
             args: vec!["internal".into(), "issuer".into()],
             env: vec![
                 ("HEIMDALL_HOME".into(), self.home.clone().into()),
-                ("HEIMDALL_TEST_SECRET_STORE".into(), "scratch".into()),
+                (
+                    "HEIMDALL_TEST_SECRET_STORE".into(),
+                    self.store_value().into(),
+                ),
             ],
         };
         let token = tokio_util::sync::CancellationToken::new();
@@ -262,7 +333,8 @@ impl Rig {
 
     /// The CLI with stdin closed, no terminal involved.
     fn cli(&self, args: &[&str]) -> Out {
-        let extra: Vec<(&str, &str)> = vec![("HEIMDALL_TEST_SECRET_STORE", "scratch")];
+        let value = self.store_value();
+        let extra: Vec<(&str, &str)> = vec![("HEIMDALL_TEST_SECRET_STORE", value.as_str())];
         run(&self.home, &self.account, args, &extra)
     }
 }
@@ -270,8 +342,80 @@ impl Rig {
 impl Drop for Rig {
     fn drop(&mut self) {
         self.stop();
+        if let Some(path) = self.product.take() {
+            remove_product_store(&path, &self.home);
+        }
     }
 }
+
+// --- the product-file test store (macOS) ----------------------------------------------------
+
+/// SHA-256 of `security <args>`'s output (the user search list, the default keychain):
+/// compared before and after, never printed.
+#[cfg(target_os = "macos")]
+fn security_digest(args: &[&str]) -> String {
+    let out = Command::new("/usr/bin/security")
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    heimdall_issuer::backup::sha256_hex(&out.stdout)
+}
+
+/// The owner's keychain search list and default keychain, as digests.
+#[cfg(target_os = "macos")]
+fn owner_keychains() -> (String, String) {
+    (
+        security_digest(&["list-keychains", "-d", "user"]),
+        security_digest(&["default-keychain", "-d", "user"]),
+    )
+}
+
+/// Create the product-file test store at `path` (marker first, then a file keychain with a
+/// per-run password held in memory only); the search list and default keychain must not
+/// change.
+#[cfg(target_os = "macos")]
+fn create_product_store(path: &Path) {
+    let before = owner_keychains();
+    let password = heimdall_issuer::backup::Passphrase::generate().unwrap();
+    heimdall_issuer::store::test_product::create(path, password.expose()).unwrap();
+    assert_eq!(
+        owner_keychains(),
+        before,
+        "the test keychain joined the search list"
+    );
+    let listed = Command::new("/usr/bin/security")
+        .args(["list-keychains", "-d", "user"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&listed.stdout).contains(&*path.to_string_lossy()),
+        "the test keychain is not in the search list"
+    );
+}
+
+#[cfg(not(target_os = "macos"))]
+fn create_product_store(_: &Path) {
+    unreachable!("the product-file test store is macOS-only in this suite");
+}
+
+/// Remove the product-file test store (keychain and marker), by path.
+#[cfg(target_os = "macos")]
+fn remove_product_store(path: &Path, home: &Path) {
+    let before = owner_keychains();
+    let removed = heimdall_issuer::store::test_product::remove(path, home);
+    if !std::thread::panicking() {
+        removed.unwrap();
+        assert!(!path.exists(), "the test keychain was removed");
+        assert_eq!(owner_keychains(), before);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn remove_product_store(_: &Path, _: &Path) {}
 
 // --- the terminal -------------------------------------------------------------------------
 
@@ -462,9 +606,21 @@ const NO_TTY: Wiring = Wiring {
 
 #[cfg(unix)]
 fn start_cli(rig: &Rig, case: &str, args: &[&str], pty: Option<&Pty>, wiring: Wiring) -> Started {
-    let exe = std::env::current_exe().unwrap();
     let mut argv = vec![bin()];
     argv.extend(args.iter().map(|a| (*a).to_owned()));
+    start_argv(rig, case, argv, pty, wiring)
+}
+
+/// [`start_cli`] for any program (`argv[0]`), with the rig's environment.
+#[cfg(unix)]
+fn start_argv(
+    rig: &Rig,
+    case: &str,
+    argv: Vec<String>,
+    pty: Option<&Pty>,
+    wiring: Wiring,
+) -> Started {
+    let exe = std::env::current_exe().unwrap();
     let envs: Vec<(String, String)> = rig
         .env()
         .into_iter()
@@ -646,20 +802,26 @@ fn issuer_commands_json_envelopes_without_a_runtime_or_terminal() {
 
 /// `issuer_init_prints_passphrase_only_to_tty` (m03-plan U12): `issuer init` on a real
 /// pty (the controlling terminal; stdin, stdout and stderr are not the terminal), with
-/// `--json`.
+/// `--json`. Without a controlling terminal it is refused (exit 3) before the runtime is
+/// contacted.
 ///
-/// * Without a controlling terminal, refused (exit 3) before the runtime is contacted.
-/// * On the pty, the ceremony runs on the terminal against the in-process runtime; on the
-///   scratch store it stops at the registration (S3): exit 4 `CAPABILITY_UNAVAILABLE`,
-///   reason `issuer_store_unavailable`, no decision, no backup file, no store item, no
-///   passphrase anywhere (the transcript, stdout, stderr, the files, the arguments).
-///
-/// **Blocked on the S3 ruling (Q-IS1):** that the passphrase is shown on the transcript
-/// (26 base32 symbols in groups of five) and on no other output, that `written` clears
-/// it, and that it decrypts the backup — the passphrase step follows the registration.
+/// * **macOS, the product-file test store** (ADR-0008 §17.25 item 7 (b)): the decision
+///   with its disclosures (the shared texts), the typed `yes`, the backup written, then
+///   the passphrase **on the terminal only**: not before the `yes`, not in stdout or
+///   stderr, not in any argument or variable a process of this test was given or the
+///   running CLI's arguments, not in any file of the installation (the state database,
+///   its logs, the keychain, the backup); `written` clears its screen region; the CA is
+///   registered (exit 0) with its keychain item; and stock `ssh-keygen` decrypts the
+///   backup with it, typed at its terminal prompt.
+/// * **Linux** (no disposable Secret Service; the scratch store is a test kind, never on
+///   the wire): the ceremony stops at the registration, exit 4, nothing written, no
+///   passphrase anywhere. The passphrase half is **not** proven there.
 #[cfg(unix)]
 #[test]
 fn issuer_init_prints_passphrase_only_to_tty() {
+    #[cfg(target_os = "macos")]
+    let rig = Rig::product();
+    #[cfg(not(target_os = "macos"))]
     let rig = Rig::new();
     let _ = rig.scratch_store();
     let backup = rig.file("ca-backup.key");
@@ -679,40 +841,579 @@ fn issuer_init_prints_passphrase_only_to_tty() {
     assert_eq!(out.json()["code"], "INTERACTION_REQUIRED", "{out:?}");
     assert!(out.message().contains("terminal"), "{out:?}");
 
-    // On the pty.
+    #[cfg(target_os = "macos")]
+    {
+        let (fp, passphrase, started) = init_on_pty(&rig, &backup);
+        // ssh-keygen decrypts the backup with the passphrase typed at its prompt.
+        let public = keygen_public_key(&rig, &backup, &passphrase);
+        assert_eq!(
+            heimdall_issuer::ceremony::public_key_fingerprint(public.trim()),
+            Some(fp.clone())
+        );
+        for g in &started.given {
+            assert!(!g.to_string_lossy().contains(passphrase.as_str()));
+        }
+        let items = rig.product_store().list().unwrap();
+        assert_eq!(items.len(), 1, "one keychain item");
+        assert_eq!(items[0].fingerprint, fp);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let pty = Pty::open();
+        let mut started = start_cli(&rig, "init", &args, Some(&pty), CEREMONY);
+        let out = finish(&mut started);
+        let transcript = pty.transcript();
+        assert_eq!(out.code, 4, "{out:?}\n{transcript}");
+        let env = out.json();
+        assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{out:?}");
+        assert_eq!(reason(&env), "issuer_store_unavailable", "{out:?}");
+        assert!(
+            out.message().contains("test-configuration store"),
+            "{out:?}"
+        );
+        assert_eq!(env["data"]["error"]["effect_status"], "none");
+        assert!(rig.pending().is_empty(), "no RegisterIssuer decision");
+        assert!(!backup.exists(), "no backup file");
+        assert!(files_under(&rig.state_dir().join(SCRATCH_STORE_DIR)).is_empty());
+        assert!(!transcript.contains("Backup passphrase"), "{transcript}");
+        assert!(!has_passphrase_shape(&transcript));
+        assert!(!has_passphrase_shape(&out.stdout) && !has_passphrase_shape(&out.stderr));
+        for f in files_under(rig.tmp.path()) {
+            let text = String::from_utf8_lossy(&std::fs::read(&f).unwrap_or_default()).into_owned();
+            assert!(!text.contains("Backup passphrase"), "{}", f.display());
+        }
+        for g in &started.given {
+            assert!(!has_passphrase_shape(&g.to_string_lossy()));
+        }
+        assert_no_canary(&transcript);
+    }
+}
+
+/// The running process `pid`'s arguments as the kernel reports them (`ps`), for the
+/// argv check only; never printed.
+#[cfg(target_os = "macos")]
+fn process_args(pid: u32) -> String {
+    let out = Command::new("/bin/ps")
+        .args(["-o", "args=", "-p", &pid.to_string()])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// Every form a shown passphrase may take: joined, grouped by spaces, grouped by `-`.
+#[cfg(target_os = "macos")]
+fn passphrase_forms(joined: &str) -> Vec<String> {
+    let groups: Vec<String> = joined
+        .as_bytes()
+        .chunks(5)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect();
+    vec![joined.to_owned(), groups.join(" "), groups.join("-")]
+}
+
+/// `issuer init` on a pty against the rig's product-file store, through to `registered`:
+/// the passphrase checks of `issuer_init_prints_passphrase_only_to_tty`. Returns the CA,
+/// the passphrase (for scanning and the decryption; never printed) and the finished case.
+#[cfg(target_os = "macos")]
+fn init_on_pty(rig: &Rig, backup: &Path) -> (CaFingerprint, String, Started) {
+    use heimdall_contract::enrollment::DisclosureKind;
+    use heimdall_issuer::ceremony::{DisclosureContext, disclosure_text};
+    let backup_arg = backup.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "init",
+        "--backup-out",
+        backup_arg.as_str(),
+    ];
     let pty = Pty::open();
-    let mut started = start_cli(&rig, "init", &args, Some(&pty), CEREMONY);
+    let mut started = start_cli(rig, "init", &args, Some(&pty), CEREMONY);
+    assert!(
+        pty.wait_for("Type 'yes' to register this CA: ", &mut started.child),
+        "{}",
+        pty.transcript()
+    );
+    let shown = pty.transcript();
+    assert!(shown.contains("Register CA SHA256:"), "{shown}");
+    for kind in [
+        DisclosureKind::SameUserIssuerBoundary,
+        DisclosureKind::BackupInstructions,
+    ] {
+        let text = disclosure_text(kind, &DisclosureContext::default());
+        assert!(shown.contains(&text), "{kind:?} shown: {shown}");
+    }
+    assert!(
+        !has_passphrase_shape(&shown),
+        "no passphrase before the yes"
+    );
+    assert!(!backup.exists(), "nothing written before the yes");
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    assert!(
+        pty.wait_for("Type 'written'", &mut started.child),
+        "{}",
+        pty.transcript()
+    );
+    let shown = pty.transcript();
+    let joined = String::from_utf8(
+        heimdall_testkit::ca::ceremony::find_passphrase(shown.as_bytes()).expect("shown"),
+    )
+    .unwrap();
+    assert!(
+        backup.exists(),
+        "the backup is written before the passphrase is shown"
+    );
+    // While it is shown: not in the running CLI's arguments.
+    let running = process_args(started.child.id());
+    assert!(running.contains("issuer"), "the CLI is the running program");
+    for form in passphrase_forms(&joined) {
+        assert!(!running.contains(&form));
+    }
+    let before_written = shown.len();
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("written");
     let out = finish(&mut started);
     let transcript = pty.transcript();
-    assert_eq!(out.code, 4, "{out:?}\n{transcript}");
+    assert_eq!(out.code, 0, "{out:?}\n{transcript}");
     let env = out.json();
-    assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{out:?}");
-    assert_eq!(reason(&env), "issuer_store_unavailable", "{out:?}");
-    assert!(
-        out.message().contains("test-configuration store"),
-        "{out:?}"
-    );
-    assert_eq!(env["data"]["error"]["effect_status"], "none");
-    // Nothing was registered, written or stored.
-    assert!(rig.pending().is_empty(), "no RegisterIssuer decision");
-    assert!(!backup.exists(), "no backup file");
-    assert!(files_under(&rig.state_dir().join(SCRATCH_STORE_DIR)).is_empty());
-    // No passphrase on any output, file or argument.
-    assert!(!transcript.contains("Backup passphrase"), "{transcript}");
-    assert!(!has_passphrase_shape(&transcript));
-    assert!(!has_passphrase_shape(&out.stdout) && !has_passphrase_shape(&out.stderr));
-    for f in files_under(rig.tmp.path()) {
-        let text = String::from_utf8_lossy(&std::fs::read(&f).unwrap_or_default()).into_owned();
-        assert!(!text.contains("Backup passphrase"), "{}", f.display());
-    }
-    for g in &started.given {
-        assert!(!has_passphrase_shape(&g.to_string_lossy()));
+    assert_eq!(env["code"], "OK", "{out:?}");
+    let ca = &env["data"]["cas"][0];
+    assert_eq!(ca["state"], "active", "{env}");
+    assert_eq!(ca["store"], "macos_login_keychain", "{env}");
+    let fp = CaFingerprint::parse(ca["fingerprint"].as_str().unwrap()).unwrap();
+    // `written` cleared the passphrase's region (cursor up, column 1, clear to the end).
+    let after = &transcript[before_written..];
+    assert!(after.contains("A\r\x1b[J"), "cleared after written");
+    assert!(transcript.contains(&format!("CA {fp} registered")));
+    // The passphrase reached the terminal only.
+    for form in passphrase_forms(&joined) {
+        assert!(!out.stdout.contains(&form) && !out.stderr.contains(&form));
+        for g in &started.given {
+            assert!(!g.to_string_lossy().contains(&form));
+        }
+        for f in files_under(rig.tmp.path()) {
+            let bytes = std::fs::read(&f).unwrap_or_default();
+            assert!(
+                !bytes.windows(form.len()).any(|w| w == form.as_bytes()),
+                "the passphrase is in {}",
+                f.display()
+            );
+        }
     }
     assert_no_canary(&transcript);
-    // A second init on the same installation answers the same: nothing was left behind.
+    (fp, joined, started)
+}
+
+/// Stock `ssh-keygen -y -f <backup>` on a pty, the passphrase typed at its prompt (never
+/// an argument): the public key it prints.
+#[cfg(target_os = "macos")]
+fn keygen_public_key(rig: &Rig, backup: &Path, passphrase: &str) -> String {
+    let keygen = "/usr/bin/ssh-keygen";
+    assert!(Path::new(keygen).is_file(), "stock ssh-keygen");
     let pty = Pty::open();
-    let mut again = start_cli(&rig, "init-again", &args, Some(&pty), CEREMONY);
-    assert_eq!(finish(&mut again).code, 4);
+    let argv = vec![
+        keygen.to_owned(),
+        "-y".to_owned(),
+        "-f".to_owned(),
+        backup.to_string_lossy().into_owned(),
+    ];
+    let mut s = start_argv(rig, "keygen", argv, Some(&pty), PROMPT);
+    assert!(
+        pty.wait_for("passphrase", &mut s.child),
+        "{}",
+        pty.transcript()
+    );
+    let running = process_args(s.child.id());
+    assert!(running.contains("ssh-keygen"));
+    assert!(!running.contains(passphrase));
+    for g in &s.given {
+        assert!(!g.to_string_lossy().contains(passphrase));
+    }
+    pty.type_line(passphrase);
+    let out = finish(&mut s);
+    assert_eq!(out.code, 0, "ssh-keygen exit {}", out.code);
+    // The child-mode entry's own libtest line precedes the program's output.
+    out.stdout
+        .lines()
+        .find(|l| l.starts_with("ssh-ed25519 "))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// `register_issuer`'s typed confirmation (m03-plan U12 "the typed `yes` confirmation for
+/// every decision kind"), macOS on the product-file test store: at `issuer init`'s
+/// prompt, end of input, `no` and Ctrl-C send nothing more (exit 3
+/// `INTERACTION_REQUIRED`: nothing written, stored or registered, no `Decide`); a process
+/// without a terminal and `--non-interactive` are refused before any runtime contact (exit
+/// 3); `yes` registers. Windows (DPAPI under the scratch home) needs a native console
+/// harness; Linux has no product store.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_register_issuer_typed_yes_sends_nothing_without_yes() {
+    let rig = Rig::product();
+    let backup = rig.file("typed.key");
+    let backup_arg = backup.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "init",
+        "--backup-out",
+        backup_arg.as_str(),
+    ];
+    let registered = |rig: &Rig| rig.store().transaction(|tx| tx.issuers()).unwrap().len();
+    for (label, answer) in [
+        ("EOF", &b"\x04"[..]),
+        ("no", &b"no\n"[..]),
+        ("Ctrl-C", &b"\x03"[..]),
+    ] {
+        let pty = Pty::open();
+        let mut s = start_cli(&rig, &format!("reg-{label}"), &args, Some(&pty), CEREMONY);
+        assert!(
+            pty.wait_for("Type 'yes' to register this CA: ", &mut s.child),
+            "{label}"
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        pty.type_bytes(answer);
+        let out = finish(&mut s);
+        assert_eq!(out.code, 3, "{label}: {out:?}\n{}", pty.transcript());
+        assert_eq!(out.json()["code"], "INTERACTION_REQUIRED", "{label}");
+        assert!(!backup.exists(), "{label}: no backup");
+        assert!(
+            rig.product_store().list().unwrap().is_empty(),
+            "{label}: no item"
+        );
+        assert_eq!(registered(&rig), 0, "{label}: nothing registered");
+        assert!(!has_passphrase_shape(&pty.transcript()), "{label}");
+    }
+    for (label, argv, wiring) in [
+        ("non-TTY", args.to_vec(), NO_TTY),
+        (
+            "--non-interactive",
+            [&["--non-interactive"][..], &args[..]].concat(),
+            CEREMONY,
+        ),
+    ] {
+        let pty = Pty::open();
+        let mut s = start_cli(&rig, label, &argv, Some(&pty), wiring);
+        let out = finish(&mut s);
+        assert_eq!(out.code, 3, "{label}: {out:?}");
+        assert_eq!(out.json()["code"], "INTERACTION_REQUIRED", "{label}");
+        assert!(
+            !pty.transcript().contains("Register CA"),
+            "{label}: nothing sent"
+        );
+    }
+    assert_eq!(registered(&rig), 0);
+    // `yes` registers.
+    let (fp, _passphrase, _s) = init_on_pty(&rig, &backup);
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Active));
+}
+
+/// `issuer rotate begin` past the registration (D4 item 1 steps for the successor CA),
+/// macOS on the product-file test store: after an `init`, the successor's decision names
+/// the CA it rotates, `yes`, the backup, the passphrase on the terminal, `written`, and the
+/// successor is registered with its own keychain item (exit 0).
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_rotate_begin_registers_the_successor_on_the_product_store() {
+    let rig = Rig::product();
+    let (old, _p, _s) = init_on_pty(&rig, &rig.file("first.key"));
+    let backup = rig.file("successor.key");
+    let backup_arg = backup.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "rotate",
+        "begin",
+        "--backup-out",
+        backup_arg.as_str(),
+    ];
+    let pty = Pty::open();
+    let mut s = start_cli(&rig, "rotate", &args, Some(&pty), CEREMONY);
+    assert!(
+        pty.wait_for("Type 'yes' to register this CA: ", &mut s.child),
+        "{}",
+        pty.transcript()
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    assert!(pty.wait_for("Type 'written'", &mut s.child));
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("written");
+    let out = finish(&mut s);
+    assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
+    let env = out.json();
+    let cas = env["data"]["cas"].as_array().unwrap();
+    assert_eq!(cas.len(), 2, "{env}");
+    let new = cas
+        .iter()
+        .find(|c| c["fingerprint"] != old.as_str())
+        .unwrap();
+    let new_fp = CaFingerprint::parse(new["fingerprint"].as_str().unwrap()).unwrap();
+    assert!(backup.exists());
+    let items = rig.product_store().list().unwrap();
+    assert!(
+        items.iter().any(|i| i.fingerprint == new_fp),
+        "the successor's item"
+    );
+    assert!(
+        items.iter().any(|i| i.fingerprint == old),
+        "the old item stays"
+    );
+    assert_eq!(
+        new["store_locator"],
+        items
+            .iter()
+            .find(|i| i.fingerprint == new_fp)
+            .unwrap()
+            .locator
+            .as_str()
+    );
+}
+
+/// `issuer restore` past the registration (D4 item 4; ADR-0008 §17.22 item 12), macOS on
+/// the product-file test store, the passphrase typed with echo off:
+///
+/// * **log lost** (a fresh installation, no record of the CA): the key-only restore's
+///   decision with its residuals-unknown disclosure, `yes`, registered with
+///   `restored_without_log` and its keychain item (exit 0);
+/// * **log intact, same locator** (the CA recorded, its item present): adopted and
+///   reloaded, no new decision (exit 0);
+/// * **log intact, a new locator** (the record names another locator than the restore
+///   writes): the registration again with the expected locator, `yes`, approved: the CA's
+///   recorded locator is now the new item's (compare and swap) and the old one is listed as
+///   displaced. A keychain locator names this installation only, so the displaced item
+///   (another installation's locator) is **not** deleted by this store (exit 4,
+///   `issuer_store_unavailable`): the genuinely-new-locator deletion is the Linux Secret
+///   Service's (native row).
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_restore_paths_past_registration_on_the_product_store() {
+    use heimdall_issuer::backup::{self, Passphrase};
+    // Log lost: A's backup restored on a fresh installation B.
+    let a = Rig::product();
+    let backup_a = a.file("a.key");
+    let (fp, passphrase, _s) = init_on_pty(&a, &backup_a);
+    let b = Rig::product();
+    let backup_arg = backup_a.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "restore",
+        "--backup",
+        backup_arg.as_str(),
+        "--not-stolen",
+    ];
+    let restore = |rig: &Rig, case: &str, passphrase: &str, decision: Option<&str>| {
+        let pty = Pty::open();
+        let mut s = start_cli(rig, case, &args, Some(&pty), CEREMONY);
+        assert!(pty.wait_for("Backup passphrase: ", &mut s.child), "{case}");
+        std::thread::sleep(Duration::from_millis(300));
+        pty.type_line(passphrase);
+        if let Some(prompt) = decision {
+            assert!(
+                pty.wait_for(prompt, &mut s.child),
+                "{case}: {}",
+                pty.transcript()
+            );
+            std::thread::sleep(Duration::from_millis(300));
+            pty.type_line("yes");
+        }
+        let out = finish(&mut s);
+        let t = pty.transcript();
+        for form in passphrase_forms(passphrase) {
+            assert!(!t.contains(&form), "{case}: echo was off");
+            assert!(!out.stdout.contains(&form) && !out.stderr.contains(&form));
+        }
+        (out, t)
+    };
+    let (out, t) = restore(
+        &b,
+        "log-lost",
+        &passphrase,
+        Some("Type 'yes' to register this restored CA: "),
+    );
+    assert_eq!(out.code, 0, "{out:?}\n{t}");
+    assert!(t.contains("Key-only restore"), "{t}");
+    let ca = &out.json()["data"]["cas"][0];
+    assert_eq!(ca["fingerprint"], fp.as_str());
+    assert_eq!(ca["restored_without_log"], true);
+    assert_eq!(ca["state"], "active");
+    assert_eq!(b.product_store().list().unwrap()[0].fingerprint, fp);
+
+    // Log intact, same locator: adopted and reloaded, no new decision.
+    let (out, t) = restore(&a, "log-intact", &passphrase, None);
+    assert_eq!(out.code, 0, "{out:?}\n{t}");
+    assert!(t.contains("restored to the store and reloaded"), "{t}");
+    assert!(!t.contains("Type 'yes'"), "{t}");
+    assert_eq!(a.product_store().list().unwrap().len(), 1);
+
+    // Log intact, a new locator: a CA recorded with another installation's locator, its
+    // backup made here with a per-run passphrase, no item in this store.
+    let mut c = Rig::product();
+    let key = heimdall_credential::cert::SecretCaKey::generate().unwrap();
+    let c_fp = key.fingerprint().unwrap();
+    let pass = Passphrase::generate().unwrap();
+    let prepared = backup::prepare(&key, &pass).unwrap();
+    let c_backup = c.file("c.key");
+    backup::write_exact(&c_backup, &prepared).unwrap();
+    let other = format!(
+        "service=heimdall-issuer/{};account=env_other_installation",
+        c_fp.as_str()
+    );
+    let now = Timestamp::now();
+    let public = key.public_openssh().unwrap();
+    drop(key);
+    let (other_c, sha) = (other.clone(), prepared.sha256.clone());
+    c.store()
+        .transaction(move |tx| {
+            tx.insert_issuer(&IssuerRecord {
+                ca_fingerprint: c_fp.clone(),
+                public_key: public.clone(),
+                state: CaState::Active,
+                store_kind: StoreKind::MacosLoginKeychain,
+                backup_sha256: sha.clone(),
+                backup_created_at: now,
+                restored_without_log: false,
+                created_at: now,
+                retired_at: None,
+            })?;
+            tx.set_issuer_store_locator(&c_fp, &other_c)
+        })
+        .unwrap();
+    let c_fp = prepared_fp(&c_backup, &pass);
+    c.stop();
+    c.start();
+    let c_arg = c_backup.to_string_lossy().into_owned();
+    let c_args = [
+        "--json",
+        "issuer",
+        "restore",
+        "--backup",
+        c_arg.as_str(),
+        "--not-stolen",
+    ];
+    let pty = Pty::open();
+    let mut s = start_cli(&c, "new-locator", &c_args, Some(&pty), CEREMONY);
+    assert!(pty.wait_for("Backup passphrase: ", &mut s.child));
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line(pass.expose());
+    assert!(
+        pty.wait_for(
+            "Type 'yes' to record the restored store item: ",
+            &mut s.child
+        ),
+        "{}",
+        pty.transcript()
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    let out = finish(&mut s);
+    let t = pty.transcript();
+    assert!(t.contains("restored to the store and reloaded"), "{t}");
+    let items = c.product_store().list().unwrap();
+    assert_eq!(items.len(), 1, "the new item");
+    let st = c.cli(&["--json", "issuer", "status"]);
+    let st = st.json();
+    let row = &st["data"]["cas"][0];
+    assert_eq!(
+        row["store_locator"],
+        items[0].locator.as_str(),
+        "swapped: {st}"
+    );
+    assert!(
+        st["data"]["orphan_store_items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["locator"] == other.as_str()),
+        "the old locator is listed as displaced: {st}"
+    );
+    assert_eq!(out.code, 4, "{out:?}\n{t}");
+    assert_eq!(reason(&out.json()), "issuer_store_unavailable");
+    assert_eq!(c.ca_state(&c_fp), Some(CaState::Active));
+}
+
+/// The CA fingerprint of the backup at `path` under `pass` (the test's own key).
+#[cfg(target_os = "macos")]
+fn prepared_fp(path: &Path, pass: &heimdall_issuer::backup::Passphrase) -> CaFingerprint {
+    heimdall_issuer::backup::restore(path, pass)
+        .unwrap()
+        .fingerprint()
+        .unwrap()
+}
+
+/// R2B on the product-file test store (macOS; ADR-0008 §17.22 item 12, §17.25 items 7 (b),
+/// 9): after an `init`, `issuer retire` → `yes` → `unloaded` → this process deletes exactly
+/// the recorded keychain item → `deleted_locator` → `retired` (exit 0), the item gone.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_retire_deletes_the_exact_keychain_item_on_the_product_store() {
+    let rig = Rig::product();
+    let (fp, _p, _s) = init_on_pty(&rig, &rig.file("r.key"));
+    let fp_arg = fp.to_string();
+    let args = ["--json", "issuer", "retire", fp_arg.as_str()];
+    let pty = Pty::open();
+    let mut s = start_cli(&rig, "retire-product", &args, Some(&pty), PROMPT);
+    assert!(
+        pty.wait_for("[y/N]: ", &mut s.child),
+        "{}",
+        pty.transcript()
+    );
+    std::thread::sleep(Duration::from_millis(200));
+    pty.type_line("yes");
+    let out = finish(&mut s);
+    assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
+    assert_eq!(out.json()["data"]["cas"][0]["state"], "retired");
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Retired));
+    assert!(
+        rig.product_store().list().unwrap().is_empty(),
+        "exactly L was deleted"
+    );
+}
+
+/// `test_ca_ceremony_captures_passphrase_only_from_pty` (m03-plan U11 `ca::TestCa`, the
+/// ceremony form; ADR-0008 D13 item 1, A33): testkit's `ca::ceremony::run` drives the real
+/// `heimdall issuer init` through the host's `script` pty against this installation (macOS,
+/// the product-file test store) and returns the CA and the passphrase captured from the
+/// transcript; the passphrase is in the transcript and nowhere else (stdout of the run is
+/// the transcript itself; no file, no argument), and it decrypts the backup.
+#[cfg(target_os = "macos")]
+#[test]
+fn test_ca_ceremony_captures_passphrase_only_from_pty() {
+    use heimdall_testkit::ca::ceremony::{CeremonyRun, run as ceremony_run};
+    let rig = Rig::product();
+    let backup = rig.file("testca.key");
+    let bin = PathBuf::from(bin());
+    let env: Vec<(OsString, OsString)> = rig
+        .env()
+        .into_iter()
+        .filter(|(k, _)| k != "PATH" && k != "TERM")
+        .collect();
+    let ca = ceremony_run(&CeremonyRun {
+        binary: &bin,
+        env: &env,
+        cwd: rig.tmp.path(),
+        backup_out: &backup,
+        timeout: LIMIT,
+    })
+    .unwrap();
+    assert_eq!(ca.status, Some(0), "{ca:?}");
+    let joined = String::from_utf8(ca.passphrase.expose().to_vec()).unwrap();
+    assert_eq!(joined.len(), 26);
+    assert_eq!(rig.ca_state(&ca.fingerprint), Some(CaState::Active));
+    let pass = heimdall_issuer::backup::Passphrase::from_utf8(joined.clone().into_bytes()).unwrap();
+    assert_eq!(prepared_fp(&backup, &pass), ca.fingerprint);
+    for form in passphrase_forms(&joined) {
+        for f in files_under(rig.tmp.path()) {
+            let bytes = std::fs::read(&f).unwrap_or_default();
+            assert!(!bytes.windows(form.len()).any(|w| w == form.as_bytes()));
+        }
+        for (k, v) in &env {
+            assert!(!k.to_string_lossy().contains(&form) && !v.to_string_lossy().contains(&form));
+        }
+    }
 }
 
 /// `replace_orphan_cli_warns_and_cross_checks_bundle` (m03-plan U12; ADR-0008 D4 item 1,
@@ -892,17 +1593,18 @@ fn replace_orphan_cli_warns_and_cross_checks_bundle() {
 /// * on a pty, EOF, `no` and Ctrl-C at the prompt send nothing more (exit 3), and the
 ///   decision stays pending;
 /// * `yes`: `Decide approve`, the issuer unloads the CA (`unloaded`), then this process
-///   deletes exactly the recorded locator and confirms it (`deleted_locator`): with the
-///   S3 switch off the scratch store's item is **not** deleted (exit 4,
-///   `issuer_store_unavailable`; the CA waits at `unloaded`, the item stays). **Blocked
-///   on the S3 ruling:** the deletion, the confirmation and `retired` on the scratch
-///   store (asserted when `S3_TEST_STORE_DELETION` is on).
+///   deletes exactly the recorded locator and confirms it (`deleted_locator`): in a debug
+///   build the scratch store's item is deleted by its exact locator (ADR-0008 §17.25 item
+///   7 (d)), and the CA is `retired` (exit 0), the other item kept. This is the R2B order
+///   proven on every Unix host, Linux included (no disposable Secret Service there).
 #[cfg(unix)]
 #[test]
 fn issuer_retire_typed_yes_and_r2b_deletion_on_scratch_store() {
     let mut rig = Rig::new();
     let (fp, item) = rig.seed_ca();
     let store = rig.scratch_store();
+    // Another CA's item in the same store: never touched by this retirement.
+    let other = rig.seed_orphan();
     let fp_arg = fp.to_string();
 
     for (label, args) in [
@@ -960,40 +1662,13 @@ fn issuer_retire_typed_yes_and_r2b_deletion_on_scratch_store() {
     let out = finish(&mut s);
     let env = out.json();
     assert!(rig.pending().is_empty(), "the decision was used");
-    if S3_TEST_STORE_DELETION {
-        assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
-        assert_eq!(env["code"], "OK");
-        assert_eq!(rig.ca_state(&fp), Some(CaState::Retired));
-        assert!(store.list().unwrap().is_empty(), "exactly L was deleted");
-        let ca = &env["data"]["cas"][0];
-        assert_eq!(ca["state"], "retired", "{env}");
-    } else {
-        assert_eq!(out.code, 4, "{out:?}\n{}", pty.transcript());
-        assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{out:?}");
-        assert_eq!(reason(&env), "issuer_store_unavailable", "{out:?}");
-        assert!(out.message().contains("test-configuration"), "{out:?}");
-        assert_eq!(
-            rig.ca_state(&fp),
-            Some(CaState::Unloaded),
-            "waits at unloaded"
-        );
-        assert_eq!(
-            store.list().unwrap(),
-            vec![item.clone()],
-            "nothing was deleted"
-        );
-        // The status names the item awaiting deletion; a second retire answers the same.
-        let st = rig.cli(&["--json", "issuer", "status"]);
-        assert_eq!(st.code, 0, "{st:?}");
-        let ca = &st.json()["data"]["cas"][0];
-        assert_eq!(ca["state"], "unloaded");
-        assert_eq!(ca["store_locator"], item.locator.as_str());
-        let pty = Pty::open();
-        let mut s = start_cli(&rig, "retire-again", &args, Some(&pty), PROMPT);
-        let out = finish(&mut s);
-        assert_eq!(out.code, 4, "{out:?}");
-        assert_eq!(rig.ca_state(&fp), Some(CaState::Unloaded));
-    }
+    assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
+    assert_eq!(env["code"], "OK");
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Retired));
+    assert_eq!(store.list().unwrap(), vec![other], "exactly L was deleted");
+    assert!(!store.list().unwrap().contains(&item));
+    let ca = &env["data"]["cas"][0];
+    assert_eq!(ca["state"], "retired", "{env}");
 }
 
 /// `issuer status`, `issuer bundle` and `issuer unlock` JSON envelopes against the
@@ -1043,6 +1718,21 @@ fn issuer_status_bundle_unlock_json_envelopes() {
     assert_eq!(env["data"]["cas"][0]["fingerprint"], fp.as_str());
     let written: Value = serde_json::from_slice(&std::fs::read(&out_path).unwrap()).unwrap();
     assert_eq!(written, env["data"]);
+    // ⟨ADR-0008 §17.25 item 8⟩ After the write, the CLI confirmed it: the runtime recorded
+    // the file's exact SHA-256 with its `created_at`, and `last_bundle_at` (never the path).
+    let created_at: Timestamp = env["data"]["created_at"].as_str().unwrap().parse().unwrap();
+    let digest = heimdall_issuer::backup::sha256_hex(&std::fs::read(&out_path).unwrap());
+    let d = digest.clone();
+    let (recorded, last) = rig
+        .store()
+        .transaction(move |tx| Ok((tx.bundle_digest_recorded_at(&d)?, tx.last_bundle_at()?)))
+        .unwrap();
+    assert_eq!(recorded, Some(created_at), "the digest is recorded");
+    assert_eq!(
+        last,
+        Some(created_at),
+        "last_bundle_at is the bundle's created_at"
+    );
     {
         use std::os::unix::fs::PermissionsExt as _;
         let mode = std::fs::metadata(&out_path).unwrap().permissions().mode() & 0o777;
@@ -1067,6 +1757,19 @@ fn issuer_status_bundle_unlock_json_envelopes() {
     assert!(out.stdout.contains("bundle_redacted"), "{out:?}");
     let r: Value = serde_json::from_slice(&std::fs::read(&redacted).unwrap()).unwrap();
     assert_eq!(r["redacted"], true);
+    // A redacted bundle is never confirmed: its digest is not recorded, and
+    // `last_bundle_at` stays the unredacted one's.
+    let rd = heimdall_issuer::backup::sha256_hex(&std::fs::read(&redacted).unwrap());
+    let (recorded, last) = rig
+        .store()
+        .transaction(move |tx| Ok((tx.bundle_digest_recorded_at(&rd)?, tx.last_bundle_at()?)))
+        .unwrap();
+    assert_eq!(recorded, None, "a redacted bundle is not recorded");
+    assert_eq!(last, Some(created_at));
+    // No path is recorded anywhere in the state database.
+    let db = std::fs::read(rig.state_dir().join("state.db")).unwrap_or_default();
+    let shown = out_path.to_string_lossy().into_owned();
+    assert!(!db.windows(shown.len()).any(|w| w == shown.as_bytes()));
 
     // unlock on the pty: the store is available, the issuer reloads.
     let pty = Pty::open();

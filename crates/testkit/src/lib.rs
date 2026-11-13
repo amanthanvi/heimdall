@@ -375,6 +375,7 @@ mod fake_adapter {
                 } else {
                     Default::default()
                 },
+                managed: None,
             },
         ))
     }
@@ -805,6 +806,7 @@ mod ledger_tests {
             availability: Default::default(),
             provider: None,
             integration: Default::default(),
+            managed: None,
         }
     }
 

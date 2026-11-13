@@ -15,6 +15,9 @@
 #     `HEIMDALL_TEST_SESSION_LOCK=<abs scratch path>`, `HEIMDALL_TEST_SCRIPT_PAUSE_DIR=<abs
 #     scratch dir>`) run through `heimdall service run`, the command whose
 #     `testcfg::requested()` gate they join.
+#   * ⟨ADR-0008 section 17.25 item 7 (b)⟩ the product-file selector
+#     (`HEIMDALL_TEST_SECRET_STORE=product-file:<abs scratch path>`) through `service run`,
+#     `issuer status` and `issuer init --backup-out <scratch>` (the CLI's own store selection).
 # A probe passes only when ALL hold: exit code 2; the output carries the fixed refusal text
 # (a clap usage error is also exit 2 and must not count); the fresh scratch HEIMDALL_HOME is
 # still empty (nothing else happened); the process ended by itself.
@@ -132,7 +135,7 @@ fail_count=0
 probe() {
     local var="$1" label="$2" val home out reason verdict
     shift 2
-    val="$(value_for "${var}")"
+    val="${PROBE_VALUE:-$(value_for "${var}")}"
     new_dir
     home="${new_dir_path}"
     out="$(mktemp)" || { echo "release-gate: cannot create a scratch file"; exit 2; }
@@ -217,6 +220,13 @@ done
 # The script pause directory is read CLI-side by `enroll` (U5's SshStepRunner), so a
 # release `enroll` must refuse it too (U0b row 16).
 probe HEIMDALL_TEST_SCRIPT_PAUSE_DIR "enroll x" enroll x
+# The product-file test store (a disposable product-kind store, debug builds only): a release
+# build refuses it like every test variable, before any store or runtime is touched.
+PROBE_VALUE="product-file:${vals}/test.keychain-db"
+probe HEIMDALL_TEST_SECRET_STORE "product-file service run" service run
+probe HEIMDALL_TEST_SECRET_STORE "product-file issuer status" issuer status
+probe HEIMDALL_TEST_SECRET_STORE "product-file issuer init" issuer init --backup-out "${vals}/b.key"
+unset PROBE_VALUE
 
 echo "release-gate: ${probe_count} probes, ${fail_count} failed"
 if [ "${status}" -eq 0 ]; then

@@ -187,6 +187,9 @@ impl ControllingTerminal {
                     break;
                 }
                 Ok(_) if one[0] == b'\n' => break,
+                // Ctrl-C ends the line as a cancellation ([`CTRL_C`]): nothing typed so far
+                // counts, as end of input does.
+                Ok(_) if one[0] == CTRL_C => return Ok(None),
                 Ok(_) => {
                     if bytes.len() < LINE_MAX {
                         bytes.push(one[0]);
@@ -205,6 +208,42 @@ impl ControllingTerminal {
     }
 }
 
+/// Ctrl-C (ETX). ⟨M03 wave 5, round 2⟩ While a ceremony reads a line, Ctrl-C ends it as a
+/// cancellation instead of raising `SIGINT` (Unix: `ISIG` off and `VEOL` = ETX for the
+/// read, restored after it), so the typed confirmation's "Ctrl-C sends nothing" ends
+/// `NotConfirmed` (exit 3) like end of input, rather than killing the process.
+const CTRL_C: u8 = 0x03;
+
+#[cfg(unix)]
+impl ControllingTerminal {
+    /// Read one line with Ctrl-C as a cancelling line end ([`CTRL_C`]); `hidden` turns
+    /// echo off (a typed passphrase). The terminal's mode is restored after the read.
+    fn read_in_mode(&mut self, hidden: bool) -> io::Result<Option<Zeroizing<String>>> {
+        use rustix::termios::{
+            LocalModes, OptionalActions, SpecialCodeIndex, tcgetattr, tcsetattr,
+        };
+        let original = tcgetattr(&self.tty)?;
+        let mut mode = original.clone();
+        mode.local_modes.remove(LocalModes::ISIG);
+        mode.special_codes[SpecialCodeIndex::VEOL] = CTRL_C;
+        if hidden {
+            mode.local_modes.remove(LocalModes::ECHO);
+            mode.local_modes.insert(LocalModes::ECHONL);
+        }
+        let when = if hidden {
+            OptionalActions::Flush
+        } else {
+            OptionalActions::Now
+        };
+        tcsetattr(&self.tty, when, &mode)?;
+        let line = self.read_raw_line();
+        let restored = tcsetattr(&self.tty, OptionalActions::Now, &original);
+        let line = line?;
+        restored?;
+        Ok(line)
+    }
+}
+
 #[cfg(any(unix, windows))]
 impl Tty for ControllingTerminal {
     fn write_text(&mut self, text: &str) -> io::Result<()> {
@@ -215,23 +254,20 @@ impl Tty for ControllingTerminal {
     }
 
     fn read_line(&mut self) -> io::Result<Option<Zeroizing<String>>> {
-        self.read_raw_line()
+        #[cfg(unix)]
+        {
+            self.read_in_mode(false)
+        }
+        #[cfg(windows)]
+        {
+            self.read_raw_line()
+        }
     }
 
     fn read_hidden(&mut self) -> io::Result<Option<Zeroizing<String>>> {
         #[cfg(unix)]
         {
-            use rustix::termios::{LocalModes, OptionalActions, tcgetattr, tcsetattr};
-            let original = tcgetattr(&self.tty)?;
-            let mut hidden = original.clone();
-            hidden.local_modes.remove(LocalModes::ECHO);
-            hidden.local_modes.insert(LocalModes::ECHONL);
-            tcsetattr(&self.tty, OptionalActions::Flush, &hidden)?;
-            let line = self.read_raw_line();
-            let restored = tcsetattr(&self.tty, OptionalActions::Now, &original);
-            let line = line?;
-            restored?;
-            Ok(line)
+            self.read_in_mode(true)
         }
         #[cfg(windows)]
         {
@@ -691,24 +727,59 @@ pub fn orphans(
         .collect())
 }
 
-fn disclosure_text(kind: DisclosureKind) -> &'static str {
+/// ⟨ADR-0008 §17.25 item 10⟩ What a disclosure's text names where it depends on the
+/// decision. Every field is optional: an absent one is worded generally, never guessed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DisclosureContext<'a> {
+    /// The managed alias the decision names (the enrollment disclosures
+    /// `config_commands_run_as_ordinary_use` and `ordinary_ssh_needs_held_slot`).
+    pub alias: Option<&'a str>,
+    /// The runtime's own lock disclosure (`inspect capabilities` `lock.disclosure`, from
+    /// `Operations::lock_disclosure`), which is conditional on the policies, the floor and
+    /// the platform (ADR-0008 D9 item 1). When present it **is** the
+    /// `lock_continuity_once` text; absent, the general sentence is shown.
+    pub lock: Option<&'a str>,
+}
+
+/// The text shown for an unknown disclosure kind (a newer runtime's): never a
+/// substitute for a kind this build knows (`disclosure_text_covers_every_kind`).
+pub const UNKNOWN_DISCLOSURE: &str = "This decision carries a disclosure this version of Heimdall cannot show: update Heimdall before approving it.";
+
+/// ⟨ADR-0008 §17.25 item 10⟩ The one text of each disclosure kind, for every surface that
+/// shows a decision (the issuer ceremonies, `heimdall enroll`'s preview, the TUI), so no
+/// surface retypes one. Every [`DisclosureKind`] has its own text; only a kind this build
+/// does not know (the enum is `non_exhaustive`) gets [`UNKNOWN_DISCLOSURE`], and a surface
+/// that sees it must not offer approval.
+///
+/// The slot disclosure names the command that holds a slot,
+/// `heimdall_domain::managed::slot_free_command` (the preview's, `enroll status`'s and the
+/// doctor's own).
+#[must_use]
+pub fn disclosure_text(kind: DisclosureKind, context: &DisclosureContext<'_>) -> String {
+    let alias = context.alias;
     match kind {
-        DisclosureKind::SameUserIssuerBoundary => {
-            "The issuer runs as your own OS user: any program running as you can ask it to sign or read its key store. The boundary is your OS account."
+        DisclosureKind::SameUserIssuerBoundary => "The issuer runs as your own OS user: any program running as you can ask it to sign or read its key store. The boundary is your OS account.".to_owned(),
+        DisclosureKind::CaTrustBlastRadius => "Every account you enroll will trust this CA: whoever holds its key can reach all of them.".to_owned(),
+        DisclosureKind::LockContinuityOnce => match context.lock {
+            Some(text) => text.to_owned(),
+            None => "Managed signing continues while your desktop is locked, within each grant's deadline, unless a policy or your configuration ends work at a lock.".to_owned(),
+        },
+        DisclosureKind::BackupInstructions => "The backup file and its passphrase together restore this CA. Keep them apart, offline, and never in a synchronized folder.".to_owned(),
+        DisclosureKind::RestoredWithoutLogResidualsUnknown => "Key-only restore: the issuance log is lost, so every residual under this CA is unknown (unbounded). Rotate this CA soon.".to_owned(),
+        DisclosureKind::ConfigCommandsRunAsOrdinaryUse => match alias {
+            Some(a) => format!("Every step connects with your ssh configuration for `{a}` for everything that is not pinned, so its `Match exec` and similar entries run as in ordinary use."),
+            None => "Every step connects with your ssh configuration for the alias for everything that is not pinned, so its `Match exec` and similar entries run as in ordinary use.".to_owned(),
+        },
+        DisclosureKind::RemoveWindow => "The enrollment can be removed early (`heimdall enroll remove`); certificates already issued under this CA stay valid until they expire (the pair residual).".to_owned(),
+        DisclosureKind::ReconcileMayStopOwnStaleScript => "`heimdall enroll reconcile` may stop Heimdall's own stale script on the destination (TERM, then KILL, of the exact process group its lock recorded); nothing else is ever signalled.".to_owned(),
+        DisclosureKind::OrdinarySshNeedsHeldSlot => {
+            let a = alias.unwrap_or("<alias>");
+            format!(
+                "Ordinary `ssh {a}` works only while a binding holds this alias's managed slot; `{}` holds one while it runs.",
+                heimdall_domain::managed::slot_free_command(a)
+            )
         }
-        DisclosureKind::CaTrustBlastRadius => {
-            "Every account you enroll will trust this CA: whoever holds its key can reach all of them."
-        }
-        DisclosureKind::LockContinuityOnce => {
-            "Managed signing continues while your desktop is locked, within each grant's deadline."
-        }
-        DisclosureKind::BackupInstructions => {
-            "The backup file and its passphrase together restore this CA. Keep them apart, offline, and never in a synchronized folder."
-        }
-        DisclosureKind::RestoredWithoutLogResidualsUnknown => {
-            "Key-only restore: the issuance log is lost, so every residual under this CA is unknown (unbounded). Rotate this CA soon."
-        }
-        _ => "See the decision's disclosures.",
+        _ => UNKNOWN_DISCLOSURE.to_owned(),
     }
 }
 
@@ -726,7 +797,7 @@ fn show_decision(
     }
     for kind in &decision.disclosures {
         text.push_str("  * ");
-        text.push_str(disclosure_text(*kind));
+        text.push_str(&disclosure_text(*kind, &DisclosureContext::default()));
         text.push('\n');
     }
     write(tty, &text)
@@ -1044,7 +1115,10 @@ pub fn restore(
         tty,
         &format!(
             "  * {}\n",
-            disclosure_text(DisclosureKind::RestoredWithoutLogResidualsUnknown)
+            disclosure_text(
+                DisclosureKind::RestoredWithoutLogResidualsUnknown,
+                &DisclosureContext::default()
+            )
         ),
     )?;
     if !confirm(tty, "Type 'yes' to register this restored CA: ", "yes")? {
@@ -1180,4 +1254,72 @@ pub fn replace_orphan(
     }
     write(tty, "Deleted.\n")?;
     Ok(item)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// Every `DisclosureKind` wire name in the exported public schema.
+    fn every_kind() -> Vec<DisclosureKind> {
+        let path =
+            heimdall_testkit::repo::repo_path("schemas/public-api/enrollment-plan.schema.json");
+        let schema: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let names = schema["$defs"]["DisclosureKind"]["oneOf"]
+            .as_array()
+            .map(|v| {
+                v.iter()
+                    .filter_map(|o| o["const"].as_str().map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                schema["$defs"]["DisclosureKind"]["enum"]
+                    .as_array()
+                    .map(|v| {
+                        v.iter()
+                            .filter_map(|o| o.as_str().map(str::to_owned))
+                            .collect()
+                    })
+            })
+            .expect("the schema lists DisclosureKind");
+        names
+            .iter()
+            .map(|n| serde_json::from_value(serde_json::Value::String(n.clone())).unwrap())
+            .collect()
+    }
+
+    /// ⟨ADR-0008 §17.25 item 10⟩ Every kind in the public schema has its own text, none
+    /// is the unknown-kind text, and each names what its context gives it.
+    #[test]
+    fn disclosure_text_covers_every_kind() {
+        let kinds = every_kind();
+        assert!(kinds.len() >= 9, "{kinds:?}");
+        let mut seen = std::collections::BTreeSet::new();
+        for kind in &kinds {
+            let general = disclosure_text(*kind, &DisclosureContext::default());
+            assert_ne!(general, UNKNOWN_DISCLOSURE, "{kind:?}");
+            assert!(!general.is_empty(), "{kind:?}");
+            assert!(seen.insert(general), "{kind:?} shares a text");
+        }
+        let ctx = DisclosureContext {
+            alias: Some("lab"),
+            lock: Some("RUNTIME LOCK TEXT"),
+        };
+        let slot = disclosure_text(DisclosureKind::OrdinarySshNeedsHeldSlot, &ctx);
+        assert!(slot.contains("`ssh lab`"), "{slot}");
+        assert!(
+            slot.contains(&heimdall_domain::managed::slot_free_command("lab")),
+            "{slot}"
+        );
+        assert!(
+            disclosure_text(DisclosureKind::ConfigCommandsRunAsOrdinaryUse, &ctx).contains("`lab`")
+        );
+        assert_eq!(
+            disclosure_text(DisclosureKind::LockContinuityOnce, &ctx),
+            "RUNTIME LOCK TEXT"
+        );
+    }
 }

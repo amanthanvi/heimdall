@@ -56,6 +56,11 @@ const META_RELEASED_BINDING_CLEANUP_PREFIX: &str = "managed_released_binding_cle
 /// recovery bundle was built (`Txn::set_last_bundle_at`). Who records it is escalated
 /// (`.m03-wave5-questions.md` Q-IS2); never lowers.
 const META_LAST_BUNDLE_AT: &str = "issuer_last_bundle_at";
+/// `meta` (⟨wave 5, round 2; ADR-0008 §17.25 item 8⟩; no schema, as
+/// `managed_released_binding_cleanup:`): one row per recovery bundle the CLI confirmed
+/// written. Key `<prefix><sha256>` (64 lowercase hex characters), value the bundle's
+/// `created_at`. Never the bundle's path.
+const META_BUNDLE_DIGEST_PREFIX: &str = "issuer_bundle_sha256:";
 
 /// A registered CA, one `issuers` row (ADR-0008 D4; m03-plan §5 item 18). Public
 /// metadata only: the CA's **public** key, digests and dates.
@@ -1905,6 +1910,39 @@ impl Txn<'_> {
             .transpose()
     }
 
+    /// ⟨ADR-0008 §17.25 item 8⟩ Record the SHA-256 (64 lowercase hex characters) of a
+    /// recovery bundle the CLI confirmed written, with its `created_at`. A digest
+    /// already recorded never lowers: an earlier `created_at` keeps the stored one,
+    /// which is returned. Any other digest form is refused and records nothing. The
+    /// path is never recorded. (When and from which request this is called is the
+    /// app's; the store only keeps the rows.)
+    pub fn record_bundle_digest(
+        &mut self,
+        sha256: &str,
+        created_at: Timestamp,
+    ) -> Result<Timestamp> {
+        let key = bundle_digest_key(sha256)?;
+        if let Some(stored) = self
+            .meta(&key)?
+            .as_deref()
+            .map(codec::parse_ts)
+            .transpose()?
+            && stored >= created_at
+        {
+            return Ok(stored);
+        }
+        self.set_meta(&key, &codec::ts(created_at))?;
+        Ok(created_at)
+    }
+
+    /// ⟨ADR-0008 §17.25 item 8⟩ The `created_at` recorded with a confirmed bundle's
+    /// SHA-256, or `None` when this installation recorded no such digest. A digest
+    /// that is not 64 lowercase hex characters is refused.
+    pub fn bundle_digest_recorded_at(&mut self, sha256: &str) -> Result<Option<Timestamp>> {
+        let key = bundle_digest_key(sha256)?;
+        self.meta(&key)?.as_deref().map(codec::parse_ts).transpose()
+    }
+
     // --- restart: credential instances (U0b row 8) ----------------------------------------
 
     /// Restart recovery (U0b row 8; ADR-0008 D2 table; F18), in the caller's one
@@ -1956,6 +1994,21 @@ impl Txn<'_> {
         }
         Ok(out)
     }
+}
+
+/// The `meta` key of a confirmed bundle's digest: only 64 lowercase hex characters,
+/// so no other key can be addressed through it.
+fn bundle_digest_key(sha256: &str) -> Result<String> {
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err(codec::doc_error(
+            "a bundle digest must be 64 lowercase hex characters",
+        ));
+    }
+    Ok(format!("{META_BUNDLE_DIGEST_PREFIX}{sha256}"))
 }
 
 #[cfg(test)]
@@ -2023,5 +2076,41 @@ mod tests {
         assert!(!close_allowed(S::Closing, S::Up));
         assert!(!close_allowed(S::Closed, S::Up));
         assert!(!close_allowed(S::Up, S::Up));
+    }
+
+    /// ⟨ADR-0008 §17.25 item 8⟩ A confirmed bundle's digest: recorded with its
+    /// `created_at`, never lowered, refused unless 64 lowercase hex characters (and a
+    /// refused digest records nothing).
+    #[test]
+    fn bundle_digest_records_never_lower_and_refuse_other_forms() {
+        let s = crate::Store::open_in_memory(std::sync::Arc::new(crate::NoFaults)).unwrap();
+        let t: Timestamp = "2026-11-13T10:00:00Z".parse().unwrap();
+        let earlier: Timestamp = "2026-11-13T09:00:00Z".parse().unwrap();
+        let later: Timestamp = "2026-11-13T11:00:00Z".parse().unwrap();
+        let d = "ab".repeat(32);
+        s.transaction(|tx| {
+            assert_eq!(tx.bundle_digest_recorded_at(&d)?, None);
+            assert_eq!(tx.record_bundle_digest(&d, t)?, t);
+            assert_eq!(tx.record_bundle_digest(&d, earlier)?, t, "never lowers");
+            assert_eq!(tx.bundle_digest_recorded_at(&d)?, Some(t));
+            assert_eq!(tx.record_bundle_digest(&d, later)?, later);
+            assert_eq!(tx.bundle_digest_recorded_at(&"cd".repeat(32))?, None);
+            for bad in [
+                "AB".repeat(32),
+                "ab".repeat(31),
+                format!("{}:x", "ab".repeat(31)),
+            ] {
+                assert!(tx.record_bundle_digest(&bad, t).is_err(), "{bad}");
+                assert!(tx.bundle_digest_recorded_at(&bad).is_err(), "{bad}");
+            }
+            assert_eq!(tx.meta_with_prefix(META_BUNDLE_DIGEST_PREFIX)?.len(), 1);
+            assert_eq!(
+                tx.last_bundle_at()?,
+                None,
+                "a digest does not move last_bundle_at"
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 }

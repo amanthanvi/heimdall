@@ -81,7 +81,14 @@ use crate::{
 /// Heimdall: set up access once; your terminals, tools, and agents work across
 /// environments.
 #[derive(Debug, Parser)]
-#[command(name = "heimdall", version, disable_colored_help = true)]
+// `bin_name`: the usage text names `heimdall` on every platform, never the invoked file name
+// (`heimdall.exe` on Windows); the help goldens and the owner see the same command.
+#[command(
+    name = "heimdall",
+    bin_name = "heimdall",
+    version,
+    disable_colored_help = true
+)]
 pub struct Cli {
     /// Machine output: one JSON envelope on stdout (NDJSON for event streams).
     #[arg(long, global = true)]
@@ -524,12 +531,19 @@ pub struct UninstallArgs {
     /// any remote enrollment is not final, unless `--keep-remote-enrollments` is given.
     #[arg(long)]
     pub purge_state: bool,
-    /// M03: purge the state while remote enrollments stay in place. Needs a fresh
-    /// recovery bundle (`--bundle`; ADR-0008 D4 item 6).
-    #[arg(long, requires = "purge_state")]
+    /// M03: leave the remote enrollments that are not final in place. Alone, it is the
+    /// explicit acknowledgement a plain uninstall needs while any remain (the state is
+    /// kept); with `--purge-state` it needs a fresh recovery bundle (`--bundle`;
+    /// ADR-0008 D4 item 6, §17.25 items 8 and 11).
+    #[arg(long)]
     pub keep_remote_enrollments: bool,
-    /// M03: the fresh recovery bundle that records what stays enrolled.
-    #[arg(long, value_name = "FILE", requires = "keep_remote_enrollments")]
+    /// M03: the fresh recovery bundle that records what stays enrolled when the state is
+    /// purged (written by this installation's `heimdall issuer bundle`).
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires_all = ["keep_remote_enrollments", "purge_state"]
+    )]
     pub bundle: Option<PathBuf>,
 }
 

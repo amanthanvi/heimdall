@@ -29,7 +29,7 @@ use heimdall_domain::verification::{
 use super::super::{Operations, internal};
 use super::steps::{Ctx, load_ctx};
 use super::{
-    adapter, move_record, pair_of, put_journal, receipt, record_preference, result_of, settle_ok,
+    adapter, move_record, pair_of, put_journal, receipt, record_preference, result_for, settle_ok,
     settle_open, store_conflict,
 };
 use crate::enrollment::plan_of_record;
@@ -380,7 +380,7 @@ impl Operations {
                     ctx.record = move_record(tx, emit, from, event, &updated, Some(&oid))?;
                     if absent {
                         tx.remove_issuing_ca(&pair_of(&ctx.record), &ctx.record.ca_fingerprint, now)?;
-                        let data = serde_json::to_value(result_of(&ctx.record, None))
+                        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
                             .map_err(|_| store_conflict("result"))?;
                         settle_ok(tx, emit, &mut ctx.op, data.clone(), now, retention)?;
                         // The manual removal's own operation settles with it.
@@ -461,7 +461,7 @@ impl Operations {
                             record_preference(tx, &pair_of(&ctx.record), &ctx.record.ca_fingerprint, now)?;
                         let next = (pending && from == EnrollmentState::Verifying)
                             .then_some(EnrollmentNext::SetupApply);
-                        let data = serde_json::to_value(result_of(&ctx.record, next))
+                        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), next))
                             .map_err(|_| store_conflict("result"))?;
                         settle_ok(tx, emit, &mut ctx.op, data, now, retention)?;
                     }

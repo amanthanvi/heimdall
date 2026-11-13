@@ -90,6 +90,12 @@ pub struct Warning {
     pub code: String,
     /// Human text; may change without breaking callers.
     pub message: String,
+    /// ⟨M03; ADR-0008 §17.25 item 15⟩ Stable `snake_case` sub-reason refining the
+    /// code (the values are in [`m03_warning::REASONS`], with the code each refines).
+    /// Readers tolerate unknown values. Additive: omitted when absent, so every
+    /// earlier warning is byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Machine next action (spec §11.2 `next`, §11.6 "machine-readable next action").
@@ -544,6 +550,15 @@ pub mod m03_warning {
         ORDINARY_SSH_NEEDS_HELD_SLOT,
         POSSIBLE_LATE_WRITE,
     ];
+
+    /// ⟨ADR-0008 §17.25 item 15⟩ `Warning.reason` on `TIME_UNCERTAIN` when the cause
+    /// is no time reference for this boot: managed issuance waits for one attended
+    /// `heimdall time confirm`. The TUI keys on this reason, not on the code.
+    pub const TIME_CONFIRMATION_AFTER_REBOOT: &str = "time_confirmation_after_reboot";
+
+    /// ⟨ADR-0008 §17.25 item 15⟩ Every `Warning.reason` value, with the warning code
+    /// (`Warning.code`) it refines. The reason is a refinement, never a new code.
+    pub const REASONS: &[(&str, &str)] = &[(TIME_CONFIRMATION_AFTER_REBOOT, "TIME_UNCERTAIN")];
 }
 
 impl Envelope<ErrorData> {

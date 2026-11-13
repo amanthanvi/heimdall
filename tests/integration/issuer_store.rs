@@ -1312,16 +1312,29 @@ fn retire_deletes_store_item_and_issuer_zeroizes() {
             Some(RetireError::NoStep(s))
         );
     }
-    // ⟨§17.22 item 12⟩ The owner-present CLI's deletion over the same store: it
-    // refuses a store kind it is not (the scratch store has no product kind, S3),
-    // deleting nothing, even with the item's exact locator.
+    // ⟨§17.22 item 12; §17.25 item 7 (d)⟩ The owner-present CLI's deletion over the
+    // same scratch store (a test kind). A locator the store lists for another CA is
+    // refused in every build, deleting nothing.
     let other_fp = other.fingerprint().unwrap();
     let other_locator = store.list().unwrap()[0].locator.clone();
     assert_eq!(
-        retire::delete_awaiting(&store, &other_fp, StoreKind::WindowsDpapi, &other_locator),
+        retire::delete_awaiting(&store, &fp, StoreKind::WindowsDpapi, &other_locator),
         Err(RetireError::LocatorMismatch)
     );
     assert!(store.get(&other_fp).is_ok());
+    // A debug build deletes a scratch test-kind item by its exact recorded locator,
+    // whatever product kind the record names (a test kind is never on the wire); a
+    // release build refuses a test kind (S3) and deletes nothing.
+    let deleted =
+        retire::delete_awaiting(&store, &other_fp, StoreKind::WindowsDpapi, &other_locator);
+    if retire::TEST_STORE_DELETION {
+        assert_eq!(deleted, Ok(()));
+        assert_eq!(store.get(&other_fp).err(), Some(StoreError::NotFound));
+        assert!(store.list().unwrap().is_empty(), "exactly that item went");
+    } else {
+        assert_eq!(deleted, Err(RetireError::LocatorMismatch));
+        assert!(store.get(&other_fp).is_ok());
+    }
 }
 
 #[test]
@@ -1489,11 +1502,6 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
         Err(RetireError::LocatorNotRecorded)
     );
     let none = retire::NoRecordedItems;
-    assert_eq!(
-        retire::delete_awaiting(&a, &fp, StoreKind::LinuxSecretService, &a_item.locator),
-        Err(RetireError::LocatorMismatch),
-        "a test store is never a product store (S3)"
-    );
     let mut effects = StoreEffects::new(&a, &none, |_ca: &CaFingerprint| Ok(()));
     assert_eq!(
         retire::step(&fp, CaState::Unloaded, &mut effects).err(),
@@ -1522,7 +1530,25 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
     );
     // Idempotent: the step again (a crash before its persist) succeeds, B untouched.
     retire::step(&fp, CaState::Unloaded, &mut effects).unwrap();
-    assert_eq!(b.list().unwrap(), vec![b_item]);
+    assert_eq!(b.list().unwrap(), vec![b_item.clone()]);
+
+    // ⟨§17.25 item 7 (d)⟩ The CLI deletion over this test-kind store with A's exact
+    // locator (a fresh item of A's): a debug build deletes exactly it, B's item kept; a
+    // release build refuses a test kind (S3) and deletes nothing.
+    let a_again = a.put(&fp, &key).unwrap();
+    let deleted = retire::delete_awaiting(&a, &fp, StoreKind::LinuxSecretService, &a_again.locator);
+    if retire::TEST_STORE_DELETION {
+        assert_eq!(deleted, Ok(()));
+        assert_eq!(
+            a.list().unwrap(),
+            vec![b_item.clone()],
+            "only A's item went"
+        );
+    } else {
+        assert_eq!(deleted, Err(RetireError::LocatorMismatch));
+        assert_eq!(a.list().unwrap().len(), 2, "nothing was deleted");
+    }
+    assert!(b.get(&fp).unwrap().same_key(&key), "B's item survives");
 }
 
 /// ⟨ADR-0008 §17.22 item 12; §17.17 item 3⟩ The owner-present CLI's deletion
@@ -1800,6 +1826,7 @@ fn enrollment_view(n: u8, ca: &CaFingerprint, state: EnrollmentState) -> Enrollm
         live_grants: Vec::new(),
         open_operation_id: None,
         possible_late_write: false,
+        hold: None,
     }
 }
 

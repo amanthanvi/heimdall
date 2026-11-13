@@ -122,6 +122,8 @@ fn one_of_every_request() -> Vec<Request> {
         "schemas/examples/request.issuer.unlock.json",
         "schemas/examples/request.issuer.retire.json",
         "schemas/examples/request.issuer.bundle.json",
+        // ⟨ADR-0008 §17.25 item 8⟩
+        "schemas/examples/request.issuer.bundle-written.json",
         "schemas/examples/request.enrollment.preview.json",
         "schemas/examples/request.enrollment.apply.json",
         "schemas/examples/request.enrollment.verify.json",

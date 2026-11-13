@@ -4262,6 +4262,48 @@ No review has run yet. These rulings complete the wave before its reviews.
 22. **Q-R2: option (b).** The `SetLockBehavior` and connection-policy results gain `lock_behavior` and `connection {existing, multiplexing}`, recorded as an additive ADR-0006 row. M01 policy results are unchanged.
 23. **Q-R3:** the reading is confirmed. The runtime also calls `ops.set_session_lock_signal(p.signal())` explicitly in `service.rs`, so the label never relies on the default.
 
+### 17.26 Orchestrator rulings on wave 5, round 2 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r2-questions.md`.
+
+1. **Q-T2-1: Deny is allowed on every read-only decision view,** after the usual typed `yes`. Deny grants no authority and needs no owner-present follow-through. Approve stays CLI-only for the kinds §17.25 item 10 names.
+2. **Q-T2-2, confirmed:**
+   - `remove_enrollment` (own and foreign) is read-only in the TUI. Its follow-through is the CLI's step loop on the owner's terminal, so the TUI shows its `heimdall enroll remove …` command, with Deny allowed.
+   - `approve_target_change` keeps Approve and Deny. On approval the runtime runs the verification itself, the decision carries no disclosure, and the TUI shows the key diff.
+   - `register_issuer`'s command is inferred from the record, with placeholder paths.
+3. **Q-I-R2-1 (A2-Q1): the managed-activation validity fix is kept, option (a).**
+   - `valid_after` = the later of `now` and the grant's `starts_at` rounded up to the second, minus the 60 s skew allowance. The issuer's ceiling check (`deadline − starts_at + 60 s`) is unchanged and stays strict.
+   - The defect made the real issuer refuse every first managed activation (`ceiling_exceeded`). It went unseen because every managed test before round 2 used a fixture issuer.
+   - **The rule that follows:** U13's exit suite drives at least one managed activation, one re-issue and one revocation through the real `internal issuer` child on each platform, never only through fixture issuers.
+4. **Q-I-R2-2 and C-Q1 to C-Q5, confirmed as built:**
+   - `hold.next` is a list of commands in order, omitted when empty;
+   - `hold.reason` is a string carrying the `HoldReason` wire name;
+   - the shared struct literals gain `reason: None` and `hold: None`;
+   - the two M03 policy results report that policy's own stored values, while `inspect capabilities` shows the effective behaviour;
+   - `preference.connection_policy` appears only when the runtime can compute it.
+5. **E2-Q1 and E2-Q2, confirmed:**
+   - `hold` is filled only for `held` records;
+   - an unresolved lock holder with no open operation leads to the manual step, then `enroll remove`;
+   - a non-evidence-based hold never offers `enroll verify`;
+   - the note omits `command` when the alias is unknown;
+   - an unusable pause directory refuses every step in debug builds.
+6. **The issuer:**
+   - **Q-IS2-1, option (a):** the owner-only marker created before the store, with its birth order, ownership and content checks, proves that the test created the store. A home that is the account's home or one of its ancestors is refused.
+   - **Q-IS2-2, option (a):** Ctrl-C at a ceremony prompt cancels the read and sends nothing (`NotConfirmed`, exit 3). On Windows, the same rule is checked natively by U13 (item 8).
+   - **Q-IS2-3, option (a):** a store never confirms a deletion it did not perform. The displaced-item deletion for a genuinely new locator is a Linux-native row.
+   - **Q-IS2-4, option (a):** `issuer.bundle_written` records what the owner's CLI confirms, after refusing a malformed digest or a future `created_at`. Uninstall still needs both the file's content check and a recorded digest.
+   - **Q-IS2-5, option (b), in round 3:** the registration decision shows the runtime's conditional D9 lock disclosure (`RegisterDecision.lock_text`, filled from `inspect capabilities`), not the general sentence. The integrator may update the `tests/integration/issuer_store.rs` constructor.
+7. **Uninstall, doctor and runtime readings, confirmed:**
+   - **Q-U2-1, option (a):** `client_trace_family_unrecorded` is reported only while an issuer CA is registered.
+   - **Q-U2-2:** a fresh bundle also lists every registered CA in its current state, because CA state changes carry no timestamp.
+   - **Q-R2-1, option (a):** the strictest standing policy covering the pair.
+   - **Q-R2-2:** an attached managed binding's result omits the six fields ("unknown"). This fails closed, and it never shows another request's narrowed policy.
+   - **Q-R2-3:** `LockSignal::None` is not stored.
+8. **U12's Windows interactive tests belong to U13.**
+   - These tests need a ConPTY or console harness and the harness sshd: the `#[cfg(unix)]` pty tests of `e2e_cli_m03` and `e2e_tui_m03`, and the DPAPI variants of the issuer ceremony tests.
+   - U13 owns the native harnesses (m03-plan U13). It builds that harness and runs these tests on Windows, and U12's acceptance on Windows is closed there.
+   - Until then they are listed as **blocked: Windows interactive harness (U13)**, never as passed.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

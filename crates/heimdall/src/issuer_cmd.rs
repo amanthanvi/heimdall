@@ -26,10 +26,17 @@
 //! * **`bundle`** asks the runtime for the bundle (read-only; never starts a runtime)
 //!   and writes the file itself, owner-only and never over an existing name.
 //!
-//! **Fail closed (S3, `.m03-wave5-questions.md` Q-IS1).** A test-configuration store
-//! (the scratch store of a test-configured debug build) cannot be registered on the
-//! wire (`TestStoreNotRegistrable`), and its items are not deleted through the product
-//! deletion path ([`S3_TEST_STORE_DELETION`] is `false`) until the orchestrator rules.
+//! **Test stores (ADR-0008 §17.25 item 7).** A test-configured debug build selects its CA
+//! key store through `HEIMDALL_TEST_SECRET_STORE` ([`crate::testcfg::test_store`]): the
+//! scratch store (a test kind: never registrable on the wire, but its items are deleted by
+//! exact locator, `retire::delete_awaiting`, item 7 (d)), or `product-file:<abs path>`, a
+//! disposable store of a **product** kind the test created in its scratch home (item 7
+//! (b)), on which the whole registration, passphrase and R2B chain runs. A release build
+//! refuses every `HEIMDALL_TEST_*` variable.
+//!
+//! **The shared retire entry (§17.25 item 9).** [`retire_to_retired`] is the one entry
+//! `issuer retire` and `uninstall` (inline, on the session it already holds, before the
+//! runtime stops) both run.
 
 mod render;
 mod session;
@@ -46,19 +53,13 @@ use heimdall_contract::issuer::{
 use heimdall_contract::request::Request;
 use heimdall_contract::{Code, ExitCode};
 use heimdall_issuer::retire::{self, RetireError};
-use heimdall_issuer::store::{SecretStore, StoreError, StoreItemRef};
+use heimdall_issuer::store::{SecretStore, StoreError};
 
 use crate::cli::{IssuerCommand, Prompter, Session, TerminalPrompt};
 use crate::client::Ctx;
 use crate::output;
 use crate::setup_cmd::{self, Outcome, failure};
-
-/// ⟨S3, Q-IS1⟩ Whether a **test-configuration** store's item (the scratch store of a
-/// test-configured debug build) may be deleted by exact locator after an `unloaded`
-/// retirement. `false` (the fail-closed reading, `retire::delete_awaiting`'s): such an
-/// item is never deleted and the retirement waits at `unloaded`. A product store is
-/// never affected by this switch, and a release build never selects a test store.
-pub(crate) const S3_TEST_STORE_DELETION: bool = false;
+use crate::testcfg::TestStore;
 
 /// How long `retire` waits for the issuer to unload the CA after the approval.
 const UNLOAD_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -82,10 +83,11 @@ pub(crate) fn run(ctx: &Ctx, command: IssuerCommand) -> ExitCode {
 
 // --- shared -----------------------------------------------------------------------------
 
-/// The test configuration this CLI process honours: `Ok(true)` when the scratch store is
-/// selected (`HEIMDALL_TEST_SECRET_STORE=scratch`, debug builds). A release build refuses
-/// every `HEIMDALL_TEST_*` variable; a test configuration needs an explicit home.
-pub(crate) fn test_config(ctx: &Ctx) -> Result<bool, Outcome> {
+/// The test configuration this CLI process honours: the CA key store it selects
+/// ([`crate::testcfg::test_store`]; the platform's product store without one). A release
+/// build refuses every `HEIMDALL_TEST_*` variable; a test configuration needs an explicit
+/// home, and a product-file store a path that `test_product::refusal` accepts.
+pub(crate) fn test_config(ctx: &Ctx) -> Result<TestStore, Outcome> {
     let env = |name: &str| std::env::var_os(name);
     let m03 = crate::testcfg::m03_config(&env).map_err(|m| setup_cmd::usage(&m))?;
     if let Some(msg) =
@@ -93,12 +95,12 @@ pub(crate) fn test_config(ctx: &Ctx) -> Result<bool, Outcome> {
     {
         return Err(setup_cmd::usage(msg));
     }
-    Ok(m03.scratch_secret_store)
+    crate::testcfg::test_store(&m03, ctx.home.as_deref()).map_err(|m| setup_cmd::usage(&m))
 }
 
 /// This installation's K_ca store (`m03_cmd::issuer_store`, scoped to the environment the
 /// state database names). Opened only after the runtime answered, so the database exists.
-pub(crate) fn open_store(ctx: &Ctx, scratch: bool) -> Result<Box<dyn SecretStore>, Outcome> {
+pub(crate) fn open_store(ctx: &Ctx, test: &TestStore) -> Result<Box<dyn SecretStore>, Outcome> {
     let paths = ctx
         .paths()
         .map_err(|e| Outcome::of(output::error_value(*e)))?;
@@ -115,7 +117,7 @@ pub(crate) fn open_store(ctx: &Ctx, scratch: bool) -> Result<Box<dyn SecretStore
             None,
         )));
     };
-    crate::m03_cmd::issuer_store(ctx, &paths, &environment, scratch).ok_or_else(|| {
+    crate::m03_cmd::issuer_store(ctx, &paths, &environment, test).ok_or_else(|| {
         Outcome::of(failure(
             Code::CapabilityUnavailable,
             "no CA key store is available on this platform (there is no plaintext fallback)",
@@ -173,42 +175,15 @@ fn deletion_refused(e: &RetireError) -> Envelope<serde_json::Value> {
 }
 
 /// Delete exactly `locator`, the item `issuer.status` names for `ca` in a store of kind
-/// `kind`, then re-read the store (`retire::delete_awaiting`). A test-configuration
-/// store is refused unless [`S3_TEST_STORE_DELETION`] (debug builds).
+/// `kind`, then re-read the store (`retire::delete_awaiting`; a test-configuration store's
+/// item too, in a debug build, ADR-0008 §17.25 item 7 (d)).
 pub(crate) fn delete_exact(
     store: &dyn SecretStore,
     ca: &CaFingerprint,
     kind: StoreKind,
     locator: &str,
 ) -> Result<(), Envelope<serde_json::Value>> {
-    if store.kind().product().is_some() {
-        return retire::delete_awaiting(store, ca, kind, locator).map_err(|e| deletion_refused(&e));
-    }
-    if !(S3_TEST_STORE_DELETION && cfg!(debug_assertions)) {
-        return Err(failure(
-            Code::CapabilityUnavailable,
-            "this is a test-configuration CA key store, whose items the product deletion path never deletes (S3, awaiting a ruling): nothing was deleted, and the retirement waits at unloaded",
-            Some(reason::ISSUER_STORE_UNAVAILABLE),
-        ));
-    }
-    // ⟨S3 switch⟩ The same exact-identity rule on the test store: a listing that shows
-    // `locator` holding another CA refuses; only `locator` is deleted, then re-read.
-    let listed = store
-        .list()
-        .map_err(|e| deletion_refused(&RetireError::Store(e)))?;
-    if locator.is_empty()
-        || listed
-            .iter()
-            .any(|i| i.locator == locator && i.fingerprint != *ca)
-    {
-        return Err(deletion_refused(&RetireError::LocatorMismatch));
-    }
-    let item = StoreItemRef {
-        kind: store.kind(),
-        fingerprint: ca.clone(),
-        locator: locator.to_owned(),
-    };
-    retire::delete_recorded(store, ca, Some(&item)).map_err(|e| deletion_refused(&e))
+    retire::delete_awaiting(store, ca, kind, locator).map_err(|e| deletion_refused(&e))
 }
 
 /// The items a restore displaced for `ca` (`orphan_store_items` with a locator).
@@ -231,7 +206,7 @@ fn ca_in<'a>(status: &'a IssuerStatus, ca: &CaFingerprint) -> Option<&'a CaStatu
 
 /// `issuer status [--json]`: read-only; never starts a runtime.
 async fn status(ctx: &Ctx) -> Outcome {
-    let scratch = match test_config(ctx) {
+    let test = match test_config(ctx) {
         Ok(s) => s,
         Err(o) => return o,
     };
@@ -250,7 +225,7 @@ async fn status(ctx: &Ctx) -> Outcome {
     let mut notes = Vec::new();
     // The store items no registration names (D4 item 1's crash point between steps 6
     // and 7): only this process can list them. Listing never prompts.
-    match open_store(ctx, scratch) {
+    match open_store(ctx, &test) {
         Ok(store) => match heimdall_issuer::ceremony::orphans(store.as_ref(), &st) {
             Ok(items) => {
                 let mut test_kind = 0usize;
@@ -355,6 +330,23 @@ async fn bundle(ctx: &Ctx, out: &Path, redact_hostnames: bool) -> Outcome {
         ));
     }
     let human = render::bundle(&bundle, &shown(out));
+    // ⟨ADR-0008 §17.25 item 8⟩ The file is completely written and fsynced: confirm it, so
+    // the runtime records `last_bundle_at` and this digest (never the path). A redacted
+    // bundle cannot serve foreign removal or uninstall, so it is never confirmed.
+    if !bundle.redacted {
+        let confirmed = client
+            .request(Request::Issuer(IssuerRequest::BundleWritten {
+                created_at: bundle.created_at,
+                sha256: heimdall_issuer::backup::sha256_hex(&bytes),
+            }))
+            .await;
+        if !confirmed.code.is_success() {
+            return Outcome::of(confirmed).with_human(format!(
+                "{human}The bundle was written to {}, but the runtime did not record it, so `heimdall uninstall --bundle` will not accept this file: run `heimdall issuer bundle --out <new path>` again.\n",
+                shown(out)
+            ));
+        }
+    }
     Outcome::of(env).with_human(human)
 }
 
@@ -367,6 +359,12 @@ fn write_owner_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if written.is_err() {
         drop(file);
         let _ = std::fs::remove_file(path);
+        return written;
+    }
+    // The new name too (Unix: fsync the directory); best effort, the bytes are synced.
+    #[cfg(unix)]
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
     }
     written
 }
@@ -391,8 +389,10 @@ async fn retire(ctx: &Ctx, fingerprint: &str) -> Outcome {
     retire_to_retired(&mut client, &mut TerminalPrompt, ctx, &ca).await
 }
 
-/// R2B's retirement of `ca` on a connected session (`issuer retire`; reusable by
-/// `uninstall`, U-R4): attend first (interactive TTY only), `issuer.retire`, the
+/// ⟨ADR-0008 §17.25 item 9⟩ **The one retire entry**: `issuer retire` and `uninstall`
+/// (inline, behind uninstall's own typed confirmation, on the session it already holds and
+/// before the runtime stops) both run it. R2B's retirement of `ca` on a connected session:
+/// attend first (interactive TTY only), `issuer.retire`, the
 /// `RetireIssuer` decision with the owner's typed `yes` through `p`, `Decide approve`,
 /// `issuer.status` until `unloaded`, the exact deletion of the recorded locator by this
 /// process, the attended `deleted_locator` confirmation, then the CA's displaced items.
@@ -404,7 +404,7 @@ pub(crate) async fn retire_to_retired<S: Session, P: Prompter>(
     ctx: &Ctx,
     ca: &CaFingerprint,
 ) -> Outcome {
-    let scratch = match test_config(ctx) {
+    let test = match test_config(ctx) {
         Ok(s) => s,
         Err(o) => return o,
     };
@@ -434,7 +434,7 @@ pub(crate) async fn retire_to_retired<S: Session, P: Prompter>(
         Ok(v) => v,
         Err(o) => return o,
     };
-    finish_retirement(ctx, s, scratch, ca, env, st).await
+    finish_retirement(ctx, s, &test, ca, env, st).await
 }
 
 /// Poll `issuer.status` until `ca` leaves `active`/`pending`/`retiring` (the issuer
@@ -482,7 +482,7 @@ async fn wait_unloaded<S: Session>(
 async fn finish_retirement<S: Session>(
     ctx: &Ctx,
     s: &mut S,
-    scratch: bool,
+    test: &TestStore,
     ca: &CaFingerprint,
     mut env: Envelope<serde_json::Value>,
     mut st: IssuerStatus,
@@ -515,7 +515,7 @@ async fn finish_retirement<S: Session>(
                 "deleting the CA's store item needs the owner at a terminal; nothing was deleted",
             ));
         }
-        let store = match open_store(ctx, scratch) {
+        let store = match open_store(ctx, test) {
             Ok(store) => store,
             Err(o) => return o,
         };
@@ -597,22 +597,26 @@ mod tests {
         assert_eq!(got, vec!["old".to_owned()]);
     }
 
-    /// ⟨S3⟩ With the switch off, a test-configuration store's item is never deleted by
-    /// the R2B path: the refusal names the store, and the item stays.
+    /// ⟨ADR-0008 §17.25 item 7 (d)⟩ In a debug build a test-configuration store's item is
+    /// deleted by its exact locator through the CLI's deletion, and only that item; a
+    /// locator naming another CA is refused with nothing deleted.
     #[test]
-    fn test_store_items_are_not_deleted_while_s3_is_unruled() {
+    fn test_store_items_are_deleted_by_exact_locator_in_debug_builds() {
         let dir = tempfile::tempdir().unwrap();
         let store = ScratchSecretStore::new(dir.path().join("s"));
-        let fp = CaFingerprint::parse(&format!("SHA256:{}", "C".repeat(43))).unwrap();
         std::fs::create_dir_all(dir.path().join("s")).unwrap();
-        let before = store.list().unwrap();
-        let env = delete_exact(&store, &fp, StoreKind::LinuxSecretService, "loc").unwrap_err();
-        const { assert!(!S3_TEST_STORE_DELETION) };
-        assert_eq!(env.code, Code::CapabilityUnavailable);
-        assert_eq!(
-            env.data["error"]["reason"],
-            reason::ISSUER_STORE_UNAVAILABLE
+        let (k1, k2) = (
+            heimdall_credential::cert::SecretCaKey::generate().unwrap(),
+            heimdall_credential::cert::SecretCaKey::generate().unwrap(),
         );
-        assert_eq!(store.list().unwrap(), before);
+        let (f1, f2) = (k1.fingerprint().unwrap(), k2.fingerprint().unwrap());
+        let i1 = store.put(&f1, &k1).unwrap();
+        let i2 = store.put(&f2, &k2).unwrap();
+        let env =
+            delete_exact(&store, &f1, StoreKind::LinuxSecretService, &i2.locator).unwrap_err();
+        assert_eq!(env.code, Code::ConfigConflict);
+        assert_eq!(store.list().unwrap().len(), 2, "nothing was deleted");
+        delete_exact(&store, &f1, StoreKind::LinuxSecretService, &i1.locator).unwrap();
+        assert_eq!(store.list().unwrap(), vec![i2]);
     }
 }

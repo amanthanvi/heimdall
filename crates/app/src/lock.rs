@@ -203,6 +203,7 @@ pub fn signal_unverified_warning() -> Warning {
     Warning {
         code: m03_warning::SIGNAL_UNVERIFIED.to_owned(),
         message: "revoke on lock uses the logind screen-lock signal, which has not been verified on this platform yet".to_owned(),
+        reason: None,
     }
 }
 

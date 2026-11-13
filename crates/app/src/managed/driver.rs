@@ -111,6 +111,21 @@ pub const BINDING_GENERATION: u64 = 1;
 /// allowance).
 pub const VALID_AFTER_SKEW_SECS: i64 = 60;
 
+/// ⟨M03 wave 5, round 2 (A2-Q1)⟩ A certificate's `valid_after`: [`VALID_AFTER_SKEW_SECS`]
+/// before the later of `now` and the grant's start, on whole seconds (certificates carry
+/// seconds). The start is rounded **up**, so `valid_before − valid_after` never exceeds the
+/// issuer's ceiling `deadline − starts_at + 60 s` (`heimdall_issuer::check`): truncating
+/// `now` within the grant's first second used to overshoot it by the sub-second part,
+/// and the real issuer refused every first activation (`ceiling_exceeded`).
+#[must_use]
+pub fn validity_start(now: Timestamp, starts_at: Timestamp) -> Option<Timestamp> {
+    let start = starts_at
+        .as_second()
+        .checked_add(i64::from(starts_at.subsec_nanosecond() > 0))?;
+    let base = now.as_second().max(start);
+    Timestamp::from_second(base.checked_sub(VALID_AFTER_SKEW_SECS)?).ok()
+}
+
 /// Publication round trips for one entry (the original reservation counts as the
 /// first; `Operations::publish_issuance` refuses past `PUBLISH_ATTEMPTS`).
 const PUBLISH_ROUNDS: usize = 4;
@@ -267,8 +282,8 @@ async fn stages_after_key(
         subject_registered: true,
         critical_option: false,
     };
-    let valid_after = Timestamp::from_second(now.as_second() - VALID_AFTER_SKEW_SECS)
-        .map_err(|_| AdapterError::Protocol("validity_start_out_of_range".to_owned()))?;
+    let valid_after = validity_start(now, grant.starts_at)
+        .ok_or_else(|| AdapterError::Protocol("validity_start_out_of_range".to_owned()))?;
     let env = ops.environment().clone();
     let mut published: Vec<(IssuanceEntry, String)> = Vec::new();
     for (n, pair) in grant.scope.pairs.iter().enumerate() {
@@ -517,4 +532,31 @@ pub fn issuer_sign_failure_reason(e: &AdapterError) -> Option<&'static str> {
         issuer_store_reason(store)
             .unwrap_or(heimdall_contract::envelope::reason::ISSUER_UNAVAILABLE),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use heimdall_contract::Timestamp;
+
+    /// A2-Q1: within the grant's first second, the span to any deadline stays within the
+    /// issuer's ceiling (`deadline - starts_at + 60 s`); later, the start follows `now`.
+    #[test]
+    fn validity_start_never_exceeds_the_issuers_ceiling() {
+        let starts_at: Timestamp = "2026-11-13T10:00:00.400Z".parse().unwrap();
+        let deadline: Timestamp = "2026-11-13T12:00:00Z".parse().unwrap();
+        for now in ["2026-11-13T10:00:00.400Z", "2026-11-13T10:00:00.999Z"] {
+            let now: Timestamp = now.parse().unwrap();
+            let after = super::validity_start(now, starts_at).unwrap();
+            let span = deadline.duration_since(after);
+            let ceiling = deadline.duration_since(starts_at)
+                + jiff::SignedDuration::from_secs(super::VALID_AFTER_SKEW_SECS);
+            assert!(span <= ceiling, "{now}: {span:?} > {ceiling:?}");
+        }
+        let later: Timestamp = "2026-11-13T11:00:30.7Z".parse().unwrap();
+        assert_eq!(
+            super::validity_start(later, starts_at).unwrap(),
+            "2026-11-13T10:59:30Z".parse::<Timestamp>().unwrap()
+        );
+    }
 }

@@ -14,7 +14,7 @@
     "EnrollmentRemove": "enrollment.remove"
   },
   "synchronous": ["cancel", "release", "policy", "decide", "confirm_time",
-                  "issuer.register", "issuer.unlock", "issuer.retire",
+                  "issuer.register", "issuer.unlock", "issuer.retire", "issuer.bundle_written",
                   "enrollment.reconcile", "enrollment.abandon", "enrollment.step", "enrollment.step_result",
                   "connections.close", "connections.register"],
   "read_only": ["inspect", "observe", "shutdown", "setup.preview",

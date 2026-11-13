@@ -47,8 +47,10 @@ pub(super) const MAX_STEPS: usize = 32;
 pub(super) const HANDOFF_NOTICE: &str = "Remote steps run in their own process group on this \
      terminal's session. A prompt that ssh reads from this terminal (a key passphrase, a \
      password) cannot be answered while a step runs, because this build has no terminal \
-     handoff: keep the identity in an agent. A step that waits on such a prompt ends at its \
-     time bound and writes nothing.";
+     handoff: keep the identity in an agent. Even with an agent-held identity, a server \
+     that falls back to password or keyboard-interactive authentication still stalls the \
+     step until its time bound. A step that waits on such a prompt ends at that bound and \
+     writes nothing.";
 
 /// Exactly what the CLI prints when an interrupt aborts a step (m03-plan U12).
 #[must_use]
@@ -520,5 +522,19 @@ mod tests {
             uncertain_message(&op),
             "the change may have been applied; run `heimdall enroll reconcile op_00112233445566778899aabbccddeeff`"
         );
+    }
+
+    /// ADR-0008 §17.25 item 1: the notice names the residual, a server falling back to
+    /// password or keyboard-interactive authentication, which still stalls the step
+    /// until its bound.
+    #[test]
+    fn the_handoff_notice_names_the_auth_fallback_residual() {
+        assert!(
+            HANDOFF_NOTICE.contains(
+                "a server that falls back to password or keyboard-interactive authentication still stalls the step until its time bound"
+            ),
+            "{HANDOFF_NOTICE}"
+        );
+        assert!(HANDOFF_NOTICE.contains("keep the identity in an agent"));
     }
 }

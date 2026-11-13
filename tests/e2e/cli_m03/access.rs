@@ -16,12 +16,15 @@
 //! **Owner prompts** run the binary under `script(1)` (a pseudo-terminal; Unix only), as
 //! `e2e_cli_m01` does; the in-process half is `m03_cmd::wave5_tests`.
 //!
-//! **What this suite cannot reach.** A *managed* grant (a managed revoke's owned-connection
-//! list and ordinary-`ssh` note, an `ensure --strict` result's `connection_policy`) needs an
-//! enrolled pair, the issuer child and a scratch store: nothing a CLI test can set up before
-//! U13's native harness. Those renderings are unit-tested in `output.rs` against the
-//! contract's own types; here the existing-access results are shown to carry no managed
-//! claim, and the strict request is shown to reach the grant's origin.
+//! **Managed grants** (ADR-0008 §17.25 item 18): [`ManagedPair`] reaches a managed pair
+//! through the real binary (its runtime's production managed wiring and its real issuer
+//! child over the testkit scratch store), seeding only the enrollment prerequisites (the
+//! CA and a verified enrollment; listed there). The managed halves of
+//! `access_ensure_strict_reports_strict_disconnect` and
+//! `revoke_output_lists_owned_connections_and_ordinary_note` run for real: the real issuer
+//! child signs each managed activation's certificate (A2-Q1, fixed by the integrator in
+//! the driver's `validity_start`). The renderings are also unit-tested in `output.rs`
+//! against the contract's types.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -37,6 +40,8 @@ struct Rt {
     home: PathBuf,
     account: PathBuf,
     lock: PathBuf,
+    /// `HEIMDALL_TEST_SECRET_STORE=scratch` for the runtime's issuer child ([`Rt::managed`]).
+    scratch_store: bool,
 }
 
 impl Rt {
@@ -59,10 +64,29 @@ impl Rt {
             account,
             lock: lock_file,
             scratch,
+            scratch_store: false,
         }
     }
 
+    /// [`Rt::new`] whose runtime's issuer child (`internal issuer`, which inherits the
+    /// CLI-started runtime's environment) selects the testkit's scratch store
+    /// (`HEIMDALL_TEST_SECRET_STORE=scratch`, under `<state>/scratch-secret-store`).
+    #[cfg(unix)]
+    fn managed(lock: &str) -> Rt {
+        let mut rt = Rt::new(lock);
+        rt.scratch_store = true;
+        rt
+    }
+
     fn env(&self) -> Vec<(&'static str, String)> {
+        let mut env = self.base_env();
+        if self.scratch_store {
+            env.push(("HEIMDALL_TEST_SECRET_STORE", "scratch".to_owned()));
+        }
+        env
+    }
+
+    fn base_env(&self) -> Vec<(&'static str, String)> {
         vec![
             ("HEIMDALL_TEST_ADAPTER", "prepare".to_owned()),
             ("HEIMDALL_TEST_TIME_SYNC", "synchronized".to_owned()),
@@ -218,6 +242,172 @@ impl Drop for Rt {
             .stdin(std::process::Stdio::null())
             .output();
         let _ = &self.scratch;
+    }
+}
+
+// ---- the managed pair (ADR-0008 §17.25 item 18) --------------------------------------------
+
+/// The managed pair of [`ManagedPair::set_up`]: destination `h2` (in the fixture profile
+/// `dev` and its policy `pol`), account `deploy`, alias `lab2`.
+#[cfg(unix)]
+const MANAGED_ALIAS: &str = "lab2";
+
+/// The version line of the `ssh` the CLI-started runtime resolves (`PATH=/usr/bin:/bin`),
+/// or empty when there is none.
+#[cfg(unix)]
+fn local_client_version() -> String {
+    ["/usr/bin/ssh", "/bin/ssh"]
+        .iter()
+        .find(|p| std::path::Path::new(p).exists())
+        .and_then(|p| std::process::Command::new(p).arg("-V").output().ok())
+        .map(|o| String::from_utf8_lossy(&o.stderr).trim().to_owned())
+        .unwrap_or_default()
+}
+
+/// A managed-certificate pair reached through the real binary: what runs for real and
+/// what is seeded.
+///
+/// * **Real:** the CLI-started runtime (`heimdall service run`: the production managed
+///   wiring, `ManagedCertificateAdapter`, signer table, binding endpoints), its issuer
+///   child (the real binary's `internal issuer` over the testkit scratch store,
+///   `HEIMDALL_TEST_SECRET_STORE=scratch`), the catalog (`identity adopt`, `destination
+///   add`), `destination prefer … managed`, `setup apply` and `time confirm` (each with
+///   its typed `yes` on a pseudo-terminal), and every `access` command after.
+/// * **Seeded** in the store (the enrollment prerequisites; the issuer ceremony and the
+///   enrollment loop have their own suites): a fresh K_ca put in the scratch store, its
+///   `active` CA record and store locator; a `verified` account-form enrollment of
+///   `h2/deploy` under that CA, with evidence naming the local client (so the runtime's
+///   re-verification pass leaves it `verified`); the CA as the pair's issuing CA. The
+///   runtime is restarted after the CA is seeded (`service stop`; the next command starts
+///   it) so the issuer child loads it.
+///
+/// Unix only: the typed confirmations run under `script(1)`.
+#[cfg(unix)]
+struct ManagedPair;
+
+#[cfg(unix)]
+impl ManagedPair {
+    fn set_up(rt: &Rt) -> ManagedPair {
+        use heimdall_issuer::store::SecretStore as _;
+        let key = scratch_key(rt);
+        let adopted = rt.run(&[
+            "--json",
+            "identity",
+            "adopt",
+            "--pub",
+            &key.to_string_lossy(),
+        ]);
+        assert_eq!(adopted.code, 0, "{adopted:?}");
+        let identity = adopted.json()["data"]["identity_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let add = rt.run(&[
+            "--json",
+            "destination",
+            "add",
+            MANAGED_ALIAS,
+            "--hostname",
+            "127.0.0.1",
+            "--account",
+            "deploy",
+            "--identity",
+            &identity,
+            "--id",
+            "h2",
+        ]);
+        assert_eq!(add.code, 0, "{add:?}");
+
+        // K_ca in the scratch store the issuer child selects (owner-only), then its record.
+        let store_dir = rt.home.join("state").join("scratch-secret-store");
+        std::fs::create_dir_all(&store_dir).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&store_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let ca_key = heimdall_credential::cert::SecretCaKey::generate().unwrap();
+        let fp = ca_key.fingerprint().unwrap();
+        let public = ca_key.public_openssh().unwrap();
+        let item = heimdall_testkit::scratch_store::ScratchSecretStore::new(store_dir)
+            .put(&fp, &ca_key)
+            .unwrap();
+        drop(ca_key);
+        let now = Timestamp::now();
+        let mut record = enrollment(2, EnrollmentState::Verified);
+        record.destination = DestinationId::parse("h2").unwrap();
+        record.ca_fingerprint = fp.clone();
+        record.target.hostname = "127.0.0.1".into();
+        record.verified_at = Some(now);
+        record.evidence = Some(heimdall_domain::enrollment::EnrollmentEvidence {
+            client: local_client_version(),
+            server: "SSH-2.0-OpenSSH_fixture".into(),
+            operation: heimdall_contract::ids::OperationId::from_random_bytes([2; 16]),
+            verified_at: now,
+            fresh_until: now.checked_add(Duration::from_secs(30 * 86_400)).unwrap(),
+            clock: None,
+        });
+        let pair = heimdall_domain::scope::AccessPair {
+            destination: record.destination.clone(),
+            account: record.account.clone(),
+        };
+        Store::open(&rt.db(), Arc::new(NoFaults))
+            .unwrap()
+            .transaction(|tx| {
+                tx.insert_issuer(&IssuerRecord {
+                    ca_fingerprint: fp.clone(),
+                    public_key: public.clone(),
+                    state: CaState::Active,
+                    store_kind: StoreKind::LinuxSecretService,
+                    backup_sha256: "ab".repeat(32),
+                    backup_created_at: now,
+                    restored_without_log: false,
+                    created_at: now,
+                    retired_at: None,
+                })?;
+                tx.set_issuer_store_locator(&fp, &item.locator)?;
+                tx.seed_enrollment(&record)
+            })
+            .unwrap();
+        let stopped = rt.run(&["--json", "service", "stop"]);
+        assert_eq!(stopped.code, 0, "{stopped:?}");
+        let prefer = rt.run(&["--json", "destination", "prefer", MANAGED_ALIAS, "managed"]);
+        assert_eq!(prefer.code, 0, "{prefer:?}");
+        let status = rt.run(&["--json", "issuer", "status"]);
+        assert_eq!(status.json()["data"]["state"], "ready", "{status:?}");
+        // The pair's issuing CA (E5 records it with the enrollment, after the preference).
+        Store::open(&rt.db(), Arc::new(NoFaults))
+            .unwrap()
+            .transaction(|tx| tx.add_issuing_ca(&pair, &fp, now))
+            .unwrap();
+        // P names the alias (the preference is pending until applied), and this boot's
+        // time is confirmed (the issuer child's read-only gate needs a same-boot reference).
+        let applied = rt.run_pty(&["setup", "apply"], b"yes\n");
+        assert_eq!(applied.code, 0, "{applied:?}");
+        let confirmed = rt.run_pty(&["time", "confirm"], b"yes\n");
+        assert_eq!(confirmed.code, 0, "{confirmed:?}");
+        ManagedPair
+    }
+
+    /// `heimdall --json access ensure` of the managed pair (exit 0 asserted): the real
+    /// issuer child signs the activation's certificate.
+    fn ensure(rt: &Rt, tag: &str, extra: &[&str]) -> Out {
+        let mut args = vec![
+            "--json",
+            "access",
+            "ensure",
+            "--profile",
+            "dev",
+            "--pair",
+            "h2:deploy",
+            "--work-id",
+            tag,
+            "--request-id",
+            tag,
+        ];
+        args.extend_from_slice(extra);
+        let out = rt.run(&args);
+        assert_eq!(out.code, 0, "{out:?}");
+        out
     }
 }
 
@@ -431,15 +621,22 @@ fn access_lock_behavior_refused_where_unavailable() {
     }
 }
 
-/// `access ensure --strict` through the real runtime (existing access: the fixture
-/// adapter): the request is accepted and the strict choice reaches the grant's origin
-/// (the strictest-wins record the connection supervisor reads); a plain `ensure` records
-/// none. The result of an existing-access grant carries no `connection_policy`, and the
-/// CLI prints no connection claim for it; the strict **wording** of a managed result is
-/// `output::tests::access_ensure_strict_reports_strict_disconnect` (a managed grant needs
-/// an enrolled pair: see the module docs).
+/// `access ensure --strict` through the real runtime.
+/// * **Existing access** (the fixture adapter): the request is accepted and the strict
+///   choice reaches the grant's origin (the strictest-wins record the connection
+///   supervisor reads); a plain `ensure` records none. The result carries no
+///   `connection_policy`, and the CLI prints no connection claim for it.
+/// * **Managed** (ADR-0008 §17.25 item 18; [`ManagedPair`], Unix): the result's
+///   `data.connection_policy` is `strict` with exactly the D8 strict wording for the
+///   pair's selection (`DEADLINE_STRICT_EXCLUSIVE`, else `DEADLINE_STRICT_NOT_EXCLUSIVE`,
+///   plus the owned-masters sentence when owned masters apply), and the human output
+///   prints the policy and that wording verbatim, all through the real binary and its
+///   real issuer child. The rendering is also `output::tests::
+///   access_ensure_strict_reports_strict_disconnect` (unit level, the contract's types).
 #[test]
 fn access_ensure_strict_reports_strict_disconnect() {
+    #[cfg(unix)]
+    managed_strict_half();
     let rt = Rt::new("unlocked");
     let plain = rt.ensure("plain", &[]);
     assert_eq!(plain.code, 0, "{plain:?}");
@@ -494,11 +691,20 @@ fn access_ensure_strict_reports_strict_disconnect() {
     }
 }
 
-/// `access revoke` on an existing-access grant prints M02's result and no managed
-/// claim: no owned-connection list and no ordinary-`ssh` note (those belong to a managed
-/// revoke: `output::tests::revoke_output_lists_owned_connections_and_ordinary_note`).
+/// `access revoke` through the real runtime.
+/// * **Managed** ([`ManagedPair`], Unix): a revoke lists the grant's owned connections in
+///   `data.owned_connections[]` (one `/bin/sleep` row of this test, seeded with its
+///   verified identity, is `closed` and its process ends) and carries the note
+///   `ordinary_connections_not_closed`; the human output shows the count and the
+///   ordinary-`ssh` sentence (`output::ORDINARY_CONNECTIONS_NOTE`), on managed grants
+///   the real issuer child signed; the rendering is also `output::tests::
+///   revoke_output_lists_owned_connections_and_ordinary_note` (unit level).
+/// * **Existing access:** M02's result and no managed claim: no owned-connection list and
+///   no ordinary-`ssh` note.
 #[test]
 fn revoke_output_lists_owned_connections_and_ordinary_note() {
+    #[cfg(unix)]
+    managed_revoke_half();
     let rt = Rt::new("unlocked");
     let ensured = rt.ensure("rv", &[]);
     assert_eq!(ensured.code, 0, "{ensured:?}");
@@ -521,6 +727,162 @@ fn revoke_output_lists_owned_connections_and_ordinary_note() {
     assert_eq!(again.code, 0, "{again:?}");
     assert!(!again.stdout.contains("Owned connections"), "{again:?}");
     assert!(!again.stdout.contains("Note:"), "{again:?}");
+}
+
+/// The strict wording the runtime's D8 rule gives a managed result's `data`: by the
+/// pair's identity selection, with the owned-masters sentence when owned masters apply
+/// (the `localenv` and `adapters` constants, never retyped).
+#[cfg(unix)]
+fn strict_wording_of(data: &Value) -> String {
+    use heimdall_localenv::projection::plan::{
+        DEADLINE_STRICT_EXCLUSIVE, DEADLINE_STRICT_NOT_EXCLUSIVE,
+    };
+    let selection = data["consumer"]["pairs"][0]["identity_selection"].as_str();
+    let base = if selection == Some("exclusive") {
+        DEADLINE_STRICT_EXCLUSIVE
+    } else {
+        DEADLINE_STRICT_NOT_EXCLUSIVE
+    };
+    if data["connection_policy"]["multiplexing"] == "owned_masters" {
+        format!(
+            "{base} {}",
+            heimdall_adapters::managed::report::OWNED_MASTERS_DISCLOSURE
+        )
+    } else {
+        base.to_owned()
+    }
+}
+
+/// The managed half of `access_ensure_strict_reports_strict_disconnect`.
+#[cfg(unix)]
+fn managed_strict_half() {
+    let rt = Rt::managed("unlocked");
+    let _pair = ManagedPair::set_up(&rt);
+    let strict = ManagedPair::ensure(&rt, "m-strict", &["--strict"]);
+    let env = strict.json();
+    assert_envelope_shape(&env);
+    assert_eq!(env["code"], "ACCESS_READY", "{strict:?}");
+    let data = &env["data"];
+    assert_eq!(
+        data["credential_mechanism"], "managed_certificate",
+        "{data}"
+    );
+    assert_eq!(data["connection_policy"]["existing"], "strict", "{data}");
+    let wording = strict_wording_of(data);
+    assert_eq!(
+        data["connection_policy"]["wording"],
+        wording.as_str(),
+        "{data}"
+    );
+    let human = rt.run(&[
+        "access",
+        "ensure",
+        "--profile",
+        "dev",
+        "--pair",
+        "h2:deploy",
+        "--work-id",
+        "m-strict-human",
+        "--request-id",
+        "m-strict-human",
+        "--strict",
+    ]);
+    assert_eq!(human.code, 0, "{human:?}");
+    assert!(
+        human
+            .stdout
+            .contains("Connection policy: existing strict, multiplexing "),
+        "{human:?}"
+    );
+    assert!(
+        human.stdout.lines().any(|l| l == wording),
+        "the runtime's wording, verbatim: {human:?}"
+    );
+}
+
+/// The managed half of `revoke_output_lists_owned_connections_and_ordinary_note`.
+#[cfg(unix)]
+fn managed_revoke_half() {
+    use heimdall_contract::ids::{BindingId, ConnectionId, GrantId};
+    use heimdall_contract::managed::ConnectionKind;
+    use heimdall_contract::request::ProcessHolder;
+    use heimdall_domain::managed::{OwnedConnection, OwnedConnectionState};
+
+    let rt = Rt::managed("unlocked");
+    let _pair = ManagedPair::set_up(&rt);
+    let ensured = ManagedPair::ensure(&rt, "m-rv", &[]);
+    let data = ensured.json()["data"].clone();
+    let binding = BindingId::parse(data["binding_id"].as_str().unwrap()).unwrap();
+    let grant = GrantId::parse(data["grant_id"].as_str().unwrap()).unwrap();
+    // One owned connection of the grant: this test's `/bin/sleep`, its identity verified.
+    let mut owned = Sleeper::start();
+    let id = ConnectionId::from_random_bytes([0x44; 16]);
+    Store::open(&rt.db(), Arc::new(NoFaults))
+        .unwrap()
+        .transaction(|tx| {
+            tx.set_binding_holder(
+                &binding,
+                &ProcessHolder {
+                    pid: owned.child.id(),
+                    started_at: owned.token.clone(),
+                },
+            )?;
+            tx.insert_owned_connection(&OwnedConnection {
+                id: id.clone(),
+                kind: ConnectionKind::Dedicated,
+                binding: binding.clone(),
+                grant: grant.clone(),
+                pid: owned.child.id(),
+                start_token: owned.token.clone(),
+                image: owned.image.clone(),
+                control_path: None,
+                generation: 0,
+                state: OwnedConnectionState::Up,
+                started_at: Timestamp::now(),
+            })
+        })
+        .unwrap();
+    let revoked = rt.run(&[
+        "--json",
+        "access",
+        "revoke",
+        grant.as_str(),
+        "--request-id",
+        "m-rv-1",
+    ]);
+    assert_eq!(revoked.code, 0, "{revoked:?}");
+    let env = revoked.json();
+    assert_envelope_shape(&env);
+    assert_eq!(env["data"]["local_applied"], true, "{revoked:?}");
+    let rows = env["data"]["owned_connections"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{revoked:?}");
+    assert_eq!(rows[0]["id"], id.as_str());
+    assert_eq!(rows[0]["kind"], "dedicated");
+    assert_eq!(rows[0]["state"], "closed", "{revoked:?}");
+    assert_eq!(
+        env["data"]["notes"],
+        serde_json::json!(["ordinary_connections_not_closed"]),
+        "{revoked:?}"
+    );
+    assert!(
+        owned.ended_within(Duration::from_secs(10)),
+        "the owned connection's process is still running"
+    );
+    // Human: another managed grant (its own work), revoked: the count and the note.
+    let second = ManagedPair::ensure(&rt, "m-rv-human", &[]).json()["data"]["grant_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let human = rt.run(&["access", "revoke", &second, "--request-id", "m-rv-2"]);
+    assert_eq!(human.code, 0, "{human:?}");
+    assert!(human.stdout.contains("Owned connections: "), "{human:?}");
+    assert!(
+        human
+            .stdout
+            .lines()
+            .any(|l| l.starts_with("Note: ") && l.contains("ordinary ssh")),
+        "{human:?}"
+    );
 }
 
 /// A `/bin/sleep` child of this test and the start token the runtime reads for it.
@@ -582,7 +944,10 @@ impl Drop for Sleeper {
 /// * closing the verified one ends exactly its process (SIGTERM through the runtime's
 ///   verified close) and exits 0; closing it again answers the same state;
 /// * closing the one whose process identity cannot be verified (a wrong start token)
-///   does **not** signal it, exits 4, says so, and the process is still running;
+///   does **not** signal it: the runtime answers `OK` with `state: unverified`, so the
+///   exit is 0 (ADR-0008 §17.25 item 16: the exit follows the envelope code), the human
+///   text says plainly that nothing was closed or signalled, and the process is still
+///   running;
 /// * an unknown ID is `NOT_FOUND` (2), a malformed one a usage error (2); with no runtime
 ///   the listing is `SERVICE_UNAVAILABLE` (5) and starts none.
 ///
@@ -677,7 +1042,7 @@ fn connections_list_and_owner_close() {
 
     // The unverifiable one: reported, never signalled.
     let bad = rt.run(&["--json", "connections", "close", id_bad.as_str()]);
-    assert_eq!(bad.code, 4, "{bad:?}");
+    assert_eq!(bad.code, 0, "the exit follows the envelope code: {bad:?}");
     assert_eq!(
         bad.json()["code"],
         "OK",
@@ -690,10 +1055,16 @@ fn connections_list_and_owner_close() {
     );
     let human_bad = rt.run(&["connections", "close", id_bad.as_str()]);
     assert!(
-        human_bad.stdout.contains("was not signalled"),
+        human_bad.stdout.contains("was not closed")
+            && human_bad.stdout.contains("nothing was signalled"),
         "{human_bad:?}"
     );
-    assert_eq!(human_bad.code, 4);
+    assert!(!human_bad.stdout.contains("Closed owned"), "{human_bad:?}");
+    assert_eq!(human_bad.code, 0, "{human_bad:?}");
+    assert!(
+        !unverified.ended_within(Duration::from_millis(200)),
+        "it was signalled"
+    );
 
     // The verified one: closed, its process ended.
     let ok = rt.run(&["--json", "connections", "close", id_ok.as_str()]);
@@ -923,6 +1294,8 @@ fn m03_help_and_discovery_goldens() {
     if update {
         std::fs::create_dir_all(&dir).unwrap();
     }
+    // Every golden is checked; the failure lists every mismatch, not the first.
+    let mut mismatches: Vec<String> = Vec::new();
     for (stem, line) in HELP_LINES {
         let text = help_of(line);
         let path = dir.join(format!("{stem}.txt"));
@@ -930,19 +1303,51 @@ fn m03_help_and_discovery_goldens() {
             std::fs::write(&path, &text).unwrap();
             continue;
         }
-        let golden = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("{}: {e} (HM_UPDATE_GOLDENS=1 writes it)", path.display()));
-        assert_eq!(
-            text, golden,
-            "{stem}: help changed (HM_UPDATE_GOLDENS=1 rewrites it)"
-        );
-        if !line.is_empty() {
-            assert!(
-                text.contains(&format!("heimdall {}", line.join(" "))),
-                "{stem}: the usage line names the command"
-            );
+        let golden = match std::fs::read_to_string(&path) {
+            Ok(g) => g,
+            Err(e) => {
+                mismatches.push(format!(
+                    "{}: {e} (HM_UPDATE_GOLDENS=1 writes it)",
+                    path.display()
+                ));
+                continue;
+            }
+        };
+        if text != golden {
+            let first = text
+                .lines()
+                .zip(golden.lines())
+                .position(|(a, b)| a != b)
+                .unwrap_or_else(|| text.lines().count().min(golden.lines().count()));
+            mismatches.push(format!(
+                "{stem}: help changed at line {} (got {:?}, golden {:?})",
+                first + 1,
+                text.lines().nth(first).unwrap_or(""),
+                golden.lines().nth(first).unwrap_or("")
+            ));
+        }
+        if !line.is_empty() && !text.contains(&format!("heimdall {}", line.join(" "))) {
+            mismatches.push(format!(
+                "{stem}: the usage line does not name `heimdall {}`",
+                line.join(" ")
+            ));
+        }
+        if text.contains("heimdall.exe") {
+            mismatches.push(format!("{stem}: the usage names the file `heimdall.exe`"));
         }
     }
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} help goldens differ ({} mismatches; HM_UPDATE_GOLDENS=1 rewrites them):\n{}",
+        mismatches
+            .iter()
+            .filter_map(|m| m.split(':').next())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        HELP_LINES.len(),
+        mismatches.len(),
+        mismatches.join("\n")
+    );
     // No stale goldens: every file in the directory is one of ours.
     if !update {
         let mut found: Vec<String> = std::fs::read_dir(&dir)

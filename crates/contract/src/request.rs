@@ -1079,7 +1079,9 @@ impl Request {
             Request::Issuer(
                 IssuerRequest::Register { .. }
                 | IssuerRequest::Unlock
-                | IssuerRequest::Retire { .. },
+                | IssuerRequest::Retire { .. }
+                // ⟨ADR-0008 §17.25 item 8⟩ records `last_bundle_at` and the digest.
+                | IssuerRequest::BundleWritten { .. },
             ) => Admission::Synchronous,
             Request::Enrollment(EnrollmentRequest::Preview { .. }) => Admission::ReadOnly,
             Request::Enrollment(EnrollmentRequest::Apply { .. }) => {

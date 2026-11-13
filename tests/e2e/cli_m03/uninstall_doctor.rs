@@ -1,16 +1,22 @@
 //! M03 wave 5 (U12): `e2e_cli_m03` submodule `uninstall_doctor` (owner: see `.m03-wave5-api.md` R1).
 //! Shares the parent's `bin()`, `run()` and fixtures through `super::`.
 //!
-//! * Uninstall (ADR-0008 D4 item 6): the listing of the enrollments that are not final
-//!   and the `enroll remove` offer, the purge refusals (`CONFIG_CONFLICT` exit 6 without
-//!   the acknowledgement, `bundle_required`/`bundle_redacted` exit 4 without a fresh
-//!   bundle), and the K_ca store item's fate. Every case ends **before** any runtime
-//!   contact (a runtime the CLI started would wire the account's real `~/.ssh`), and
-//!   the state database is never written.
-//! * Doctor (m03-plan U12, §5 item 14): `slot_free` with its command and
-//!   `managed_dir_unsafe`, read-only and never repaired.
-//! * The CLI half of `time_confirmation_after_reboot`: the bare `heimdall` status
-//!   without a terminal shows the chore with `heimdall time confirm`.
+//! * Uninstall (ADR-0008 D4 item 6, §17.25 items 8, 9, 11): the listing of the
+//!   enrollments that are not final and the `enroll remove` offer, the plain
+//!   uninstall's acknowledgement (a typed `yes`, or `--keep-remote-enrollments`), the
+//!   purge refusals (`CONFIG_CONFLICT` exit 6 without the acknowledgement,
+//!   `bundle_required`/`bundle_redacted` exit 4 without a fresh bundle whose SHA-256 this
+//!   installation recorded), and the K_ca store item's fate. Every case ends **before**
+//!   any runtime contact (a runtime the CLI started would wire the account's real
+//!   `~/.ssh`): where a case gets past the acknowledgement, the runtime directory is a
+//!   regular file, so the CLI cannot prepare it and starts nothing. The state database
+//!   is never written by the CLI.
+//! * Doctor (m03-plan U12, §5 item 14, §17.25 item 13): `slot_free` with its command,
+//!   `managed_dir_unsafe`, `enrollment_evidence_stale`, `reverification_inconclusive`
+//!   and `client_trace_family_unrecorded`, read-only and never repaired.
+//! * The CLI half of `time_confirmation_after_reboot` (§17.25 item 12): the bare
+//!   `heimdall` status without a terminal shows the chore with `heimdall time confirm`
+//!   exactly when the time gate lacks a reference for this boot and a CA is registered.
 //!
 //! Fixtures are synthetic (fixture IDs, `example.invalid`, fake public keys); no owner
 //! key, agent, keychain or SSH configuration is read (`HEIMDALL_TEST_SSH_HOME` points
@@ -23,16 +29,18 @@ use std::time::Duration;
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::enrollment::RegistryCanonical;
-use heimdall_contract::ids::{AccountName, DecisionId, DestinationId, EnvironmentId, IdentityId};
+use heimdall_contract::ids::{
+    AccountName, DecisionId, DestinationId, EnvironmentId, IdentityId, OperationId,
+};
 use heimdall_contract::issuer::{
     BundleCa, BundleEnrollment, RECOVERY_BUNDLE_SCHEMA, RecoveryBundle,
 };
 use heimdall_contract::managed::PreferredMechanism;
 use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
 use heimdall_domain::enrollment::{
-    EnrollmentRecord, EnrollmentState, PairPreference, ProjectionStatus,
+    EnrollmentEvidence, EnrollmentRecord, EnrollmentState, PairPreference, ProjectionStatus,
 };
-use heimdall_domain::time::{AttendedTimeConfirmation, BootId};
+use heimdall_domain::time::AttendedTimeConfirmation;
 use heimdall_store::{NoFaults, Store};
 
 use super::{Out, ca, enrollment, run, seed_state, t0};
@@ -179,6 +187,79 @@ fn uninstall_lists_remote_enrollments_and_refuses_purge_without_ack() {
     assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
 }
 
+/// `uninstall_plain_keep_remote_enrollments_is_the_acknowledgement` (ADR-0008 §17.25
+/// item 11): `--keep-remote-enrollments` alone is the explicit acknowledgement of a
+/// plain uninstall while enrollments are not final, without a terminal and under
+/// `--non-interactive`, so a scripted uninstall goes on (the state is kept). Without it
+/// the same invocation stops at exit 3; `--bundle` still needs `--purge-state` and
+/// `--keep-remote-enrollments` (usage, exit 2). The runtime directory is a regular file
+/// here, so the acknowledged uninstall stops when it would prepare it: nothing is
+/// started, and the state database is untouched.
+#[test]
+fn uninstall_plain_keep_remote_enrollments_is_the_acknowledgement() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = account(scratch.path());
+    let home = scratch.path().join("home");
+    let db = seed_state(
+        &home,
+        &[EnrollmentState::Verified, EnrollmentState::Withdrawn],
+    );
+    std::fs::write(home.join("run"), b"not a directory").unwrap();
+    let before = std::fs::read(&db).unwrap();
+    let ssh_home = account.to_string_lossy().into_owned();
+    let env = [("HEIMDALL_TEST_SSH_HOME", ssh_home.as_str())];
+    let not_started = |out: &Out| {
+        assert!(home.join("run").is_file(), "nothing was started: {out:?}");
+        assert!(!home.join("log").join("runtime.log").exists(), "{out:?}");
+    };
+
+    for ni in [true, false] {
+        let mut args = vec!["--json"];
+        if ni {
+            args.push("--non-interactive");
+        }
+        args.push("uninstall");
+        // Not acknowledged: exit 3, nothing changed.
+        let out = run(&home, &account, &args, &env);
+        assert_eq!(out.code, 3, "{out:?}");
+        assert!(
+            out.message().contains("--keep-remote-enrollments"),
+            "the scripted acknowledgement is named: {out:?}"
+        );
+        not_started(&out);
+        // Acknowledged: past the gate, to the runtime step (which cannot start here).
+        args.push("--keep-remote-enrollments");
+        let out = run(&home, &account, &args, &env);
+        assert_ne!(out.code, 3, "acknowledged: {out:?}");
+        let envelope = out.json();
+        assert_eq!(envelope["code"], "SERVICE_UNAVAILABLE", "{out:?}");
+        assert!(
+            out.message()
+                .contains("cannot prepare the runtime directories"),
+            "{out:?}"
+        );
+        not_started(&out);
+    }
+
+    // `--bundle` without `--purge-state` is a usage error, as is it without the flag.
+    let bundle = scratch.path().join("b.json");
+    let arg = bundle.to_string_lossy().into_owned();
+    for args in [
+        &[
+            "--json",
+            "uninstall",
+            "--keep-remote-enrollments",
+            "--bundle",
+            &arg,
+        ][..],
+        &["--json", "uninstall", "--purge-state", "--bundle", &arg][..],
+    ] {
+        let out = run(&home, &account, args, &env);
+        assert_eq!(out.code, 2, "{args:?}: {out:?}");
+    }
+    assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
+}
+
 /// One bundle enrollment for `r` (public metadata only).
 fn bundle_entry(r: &EnrollmentRecord) -> BundleEnrollment {
     BundleEnrollment {
@@ -231,13 +312,33 @@ fn write_bundle(path: &Path, at: Timestamp, records: &[EnrollmentRecord], redact
     std::fs::write(path, serde_json::to_vec(&bundle).unwrap()).unwrap();
 }
 
-/// `uninstall_purge_keeping_enrollments_requires_fresh_bundle` (F08; D4 item 6): a purge
-/// that keeps remote enrollments needs a fresh recovery bundle. A missing file, a file
-/// that is not a bundle, one that predates the last enrollment change, one that does not
-/// list every remaining enrollment as it is now, and (U-Q1, `BUNDLE_WRITE_RECORD_REQUIRED`)
-/// even a fresh complete one without this installation's record of writing it: each is
-/// `bundle_required` (exit 4); a redacted one is `bundle_redacted` (exit 4). Nothing is
-/// changed and no runtime is contacted.
+/// Record `bundle`'s SHA-256 as one this installation confirmed writing, through the
+/// store accessor the runtime's `issuer.bundle_written` handler writes
+/// (`Txn::record_bundle_digest`; ADR-0008 §17.25 item 8). Seeded directly: the real path
+/// (`heimdall issuer bundle`) needs a running runtime, which this suite never starts.
+fn record_digest(db: &Path, bundle: &Path) {
+    let bytes = std::fs::read(bundle).unwrap();
+    let sha = heimdall_issuer::backup::sha256_hex(&bytes);
+    let created_at = serde_json::from_slice::<RecoveryBundle>(&bytes)
+        .unwrap()
+        .created_at;
+    let store = Store::open(db, Arc::new(NoFaults)).unwrap();
+    store
+        .transaction(|tx| tx.record_bundle_digest(&sha, created_at))
+        .unwrap();
+}
+
+/// `uninstall_purge_keeping_enrollments_requires_fresh_bundle` (F08; D4 item 6; §17.25
+/// item 8): a purge that keeps remote enrollments needs a fresh recovery bundle: by
+/// content (unredacted, created no earlier than the last enrollment or CA change, every
+/// CA and remaining enrollment in its current state) **and** by origin (its SHA-256 is
+/// one this installation recorded). A missing file, a file that is not a bundle, a stale
+/// one, a partial one, one with an enrollment in another state (each refused whether or
+/// not its digest is recorded), a hand-made one with a fresh content but no record, and
+/// a foreign one (the same content in other bytes, so another digest) are each
+/// `bundle_required` (exit 4); a redacted one is `bundle_redacted` (exit 4). A fresh,
+/// recorded bundle is accepted: the purge goes on to its own confirmation (exit 3 without
+/// a terminal), naming the bundle. Nothing is changed and no runtime is contacted.
 #[test]
 fn uninstall_purge_keeping_enrollments_requires_fresh_bundle() {
     let scratch = tempfile::tempdir().unwrap();
@@ -252,6 +353,49 @@ fn uninstall_purge_keeping_enrollments_requires_fresh_bundle() {
     // The last change is enrollment 2's (t0 + 2 s).
     let after = t0().checked_add(Duration::from_secs(60)).unwrap();
     let before_change = t0().checked_add(Duration::from_secs(1)).unwrap();
+
+    let bundle = |name: &str, at, records: &[EnrollmentRecord], redacted| {
+        let p = scratch.path().join(name);
+        write_bundle(&p, at, records, redacted);
+        p
+    };
+    let missing = scratch.path().join("missing.json");
+    let garbage = scratch.path().join("garbage.json");
+    std::fs::write(&garbage, b"{\"not\": \"a bundle\"}").unwrap();
+    let stale = bundle(
+        "stale.json",
+        before_change,
+        &[live.clone(), removed.clone()],
+        false,
+    );
+    let partial = bundle("partial.json", after, std::slice::from_ref(&removed), false);
+    let mut changed = live.clone();
+    changed.state = EnrollmentState::AppliedUnverified;
+    let wrong_state = bundle("wrong-state.json", after, &[changed], false);
+    let redacted = bundle(
+        "redacted.json",
+        after,
+        &[live.clone(), removed.clone()],
+        true,
+    );
+    // Fresh and complete by content, but made by hand (another `created_at`, so other
+    // bytes than any bundle this installation recorded).
+    let hand_made = bundle(
+        "hand-made.json",
+        after.checked_add(Duration::from_secs(1)).unwrap(),
+        &[live.clone(), removed.clone()],
+        false,
+    );
+    let fresh = bundle("fresh.json", after, &[live.clone(), removed.clone()], false);
+    // The same content as `fresh`, written by someone else: other bytes, another digest.
+    let foreign = scratch.path().join("foreign.json");
+    let parsed: RecoveryBundle = serde_json::from_slice(&std::fs::read(&fresh).unwrap()).unwrap();
+    std::fs::write(&foreign, serde_json::to_vec_pretty(&parsed).unwrap()).unwrap();
+    // Every file below is recorded except `hand_made` and `foreign`: the content check
+    // refuses the stale, partial, other-state and redacted ones whatever the record.
+    for b in [&stale, &partial, &wrong_state, &redacted, &fresh] {
+        record_digest(&db, b);
+    }
     let before = std::fs::read(&db).unwrap();
 
     let attempt = |bundle: &Path| {
@@ -281,78 +425,80 @@ fn uninstall_purge_keeping_enrollments_requires_fresh_bundle() {
         let message = out.message();
         assert!(message.contains(why), "{why}: {message}");
         assert!(message.contains("nothing was changed"), "{message}");
+        assert!(env["data"].get("bundle").is_none(), "{out:?}");
         no_runtime(&home, out);
     };
 
-    let missing = scratch.path().join("missing.json");
     refused(&attempt(&missing), "bundle_required", "cannot be read");
-
-    let garbage = scratch.path().join("garbage.json");
-    std::fs::write(&garbage, b"{\"not\": \"a bundle\"}").unwrap();
     refused(
         &attempt(&garbage),
         "bundle_required",
         "not a recovery bundle",
     );
-
-    let stale = scratch.path().join("stale.json");
-    write_bundle(
-        &stale,
-        before_change,
-        &[live.clone(), removed.clone()],
-        false,
-    );
     refused(
         &attempt(&stale),
         "bundle_required",
-        "predates the last enrollment change",
+        "predates the last enrollment or CA change",
     );
-
-    let partial = scratch.path().join("partial.json");
-    write_bundle(&partial, after, std::slice::from_ref(&removed), false);
     refused(
         &attempt(&partial),
         "bundle_required",
         "every remaining enrollment",
     );
-
-    let mut changed = live.clone();
-    changed.state = EnrollmentState::AppliedUnverified;
-    let wrong_state = scratch.path().join("wrong-state.json");
-    write_bundle(&wrong_state, after, &[changed], false);
     refused(
         &attempt(&wrong_state),
         "bundle_required",
         "every remaining enrollment",
     );
-
-    let redacted = scratch.path().join("redacted.json");
-    write_bundle(&redacted, after, &[live.clone(), removed.clone()], true);
     refused(&attempt(&redacted), "bundle_redacted", "redacted");
+    for unrecorded in [&hand_made, &foreign] {
+        refused(
+            &attempt(unrecorded),
+            "bundle_required",
+            "recorded no bundle with that SHA-256",
+        );
+    }
 
-    // Fresh and complete by content, but nothing records that this installation wrote it
-    // (U-Q1): still refused, fail closed.
-    let fresh = scratch.path().join("fresh.json");
-    write_bundle(&fresh, after, &[live.clone(), removed.clone()], false);
-    refused(
-        &attempt(&fresh),
-        "bundle_required",
-        "no record of writing that bundle",
+    // Fresh, complete and recorded: accepted; the purge stops at its own typed
+    // confirmation (no terminal here), naming the bundle that records what stays.
+    let out = attempt(&fresh);
+    assert_eq!(out.code, 3, "{out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "INTERACTION_REQUIRED", "{out:?}");
+    assert!(
+        out.message().contains("--purge-state not confirmed"),
+        "{out:?}"
     );
+    assert!(
+        env["data"]["bundle"]["path_display"]
+            .as_str()
+            .is_some_and(|p| p.ends_with("fresh.json")),
+        "{out:?}"
+    );
+    assert_eq!(markers(&out), vec![live.marker.clone()]);
+    assert_eq!(
+        env["data"]["store_items"][0]["markers"],
+        serde_json::json!([live.marker.clone()]),
+        "each live marker once: {out:?}"
+    );
+    no_runtime(&home, &out);
 
     assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
     assert!(
-        fresh.exists() && redacted.exists(),
+        fresh.exists() && redacted.exists() && foreign.exists(),
         "the bundles are left alone"
     );
 }
 
-/// `uninstall_states_store_item_fate` (F08; D4 item 6): the K_ca store item is kept,
-/// named with its reason, while an enrollment under its CA is not final; when every one
-/// is final, deletion is offered (`heimdall issuer retire <fingerprint>`, the retirement
-/// steps behind a typed confirmation) with the reminder to destroy the offline backup;
-/// an item whose locator was never recorded is kept (it cannot be deleted by exact
-/// identity). Stated in JSON and in the human text.
+/// `uninstall_states_store_item_fate` (F08; D4 item 6; §17.25 item 9): the K_ca store
+/// item is kept, named with its reason, while an enrollment under its CA is not final;
+/// when every one is final, deletion is offered (the retirement steps behind their typed
+/// confirmation, which uninstall runs inline before the runtime stops, or
+/// `heimdall issuer retire <fingerprint>`) with the reminder to destroy the offline
+/// backup; an item whose locator was never recorded is kept (it cannot be deleted by
+/// exact identity). Stated in JSON and in the human text. The inline run itself needs a
+/// terminal and a runtime, which this suite never starts: its gating and its call of the
+/// one retire entry are `uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal`.
 #[test]
 fn uninstall_states_store_item_fate() {
     let scratch = tempfile::tempdir().unwrap();
@@ -423,6 +569,7 @@ fn uninstall_states_store_item_fate() {
         LOCATOR,
         "run to `retired`",
         "typed yes",
+        "uninstall runs them before the runtime stops",
         "destroy the offline backup",
     ] {
         assert!(message.contains(needle), "{needle}: {message}");
@@ -683,60 +830,443 @@ fn doctor_reports_managed_dir_unsafe() {
     );
 }
 
-/// Seed an attended time confirmation for boot `boot`.
-fn seed_confirmation(home: &Path, boot: &str) {
+/// Seed an attended time confirmation at `at` (boot, continuous reading, wall time).
+fn seed_confirmation(home: &Path, at: &heimdall_domain::time::TimeAnchor) {
     let db = seed_state(home, &[]);
     let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
     store
         .transaction(|tx| {
             tx.set_time_confirmation(&AttendedTimeConfirmation {
-                boot_id: BootId(boot.to_owned()),
-                continuous: Duration::from_secs(60),
-                wall: t0(),
+                boot_id: at.boot_id.clone(),
+                continuous: at.continuous,
+                wall: at.wall,
                 decision: DecisionId::from_random_bytes([9; 16]),
             })
         })
         .unwrap();
 }
 
-/// The CLI half of `time_confirmation_after_reboot` (ADR-0008 D9 item 5; m03-plan U12;
-/// F14): after a reboot (the store's last time confirmation belongs to another boot) the
-/// bare `heimdall` without a terminal shows the pending chore with its one command,
-/// `heimdall time confirm`, even with no runtime running (it never starts one); in the
-/// confirmed boot it shows none.
+fn chores(out: &Out) -> Option<Vec<serde_json::Value>> {
+    out.json()["data"]["chores"].as_array().cloned()
+}
+
+/// `status_shows_time_confirmation_chore_after_reboot` (ADR-0008 D9 item 5, §17.25 item
+/// 12; m03-plan U12; F14): the chore is pending exactly when the time gate would refuse
+/// an issuance for lack of a time reference for this boot **and** an issuer CA is
+/// registered. After a reboot (the store's confirmation belongs to another boot) and in a
+/// never-confirmed store with a CA, the bare `heimdall` without a terminal shows it with
+/// its one command, `heimdall time confirm`, with no runtime running (it never starts
+/// one). A store with no CA shows none, and so does a store confirmed in this boot now
+/// (a same-boot reference the gate accepts).
 #[test]
 fn status_shows_time_confirmation_chore_after_reboot() {
+    use heimdall_domain::time::{BootId, Clock as _, TimeAnchor};
     let scratch = tempfile::tempdir().unwrap();
     let account = account(scratch.path());
+    let now = heimdall_runtime::platform::SystemClock::new().observe();
 
-    let home = scratch.path().join("rebooted");
-    seed_confirmation(&home, "boot-before-the-reboot");
-    let db = home.join("state").join("state.db");
-    let before = std::fs::read(&db).unwrap();
-    for args in [&["--json"][..], &["--json", "--non-interactive"][..]] {
-        let out = run(&home, &account, args, &[]);
-        let env = out.json();
-        let chores = env["data"]["chores"]
-            .as_array()
-            .unwrap_or_else(|| panic!("no chores: {out:?}"));
-        assert_eq!(chores.len(), 1, "{out:?}");
-        assert_eq!(chores[0]["chore"], "time_confirmation_after_reboot");
-        assert_eq!(chores[0]["command"], "heimdall time confirm");
-        assert!(
-            chores[0]["message"]
-                .as_str()
-                .unwrap()
-                .contains("`heimdall time confirm`"),
-            "{out:?}"
-        );
-        no_runtime(&home, &out);
+    let rebooted = scratch.path().join("rebooted");
+    seed_confirmation(
+        &rebooted,
+        &TimeAnchor {
+            boot_id: BootId("boot-before-the-reboot".into()),
+            ..now.clone()
+        },
+    );
+    let never = scratch.path().join("never-confirmed");
+    seed_state(&never, &[]);
+    for home in [&rebooted, &never] {
+        let db = home.join("state").join("state.db");
+        let before = std::fs::read(&db).unwrap();
+        for args in [&["--json"][..], &["--json", "--non-interactive"][..]] {
+            let out = run(home, &account, args, &[]);
+            let chores = chores(&out).unwrap_or_else(|| panic!("no chores: {out:?}"));
+            assert_eq!(chores.len(), 1, "{out:?}");
+            assert_eq!(chores[0]["chore"], "time_confirmation_after_reboot");
+            assert_eq!(chores[0]["command"], "heimdall time confirm");
+            assert!(
+                chores[0]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("`heimdall time confirm`"),
+                "{out:?}"
+            );
+            no_runtime(home, &out);
+        }
+        assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
     }
-    assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
 
-    // Confirmed in this boot: no chore.
-    let current = heimdall_runtime::platform::read_boot_id_uncached().unwrap();
-    let home = scratch.path().join("confirmed");
-    seed_confirmation(&home, &current);
-    let out = run(&home, &account, &["--json"], &[]);
-    assert!(out.json()["data"].get("chores").is_none(), "{out:?}");
+    // No CA registered (never confirmed): no chore.
+    let no_ca = scratch.path().join("no-ca");
+    std::fs::create_dir_all(no_ca.join("state")).unwrap();
+    drop(Store::open(&no_ca.join("state").join("state.db"), Arc::new(NoFaults)).unwrap());
+    let out = run(&no_ca, &account, &["--json"], &[]);
+    assert!(chores(&out).is_none(), "{out:?}");
+    no_runtime(&no_ca, &out);
+
+    // Confirmed in this boot, now: the gate has its reference, no chore.
+    let confirmed = scratch.path().join("confirmed");
+    seed_confirmation(&confirmed, &now);
+    let out = run(&confirmed, &account, &["--json"], &[]);
+    assert!(chores(&out).is_none(), "{out:?}");
+}
+
+/// Seed `home`'s store with this installation's environment and the `verified`
+/// enrollments `records` (the CA of [`seed_state`] included).
+fn seed_verified(home: &Path, records: &[EnrollmentRecord]) -> std::path::PathBuf {
+    let db = seed_state(home, &[]);
+    let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
+    store
+        .transaction(|tx| {
+            tx.init_self_environment(&environment())?;
+            for r in records {
+                tx.seed_enrollment(r)?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    db
+}
+
+fn environment() -> EnvironmentId {
+    EnvironmentId::from_random_bytes([7; 16])
+}
+
+/// A `verified` enrollment `n` whose evidence came from `operation`, fresh until
+/// `fresh_until` (no evidence when `None`).
+fn verified(n: u8, operation: &OperationId, fresh_until: Option<Timestamp>) -> EnrollmentRecord {
+    let mut r = enrollment(n, EnrollmentState::Verified);
+    r.verified_at = Some(t0());
+    r.evidence = fresh_until.map(|fresh_until| EnrollmentEvidence {
+        client: "OpenSSH_10.5p1".into(),
+        server: "OpenSSH_10.5p1".into(),
+        operation: operation.clone(),
+        verified_at: t0(),
+        fresh_until,
+        clock: None,
+    });
+    r
+}
+
+/// A far-future freshness bound.
+fn far() -> Timestamp {
+    "2100-01-01T00:00:00Z".parse().unwrap()
+}
+
+fn doctor_findings(home: &Path, account: &Path, code: &str) -> (Out, Vec<serde_json::Value>) {
+    let out = doctor(home, account);
+    let found = findings(&out, code);
+    (out, found)
+}
+
+/// `doctor_reports_enrollment_evidence_stale` (ADR-0008 §17.25 item 13; m03-plan §5
+/// item 14): each `verified` enrollment whose evidence is no longer fresh, or has none,
+/// is reported with the command that re-verifies it; a fresh one is not, and neither is
+/// an enrollment in another state. Read from the store read-only; `--redact` changes
+/// nothing in it (no host, user or alias name).
+#[test]
+fn doctor_reports_enrollment_evidence_stale() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = account(scratch.path());
+    let home = scratch.path().join("home");
+    let op = OperationId::from_random_bytes([3; 16]);
+    let expired = verified(1, &op, Some(t0()));
+    let none = verified(2, &op, None);
+    let fresh = verified(3, &op, Some(far()));
+    let mut held = verified(4, &op, Some(t0()));
+    held.state = EnrollmentState::Held;
+    let db = seed_verified(
+        &home,
+        &[expired.clone(), none.clone(), fresh.clone(), held.clone()],
+    );
+    let before = std::fs::read(&db).unwrap();
+    let (out, stale) = doctor_findings(&home, &account, "enrollment_evidence_stale");
+    let ids: Vec<&str> = stale
+        .iter()
+        .map(|f| f["subject"]["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec![expired.id.as_str(), none.id.as_str()], "{out:?}");
+    for f in &stale {
+        assert_eq!(f["severity"], "warning");
+        assert_eq!(f["subject"]["kind"], "enrollment");
+        assert_eq!(f["level"], "static");
+        assert_eq!(f["next"]["action"], "none");
+        let id = f["subject"]["id"].as_str().unwrap();
+        let message = f["message"].as_str().unwrap();
+        assert!(
+            message.contains(&format!("`heimdall enroll verify {id}`")),
+            "{message}"
+        );
+    }
+    let first = stale[0]["message"].as_str().unwrap();
+    assert!(first.contains(&expired.marker), "{first}");
+    assert!(first.contains("dst-lab1"), "{first}");
+    assert!(
+        first.contains("fresh until 2026-11-01T00:00:00Z"),
+        "{first}"
+    );
+    assert!(
+        stale[1]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no verification evidence is recorded"),
+        "{out:?}"
+    );
+    // `--redact` leaves these findings as they are (they carry no name to redact).
+    let ssh_home = account.to_string_lossy().into_owned();
+    let red = run(
+        &home,
+        &account,
+        &[
+            "--json",
+            "--non-interactive",
+            "doctor",
+            "--no-local-exec",
+            "--redact",
+        ],
+        &[("HEIMDALL_TEST_SSH_HOME", &ssh_home)],
+    );
+    assert_eq!(red.code, 0, "{red:?}");
+    assert_eq!(findings(&red, "enrollment_evidence_stale"), stale);
+    no_runtime(&home, &out);
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the doctor wrote nothing"
+    );
+}
+
+/// Append one enrollment event (`state`, by `operation`) for `r`.
+fn event(
+    tx: &mut heimdall_store::Txn<'_>,
+    r: &EnrollmentRecord,
+    state: EnrollmentState,
+    operation: &OperationId,
+) {
+    use heimdall_contract::SchemaVersion;
+    use heimdall_contract::envelope::ResourceRef;
+    use heimdall_contract::event::{Cursor, Event, EventType};
+    use heimdall_contract::ids::EventId;
+    tx.append_event(&Event {
+        schema_version: SchemaVersion::current(),
+        event_id: EventId::from_random_bytes([0; 16]),
+        event_type: EventType::Enrollment,
+        environment_id: environment(),
+        operation_id: Some(operation.clone()),
+        resource: Some(ResourceRef {
+            kind: "enrollment".into(),
+            id: Some(r.id.as_str().to_owned()),
+        }),
+        timestamp: t0(),
+        cursor: Cursor(String::new()),
+        payload: serde_json::json!({
+            "enrollment_id": r.id.as_str(),
+            "state": state,
+            "operation_id": operation.as_str(),
+        }),
+    })
+    .unwrap();
+}
+
+/// Insert a settled `enrollment.verify` operation `id` that failed with `reason`.
+fn failed_verify(tx: &mut heimdall_store::Txn<'_>, id: &OperationId, reason: &str) {
+    use heimdall_contract::OperationState;
+    use heimdall_contract::canonical::RequestHash;
+    use heimdall_contract::ids::RequestId;
+    use heimdall_domain::idempotency::{IdempotencyKey, IdempotencyRecord};
+    use heimdall_domain::operation::{
+        EffectClass, OperationKind, OperationRecord, RecoveryMetadata,
+    };
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    let key = IdempotencyKey {
+        caller: CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+        },
+        kind: OperationKind::EnrollmentVerify,
+        request_id: RequestId::parse(&format!("fixture_{}", id.as_str())).unwrap(),
+    };
+    let op = OperationRecord {
+        id: id.clone(),
+        kind: OperationKind::EnrollmentVerify,
+        environment: environment(),
+        key: key.clone(),
+        request_hash: RequestHash([5; 32]),
+        effect_class: EffectClass::Local,
+        state: OperationState::Failed,
+        code: Some(heimdall_contract::Code::CapabilityUnavailable),
+        effect_status: heimdall_contract::envelope::EffectStatus::None,
+        result: Some(serde_json::json!({"error": {
+            "code": "CAPABILITY_UNAVAILABLE",
+            "message": "the verification was inconclusive",
+            "reason": reason,
+        }})),
+        created_at: t0(),
+        updated_at: t0(),
+        cancellation: None,
+        recovery: RecoveryMetadata::default(),
+    };
+    tx.insert_operation(
+        &op,
+        &IdempotencyRecord {
+            key,
+            request_hash: op.request_hash,
+            operation_id: id.clone(),
+            created_at: t0(),
+            expires_at: Some(far()),
+        },
+    )
+    .unwrap();
+}
+
+/// `doctor_reports_reverification_inconclusive` (ADR-0008 §17.25 item 13; D5 §6.5): a
+/// `verified` enrollment whose last re-verification (`reverifying` then `verified`, one
+/// operation) kept its earlier evidence is reported, naming the operation, its reason
+/// and the command that tries again; one whose re-verification passed (its evidence is
+/// that operation's) is not, and neither is one never re-verified. Read from the store
+/// (the enrollment events and the operation), read-only.
+#[test]
+fn doctor_reports_reverification_inconclusive() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = account(scratch.path());
+    let home = scratch.path().join("home");
+    let first = OperationId::from_random_bytes([1; 16]);
+    let inconclusive_op = OperationId::from_random_bytes([2; 16]);
+    let passed_op = OperationId::from_random_bytes([4; 16]);
+    let kept = verified(1, &first, Some(far()));
+    let passed = verified(2, &passed_op, Some(far()));
+    let untouched = verified(3, &first, Some(far()));
+    let db = seed_verified(&home, &[kept.clone(), passed.clone(), untouched.clone()]);
+    let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
+    store
+        .transaction(|tx| {
+            for r in [&kept, &passed, &untouched] {
+                event(tx, r, EnrollmentState::Verifying, &first);
+                event(tx, r, EnrollmentState::Verified, &first);
+            }
+            failed_verify(tx, &inconclusive_op, "destination_clock_skew");
+            event(tx, &kept, EnrollmentState::Reverifying, &inconclusive_op);
+            event(tx, &kept, EnrollmentState::Verified, &inconclusive_op);
+            event(tx, &passed, EnrollmentState::Reverifying, &passed_op);
+            event(tx, &passed, EnrollmentState::Verified, &passed_op);
+            Ok(())
+        })
+        .unwrap();
+    drop(store);
+    let before = std::fs::read(&db).unwrap();
+    let (out, found) = doctor_findings(&home, &account, "reverification_inconclusive");
+    assert_eq!(found.len(), 1, "{out:?}");
+    let f = &found[0];
+    assert_eq!(f["subject"]["kind"], "enrollment");
+    assert_eq!(f["subject"]["id"], kept.id.as_str());
+    assert_eq!(f["severity"], "warning");
+    assert_eq!(f["next"]["action"], "none");
+    let message = f["message"].as_str().unwrap();
+    for needle in [
+        kept.marker.as_str(),
+        "dst-lab1",
+        inconclusive_op.as_str(),
+        "(destination_clock_skew)",
+        "stays verified",
+        "fresh until 2100-01-01T00:00:00Z",
+        &format!("`heimdall enroll verify {}`", kept.id.as_str()),
+    ] {
+        assert!(message.contains(needle), "{needle}: {message}");
+    }
+    assert!(
+        findings(&out, "enrollment_evidence_stale").is_empty(),
+        "{out:?}"
+    );
+    no_runtime(&home, &out);
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the doctor wrote nothing"
+    );
+}
+
+/// A scratch `PATH` directory whose `ssh` answers `-V` with `OpenSSH_<version>` (and
+/// exits 0 for anything else, contacting nothing).
+#[cfg(unix)]
+fn stub_ssh(dir: &Path, version: &str) -> String {
+    use std::os::unix::fs::PermissionsExt as _;
+    let bin = dir.join("bin");
+    dir_mode(&bin, 0o700);
+    let ssh = bin.join("ssh");
+    std::fs::write(
+        &ssh,
+        format!("#!/bin/sh\nif [ \"$1\" = \"-V\" ]; then\n  echo 'OpenSSH_{version}, LibreSSL 3.3.6' >&2\nfi\nexit 0\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    bin.to_string_lossy().into_owned()
+}
+
+/// `doctor_reports_client_trace_family_unrecorded` (ADR-0008 §17.25 item 13; D5 §6.5
+/// item 5): with an issuer CA registered, a selected `ssh` whose family and version have
+/// no row in `heimdall_enroll::trace::RECORDED` is reported, naming both
+/// (`portable 9.9p1`); a recorded one (`portable 10.5p1`) is not, nor is an
+/// installation with no CA. The version comes from the doctor's own contained `ssh -V`
+/// of a scratch stub. Unix only (a shell-script stub; the Windows family is
+/// `doctor_cmd::tests::client_trace_finding_names_an_unrecorded_family_and_version`).
+#[cfg(unix)]
+#[test]
+fn doctor_reports_client_trace_family_unrecorded() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = account(scratch.path());
+    let ssh_home = account.to_string_lossy().into_owned();
+    let doctor_with = |home: &Path, path: &str| {
+        let out = run(
+            home,
+            &account,
+            &["--json", "--non-interactive", "doctor"],
+            &[("HEIMDALL_TEST_SSH_HOME", &ssh_home), ("PATH", path)],
+        );
+        assert_eq!(out.code, 0, "{out:?}");
+        out
+    };
+    let home = scratch.path().join("home");
+    let db = seed_state(&home, &[]);
+    let before = std::fs::read(&db).unwrap();
+
+    let unrecorded = stub_ssh(&scratch.path().join("old"), "9.9p1");
+    let out = doctor_with(&home, &unrecorded);
+    let found = findings(&out, "client_trace_family_unrecorded");
+    assert_eq!(found.len(), 1, "{out:?}");
+    let f = &found[0];
+    assert_eq!(f["severity"], "problem");
+    assert_eq!(f["subject"]["kind"], "executable");
+    assert_eq!(f["subject"]["id"], "ssh");
+    assert_eq!(f["next"]["action"], "change_client");
+    let message = f["message"].as_str().unwrap();
+    assert!(message.contains("portable 9.9p1"), "{message}");
+    assert!(message.contains("inconclusive"), "{message}");
+    assert!(
+        message.contains("portable 10.5p1"),
+        "the recorded rows: {message}"
+    );
+    assert!(!message.contains(&unrecorded), "no path: {message}");
+
+    let recorded = stub_ssh(&scratch.path().join("new"), "10.5p1");
+    let out = doctor_with(&home, &recorded);
+    assert!(
+        findings(&out, "client_trace_family_unrecorded").is_empty(),
+        "{out:?}"
+    );
+
+    // No CA: managed certificates are not set up, so the trace row does not matter.
+    let no_ca = scratch.path().join("no-ca");
+    std::fs::create_dir_all(no_ca.join("state")).unwrap();
+    drop(Store::open(&no_ca.join("state").join("state.db"), Arc::new(NoFaults)).unwrap());
+    let out = doctor_with(&no_ca, &unrecorded);
+    assert!(
+        findings(&out, "client_trace_family_unrecorded").is_empty(),
+        "{out:?}"
+    );
+    no_runtime(&home, &out);
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the doctor wrote nothing"
+    );
 }

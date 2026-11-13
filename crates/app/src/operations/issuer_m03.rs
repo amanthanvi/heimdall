@@ -251,12 +251,36 @@ pub(crate) fn bundle_stale(
             .any(|(c, _)| c.created_at >= at || c.retired_at.is_some_and(|r| r >= at))
 }
 
-/// ⟨wave 5, Q-IS2; U10B-Q3 (b)⟩ Whether the runtime records `last_bundle_at` when it
-/// answers `issuer.bundle` (unredacted bundles only: a redacted one cannot serve foreign
-/// removal). `false`, the fail-closed reading while who records it is escalated: no
-/// bundle is ever recorded, so `bundle_stale` stays true whenever an enrollment exists
-/// (the runtime cannot know the CLI wrote the file).
-pub(crate) const RECORD_LAST_BUNDLE_AT_ON_REPLY: bool = false;
+/// ⟨ADR-0008 §17.25 item 8⟩ `issuer.bundle_written`'s record, in the caller's
+/// transaction: the CLI wrote and fsynced an unredacted bundle built at `created_at` whose
+/// exact bytes hash to `sha256`. Records the digest with its `created_at`
+/// (`Txn::record_bundle_digest`) and raises `last_bundle_at` to `created_at`; neither ever
+/// lowers. The path is never recorded. Refused, recording nothing: a digest that is not 64
+/// lowercase hex characters, or a `created_at` later than `now` (the runtime built the
+/// bundle with its own clock, so a later one is not a bundle it built).
+///
+/// Returns the recorded `last_bundle_at`.
+pub(crate) fn record_bundle_written(
+    tx: &mut Txn<'_>,
+    created_at: Timestamp,
+    sha256: &str,
+    now: Timestamp,
+) -> heimdall_store::Result<Result<Timestamp, OpError>> {
+    if !is_sha256_hex(sha256) {
+        return Ok(Err(OpError::new(
+            Code::UsageError,
+            "sha256 must be the lowercase hex SHA-256 of the written bundle's exact bytes",
+        )));
+    }
+    if created_at > now {
+        return Ok(Err(OpError::new(
+            Code::UsageError,
+            "created_at is later than this runtime's clock: it is not a bundle this runtime built",
+        )));
+    }
+    tx.record_bundle_digest(sha256, created_at)?;
+    Ok(Ok(tx.set_last_bundle_at(created_at)?))
+}
 
 /// Every registered CA with its recorded store items.
 type CasWithItems = Vec<(IssuerRecord, CaStoreItems)>;
@@ -561,6 +585,11 @@ impl Operations {
                 self.issuer_confirm_store_deletion(caller, issuer.as_ref(), ca_fingerprint, locator)
                     .await
             }
+            // ⟨ADR-0008 §17.25 item 8⟩ The CLI wrote and fsynced an unredacted bundle.
+            IssuerRequest::BundleWritten { created_at, sha256 } => {
+                self.issuer_bundle_written(issuer.as_ref(), created_at, sha256)
+                    .await
+            }
             _ => Err(OpError::new(
                 Code::UsageError,
                 "this issuer action is not supported by this runtime",
@@ -581,14 +610,25 @@ impl Operations {
         Ok(Completed::ok(Code::Ok, data))
     }
 
+    /// `issuer.bundle_written` ([`record_bundle_written`]), answered with the status
+    /// after it (its `bundle_stale` now measured from this bundle).
+    async fn issuer_bundle_written(
+        &self,
+        issuer: &dyn IssuerPort,
+        created_at: Timestamp,
+        sha256: String,
+    ) -> OpResult<serde_json::Value> {
+        let now = self.inner.config.clock.wall();
+        self.write(move |tx, _| record_bundle_written(tx, created_at, &sha256, now))
+            .await??;
+        self.issuer_status(issuer).await
+    }
+
     async fn issuer_bundle(&self, redact_hostnames: bool) -> OpResult<serde_json::Value> {
         let created_at = self.inner.config.clock.wall();
         let (cas, enrollments, aliases) = self
             .write(move |tx, _| {
                 let (cas, enrollments) = read_cas_and_enrollments(tx)?;
-                if RECORD_LAST_BUNDLE_AT_ON_REPLY && !redact_hostnames {
-                    tx.set_last_bundle_at(created_at)?;
-                }
                 let cas: Vec<IssuerRecord> = cas.into_iter().map(|(c, _)| c).collect();
                 let mut aliases = Vec::with_capacity(enrollments.len());
                 for e in &enrollments {
@@ -1388,9 +1428,47 @@ mod last_bundle_tests {
             .unwrap();
     }
 
-    /// The fail-closed switch is off: the runtime never records a bundle.
+    /// ⟨ADR-0008 §17.25 item 8⟩ `issuer.bundle_written` records the digest and raises
+    /// `last_bundle_at`, never lowering either; a malformed digest or a future
+    /// `created_at` records nothing.
     #[test]
-    fn the_runtime_does_not_record_bundles_while_q_is2_is_open() {
-        const { assert!(!RECORD_LAST_BUNDLE_AT_ON_REPLY) };
+    fn bundle_written_records_digest_and_last_bundle_at_never_lowered() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let (d1, d2) = ("ab".repeat(32), "cd".repeat(32));
+        store
+            .transaction(|tx| {
+                assert_eq!(
+                    record_bundle_written(tx, at(10), &d1, at(20))?.unwrap(),
+                    at(10)
+                );
+                assert_eq!(tx.last_bundle_at()?, Some(at(10)));
+                assert_eq!(tx.bundle_digest_recorded_at(&d1)?, Some(at(10)));
+                // An older bundle confirmed later: its digest is recorded, nothing lowers.
+                assert_eq!(
+                    record_bundle_written(tx, at(5), &d2, at(20))?.unwrap(),
+                    at(10)
+                );
+                assert_eq!(tx.bundle_digest_recorded_at(&d2)?, Some(at(5)));
+                assert_eq!(tx.last_bundle_at()?, Some(at(10)));
+                assert_eq!(
+                    record_bundle_written(tx, at(3), &d1, at(20))?.unwrap(),
+                    at(10)
+                );
+                assert_eq!(tx.bundle_digest_recorded_at(&d1)?, Some(at(10)));
+                // Refused, recording nothing.
+                let upper = "AB".repeat(32);
+                for (t, d) in [
+                    (at(12), upper.as_str()),
+                    (at(12), "ab"),
+                    (at(21), d1.as_str()),
+                ] {
+                    let e = record_bundle_written(tx, t, d, at(20))?.unwrap_err();
+                    assert_eq!(e.code, Code::UsageError);
+                }
+                assert_eq!(tx.last_bundle_at()?, Some(at(10)));
+                assert_eq!(tx.bundle_digest_recorded_at(&"ef".repeat(32))?, None);
+                Ok(())
+            })
+            .unwrap();
     }
 }

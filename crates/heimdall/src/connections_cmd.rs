@@ -10,11 +10,11 @@
 //!   before any signal; a process it cannot verify is **never signalled**, and this
 //!   command says so. What the runtime answers is shown, never improved on.
 //!
-//! **Exit status of an incomplete close** (questions heading A, Q-A1): the runtime
-//! answers `OK` with `state` `closed`, `closing` (the close is pending and retried) or
-//! `unverified`. `closed` exits 0. The other two did not do what was asked, so they
-//! exit non-zero (`unverified` 4, `closing` 5) while the envelope is the runtime's,
-//! unchanged. [`INCOMPLETE_CLOSE_IS_NONZERO`] is the switch.
+//! **Exit status** (ADR-0008 §17.25 item 16, Q-A1 (a)): the exit follows the envelope
+//! code, as ADR-0006 §5 maps it. The runtime answers `OK` with `state` `closed`,
+//! `closing` (the close is pending and retried) or `unverified`, and each exits 0. The
+//! human text says plainly when nothing was closed (`unverified`: identity not verified,
+//! nothing signalled; `closing`: still pending), and `--json` carries `state`.
 
 use heimdall_contract::ExitCode;
 use heimdall_contract::envelope::Envelope;
@@ -25,10 +25,6 @@ use heimdall_contract::request::{InspectRequest, InspectSubject, Request};
 use crate::cli::{ConnectionsArgs, ConnectionsCommand};
 use crate::client::Ctx;
 use crate::setup_cmd::{Outcome, block, session, usage};
-
-/// Whether a close that did not complete (`unverified`, `closing`) exits non-zero.
-/// `false` would exit 0 with the same envelope (the runtime's `OK`).
-pub(crate) const INCOMPLETE_CLOSE_IS_NONZERO: bool = true;
 
 /// Handle `connections`: no subcommand lists, `close <id>` closes.
 pub(crate) fn run(ctx: &Ctx, args: ConnectionsArgs) -> ExitCode {
@@ -124,7 +120,8 @@ async fn close(ctx: &Ctx, id: String) -> Outcome {
     close_outcome(env)
 }
 
-/// The outcome of a `Connections::Close` answer (module docs, "Exit status").
+/// The outcome of a `Connections::Close` answer (module docs, "Exit status"): the
+/// runtime's envelope and its exit, with a human sentence for its `state`.
 #[must_use]
 pub(crate) fn close_outcome(env: Envelope<serde_json::Value>) -> Outcome {
     if !env.code.is_success() {
@@ -138,33 +135,49 @@ pub(crate) fn close_outcome(env: Envelope<serde_json::Value>) -> Outcome {
             .to_owned()
     };
     let (id, kind, state) = (text("connection_id"), text("kind"), text("state"));
-    let (human, exit) = match state.as_str() {
-        "closed" => (format!("Closed owned connection {id} ({kind}).\n"), None),
-        "unverified" => (
-            format!(
-                "Connection {id} ({kind}) was not signalled: its process could not be verified as the ssh client Heimdall started, so Heimdall treats it as unmanaged and leaves it running.\n"
-            ),
-            Some(ExitCode::Denied),
+    let human = match state.as_str() {
+        "closed" => format!("Closed owned connection {id} ({kind}).\n"),
+        "unverified" => format!(
+            "Connection {id} ({kind}) was not closed: its identity was not verified, so nothing was signalled. Heimdall treats it as unmanaged and leaves it running.\n"
         ),
-        "closing" => (
-            format!(
-                "Connection {id} ({kind}) is being closed; Heimdall retries until it ends. Run `heimdall connections` to see whether it is gone.\n"
-            ),
-            Some(ExitCode::Unavailable),
+        "closing" => format!(
+            "Connection {id} ({kind}) is not closed yet: the close is still pending, and Heimdall retries until it ends. Run `heimdall connections` to see whether it is gone.\n"
         ),
         // A state this build does not know is not reported as closed.
-        other => (
-            format!(
-                "Connection {id} ({kind}): the runtime reports state {other:?}; it is not known to be closed.\n"
-            ),
-            Some(ExitCode::Unavailable),
+        other => format!(
+            "Connection {id} ({kind}): the runtime reports state {other:?}; it is not known to be closed.\n"
         ),
     };
-    let mut out = Outcome::of(env).with_human(human);
-    if let Some(exit) = exit
-        && INCOMPLETE_CLOSE_IS_NONZERO
-    {
-        out.exit = exit;
+    Outcome::of(env).with_human(human)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// ⟨§17.25 item 16⟩ A close the runtime answers `OK` exits 0 whatever its `state`,
+    /// with the runtime's envelope unchanged; the human text says when nothing was closed.
+    #[test]
+    fn close_exit_follows_the_envelope_code() {
+        for (state, says) in [
+            ("closed", "Closed owned connection"),
+            (
+                "unverified",
+                "was not closed: its identity was not verified, so nothing was signalled",
+            ),
+            ("closing", "is not closed yet: the close is still pending"),
+            ("future_state", "it is not known to be closed"),
+        ] {
+            let env = Envelope::ok(serde_json::json!({
+                "connection_id": "conn_x",
+                "kind": "dedicated",
+                "state": state,
+            }));
+            let out = close_outcome(env.clone());
+            assert_eq!(out.exit, ExitCode::Success, "{state}");
+            assert_eq!(out.env.data, env.data, "{state}");
+            assert!(out.human.contains(says), "{state}: {}", out.human);
+        }
     }
-    out
 }

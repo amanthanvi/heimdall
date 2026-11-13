@@ -12,7 +12,8 @@
 //! Docker cases are `#[ignore]`d and assert `HM_DOCKER_TESTS=1` first (brief §4): they
 //! need the M00-T03 fixtures from a clean `tests/fixtures/ssh/up.sh` (and `down.sh`
 //! after), or start their own shell containers. `test_ca_ceremony_captures_passphrase_
-//! only_from_pty` is not here: it needs U12's `issuer init` handler.
+//! only_from_pty` is not here: it runs through the real binary's `issuer init` in
+//! `e2e_cli_m03` (`issuer::test_ca_ceremony_captures_passphrase_only_from_pty`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 // The process cases need Unix (FIFOs, process groups, the host's OpenSSH): on Windows

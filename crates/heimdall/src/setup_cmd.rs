@@ -785,6 +785,7 @@ pub(crate) fn complete_repair(out: &mut Outcome, left: Result<Option<ConflictKin
         out.env.warnings.push(Warning {
             code: "repair_incomplete".to_owned(),
             message,
+            reason: None,
         });
     } else {
         out.human

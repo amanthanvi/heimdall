@@ -50,10 +50,18 @@
 //!   one (ADR-0008 D10 item 2, §17.4 item 12); and `managed_dir_unsafe` for each managed
 //!   directory under `<runtime_dir>/b/` or `<state_dir>/managed/` that is not owner-only
 //!   (§17.20 item 15), reported only, never repaired.
+//! * ⟨M03⟩ (ADR-0008 §17.25 item 13) From the store, read-only: `enrollment_evidence_stale`
+//!   for each `verified` enrollment whose evidence is no longer fresh, and
+//!   `reverification_inconclusive` for each whose last re-verification ended
+//!   inconclusive ([`enrollment_facts`]); and, where an issuer CA is registered,
+//!   `client_trace_family_unrecorded` when the selected `ssh`'s family and version have
+//!   no row in `heimdall_enroll::trace::RECORDED` ([`client_trace_finding`]).
 //! * ⟨M03⟩ [`pending_chores`] is the store-backed reader of the chores the CLI and the
 //!   TUI show: `time_confirmation_after_reboot` with its one command,
-//!   `heimdall time confirm` (ADR-0008 D9 item 5; m03-plan U12). [`with_status_chores`]
-//!   adds them to the bare `heimdall` status.
+//!   `heimdall time confirm`, pending exactly when the time gate would refuse an
+//!   issuance for lack of a time reference for this boot and an issuer CA is
+//!   registered (ADR-0008 D9 item 5, §17.25 item 12; [`time_confirmation_pending`]).
+//!   [`with_status_chores`] adds them to the bare `heimdall` status.
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -174,6 +182,13 @@ pub(crate) async fn doctor<P: Prompter>(
     if request.levels.contains(&ProbeLevel::Agent) {
         record_lapses(ctx, &mut report).await;
     }
+    // ⟨ADR-0008 §17.25 item 13⟩ Only where managed certificates are set up (an issuer CA
+    // is registered) does the trace row matter: enrollment verification reads it.
+    if let Some(f) = client_trace_finding(&report, local.platform.is_windows())
+        && ca_registered(ctx)
+    {
+        report.findings.push(f);
+    }
     let value = serde_json::to_value(&report).unwrap_or_default();
     let human = output::render_doctor(&value);
     let mut env = Envelope::ok(value);
@@ -185,6 +200,7 @@ pub(crate) async fn doctor<P: Prompter>(
         env.warnings.push(Warning {
             code: output::INVENTORY_WARNING.to_owned(),
             message: output::INVENTORY_HEADING.to_owned(),
+            reason: None,
         });
     }
     Outcome::of(env).with_human(human)
@@ -595,7 +611,129 @@ pub(crate) fn managed_facts(ctx: &Ctx) -> ManagedFacts {
         ];
     }
     facts.free_slots = free_slots(ctx);
+    let (stale, inconclusive) = enrollment_facts(ctx, Timestamp::now());
+    facts.stale_evidence = stale;
+    facts.inconclusive_reverifications = inconclusive;
     facts
+}
+
+/// The error reasons a re-verification that ended inconclusive settles with
+/// (`enrollment_m03::verify::verdict_error` for an `Inconclusive` verdict).
+const INCONCLUSIVE_REASONS: [&str; 3] = [
+    heimdall_contract::envelope::reason::VERIFICATION_INCONCLUSIVE,
+    heimdall_contract::envelope::reason::DESTINATION_CLOCK_SKEW,
+    heimdall_contract::envelope::reason::CA_NOT_HELD,
+];
+
+/// ⟨ADR-0008 §17.25 item 13⟩ The `verified` enrollments the doctor reports, read from
+/// the store read-only, at wall time `now`:
+/// * **stale evidence** (`enrollment_evidence_stale`): the record's evidence is fresh
+///   until `now` or earlier, or none is recorded;
+/// * **an inconclusive re-verification** (`reverification_inconclusive`): its last two
+///   enrollment events are `reverifying` then `verified`, both by one operation, and
+///   the record's evidence is not that operation's. A re-verification that passed
+///   records its own evidence; one that ended inconclusive returns to `verified` with
+///   the earlier evidence unchanged (D5 §6.5). The reason is the operation's error
+///   reason, while the operation is still recorded. Events trimmed by retention leave
+///   nothing to report.
+///
+/// Both lists are empty when the store cannot be read.
+fn enrollment_facts(
+    ctx: &Ctx,
+    now: Timestamp,
+) -> (
+    Vec<heimdall_localenv::doctor::EnrollmentFact>,
+    Vec<heimdall_localenv::doctor::EnrollmentFact>,
+) {
+    let Ok(store) = open_store(ctx) else {
+        return (Vec::new(), Vec::new());
+    };
+    store
+        .transaction(|tx| enrollment_facts_in(tx, now))
+        .unwrap_or_default()
+}
+
+/// [`enrollment_facts`] inside one read transaction.
+#[allow(clippy::type_complexity)]
+fn enrollment_facts_in(
+    tx: &mut heimdall_store::Txn<'_>,
+    now: Timestamp,
+) -> heimdall_store::Result<(
+    Vec<heimdall_localenv::doctor::EnrollmentFact>,
+    Vec<heimdall_localenv::doctor::EnrollmentFact>,
+)> {
+    use heimdall_contract::enrollment::EnrollmentState;
+    use heimdall_contract::event::{EventFilter, EventType};
+    use heimdall_contract::ids::{EnrollmentId, OperationId};
+    use heimdall_contract::managed::EnrollmentEventPayload;
+    use heimdall_localenv::doctor::EnrollmentFact;
+    use std::collections::BTreeMap;
+
+    let mut verified = Vec::new();
+    for issuer in tx.issuers()? {
+        for r in tx.enrollments_for_ca(&issuer.ca_fingerprint)? {
+            if r.state == EnrollmentState::Verified {
+                verified.push(r);
+            }
+        }
+    }
+    if verified.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    // The last two (state, operation) events of each enrollment, oldest first.
+    type Step = (EnrollmentState, Option<OperationId>);
+    let mut last: BTreeMap<EnrollmentId, (Option<Step>, Option<Step>)> = BTreeMap::new();
+    if let Some(environment) = tx.self_environment()? {
+        let filter = EventFilter {
+            operation_id: None,
+            types: vec![EventType::Enrollment],
+        };
+        let mut after = 0;
+        loop {
+            let page = tx.stored_events_after(&environment, after, &filter, 500)?;
+            let Some(tail) = page.events.last() else {
+                break;
+            };
+            after = tail.seq;
+            for e in page.events {
+                if let Ok(p) = serde_json::from_value::<EnrollmentEventPayload>(e.event.payload) {
+                    let entry = last.entry(p.enrollment_id).or_default();
+                    *entry = (entry.1.take(), Some((p.state, p.operation_id)));
+                }
+            }
+        }
+    }
+    let mut stale = Vec::new();
+    let mut inconclusive = Vec::new();
+    for r in verified {
+        let fresh_until = r.evidence.as_ref().map(|e| e.fresh_until);
+        let fact = |operation: Option<OperationId>, reason: Option<String>| EnrollmentFact {
+            enrollment: r.id.clone(),
+            marker: r.marker.clone(),
+            destination: r.destination.clone(),
+            fresh_until,
+            operation,
+            reason,
+        };
+        if fresh_until.is_none_or(|t| t <= now) {
+            stale.push(fact(None, None));
+        }
+        if let Some((
+            Some((EnrollmentState::Reverifying, Some(started))),
+            Some((EnrollmentState::Verified, Some(ended))),
+        )) = last.get(&r.id)
+            && started == ended
+            && r.evidence.as_ref().is_none_or(|e| e.operation != *ended)
+        {
+            let reason = tx
+                .operation(ended)?
+                .and_then(|o| o.result)
+                .and_then(|v| v["error"]["reason"].as_str().map(str::to_owned))
+                .filter(|r| INCONCLUSIVE_REASONS.contains(&r.as_str()));
+            inconclusive.push(fact(Some(ended.clone()), reason));
+        }
+    }
+    Ok((stale, inconclusive))
 }
 
 /// Every managed alias whose pair prefers managed certificates, whose projection is
@@ -659,42 +797,123 @@ pub(crate) struct PendingChore {
     pub(crate) message: String,
 }
 
-/// Whether the attended time confirmation is owed after a reboot (ADR-0008 D9 item 5,
-/// §17.1 item 17): the store holds a time reference (the runtime anchor or an attended
-/// confirmation) from an earlier boot, and none for `current`. Time synchronization is
-/// not trusted in M03 (Q13), so only a same-boot reference lets the time gate pass
-/// (`heimdall_domain::time::gate`, `authorize.rs`'s boot filter).
-pub(crate) fn time_confirmation_pending(
-    confirmation: Option<&heimdall_domain::time::AttendedTimeConfirmation>,
-    anchor: Option<&heimdall_domain::time::TimeAnchor>,
-    current: &heimdall_domain::time::BootId,
-) -> bool {
-    let this_boot = confirmation.is_some_and(|c| c.boot_id == *current)
-        || anchor.is_some_and(|a| a.boot_id == *current);
-    let earlier = confirmation.is_some() || anchor.is_some();
-    earlier && !this_boot
+/// ⟨ADR-0008 §17.25 item 13⟩ `client_trace_family_unrecorded`: the selected `ssh`'s
+/// version (the static level's local query; none under `--no-local-exec`), in the
+/// release family the runtime's Verifier gives it (Win32-OpenSSH on Windows, portable
+/// elsewhere), has no recorded row in `heimdall_enroll::trace::RECORDED`
+/// (`patterns_for`), so every verification with it ends inconclusive. Names the family
+/// and the version; it carries no path or host name, so `--redact` changes nothing.
+pub(crate) fn client_trace_finding(report: &DoctorReport, windows: bool) -> Option<Finding> {
+    use heimdall_contract::request::ConsumerKind;
+    use heimdall_enroll::trace::{ClientFamily, ClientVersion, RECORDED, patterns_for};
+    let ssh = report
+        .clients
+        .iter()
+        .find(|c| c.consumer == ConsumerKind::Ssh && c.selected)?;
+    let parsed = ClientVersion::parse(ssh.version.as_deref()?)?;
+    let family = if windows {
+        ClientFamily::Win32
+    } else {
+        ClientFamily::Portable
+    };
+    let unrecorded = patterns_for(family, ClientVersion { family, ..parsed }).err()?;
+    let recorded: Vec<String> = RECORDED
+        .iter()
+        .map(|p| {
+            if p.from == p.to {
+                format!("{} {}", p.family.as_str(), p.from)
+            } else {
+                format!("{} {} to {}", p.family.as_str(), p.from, p.to)
+            }
+        })
+        .collect();
+    Some(Finding {
+        code: finding::CLIENT_TRACE_FAMILY_UNRECORDED.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "executable".to_owned(),
+            id: Some("ssh".to_owned()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "the selected ssh is {}: no client trace is recorded for that family and version, so every enrollment verification with it ends inconclusive; recorded: {}",
+            unrecorded.detail(),
+            recorded.join(", ")
+        ),
+        next: NextAction {
+            action: "change_client".to_owned(),
+            ..NextAction::default()
+        },
+        reason: None,
+    })
 }
 
-/// The pending chores, read from the store read-only (the runtime is never started) and
-/// this boot's ID. Empty when the store cannot be read.
+/// Whether `time_confirmation_after_reboot` is pending (ADR-0008 §17.25 item 12): the
+/// time gate's verdict `status` refuses for lack of a time reference for this boot
+/// (`Unsynchronized`: no same-boot runtime anchor or attended confirmation, and time
+/// synchronization is not trusted in M03, Q13), **and** an issuer CA is registered. A
+/// never-confirmed store is therefore included; a store with no CA, a clock below the
+/// high-water mark (a rollback that no confirmation clears) and a same-boot skew are
+/// not this chore.
+pub(crate) fn time_confirmation_pending(
+    status: &heimdall_domain::time::TimeStatus,
+    ca_registered: bool,
+) -> bool {
+    use heimdall_domain::time::{TimeStatus, TimeUncertainty};
+    ca_registered
+        && matches!(
+            status,
+            TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { .. })
+        )
+}
+
+/// Whether an issuer CA is registered: one that is neither `deleted` nor `retired`.
+fn ca_registered_in(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<bool> {
+    use heimdall_contract::issuer::CaState;
+    Ok(tx
+        .issuers()?
+        .iter()
+        .any(|i| !matches!(i.state, CaState::Deleted | CaState::Retired)))
+}
+
+/// Whether an issuer CA is registered in the store, read read-only (`false` when the
+/// store cannot be read).
+fn ca_registered(ctx: &Ctx) -> bool {
+    open_store(ctx)
+        .and_then(|s| s.transaction(ca_registered_in).map_err(|e| e.to_string()))
+        .unwrap_or(false)
+}
+
+/// The pending chores, read from the store read-only (the runtime is never started).
+/// The time chore asks the time gate itself (`heimdall_app::TimeGate`'s read-only
+/// assessment, the one an issuance uses) over this process's clock: nothing is
+/// persisted. Empty when the store cannot be read.
 pub(crate) fn pending_chores(ctx: &Ctx) -> Vec<PendingChore> {
-    use heimdall_domain::time::Clock as _;
+    use std::sync::Arc;
     let Ok(store) = open_store(ctx) else {
         return Vec::new();
     };
-    let Ok((confirmation, anchor)) =
-        store.transaction(|tx| Ok((tx.time_confirmation()?, tx.runtime_anchor()?)))
-    else {
+    let store = Arc::new(store);
+    let gate = heimdall_app::TimeGate::new(
+        Arc::clone(&store),
+        Arc::new(heimdall_runtime::platform::SystemClock::new()),
+        Arc::new(heimdall_runtime::platform::SystemTimeSync),
+        heimdall_domain::time::TimePolicy::default(),
+    );
+    let Ok((status, ca)) = store.transaction(|tx| {
+        let (_, status) = gate.assess_read_only_in(tx)?;
+        Ok((status, ca_registered_in(tx)?))
+    }) else {
         return Vec::new();
     };
-    let current = heimdall_runtime::platform::SystemClock.boot_id();
     let mut out = Vec::new();
-    if time_confirmation_pending(confirmation.as_ref(), anchor.as_ref(), &current) {
+    if time_confirmation_pending(&status, ca) {
         out.push(PendingChore {
             chore: TIME_CONFIRMATION_CHORE,
             command: TIME_CONFIRM_COMMAND,
             message: format!(
-                "this machine restarted since its time was last trusted; managed issuance waits until you confirm the time once, attended: run `{TIME_CONFIRM_COMMAND}`"
+                "this machine's time has no trusted reference for this boot (it restarted, or the time was never confirmed); managed issuance waits until you confirm the time once, attended: run `{TIME_CONFIRM_COMMAND}`"
             ),
         });
     }
@@ -1094,46 +1313,109 @@ mod tests {
         }
     }
 
-    /// ADR-0008 D9 item 5 (F14): the time confirmation is owed after a reboot exactly
-    /// when the store's time references all belong to earlier boots.
+    /// ADR-0008 §17.25 item 12: the chore follows the time gate's verdict. Pending only
+    /// for `Unsynchronized` (no time reference for this boot) with a CA registered;
+    /// never for a safe time, a rollback below the mark, a skew, or without a CA. The
+    /// verdicts come from the gate itself.
     #[test]
-    fn time_confirmation_is_pending_only_after_a_reboot() {
-        use heimdall_domain::time::{AttendedTimeConfirmation, BootId, TimeAnchor};
-        let now = BootId("boot-now".into());
-        let before = BootId("boot-before".into());
+    fn time_confirmation_is_pending_exactly_when_the_gate_lacks_a_reference() {
+        use heimdall_domain::time::{
+            AttendedTimeConfirmation, BootId, GateInput, SyncStatus, TimeAnchor, TimePolicy, gate,
+        };
         let wall: Timestamp = "2026-11-01T00:00:00Z".parse().unwrap_or_else(|_| panic!());
-        let conf = |b: &BootId| AttendedTimeConfirmation {
-            boot_id: b.clone(),
-            continuous: std::time::Duration::from_secs(1),
+        let later: Timestamp = "2026-11-01T01:00:00Z".parse().unwrap_or_else(|_| panic!());
+        let now = TimeAnchor {
+            boot_id: BootId("boot-now".into()),
+            continuous: std::time::Duration::from_secs(10),
+            wall,
+        };
+        let policy = TimePolicy::default();
+        let input = |previous, high_water, confirmation| GateInput {
+            previous,
+            high_water,
+            now: &now,
+            sync: SyncStatus::Unknown,
+            confirmation,
+            policy: &policy,
+        };
+        let before = TimeAnchor {
+            boot_id: BootId("boot-before".into()),
+            ..now.clone()
+        };
+        let confirmed = AttendedTimeConfirmation {
+            boot_id: now.boot_id.clone(),
+            continuous: now.continuous,
             wall,
             decision: heimdall_contract::ids::DecisionId::from_random_bytes([1; 16]),
         };
-        let anchor = |b: &BootId| TimeAnchor {
-            boot_id: b.clone(),
-            continuous: std::time::Duration::from_secs(1),
-            wall,
+        let skewed = TimeAnchor {
+            continuous: std::time::Duration::from_secs(9),
+            wall: later,
+            ..now.clone()
         };
-        assert!(
-            !time_confirmation_pending(None, None, &now),
-            "nothing recorded: no reboot"
-        );
-        assert!(time_confirmation_pending(Some(&conf(&before)), None, &now));
-        assert!(time_confirmation_pending(
-            None,
-            Some(&anchor(&before)),
-            &now
-        ));
-        assert!(time_confirmation_pending(
-            Some(&conf(&before)),
-            Some(&anchor(&before)),
-            &now
-        ));
-        assert!(!time_confirmation_pending(Some(&conf(&now)), None, &now));
-        assert!(!time_confirmation_pending(
-            Some(&conf(&before)),
-            Some(&anchor(&now)),
-            &now
-        ));
+        // Never confirmed, and after a reboot: no reference for this boot.
+        for status in [
+            gate(&input(None, None, None)),
+            gate(&input(Some(&before), None, None)),
+        ] {
+            assert!(time_confirmation_pending(&status, true), "{status:?}");
+            assert!(
+                !time_confirmation_pending(&status, false),
+                "no CA: {status:?}"
+            );
+        }
+        // Confirmed in this boot, a rollback below the mark, a same-boot skew: not it.
+        for status in [
+            gate(&input(None, None, Some(&confirmed))),
+            gate(&input(Some(&before), Some(later), None)),
+            gate(&input(Some(&skewed), None, None)),
+        ] {
+            assert!(!time_confirmation_pending(&status, true), "{status:?}");
+        }
+    }
+
+    /// §17.25 item 13: an unrecorded family or version is named; a recorded one, no
+    /// local query (no version) and no selected ssh give nothing.
+    #[test]
+    fn client_trace_finding_names_an_unrecorded_family_and_version() {
+        use heimdall_contract::doctor::{ClientObservation, ClientSource};
+        use heimdall_contract::request::ConsumerKind;
+        let report = |version: Option<&str>, selected: bool| DoctorReport {
+            levels_performed: BTreeSet::new(),
+            levels_declined: BTreeSet::new(),
+            clients: vec![ClientObservation {
+                consumer: ConsumerKind::Ssh,
+                path_display: "/usr/bin/ssh".into(),
+                source: ClientSource::Path,
+                version: version.map(str::to_owned),
+                sha256: None,
+                selected,
+            }],
+            config_files: Vec::new(),
+            aliases: Vec::new(),
+            providers: Vec::new(),
+            projection: None,
+            git: None,
+            findings: Vec::new(),
+            probes: Vec::new(),
+        };
+        let f = client_trace_finding(&report(Some("OpenSSH_9.9p1"), true), false)
+            .unwrap_or_else(|| panic!("unrecorded"));
+        assert_eq!(f.code, finding::CLIENT_TRACE_FAMILY_UNRECORDED);
+        assert_eq!(f.severity, FindingSeverity::Problem);
+        assert_eq!(f.subject.id.as_deref(), Some("ssh"));
+        assert_eq!(f.next.action, "change_client");
+        assert!(f.message.contains("portable 9.9p1"), "{}", f.message);
+        assert!(!f.message.contains("/usr/bin"), "{}", f.message);
+        // The same version on Windows is the Win32 family.
+        let w = client_trace_finding(&report(Some("OpenSSH_9.9p1"), true), true)
+            .unwrap_or_else(|| panic!("unrecorded"));
+        assert!(w.message.contains("win32 9.9p1"), "{}", w.message);
+        // Recorded rows: portable 10.5p1 and 9.6p1, win32 9.5p2.
+        assert!(client_trace_finding(&report(Some("OpenSSH_10.5p1"), true), false).is_none());
+        assert!(client_trace_finding(&report(Some("OpenSSH_9.5p2"), true), true).is_none());
+        assert!(client_trace_finding(&report(None, true), false).is_none());
+        assert!(client_trace_finding(&report(Some("OpenSSH_9.9p1"), false), false).is_none());
     }
 
     /// The chores are added only when pending; an error envelope's message names the

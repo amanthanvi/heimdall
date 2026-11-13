@@ -794,6 +794,7 @@ impl Core {
                 overrides,
                 pairs: details.iter().map(|d| d.pair.clone()).collect(),
             },
+            managed: None,
         };
         Ok(Prepared {
             outcome,

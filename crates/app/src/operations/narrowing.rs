@@ -315,6 +315,10 @@ pub(super) struct NarrowingState {
     /// it (`Operations::set_session_lock_signal`); otherwise the platform's
     /// (`LockSignal::of_platform`).
     pub(super) lock_signal: RwLock<Option<crate::lock::LockSignal>>,
+    /// ⟨M03; ADR-0008 §17.25 item 19⟩ The runtime's D8 wording source
+    /// (`Operations::set_connection_wording`); none: `inspect destinations` reports no
+    /// `preference.connection_policy`.
+    pub(super) connection_wording: RwLock<Option<Arc<dyn super::ConnectionWording>>>,
 }
 
 #[derive(Debug, Clone, Default)]

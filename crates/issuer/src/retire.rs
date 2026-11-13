@@ -47,7 +47,13 @@ use heimdall_contract::ids::{CaFingerprint, EnrollmentId};
 use heimdall_contract::issuer::{CaState, StoreKind};
 use heimdall_domain::issuance::{CaEvent, ca_transition};
 
-use crate::store::{SecretStore, StoreError, StoreItemRef};
+use crate::store::{SecretStore, SecretStoreKind, StoreError, StoreItemRef};
+
+/// ⟨ADR-0008 §17.25 item 7 (d)⟩ Whether [`delete_awaiting`] deletes a test-configuration
+/// store's item by its exact locator: debug builds only (`cfg!(debug_assertions)`). A
+/// release build never selects a test store (every `HEIMDALL_TEST_*` variable is refused
+/// first), and refuses one here too.
+pub const TEST_STORE_DELETION: bool = cfg!(debug_assertions);
 
 /// A retirement step's failure (nonsecret).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -234,10 +240,17 @@ pub fn delete_recorded<S: SecretStore + ?Sized>(
 /// finds that locator (an item already absent counts as deleted); the CLI then sends
 /// `issuer.retire` with `deleted_locator: locator`.
 ///
-/// Refused, deleting nothing: `store` is not this store's product kind (another store,
-/// or a test-configuration store, S3), an empty locator, or a store listing that shows
-/// `locator` holding **another** CA ([`RetireError::LocatorMismatch`]). Items of `ca`
-/// under other locators (another installation's) are never touched.
+/// Refused, deleting nothing: `store` is not this store's product kind (another store),
+/// an empty locator, or a store listing that shows `locator` holding **another** CA
+/// ([`RetireError::LocatorMismatch`]). Items of `ca` under other locators (another
+/// installation's) are never touched.
+///
+/// ⟨ADR-0008 §17.25 item 7 (d)⟩ **Debug builds only**, a test-configuration store (a
+/// [`SecretStoreKind::Test`] kind: the testkit's scratch store, which only a
+/// test-configured debug build selects) is deleted by the same exact-locator rule,
+/// whatever product kind its CA's record names (a test kind is never on the wire, so the
+/// record names a stand-in). That proves the R2B order where no disposable product store
+/// exists (Linux). A release build refuses a test kind ([`TEST_STORE_DELETION`]).
 ///
 /// # Errors
 /// [`RetireError::LocatorMismatch`] as above; [`RetireError::Store`] when the store
@@ -249,7 +262,11 @@ pub fn delete_awaiting<S: SecretStore + ?Sized>(
     locator: &str,
 ) -> Result<(), RetireError> {
     let kind = secret_store.kind();
-    if kind.product() != Some(store) || locator.is_empty() {
+    let kind_matches = match kind {
+        SecretStoreKind::Product(k) => k == store,
+        SecretStoreKind::Test(_) => TEST_STORE_DELETION,
+    };
+    if !kind_matches || locator.is_empty() {
         return Err(RetireError::LocatorMismatch);
     }
     let listed = secret_store.list().map_err(RetireError::Store)?;
@@ -330,5 +347,92 @@ pub fn uninstall_store_plan(enrollments: &[EnrollmentView], item: &StoreItemRef)
         StoreFate::OfferDelete
     } else {
         StoreFate::Keep(KeepReason::LiveEnrollments(live))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+    use crate::store::StoreAvailability;
+    use heimdall_credential::cert::SecretCaKey;
+
+    /// A test-configuration store in memory (a `SecretStoreKind::Test` kind, like the
+    /// testkit's scratch store, which this crate's unit tests cannot name).
+    #[derive(Default)]
+    struct TestKindStore(Mutex<Vec<StoreItemRef>>);
+
+    impl SecretStore for TestKindStore {
+        fn kind(&self) -> SecretStoreKind {
+            SecretStoreKind::Test("unit_test")
+        }
+        fn availability(&self) -> StoreAvailability {
+            StoreAvailability::Available
+        }
+        fn put(&self, fp: &CaFingerprint, _key: &SecretCaKey) -> Result<StoreItemRef, StoreError> {
+            let item = StoreItemRef {
+                kind: self.kind(),
+                fingerprint: fp.clone(),
+                locator: format!("unit/{}", fp.as_str()),
+            };
+            self.0.lock().unwrap().push(item.clone());
+            Ok(item)
+        }
+        fn get(&self, _fp: &CaFingerprint) -> Result<SecretCaKey, StoreError> {
+            Err(StoreError::NotFound)
+        }
+        fn delete(&self, item: &StoreItemRef) -> Result<(), StoreError> {
+            let mut items = self.0.lock().unwrap();
+            let before = items.len();
+            items.retain(|i| i != item);
+            if items.len() == before {
+                Err(StoreError::NotFound)
+            } else {
+                Ok(())
+            }
+        }
+        fn list(&self) -> Result<Vec<StoreItemRef>, StoreError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+    }
+    /// ⟨ADR-0008 §17.25 item 7 (d)⟩ In a debug build a test-configuration store's item is
+    /// deleted by its exact recorded locator (whatever stand-in product kind the record
+    /// names), and only that item; a locator holding another CA and an empty locator are
+    /// refused with nothing deleted. A release build refuses the test kind outright.
+    #[test]
+    fn test_store_item_deleted_by_exact_locator_in_debug_builds_only() {
+        let store = TestKindStore::default();
+        let (k1, k2) = (
+            SecretCaKey::generate().unwrap(),
+            SecretCaKey::generate().unwrap(),
+        );
+        let (f1, f2) = (k1.fingerprint().unwrap(), k2.fingerprint().unwrap());
+        let i1 = store.put(&f1, &k1).unwrap();
+        let i2 = store.put(&f2, &k2).unwrap();
+        assert!(matches!(store.kind(), SecretStoreKind::Test(_)));
+        let kind = StoreKind::LinuxSecretService;
+        // Another CA's locator, and an empty one: refused, nothing deleted.
+        assert_eq!(
+            delete_awaiting(&store, &f1, kind, &i2.locator),
+            Err(RetireError::LocatorMismatch)
+        );
+        assert_eq!(
+            delete_awaiting(&store, &f1, kind, ""),
+            Err(RetireError::LocatorMismatch)
+        );
+        assert_eq!(store.list().unwrap().len(), 2);
+        let got = delete_awaiting(&store, &f1, kind, &i1.locator);
+        if cfg!(debug_assertions) {
+            const { assert!(TEST_STORE_DELETION) };
+            assert_eq!(got, Ok(()));
+            assert_eq!(store.list().unwrap(), vec![i2.clone()], "only i1 went");
+            // Again: an absent item counts as deleted.
+            assert_eq!(delete_awaiting(&store, &f1, kind, &i1.locator), Ok(()));
+        } else {
+            assert_eq!(got, Err(RetireError::LocatorMismatch));
+            assert_eq!(store.list().unwrap().len(), 2);
+        }
     }
 }

@@ -1,7 +1,7 @@
 Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
-[!!] ┌Owner decision dec_enroll1 (enroll_account)─────────────────────────────────────────────────────────────────┐
+[!!] ┌Owner decision dec_enroll1 (enroll_account, read-only)──────────────────────────────────────────────────────┐
 Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
-Stati│Exactly what approve applies to:                                                                            │
+Stati│Exactly what deny applies to:                                                                               │
 > [!!│Plan: enroll fixture at alpha (dst-alpha), account form, under CA                                           │stopp
   [!!│SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA                                                          │
   [!!│Registry ~/.ssh/authorized_keys (resolved by remote_home) · line SHA-256                                    │
@@ -14,11 +14,14 @@ Stati│Exactly what approve applies to:                                        
   [ i│Host trust: ~/.ssh/known_hosts:3                                                                            │needs
      │Bootstrap step: none                                                                                        │
      │Disclosures:                                                                                                │
-     │  * ca_trust_blast_radius: [text not available in the TUI]                                                  │
-     │  * Lock disclosure (shown once; recorded when you approve):                                                │
-     │    [text not available in the TUI]                                                                         │
-     │[!!] Approve is not offered here: the TUI cannot show the text of ca_trust_blast_radius,                    │
-     │lock_continuity_once; approve it where its disclosures are shown (the CLI), or deny it here                 │
+     │  * ca_trust_blast_radius: Every account you enroll will trust this CA: whoever holds its key can reach all │
+     │    of them.                                                                                                │
+     │  * Lock disclosure (shown once; recorded when the decision is approved):                                   │
+     │    Managed signing continues while your desktop is locked, within each grant's deadline, unless a policy or│
+     │      your configuration ends work at a lock.                                                               │
+     │[!!] Read-only in the TUI: this decision is approved only in the CLI, on the terminal that runs `heimdall   │
+     │enroll alpha` (its follow-through needs you there). Approve is not offered here; you can deny it here with a│
+     │typed yes.                                                                                                  │
      │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
      │                                                                                                            │
      │                                                                                                            │
@@ -31,10 +34,7 @@ Stati│Exactly what approve applies to:                                        
      │                                                                                                            │
      │                                                                                                            │
      │                                                                                                            │
-     │                                                                                                            │
-     │                                                                                                            │
-     │                                                                                                            │
-     │Tab: deny · Esc: send nothing                                                                               │
-     │Approve? Type yes to confirm [y/N]: _                                                                       │
+     │Approve in the CLI: run `heimdall enroll alpha` · Esc: send nothing                                         │
+     │Deny? Type yes to confirm [y/N]: _                                                                          │
      └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 type yes, Enter · Tab approve/deny · Esc cancel

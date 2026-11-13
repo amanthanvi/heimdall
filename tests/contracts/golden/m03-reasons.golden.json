@@ -1,5 +1,5 @@
 {
- "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table",
+ "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table; `warning_reasons` are the Warning.reason values with the warning code each refines (ADR-0008 \u00a717.25 item 15)",
  "new": [
   {
    "reason": "issuer_not_initialized",
@@ -273,6 +273,12 @@
   "signal_unverified",
   "ordinary_ssh_needs_held_slot",
   "possible_late_write"
+ ],
+ "warning_reasons": [
+  {
+   "reason": "time_confirmation_after_reboot",
+   "warning": "TIME_UNCERTAIN"
+  }
  ],
  "doctor_findings": [
   "reverification_inconclusive",

@@ -1,4 +1,4 @@
-//! `heimdall uninstall [--purge-state [--keep-remote-enrollments --bundle <file>]]`
+//! `heimdall uninstall [--keep-remote-enrollments] [--purge-state [--bundle <file>]]`
 //! (m02-plan U9; ADR-0007 §5.5; Q6 as qualified by §12.2 item 11).
 //!
 //! **⟨M03⟩ Remote enrollments and the K_ca store items** (m03-plan U0b row 18, U12;
@@ -7,26 +7,31 @@
 //! change, and each registered CA's store item.
 //! * **Every uninstall lists the enrollments that are not final**, each with its marker,
 //!   destination and state, and offers `heimdall enroll remove <enrollment>` first. A
-//!   plain `uninstall` then needs a typed `yes` to leave them enrolled
-//!   ([`PLAIN_UNINSTALL_ACK_REQUIRED`]); without a terminal, or with
-//!   `--non-interactive`, it ends with exit 3 and nothing was changed.
+//!   plain `uninstall` then needs an acknowledgement to leave them enrolled (ADR-0008
+//!   §17.25 item 11, [`confirm_plain`]): a typed `yes`, or `--keep-remote-enrollments`
+//!   (the explicit acknowledgement for a scripted uninstall; the state is kept). Without
+//!   either, on no terminal or with `--non-interactive`, it ends with exit 3 and nothing
+//!   was changed.
 //! * **`--purge-state`** is refused while any remain (`CONFIG_CONFLICT`, exit 6,
 //!   [`enrollment_refusal`]), unless `--keep-remote-enrollments` comes with a **fresh**
-//!   recovery bundle (`--bundle <file>`): one written after the last enrollment change
-//!   that lists every remaining enrollment in its current state, not redacted
-//!   ([`check_bundle`]); its path is recorded in the result. Without one the purge is
-//!   refused `bundle_required` (`CAPABILITY_UNAVAILABLE`, exit 4); a redacted one is
-//!   `bundle_redacted` (exit 4). ⟨U-Q1⟩ Freshness also needs this installation's record
-//!   of writing that bundle ([`BUNDLE_WRITE_RECORD_REQUIRED`]); no such record exists
-//!   yet, so every bundle is refused `bundle_required` until it does.
+//!   recovery bundle (`--bundle <file>`, §17.25 item 8, [`check_bundle`]): an unredacted
+//!   `heimdall-recovery-bundle/1` created no earlier than the last enrollment or CA
+//!   change, listing every CA and every remaining enrollment in its current state,
+//!   **and** whose SHA-256 equals a digest this installation recorded when its CLI
+//!   confirmed writing a bundle (`Txn::bundle_digest_recorded_at`, read-only); its path
+//!   is shown in the result, never recorded. A hand-made, foreign, stale or partial file
+//!   is refused `bundle_required` (`CAPABILITY_UNAVAILABLE`, exit 4); a redacted one is
+//!   `bundle_redacted` (exit 4).
 //! * **The K_ca store item's fate is stated** on every outcome
 //!   (`heimdall_issuer::retire::uninstall_store_plan`): kept while any enrollment under
 //!   its CA is not final, naming the item and the reason; otherwise deletion is offered
 //!   (the retirement steps run to `retired`, behind the `RetireIssuer` typed
-//!   confirmation) as the command `heimdall issuer retire <fingerprint>`, with the
-//!   reminder to destroy the offline backup. ⟨U-Q3⟩ Uninstall does not yet run that
-//!   deletion inline (it is the issuer CLI's R2B sequence); an item whose locator was
-//!   never recorded is kept, as Heimdall cannot delete it by exact identity.
+//!   confirmation), with the reminder to destroy the offline backup. ⟨§17.25 item 9⟩
+//!   Uninstall runs the one retire entry (`issuer_cmd::retire_to_retired`) inline, before
+//!   the runtime stops ([`retire_offered`]); without a terminal or under
+//!   `--non-interactive` it is not run and `heimdall issuer retire <fingerprint>` is
+//!   offered. An item whose locator was never recorded is kept, as Heimdall cannot
+//!   delete it by exact identity.
 //!
 //! 1. With no state store there is nothing to roll back: nothing is started, and what
 //!    remains is reported.
@@ -97,17 +102,6 @@ pub(crate) fn run(ctx: &Ctx, args: UninstallArgs) -> ExitCode {
     block(ctx, uninstall(ctx, &args, &mut TerminalPrompt))
 }
 
-/// ⟨U-Q2⟩ Switch: a plain `uninstall` with enrollments that are not final asks for a
-/// typed `yes` before anything starts (D4 item 6: "offers `enroll remove` first"). The
-/// fail-closed reading; `false` would list them and go on.
-pub(crate) const PLAIN_UNINSTALL_ACK_REQUIRED: bool = true;
-
-/// ⟨U-Q1⟩ Switch: a `--bundle` is fresh only when this installation also recorded
-/// writing it (its path and time; worker I's optional `last_bundle_at`, U10B-Q3 (b)), on
-/// top of [`check_bundle`]'s content check. Nothing records it yet, so with `true` every
-/// bundle is refused `bundle_required`: the fail-closed reading until the ruling.
-pub(crate) const BUNDLE_WRITE_RECORD_REQUIRED: bool = true;
-
 /// The largest recovery bundle read (bytes): anything larger is not a bundle.
 const BUNDLE_MAX: u64 = 16 * 1024 * 1024;
 
@@ -129,6 +123,26 @@ struct StoreItem {
     backup_created_at: Timestamp,
     /// What uninstall does with it.
     fate: Fate,
+    /// ⟨§17.25 item 9⟩ How the inline retirement of an offered item went, once tried.
+    retire: Option<RetireRun>,
+}
+
+/// The inline retirement of a store item whose deletion is offered (ADR-0008 §17.25
+/// item 9), when it did not reach `retired`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RetireRun {
+    /// Not run (no terminal, or `--non-interactive`): why.
+    NotRun(String),
+    /// Run, and stopped before `retired` (declined, refused, or the issuer did not
+    /// confirm in time): its code, reason and message.
+    Stopped {
+        /// The envelope code.
+        code: Code,
+        /// The error reason, if any.
+        reason: Option<String>,
+        /// The message.
+        message: String,
+    },
 }
 
 /// What uninstall does with a K_ca store item.
@@ -138,8 +152,13 @@ enum Fate {
     KeptLive(Vec<String>),
     /// Kept: no locator was recorded, so it cannot be deleted by exact identity.
     KeptUnrecorded,
-    /// Deletion offered (`heimdall issuer retire`), with the backup reminder.
+    /// Deletion offered: run inline before the runtime stops, behind the retirement's
+    /// own typed confirmation; until it ran, `heimdall issuer retire`, with the backup
+    /// reminder.
     DeletionOffered,
+    /// Deleted: the inline retirement ran to `retired` (the item was deleted by its
+    /// exact locator).
+    Retired,
 }
 
 /// What uninstall reads from the state database before anything else, read-only.
@@ -147,8 +166,12 @@ enum Fate {
 struct Inventory {
     /// The enrollments that are not final, oldest first.
     open: Vec<EnrollmentRecord>,
-    /// The last change of any enrollment record (final ones included).
+    /// The last enrollment or CA change: any enrollment record's `updated_at` (final
+    /// ones included), and any CA's registration, backup and retirement times.
     last_change: Option<Timestamp>,
+    /// Every registered CA (retired ones included) and its state, which a fresh bundle
+    /// lists as it is now (a CA's state changes carry no time of their own).
+    cas: Vec<(CaFingerprint, CaState)>,
     /// Each registered CA's store item that may still exist.
     items: Vec<StoreItem>,
 }
@@ -179,6 +202,7 @@ fn view(r: &EnrollmentRecord) -> EnrollmentView {
         live_grants: Vec::new(),
         open_operation_id: None,
         possible_late_write: r.late_write.is_some(),
+        hold: None,
     }
 }
 
@@ -199,13 +223,27 @@ impl Inventory {
                 let mut all = open.clone();
                 let mut locators = Vec::new();
                 for i in &issuers {
-                    all.extend(tx.enrollments_for_ca(&i.ca_fingerprint)?);
+                    for r in tx.enrollments_for_ca(&i.ca_fingerprint)? {
+                        // Each record once: the open ones are already in.
+                        if all.iter().all(|a| a.id != r.id) {
+                            all.push(r);
+                        }
+                    }
                     locators.push(tx.issuer_store_locator(&i.ca_fingerprint)?);
                 }
                 Ok((open, all, issuers, locators))
             })
             .map(|(open, all, issuers, locators)| {
                 let views: Vec<EnrollmentView> = all.iter().map(view).collect();
+                let cas = issuers
+                    .iter()
+                    .map(|i| (i.ca_fingerprint.clone(), i.state))
+                    .collect();
+                let ca_change = issuers
+                    .iter()
+                    .flat_map(|i| [Some(i.created_at), Some(i.backup_created_at), i.retired_at])
+                    .flatten()
+                    .max();
                 let items = issuers
                     .into_iter()
                     .zip(locators)
@@ -230,11 +268,13 @@ impl Inventory {
                             locator,
                             backup_created_at: i.backup_created_at,
                             fate,
+                            retire: None,
                         }
                     })
                     .collect();
                 Inventory {
-                    last_change: all.iter().map(|r| r.updated_at).max(),
+                    last_change: all.iter().map(|r| r.updated_at).chain(ca_change).max(),
+                    cas,
                     open,
                     items,
                 }
@@ -268,6 +308,7 @@ impl Inventory {
                         Fate::KeptLive(m) => ("kept", Some("live_enrollments"), m.clone()),
                         Fate::KeptUnrecorded => ("kept", Some("locator_unrecorded"), Vec::new()),
                         Fate::DeletionOffered => ("deletion_offered", None, Vec::new()),
+                        Fate::Retired => ("retired", None, Vec::new()),
                     };
                     let mut v = serde_json::json!({
                         "ca_fingerprint": i.ca.as_str(),
@@ -286,6 +327,26 @@ impl Inventory {
                             "command".to_owned(),
                             serde_json::Value::String(retire_command(&i.ca)),
                         );
+                        if let Some(run) = &i.retire {
+                            map.insert(
+                                "retire".to_owned(),
+                                match run {
+                                    RetireRun::NotRun(why) => {
+                                        serde_json::json!({ "ran": false, "why": why })
+                                    }
+                                    RetireRun::Stopped {
+                                        code,
+                                        reason,
+                                        message,
+                                    } => serde_json::json!({
+                                        "ran": true,
+                                        "code": code,
+                                        "reason": reason,
+                                        "message": message,
+                                    }),
+                                },
+                            );
+                        }
                     }
                     v
                 })
@@ -333,9 +394,24 @@ fn item_line(i: &StoreItem) -> String {
         Fate::KeptUnrecorded => format!(
             "kept: {name}, because its exact locator was never recorded, so Heimdall cannot delete it; a later `heimdall issuer init` reports it as an orphan"
         ),
-        Fate::DeletionOffered => format!(
-            "deletion offered: {name}; every enrollment under it is final, so `{}` deletes it (the retirement steps, run to `retired`, after a typed yes); then destroy the offline backup made {} yourself",
-            retire_command(&i.ca),
+        Fate::DeletionOffered => {
+            let run = match &i.retire {
+                None => String::new(),
+                Some(RetireRun::NotRun(why)) => {
+                    format!(" Uninstall did not run it ({why}): it runs inline only on a terminal.")
+                }
+                Some(RetireRun::Stopped { message, .. }) => {
+                    format!(" Uninstall ran it, and it stopped: {message}.")
+                }
+            };
+            format!(
+                "deletion offered: {name}; every enrollment under it is final, so the retirement steps delete it (run to `retired`, after a typed yes): uninstall runs them before the runtime stops, or run `{}`; then destroy the offline backup made {} yourself.{run}",
+                retire_command(&i.ca),
+                i.backup_created_at
+            )
+        }
+        Fate::Retired => format!(
+            "deleted: {name}; this uninstall retired the CA and deleted the item by its exact locator; destroy the offline backup made {} yourself",
             i.backup_created_at
         ),
     }
@@ -406,7 +482,7 @@ fn bundle_refusal(inv: &Inventory, why: &str, reason: &'static str) -> Outcome {
         heimdall_app::OpError::new(
             Code::CapabilityUnavailable,
             format!(
-                "--purge-state --keep-remote-enrollments needs a fresh recovery bundle (--bundle <file>, written by `heimdall issuer bundle --out <file>` after the last enrollment change): {why}; nothing was changed"
+                "--purge-state --keep-remote-enrollments needs a fresh recovery bundle (--bundle <file>, written by this installation's `heimdall issuer bundle --out <file>` after the last enrollment or CA change): {why}; nothing was changed"
             ),
         )
         .with_reason(reason),
@@ -414,15 +490,33 @@ fn bundle_refusal(inv: &Inventory, why: &str, reason: &'static str) -> Outcome {
     )
 }
 
-/// Whether the file at `path` is a fresh recovery bundle for `inv` (D4 item 6): a
-/// `heimdall-recovery-bundle/1` document, not redacted, written at or after the last
-/// enrollment change, listing every enrollment that is not final in its current state.
-/// `Err` is the refusal (`bundle_required`, or `bundle_redacted`) with its reason.
-/// `record_required` is [`BUNDLE_WRITE_RECORD_REQUIRED`].
+/// How uninstall asks whether this installation recorded a bundle's SHA-256 (ADR-0008
+/// §17.25 item 8; `Txn::bundle_digest_recorded_at` on the state database opened
+/// read-only): `Ok(Some(created_at))` when recorded, `Ok(None)` when not, `Err` when the
+/// record cannot be read.
+type DigestRecord<'a> = &'a dyn Fn(&str) -> Result<Option<Timestamp>, ()>;
+
+/// The digest record of the state database at `db`, read-only (nothing is created,
+/// migrated or written).
+fn recorded_digest(db: &Path, sha256: &str) -> Result<Option<Timestamp>, ()> {
+    let store = Store::open_read_only(db, Arc::new(NoFaults)).map_err(|_| ())?;
+    store
+        .transaction(|tx| tx.bundle_digest_recorded_at(sha256))
+        .map_err(|_| ())
+}
+
+/// Whether the file at `path` is a fresh recovery bundle for `inv` (D4 item 6, as
+/// ADR-0008 §17.25 item 8 rules). Content: a `heimdall-recovery-bundle/1` document, not
+/// redacted, created no earlier than the last enrollment or CA change, listing every
+/// registered CA and every enrollment that is not final in its current state. Origin:
+/// its SHA-256 (of the exact bytes read) equals a digest this installation recorded when
+/// its CLI confirmed writing a bundle (`recorded`). A hand-made, foreign, stale or partial
+/// file is `bundle_required`; a redacted one is `bundle_redacted`. `Err` is the refusal
+/// with its reason.
 fn check_bundle(
     inv: &Inventory,
     path: &Path,
-    record_required: bool,
+    recorded: DigestRecord<'_>,
 ) -> Result<(), (String, &'static str)> {
     use std::io::Read as _;
     let required = |why: &str| Err((why.to_owned(), reason::BUNDLE_REQUIRED));
@@ -447,7 +541,16 @@ fn check_bundle(
         ));
     }
     if inv.last_change.is_some_and(|t| bundle.created_at < t) {
-        return required("the bundle predates the last enrollment change");
+        return required("the bundle predates the last enrollment or CA change");
+    }
+    for (ca, state) in &inv.cas {
+        if !bundle
+            .cas
+            .iter()
+            .any(|b| b.fingerprint == *ca && b.state == *state)
+        {
+            return required("the bundle does not list every CA as it is now");
+        }
     }
     for e in &inv.open {
         if !bundle
@@ -458,12 +561,13 @@ fn check_bundle(
             return required("the bundle does not list every remaining enrollment as it is now");
         }
     }
-    if record_required {
-        return required(
-            "this installation has no record of writing that bundle (its path and time), so it cannot be proven fresh",
-        );
+    match recorded(&heimdall_issuer::backup::sha256_hex(&bytes)) {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => required(
+            "this installation recorded no bundle with that SHA-256, so it is not one this installation wrote (hand-made, foreign, or changed since)",
+        ),
+        Err(()) => required("this installation's record of the bundles it wrote cannot be read"),
     }
-    Ok(())
 }
 
 /// The refusal of `--purge-state` while remote enrollments remain (U0b row 18; ADR-0008
@@ -476,7 +580,11 @@ fn check_bundle(
 /// * `--keep-remote-enrollments` without `--bundle`, or with one that is not fresh
 ///   ([`check_bundle`]): `CAPABILITY_UNAVAILABLE` (`bundle_required`, exit 4; a redacted
 ///   one `bundle_redacted`).
-fn enrollment_refusal(inv: &Inventory, args: &UninstallArgs) -> Result<Option<String>, Outcome> {
+fn enrollment_refusal(
+    inv: &Inventory,
+    args: &UninstallArgs,
+    db: &Path,
+) -> Result<Option<String>, Outcome> {
     if inv.open.is_empty() {
         return Ok(None);
     }
@@ -488,7 +596,7 @@ fn enrollment_refusal(inv: &Inventory, args: &UninstallArgs) -> Result<Option<St
                 reason::BUNDLE_REQUIRED,
             ));
         };
-        return match check_bundle(inv, path, BUNDLE_WRITE_RECORD_REQUIRED) {
+        return match check_bundle(inv, path, &|sha| recorded_digest(db, sha)) {
             Ok(()) => Ok(Some(heimdall_localenv::paths::display_path(&home(), path))),
             Err((why, r)) => Err(bundle_refusal(inv, &why, r)),
         };
@@ -529,18 +637,27 @@ fn plain_ack_text(inv: &Inventory) -> String {
     )
 }
 
-/// The attended acknowledgement of a plain `uninstall` while enrollments are not final
-/// ([`PLAIN_UNINSTALL_ACK_REQUIRED`]): only a typed `yes` goes on; anything else, a
-/// non-TTY stdin and `--non-interactive` end it with exit 3 (raised by this client, so
-/// with no `decision_ref`), nothing changed.
-async fn confirm_plain<P: Prompter>(ctx: &Ctx, p: &mut P, inv: &Inventory) -> Result<(), Outcome> {
+/// The acknowledgement of a plain `uninstall` while enrollments are not final (ADR-0008
+/// §17.25 item 11): `--keep-remote-enrollments` is the explicit acknowledgement (so a
+/// scripted uninstall can go on; the state is kept, so nothing is lost); otherwise only a
+/// typed `yes` goes on, and anything else, a non-TTY stdin and `--non-interactive` end it
+/// with exit 3 (raised by this client, so with no `decision_ref`), nothing changed.
+async fn confirm_plain<P: Prompter>(
+    ctx: &Ctx,
+    p: &mut P,
+    inv: &Inventory,
+    acknowledged: bool,
+) -> Result<(), Outcome> {
+    if acknowledged {
+        return Ok(());
+    }
     let refused = |why: &str| {
         enrollment_error(
             inv,
             heimdall_app::OpError::new(
                 Code::InteractionRequired,
                 format!(
-                    "uninstall not confirmed ({why}): {} remote enrollment(s) are not final; remove them first with `{ENROLL_REMOVE}`, or run `heimdall uninstall` on a terminal and type yes to leave them enrolled; nothing was changed",
+                    "uninstall not confirmed ({why}): {} remote enrollment(s) are not final; remove them first with `{ENROLL_REMOVE}`, or leave them enrolled by typing yes to `heimdall uninstall` on a terminal or by running `heimdall uninstall --keep-remote-enrollments`; nothing was changed",
                     inv.open.len()
                 ),
             ),
@@ -555,6 +672,50 @@ async fn confirm_plain<P: Prompter>(ctx: &Ctx, p: &mut P, inv: &Inventory) -> Re
         Ok(())
     } else {
         Err(refused(answer.reason()))
+    }
+}
+
+/// ⟨ADR-0008 §17.25 item 9⟩ Run the one retire entry (`issuer_cmd::retire_to_retired`:
+/// the decision, its typed `yes`, the wait for `unloaded`, the exact-locator deletion and
+/// the `deleted_locator` confirmation) inline, on the session uninstall holds and before
+/// the runtime stops, for each store item whose deletion is offered. It is behind the
+/// retirement's own typed confirmation, so without a terminal or under
+/// `--non-interactive` nothing is sent (no decision is left pending) and the item stays
+/// offered with `heimdall issuer retire <fingerprint>`.
+async fn retire_offered<S: crate::cli::Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    inv: &mut Inventory,
+) {
+    for item in inv
+        .items
+        .iter_mut()
+        .filter(|i| i.fate == Fate::DeletionOffered)
+    {
+        if !ctx.interactive() {
+            item.retire = Some(RetireRun::NotRun(non_interactive_reason(ctx).to_owned()));
+            continue;
+        }
+        let out = crate::issuer_cmd::retire_to_retired(s, p, ctx, &item.ca).await;
+        if out.env.code.is_success() {
+            item.fate = Fate::Retired;
+            item.retire = None;
+        } else {
+            let error = out.env.data.get("error");
+            let text = |k: &str| {
+                error
+                    .and_then(|e| e.get(k))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+            };
+            item.retire = Some(RetireRun::Stopped {
+                code: out.env.code.clone(),
+                reason: text("reason"),
+                message: text("message")
+                    .unwrap_or_else(|| "the retirement did not finish".to_owned()),
+            });
+        }
     }
 }
 
@@ -920,20 +1081,19 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     // A purge is refused while remote enrollments remain (unless kept with a fresh
     // bundle), so the owner is not asked to type yes for something that will not happen;
     // a plain uninstall lists them and offers `enroll remove` first.
-    let inv = match Inventory::read(&db) {
+    let mut inv = match Inventory::read(&db) {
         Ok(inv) => inv,
         Err(why) if purge => return unreadable(why),
         Err(_) => Inventory::default(),
     };
     let mut bundle = None;
     if purge {
-        match enrollment_refusal(&inv, args) {
+        match enrollment_refusal(&inv, args, &db) {
             Ok(b) => bundle = b,
             Err(refused) => return annotate(refused, &inv, None),
         }
-    } else if PLAIN_UNINSTALL_ACK_REQUIRED
-        && !inv.open.is_empty()
-        && let Err(refused) = confirm_plain(ctx, prompt, &inv).await
+    } else if !inv.open.is_empty()
+        && let Err(refused) = confirm_plain(ctx, prompt, &inv, args.keep_remote_enrollments).await
     {
         return annotate(refused, &inv, None);
     }
@@ -1033,6 +1193,9 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     }) {
         complete = false;
     }
+    // §17.25 item 9: the offered K_ca store items are retired inline, behind the
+    // retirement's own typed confirmation, while the runtime still runs.
+    retire_offered(&mut client, prompt, ctx, &mut inv).await;
     // Stop the runtime gracefully (it removes its endpoints and advertisement).
     let stopped = stop_runtime(ctx, client).await;
     let mut purged = false;
@@ -1503,6 +1666,7 @@ mod tests {
     fn inventory(open: Vec<EnrollmentRecord>) -> Inventory {
         Inventory {
             last_change: open.iter().map(|r| r.updated_at).max(),
+            cas: vec![(ca(), CaState::Active)],
             open,
             items: Vec::new(),
         }
@@ -1532,19 +1696,26 @@ mod tests {
             "schema": RECOVERY_BUNDLE_SCHEMA,
             "created_at": at,
             "redacted": redacted,
-            "cas": [],
+            "cas": [{
+                "fingerprint": ca().as_str(),
+                "public_key": "ssh-ed25519 AAAA",
+                "backup_sha256": "00".repeat(32),
+                "backup_created_at": t0(),
+                "state": "active",
+            }],
             "enrollments": enrollments,
             "instructions": [],
         }))
         .unwrap_or_default()
     }
 
-    /// D4 item 6: the content half of freshness. With the write-record switch off, a
-    /// bundle written at or after the last change that lists every remaining enrollment
-    /// in its state passes; a stale, partial, other-state or redacted one does not. With
-    /// the switch on (as built), even the fresh one is `bundle_required`.
+    /// §17.25 item 8: a bundle is fresh only when its content is (written at or after
+    /// the last change, every CA and remaining enrollment in its state, unredacted) and
+    /// its SHA-256 is one this installation recorded. A stale, partial, other-state or
+    /// redacted one is refused whatever the record; an unrecorded or unreadable record
+    /// refuses a fresh one.
     #[test]
-    fn a_bundle_is_fresh_only_after_the_last_change_and_complete() {
+    fn a_bundle_is_fresh_only_with_fresh_content_and_a_recorded_digest() {
         use heimdall_contract::enrollment::EnrollmentState as S;
         let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
         let live = record(1, S::Verified);
@@ -1555,47 +1726,71 @@ mod tests {
             .unwrap_or_else(|_| panic!("time"));
         let write = |name: &str, bytes: Vec<u8>| {
             let p = d.path().join(name);
-            std::fs::write(&p, bytes).unwrap_or_else(|e| panic!("{e}"));
-            p
+            std::fs::write(&p, &bytes).unwrap_or_else(|e| panic!("{e}"));
+            (p, heimdall_issuer::backup::sha256_hex(&bytes))
         };
-        let fresh = write("fresh", bundle(late, &[live.clone(), other.clone()], false));
-        assert_eq!(check_bundle(&inv, &fresh, false), Ok(()));
-        let Err((why, r)) = check_bundle(&inv, &fresh, true) else {
-            panic!("the write record is required");
-        };
-        assert_eq!(r, reason::BUNDLE_REQUIRED);
-        assert!(why.contains("no record of writing"), "{why}");
-        let at_change = write(
+        let any = |_: &str| Ok(Some(t0()));
+        let none = |_: &str| Ok(None);
+        let broken = |_: &str| Err(());
+        let (fresh, digest) = write("fresh", bundle(late, &[live.clone(), other.clone()], false));
+        let exact = |sha: &str| Ok((sha == digest).then(t0));
+        assert_eq!(check_bundle(&inv, &fresh, &exact), Ok(()));
+        for (record, why) in [
+            (
+                &none as DigestRecord<'_>,
+                "recorded no bundle with that SHA-256",
+            ),
+            (&broken, "cannot be read"),
+        ] {
+            let Err((w, r)) = check_bundle(&inv, &fresh, record) else {
+                panic!("an unrecorded digest was accepted");
+            };
+            assert_eq!(r, reason::BUNDLE_REQUIRED);
+            assert!(w.contains(why), "{w}");
+        }
+        // The same content with one byte changed is another file: not recorded.
+        let mut edited = std::fs::read(&fresh).unwrap_or_else(|e| panic!("{e}"));
+        edited.push(b'\n');
+        let (edited, _) = write("edited", edited);
+        assert!(
+            check_bundle(&inv, &edited, &exact).is_err_and(|(_, r)| r == reason::BUNDLE_REQUIRED)
+        );
+        let (at_change, _) = write(
             "at",
             bundle(other.updated_at, &[live.clone(), other.clone()], false),
         );
-        assert_eq!(check_bundle(&inv, &at_change, false), Ok(()));
-        let stale = write(
+        assert_eq!(check_bundle(&inv, &at_change, &any), Ok(()));
+        let (stale, _) = write(
             "stale",
             bundle(live.updated_at, &[live.clone(), other.clone()], false),
         );
         assert!(
-            check_bundle(&inv, &stale, false)
+            check_bundle(&inv, &stale, &any)
                 .is_err_and(|(w, r)| { r == reason::BUNDLE_REQUIRED && w.contains("predates") })
         );
-        let partial = write("partial", bundle(late, std::slice::from_ref(&live), false));
+        let (partial, _) = write("partial", bundle(late, std::slice::from_ref(&live), false));
         assert!(
-            check_bundle(&inv, &partial, false).is_err_and(|(_, r)| r == reason::BUNDLE_REQUIRED)
+            check_bundle(&inv, &partial, &any).is_err_and(|(_, r)| r == reason::BUNDLE_REQUIRED)
         );
         let mut moved = other.clone();
         moved.state = S::Removing;
-        let wrong = write("wrong", bundle(late, &[live.clone(), moved], false));
+        let (wrong, _) = write("wrong", bundle(late, &[live.clone(), moved], false));
+        assert!(check_bundle(&inv, &wrong, &any).is_err_and(|(_, r)| r == reason::BUNDLE_REQUIRED));
+        // A CA whose state changed since (no time of its own): partial.
+        let mut retiring = inventory(vec![live.clone(), other.clone()]);
+        retiring.cas = vec![(ca(), CaState::Retiring)];
         assert!(
-            check_bundle(&inv, &wrong, false).is_err_and(|(_, r)| r == reason::BUNDLE_REQUIRED)
+            check_bundle(&retiring, &fresh, &any)
+                .is_err_and(|(w, r)| { r == reason::BUNDLE_REQUIRED && w.contains("every CA") })
         );
-        let redacted = write("redacted", bundle(late, &[live, other], true));
+        let (redacted, _) = write("redacted", bundle(late, &[live, other], true));
         assert!(
-            check_bundle(&inv, &redacted, false).is_err_and(|(_, r)| r == reason::BUNDLE_REDACTED)
+            check_bundle(&inv, &redacted, &any).is_err_and(|(_, r)| r == reason::BUNDLE_REDACTED)
         );
         let big = d.path().join("big");
         let f = std::fs::File::create(&big).unwrap_or_else(|e| panic!("{e}"));
         f.set_len(BUNDLE_MAX + 1).unwrap_or_else(|e| panic!("{e}"));
-        assert!(check_bundle(&inv, &big, false).is_err_and(|(w, _)| w.contains("cannot be read")));
+        assert!(check_bundle(&inv, &big, &any).is_err_and(|(w, _)| w.contains("cannot be read")));
     }
 
     /// D4 item 6: a plain uninstall with enrollments that are not final goes on only
@@ -1611,7 +1806,7 @@ mod tests {
             answers: vec![Answer::Yes],
             shown: Vec::new(),
         };
-        assert!(block_on(confirm_plain(&ctx(true, false), &mut yes, &inv)).is_ok());
+        assert!(block_on(confirm_plain(&ctx(true, false), &mut yes, &inv, false)).is_ok());
         assert!(yes.shown[0].contains(&live.marker), "{}", yes.shown[0]);
         assert!(yes.shown[0].contains(ENROLL_REMOVE), "{}", yes.shown[0]);
         for (c, answers) in [
@@ -1626,7 +1821,7 @@ mod tests {
                 answers,
                 shown: Vec::new(),
             };
-            let Err(out) = block_on(confirm_plain(&c, &mut p, &inv)) else {
+            let Err(out) = block_on(confirm_plain(&c, &mut p, &inv, false)) else {
                 panic!("acknowledged without a typed yes");
             };
             assert_eq!(out.exit, ExitCode::InteractionRequired);
@@ -1641,6 +1836,22 @@ mod tests {
                 live.marker.as_str()
             );
             assert!(out.human.contains(&live.marker));
+            assert!(
+                out.env.data["error"]["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("--keep-remote-enrollments")),
+                "the scripted acknowledgement is named"
+            );
+        }
+        // §17.25 item 11: `--keep-remote-enrollments` is the explicit acknowledgement,
+        // with no terminal and under `--non-interactive`; nothing is asked.
+        for c in [ctx(false, false), ctx(true, true), ctx(false, true)] {
+            let mut p = Script {
+                answers: Vec::new(),
+                shown: Vec::new(),
+            };
+            assert!(block_on(confirm_plain(&c, &mut p, &inv, true)).is_ok());
+            assert!(p.shown.is_empty(), "nothing is asked");
         }
     }
 
@@ -1655,6 +1866,7 @@ mod tests {
             locator: locator.map(str::to_owned),
             backup_created_at: t0(),
             fate,
+            retire: None,
         };
         let kept = item_line(&item(
             Fate::KeptLive(vec!["heimdall:enr_x".into()]),
@@ -1676,5 +1888,96 @@ mod tests {
         assert!(offered.contains("destroy the offline backup"), "{offered}");
         let unrecorded = item_line(&item(Fate::KeptUnrecorded, None));
         assert!(unrecorded.contains("locator not recorded"), "{unrecorded}");
+        let retired = item_line(&item(Fate::Retired, Some("L1")));
+        assert!(
+            retired.starts_with("deleted: the macos_login_keychain item L1"),
+            "{retired}"
+        );
+        assert!(retired.contains("destroy the offline backup"), "{retired}");
+    }
+
+    /// A session that records what it is sent and refuses everything.
+    #[derive(Default)]
+    struct Recorder {
+        sent: Vec<String>,
+    }
+
+    impl crate::cli::Session for Recorder {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.sent.push(request.kind().to_owned());
+            crate::setup_cmd::failure(Code::ServiceUnavailable, "fixture: refused", None)
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            self.sent.push("attend".to_owned());
+            crate::setup_cmd::failure(Code::ServiceUnavailable, "fixture: refused", None)
+        }
+    }
+
+    /// ADR-0008 §17.25 item 9: an offered item is retired inline through the one retire
+    /// entry on an interactive terminal (here the entry's first step, `Attend`, is sent
+    /// and refused, so the item stays offered with the entry's own stop); without a
+    /// terminal or under `--non-interactive`, nothing is sent and the item stays offered
+    /// with the reason. Kept items are never touched.
+    #[test]
+    fn offered_store_items_are_retired_inline_only_on_a_terminal() {
+        let item = |fate| StoreItem {
+            ca: ca(),
+            state: CaState::Active,
+            store_kind: StoreKind::MacosLoginKeychain,
+            locator: Some("L1".to_owned()),
+            backup_created_at: t0(),
+            fate,
+            retire: None,
+        };
+        let inv = || Inventory {
+            items: vec![
+                item(Fate::DeletionOffered),
+                item(Fate::KeptLive(vec!["heimdall:enr_x".into()])),
+            ],
+            ..Inventory::default()
+        };
+        for (c, why) in [
+            (ctx(false, false), "stdin is not a terminal"),
+            (ctx(true, true), "--non-interactive"),
+        ] {
+            let mut s = Recorder::default();
+            let mut p = Script {
+                answers: vec![Answer::Yes],
+                shown: Vec::new(),
+            };
+            let mut inv = inv();
+            block_on(retire_offered(&mut s, &mut p, &c, &mut inv));
+            assert!(s.sent.is_empty(), "nothing is sent: {:?}", s.sent);
+            assert!(p.shown.is_empty());
+            assert!(
+                matches!(&inv.items[0].retire, Some(RetireRun::NotRun(w)) if w.contains(why)),
+                "{:?}",
+                inv.items[0]
+            );
+            assert_eq!(inv.items[0].fate, Fate::DeletionOffered);
+            assert!(inv.items[1].retire.is_none());
+            let json = inv.store_items_json();
+            assert_eq!(json[0]["retire"]["ran"], false);
+            assert_eq!(
+                json[0]["command"],
+                format!("heimdall issuer retire {}", ca().as_str())
+            );
+        }
+        let mut s = Recorder::default();
+        let mut p = Script {
+            answers: vec![Answer::Yes],
+            shown: Vec::new(),
+        };
+        let mut inv = inv();
+        block_on(retire_offered(&mut s, &mut p, &ctx(true, false), &mut inv));
+        assert_eq!(s.sent, vec!["attend".to_owned()], "the entry ran inline");
+        let Some(RetireRun::Stopped { code, message, .. }) = &inv.items[0].retire else {
+            panic!("{:?}", inv.items[0]);
+        };
+        assert_eq!(*code, Code::ServiceUnavailable);
+        assert!(message.contains("fixture: refused"), "{message}");
+        assert_eq!(inv.items[0].fate, Fate::DeletionOffered);
+        assert!(inv.items[1].retire.is_none(), "a kept item is not retired");
+        assert_eq!(inv.store_items_json()[0]["retire"]["ran"], true);
     }
 }

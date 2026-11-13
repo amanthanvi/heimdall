@@ -218,13 +218,14 @@ mod world {
         ProxyRoute, RawHostKey, TargetEvaluation, marker_for,
     };
     use heimdall_runtime::config::{Config, Paths};
-    use heimdall_runtime::service::{Service, ServiceOptions};
+    use heimdall_runtime::service::{ManagedOptions, Service, ServiceOptions, SessionLockWiring};
     use heimdall_store::{IssuerRecord, Store};
     use heimdall_testkit::agent::{
         AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey, blob_fingerprint,
     };
     use heimdall_testkit::ca::TestCa;
     use heimdall_testkit::home::{ScratchHome, find_program};
+    use heimdall_testkit::registry::PauseHooks;
     use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig, current_account};
     use tokio_util::sync::CancellationToken;
 
@@ -477,6 +478,18 @@ mod world {
 
     impl World {
         pub fn new() -> World {
+            World::build(false).0
+        }
+
+        /// ⟨§17.25 item 3⟩ A world whose runtime is started with a script pause
+        /// directory (`ManagedOptions::script_pause_dir`, as the test configuration's
+        /// `HEIMDALL_TEST_SCRIPT_PAUSE_DIR` sets it), and the hooks over that directory.
+        pub fn with_pause() -> (World, PauseHooks) {
+            let (w, hooks) = World::build(true);
+            (w, hooks.unwrap())
+        }
+
+        fn build(pause: bool) -> (World, Option<PauseHooks>) {
             let home = ScratchHome::new();
             let existing_key = FixtureKey::generate();
             let account_name = current_account().expect("the local account");
@@ -578,11 +591,16 @@ mod world {
                 ctl,
                 home,
             };
-            w.start(host, &existing_key);
-            w
+            let hooks = pause.then(|| {
+                let h = PauseHooks::new(w.home.scratch()).unwrap();
+                owner_only_dir(&h.dir());
+                h
+            });
+            w.start(host, &existing_key, hooks.as_ref().map(PauseHooks::dir));
+            (w, hooks)
         }
 
-        fn start(&mut self, host: Arc<TestHost>, existing: &FixtureKey) {
+        fn start(&mut self, host: Arc<TestHost>, existing: &FixtureKey, pause: Option<PathBuf>) {
             let root = self.home.root.clone();
             let token = CancellationToken::new();
             let service_token = token.clone();
@@ -596,12 +614,21 @@ mod world {
                 rt.block_on(async move {
                     let clock =
                         Arc::new(heimdall_runtime::platform::SystemClock::try_new().unwrap());
-                    let o = ServiceOptions::with_clock(
+                    let mut o = ServiceOptions::with_clock(
                         clock,
                         heimdall_testkit::ScriptedTimeSync::new(
                             heimdall_domain::time::SyncStatus::Synchronized,
                         ),
                     );
+                    // The runtime's own test configuration carries the pause directory
+                    // (its managed wiring is then replaced by this world's fakes below).
+                    if let Some(dir) = pause {
+                        o.managed = Some(ManagedOptions {
+                            session_lock: SessionLockWiring::None,
+                            script_pause_dir: Some(dir),
+                            ..ManagedOptions::default()
+                        });
+                    }
                     let service = Service::start_with(
                         Paths::under(&root),
                         Config::default(),
@@ -1852,6 +1879,8 @@ fn enroll_ctrl_c_between_step_and_result_prints_uncertain_message() {
 /// m03-plan U12 ⟨r3⟩ (§17.4 item 12; ADR-0008 D5 §6.2, §6.7): `enroll status` lists every
 /// record's state and marker, a verified one's `slot_free` command, the `late_write`
 /// residual and a held record's next step; read-only (it never starts a runtime).
+/// ⟨§17.25 item 4⟩ The held record's reason and next commands are the runtime's
+/// `hold` (`inspect enrollments`), in both forms.
 #[cfg(unix)]
 #[test]
 fn enroll_status_shows_slot_free_late_write_and_held_next_step() {
@@ -1895,16 +1924,18 @@ fn enroll_status_shows_slot_free_late_write_and_held_next_step() {
         "{text}"
     );
     assert!(text.contains("possible_late_write"), "{text}");
-    assert!(text.contains("held: reason"), "{text}");
+    assert!(text.contains("held: reason host_key_changed"), "{text}");
+    assert!(!text.contains("not reported by this runtime"), "{text}");
     assert!(
         text.contains(&format!(
-            "heimdall enroll verify {} --approve-target-change",
-            held.id
+            "  next step:\n    heimdall enroll verify {id} --approve-target-change\n    heimdall enroll remove {id}\n",
+            id = held.id
         )),
         "{text}"
     );
+    // The fallback's extra lines are gone: exactly the runtime's two commands.
     assert!(
-        text.contains(&format!("heimdall enroll remove {}", held.id)),
+        !text.contains(&format!("heimdall enroll abandon {}", held.id)),
         "{text}"
     );
 
@@ -1924,14 +1955,29 @@ fn enroll_status_shows_slot_free_late_write_and_held_next_step() {
         of(verified.id.as_str())["slot_free_command"],
         "heimdall run --profile <profile> -- ssh hm-e2e"
     );
-    assert!(
-        of(held.id.as_str())["next_commands"]
-            .as_array()
-            .unwrap()
-            .len()
-            >= 2,
-        "{v}"
-    );
+    // ⟨§17.25 item 4⟩ The runtime's `hold`: the reason and the app's next commands,
+    // which the guidance repeats (no fallback).
+    let held_view = v["data"]["enrollments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["enrollment_id"] == held.id.as_str())
+        .unwrap();
+    let expected_next = serde_json::json!([
+        format!("heimdall enroll verify {} --approve-target-change", held.id),
+        format!("heimdall enroll remove {}", held.id),
+    ]);
+    assert_eq!(held_view["hold"]["reason"], "host_key_changed", "{v}");
+    assert_eq!(held_view["hold"]["next"], expected_next, "{v}");
+    assert_eq!(of(held.id.as_str())["next_commands"], expected_next, "{v}");
+    for e in v["data"]["enrollments"].as_array().unwrap() {
+        if e["enrollment_id"] != held.id.as_str() {
+            assert!(
+                e.get("hold").is_none(),
+                "only a held record has a hold: {e}"
+            );
+        }
+    }
     let late_view = v["data"]["enrollments"]
         .as_array()
         .unwrap()
@@ -1996,4 +2042,56 @@ fn enroll_commands_print_one_json_envelope() {
     check(&["enroll", "abandon", &id], "INTERACTION_REQUIRED");
     check(&["enroll", "verify", "not-an-id"], "USAGE_ERROR");
     check(&["enroll", "status"], "OK");
+}
+
+/// ADR-0008 §17.25 item 3 (Q-E1 (b); D13 item 3): in a debug build the **runtime**
+/// inserts the test form's pause points into the scripts it builds, from its own test
+/// configuration (`ManagedOptions::script_pause_dir`); the CLI only validates
+/// `HEIMDALL_TEST_SCRIPT_PAUSE_DIR` and runs the script it receives. Through the testkit
+/// pause protocol: the CLI drives a real enrollment (typed `yes`) against the loopback
+/// sshd, the append's script stops at `before_write` with nothing written, and only the
+/// release lets it write the line.
+#[cfg(unix)]
+#[test]
+fn enroll_step_pauses_at_the_runtime_inserted_pause_point() {
+    use heimdall_testkit::registry::hook;
+    let (w, hooks) = World::with_pause();
+    hooks.arm(hook::BEFORE_WRITE).unwrap();
+    let reg = w.registry_remote.clone();
+    let mut env = w.env();
+    let (k, v) = hooks.env();
+    env.push((k.into(), v));
+    let pty = terminal::Pty::open();
+    let mut child = pty.start(
+        &env,
+        &w.home.root,
+        &["enroll", ALIAS, "--registry-path", &reg],
+    );
+    pty.wait_for("[y/N]", &mut child);
+    pty.write(b"yes\n");
+    let reached = hooks
+        .wait_at_for(hook::BEFORE_WRITE, std::time::Duration::from_secs(90))
+        .unwrap_or_else(|e| panic!("no pause at before_write ({e}): {}", pty.transcript()));
+    assert!(
+        reached.pid.is_some(),
+        "the script reported its PID: {reached:?}"
+    );
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the CLI waits on the paused step"
+    );
+    // Held at the point: the append has not written (and stays so while held).
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(w.marker_lines(), 0, "{}", pty.transcript());
+    // A later reach (a rollback's remove) is no pause.
+    hooks.disarm(hook::BEFORE_WRITE).unwrap();
+    hooks.release(hook::BEFORE_WRITE).unwrap();
+    let (code, t) = pty.finish(&mut child);
+    assert!(t.contains("step append: "), "{t}");
+    assert!(
+        !t.contains("HEIMDALL_TEST_SCRIPT_PAUSE_DIR"),
+        "the CLI no longer refuses the variable: {t}"
+    );
+    assert_eq!(w.marker_lines(), 1, "released, the append wrote: {t}");
+    assert_ne!(code, Some(2), "{t}");
 }

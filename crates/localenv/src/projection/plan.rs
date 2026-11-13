@@ -2451,13 +2451,10 @@ impl ConfigSource for Overlay<'_> {
 
 /// Each `Host <name>` section of Heimdall's rendered P, by name, without the blank
 /// lines that separate sections.
-/// ⟨M03⟩ The command that holds a managed alias's slot, as the `slot_free` disclosure
-/// names it (ADR-0008 D10 item 2: `heimdall run …`; `heimdall bind materialize` is
-/// U12's and is not offered until it exists).
-#[must_use]
-pub fn slot_free_command(alias: &str) -> String {
-    format!("heimdall run --profile <profile> -- ssh {alias}")
-}
+/// ⟨M03⟩ The command that holds a managed alias's slot (moved to
+/// `heimdall_domain::managed` so the app's enrollment result uses the same one;
+/// ADR-0008 §17.25 item 5). Re-exported here, so every caller is unchanged.
+pub use heimdall_domain::managed::slot_free_command;
 
 /// ⟨M03⟩ The `slot_free` disclosure of a managed alias (ADR-0008 D10 item 2, §17.4 item
 /// 12): ordinary `ssh <alias>` works only while a binding holds the alias's slot, with

@@ -1514,6 +1514,16 @@ impl App {
         }
     }
 
+    /// ⟨M03⟩ Whether the listed decision `id` is approved only in the CLI (§17.25 item
+    /// 10, §17.26; [`super::m03::cli_only`]): its only verdict here is Deny.
+    fn decided_in_cli(&self, id: &str) -> bool {
+        self.catalog
+            .decisions
+            .iter()
+            .find(|d| d.id == id)
+            .is_some_and(|d| super::m03::cli_only(d).is_some())
+    }
+
     fn decision_key(&mut self, mut p: DecisionPrompt, key: Key) -> (Option<Modal>, Vec<Effect>) {
         match key {
             Key::Esc | Key::CtrlC => {
@@ -1524,9 +1534,15 @@ impl App {
                 (None, Vec::new())
             }
             Key::Tab | Key::BackTab => {
-                p.verdict = match p.verdict {
-                    Verdict::Approve => Verdict::Deny,
-                    Verdict::Deny => Verdict::Approve,
+                // ⟨M03⟩ §17.25 item 10, §17.26: a decision approved only in the CLI has
+                // one verdict here, Deny; nothing toggles to Approve.
+                p.verdict = if self.decided_in_cli(&p.id) {
+                    Verdict::Deny
+                } else {
+                    match p.verdict {
+                        Verdict::Approve => Verdict::Deny,
+                        Verdict::Deny => Verdict::Approve,
+                    }
                 };
                 p.input.clear();
                 p.reading.refused = false;
@@ -1552,7 +1568,13 @@ impl App {
                     ));
                     return (None, Vec::new());
                 };
-                // ⟨M03⟩ Q-T4/Q-T5: no approval for a disclosure the owner was not shown.
+                // ⟨M03⟩ §17.25 item 10, §17.26: a decision approved only in the CLI is
+                // read-only here except for Deny: whatever the prompt held, only Deny is
+                // ever sent for it (after the typed yes above), never Approve.
+                if super::m03::cli_only(listed).is_some() {
+                    p.verdict = Verdict::Deny;
+                }
+                // ⟨M03⟩ No approval for a disclosure the owner was not shown.
                 if p.verdict == Verdict::Approve
                     && let Some(why) = super::m03::approve_block(&self.catalog, listed)
                 {

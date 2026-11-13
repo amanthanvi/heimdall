@@ -199,6 +199,38 @@ pub struct ManagedFacts {
     /// item 15): each an anchor (the runtime or state directory) and the managed level
     /// under it (`b`, `managed`). A tree whose level does not exist is not checked.
     pub dirs: Vec<(PathBuf, String)>,
+    /// ⟨§17.25 item 13⟩ The `verified` enrollments whose verification evidence is no
+    /// longer fresh, or was never recorded (`enrollment_evidence_stale`).
+    pub stale_evidence: Vec<EnrollmentFact>,
+    /// ⟨§17.25 item 13⟩ The `verified` enrollments whose last re-verification ended
+    /// inconclusive, so they kept their earlier evidence (`reverification_inconclusive`).
+    pub inconclusive_reverifications: Vec<EnrollmentFact>,
+}
+
+/// ⟨M03⟩ One enrollment a doctor finding names (ADR-0008 §17.25 item 13), read from the
+/// store read-only. It carries identifiers and times only: no host, user or alias name,
+/// so `--redact` has nothing in it to replace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnrollmentFact {
+    /// The enrollment.
+    pub enrollment: heimdall_contract::ids::EnrollmentId,
+    /// Its marker (`heimdall:<enrollment-id>`).
+    pub marker: String,
+    /// Its destination.
+    pub destination: heimdall_contract::ids::DestinationId,
+    /// Until when its recorded evidence is (or was) fresh; `None` when none is recorded.
+    pub fresh_until: Option<heimdall_contract::Timestamp>,
+    /// The re-verification operation, when one is named.
+    pub operation: Option<heimdall_contract::ids::OperationId>,
+    /// The inconclusive result's reason (`verification_inconclusive`,
+    /// `destination_clock_skew`, `ca_not_held`), while its operation is still recorded.
+    pub reason: Option<String>,
+}
+
+/// ⟨M03⟩ The command that re-verifies an enrollment (`heimdall enroll verify <id>`).
+#[must_use]
+pub fn reverify_command(enrollment: &heimdall_contract::ids::EnrollmentId) -> String {
+    format!("heimdall enroll verify {enrollment}")
 }
 
 impl std::fmt::Debug for LocalContext {
@@ -486,6 +518,7 @@ pub fn run(ctx: &LocalContext, request: &DoctorRequest) -> DoctorReport {
     let git = d.git(&inventory, &agents);
     d.slot_free(&aliases);
     d.managed_dirs();
+    d.enrollment_findings();
     // The static level's own record: nothing configured ran, nothing was contacted
     // or changed; local queries ran contained.
     let mut static_record = probe::record(ProbeLevel::Static, "*", started_at);
@@ -1789,6 +1822,66 @@ impl Doctor<'_> {
                 ),
                 "review_config",
                 Some(crate::sys::MANAGED_DIR_UNSAFE),
+            );
+        }
+    }
+
+    /// ⟨ADR-0008 §17.25 item 13⟩ `enrollment_evidence_stale` and
+    /// `reverification_inconclusive`, one per enrollment the caller read from the store
+    /// ([`ManagedFacts`]), each naming the enrollment, its marker and destination, and
+    /// the command that re-verifies it. Reported only: nothing is verified or changed.
+    fn enrollment_findings(&mut self) {
+        let subject_of = |f: &EnrollmentFact| subject("enrollment", Some(f.enrollment.as_str()));
+        for f in self.ctx.managed.stale_evidence.clone() {
+            let when = f.fresh_until.map_or_else(
+                || "no verification evidence is recorded for it".to_owned(),
+                |t| format!("its verification evidence was fresh until {t}"),
+            );
+            self.add(
+                finding::ENROLLMENT_EVIDENCE_STALE,
+                FindingSeverity::Warning,
+                subject_of(&f),
+                ProbeLevel::Static,
+                None,
+                format!(
+                    "enrollment {} ({}, destination {}) is verified, but {when}; the managed report shows its evidence as unknown until it is re-verified: run `{}`",
+                    f.enrollment,
+                    f.marker,
+                    f.destination,
+                    reverify_command(&f.enrollment)
+                ),
+                "none",
+                None,
+            );
+        }
+        for f in self.ctx.managed.inconclusive_reverifications.clone() {
+            let why = f
+                .reason
+                .as_deref()
+                .map_or_else(String::new, |r| format!(" ({r})"));
+            let op = f
+                .operation
+                .as_ref()
+                .map_or_else(String::new, |o| format!(", operation {o}"));
+            let fresh = f.fresh_until.map_or_else(
+                || "no earlier evidence is recorded".to_owned(),
+                |t| format!("its earlier evidence stays, fresh until {t}"),
+            );
+            self.add(
+                finding::REVERIFICATION_INCONCLUSIVE,
+                FindingSeverity::Warning,
+                subject_of(&f),
+                ProbeLevel::Static,
+                None,
+                format!(
+                    "the last re-verification of enrollment {} ({}, destination {}{op}) was inconclusive{why}; the enrollment stays verified and {fresh}; run `{}` to try again",
+                    f.enrollment,
+                    f.marker,
+                    f.destination,
+                    reverify_command(&f.enrollment)
+                ),
+                "none",
+                None,
             );
         }
     }

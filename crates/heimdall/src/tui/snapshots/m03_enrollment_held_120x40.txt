@@ -7,9 +7,9 @@ Approved target alpha.example.invalid:22 as fixture · host key SHA256:hostOld
 Verified unknown · evidence fresh until unknown
 Live grants: 0 · open operation none
 [!!] Held: host_key_changed
-  next: review the new host key: `heimdall enroll verify enr_01010101010101010101010101010101 --approve-target-change`,
-or `heimdall enroll remove enr_01010101010101010101010101010101`
-
+  next:
+    - `heimdall enroll verify enr_01010101010101010101010101010101 --approve-target-change`
+    - `heimdall enroll remove enr_01010101010101010101010101010101`
 
 
 

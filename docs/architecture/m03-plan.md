@@ -199,7 +199,7 @@ code is `491d8f5a`. ⟨r3⟩ Re-checked at `95603af6` (no code change since `7f6
 | # | Assumption | Used by |
 |---|---|---|
 | M1 | `CredentialAdapter` keeps `read_sources`/`prepare_from`/`renew`/`reconcile`/`revoke` and the drop contract (`app::ports`, ADR-0007 §7). ⟨r2⟩ M03 extends it explicitly with `IntegrationSnapshot.managed` and the `ManagedEffects` port (ADR-0008 D6 item 0); existing-access adapters are unchanged | U6, U0b |
-| M2 | `PrepareOutcome`, `ConsumerIntegration.pairs` and `PreparedFacts` keep their shapes (ADR-0006 §15.1 items 7, 8, 15) | U6, U0b |
+| M2 | `PrepareOutcome`, `ConsumerIntegration.pairs` and `PreparedFacts` keep their shapes (ADR-0006 §15.1 items 7, 8, 15). ⟨wave 5, round 2⟩ **Amended** by ADR-0008 §17.25 item 18: `PrepareOutcome` gains the additive `managed: Option<ManagedResultFacts>` (the six `EnsureData` managed values; `None` for every M01/M02 adapter; ADR-0006 §16.5). `PreparedFacts` and `ConsumerIntegration.pairs` are unchanged, so after a restart the six fields stay absent | U6, U0b, U12 |
 | M3 | The projection P, its closed directive set, `ProjectionWriter`'s stateless contract and the setup operations stay as committed. In particular the Windows `RenderPath::windows` behaviour for verbatim paths, which the Windows failure group 1 at `cb16c2d6` is changing. ⟨r2⟩ **Changed at `491d8f5a`:** `localenv::paths::display_path` now shows `/` separators on every platform (`~/…` under the home; ADR-0007 §12.26 item 7). Every M03 path **display** (`registry.path_display`, slot and binding file displays, bundle entries, the TUI) goes through it and is never parsed back. **Rendered** paths in P keep ADR-0007 §4's rules | U8, U5, U6, U12 |
 | M4 | The Windows projection replace (`ReplaceFileW` with backup) is fixed for the sharing-violation and `NotFound` failures at `cb16c2d6`. U8's slot files on Windows reuse that primitive | U6, U8 |
 | M5 | Launch and connect hold the binding through `BindForm::Launch { executable, holder }` with `ProcessHolder { pid, start-time token }`, and `run` execs on Unix and spawns-and-waits on Windows (ADR-0007 §8). ⟨r2⟩ Observed at `7f6f1c05`: `run` registers its **own** PID as holder (`run_cmd.rs`); Windows `run` spawns a separate child with **no job object** (`launch/windows.rs`); `connect` **binds nothing** (`connect_cmd.rs`). ADR-0008 D8 item 2 changes the latter two for managed launches | U7, U8 |
@@ -2707,7 +2707,9 @@ destroyed | lost | reissued`. No payload carries a secret, a PID or a path.
 
 ⟨r2⟩ Warnings (not error reasons): `managed_projection_pending` (with `next: setup_apply`; F04),
 `signal_unverified` (Linux `revoke_on_lock`; F19), ⟨r3⟩ `ordinary_ssh_needs_held_slot`,
-`possible_late_write`. Doctor findings: `reverification_inconclusive`, `enrollment_evidence_stale`,
+`possible_late_write`; ⟨wave 5, round 2⟩ the `TIME_UNCERTAIN` warning's additive `reason`
+`time_confirmation_after_reboot` when the cause is no time reference for this boot (ADR-0008 §17.25 item
+15; `m03_warning::REASONS`). Doctor findings: `reverification_inconclusive`, `enrollment_evidence_stale`,
 ⟨r3⟩ `client_trace_family_unrecorded` (naming the family and version), `slot_free` (with the command);
 ⟨wave 5⟩ `managed_dir_unsafe` (ADR-0008 §17.20 item 15).
 
@@ -2983,7 +2985,7 @@ pair `{"t":"unload","ca_fingerprint":…}` → `{"t":"unloaded","ca_fingerprint"
 | `heimdall access connection-policy --policy P [--existing graceful\|strict] [--multiplexing disabled\|owned]` | Policy::SetConnectionPolicy | |
 | `heimdall connections [--json]`, `heimdall connections close <id>` | inspect connections; `Connections::Close` (§5 item 4a) | `close` never signals an unverified process |
 | `heimdall internal issuer`, `heimdall internal session-lock-state` | — | hidden; the first refuses a TTY stdin; the second is read-only |
-| ⟨r2⟩ `heimdall uninstall [--purge-state [--keep-remote-enrollments --bundle <file>]]` | — (M02 command, extended) | ADR-0008 D4 item 6: a fresh bundle before a purge that keeps enrollments; the K_ca store item's fate stated |
+| ⟨r2⟩ `heimdall uninstall [--keep-remote-enrollments] [--purge-state [--bundle <file>]]` (⟨wave 5⟩ `--bundle` needs both flags; `--keep-remote-enrollments` alone acknowledges a plain uninstall, ADR-0008 §17.25 item 11) | — (M02 command, extended) | ADR-0008 D4 item 6: a fresh bundle before a purge that keeps enrollments; the K_ca store item's fate stated |
 
 Exit codes are unchanged (ADR-0006 §6).
 

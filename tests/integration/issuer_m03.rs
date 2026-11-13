@@ -1097,8 +1097,9 @@ fn owner_only_dir(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
 /// `ScratchSecretStore`s (`own`: this installation's, where `put` and `get` go;
 /// `other`: another installation's), labelled with the product kind the CA records
 /// register (`linux_secret_service`) so the owner-present CLI's deletion
-/// (`retire::delete_awaiting`, which refuses a test kind, S3) runs over real scratch
-/// files. Like a shared platform store, its `list` reports **both** installations'
+/// (`retire::delete_awaiting`, which matches a product kind exactly; a bare test kind is
+/// deleted by exact locator only in debug builds, §17.25 item 7 (d)) runs over real
+/// scratch files. Like a shared platform store, its `list` reports **both** installations'
 /// items and its `delete` deletes whichever item the exact locator names: only the
 /// exactness of the recorded locator keeps the other installation's item. No platform
 /// store is touched: no native store claim is closed here.

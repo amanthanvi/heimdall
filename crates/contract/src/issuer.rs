@@ -77,6 +77,18 @@ pub enum IssuerRequest {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         redact_hostnames: bool,
     },
+    /// ⟨ADR-0008 §17.25 item 8⟩ The CLI's confirmation that it wrote a recovery
+    /// bundle completely and fsynced it. kind `issuer.bundle_written`; synchronous
+    /// (it records `last_bundle_at` and the digest, which never lower). The record
+    /// never stores the file's path. Sent only after the write; a bundle the CLI
+    /// failed to write is never confirmed.
+    BundleWritten {
+        /// The written bundle's `created_at` (`RecoveryBundle::created_at`).
+        created_at: Timestamp,
+        /// Hex SHA-256 of the exact bytes written (lowercase, 64 characters; the
+        /// form of `Register.backup_sha256`).
+        sha256: String,
+    },
 }
 
 impl IssuerRequest {
@@ -89,6 +101,7 @@ impl IssuerRequest {
             IssuerRequest::Unlock => "issuer.unlock",
             IssuerRequest::Retire { .. } => "issuer.retire",
             IssuerRequest::Bundle { .. } => "issuer.bundle",
+            IssuerRequest::BundleWritten { .. } => "issuer.bundle_written",
         }
     }
 }

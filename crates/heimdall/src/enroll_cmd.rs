@@ -31,12 +31,12 @@
 //! stderr. When the flow stops before the operation runs (a pending decision, a refusal
 //! of the prompt), the envelope's `data.plan` carries the previewed plan.
 //!
-//! **Test configuration.** The CLI is the only reader of
-//! `HEIMDALL_TEST_SCRIPT_PAUSE_DIR` (`testcfg::enroll_hooks`: a release build refuses
-//! it, a debug build validates it). Inserting the pause points needs
-//! `heimdall_registry::script::test_form`, and `heimdall-registry` is not a dependency
-//! of this crate (escalated): until [`SCRIPT_PAUSE_POINTS_CONSUMED`], a set pause
-//! directory refuses every form but `status` (exit 2, nothing sent).
+//! **Test configuration.** The CLI only validates `HEIMDALL_TEST_SCRIPT_PAUSE_DIR`
+//! (`testcfg::enroll_hooks`: a release build refuses it, exit 2; a debug build refuses a
+//! relative value). The pause points themselves are the runtime's: in a debug build it
+//! inserts them when it builds a step, from its own test configuration
+//! (`ManagedOptions::script_pause_dir`; ADR-0008 §17.25 item 3), and this CLI runs the
+//! script it receives unchanged.
 
 mod drive;
 mod render;
@@ -69,13 +69,6 @@ use crate::prompt::Answer;
 use crate::setup_cmd::{self, Outcome};
 use crate::testcfg;
 
-/// **Switch (escalated; `.m03-wave5-questions.md` heading E).** Whether this CLI inserts
-/// the test form's pause points into the scripts it runs
-/// (`HEIMDALL_TEST_SCRIPT_PAUSE_DIR`). `false`: the `heimdall-registry` edge it needs is
-/// not in the crate graph, so a set pause directory is refused (fail closed: a test that
-/// expects pauses never runs unpaused).
-pub(crate) const SCRIPT_PAUSE_POINTS_CONSUMED: bool = false;
-
 /// **Switch (Q-I1 option (c); U5IO-Q3).** While
 /// `heimdall_enroll::remote::INTERACTIVE_FOREGROUND_HANDOFF` is `false`, refuse up front
 /// an interactive step (and an interactive enrollment's plan) whose existing access is
@@ -88,25 +81,13 @@ const BUNDLE_MAX: u64 = 8 * 1024 * 1024;
 
 /// Handle `enroll`.
 pub(crate) fn run(ctx: &Ctx, args: EnrollArgs) -> ExitCode {
-    let pause = match testcfg::enroll_hooks(&|n| std::env::var_os(n)) {
-        Ok(p) => p,
-        Err(msg) => {
-            return Outcome::of(output::error_value(error(Code::UsageError, &msg))).emit(ctx);
-        }
-    };
+    // Validation only (module docs): the runtime inserts the pause points.
+    if let Err(msg) = testcfg::enroll_hooks(&|n| std::env::var_os(n)) {
+        return Outcome::of(output::error_value(error(Code::UsageError, &msg))).emit(ctx);
+    }
     // `enroll` alone names neither a destination nor a subcommand.
     if args.command.is_none() && args.start.destination.is_none() {
         return setup_cmd::usage("enroll needs a destination or a subcommand").emit(ctx);
-    }
-    if pause.is_some()
-        && !SCRIPT_PAUSE_POINTS_CONSUMED
-        && !matches!(args.command, Some(EnrollCommand::Status))
-    {
-        return setup_cmd::usage(&format!(
-            "{} is set, but this CLI cannot insert the script pause points yet (the heimdall-registry edge is pending); nothing was sent",
-            testcfg::SCRIPT_PAUSE_DIR_ENV
-        ))
-        .emit(ctx);
     }
     let mut p = TerminalPrompt;
     setup_cmd::block(ctx, async move {
@@ -504,15 +485,7 @@ async fn status(ctx: &Ctx) -> Outcome {
                     serde_json::json!(heimdall_localenv::projection::plan::slot_free_command(a));
             }
             if state == "held" {
-                let reason = e
-                    .get("hold")
-                    .and_then(|h| h.get("reason"))
-                    .and_then(|v| v.as_str());
-                g["next_commands"] = serde_json::json!(render::held_next(
-                    reason,
-                    &id,
-                    e.get("open_operation_id").and_then(|v| v.as_str())
-                ));
+                g["next_commands"] = serde_json::json!(render::held_of(e, &id).1);
             }
             g
         })
@@ -993,10 +966,120 @@ mod tests {
         );
     }
 
+    /// A control session that records each request's kind and answers `inspect` with
+    /// one pending `enroll_account` decision.
+    struct Recorder {
+        sent: Vec<String>,
+    }
+
+    const DEC: &str = "dec_00112233445566778899aabbccddeeff";
+
+    impl Session for Recorder {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.sent.push(request.kind().to_owned());
+            match request {
+                Request::Inspect { .. } => Envelope::ok(serde_json::json!({"decisions": [{
+                    "decision_id": DEC, "kind": "enroll_account", "state": "pending",
+                    "expires_at": "2026-11-03T00:15:00Z",
+                    "request": {"plan_digest": "ab".repeat(32)},
+                }]})),
+                _ => Envelope::ok(serde_json::json!({})),
+            }
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            self.sent.push("attend".to_owned());
+            Envelope::ok(serde_json::json!({"attended": true}))
+        }
+    }
+
+    /// The terminal prompt with a reader that never answers and a short bound (the
+    /// 120 s `PROMPT_TIMEOUT`, shortened; `prompt::ask_within`).
+    struct NeverAnswers {
+        release: Vec<std::sync::mpsc::Sender<()>>,
+    }
+
+    impl Prompter for NeverAnswers {
+        async fn ask(&mut self, text: &str) -> Answer {
+            let (tx, rx) = std::sync::mpsc::channel::<()>();
+            self.release.push(tx);
+            let read = move || {
+                let _ = rx.recv();
+                Err(std::io::Error::other("released"))
+            };
+            crate::prompt::ask_within(text, read, std::time::Duration::from_millis(50)).await
+        }
+    }
+
+    /// m03-plan U12 (ADR-0006 §3.1 N04): the typed `yes` of an enrollment decision that
+    /// gets no answer within the prompt's bound is a refusal: nothing more is sent (no
+    /// `decide`, the request is not repeated), and the outcome is `not_confirmed` (exit
+    /// 3, `INTERACTION_REQUIRED`, the decision reference, "no answer in time").
+    #[test]
+    fn typed_yes_timeout_sends_nothing_and_exits_3() {
+        let ctx = Ctx {
+            json: true,
+            non_interactive: false,
+            home: None,
+            stdin_tty: true,
+        };
+        let pending = output::error_value(
+            heimdall_app::OpError::new(Code::ApprovalRequired, "owner approval required")
+                .with_decision(DEC.to_owned())
+                .into_envelope(),
+        );
+        let request = Request::Enrollment(EnrollmentRequest::Abandon {
+            enrollment_id: EnrollmentId::parse("enr_00112233445566778899aabbccddeeff").unwrap(),
+        });
+        let mut s = Recorder { sent: Vec::new() };
+        let mut p = NeverAnswers {
+            release: Vec::new(),
+        };
+        let digest = "ab".repeat(32);
+        let out = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(decided(
+                &mut s,
+                &mut p,
+                &ctx,
+                &request,
+                pending,
+                &|_| "the enrollment".to_owned(),
+                Some(&digest),
+            ));
+        assert_eq!(p.release.len(), 1, "the owner was asked once");
+        drop(p);
+        let Err(env) = out else {
+            panic!("a timed-out prompt never confirms");
+        };
+        assert!(
+            s.sent.iter().all(|k| k == "inspect"),
+            "nothing but the decision listing was sent: {:?}",
+            s.sent
+        );
+        let out = Outcome::of(env);
+        assert_eq!(out.exit, ExitCode::InteractionRequired);
+        assert_eq!(out.exit as i32, 3);
+        assert_eq!(out.env.code, Code::InteractionRequired);
+        let message = out.env.data["error"]["message"].as_str().unwrap_or("");
+        assert!(
+            message.contains("not confirmed (no answer in time)"),
+            "{:?}",
+            out.env
+        );
+        assert_eq!(
+            out.env
+                .next
+                .as_ref()
+                .and_then(|n| n.decision_ref.as_deref()),
+            Some(DEC)
+        );
+    }
+
     #[test]
     fn the_switches_fail_closed() {
         const {
-            assert!(!SCRIPT_PAUSE_POINTS_CONSUMED);
             assert!(REFUSE_UNHELD_INTERACTIVE_IDENTITY);
             assert!(!heimdall_enroll::remote::INTERACTIVE_FOREGROUND_HANDOFF);
         }

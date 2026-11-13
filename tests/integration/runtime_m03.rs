@@ -184,6 +184,7 @@ fn outcome() -> PrepareOutcome {
         availability: Default::default(),
         provider: None,
         integration: Default::default(),
+        managed: None,
     }
 }
 
@@ -6043,5 +6044,282 @@ mod setup_switch {
             );
             rig.stop().await;
         }
+    }
+}
+
+// =================================================================================
+// M03 wave 5, round 2 (ADR-0008 §17.25 items 19 and 21; worker R2)
+// =================================================================================
+
+mod wave5_r2 {
+    use super::*;
+
+    use heimdall_contract::managed::{
+        ConnectionPolicy, ExistingConnectionsMode, PreferredMechanism, SessionLockState,
+    };
+    use heimdall_contract::provider::IdentitySelection;
+    use heimdall_contract::request::{InspectRequest, InspectSubject, PolicyAction};
+    use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+    use heimdall_domain::enrollment::{PairPreference, ProjectionStatus};
+    use heimdall_localenv::projection::plan::{
+        DEADLINE_GRACEFUL_NOT_EXCLUSIVE, DEADLINE_STRICT_NOT_EXCLUSIVE,
+    };
+    use heimdall_runtime::service::{
+        ManagedOptions, STATE_DB_FILE, ServiceOptions, SessionLockWiring,
+    };
+    use heimdall_runtime::{Config, Paths, Service};
+    use heimdall_testkit::session_lock::FakeSessionLockSource;
+
+    /// A scratch home whose store has this file's environment and policy (`pol`,
+    /// covering (h1, deploy) and (h2, deploy)), three managed destinations (h1 and h3
+    /// with a `managed_certificate` preference, h2 with `existing`; h3 is covered by no
+    /// policy), and no CA (no issuer child).
+    fn home() -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("hh");
+        let paths = Paths::under(&home);
+        paths.ensure().unwrap();
+        let store = Store::open(
+            &paths.state_dir.join(STATE_DB_FILE),
+            Arc::new(heimdall_store::NoFaults),
+        )
+        .unwrap();
+        seed(&store);
+        let identity = heimdall_contract::ids::IdentityId::from_random_bytes([0x52; 16]);
+        store
+            .transaction(|tx| {
+                for (d, mechanism) in [
+                    ("h1", PreferredMechanism::ManagedCertificate),
+                    ("h2", PreferredMechanism::Existing),
+                    ("h3", PreferredMechanism::ManagedCertificate),
+                ] {
+                    tx.upsert_destination(&DestinationRecord {
+                        id: DestinationId::parse(d).unwrap(),
+                        alias: format!("{d}-alias"),
+                        revision: 1,
+                        definition: DestinationDefinition::Managed {
+                            hostname: format!("{d}.example.invalid"),
+                            port: None,
+                            account: AccountName::parse("deploy").unwrap(),
+                            identity: identity.clone(),
+                        },
+                        label: None,
+                        updated_at: t0(),
+                    })?;
+                    tx.set_pair_preference(
+                        &PairPreference {
+                            destination: DestinationId::parse(d).unwrap(),
+                            account: AccountName::parse("deploy").unwrap(),
+                            mechanism,
+                            projection: ProjectionStatus::Applied { generation: 1 },
+                            issuing_cas: BTreeSet::new(),
+                        },
+                        t0(),
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        (tmp, home)
+    }
+
+    fn options(managed: bool) -> ServiceOptions {
+        let mut o = ServiceOptions::with_clock(
+            VirtualClock::at(t0()),
+            ScriptedTimeSync::new(SyncStatus::Synchronized),
+        );
+        o.endpoint_prefix = "hmtest-".to_owned();
+        if managed {
+            o.managed = Some(ManagedOptions {
+                session_lock: SessionLockWiring::Source(Arc::new(FakeSessionLockSource::new(
+                    SessionLockState::Unlocked,
+                ))),
+                ..ManagedOptions::default()
+            });
+        }
+        o
+    }
+
+    async fn start(home: &std::path::Path, managed: bool) -> (Service, CancellationToken) {
+        let token = CancellationToken::new();
+        let svc = Service::start_with(
+            Paths::under(home),
+            Config::default(),
+            options(managed),
+            token.clone(),
+        )
+        .await
+        .unwrap();
+        (svc, token)
+    }
+
+    async fn stop(svc: Service, token: CancellationToken) {
+        let running = tokio::spawn(svc.run());
+        token.cancel();
+        running.await.unwrap().unwrap();
+    }
+
+    async fn inspect(ops: &Operations, subject: InspectSubject) -> serde_json::Value {
+        ops.inspect(
+            &attended(ClientRole::Owner),
+            InspectRequest {
+                subject,
+                preview: None,
+            },
+        )
+        .await
+        .unwrap()
+        .data
+    }
+
+    fn item<'a>(data: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
+        data["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["destination_id"] == id)
+            .unwrap_or_else(|| panic!("{id} listed: {data}"))
+    }
+
+    /// §17.25 item 19 (Q-T2 (a); C-Q5 reading): with the managed wiring, a
+    /// `managed_certificate` preference covered by a standing policy carries
+    /// `preference.connection_policy`, the `ConnectionPolicyReport` with the runtime's own
+    /// D8 wording (`heimdall_adapters::managed::report::connection_wording` for the
+    /// alias's observed selection: unobserved here, so `undetermined`), following the
+    /// policy (graceful, then strict). An `existing` preference, a pair no policy
+    /// covers, and a runtime without the managed wiring carry no key.
+    #[tokio::test]
+    async fn inspect_destinations_preference_connection_policy_uses_runtime_wording() {
+        let (_tmp, home) = home();
+        // Without the managed wiring: no wording source, no key.
+        let (svc, token) = start(&home, false).await;
+        let data = inspect(svc.operations(), InspectSubject::Destinations).await;
+        assert!(
+            item(&data, "h1")["preference"]
+                .get("connection_policy")
+                .is_none(),
+            "{data}"
+        );
+        stop(svc, token).await;
+
+        let (svc, token) = start(&home, true).await;
+        let ops = svc.operations().clone();
+        let data = inspect(&ops, InspectSubject::Destinations).await;
+        let graceful = ConnectionPolicy::default();
+        assert_eq!(
+            item(&data, "h1")["preference"]["connection_policy"],
+            serde_json::json!({
+                "existing": "graceful",
+                "multiplexing": "disabled",
+                "wording": DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+            }),
+            "{data}"
+        );
+        assert_eq!(
+            heimdall_adapters::managed::report::connection_wording(
+                heimdall_adapters::managed::report::SelectionClass::Undetermined,
+                &graceful,
+                &heimdall_adapters::managed::report::current_platform(),
+            ),
+            DEADLINE_GRACEFUL_NOT_EXCLUSIVE
+        );
+        // The rest of the preference is unchanged.
+        assert_eq!(
+            item(&data, "h1")["preference"]["mechanism"],
+            "managed_certificate"
+        );
+        assert_eq!(
+            item(&data, "h1")["preference"]["projection"],
+            serde_json::json!({"state": "applied", "generation": 1})
+        );
+        assert!(
+            item(&data, "h2")["preference"]
+                .get("connection_policy")
+                .is_none(),
+            "existing access: {data}"
+        );
+        assert!(
+            item(&data, "h3")["preference"]
+                .get("connection_policy")
+                .is_none(),
+            "no covering policy: {data}"
+        );
+        // Narrowing the policy to `strict` changes the report and the D8 wording.
+        ops.policy(
+            &attended(ClientRole::Owner),
+            PolicyAction::SetConnectionPolicy {
+                policy_id: PolicyId::parse("pol").unwrap(),
+                existing: Some(ExistingConnectionsMode::Strict),
+                multiplexing: None,
+            },
+        )
+        .await
+        .unwrap();
+        let data = inspect(&ops, InspectSubject::Destinations).await;
+        let report = &item(&data, "h1")["preference"]["connection_policy"];
+        assert_eq!(report["existing"], "strict", "{data}");
+        assert_eq!(report["multiplexing"], "disabled");
+        assert_eq!(report["wording"], DEADLINE_STRICT_NOT_EXCLUSIVE);
+        assert_eq!(
+            heimdall_localenv::projection::plan::deadline_wording(
+                IdentitySelection::Undetermined,
+                ExistingConnectionsMode::Strict
+            ),
+            DEADLINE_STRICT_NOT_EXCLUSIVE
+        );
+        drop(ops);
+        stop(svc, token).await;
+    }
+
+    /// §17.25 item 21 (Q-T5 (a); D9 item 1): `inspect capabilities` carries the read-only
+    /// `lock: {behavior, disclosure, acknowledged_at?}` from `Operations::lock_disclosure`:
+    /// the current behaviour (`continue`, then `revoke_on_lock` after the policy
+    /// narrows), its disclosure text verbatim, and `acknowledged_at` only once the
+    /// acknowledgement is recorded. The M01 keys are unchanged.
+    #[tokio::test]
+    async fn inspect_capabilities_reports_lock_behavior_disclosure_and_acknowledgement() {
+        let (_tmp, home) = home();
+        let (svc, token) = start(&home, true).await;
+        let ops = svc.operations().clone();
+        let data = inspect(&ops, InspectSubject::Capabilities).await;
+        let disclosure = ops
+            .lock_disclosure(false, ops.session_lock_signal())
+            .await
+            .unwrap();
+        assert_eq!(
+            data["lock"],
+            serde_json::json!({"behavior": "continue", "disclosure": disclosure.text}),
+            "{data}"
+        );
+        assert!(!disclosure.text.is_empty());
+        for key in ["capabilities", "schemas", "codes", "schema_version"] {
+            assert!(data.get(key).is_some(), "{key}: {data}");
+        }
+        let at = ops.acknowledge_lock_disclosure().await.unwrap();
+        let data = inspect(&ops, InspectSubject::Capabilities).await;
+        assert_eq!(
+            data["lock"]["acknowledged_at"],
+            serde_json::json!(at),
+            "{data}"
+        );
+        ops.policy(
+            &attended(ClientRole::Owner),
+            PolicyAction::SetLockBehavior {
+                policy_id: PolicyId::parse("pol").unwrap(),
+                behavior: heimdall_contract::managed::LockBehavior::RevokeOnLock,
+            },
+        )
+        .await
+        .unwrap();
+        let data = inspect(&ops, InspectSubject::Capabilities).await;
+        assert_eq!(data["lock"]["behavior"], "revoke_on_lock", "{data}");
+        let now = ops
+            .lock_disclosure(false, ops.session_lock_signal())
+            .await
+            .unwrap();
+        assert_eq!(data["lock"]["disclosure"], now.text);
+        assert_ne!(now.text, disclosure.text, "the text follows the behaviour");
+        drop(ops);
+        stop(svc, token).await;
     }
 }

@@ -684,13 +684,7 @@ fn destination_lines(app: &App, alias: &str, theme: Theme) -> Vec<Line<'static>>
         }
         // ⟨M03⟩ U12: managed readiness (projection, deadline wording, lock behaviour,
         // owned connections, enrollments) for a managed-certificate pair.
-        lines.extend(super::m03::managed_lines(
-            &app.catalog,
-            d,
-            observation
-                .and_then(|o| o.identity_selection.as_ref())
-                .map(|s| s.selection),
-        ));
+        lines.extend(super::m03::managed_lines(&app.catalog, d));
     }
     let doctor = app.doctor.as_ref();
     match (doctor, observation) {
@@ -1576,10 +1570,6 @@ fn decision_prompt(verdict: Verdict, input: &str, theme: Theme) -> Vec<Line<'sta
 }
 
 fn decision_modal(app: &App, p: &DecisionPrompt, width: usize, theme: Theme) -> ConfirmParts {
-    let verb = match p.verdict {
-        Verdict::Approve => "Approve",
-        Verdict::Deny => "Deny",
-    };
     let Some(d) = app.catalog.decisions.iter().find(|d| d.id == p.id) else {
         return ConfirmParts {
             title: format!("Owner decision {}", p.id),
@@ -1594,6 +1584,17 @@ fn decision_modal(app: &App, p: &DecisionPrompt, width: usize, theme: Theme) -> 
             prompt_reserve: Vec::new(),
             fill: true,
         };
+    };
+    // ⟨M03⟩ §17.25 item 10, §17.26: approved only in the CLI; Deny is the one verdict.
+    let cli_only = super::m03::cli_only(d);
+    let verdict = if cli_only.is_some() {
+        Verdict::Deny
+    } else {
+        p.verdict
+    };
+    let verb = match verdict {
+        Verdict::Approve => "Approve",
+        Verdict::Deny => "Deny",
     };
     let mut content = vec![plain(format!(
         "Recorded {} · expires {}{}",
@@ -1623,6 +1624,25 @@ fn decision_modal(app: &App, p: &DecisionPrompt, width: usize, theme: Theme) -> 
     content.push(plain(IMITATION_TEXT));
     // What the owner confirms is the record itself, not its age.
     let key = fingerprint(&[&d.id, &d.kind, &d.request.to_string()]);
+    if let Some(command) = cli_only {
+        let prompt = |input: &str| {
+            vec![
+                Line::styled(
+                    format!("Approve in the CLI: run `{command}` · Esc: send nothing"),
+                    theme.dim(),
+                ),
+                prompt_line("Deny", input).style(theme.bold()),
+            ]
+        };
+        return ConfirmParts {
+            title: format!("Owner decision {} ({}, read-only)", d.id, clean(&d.kind)),
+            content,
+            key,
+            prompt: prompt(&p.input),
+            prompt_reserve: vec![prompt(&full_answer())],
+            fill: true,
+        };
+    }
     let worst = full_answer();
     ConfirmParts {
         title: format!("Owner decision {} ({})", d.id, clean(&d.kind)),
@@ -2774,11 +2794,16 @@ mod tests {
 
     mod m03 {
         use super::*;
-        use crate::tui::m03::fixtures::{enroll_decision, enrollment, target_change_decision};
-        use crate::tui::m03::{Listings, LockReport, PolicyReport, Preference, Projection};
+        use crate::tui::m03::fixtures::{
+            enroll_decision, enrollment, register_decision, remove_decision, retire_decision,
+            system_form_decision, target_change_decision,
+        };
+        use crate::tui::m03::{Listings, LockReport, Preference, Projection};
         use crate::tui::model::{Command, DecisionPrompt, Effect};
         use heimdall_contract::enrollment::DisclosureKind;
-        use heimdall_contract::managed::{ExistingConnectionsMode, MultiplexingMode};
+        use heimdall_contract::managed::{
+            ConnectionPolicy, ConnectionPolicyReport, ExistingConnectionsMode, MultiplexingMode,
+        };
         use heimdall_localenv::projection::plan::{
             DEADLINE_GRACEFUL_EXCLUSIVE, DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
             DEADLINE_STRICT_EXCLUSIVE, DEADLINE_STRICT_NOT_EXCLUSIVE, slot_free_command,
@@ -2813,6 +2838,7 @@ mod tests {
                 &[heimdall_contract::envelope::Warning {
                     code: crate::tui::m03::TIME_UNCERTAIN.to_owned(),
                     message: TIME_MESSAGE.to_owned(),
+                    reason: Some(crate::tui::m03::TIME_CHORE.to_owned()),
                 }],
             );
             app.catalog.decisions = vec![
@@ -2910,84 +2936,92 @@ mod tests {
         }
 
         /// m03-plan U12 `managed_readiness_detail_exact_deadline_strings` (F15; ADR-0008
-        /// D8 item 6, §17.20 item 9): the managed detail shows the D8 wording, graceful
-        /// and strict, each in its exclusive and not-exclusive form, exactly U8's
-        /// strings (compared with the constants, never retyped); an unknown selection
-        /// gets the qualified text; the runtime's own wording (with D8 item 3's
-        /// owned-masters line) is shown verbatim; owned masters without it are never
-        /// presented as the plain text alone; no policy reads unknown.
+        /// D8 items 3 and 6; §17.25 items 19, 20): the managed detail shows the runtime's
+        /// own deadline wording from `inspect destinations` `preference.connection_policy`
+        /// verbatim: the four D8 texts (graceful and strict, each exclusive and not
+        /// exclusive), built by the runtime's `connection_wording` and compared with U8's
+        /// constants (never retyped); an undetermined selection gets the qualified text;
+        /// owned masters carry D8 item 3's sentence inside the runtime's wording. Modes
+        /// without wording, or no policy, read unknown: none of the texts is derived here,
+        /// and no "[??]" placeholder is drawn. (Unit level: the `preference` is the serde
+        /// form of `ConnectionPolicyReport`, R0 item 19; the e2e half waits on R2's fill.)
         #[test]
         fn managed_readiness_detail_exact_deadline_strings() {
-            let policy = |existing, multiplexing, wording: Option<String>| PolicyReport {
-                existing: Some(existing),
-                multiplexing: Some(multiplexing),
-                wording,
+            use heimdall_adapters::managed::report::{
+                OWNED_MASTERS_DISCLOSURE, SelectionClass, connection_wording,
             };
-            let with = |selection: Option<IdentitySelection>, p: Option<PolicyReport>| {
-                let mut app = m03_app();
-                app.catalog.destinations[0].preference = Some(Preference {
-                    policy: p,
-                    ..pending()
-                });
-                if let Some(d) = &mut app.doctor {
-                    match selection {
-                        Some(sel) => {
-                            d.report.aliases[0]
-                                .identity_selection
-                                .as_mut()
-                                .unwrap()
-                                .selection = sel;
-                        }
-                        None => d.report.aliases.clear(),
-                    }
+            let linux = heimdall_domain::claims::Platform {
+                os: "linux",
+                arch: "x86_64",
+            };
+            // The detail for a pair whose `inspect destinations` item carries `policy`.
+            let with = |policy: Option<serde_json::Value>| {
+                let mut pref = serde_json::json!({"mechanism": "managed_certificate",
+                    "projection": {"state": "pending"}});
+                if let Some(p) = policy {
+                    pref["connection_policy"] = p;
                 }
+                let mut app = m03_app();
+                app.catalog.destinations[0].preference = Preference::of(&pref);
                 let app = detail(&app);
-                let lines: Vec<String> = crate::tui::m03::managed_lines(
-                    &app.catalog,
-                    &app.catalog.destinations[0],
-                    app.doctor_alias("alpha")
-                        .and_then(|o| o.identity_selection.as_ref())
-                        .map(|s| s.selection),
-                )
-                .iter()
-                .map(|l| l.to_string())
-                .collect();
-                let screen = flat(&draw(&app, 120, 60).0);
-                (lines, screen)
+                let lines: Vec<String> =
+                    crate::tui::m03::managed_lines(&app.catalog, &app.catalog.destinations[0])
+                        .iter()
+                        .map(|l| l.to_string())
+                        .collect();
+                (lines, flat(&draw(&app, 120, 60).0))
             };
-            let cases = [
-                (
-                    IdentitySelection::Exclusive,
-                    ExistingConnectionsMode::Graceful,
-                    DEADLINE_GRACEFUL_EXCLUSIVE,
-                ),
-                (
-                    IdentitySelection::NotExclusive,
-                    ExistingConnectionsMode::Graceful,
-                    DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
-                ),
-                (
-                    IdentitySelection::Exclusive,
-                    ExistingConnectionsMode::Strict,
-                    DEADLINE_STRICT_EXCLUSIVE,
-                ),
-                (
-                    IdentitySelection::NotExclusive,
-                    ExistingConnectionsMode::Strict,
-                    DEADLINE_STRICT_NOT_EXCLUSIVE,
-                ),
-            ];
+            let report = |selection, existing, multiplexing| {
+                let policy = ConnectionPolicy {
+                    existing,
+                    multiplexing,
+                };
+                serde_json::to_value(ConnectionPolicyReport {
+                    existing,
+                    multiplexing,
+                    wording: connection_wording(selection, &policy, &linux),
+                })
+                .unwrap()
+            };
             let all = [
                 DEADLINE_GRACEFUL_EXCLUSIVE,
                 DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
                 DEADLINE_STRICT_EXCLUSIVE,
                 DEADLINE_STRICT_NOT_EXCLUSIVE,
             ];
-            for (selection, existing, expected) in cases {
-                let (lines, screen) = with(
-                    Some(selection),
-                    Some(policy(existing, MultiplexingMode::Disabled, None)),
-                );
+            for (selection, existing, expected) in [
+                (
+                    SelectionClass::Exclusive,
+                    ExistingConnectionsMode::Graceful,
+                    DEADLINE_GRACEFUL_EXCLUSIVE,
+                ),
+                (
+                    SelectionClass::NotExclusive,
+                    ExistingConnectionsMode::Graceful,
+                    DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+                ),
+                (
+                    SelectionClass::Exclusive,
+                    ExistingConnectionsMode::Strict,
+                    DEADLINE_STRICT_EXCLUSIVE,
+                ),
+                (
+                    SelectionClass::NotExclusive,
+                    ExistingConnectionsMode::Strict,
+                    DEADLINE_STRICT_NOT_EXCLUSIVE,
+                ),
+                // Undetermined: D8 item 6's qualified text.
+                (
+                    SelectionClass::Undetermined,
+                    ExistingConnectionsMode::Graceful,
+                    DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+                ),
+            ] {
+                let (lines, screen) = with(Some(report(
+                    selection,
+                    existing,
+                    MultiplexingMode::Disabled,
+                )));
                 let wording: Vec<&String> = lines
                     .iter()
                     .filter(|l| all.iter().any(|w| l.trim() == *w))
@@ -3002,67 +3036,43 @@ mod tests {
                     "{selection:?} {existing:?}: {screen}"
                 );
             }
-            // No identity selection evaluated: `undetermined`, the qualified text.
-            let (lines, _) = with(
-                None,
-                Some(policy(
-                    ExistingConnectionsMode::Graceful,
-                    MultiplexingMode::Disabled,
-                    None,
-                )),
-            );
-            assert!(
-                lines
-                    .iter()
-                    .any(|l| l.trim() == DEADLINE_GRACEFUL_NOT_EXCLUSIVE),
-                "{lines:#?}"
-            );
-            // The runtime's wording, owned-masters line included, verbatim.
-            let theirs = format!(
-                "{DEADLINE_STRICT_EXCLUSIVE} {}",
-                heimdall_adapters::managed::report::OWNED_MASTERS_DISCLOSURE
-            );
-            let (lines, screen) = with(
-                Some(IdentitySelection::Exclusive),
-                Some(policy(
-                    ExistingConnectionsMode::Strict,
-                    MultiplexingMode::OwnedMasters,
-                    Some(theirs.clone()),
-                )),
-            );
+            // Owned masters: the runtime's wording, D8 item 3's sentence included,
+            // verbatim.
+            let theirs = format!("{DEADLINE_STRICT_EXCLUSIVE} {OWNED_MASTERS_DISCLOSURE}");
+            let (lines, screen) = with(Some(report(
+                SelectionClass::Exclusive,
+                ExistingConnectionsMode::Strict,
+                MultiplexingMode::OwnedMasters,
+            )));
             assert!(lines.iter().any(|l| l.trim() == theirs), "{lines:#?}");
             assert!(screen.contains(&theirs), "{screen}");
-            // Owned masters without the runtime's wording: the base text and an explicit
-            // unknown, never the base text alone (switch OWNED_MASTERS_LINE).
-            if !cfg!(windows) {
-                let (lines, _) = with(
-                    Some(IdentitySelection::Exclusive),
-                    Some(policy(
-                        ExistingConnectionsMode::Graceful,
-                        MultiplexingMode::OwnedMasters,
-                        None,
-                    )),
-                );
-                let at = lines
-                    .iter()
-                    .position(|l| l.trim() == DEADLINE_GRACEFUL_EXCLUSIVE)
-                    .unwrap();
+            // Modes without wording, and no policy at all: unknown, none of the texts,
+            // no placeholder.
+            for policy in [
+                Some(serde_json::json!({"existing": "graceful", "multiplexing": "owned_masters"})),
+                None,
+            ] {
+                let (lines, screen) = with(policy.clone());
                 assert!(
-                    lines[at + 1].contains("[??] owned masters are applied"),
-                    "{lines:#?}"
+                    lines.iter().any(|l| l.trim()
+                        == "unknown: the runtime reports no connection policy for this pair"),
+                    "{policy:?}: {lines:#?}"
                 );
+                for w in all {
+                    assert!(!screen.contains(w), "{policy:?} {w}: {screen}");
+                }
+                assert!(!screen.contains("[??]"), "{policy:?}: {screen}");
+                assert!(!screen.contains(OWNED_MASTERS_DISCLOSURE), "{screen}");
             }
-            // No policy reported: unknown, and none of the four texts.
-            let (lines, screen) = with(Some(IdentitySelection::Exclusive), None);
+            // §17.25 item 17: the ordinary-ssh sentence is the CLI's one constant.
+            let (_, screen) = with(None);
             assert!(
-                lines
-                    .iter()
-                    .any(|l| l.contains("unknown: no connection policy is reported")),
-                "{lines:#?}"
+                screen.contains(&format!(
+                    "Note: {}",
+                    crate::output::ORDINARY_CONNECTIONS_NOTE
+                )),
+                "{screen}"
             );
-            for w in all {
-                assert!(!screen.contains(w), "{w}: {screen}");
-            }
         }
 
         /// m03-plan U12 `projection_pending_warning_and_setup_apply_hint` (F04): a
@@ -3183,71 +3193,245 @@ mod tests {
             }
         }
 
-        /// m03-plan U12 `lock_disclosure_once` (ADR-0008 D9 item 1, R-UX-03): the lock
-        /// disclosure is shown in the decision whose record carries it, and not in one
-        /// that does not (the runtime records it only until acknowledged); with no text
-        /// the TUI can show, Approve is not offered and nothing is sent, Deny still is;
-        /// with the runtime's text it is shown verbatim and Approve proceeds; the
-        /// managed detail always shows the current lock behaviour.
+        /// m03-plan U12 `lock_disclosure_once` (ADR-0008 D9 item 1, R-UX-03; §17.25 item
+        /// 21): the behaviour, the disclosure and its acknowledgement come from `inspect
+        /// capabilities` `lock`. The disclosure is shown, the runtime's text verbatim, in
+        /// a decision whose record carries it while `acknowledged_at` is absent, and not
+        /// in one that does not; once acknowledged it is not shown again (the modal and
+        /// the detail say when it was acknowledged). With no lock report it is never
+        /// shown as text and the behaviour reads unknown. The decisions that carry it
+        /// (`enroll_account`, `register_issuer`) are decided only in the CLI: a typed
+        /// `yes` sends nothing. (Unit level: the `lock` object is R0 item 21's documented
+        /// shape; the e2e half waits on R2's fill.)
         #[test]
         fn lock_disclosure_once() {
+            let said = "Approved work is designed to keep working while your screen or password manager is locked, until its end time.";
+            let capabilities = |ack: Option<&str>| {
+                let mut lock = serde_json::json!({"behavior": "continue", "disclosure": said});
+                if let Some(at) = ack {
+                    lock["acknowledged_at"] = serde_json::Value::String(at.to_owned());
+                }
+                serde_json::json!({"capabilities": [], "lock": lock})
+            };
             let mut app = m03_app();
             app.catalog.decisions = vec![
                 enroll_decision("dec_first", vec![DisclosureKind::LockContinuityOnce]),
                 enroll_decision("dec_second", vec![]),
+                register_decision("dec_register", false, false),
             ];
             app.catalog.m03.time_uncertain = None;
-            let heading = "Lock disclosure (shown once; recorded when you approve):";
-            // The first: shown, without a text here: no approval can be sent.
-            let first = open(&app, "dec_first");
-            let text = flat(&read_everything(&first, 120, 40));
-            assert!(text.contains(heading), "{text}");
-            assert!(text.contains("[text not available in the TUI]"), "{text}");
-            assert!(text.contains("Approve is not offered here"), "{text}");
-            let mut a = first.clone();
-            type_text(&mut a, "yes");
-            let effects = press(&mut a, &[Key::Enter]);
-            assert!(decides(&effects).is_empty(), "{effects:?}");
-            assert!(
-                a.status.as_deref().unwrap().contains("approve not sent"),
-                "{:?}",
-                a.status
+            let heading = "Lock disclosure (shown once; recorded when the decision is approved):";
+            // Not acknowledged: the runtime's text, verbatim, where the record carries it.
+            app.catalog.m03.lock = Listings::of(
+                &serde_json::Value::Null,
+                &serde_json::Value::Null,
+                &capabilities(None),
+                &[],
+            )
+            .lock;
+            assert_eq!(
+                app.catalog.m03.lock,
+                Some(LockReport {
+                    behavior: "continue".to_owned(),
+                    disclosure: Some(said.to_owned()),
+                    acknowledged_at: None,
+                })
             );
-            let mut a = first.clone();
-            press(&mut a, &[Key::Tab]);
-            draw(&a, 120, 40);
-            type_text(&mut a, "yes");
-            let effects = press(&mut a, &[Key::Enter]);
-            assert_eq!(decides(&effects), [("dec_first".to_owned(), Verdict::Deny)]);
-            // The second: no lock disclosure.
+            for id in ["dec_first", "dec_register"] {
+                let text = flat(&read_everything(&open(&app, id), 120, 40));
+                assert!(text.contains(&format!("{heading} {said}")), "{id}: {text}");
+                let mut a = open(&app, id);
+                draw(&a, 120, 40);
+                type_text(&mut a, "yes");
+                let effects = press(&mut a, &[Key::Enter]);
+                // §17.26: approved only in the CLI; a typed yes here is a Deny.
+                assert_eq!(
+                    decides(&effects),
+                    [(id.to_owned(), Verdict::Deny)],
+                    "{id}: {effects:?}"
+                );
+            }
             let text = flat(&read_everything(&open(&app, "dec_second"), 120, 40));
             assert!(!text.contains("Lock disclosure"), "{text}");
             assert!(text.contains("Disclosures: none"), "{text}");
-            // The runtime's text (Q-T5's `lock` report): verbatim, and Approve proceeds.
-            let said = "Approved work is designed to keep working while your screen or password manager is locked, until the end time you approve.";
-            app.catalog.m03.lock = Some(LockReport {
-                behavior: "continue".to_owned(),
-                disclosure: Some(said.to_owned()),
-            });
-            let mut a = open(&app, "dec_first");
-            let text = flat(&read_everything(&a, 120, 40));
-            assert!(text.contains(&format!("{heading} {said}")), "{text}");
-            assert!(!text.contains("Approve is not offered"), "{text}");
-            draw(&a, 120, 40);
-            type_text(&mut a, "yes");
-            let effects = press(&mut a, &[Key::Enter]);
-            assert_eq!(
-                decides(&effects),
-                [("dec_first".to_owned(), Verdict::Approve)]
-            );
-            // The detail always shows the current behaviour.
             let screen = flat(&draw(&detail(&app), 120, 60).0);
             assert!(screen.contains("Lock behaviour: continue"), "{screen}");
+            assert!(
+                screen.contains(&format!("Lock disclosure (not yet acknowledged): {said}")),
+                "{screen}"
+            );
+            // Acknowledged: shown once, so not again; the detail says when.
+            app.catalog.m03.lock = Listings::of(
+                &serde_json::Value::Null,
+                &serde_json::Value::Null,
+                &capabilities(Some("2026-11-03T08:30:00Z")),
+                &[],
+            )
+            .lock;
+            for id in ["dec_first", "dec_register"] {
+                let text = flat(&read_everything(&open(&app, id), 120, 40));
+                assert!(!text.contains(said), "{id}: {text}");
+                assert!(!text.contains(heading), "{id}: {text}");
+                assert!(
+                    text.contains(
+                        "Lock disclosure: acknowledged 2026-11-03T08:30:00Z; not shown again"
+                    ),
+                    "{id}: {text}"
+                );
+            }
+            let screen = flat(&draw(&detail(&app), 120, 60).0);
+            assert!(screen.contains("Lock behaviour: continue"), "{screen}");
+            assert!(
+                screen.contains("Lock disclosure acknowledged 2026-11-03T08:30:00Z"),
+                "{screen}"
+            );
+            assert!(!screen.contains(said), "{screen}");
+            // No lock report: the shared text's general sentence (IS2's
+            // `disclosure_text` without the runtime's text), never the runtime's; the
+            // behaviour reads unknown.
             app.catalog.m03.lock = None;
+            let general = heimdall_issuer::ceremony::disclosure_text(
+                DisclosureKind::LockContinuityOnce,
+                &heimdall_issuer::ceremony::DisclosureContext::default(),
+            );
+            let text = flat(&read_everything(&open(&app, "dec_first"), 120, 40));
+            assert!(text.contains(&format!("{heading} {general}")), "{text}");
+            assert!(!text.contains(said), "{text}");
             let screen = flat(&draw(&detail(&app), 120, 60).0);
             assert!(
                 screen.contains("Lock behaviour: unknown (not reported by the runtime)"),
                 "{screen}"
+            );
+        }
+
+        /// ⟨M03⟩ §17.25 item 10, §17.26 (Q-T2-1, Q-T2-2): the decision kinds whose
+        /// follow-through needs the owner at a CLI terminal (`enroll_account`,
+        /// `enroll_system_form`, `register_issuer` for an init, a rotation and a restore,
+        /// `retire_issuer`, `remove_enrollment` own and foreign) are shown read-only with
+        /// their CLI command. Approve is never offered or sent, and nothing toggles to
+        /// it; Deny is the one verdict, sent once after a typed `yes`; Esc, Ctrl-C, an
+        /// end-of-input byte (Ctrl-D) and anything but `yes` send nothing.
+        /// `approve_target_change` (the runtime runs its verification) still offers both.
+        #[test]
+        fn cli_decided_kinds_never_offer_approve_and_show_their_command() {
+            let mut app = m03_app();
+            let enr = heimdall_contract::ids::EnrollmentId::from_random_bytes([5; 16]);
+            let mut foreign = remove_decision("dec_foreign", 6);
+            foreign.request["target"] = serde_json::json!({"kind": "foreign",
+                "local_alias": "alpha", "bundle_destination_id": "dst-old",
+                "bundle_hostname": "alpha.example.invalid", "bundle_port": 22,
+                "account": "fixture", "marker": "heimdall:enr_x", "ca_public_key": "k",
+                "line_sha256": "ab".repeat(32),
+                "registry": {"path": null, "resolved_by": "remote_home"}, "form": "account"});
+            app.catalog.decisions = vec![
+                enroll_decision("dec_enroll", vec![DisclosureKind::CaTrustBlastRadius]),
+                system_form_decision("dec_system"),
+                register_decision("dec_init", false, false),
+                register_decision("dec_rotate", true, false),
+                register_decision("dec_restore", false, true),
+                retire_decision("dec_retire"),
+                remove_decision("dec_remove", 5),
+                foreign,
+                target_change_decision(),
+            ];
+            let ca = crate::tui::m03::fixtures::ca();
+            for (id, command) in [
+                ("dec_enroll", "heimdall enroll alpha".to_owned()),
+                ("dec_system", "heimdall enroll alpha --form system".to_owned()),
+                ("dec_init", "heimdall issuer init --backup-out <path>".to_owned()),
+                (
+                    "dec_rotate",
+                    "heimdall issuer rotate begin --backup-out <path>".to_owned(),
+                ),
+                ("dec_restore", "heimdall issuer restore --backup <file>".to_owned()),
+                ("dec_retire", format!("heimdall issuer retire {ca}")),
+                ("dec_remove", format!("heimdall enroll remove {enr}")),
+                (
+                    "dec_foreign",
+                    "heimdall enroll remove --from-bundle <file> --marker heimdall:enr_x --alias alpha"
+                        .to_owned(),
+                ),
+            ] {
+                let a = open(&app, id);
+                let text = flat(&read_everything(&a, 120, 40));
+                assert!(
+                    text.contains(&format!(
+                        "approved only in the CLI, on the terminal that runs `{command}` (its follow-through needs you there). Approve is not offered here; you can deny it here with a typed yes."
+                    )),
+                    "{id}: {text}"
+                );
+                let prompt = flat(&draw(&a, 120, 40).0);
+                assert!(
+                    prompt.contains(&format!("Approve in the CLI: run `{command}`")),
+                    "{id}: {prompt}"
+                );
+                assert!(prompt.contains("Deny? Type yes to confirm"), "{id}: {prompt}");
+                assert!(!prompt.contains("Approve? Type yes"), "{id}: {prompt}");
+                // Typed yes, as opened and after any number of Tabs: Deny, sent once;
+                // never Approve, and Tab never toggles to Approve.
+                for tabs in 0..3 {
+                    let mut b = a.clone();
+                    for _ in 0..tabs {
+                        press(&mut b, &[Key::Tab]);
+                        let Some(Modal::Decision(p)) = &b.modal else {
+                            panic!("{id}: the modal closed on Tab")
+                        };
+                        assert_eq!(p.verdict, Verdict::Deny, "{id}: Tab x{tabs}");
+                        let prompt = flat(&draw(&b, 120, 40).0);
+                        assert!(!prompt.contains("Approve? Type yes"), "{id}: {prompt}");
+                    }
+                    draw(&b, 120, 40);
+                    type_text(&mut b, "yes");
+                    let effects = press(&mut b, &[Key::Enter]);
+                    assert_eq!(
+                        decides(&effects),
+                        [(id.to_owned(), Verdict::Deny)],
+                        "{id} tabs={tabs}"
+                    );
+                    assert!(b.modal.is_none(), "{id}: closed after sending");
+                }
+                // Nothing is sent without the typed yes: Esc, Ctrl-C, an end-of-input
+                // byte then Enter, an empty Enter, `no`.
+                for keys in [
+                    vec![Key::Esc],
+                    vec![Key::CtrlC],
+                    vec![Key::Other, Key::Enter],
+                    vec![Key::Enter],
+                ] {
+                    let mut b = a.clone();
+                    draw(&b, 120, 40);
+                    type_text(&mut b, "ye");
+                    let effects = press(&mut b, &keys);
+                    assert!(decides(&effects).is_empty(), "{id} {keys:?}: {effects:?}");
+                }
+                for typed in ["no", "nope", ""] {
+                    let mut b = a.clone();
+                    draw(&b, 120, 40);
+                    type_text(&mut b, typed);
+                    let effects = press(&mut b, &[Key::Enter]);
+                    assert!(decides(&effects).is_empty(), "{id} {typed:?}: {effects:?}");
+                    assert!(
+                        b.status.as_deref().unwrap_or_default().contains("nothing was sent"),
+                        "{id} {typed:?}: {:?}",
+                        b.status
+                    );
+                }
+            }
+            // The target change still offers both verdicts.
+            let mut a = open(&app, "dec_target1");
+            draw(&a, 120, 40);
+            type_text(&mut a, "yes");
+            assert_eq!(
+                decides(&press(&mut a, &[Key::Enter])),
+                [("dec_target1".to_owned(), Verdict::Approve)]
+            );
+            let mut a = open(&app, "dec_target1");
+            press(&mut a, &[Key::Tab]);
+            draw(&a, 120, 40);
+            type_text(&mut a, "yes");
+            assert_eq!(
+                decides(&press(&mut a, &[Key::Enter])),
+                [("dec_target1".to_owned(), Verdict::Deny)]
             );
         }
 
@@ -3284,16 +3468,36 @@ mod tests {
                 [("dec_target1".to_owned(), Verdict::Approve)]
             );
             let text = flat(&read_everything(&open(&app, "dec_enroll1"), 120, 40));
+            // §17.25 item 10: each disclosure is the one shared text, never retyped.
+            let blast = heimdall_issuer::ceremony::disclosure_text(
+                DisclosureKind::CaTrustBlastRadius,
+                &heimdall_issuer::ceremony::DisclosureContext {
+                    alias: Some("alpha"),
+                    lock: None,
+                },
+            );
             for want in [
                 "Plan: enroll fixture at alpha (dst-alpha), account form, under CA SHA256:",
                 "Registry ~/.ssh/authorized_keys (resolved by remote_home)",
                 &format!("line SHA-256 {}", "ab".repeat(32)),
                 "Existing access: ssh alpha",
-                "* ca_trust_blast_radius:",
+                &format!("* ca_trust_blast_radius: {blast}"),
                 "Lock disclosure (shown once",
             ] {
                 assert!(text.contains(want), "{want}: {text}");
             }
+            // A disclosure kind this build does not know: the shared unknown text.
+            let mut b = app.clone();
+            b.catalog.decisions[0].request["summary"]["disclosures"] =
+                serde_json::json!(["a_newer_disclosure"]);
+            let text = flat(&read_everything(&open(&b, "dec_enroll1"), 120, 40));
+            assert!(
+                text.contains(&format!(
+                    "* a_newer_disclosure: {}",
+                    heimdall_issuer::ceremony::UNKNOWN_DISCLOSURE
+                )),
+                "{text}"
+            );
             // An enrollment decision's operation is linked from its record.
             assert_eq!(
                 app.catalog.decisions[0].operation().as_deref(),
@@ -3320,11 +3524,25 @@ mod tests {
             assert!(text.contains("[!!] Held: host_key_changed"), "{text}");
             assert!(
                 text.contains(&format!(
-                    "`heimdall enroll verify {} --approve-target-change`",
+                    "next: - `heimdall enroll verify {0} --approve-target-change` - `heimdall enroll remove {0}`",
                     ids[0]
                 )),
                 "{text}"
             );
+            // §17.25 item 4: the runtime's `next` only; with none named nothing is
+            // derived here, whatever the reason.
+            let mut c = app.clone();
+            c.catalog.m03.enrollments[0].hold = Some(crate::tui::m03::Hold {
+                reason: "host_key_changed".to_owned(),
+                next: Vec::new(),
+            });
+            c.screen = Screen::Enrollment(ids[0].clone());
+            let text = flat(&draw(&c, 120, 40).0);
+            assert!(
+                text.contains("[!!] Held: host_key_changed next: none named by the runtime"),
+                "{text}"
+            );
+            assert!(!text.contains("--approve-target-change"), "{text}");
             a.screen = Screen::Enrollment(ids[1].clone());
             let text = flat(&draw(&a, 120, 40).0);
             assert!(
@@ -3382,6 +3600,27 @@ mod tests {
                 ),
                 "{text}"
             );
+            // §17.25 item 15: keyed on the reason, not the code. A `TIME_UNCERTAIN`
+            // without it (skew, rollback) is not the reboot chore.
+            for reason in [None, Some("clock_skew".to_owned())] {
+                let mut b = app.clone();
+                b.catalog.m03 = Listings::of(
+                    &serde_json::Value::Null,
+                    &serde_json::Value::Null,
+                    &serde_json::Value::Null,
+                    &[heimdall_contract::envelope::Warning {
+                        code: crate::tui::m03::TIME_UNCERTAIN.to_owned(),
+                        message: TIME_MESSAGE.to_owned(),
+                        reason: reason.clone(),
+                    }],
+                );
+                assert!(b.catalog.m03.time_uncertain.is_none(), "{reason:?}");
+                let text = flat(&draw(&b, 160, 40).0);
+                assert!(
+                    !text.contains("time_confirmation_after_reboot"),
+                    "{reason:?}: {text}"
+                );
+            }
         }
 
         /// With no runtime connected, the chore comes from the store reader (worker U's

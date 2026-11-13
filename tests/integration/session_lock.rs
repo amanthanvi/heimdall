@@ -160,6 +160,7 @@ async fn operations(source: Arc<dyn SessionLockSource>) -> (Operations, Arc<Stor
         availability: Default::default(),
         provider: None,
         integration: Default::default(),
+        managed: None,
     };
     let fake = FakeCredentialAdapter::new(
         AdapterDescriptor {

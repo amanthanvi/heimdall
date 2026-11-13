@@ -994,6 +994,7 @@ mod u8b {
             availability: Default::default(),
             provider: None,
             integration: Default::default(),
+            managed: None,
         }
     }
 

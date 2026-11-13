@@ -53,7 +53,7 @@
 //!
 //! | Variable | Meaning |
 //! |---|---|
-//! | `HEIMDALL_TEST_SECRET_STORE` | `scratch`: select testkit's `ScratchSecretStore` for the CA key instead of the platform secret store. |
+//! | `HEIMDALL_TEST_SECRET_STORE` | `scratch`: select testkit's `ScratchSecretStore` for the CA key instead of the platform secret store. ⟨ADR-0008 §17.25 item 7 (b)⟩ `product-file:<abs path>`: a disposable store of a **product** kind the test created in its scratch home (macOS: a file keychain outside the search list; Windows: a DPAPI directory; refused on Linux), checked by `heimdall_issuer::store::test_product::refusal` against the explicit `HEIMDALL_HOME` ([`test_store`]). |
 //! | `HEIMDALL_TEST_KEY_SEED` | Hex seed (1 to 64 bytes) of the deterministic test key material. |
 //! | `HEIMDALL_TEST_SESSION_LOCK` | Absolute path of the state file testkit's `FakeSessionLockSource` reads. |
 //! | `HEIMDALL_TEST_SCRIPT_PAUSE_DIR` | Absolute directory in which an enrollment script pauses. |
@@ -225,7 +225,8 @@ pub const ALL_ENV: [&str; 7] = [
     CLOCK_OFFSET_ENV,
 ];
 
-/// ⟨M03⟩ `scratch`: select testkit's `ScratchSecretStore`.
+/// ⟨M03⟩ `scratch`: select testkit's `ScratchSecretStore`; ⟨§17.25 item 7 (b)⟩
+/// `product-file:<abs path>`: the test's disposable product-kind store ([`test_store`]).
 pub const SECRET_STORE_ENV: &str = "HEIMDALL_TEST_SECRET_STORE";
 /// ⟨M03⟩ Hex seed of the deterministic test key material.
 pub const KEY_SEED_ENV: &str = "HEIMDALL_TEST_KEY_SEED";
@@ -272,6 +273,9 @@ impl std::fmt::Debug for KeySeed {
 pub struct M03Config {
     /// [`SECRET_STORE_ENV`] was `scratch`.
     pub scratch_secret_store: bool,
+    /// ⟨ADR-0008 §17.25 item 7 (b)⟩ [`SECRET_STORE_ENV`] was `product-file:<abs path>`:
+    /// the path (absolute; its location is checked by [`test_store`]).
+    pub product_file_store: Option<std::path::PathBuf>,
     /// [`KEY_SEED_ENV`].
     pub key_seed: Option<KeySeed>,
     /// [`SESSION_LOCK_ENV`].
@@ -322,10 +326,22 @@ pub fn m03_config_in(
     if !any {
         return Ok(M03Config::default());
     }
-    let scratch_secret_store = match env(SECRET_STORE_ENV) {
-        None => false,
-        Some(v) if v == "scratch" => true,
-        Some(_) => return Err(format!("{SECRET_STORE_ENV}: expected scratch")),
+    let (scratch_secret_store, product_file_store) = match env(SECRET_STORE_ENV) {
+        None => (false, None),
+        Some(v) if v == "scratch" => (true, None),
+        Some(v) => match v.to_str().and_then(|t| t.strip_prefix(PRODUCT_FILE_PREFIX)) {
+            Some(_) if !PRODUCT_FILE_AVAILABLE => {
+                return Err(format!(
+                    "{SECRET_STORE_ENV}: {PRODUCT_FILE_PREFIX} has no store on this platform (Linux has no disposable Secret Service)"
+                ));
+            }
+            Some(path) => (false, Some(absolute_path(SECRET_STORE_ENV, path.into())?)),
+            None => {
+                return Err(format!(
+                    "{SECRET_STORE_ENV}: expected scratch or {PRODUCT_FILE_PREFIX}<absolute path>"
+                ));
+            }
+        },
     };
     let key_seed = match env(KEY_SEED_ENV) {
         None => None,
@@ -340,6 +356,7 @@ pub fn m03_config_in(
     };
     Ok(M03Config {
         scratch_secret_store,
+        product_file_store,
         key_seed,
         session_lock: env(SESSION_LOCK_ENV)
             .map(|v| absolute_path(SESSION_LOCK_ENV, v))
@@ -357,6 +374,66 @@ pub fn m03_config_in(
 #[allow(dead_code)] // `service run`'s debug-build `prepare` calls it; a release build has no caller
 pub fn m03_config(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<M03Config, String> {
     m03_config_in(AVAILABLE, env)
+}
+
+/// ⟨ADR-0008 §17.25 item 7 (b)⟩ The prefix of [`SECRET_STORE_ENV`]'s product-file value.
+pub const PRODUCT_FILE_PREFIX: &str = "product-file:";
+
+/// ⟨ADR-0008 §17.25 item 7 (b)⟩ Whether this platform has a disposable product store
+/// (macOS: a file keychain; Windows: a DPAPI directory). Linux has none: the value is
+/// refused.
+pub const PRODUCT_FILE_AVAILABLE: bool = cfg!(any(target_os = "macos", windows));
+
+/// ⟨M03; ADR-0008 §17.25 item 7 (b)⟩ The CA key store the test configuration selects
+/// (`m03_cmd::issuer_store`): the platform's product store, testkit's scratch store, or
+/// the test's disposable product-kind store at a checked path.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum TestStore {
+    /// No test store: the platform's product store.
+    #[default]
+    Platform,
+    /// `scratch`: testkit's `ScratchSecretStore` (a test kind).
+    Scratch,
+    /// `product-file:<path>`: the disposable product-kind store at `path`, accepted by
+    /// `heimdall_issuer::store::test_product::refusal`. Never constructed in a release
+    /// build ([`test_store`] refuses it there).
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    ProductFile(std::path::PathBuf),
+}
+
+/// ⟨ADR-0008 §17.25 item 7 (b)⟩ The store `m03` selects, its product-file path checked
+/// against the test's scratch home `home` (the explicit `HEIMDALL_HOME`; a test
+/// configuration needs one) and the account's home (`localenv::sys::account_home`).
+///
+/// # Errors
+/// The refusal (a usage error, exit 2): a product-file store without an explicit home, or
+/// one `test_product::refusal` refuses; a release build has no product-file store.
+pub fn test_store(m03: &M03Config, home: Option<&std::path::Path>) -> Result<TestStore, String> {
+    let Some(path) = &m03.product_file_store else {
+        return Ok(if m03.scratch_secret_store {
+            TestStore::Scratch
+        } else {
+            TestStore::Platform
+        });
+    };
+    #[cfg(debug_assertions)]
+    {
+        let Some(home) = home else {
+            return Err(format!(
+                "{SECRET_STORE_ENV}: {PRODUCT_FILE_PREFIX} needs an explicit HEIMDALL_HOME (the test's scratch home)"
+            ));
+        };
+        let account = heimdall_localenv::sys::account_home().ok();
+        match heimdall_issuer::store::test_product::refusal(path, home, account.as_deref()) {
+            None => Ok(TestStore::ProductFile(path.clone())),
+            Some(why) => Err(format!("{SECRET_STORE_ENV}: {why}")),
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (path, home);
+        Err(refusal(false, true).unwrap_or_default().to_owned())
+    }
 }
 
 /// ⟨M03⟩ What the `enroll` CLI process takes from the test configuration: the script
@@ -659,6 +736,7 @@ mod enabled {
             availability: Default::default(),
             provider: None,
             integration: Default::default(),
+            managed: None,
         })
     }
 
@@ -1081,6 +1159,15 @@ mod tests {
             let good = |n: &str| (n == name).then(|| std::ffi::OsString::from("/abs"));
             assert!(m03_config_in(false, &good).is_err(), "{name}");
         }
+        // ⟨§17.25 item 7 (b)⟩ The product-file selector too, well-formed or not.
+        for value in ["product-file:/abs/t.keychain-db", "product-file:rel"] {
+            let one = |n: &str| (n == SECRET_STORE_ENV).then(|| std::ffi::OsString::from(value));
+            assert_eq!(
+                m03_config_in(false, &one).err().as_deref(),
+                refusal(false, true),
+                "{value}"
+            );
+        }
         let pause = |n: &str| (n == SCRIPT_PAUSE_DIR_ENV).then(|| std::ffi::OsString::from("/p"));
         assert!(enroll_hooks_in(false, &pause).is_err());
         // The other three variables are not `enroll`'s.
@@ -1154,6 +1241,58 @@ mod tests {
             Some(std::path::PathBuf::from(ABS))
         );
         assert!(enroll_hooks_in(true, &set(&[(SCRIPT_PAUSE_DIR_ENV, "rel")])).is_err());
+    }
+
+    /// ⟨ADR-0008 §17.25 item 7 (b)⟩ `product-file:<abs path>` parses on macOS and Windows
+    /// (refused on Linux), needs an absolute path, and selects a store only through
+    /// [`test_store`]: never without an explicit home, never a path the location check
+    /// refuses; `scratch` and nothing select as before. (Debug builds: the release half is
+    /// `release_build_refuses_m03_test_gates`.)
+    #[cfg(debug_assertions)]
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn product_file_selector_parses_and_is_checked_against_the_home() {
+        const ABS: &str = if cfg!(windows) {
+            "product-file:C:\\scratch\\t"
+        } else {
+            "product-file:/scratch/t.keychain-db"
+        };
+        let one = |v: &'static str| {
+            move |n: &str| (n == SECRET_STORE_ENV).then(|| std::ffi::OsString::from(v))
+        };
+        let parsed = m03_config_in(true, &one(ABS));
+        if PRODUCT_FILE_AVAILABLE {
+            let cfg = parsed.unwrap();
+            assert!(!cfg.scratch_secret_store);
+            assert_eq!(
+                cfg.product_file_store.as_deref(),
+                Some(std::path::Path::new(&ABS[PRODUCT_FILE_PREFIX.len()..]))
+            );
+            assert!(
+                test_store(&cfg, None)
+                    .unwrap_err()
+                    .contains("HEIMDALL_HOME")
+            );
+            let home = std::env::temp_dir();
+            let refused = test_store(&cfg, Some(&home));
+            assert!(refused.is_err(), "outside the scratch home: {refused:?}");
+        } else {
+            assert!(parsed.unwrap_err().contains("Linux"));
+        }
+        for bad in [
+            "product-file:rel",
+            "product-file:",
+            "product-file",
+            "file:/x",
+        ] {
+            assert!(m03_config_in(true, &one(bad)).is_err(), "{bad}");
+        }
+        let scratch = m03_config_in(true, &one("scratch")).unwrap();
+        assert_eq!(test_store(&scratch, None), Ok(TestStore::Scratch));
+        assert_eq!(
+            test_store(&M03Config::default(), None),
+            Ok(TestStore::Platform)
+        );
     }
 
     #[test]
@@ -1248,5 +1387,16 @@ mod tests {
         }
         let pause = |n: &str| (n == SCRIPT_PAUSE_DIR_ENV).then(|| std::ffi::OsString::from("/p"));
         assert!(enroll_hooks(&pause).is_err());
+        // ⟨§17.25 item 7 (b)⟩ The product-file selector: refused before it is parsed, and
+        // `test_store` selects no product-file store in this build.
+        let product = |n: &str| {
+            (n == SECRET_STORE_ENV).then(|| std::ffi::OsString::from("product-file:/abs/t"))
+        };
+        assert!(m03_config(&product).is_err());
+        let forced = M03Config {
+            product_file_store: Some(std::path::PathBuf::from("/abs/t")),
+            ..M03Config::default()
+        };
+        assert!(test_store(&forced, Some(std::path::Path::new("/abs"))).is_err());
     }
 }

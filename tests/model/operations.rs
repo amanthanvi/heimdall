@@ -149,6 +149,7 @@ fn outcome() -> PrepareOutcome {
         availability: Default::default(),
         provider: None,
         integration: Default::default(),
+        managed: None,
     }
 }
 
@@ -15429,4 +15430,166 @@ mod wave0_fail_closed {
         let _ = served.await;
         assert_eq!(rows(&w, &keys), before, "no row of any kind");
     }
+}
+
+// =================================================================================
+// ⟨M03 wave 5, round 2⟩ ADR-0008 §17.25 items 15 and 22 (worker R2)
+// =================================================================================
+
+fn time_reason(r: &Completed<serde_json::Value>) -> Option<Option<String>> {
+    r.warnings
+        .iter()
+        .find(|w| w.code == "TIME_UNCERTAIN")
+        .map(|w| w.reason.clone())
+}
+
+async fn inspect_operations(w: &World) -> Completed<serde_json::Value> {
+    ok(w.ops
+        .inspect(
+            &unattended(501),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Operations,
+                preview: None,
+            },
+        )
+        .await)
+}
+
+/// §17.25 item 15 (Q-T6 (a)): the passive-read `TIME_UNCERTAIN` warning carries the reason
+/// `time_confirmation_after_reboot` exactly when the gate's cause is no time reference for
+/// this boot (`Unsynchronized`), never for a rollback below the mark or a skew within a
+/// boot; a safe read carries no warning at all.
+#[tokio::test]
+async fn w5_time_uncertain_warning_reason_only_without_a_time_reference_for_this_boot() {
+    use heimdall_contract::envelope::m03_warning::TIME_CONFIRMATION_AFTER_REBOOT;
+    // Safe: no warning.
+    let w = World::new().await;
+    assert_eq!(time_reason(&inspect_operations(&w).await), None);
+    // An activation anchors this boot and raises the mark.
+    ok(w.ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-t1", "work-t1", &[("h1", "deploy")]),
+        )
+        .await);
+    // Skew within the boot (the wall clock jumps an hour, the continuous clock does
+    // not): uncertain, no reason.
+    w.clock.set_wall(shift(t0(), 3600));
+    assert_eq!(time_reason(&inspect_operations(&w).await), Some(None));
+    // A reboot with the wall clock behind the mark (a rollback): uncertain, no reason.
+    w.clock.reboot(shift(t0(), -600));
+    w.sync.set(SyncStatus::Unknown);
+    assert_eq!(time_reason(&inspect_operations(&w).await), Some(None));
+    // A reboot above the mark, unsynchronized, no confirmation for this boot: the
+    // reason.
+    w.clock.reboot(shift(t0(), 7200));
+    assert_eq!(
+        time_reason(&inspect_operations(&w).await),
+        Some(Some(TIME_CONFIRMATION_AFTER_REBOOT.to_owned()))
+    );
+    w.sync.set(SyncStatus::NotSynchronized);
+    let r = inspect_operations(&w).await;
+    assert_eq!(
+        time_reason(&r),
+        Some(Some(TIME_CONFIRMATION_AFTER_REBOOT.to_owned()))
+    );
+    // The wire form: `reason` beside the code and message.
+    let wire = serde_json::to_value(&r.warnings).unwrap();
+    assert_eq!(wire[0]["reason"], TIME_CONFIRMATION_AFTER_REBOOT, "{wire}");
+    // A synchronized clock after the reboot is safe again: no warning.
+    w.sync.set(SyncStatus::Synchronized);
+    assert_eq!(time_reason(&inspect_operations(&w).await), None);
+}
+
+/// §17.25 item 22 (Q-R2 (b); C-Q4 reading): the `SetLockBehavior` and
+/// `SetConnectionPolicy` results carry this policy's own stored `lock_behavior` and
+/// `connection {existing, multiplexing}` after the action (changed or not); every M01
+/// policy action's result stays exactly `{policy_id, revision, paused, cutoff_at,
+/// changed}`.
+#[tokio::test]
+async fn w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged() {
+    use heimdall_contract::managed::{ExistingConnectionsMode, LockBehavior};
+    let w = World::new().await;
+    let m01_keys = ["changed", "cutoff_at", "paused", "policy_id", "revision"];
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        k.sort();
+        k
+    };
+    let pause = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(keys(&pause.data), m01_keys, "{}", pause.data);
+    assert_eq!(
+        pause.data,
+        serde_json::json!({
+            "policy_id": policy_id(),
+            "revision": 2,
+            "paused": true,
+            "cutoff_at": null,
+            "changed": true,
+        })
+    );
+    let cutoff = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Cutoff {
+                policy_id: policy_id(),
+                at: shift(t0(), 600),
+            },
+        )
+        .await);
+    assert_eq!(keys(&cutoff.data), m01_keys, "{}", cutoff.data);
+    // Unchanged `continue`: this policy's values, `changed: false`.
+    let lock = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::SetLockBehavior {
+                policy_id: policy_id(),
+                behavior: LockBehavior::Continue,
+            },
+        )
+        .await);
+    assert_eq!(lock.data["changed"], false, "{}", lock.data);
+    assert_eq!(lock.data["lock_behavior"], "continue", "{}", lock.data);
+    assert_eq!(
+        lock.data["connection"],
+        serde_json::json!({"existing": "graceful", "multiplexing": "disabled"})
+    );
+    // Narrowing to `strict` applies at once and reports the stored values.
+    let conn = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::SetConnectionPolicy {
+                policy_id: policy_id(),
+                existing: Some(ExistingConnectionsMode::Strict),
+                multiplexing: None,
+            },
+        )
+        .await);
+    assert_eq!(conn.data["changed"], true, "{}", conn.data);
+    assert_eq!(conn.data["lock_behavior"], "continue");
+    assert_eq!(
+        conn.data["connection"],
+        serde_json::json!({"existing": "strict", "multiplexing": "disabled"})
+    );
+    let mut m03_keys: Vec<&str> = m01_keys.to_vec();
+    m03_keys.extend(["connection", "lock_behavior"]);
+    m03_keys.sort_unstable();
+    assert_eq!(keys(&conn.data), m03_keys);
+    let stored = w
+        .store
+        .transaction(|tx| tx.policy(&policy_id()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.connection.existing, ExistingConnectionsMode::Strict);
 }

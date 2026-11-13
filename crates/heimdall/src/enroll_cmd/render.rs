@@ -2,8 +2,9 @@
 //! string reaches the terminal through `output::{diagnostic, emit_rendered}`, which
 //! sanitize it; nothing here prints.
 //!
-//! The wording of the plan's disclosures is this module's (the runtime sends their
-//! kinds only, ADR-0008 D5 §6.1); the `slot_free` command is
+//! The wording of the plan's disclosures is `heimdall_issuer::ceremony::disclosure_text`'s
+//! (ADR-0008 §17.25 item 10: one text per kind for every surface; the runtime sends their
+//! kinds only, D5 §6.1); the `slot_free` command is
 //! `heimdall_localenv::projection::plan::slot_free_command` (R3), never retyped.
 
 use heimdall_contract::enrollment::{
@@ -32,36 +33,18 @@ pub(super) fn system_lines(plan: &EnrollmentPlan) -> heimdall_domain::decision::
     )
 }
 
-/// One disclosure, in words (ADR-0008 D5 §6.1).
+/// One disclosure, in words (ADR-0008 D5 §6.1): the shared text
+/// (`heimdall_issuer::ceremony::disclosure_text`, §17.25 item 10, IS2-R1) for the plan's
+/// alias; nothing here retypes a disclosure.
 #[must_use]
 pub(crate) fn disclosure_text(kind: DisclosureKind, alias: &str) -> String {
-    match kind {
-        DisclosureKind::ConfigCommandsRunAsOrdinaryUse => format!(
-            "every step connects with your ssh configuration for `{alias}` for everything \
-             that is not pinned, so its `Match exec` and similar entries run as in ordinary use"
-        ),
-        DisclosureKind::CaTrustBlastRadius => "the CA trust on this account lets this device's \
-             issuer mint certificates for this principal: whoever holds the CA's key can reach \
-             every account that trusts it"
-            .to_owned(),
-        DisclosureKind::RemoveWindow => "the enrollment can be removed early (`heimdall enroll \
-             remove`); certificates already issued under this CA stay valid until they expire \
-             (the pair residual)"
-            .to_owned(),
-        DisclosureKind::LockContinuityOnce => "managed signing continues while your desktop is \
-             locked, within each grant's deadline"
-            .to_owned(),
-        DisclosureKind::ReconcileMayStopOwnStaleScript => "`heimdall enroll reconcile` may stop \
-             Heimdall's own stale script on the destination (TERM, then KILL, of the exact \
-             process group its lock recorded); nothing else is ever signalled"
-            .to_owned(),
-        DisclosureKind::OrdinarySshNeedsHeldSlot => format!(
-            "ordinary `ssh {alias}` works only while a binding holds this alias's managed slot; \
-             `{}` holds one while it runs",
-            slot_free_command(alias)
-        ),
-        _ => "see the decision's recorded disclosures".to_owned(),
-    }
+    heimdall_issuer::ceremony::disclosure_text(
+        kind,
+        &heimdall_issuer::ceremony::DisclosureContext {
+            alias: Some(alias),
+            lock: None,
+        },
+    )
 }
 
 /// The wire name of a serializable enum value (`snake_case`).
@@ -326,6 +309,37 @@ pub(super) fn held_next(reason: Option<&str>, id: &str, op: Option<&str>) -> Vec
     }
 }
 
+/// A held record's reason and next commands, as `enroll status` shows them. The
+/// runtime's `hold` (`EnrollmentView.hold`, ADR-0008 §17.25 item 4: the app computed
+/// `next`, so the TUI shows the same commands) when the view carries it; only a runtime
+/// that predates it gets the round-1 fallback (no reason, every applicable command).
+#[must_use]
+pub(super) fn held_of(e: &serde_json::Value, id: &str) -> (Option<String>, Vec<String>) {
+    let hold = e.get("hold");
+    let reason = hold
+        .and_then(|h| h.get("reason"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let next: Vec<String> = hold
+        .and_then(|h| h.get("next"))
+        .and_then(serde_json::Value::as_array)
+        .map(|n| {
+            n.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    if next.is_empty() {
+        let op = e
+            .get("open_operation_id")
+            .and_then(serde_json::Value::as_str);
+        let fallback = held_next(reason.as_deref(), id, op);
+        return (reason, fallback);
+    }
+    (reason, next)
+}
+
 /// `enroll status` (inspect enrollments): every record's state and marker; a verified
 /// one's `slot_free` command; the `late_write` residual; a held record's reason and
 /// next step. `aliases` maps destination IDs to aliases (`inspect destinations`).
@@ -399,10 +413,7 @@ pub(super) fn status(view: &serde_json::Value, aliases: &dyn Fn(&str) -> Option<
             out.push_str(&format!("  open operation: {op}\n"));
         }
         if state == "held" {
-            let reason = e
-                .get("hold")
-                .and_then(|h| h.get("reason"))
-                .and_then(serde_json::Value::as_str);
+            let (reason, next) = held_of(e, &id);
             match reason {
                 Some(r) => out.push_str(&format!("  held: reason {r}\n")),
                 None => out.push_str(
@@ -410,7 +421,7 @@ pub(super) fn status(view: &serde_json::Value, aliases: &dyn Fn(&str) -> Option<
                 ),
             }
             out.push_str("  next step:\n");
-            for c in held_next(reason, &id, op) {
+            for c in next {
                 out.push_str(&format!("    {c}\n"));
             }
         }
@@ -433,6 +444,36 @@ pub(super) fn status(view: &serde_json::Value, aliases: &dyn Fn(&str) -> Option<
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// ⟨§17.25 item 10, IS2-R1⟩ The preview's disclosures are the shared texts
+    /// (`heimdall_issuer::ceremony::disclosure_text` with the plan's alias), for every
+    /// kind an enrollment plan carries: nothing here retypes one.
+    #[test]
+    fn preview_disclosures_are_the_shared_texts() {
+        use heimdall_issuer::ceremony::{DisclosureContext, UNKNOWN_DISCLOSURE};
+        for kind in [
+            DisclosureKind::ConfigCommandsRunAsOrdinaryUse,
+            DisclosureKind::CaTrustBlastRadius,
+            DisclosureKind::RemoveWindow,
+            DisclosureKind::LockContinuityOnce,
+            DisclosureKind::ReconcileMayStopOwnStaleScript,
+            DisclosureKind::OrdinarySshNeedsHeldSlot,
+        ] {
+            let shared = heimdall_issuer::ceremony::disclosure_text(
+                kind,
+                &DisclosureContext {
+                    alias: Some("lab"),
+                    lock: None,
+                },
+            );
+            assert_eq!(disclosure_text(kind, "lab"), shared, "{kind:?}");
+            assert_ne!(shared, UNKNOWN_DISCLOSURE, "{kind:?}");
+        }
+        assert!(
+            disclosure_text(DisclosureKind::OrdinarySshNeedsHeldSlot, "lab")
+                .contains(&slot_free_command("lab"))
+        );
+    }
 
     #[test]
     fn ca_key_is_cut_as_the_runtime_cuts_it() {
@@ -464,5 +505,33 @@ mod tests {
         let n = held_next(Some("lock_holder_unresolved"), "enr_1", Some("op_1"));
         assert!(n[1].contains("reconcile op_1 --after-manual-recovery"));
         assert_eq!(held_next(None, "e", None).len(), 4);
+    }
+
+    #[test]
+    fn held_of_prefers_the_runtimes_hold() {
+        let runtime = serde_json::json!({
+            "state": "held",
+            "hold": {"reason": "host_key_changed", "next": ["a", "b"]},
+        });
+        assert_eq!(
+            held_of(&runtime, "enr_1"),
+            (
+                Some("host_key_changed".to_owned()),
+                vec!["a".to_owned(), "b".to_owned()]
+            )
+        );
+        // An older runtime: no `hold`, the fallback with every applicable command.
+        let old = serde_json::json!({"state": "held"});
+        let (reason, next) = held_of(&old, "enr_1");
+        assert_eq!(reason, None);
+        assert_eq!(next, held_next(None, "enr_1", None));
+        let text = status(
+            &serde_json::json!({"enrollments": [{"enrollment_id": "enr_1", "state": "held",
+                "hold": {"reason": "host_key_changed", "next": ["cmd-from-runtime"]}}]}),
+            &|_| None,
+        );
+        assert!(text.contains("held: reason host_key_changed"), "{text}");
+        assert!(text.contains("    cmd-from-runtime\n"), "{text}");
+        assert!(!text.contains("not reported by this runtime"), "{text}");
     }
 }

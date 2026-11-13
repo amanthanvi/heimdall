@@ -32,6 +32,10 @@ pub mod linux;
 pub mod macos;
 #[cfg(windows)]
 pub mod windows;
+// ⟨ADR-0008 §17.25 item 7 (b)⟩ Debug builds only: the test configuration's disposable
+// store of a product kind (`HEIMDALL_TEST_SECRET_STORE=product-file:<abs path>`).
+#[cfg(debug_assertions)]
+pub mod test_product;
 #[cfg(target_os = "linux")]
 pub use linux::LinuxSecretService;
 #[cfg(target_os = "macos")]

@@ -596,6 +596,14 @@ mod pty {
         }
 
         fn inspect(&self, subject: InspectSubject) -> Value {
+            self.inspect_with_warnings(subject).0
+        }
+
+        /// The runtime's own `inspect` answer: its data and its warnings.
+        fn inspect_with_warnings(
+            &self,
+            subject: InspectSubject,
+        ) -> (Value, Vec<heimdall_contract::envelope::Warning>) {
             let caller = self.attended();
             let ops = self.ops();
             self.on(async move {
@@ -607,7 +615,7 @@ mod pty {
                     },
                 )
                 .await
-                .map(|c| c.data)
+                .map(|c| (c.data, c.warnings))
             })
             .unwrap()
         }
@@ -786,8 +794,9 @@ mod pty {
     /// m03-plan U12 `enrollment_states_rendered`: every enrollment state, seeded and as
     /// the runtime's `inspect enrollments` lists it, is on the Activity view with its
     /// state and a text marker; the held record needs attention on the overview, its
-    /// detail names the reason as unknown while the runtime does not send it (Q-T1) and
-    /// the withdrawn record's `late_write` residual is shown with its command.
+    /// detail shows the runtime's own `hold {reason, next}` (§17.25 item 4): the reason
+    /// and every `next` command, exactly; and the withdrawn record's `late_write`
+    /// residual is shown with its command.
     #[test]
     fn enrollment_states_rendered() {
         let w = World::new(|tx| {
@@ -799,6 +808,22 @@ mod pty {
         w.stub_ssh();
         let runtime = listed(&w);
         assert_eq!(runtime.len(), SEEDED.len(), "{runtime:?}");
+        // The runtime's hold of the held record (E2's fill, `EnrollmentView.hold`).
+        let view = w.inspect(InspectSubject::Enrollments);
+        let hold = view["enrollments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["state"] == "held")
+            .and_then(|e| e.get("hold"))
+            .cloned()
+            .unwrap_or_else(|| panic!("the runtime reports no hold for the held record: {view}"));
+        assert_eq!(hold["reason"], "host_key_changed", "{hold}");
+        let next: Vec<String> = hold["next"]
+            .as_array()
+            .map(|n| n.iter().map(|c| c.as_str().unwrap().to_owned()).collect())
+            .unwrap_or_default();
+        assert!(!next.is_empty(), "the runtime names the next steps: {hold}");
         let pty = Pty::open(50, 160);
         let before = modes(&pty.termios());
         let tui = w.tui(&pty);
@@ -834,10 +859,11 @@ mod pty {
         pty.write(b"\r");
         w.wait_screen("the held detail", |s| s.contains("State: held"));
         let detail = flat(&w.screen());
-        assert!(
-            detail.contains("[!!] Held: reason unknown (not reported by the runtime)"),
-            "{detail}"
-        );
+        assert!(detail.contains("[!!] Held: host_key_changed"), "{detail}");
+        for n in &next {
+            assert!(detail.contains(&format!("- `{n}`")), "{n}: {detail}");
+        }
+        assert!(!detail.contains("reason unknown"), "{detail}");
         pty.write(b"\x1b");
         if let Some(i) = runtime.iter().position(|(_, s)| s == "withdrawn") {
             w.wait_screen("the activity again", |s| s.contains("Enrollments"));
@@ -855,7 +881,9 @@ mod pty {
     /// time accepted, no chore; after a reboot (a new boot, the runtime restarted, sync
     /// not trusted) the overview shows `time_confirmation_after_reboot` first, Needs
     /// attention, with its one command `heimdall time confirm`; once the owner confirms
-    /// time (attended) it is gone.
+    /// time (attended) it is gone. The TUI keys on the runtime's warning reason
+    /// `time_confirmation_after_reboot` (§17.25 item 15), which the runtime's own
+    /// `inspect` answer carries here.
     #[test]
     fn time_confirmation_chore_shown_after_reboot() {
         let mut w = World::new(|_| Ok(()));
@@ -874,6 +902,12 @@ mod pty {
         w.clock.reboot(heimdall_contract::Timestamp::now());
         w.sync.set(SyncStatus::Unknown);
         w.start();
+        let (_, warnings) = w.inspect_with_warnings(InspectSubject::Capabilities);
+        assert!(
+            warnings.iter().any(|x| x.code == "TIME_UNCERTAIN"
+                && x.reason.as_deref() == Some("time_confirmation_after_reboot")),
+            "the runtime's warning carries the reason: {warnings:?}"
+        );
         w.wait_screen("the chore", |s| {
             flat(s).contains("time_confirmation_after_reboot")
         });
@@ -980,10 +1014,15 @@ mod pty {
 
     /// m03-plan U12 `tui_restores_terminal_after_enroll_decision`: a pending
     /// `enroll_account` decision opens readably (the plan line, the registry and its
-    /// line digest, the disclosures); Approve is not offered while the disclosures' text
-    /// cannot be shown (Q-T4) and sends nothing; the owner's typed `yes` to Deny sends
-    /// `Attend` and `Decide`, the runtime answers, the TUI stays in its own terminal
-    /// mode; and on quit the terminal is restored exactly.
+    /// line digest, the disclosures, the runtime's own lock disclosure from `inspect
+    /// capabilities` until the runtime reports it acknowledged, then not again) and
+    /// read-only (§17.25 item 10, §17.26): its CLI command is shown for Approve, which is
+    /// never offered here; Deny is its one verdict. Esc and anything but `yes` send
+    /// nothing (the runtime still lists it pending); Tab does not toggle to Approve; the
+    /// owner's typed `yes` sends `Attend` and Deny's `Decide`, the runtime answers, the
+    /// TUI stays in its own terminal mode; and on quit the terminal is restored exactly.
+    /// (A pending `approve_target_change` is seeded too, so the listing has a decidable
+    /// decision beside the read-only one.)
     #[test]
     fn tui_restores_terminal_after_enroll_decision() {
         use heimdall_contract::enrollment::DisclosureKind;
@@ -992,10 +1031,29 @@ mod pty {
         };
         let did = heimdall_contract::ids::DecisionId::from_random_bytes([9; 16]);
         let did_text = did.to_string();
+        let tid = heimdall_contract::ids::DecisionId::from_random_bytes([10; 16]);
+        let tid_text = tid.to_string();
         let w = World::new(move |tx| {
             let r = enrollment(1, EnrollmentState::Planned, "example.invalid", 22);
             let now = heimdall_contract::Timestamp::now();
             let generation = tx.authority_generation()?;
+            let mut proposed = r.target.clone();
+            proposed.host_key.key = "AAAAC3NzaC1lZDI1NTE5AAAAIhostchanged".into();
+            proposed.host_key.fingerprint = "SHA256:hostchanged".into();
+            tx.insert_decision(&DecisionRecord {
+                id: tid,
+                kind: DecisionKind::ApproveTargetChange {
+                    operation: heimdall_contract::ids::OperationId::from_random_bytes([7; 16]),
+                    enrollment: r.id.clone(),
+                    approved: r.target.clone(),
+                    proposed,
+                },
+                generation,
+                created_at: now,
+                expires_at: now.checked_add(Duration::from_secs(900)).unwrap(),
+                state: DecisionState::Pending,
+                decided_at: None,
+            })?;
             tx.insert_decision(&DecisionRecord {
                 id: did,
                 kind: DecisionKind::EnrollAccount {
@@ -1028,44 +1086,128 @@ mod pty {
             })
         });
         w.stub_ssh();
+        // The runtime's listing order is the Activity view's.
+        let pending: Vec<String> = w.inspect(InspectSubject::Decisions)["decisions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d["decision_id"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(pending.len(), 2, "{pending:?}");
+        let row = |id: &str| pending.iter().position(|p| p == id).unwrap();
         let pty = Pty::open(40, 140);
         let before = modes(&pty.termios());
         let tui = w.tui(&pty);
         let raw = modes(&pty.termios());
         assert_ne!(raw, before, "the TUI runs in raw mode");
-        w.wait_screen("the decision", |s| s.contains(&did_text));
-        pty.write(b"4\r");
+        w.wait_screen("the decisions", |s| {
+            s.contains(&did_text) && s.contains(&tid_text)
+        });
+        let open = |at: usize| {
+            pty.write(b"4");
+            std::thread::sleep(Duration::from_millis(100));
+            pty.write(b"\x1b[H");
+            std::thread::sleep(Duration::from_millis(50));
+            for _ in 0..at {
+                pty.write(b"\x1b[B");
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            pty.write(b"\r");
+        };
+        open(row(&did_text));
         w.wait_screen("the modal", |s| {
             flat(s).contains("Plan: enroll deploy at lab1")
         });
         let modal = flat(&w.screen());
+        // The runtime's own lock report (`inspect capabilities` `lock`, §17.25 item 21):
+        // not acknowledged yet, so its text is shown in the record that carries it.
+        let lock = w.inspect(InspectSubject::Capabilities)["lock"].clone();
+        let said = lock["disclosure"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the runtime reports the lock disclosure: {lock}"))
+            .to_owned();
+        assert!(lock.get("acknowledged_at").is_none(), "{lock}");
         for want in [
             "Registry ~/.ssh/authorized_keys (resolved by remote_home)",
             "line SHA-256",
             "* ca_trust_blast_radius:",
-            "Lock disclosure (shown once",
+            &format!(
+                "Lock disclosure (shown once; recorded when the decision is approved): {}",
+                flat(&said)
+            ),
+            "Approve in the CLI: run `heimdall enroll lab1`",
+            "Deny? Type yes to confirm",
         ] {
             assert!(modal.contains(want), "{want}: {modal}");
         }
-        // Approve is not offered: a typed yes sends nothing.
-        pty.write(b"\x1b[F");
-        std::thread::sleep(Duration::from_millis(200));
-        pty.write(b"yes\r");
-        w.wait_screen("the refusal", |s| s.contains("approve not sent"));
-        assert_eq!(
-            w.inspect(InspectSubject::Decisions)["decisions"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1,
-            "still pending"
+        assert!(!modal.contains("Approve? Type yes"), "{modal}");
+        // Esc, and an answer other than yes, send nothing.
+        for keys in [&b"yes\x1b"[..], &b"no\r"[..]] {
+            pty.write(b"\x1b[F");
+            std::thread::sleep(Duration::from_millis(200));
+            pty.write(keys);
+            w.wait_screen("nothing sent", |s| {
+                let f = flat(s);
+                f.contains("nothing was sent") && !f.contains("Plan: enroll deploy")
+            });
+            assert_eq!(
+                w.inspect(InspectSubject::Decisions)["decisions"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2,
+                "still pending"
+            );
+            open(row(&did_text));
+            w.wait_screen("the modal again", |s| {
+                flat(s).contains("Plan: enroll deploy")
+            });
+        }
+        pty.write(b"\x1b");
+        w.wait_screen("the modal closed", |s| {
+            !flat(s).contains("Plan: enroll deploy")
+        });
+        // Shown once: once the runtime records the acknowledgement (as approving a
+        // decision that showed it does, in the CLI), the modal no longer shows it.
+        let ops = w.ops();
+        let at = w
+            .on(async move { ops.acknowledge_lock_disclosure().await })
+            .unwrap_or_else(|e| panic!("acknowledge: {} {}", e.code, e.message));
+        assert!(
+            w.inspect(InspectSubject::Capabilities)["lock"]
+                .get("acknowledged_at")
+                .is_some(),
+            "recorded"
         );
-        // Deny, typed yes: sent and answered.
-        pty.write(b"\r");
-        w.wait_screen("the modal again", |s| {
+        open(row(&did_text));
+        w.wait_screen("the acknowledged lock disclosure", |s| {
+            flat(s).contains("Lock disclosure: acknowledged")
+        });
+        let modal = flat(&w.screen());
+        assert!(
+            modal.contains(&format!(
+                "Lock disclosure: acknowledged {}; not shown again",
+                at.strftime("%Y-%m-%dT%H:%M:%SZ")
+            )),
+            "{modal}"
+        );
+        assert!(!modal.contains(&flat(&said)), "{modal}");
+        pty.write(b"\x1b");
+        w.wait_screen("the modal closed", |s| {
+            !flat(s).contains("Plan: enroll deploy")
+        });
+        // The enroll decision itself: Tab keeps Deny (never Approve); typed yes: Deny
+        // is sent and answered.
+        open(row(&did_text));
+        w.wait_screen("the modal for the deny", |s| {
             flat(s).contains("Plan: enroll deploy")
         });
-        pty.write(b"\t\x1b[F");
+        pty.write(b"\t");
+        std::thread::sleep(Duration::from_millis(100));
+        let modal = flat(&w.screen());
+        assert!(modal.contains("Deny? Type yes"), "{modal}");
+        assert!(!modal.contains("Approve? Type yes"), "{modal}");
+        pty.write(b"\x1b[F");
         std::thread::sleep(Duration::from_millis(200));
         pty.write(b"yes\r");
         w.wait_screen("the answer", |s| {

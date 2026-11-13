@@ -144,10 +144,11 @@ impl OwnerSession for WireSession<'_> {
         let wire = match request.to_issuer_request() {
             Ok(w) => w,
             Err(e) => {
-                // S3 (Q-IS1): a test-configuration store is not a public store kind.
+                // A test-configuration store kind is never on the wire (U10B-Q5; ADR-0008
+                // §17.25 item 7: the product-file test store is registrable).
                 return Err(self.refuse(failure(
                     e.code(),
-                    "the CA key store is a test-configuration store, which cannot be registered (S3, awaiting a ruling): nothing was registered or written",
+                    "the CA key store is a test-configuration store, which cannot be registered (a test kind is never on the wire; a test registers on the product-file test store): nothing was registered or written",
                     e.reason().as_deref(),
                 )));
             }
@@ -333,7 +334,7 @@ pub(super) fn ceremony(ctx: &Ctx, command: IssuerCommand) -> Outcome {
         Ok(p) => p,
         Err(o) => return o,
     };
-    let scratch = match test_config(ctx) {
+    let test = match test_config(ctx) {
         Ok(s) => s,
         Err(o) => return o,
     };
@@ -362,7 +363,7 @@ pub(super) fn ceremony(ctx: &Ctx, command: IssuerCommand) -> Outcome {
         refused: None,
         decision: None,
     };
-    let store = match open_store(ctx, scratch) {
+    let store = match open_store(ctx, &test) {
         Ok(store) => store,
         Err(o) => return o,
     };
