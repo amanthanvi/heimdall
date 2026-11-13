@@ -1,5 +1,5 @@
 {
-  "source": "ADR-0008 revision 6, D5 §6.2 state table (every revision 3-6 path), with the binding rulings §17.4 item 5, §17.7 items 4-5, §17.9 item 3 (Q28), §17.10 item 2 and §17.12 item 2, the D4 item 5 foreign-removal text, and the orchestrator rulings ADR-0008 §17.15 (X-Q1/X-Q2/X-Q3); D5 §6.5 classification table and §6.9 system form for the verifying, reverifying, manual_removal_pending and removal_verifying rows. Transcribed by hand from the documents, not from heimdall_domain::enrollment.",
+  "source": "ADR-0008 revision 6, D5 §6.2 state table (every revision 3-6 path), with the binding rulings §17.4 item 5, §17.7 items 4-5, §17.9 item 3 (Q28), §17.10 item 2 and §17.12 item 2, the D4 item 5 foreign-removal text, and the orchestrator rulings ADR-0008 §17.15 (X-Q1/X-Q2/X-Q3) and §17.29 item 2 (withdrawn with late_write -> removing); D5 §6.5 classification table and §6.9 system form for the verifying, reverifying, manual_removal_pending and removal_verifying rows. Transcribed by hand from the documents, not from heimdall_domain::enrollment.",
   "notation": {
     "facts": "own_account | own_system | foreign_account | foreign_system (RecordFacts: form x foreign)",
     "event": "the serde form of heimdall_domain::enrollment::EnrollmentEventKind; a string \"*\" matches any value of that field",
@@ -114,6 +114,7 @@
     {"from": "removal_verifying", "facts": ["own_system"], "event": {"event": "absence_verified", "origin": "manual_pending"}, "to": "withdrawn", "cite": "§6.2 removal_verifying r3 (origin manual_pending)"},
     {"from": "removal_verifying", "facts": ["own_system", "foreign_system"], "event": {"event": "absence_not_verified"}, "to": "manual_removal_pending", "cite": "§6.2 removal_verifying (still accepted or inconclusive; origin kept); r4 foreign ca_not_held"},
 
+    {"from": "withdrawn", "facts": ["own_account"], "event": {"event": "withdrawn_removal_approved", "late_write": true}, "to": "removing", "cite": "ADR-0008 §17.29 item 2 (amends §6.2 withdrawn): a withdrawn record carrying late_write may move to removing through a new attended RemoveEnrollment of the exact line by marker, as abandoned already may; without the residual withdrawn stays final"},
     {"from": "abandoned", "facts": ["own_account", "foreign_account"], "event": {"event": "remove_enrollment_approved"}, "to": "removing", "cite": "§6.2 abandoned (account: a new RemoveEnrollment); subset holds both states"},
     {"from": "abandoned", "facts": ["own_system", "foreign_system"], "event": {"event": "manual_removal_confirmed"}, "to": "manual_removal_pending", "cite": "§6.2 abandoned (system; origin abandoned)"}
   ],

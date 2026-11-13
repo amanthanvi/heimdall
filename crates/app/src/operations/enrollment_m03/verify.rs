@@ -576,6 +576,28 @@ fn kept(msg: String) -> OpError {
         .with_effect(EffectStatus::None)
 }
 
+/// ⟨ADR-0008 §17.29 item 2⟩ The definite answer of a check, after the residual's
+/// not-after, with no lock of the uncertain step and a readable registry, that observed
+/// the marker line **present**: the uncertain append landed and trust of ours remains.
+/// `CONFIG_CONFLICT` / `late_write_present`; the residual is kept, and the next step is
+/// the removal of exactly that line by marker.
+fn late_write_present(id: &str) -> OpError {
+    OpError::new(
+        Code::ConfigConflict,
+        format!(
+            "the registry holds this enrollment's marker line after the residual's not-after: the uncertain append landed and trust of ours remains; the late_write residual is kept. Next: `{}`",
+            late_write_present_next(id)
+        ),
+    )
+    .with_reason(reason::LATE_WRITE_PRESENT)
+    .with_effect(EffectStatus::None)
+}
+
+/// The next step a `late_write_present` result names.
+fn late_write_present_next(id: &str) -> String {
+    format!("heimdall enroll remove {id}")
+}
+
 /// Why `reading` does not clear `residual` (the first unmet condition of
 /// `late_write_cleared`, in its order).
 fn kept_because(reading: &Inspection, residual: &LateWrite, marker: &str, id: &str) -> OpError {
@@ -607,11 +629,36 @@ fn kept_because(reading: &Inspection, residual: &LateWrite, marker: &str, id: &s
             .preimage()
             .is_none_or(|c| heimdall_registry::line::marker_lines(c, marker) > 0);
     if present {
-        return kept(format!(
-            "the registry holds this enrollment's marker line: the uncertain append may have landed; the late_write residual is kept. Remove the line with `heimdall enroll remove {id}`"
-        ));
+        return late_write_present(id);
     }
     kept("the inspection did not establish absence; the late_write residual is kept".to_owned())
+}
+
+/// ⟨ADR-0008 §17.29 item 2; D5 §6.7⟩ Whether a confirmed removal of the marker line
+/// settles `residual`: the removal's own inspection (`journal.inspection`, the reading
+/// the removal or its reconcile ran on) is past the residual's not-after on the
+/// destination's clock, the registry was readable, and no lock of the uncertain step
+/// (nor an unreadable one) was present. After the not-after a script that had not taken
+/// its lock fails its own not-after check, and one that had would still hold it; with
+/// the line removed, nothing of the uncertain append remains. Otherwise the residual is
+/// kept (the absence check can clear it later).
+pub(super) fn removal_settles_late_write(journal: &Journal, residual: &LateWrite) -> bool {
+    use heimdall_registry::classify::{FileKind, LockReading};
+    let Some(reading) = journal
+        .inspection
+        .as_ref()
+        .and_then(crate::enrollment::InspectFact::inspection)
+    else {
+        return false;
+    };
+    let lock_clear = match &reading.lock {
+        LockReading::None => true,
+        LockReading::Held(h) => h.token != residual.step_token,
+        _ => false,
+    };
+    reading.remote_now > residual.not_after_remote
+        && lock_clear
+        && matches!(reading.file, FileKind::Regular | FileKind::Absent)
 }
 
 /// The answer of an inspection that did not complete.

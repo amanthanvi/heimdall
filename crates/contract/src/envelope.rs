@@ -471,6 +471,12 @@ pub mod reason {
     /// fence, an enrollment operation still has a dispatched step without its result
     /// (its remote effect is unknown), so the purge is refused; nothing was deleted.
     pub const UNINSTALL_REMOTE_STEP_UNRESOLVED: &str = "uninstall_remote_step_unresolved";
+    /// ⟨M03; ADR-0008 §17.29 item 2⟩ `CONFIG_CONFLICT` (exit 6): an attended
+    /// `enroll verify <enrollment> --absence` run after the `late_write` residual's
+    /// not-after observed the enrollment's marker line present: the uncertain append
+    /// landed and trust of ours remains, whatever the record's state says. The residual
+    /// is kept. Next: `heimdall enroll remove <enrollment>`.
+    pub const LATE_WRITE_PRESENT: &str = "late_write_present";
 
     /// ⟨M03⟩ Every new stable sub-reason of m03-plan §5 item 14, with the code it is
     /// used with, in the table's order. `driver_unavailable` (M02, in [`ALL`]) is
@@ -559,6 +565,7 @@ pub mod reason {
             UNINSTALL_REMOTE_STEP_UNRESOLVED,
             Code::CapabilityUnavailable,
         ),
+        (LATE_WRITE_PRESENT, Code::ConfigConflict),
     ];
 }
 

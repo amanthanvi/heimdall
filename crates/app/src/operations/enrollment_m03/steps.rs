@@ -1677,9 +1677,36 @@ fn removal_confirmed(
     let mut updated = ctx.record.clone();
     updated.updated_at = now;
     updated.hold = None;
+    // ⟨ADR-0008 §17.29 item 2⟩ The removal a withdrawn record's `late_write` residual
+    // admitted clears the residual in the same transaction as its result, once the
+    // removal's own reading settles it (`verify::removal_settles_late_write`).
+    if ctx.foreign.is_none()
+        && let Some(residual) = &ctx.record.late_write
+        && tx
+            .stage_receipts(&ctx.op.id)?
+            .iter()
+            .any(|r| r.stage == super::LATE_WRITE_REMOVAL_STAGE)
+        && super::verify::removal_settles_late_write(&ctx.journal, residual)
+    {
+        updated.late_write = None;
+    }
     move_ctx(tx, emit, ctx, event, &updated)?;
+    // The CA leaves the pair's issuing set unless another enrollment of the pair under
+    // it is still verified (D5 §6.2: a removed `abandoned` or, ⟨§17.29 item 2⟩,
+    // `withdrawn` record may sit beside a later verified one under the same CA).
     if ctx.foreign.is_none() {
-        tx.remove_issuing_ca(&pair_of(&ctx.record), &ctx.record.ca_fingerprint, now)?;
+        let pair = pair_of(&ctx.record);
+        let still_trusted = tx.enrollments_for_pair(&pair)?.iter().any(|o| {
+            o.id != ctx.record.id
+                && o.ca_fingerprint == ctx.record.ca_fingerprint
+                && matches!(
+                    o.state,
+                    EnrollmentState::Verified | EnrollmentState::Reverifying
+                )
+        });
+        if !still_trusted {
+            tx.remove_issuing_ca(&pair, &ctx.record.ca_fingerprint, now)?;
+        }
     }
     if rollback {
         let err = OpError::new(

@@ -1,5 +1,5 @@
 {
- "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table; `warning_reasons` are the Warning.reason values with the warning code each refines (ADR-0008 \u00a717.25 item 15); the `new` rows uninstall_in_progress and uninstall_inventory_changed are ADR-0008 \u00a717.27 item 2 (W5-S01), uninstall_remote_step_unresolved is \u00a717.28 item 1, issuer_executable_changed is \u00a717.28 item 5, and issuer_store_access_denied (a reason and a doctor finding) is \u00a717.28 item 6",
+ "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table; `warning_reasons` are the Warning.reason values with the warning code each refines (ADR-0008 \u00a717.25 item 15); the `new` rows uninstall_in_progress and uninstall_inventory_changed are ADR-0008 \u00a717.27 item 2 (W5-S01), uninstall_remote_step_unresolved is \u00a717.28 item 1, issuer_executable_changed is \u00a717.28 item 5, issuer_store_access_denied (a reason and a doctor finding) is \u00a717.28 item 6, and late_write_present is \u00a717.29 item 2",
  "new": [
   {
    "reason": "issuer_not_initialized",
@@ -280,6 +280,10 @@
   {
    "reason": "uninstall_remote_step_unresolved",
    "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "late_write_present",
+   "code": "CONFIG_CONFLICT"
   }
  ],
  "existing": [

@@ -1945,6 +1945,65 @@ fn enroll_verify_absence_clears_late_write_only_after_not_after() {
     assert_eq!(w.marker_lines(), 0, "nothing written");
 }
 
+/// ⟨ADR-0008 §17.29 item 2⟩ `heimdall --json enroll verify <id> --absence` on the
+/// owner's terminal, for a `withdrawn` record whose `late_write` residual's not-after has
+/// passed and whose exact line is in the registry (the late write landed): one real
+/// inspect, then `CONFIG_CONFLICT` (exit 6) / `late_write_present` with
+/// `data.next_command` `heimdall enroll remove <id>`; the residual is kept and nothing
+/// is written.
+#[cfg(unix)]
+#[test]
+fn enroll_verify_absence_line_present_names_enroll_remove() {
+    use heimdall_domain::enrollment::LateWrite;
+    let w = World::new();
+    let now = heimdall_contract::Timestamp::now().as_second();
+    let r = w.seed_record(
+        &w.ca,
+        EnrollmentState::Withdrawn,
+        EnrollmentForm::Account,
+        w.served_target(),
+        None,
+        Some(LateWrite {
+            step_token: "ce".repeat(16),
+            not_after_remote: now - 120,
+        }),
+    );
+    let line = format!(
+        "cert-authority,principals=\"hm:{}:{}\" {} {}",
+        w.destination.as_str(),
+        w.account.as_str(),
+        w.ca.public_line(),
+        r.marker
+    );
+    w.sshd.append_registry_line(&line).unwrap();
+    assert_eq!(w.marker_lines(), 1);
+    let id = r.id.to_string();
+    let dir = tempfile::tempdir().unwrap();
+    let stdout_path = dir.path().join("stdout");
+    let pty = terminal::Pty::open();
+    let mut child = pty.start_split(
+        &w.env(),
+        &w.home.root,
+        &["--json", "enroll", "verify", &id, "--absence"],
+        &stdout_path,
+    );
+    let (code, t) = pty.finish(&mut child);
+    let v = one_envelope_of(&std::fs::read_to_string(&stdout_path).unwrap());
+    assert_eq!(v["code"], "CONFIG_CONFLICT", "{v} {t}");
+    assert_eq!(code, Some(6), "{v} {t}");
+    assert_eq!(v["data"]["error"]["reason"], "late_write_present", "{v}");
+    assert_eq!(
+        v["data"]["next_command"],
+        format!("heimdall enroll remove {id}"),
+        "{v}"
+    );
+    assert_eq!(w.step_runs(), 1, "one inspect, nothing else: {t}");
+    let after = w.record(&r.id);
+    assert_eq!(after.late_write, r.late_write, "kept: {t}");
+    assert_eq!(after.state, EnrollmentState::Withdrawn);
+    assert_eq!(w.marker_lines(), 1, "nothing written");
+}
+
 /// m03-plan U12 (ADR-0006 §3.1; R3): every enroll decision kind (`enroll_account`,
 /// `enroll_system_form`, `remove_enrollment`, `approve_target_change`) needs the typed
 /// `yes`: a non-TTY stdin, `--non-interactive`, "no", end of input and Ctrl-C at the

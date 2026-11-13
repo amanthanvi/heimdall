@@ -544,6 +544,7 @@ pub(crate) async fn verify_flow<S: Session, P: Prompter>(
     request_id: RequestId,
     mode: VerifyMode,
 ) -> Outcome {
+    let next_remove = format!("heimdall enroll remove {id}");
     let request = Request::Enrollment(EnrollmentRequest::Verify {
         enrollment_id: id,
         request_id,
@@ -577,7 +578,7 @@ pub(crate) async fn verify_flow<S: Session, P: Prompter>(
         Err(stopped) => return Outcome::of(stopped),
     };
     let form = (mode == VerifyMode::Absence).then_some(EnrollmentForm::System);
-    settle(
+    let outcome = settle(
         s,
         env,
         drive::DriveMode {
@@ -586,7 +587,27 @@ pub(crate) async fn verify_flow<S: Session, P: Prompter>(
             ..drive::DriveMode::default()
         },
     )
-    .await
+    .await;
+    with_late_write_next(outcome, &next_remove)
+}
+
+/// ⟨ADR-0008 §17.29 item 2⟩ A `late_write_present` result (the uncertain append landed)
+/// names its next step in `data.next_command`: `heimdall enroll remove <enrollment>`,
+/// the removal of exactly that line by marker. Every other outcome is unchanged.
+fn with_late_write_next(mut outcome: Outcome, next: &str) -> Outcome {
+    let present = outcome
+        .env
+        .data
+        .pointer("/error/reason")
+        .and_then(serde_json::Value::as_str)
+        == Some(reason::LATE_WRITE_PRESENT);
+    if present && let serde_json::Value::Object(map) = &mut outcome.env.data {
+        map.insert(
+            "next_command".to_owned(),
+            serde_json::Value::String(next.to_owned()),
+        );
+    }
+    outcome
 }
 
 // --- enroll remove -------------------------------------------------------------------

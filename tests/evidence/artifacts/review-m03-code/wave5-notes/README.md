@@ -69,3 +69,15 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r4-worklog-L4.md` | L4: `late_write` cleared by an attended absence check after the not-after (§17.28 item 3) |
 | `m03-wave5-r4-worklog-K4.md` | K4: `issuer_executable_changed`, `issuer_store_access_denied` (+ doctor finding), the release note, restore to a new `#r<n>` item (§17.28 items 5–7) |
 | `m03-wave5-r4-worklog-F1.md` | F1: the Windows plan-digest flake: a 2 s local-query timeout on `git config`, raised to 10 s; the timed-out query is named |
+
+## Round 5 (base `a7d5c23b`; implements ADR-0008 §17.29 items 2 and 6, plus the item 8–10 rulings)
+
+These were moved here from the worktree root at the end of round 5. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r5-brief.md` | The common round-5 brief |
+| `m03-wave5-r5-questions.md` | Q-L5-2 to Q-L5-8 (Q-L5-5 and Q-L5-8 ANSWERED, §17.29 items 9–10) and the `late_write_present` code (ANSWERED, item 8) |
+| `m03-wave5-r5-worklog-I.md` | The integrator's round-5 worklog: the release-gate probe for the localenv test hooks (item 6), validation |
+| `m03-wave5-r5-worklog-L5.md` | L5: `late_write_present`; the `withdrawn` + `late_write` removal edge; the issuing-set rule on removal and its regressions |

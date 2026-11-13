@@ -1176,7 +1176,7 @@ row), and the rule that a target change replaces the approved target only on a p
 | `remove_unknown` | account | The explicit removal may or may not have applied. It keeps the **explicit removal** purpose | `removed` (reconcile: marker absent); `removing` (reconcile: present, ⟨r3⟩ the old holder proven gone); ⟨r3⟩ `held` (`lock_holder_unresolved`); ⟨r2⟩ `abandoned`; stays while unreachable |
 | ⟨r2⟩ `manual_removal_pending` | system | The owner is to remove the sshd lines; Heimdall shows them. ⟨r3⟩ `removal_origin` holds the state and evidence it began from | `removal_verifying` (owner confirms removed); ⟨r3⟩ **the origin state, with its evidence restored** (owner cancels: `verified`, `held`, `abandoned` or `manual_pending`, ⟨r4⟩ or `planned` for a foreign record). ⟨r5⟩ **For a foreign record** (§17.10 item 2): `abandoned` (the owner abandons; `pending_until_line_removed` is kept); and once a `ca_not_held` result exists, a cancel leaves it in `manual_removal_pending`, or returns it to `held` when a held foreign record began the removal. It never reaches `planned` or `withdrawn` |
 | ⟨r2⟩ `removal_verifying` | system | The absence check runs (§6.9) | `removed` (absence verified); ⟨r3⟩ `withdrawn` (absence verified, and the origin was `manual_pending`, so no verification ever passed); `manual_removal_pending` (still accepted, or inconclusive; origin kept). ⟨r4⟩ A foreign record's check always ends inconclusive, `ca_not_held` (D4 item 5; Q28) |
-| `verification_failed`, `removed`, `withdrawn`, `failed_unwritten` | — | Final; no trust of ours remains, as last observed. `removed` for the system form means **absence verified**, never "removed by Heimdall". ⟨r3⟩ A `withdrawn` record may still carry the `late_write` residual (§6.7), listed until an inspect after its not-after shows absence | none |
+| `verification_failed`, `removed`, `withdrawn`, `failed_unwritten` | — | Final; no trust of ours remains, as last observed. `removed` for the system form means **absence verified**, never "removed by Heimdall". ⟨r3⟩ A `withdrawn` record may still carry the `late_write` residual (§6.7), listed until an inspect after its not-after shows absence | none; ⟨§17.29 item 2⟩ **except** a `withdrawn` record carrying `late_write`: `removing` (account form; a new attended `RemoveEnrollment` of the exact line by marker, as from `abandoned`) |
 | `abandoned` | both | The owner gave the account up while unreachable, held or uncertain. Trust may remain. Reported `pending_until_line_removed`; listed by uninstall and the bundle. ⟨r3⟩ It is **outside** the uniqueness rule: a new enrollment of the pair uses a new marker, and this record stays listed (Q25) | `removing` (account: a new `RemoveEnrollment`, whose reconcile may break this enrollment's own stale lock once its holder is proven gone, §6.7); `manual_removal_pending` (system; origin `abandoned`) |
 
 A pair is usable for managed issuance only through a `verified` enrollment (`reverifying` counts as
@@ -4404,6 +4404,27 @@ No review has run yet. These rulings complete the wave before its reviews.
    - **The cause, confirmed:** a `git config` query slower than the 2 s bound made the git observation incomplete. That correctly changed the plan digest, but on Windows under load it also made two previews of an unchanged plan differ.
    - **The ruling:** `LOCAL_QUERY_TIMEOUT` is 10 s for every local query. An incomplete observation still changes the digest and leaves the selection undetermined (fail closed), and the unreadable entry names the timed-out query.
    - ADR-0007 and m02-plan §2 now state 10 s.
+8. **Q-L5-1, confirmed:** `late_write_present` maps to `CONFIG_CONFLICT` (exit 6). The recorded `withdrawn` state conflicts with the observed remote, and only a removal can resolve it; retrying the check cannot.
+9. **Q-L5-5: removing an enrollment drops its CA from the pair's issuing set only when no other enrollment of the pair still trusts that CA.** This applies to every origin.
+   - Before this, a confirmed removal took the CA out of the pair's issuing set unconditionally. That silently broke managed issuance for a newer verified enrollment of the same pair under the same CA (`withdrawn` and `abandoned` records sit outside the uniqueness rule).
+   - **The regressions:** an old abandoned enrollment, and separately a residual-carrying withdrawn one, are each removed beside a newer verified enrollment. The CA is kept, and the newer enrollment still issues and logs in. Removing the last enrollment under a CA drops it.
+10. **Q-L5-8, confirmed:** for item 9, an enrollment that is `verified` or `reverifying` still trusts its CA. A record being re-verified keeps its trust line until the check concludes, and a failed re-verification follows its own transition, after which the issuing set is recomputed.
+
+### 17.30 Orchestrator rulings on wave 5, round 5 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r5-questions.md` (the L5 heading).
+
+1. **Q-L5-2:** D5 §6.2's terminal-state row now records §17.29 item 2's exception for a `withdrawn` record carrying `late_write`. In the domain, the transition is the event `WithdrawnRemovalApproved { late_write }`, and only `late_write: true` leaves `withdrawn`.
+2. **Q-L5-3, accepted as built: a removal clears the residual only under D5 §6.7's own condition.** That condition: the removal's own reading is past `not_after_remote` on the destination clock, the registry was readable, no lock carries the residual's token (and no unreadable or foreign lock is present), and the line is removed. Otherwise the record ends `removed` with the residual kept, and the absence check (§17.28 item 3) can still clear it later.
+3. **Q-L5-4: the same rule applies to `abandoned`.** A removal admitted from `abandoned` clears a `late_write` residual under item 2's condition, and keeps it otherwise. A removed record therefore never stays an outstanding obligation once its removal has shown absence. **The regression:** an abandoned record with a residual, removed after the not-after with no lock present, ends `removed` with the residual cleared. Removed before the not-after, it keeps the residual.
+4. **Q-L5-6: the store checks event payloads against the stored record.**
+   - `transition_enrollment` refuses `WithdrawnRemovalApproved { late_write }` when `late_write` differs from the stored record's `late_write.is_some()`. It likewise refuses `OwnerReverify { hold }` when `hold` differs from the stored hold.
+   - The app derives both from the stored record anyway; the store check is defence in depth.
+   - **The regression:** a mismatched payload is refused, and nothing changes.
+5. **Q-L5-7: a held removal stays outside the uniqueness rule.**
+   - A record whose removal was admitted from `withdrawn` or `abandoned` keeps its removal origin through every later state of that removal, `held` included. The uniqueness index on `(pair, CA)` excludes records that carry a removal origin, as it already excludes `abandoned` (Q25).
+   - Reproduce the conflict first: a store-level test holds such a removal beside a live enrollment of the same pair and CA, and today the transition is rejected. Then fix it.
+   - **The regression:** with the fix the transition commits, and the live enrollment is unaffected. Reverted, the test fails.
 
 ## 18. Consequences
 

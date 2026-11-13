@@ -64,6 +64,12 @@ mod verify;
 /// The journal receipts' stage name (module docs).
 pub(super) const JOURNAL_STAGE: &str = "enroll.journal";
 
+/// ⟨ADR-0008 §17.29 item 2⟩ The receipt (`NotAttempted`, nothing remote) an
+/// `enrollment.remove` records when its approval moved a `withdrawn` record carrying the
+/// `late_write` residual to `removing`: only such a removal's success clears the residual
+/// (`steps::removal_confirmed`).
+pub(super) const LATE_WRITE_REMOVAL_STAGE: &str = "enroll.remove.late_write";
+
 /// The adapter identity of every enrollment receipt.
 pub(super) fn adapter(instance: &str) -> AdapterIdentity {
     AdapterIdentity {

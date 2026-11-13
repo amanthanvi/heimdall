@@ -535,6 +535,14 @@ pub enum EnrollmentEventKind {
     /// admission), and `held`, `applied_unverified`, `verified`, `abandoned` →
     /// `removing`.
     RemoveEnrollmentApproved,
+    /// ⟨ADR-0008 §17.29 item 2⟩ `RemoveEnrollment` approved for a `withdrawn` record
+    /// (account form): `withdrawn → removing` **only** when the record carries the
+    /// `late_write` residual (`late_write: true`; an uncertain append that may have
+    /// landed). A `withdrawn` record without it has no exit.
+    WithdrawnRemovalApproved {
+        /// The record carries `late_write` (`EnrollmentRecord::late_write.is_some()`).
+        late_write: bool,
+    },
     /// The owner's typed confirmation of a system-form manual removal: `planned →
     /// manual_removal_pending` (foreign admission, origin `planned`), and `held`,
     /// `verified`, `abandoned` → `manual_removal_pending` (origin that state).
@@ -712,6 +720,9 @@ impl EnrollmentEventKind {
             K::OwnerConfirmsRemoved,
             K::AbsenceNotVerified,
         ];
+        for late_write in [false, true] {
+            out.push(K::WithdrawnRemovalApproved { late_write });
+        }
         for hold in HoldKind::ALL {
             out.extend([K::OwnerReverify { hold }, K::TargetChangeApproved { hold }]);
             for purpose in RecoveryPurpose::ALL {
@@ -1016,6 +1027,13 @@ fn target(
         },
         (S::RemovalVerifying, K::AbsenceNotVerified) => S::ManualRemovalPending,
 
+        // withdrawn (ADR-0008 §17.29 item 2): final, unless the `late_write` residual
+        // shows an uncertain append that may have landed; then a new `RemoveEnrollment`
+        // of the exact line by marker, as from `abandoned`.
+        (S::Withdrawn, K::WithdrawnRemovalApproved { late_write: true }) if account && !foreign => {
+            S::Removing
+        }
+
         // abandoned
         (S::Abandoned, K::RemoveEnrollmentApproved) => S::Removing,
         (S::Abandoned, K::ManualRemovalConfirmed) => S::ManualRemovalPending,
@@ -1045,6 +1063,9 @@ fn target(
 ///   leaves [`FOREIGN_SUBSET`], never passes an absence check (Q28), may be
 ///   abandoned from `manual_removal_pending`, and after `ca_not_held` a cancel never
 ///   reaches `planned` or `withdrawn` (§17.10 item 2, §17.12 item 2);
+/// * ⟨§17.29 item 2⟩ `withdrawn` is final except `withdrawn → removing` for an own
+///   account-form record carrying the `late_write` residual
+///   ([`EnrollmentEventKind::WithdrawnRemovalApproved`] with `late_write: true`);
 /// * both states must admit the record's form (account-only and system-only states).
 pub fn transition(
     state: EnrollmentState,
@@ -1153,7 +1174,12 @@ mod tests {
         for event in EnrollmentEvent::all() {
             for state in EnrollmentState::ALL {
                 let r = transition(state, event);
-                if state.is_final() {
+                // ⟨§17.29 item 2⟩ the one exit of a final state: a withdrawn record
+                // carrying the `late_write` residual may be removed.
+                let late_write_removal = state == EnrollmentState::Withdrawn
+                    && event.kind
+                        == (EnrollmentEventKind::WithdrawnRemovalApproved { late_write: true });
+                if state.is_final() && !late_write_removal {
                     assert!(r.is_err(), "{state:?} {event:?}");
                 }
                 if let Ok(next) = r {
@@ -1231,6 +1257,27 @@ mod tests {
             go(F_ACCOUNT, S::RemoveUnknown, K::ReconcileApplied),
             Some(S::Removed)
         );
+    }
+
+    /// ⟨ADR-0008 §17.29 item 2⟩ `withdrawn → removing` exactly for an own account-form
+    /// record carrying `late_write`; without it (or system form, or foreign) `withdrawn`
+    /// has no exit, and `RemoveEnrollmentApproved` never leaves `withdrawn`.
+    #[test]
+    fn withdrawn_with_late_write_is_removable_only_with_the_residual() {
+        use EnrollmentEventKind as K;
+        use EnrollmentState as S;
+        let with = K::WithdrawnRemovalApproved { late_write: true };
+        let without = K::WithdrawnRemovalApproved { late_write: false };
+        assert_eq!(go(ACCOUNT, S::Withdrawn, with), Some(S::Removing));
+        assert_eq!(go(ACCOUNT, S::Withdrawn, without), None);
+        assert_eq!(go(ACCOUNT, S::Withdrawn, K::RemoveEnrollmentApproved), None);
+        assert_eq!(go(SYSTEM, S::Withdrawn, with), None);
+        assert_eq!(go(F_ACCOUNT, S::Withdrawn, with), None);
+        for state in EnrollmentState::ALL {
+            if state != S::Withdrawn {
+                assert_eq!(go(ACCOUNT, state, with), None, "{state:?}");
+            }
+        }
     }
 
     #[test]

@@ -228,6 +228,23 @@ probe HEIMDALL_TEST_SECRET_STORE "product-file issuer status" issuer status
 probe HEIMDALL_TEST_SECRET_STORE "product-file issuer init" issuer init --backup-out "${vals}/b.key"
 unset PROBE_VALUE
 
+# ADR-0008 §17.29 item 6: the test-only localenv hooks of wave 5 round 4 (F1) are library
+# fields and functions, not `HEIMDALL_TEST_*` variables, so no binary probe can reach them.
+# They stay unreachable in a release build because no production source outside
+# `crates/localenv/src/` names them (the release binary keeps the defaults: `None` and
+# `LOCAL_QUERY_TIMEOUT`). This static probe fails the gate if one ever does.
+hook_hits=$(grep -rlE 'observe_global_within|observe_global_for_within|local_query_timeout|git_observed' \
+    --include='*.rs' crates | grep -v '^crates/localenv/src/' || true)
+probe_count=$((probe_count + 1))
+if [ -n "${hook_hits}" ]; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: localenv test-only hooks referenced by production sources: FAIL"
+    printf '    %s\n' ${hook_hits}
+else
+    echo "release-gate: localenv test-only hooks (observe_global_within, ProjectionTestConfig.local_query_timeout, ProjectionConfig.git_observed) unreferenced outside crates/localenv/src: PASS"
+fi
+
 echo "release-gate: ${probe_count} probes, ${fail_count} failed"
 if [ "${status}" -eq 0 ]; then
     echo "release-gate: release_build_refuses_m03_test_gates: PASS"

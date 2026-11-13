@@ -5199,6 +5199,9 @@ async fn absence_verify_observing_line_present_keeps_late_write() {
     let (_, out) = late_write_check(&w, &r.id, "req_lwp_abs").await;
     let e = out.expect_err("kept");
     assert!(e.message.contains("marker line"), "{e:?}");
+    // ⟨§17.29 item 2⟩ a definite result, not `verification_inconclusive`.
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    assert_eq!(e.reason.as_deref(), Some("late_write_present"), "{e:?}");
     let after = w.record(&r.id);
     assert_eq!(after.late_write, r.late_write, "the residual is kept");
     assert_eq!(after.state, EnrollmentState::Abandoned);
@@ -5257,6 +5260,343 @@ async fn late_write_cleared_record_is_no_longer_an_outstanding_obligation() {
     assert!(
         after.contains(&future.id),
         "uncleared: still outstanding: {after:?}"
+    );
+}
+
+// --- ⟨ADR-0008 §17.29 item 2⟩ a late write found present, and its removal ---------------
+
+/// A `withdrawn` account-form record whose uncertain append left the `late_write`
+/// residual, its not-after (destination clock) already past, and (`landed`) its exact
+/// line in the registry: the paused writer's append landed after reconcile saw absence
+/// (model setup: the residual's fields as `ReconcileApprovalLapsed` records them).
+#[cfg(any(unix, windows))]
+fn withdrawn_late_write(
+    w: &World,
+    late_write: bool,
+    landed: bool,
+) -> heimdall_domain::enrollment::EnrollmentRecord {
+    let r = w.seed_with(
+        EnrollmentState::Withdrawn,
+        EnrollmentForm::Account,
+        w.served_target(),
+        None,
+        |r| {
+            r.late_write = late_write.then(|| heimdall_domain::enrollment::LateWrite {
+                step_token: "e5".repeat(16),
+                not_after_remote: remote_now() - 120,
+            });
+        },
+    );
+    if landed {
+        w.sshd.append_registry_line(&w.line_of(&r)).unwrap();
+    }
+    r
+}
+
+/// ⟨§17.29 item 2⟩ An attended absence check after the residual's not-after that
+/// observes the marker line present reports the definite `late_write_present`
+/// (`CONFIG_CONFLICT`, exit 6), naming `heimdall enroll remove <enrollment>`; the
+/// residual is kept, the state does not move, and nothing remote changes.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn late_write_present_check_reports_late_write_present_and_keeps_residual() {
+    let w = World::new().await;
+    let r = withdrawn_late_write(&w, true, true);
+    let before = w.registry_text();
+    assert_eq!(w.marker_lines(), 1, "the late write landed");
+    let (op, out) = late_write_check(&w, &r.id, "req_lwpr_abs").await;
+    let e = out.expect_err("present");
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    assert_eq!(e.reason.as_deref(), Some("late_write_present"), "{e:?}");
+    assert!(
+        e.message
+            .contains(&format!("heimdall enroll remove {}", r.id)),
+        "{e:?}"
+    );
+    assert_eq!(w.op(&op).state, OperationState::Failed);
+    let after = w.record(&r.id);
+    assert_eq!(after.late_write, r.late_write, "the residual is kept");
+    assert_eq!(after.state, EnrollmentState::Withdrawn, "no state moves");
+    assert_eq!(
+        w.registry_text(),
+        before,
+        "the check changes nothing remote"
+    );
+    assert!(
+        w.tx(|tx| tx.outstanding_obligations())
+            .enrollments
+            .iter()
+            .any(|o| o.id == r.id),
+        "still an outstanding obligation"
+    );
+}
+
+/// ⟨§17.29 item 2⟩ After a `late_write_present` check, `enroll remove` of the withdrawn
+/// record (attended; an unattended one is refused before anything) needs
+/// `RemoveEnrollment`; approved, it moves `withdrawn → removing` and its real steps
+/// remove exactly that line by marker (the owner's line and another enrollment's line
+/// under the same CA stay byte for byte); the record ends `removed` with the residual
+/// cleared in the same transaction, and is no longer an outstanding obligation.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn withdrawn_with_late_write_remove_removes_exactly_that_line_and_clears_residual() {
+    let w = World::new().await;
+    // A later enrollment of the pair under the same CA (a new marker), verified for real:
+    // its line present and its CA in the pair's issuing set.
+    let op = w.approved(&w.spec(), "req_lwrm_new").await;
+    w.drive(&op)
+        .await
+        .unwrap_or_else(|e| panic!("enrollment: {e:?}"));
+    let other = w.records().pop().unwrap();
+    assert_eq!(other.state, EnrollmentState::Verified);
+    let other_line = w.line_of(&other);
+    let pair = heimdall_domain::scope::AccessPair {
+        destination: w.destination.clone(),
+        account: w.account.clone(),
+    };
+    let issuing = |w: &World| w.tx(|tx| tx.pair_preference(&pair)).unwrap().issuing_cas;
+    assert!(issuing(&w).contains(&other.ca_fingerprint));
+    let r = withdrawn_late_write(&w, true, true);
+    assert_eq!(r.ca_fingerprint, other.ca_fingerprint, "the same CA");
+    let line = w.line_of(&r);
+    assert_eq!(w.marker_lines(), 2);
+    let (_, out) = late_write_check(&w, &r.id, "req_lwrm_abs").await;
+    assert_eq!(
+        out.expect_err("present").reason.as_deref(),
+        Some("late_write_present")
+    );
+    let expected: String = w
+        .registry_text()
+        .split_inclusive('\n')
+        .filter(|l| l.trim_end_matches('\n') != line)
+        .collect();
+    assert_ne!(expected, w.registry_text(), "the line is there to remove");
+    // Unattended: refused before anything.
+    let e = w
+        .req(
+            &unattended(),
+            EnrollmentRequest::Remove {
+                target: RemovalTarget::Enrollment {
+                    enrollment_id: r.id.clone(),
+                },
+                request_id: RequestId::parse("req_lwrm_un").unwrap(),
+                interaction: InteractionMode::NonInteractive,
+                wait: WaitMode::default(),
+            },
+        )
+        .await
+        .expect_err("unattended");
+    assert_eq!(e.code, Code::InteractionRequired, "{e:?}");
+    assert_eq!(w.record(&r.id).state, EnrollmentState::Withdrawn);
+    // Attended: the owner's decision, then the real steps.
+    let e = w.remove(&r.id, "req_lwrm_rm").await.unwrap_err();
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+    let rm = e.operation_id.clone().unwrap();
+    w.decide(&e, Verdict::Approve).await.unwrap();
+    assert_eq!(w.record(&r.id).state, EnrollmentState::Removing);
+    let res = w
+        .drive(&rm)
+        .await
+        .unwrap_or_else(|e| panic!("removal: {e:?}"));
+    assert_eq!(res.state, EnrollmentState::Removed);
+    assert!(
+        res.notes
+            .iter()
+            .all(|n| n.kind != heimdall_contract::enrollment::EnrollmentNoteKind::PossibleLateWrite),
+        "{:?}",
+        res.notes
+    );
+    assert_eq!(w.op(&rm).state, OperationState::Succeeded);
+    assert!(
+        w.receipts(&rm)
+            .iter()
+            .any(|x| x.stage == enrollment_stage::REMOVE
+                && matches!(x.effect, EffectReceipt::Confirmed { .. })),
+        "the real remove step ran"
+    );
+    assert_eq!(w.registry_text(), expected, "exactly that line removed");
+    assert!(w.registry_text().contains(&other_line));
+    assert!(w.registry_text().contains(&w.existing));
+    let after = w.record(&r.id);
+    assert_eq!(after.state, EnrollmentState::Removed);
+    assert_eq!(after.late_write, None, "the residual is cleared");
+    assert_eq!(w.record(&other.id).state, EnrollmentState::Verified);
+    assert!(
+        issuing(&w).contains(&other.ca_fingerprint),
+        "the verified enrollment's CA stays issuable"
+    );
+    assert!(
+        !w.tx(|tx| tx.outstanding_obligations())
+            .enrollments
+            .iter()
+            .any(|o| o.id == r.id),
+        "no longer an outstanding obligation"
+    );
+}
+
+/// ⟨§17.29 item 2⟩ A `withdrawn` record without the `late_write` residual stays final:
+/// `enroll remove` is refused (`CONFIG_CONFLICT`, `enrollment_state`) before any
+/// operation or decision, and nothing remote changes (even with a line of its marker
+/// present).
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn withdrawn_without_late_write_refuses_remove() {
+    let w = World::new().await;
+    let r = withdrawn_late_write(&w, false, true);
+    let before = w.registry_text();
+    let ops_before = w.tx(|tx| tx.open_operations()).len();
+    let e = w.remove(&r.id, "req_lwno_rm").await.unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    assert_eq!(e.reason.as_deref(), Some("enrollment_state"), "{e:?}");
+    assert!(e.operation_id.is_none(), "no operation: {e:?}");
+    assert_eq!(w.tx(|tx| tx.open_operations()).len(), ops_before);
+    let after = w.record(&r.id);
+    assert_eq!(after.state, EnrollmentState::Withdrawn);
+    assert_eq!(after.late_write, None);
+    assert_eq!(w.registry_text(), before, "nothing remote");
+}
+
+// --- ⟨ADR-0008 §17.29 item 9⟩ the issuing set on a confirmed removal --------------------
+
+/// The pair's issuing-CA set.
+#[cfg(any(unix, windows))]
+fn issuing_cas(w: &World) -> std::collections::BTreeSet<heimdall_contract::ids::CaFingerprint> {
+    w.tx(|tx| tx.pair_preference(&w.pair()))
+        .expect("the pair's preference")
+        .issuing_cas
+        .into_iter()
+        .collect()
+}
+
+/// `enroll remove <id>` (attended), approved, driven through its real steps to `removed`.
+#[cfg(any(unix, windows))]
+async fn remove_to_removed(w: &World, id: &heimdall_contract::ids::EnrollmentId, rid: &str) {
+    let e = w.remove(id, rid).await.unwrap_err();
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+    let rm = e.operation_id.clone().unwrap();
+    w.decide(&e, Verdict::Approve).await.unwrap();
+    let res = w
+        .drive(&rm)
+        .await
+        .unwrap_or_else(|e| panic!("removal: {e:?}"));
+    assert_eq!(res.state, EnrollmentState::Removed);
+    assert!(
+        w.receipts(&rm)
+            .iter()
+            .any(|x| x.stage == enrollment_stage::REMOVE
+                && matches!(x.effect, EffectReceipt::Confirmed { .. })),
+        "the real remove step ran"
+    );
+}
+
+/// A newer enrollment of the world's pair under its first CA, verified for real (its
+/// line written, its CA added to the issuing set by E5).
+#[cfg(any(unix, windows))]
+async fn newer_verified(
+    w: &World,
+    old: &heimdall_contract::ids::EnrollmentId,
+    rid: &str,
+) -> heimdall_domain::enrollment::EnrollmentRecord {
+    let op = w.approved(&w.spec(), rid).await;
+    let res = w
+        .drive(&op)
+        .await
+        .unwrap_or_else(|e| panic!("enrollment: {e:?}"));
+    assert_eq!(res.state, EnrollmentState::Verified);
+    let newer = w.records().into_iter().find(|r| &r.id != old).unwrap();
+    assert_eq!(newer.state, EnrollmentState::Verified);
+    newer
+}
+
+/// Removing `old` (whose line is in the registry, under the same CA as `newer`) keeps
+/// the CA in the pair's issuing set, and `newer` still issues through the real managed
+/// path: setup apply, ensure (the fixture issuer signs under the CA) and an ssh login
+/// the server accepts through `newer`'s line alone ([`managed_legs`]).
+#[cfg(any(unix, windows))]
+async fn removal_keeps_ca_for_newer(
+    w: &World,
+    old: &heimdall_domain::enrollment::EnrollmentRecord,
+    newer: &heimdall_domain::enrollment::EnrollmentRecord,
+    tag: &str,
+) {
+    let ca = w.issuer.ca.fingerprint().clone();
+    assert_eq!(old.ca_fingerprint, ca);
+    assert_eq!(newer.ca_fingerprint, ca);
+    assert!(issuing_cas(w).contains(&ca));
+    assert!(w.registry_text().contains(&old.marker));
+    remove_to_removed(w, &old.id, &format!("req_{tag}_rm")).await;
+    assert!(
+        !w.registry_text().contains(&old.marker),
+        "the old line removed"
+    );
+    assert!(
+        w.registry_text().contains(&w.line_of(newer)),
+        "the newer line kept"
+    );
+    assert_eq!(w.record(&newer.id).state, EnrollmentState::Verified);
+    assert!(
+        issuing_cas(w).contains(&ca),
+        "the newer verified enrollment still trusts the CA"
+    );
+    managed_legs(w, tag).await;
+}
+
+/// ⟨§17.29 item 9⟩ An old `abandoned` enrollment (its uncertain append landed) and a newer
+/// `verified` one of the same pair under the same CA: removing the old line keeps the CA
+/// in the pair's issuing set, and the newer enrollment still issues (the real managed
+/// issuance and login).
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn removing_old_enrollment_keeps_ca_while_a_newer_verified_one_trusts_it() {
+    let w = World::with(WorldOptions {
+        managed: true,
+        ..WorldOptions::default()
+    })
+    .await;
+    w.require_recorded_client();
+    let old = abandoned_with_late_write(&w, "req_kca_old", true).await;
+    let newer = newer_verified(&w, &old.id, "req_kca_new").await;
+    removal_keeps_ca_for_newer(&w, &old, &newer, "kca").await;
+}
+
+/// ⟨§17.29 items 2 and 9⟩ The same with an old `withdrawn` record carrying the
+/// `late_write` residual (its late write landed): its removal clears the residual and
+/// keeps the CA for the newer verified enrollment, which still issues.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn removing_withdrawn_residual_keeps_ca_while_a_newer_verified_one_trusts_it() {
+    let w = World::with(WorldOptions {
+        managed: true,
+        ..WorldOptions::default()
+    })
+    .await;
+    w.require_recorded_client();
+    let old = withdrawn_late_write(&w, true, true);
+    let newer = newer_verified(&w, &old.id, "req_kcw_new").await;
+    removal_keeps_ca_for_newer(&w, &old, &newer, "kcw").await;
+    assert_eq!(w.record(&old.id).late_write, None, "the residual cleared");
+}
+
+/// ⟨§17.29 item 9⟩ Removing the last enrollment of the pair under its CA (no other
+/// verified enrollment trusts it) drops the CA from the pair's issuing set.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn removing_the_last_enrollment_under_a_ca_drops_it_from_the_issuing_set() {
+    let w = World::new().await;
+    let op = w.approved(&w.spec(), "req_kcl").await;
+    let r = w
+        .drive(&op)
+        .await
+        .unwrap_or_else(|e| panic!("enrollment: {e:?}"));
+    assert_eq!(r.state, EnrollmentState::Verified);
+    let ca = w.issuer.ca.fingerprint().clone();
+    assert!(issuing_cas(&w).contains(&ca));
+    let id = w.records().pop().unwrap().id;
+    remove_to_removed(&w, &id, "req_kcl_rm").await;
+    assert_eq!(w.marker_lines(), 0);
+    assert!(
+        !issuing_cas(&w).contains(&ca),
+        "no verified enrollment trusts the CA: dropped"
     );
 }
 
