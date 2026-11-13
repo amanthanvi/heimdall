@@ -243,6 +243,17 @@ pub(crate) fn keep_instruction(locator: &str) -> String {
     }
 }
 
+/// ⟨ADR-0008 §17.31 item 5⟩ What the owner does with a displaced item Heimdall did not
+/// delete once its CA is retired (no later command deletes it): delete it in the store.
+pub(crate) fn manual_delete_instruction(locator: &str) -> String {
+    match render::keychain_parts(locator) {
+        Some((service, account)) => {
+            format!("delete it yourself in Keychain Access (service {service}, account {account})")
+        }
+        None => format!("delete it yourself in the platform store ({locator})"),
+    }
+}
+
 /// The items a restore displaced for `ca` (`orphan_store_items` with a locator).
 pub(crate) fn displaced_of<'a>(
     status: &'a IssuerStatus,
@@ -536,6 +547,15 @@ async fn wait_unloaded<S: Session>(
 
 /// R2B's last steps: delete exactly the recorded locator of an `unloaded` CA, confirm it
 /// on an attended `issuer.retire`, then the CA's displaced items the same way.
+///
+/// ⟨ADR-0008 §17.28 item 7, §17.31 item 5 (W5-C05)⟩ The current item and the displaced
+/// ones are distinct work. A refused deletion of the **current** item answers the refusal
+/// (nothing was confirmed). Once it is deleted and confirmed (the CA `retired`), a displaced
+/// item is never a failure: one this executable cannot read (`issuer_store_access_denied`,
+/// after a new-item restore) is never deleted and stays in `orphan_store_items` with its
+/// Keychain Access instruction ([`delete_displaced`]); any other refused deletion leaves it
+/// listed too. Each is a note with its next step, and the command reports the completed
+/// retirement (exit 0), never effect `none` and never a restore.
 async fn finish_retirement<S: Session>(
     ctx: &Ctx,
     s: &mut S,
@@ -547,7 +567,8 @@ async fn finish_retirement<S: Session>(
     let Some(row) = ca_in(&st, ca).cloned() else {
         return unreadable_status();
     };
-    let mut work: Vec<(StoreKind, String)> = Vec::new();
+    // (store kind, locator, whether it is the CA's current item)
+    let mut work: Vec<(StoreKind, String, bool)> = Vec::new();
     if row.state != CaState::Retired {
         let Some(locator) = row.store_locator.clone() else {
             return Outcome::of(failure(
@@ -557,13 +578,14 @@ async fn finish_retirement<S: Session>(
             ))
             .with_human(render::status(&st, &[]));
         };
-        work.push((row.store, locator));
+        work.push((row.store, locator, true));
     }
     for o in displaced_of(&st, ca) {
         if let Some(l) = &o.locator {
-            work.push((o.store, l.clone()));
+            work.push((o.store, l.clone(), false));
         }
     }
+    let mut notes: Vec<String> = Vec::new();
     if !work.is_empty() {
         if !ctx.interactive() {
             return Outcome::of(setup_cmd::not_confirmed(
@@ -576,9 +598,30 @@ async fn finish_retirement<S: Session>(
             Ok(store) => store,
             Err(o) => return o,
         };
-        for (kind, locator) in work {
-            if let Err(refused) = delete_exact(store.as_ref(), ca, kind, &locator) {
-                return Outcome::of(refused).with_human(render::status(&st, &[]));
+        for (kind, locator, current) in work {
+            if current {
+                if let Err(refused) = delete_exact(store.as_ref(), ca, kind, &locator) {
+                    return Outcome::of(refused).with_human(render::status(&st, &[]));
+                }
+            } else {
+                match delete_displaced(store.as_ref(), ca, kind, &locator) {
+                    Ok(true) => {}
+                    // Never deleted: listed, for the owner to delete in Keychain Access.
+                    Ok(false) => {
+                        notes.push(format!(
+                            "the old store item ({locator}) stays listed under orphan store items: {}",
+                            keep_instruction(&locator)
+                        ));
+                        continue;
+                    }
+                    Err(_) => {
+                        notes.push(format!(
+                            "the old store item ({locator}) could not be deleted and stays listed under orphan store items: {}",
+                            manual_delete_instruction(&locator)
+                        ));
+                        continue;
+                    }
+                }
             }
             env = s
                 .request(Request::Issuer(IssuerRequest::Retire {
@@ -597,7 +640,7 @@ async fn finish_retirement<S: Session>(
             }
         }
     }
-    let human = render::retired(&st, ca);
+    let human = render::retired(&st, ca, &notes);
     Outcome::of(env).with_human(human)
 }
 

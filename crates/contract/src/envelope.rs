@@ -471,6 +471,11 @@ pub mod reason {
     /// fence, an enrollment operation still has a dispatched step without its result
     /// (its remote effect is unknown), so the purge is refused; nothing was deleted.
     pub const UNINSTALL_REMOTE_STEP_UNRESOLVED: &str = "uninstall_remote_step_unresolved";
+    /// ⟨M03; ADR-0008 §17.31 items 1 and 6⟩ `SERVICE_UNAVAILABLE` (exit 5, retryable): the
+    /// runtime's stop before a purge was not confirmed (the shutdown failed or its
+    /// connection was lost), so the purge read and deleted nothing (next: stop the runtime
+    /// with `heimdall service stop` or wait for it to stop, then `heimdall uninstall` again).
+    pub const UNINSTALL_SHUTDOWN_UNCONFIRMED: &str = "uninstall_shutdown_unconfirmed";
     /// ⟨M03; ADR-0008 §17.29 item 2⟩ `CONFIG_CONFLICT` (exit 6): an attended
     /// `enroll verify <enrollment> --absence` run after the `late_write` residual's
     /// not-after observed the enrollment's marker line present: the uncertain append
@@ -565,6 +570,7 @@ pub mod reason {
             UNINSTALL_REMOTE_STEP_UNRESOLVED,
             Code::CapabilityUnavailable,
         ),
+        (UNINSTALL_SHUTDOWN_UNCONFIRMED, Code::ServiceUnavailable),
         (LATE_WRITE_PRESENT, Code::ConfigConflict),
     ];
 }

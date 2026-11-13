@@ -536,6 +536,9 @@ impl Operations {
         caller: &Caller,
         req: IssuerRequest,
     ) -> OpResult<serde_json::Value> {
+        // ⟨ADR-0008 §17.31 item 2 (W5-C02)⟩ the uninstall fence's admission for every
+        // route into issuer work, not only the dispatcher (held for the request).
+        let _admission = self.issuer_fence_admission(&req)?;
         if !caller.context.is_owner() {
             return Err(owner_only());
         }

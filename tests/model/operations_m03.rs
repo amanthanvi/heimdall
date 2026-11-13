@@ -2236,3 +2236,99 @@ async fn enrollment_cancel_refused_writes_nothing() {
     assert_eq!(e.next.action, "reconcile");
     assert_eq!(w.tx(|tx| tx.operation(&op)).unwrap(), before, "unchanged");
 }
+
+// =================================================================================
+// ⟨ADR-0008 §17.31 item 2 (W5-C02)⟩ The uninstall fence at the reservations
+// =================================================================================
+
+fn fence_refusal(e: &OpError) -> bool {
+    e.code == Code::ServiceUnavailable && e.reason.as_deref() == Some("uninstall_in_progress")
+}
+
+/// Let every runnable task run (the test runtime is single-threaded).
+async fn settle() {
+    for _ in 0..32 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
+/// `fence_acquisition_waits_for_grant_reservation_past_its_check` (§17.31 item 2): a
+/// grant reservation paused after its fence check, before its store write (the
+/// debug-only pause), is not overtaken: the acquisition waits for it, refusing new work
+/// meanwhile, and completes only after the reservation is written, so an inventory
+/// read after `acquire` sees it. Once the fence is held, a reservation is refused
+/// before anything is written. Never both proceed past each other.
+#[tokio::test]
+async fn fence_acquisition_waits_for_grant_reservation_past_its_check() {
+    let w = World::managed().await;
+    let g = w.active_grant("g8-race").await.grant_id;
+    w.register_ca(1, CaState::Active);
+    w.seed_enrollment(&enrollment(1, 1, &h1(), EnrollmentState::Verified));
+    let pause = w.ops.debug_pause_next_reservation();
+    let ops = w.ops.clone();
+    let req = issuance(&g);
+    let reserving = tokio::spawn(async move { ops.reserve_issuance(req).await });
+    pause.reached.await.unwrap();
+    let ops = w.ops.clone();
+    let acquiring = tokio::spawn(async move { ops.uninstall_fence_acquire(801).await });
+    settle().await;
+    assert!(
+        !acquiring.is_finished() && !w.ops.uninstall_fence_held(),
+        "the acquisition must wait for a reservation past its check"
+    );
+    assert!(fence_refusal(&w.ops.uninstall_fence_admit().unwrap_err()));
+    pause.resume.send(()).unwrap();
+    let entry = reserving.await.unwrap().unwrap();
+    assert_eq!(entry.state, IssuanceState::Reserved);
+    acquiring.await.unwrap().unwrap();
+    assert_eq!(w.ops.uninstall_fence_holder(), Some(801));
+    let stored = w.tx(|tx| tx.issuance_entries(&g));
+    assert!(
+        stored.iter().any(|e| e.id == entry.id),
+        "written before the fence"
+    );
+    let e = w.ops.reserve_issuance(issuance(&g)).await.unwrap_err();
+    assert!(fence_refusal(&e), "{e:?}");
+    assert_eq!(e.effect_status, EffectStatus::None);
+    assert_eq!(w.tx(|tx| tx.issuance_entries(&g)).len(), stored.len());
+    assert!(!w.ops.uninstall_fence_release(801));
+    w.ops.reserve_issuance(issuance(&g)).await.unwrap();
+}
+
+/// `fence_acquisition_waits_for_verification_reservation_past_its_check` (§17.31
+/// item 2): the same interleaving for the verification reservation; and under the held
+/// fence a direct verification reservation is refused with nothing written.
+#[tokio::test]
+async fn fence_acquisition_waits_for_verification_reservation_past_its_check() {
+    let w = World::new().await;
+    let op = seed_verify_operation(&w, 47, VerifyMode::Presence, 1);
+    let pause = w.ops.debug_pause_next_reservation();
+    let ops = w.ops.clone();
+    let req = verification(&w, &op, 47);
+    let reserving = tokio::spawn(async move { ops.reserve_verification(req).await });
+    pause.reached.await.unwrap();
+    let ops = w.ops.clone();
+    let acquiring = tokio::spawn(async move { ops.uninstall_fence_acquire(802).await });
+    settle().await;
+    assert!(
+        !acquiring.is_finished() && !w.ops.uninstall_fence_held(),
+        "the acquisition must wait for a reservation past its check"
+    );
+    pause.resume.send(()).unwrap();
+    let entry = reserving.await.unwrap().unwrap().unwrap();
+    acquiring.await.unwrap().unwrap();
+    let stored = w.tx(|tx| tx.verification_entries(&op));
+    assert!(
+        stored.iter().any(|e| e.id == entry.id),
+        "written before the fence"
+    );
+    let e = w
+        .ops
+        .reserve_verification(verification(&w, &op, 47))
+        .await
+        .unwrap_err();
+    assert!(fence_refusal(&e), "{e:?}");
+    assert_eq!(w.tx(|tx| tx.verification_entries(&op)).len(), stored.len());
+    assert!(!w.ops.uninstall_fence_release(802));
+}

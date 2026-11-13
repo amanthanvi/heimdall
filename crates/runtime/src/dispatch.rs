@@ -175,29 +175,11 @@ pub fn render<T: serde::Serialize>(result: OpResult<T>) -> Envelope<serde_json::
 
 /// ⟨ADR-0008 §17.27 item 2, §17.28 item 1⟩ Whether `request` can start or advance
 /// remote or CA work, so that the uninstall fence refuses it from any connection but
-/// the holder (the request-to-verdict table is in `.m03-wave5-r3-api.md` § U3):
-/// * fenced: `enrollment` `apply`, `verify`, `remove` (own and foreign), `reconcile`,
-///   `abandon` and `step` (dispatching a remote step); `issuer` `register` (rotation
-///   and restore included), `unlock` and `retire` (with or without `deleted_locator`);
-///   `decide` with `approve`, whatever the kind;
-/// * not fenced: every read-only request (`inspect`, `observe`, the previews, `issuer`
-///   `status` and `bundle`), `decide` with `deny`, `enrollment` `step_result` (a step
-///   dispatched before the fence records its truth; a new one cannot be dispatched under
-///   it), `issuer` `bundle_written`, and every M01/M02 request (`ensure` and `bind`
-///   reach a certificate only through the reservation, which the application refuses
-///   itself while the fence is held). An unknown action is fenced (fail closed).
+/// the holder: the application's one classification
+/// ([`heimdall_app::operations::uninstall_fenced`], whose docs list it; the
+/// request-to-verdict table is in `.m03-wave5-r3-api.md` § U3).
 fn fenced(request: &Request) -> bool {
-    use heimdall_contract::issuer::IssuerRequest as I;
-    use heimdall_contract::request::Verdict;
-    match request {
-        Request::Enrollment(r) => !matches!(
-            r,
-            EnrollmentRequest::Preview { .. } | EnrollmentRequest::StepResult { .. }
-        ),
-        Request::Issuer(r) => !matches!(r, I::Status | I::Bundle { .. } | I::BundleWritten { .. }),
-        Request::Decide(r) => r.verdict != Verdict::Deny,
-        _ => false,
-    }
+    heimdall_app::operations::uninstall_fenced(request)
 }
 
 /// [`Dispatcher`] over the shared application operations.
@@ -361,26 +343,22 @@ impl OperationsDispatcher {
         if let Request::UninstallFence(r) = request {
             return self.uninstall_fence(&caller, r).await;
         }
-        // ⟨ADR-0008 §17.27 item 2, §17.28 item 1⟩ The uninstall fence ([`fenced`]): the
-        // holder's requests run in its scope and are never refused; a fenced request
-        // from any other connection holds the admission guard from its check until it
-        // has been handled, and is refused while another connection holds the fence.
+        // ⟨ADR-0008 §17.27 item 2, §17.28 item 1, §17.31 item 2⟩ The uninstall fence
+        // ([`fenced`]): the holder's requests run in its scope and are never refused; a
+        // fenced request from any other connection holds the admission from its check
+        // until it has been handled, and is refused while another connection holds the
+        // fence or is acquiring it. The application routes check again themselves.
         let holder = self.operations.uninstall_fence_holder();
         if holder == Some(self.scope.id) {
             return heimdall_app::operations::as_fence_holder(self.route(caller, request)).await;
         }
         if fenced(&request) {
-            let _admission = self.operations.uninstall_fence_admission().await;
-            if self
-                .operations
-                .uninstall_fence_holder()
-                .is_some_and(|h| h != self.scope.id)
-            {
-                return error_value(
-                    heimdall_app::operations::uninstall_in_progress()
-                        .with_effect(EffectStatus::None),
-                );
-            }
+            // ⟨§17.31 item 2⟩ The application's one admission (refused while the fence
+            // is held or being acquired), held until the request has been handled.
+            let _admission = match self.operations.uninstall_fence_admit() {
+                Ok(a) => a,
+                Err(e) => return error_value(e.with_effect(EffectStatus::None)),
+            };
             return self.route(caller, request).await;
         }
         self.route(caller, request).await

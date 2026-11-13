@@ -1022,9 +1022,25 @@ impl Operations {
                 record_result(tx, emit, &mut ctx, &rec).map(Ok)
             })
             .await??;
+        // ⟨ADR-0008 §17.28 item 1, §17.31 item 2 (W5-C02)⟩ The result above is recorded
+        // durably whatever the fence. Its effectful follow-through (the initial
+        // verification: certificates, the verifier's login) is new work: admitted only
+        // while no uninstall holds the fence or is acquiring it, and held to its end.
+        // Refused, it is deferred: the record stays `applied_unverified` with its apply
+        // operation running and no step outstanding (the existing state, nothing new
+        // stored), so a purge never runs it, and after the fence is lifted the next
+        // `enroll step` (its `Next::Verify`) or `enroll reconcile` runs it.
         if verify_after {
-            self.start_initial_verification(id).await?;
-            self.verify_operation(id).await?;
+            match self.uninstall_fence_admit() {
+                Ok(_admission) => {
+                    self.start_initial_verification(id).await?;
+                    self.verify_operation(id).await?;
+                }
+                Err(_) => tracing::info!(
+                    operation = %id,
+                    "step result recorded; the initial verification waits until the uninstall fence is lifted"
+                ),
+            }
         }
         let oid = id.clone();
         let ctx = self.write(move |tx, _| load_ctx(tx, &oid)).await??;
@@ -1677,10 +1693,42 @@ fn removal_confirmed(
     let mut updated = ctx.record.clone();
     updated.updated_at = now;
     updated.hold = None;
-    // ⟨ADR-0008 §17.29 item 2, §17.30 items 2-3⟩ A removal admitted from `withdrawn` or
-    // `abandoned` (its persisted removal origin, §17.30 item 5) clears the `late_write`
-    // residual in the same transaction as its result, once the removal's own reading
-    // settles it (`verify::removal_settles_late_write`); otherwise the residual is kept.
+    finish_removal(tx, emit, ctx, event, updated, now)?;
+    if rollback {
+        let err = OpError::new(
+            Code::CapabilityUnavailable,
+            "the verification failed and the line was rolled back: the registry is probably not the server's authoritative one, or certificates are unsupported",
+        )
+        .with_reason(reason::VERIFICATION_FAILED)
+        .with_effect(EffectStatus::Applied);
+        settle_open(tx, emit, &mut ctx.op, &err, now, retention)
+    } else {
+        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
+            .map_err(|_| store_conflict("result"))?;
+        settle_ok(tx, emit, &mut ctx.op, data, now, retention)
+    }
+}
+
+/// ⟨ADR-0008 §17.31 item 3; W5-C03⟩ The one post-removal finalization every route to a
+/// confirmed removal of the line uses (the removal and rollback steps, a removal that
+/// found nothing to remove, reconcile's `applied`, and manual recovery's line absent),
+/// each with its own `event` and `updated` record, in the caller's transaction:
+/// * ⟨§17.29 item 2, §17.30 items 2-3⟩ a removal admitted from `withdrawn` or
+///   `abandoned` (its persisted removal origin, §17.30 item 5) clears the `late_write`
+///   residual in the same transaction as the record's move, when the removal's own
+///   reading settles it (D5 §6.7; `verify::removal_settles_late_write`); otherwise the
+///   residual is kept;
+/// * the record moves (`event`);
+/// * ⟨§17.29 items 9-10⟩ the CA leaves the pair's issuing set unless another enrollment
+///   of the pair under it is still `verified` or `reverifying`.
+fn finish_removal(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    ctx: &mut Ctx,
+    event: EnrollmentEventKind,
+    mut updated: EnrollmentRecord,
+    now: Timestamp,
+) -> heimdall_store::Result<()> {
     if ctx.foreign.is_none()
         && let Some(residual) = &ctx.record.late_write
         && ctx.record.removal_origin.as_ref().is_some_and(|o| {
@@ -1694,9 +1742,6 @@ fn removal_confirmed(
         updated.late_write = None;
     }
     move_ctx(tx, emit, ctx, event, &updated)?;
-    // The CA leaves the pair's issuing set unless another enrollment of the pair under
-    // it is still verified (D5 §6.2: a removed `abandoned` or, ⟨§17.29 item 2⟩,
-    // `withdrawn` record may sit beside a later verified one under the same CA).
     if ctx.foreign.is_none() {
         let pair = pair_of(&ctx.record);
         let still_trusted = tx.enrollments_for_pair(&pair)?.iter().any(|o| {
@@ -1711,19 +1756,7 @@ fn removal_confirmed(
             tx.remove_issuing_ca(&pair, &ctx.record.ca_fingerprint, now)?;
         }
     }
-    if rollback {
-        let err = OpError::new(
-            Code::CapabilityUnavailable,
-            "the verification failed and the line was rolled back: the registry is probably not the server's authoritative one, or certificates are unsupported",
-        )
-        .with_reason(reason::VERIFICATION_FAILED)
-        .with_effect(EffectStatus::Applied);
-        settle_open(tx, emit, &mut ctx.op, &err, now, retention)
-    } else {
-        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
-            .map_err(|_| store_conflict("result"))?;
-        settle_ok(tx, emit, &mut ctx.op, data, now, retention)
-    }
+    Ok(())
 }
 
 /// The reconcile's purpose for the uncertain step.
@@ -2061,7 +2094,13 @@ fn record_reconcile(
                 updated.hold = None;
                 append_confirmed(tx, ctx, now)?;
             }
-            move_ctx(tx, emit, ctx, event, &updated)?;
+            if !present && purpose != RecoveryPurpose::Append {
+                // ⟨§17.31 item 3⟩ The line of a removal or rollback is absent: the
+                // shared post-removal finalization, with manual recovery's own event.
+                finish_removal(tx, emit, ctx, event, updated, now)?;
+            } else {
+                move_ctx(tx, emit, ctx, event, &updated)?;
+            }
             let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
                 .map_err(|_| store_conflict("result"))?;
             if ctx.record.state.is_final() || ctx.record.state == EnrollmentState::AppliedUnverified

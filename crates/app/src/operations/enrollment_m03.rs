@@ -356,6 +356,9 @@ impl Operations {
         caller: &Caller,
         req: EnrollmentRequest,
     ) -> OpResult<serde_json::Value> {
+        // ⟨ADR-0008 §17.31 item 2 (W5-C02)⟩ the uninstall fence's admission for every
+        // route into enrollment work, not only the dispatcher (held for the request).
+        let _admission = self.enrollment_fence_admission(&req)?;
         let owner = caller.context.is_owner();
         match req {
             EnrollmentRequest::Preview { spec } => self.enroll_preview(spec).await,

@@ -1,23 +1,41 @@
-//! ⟨M03; ADR-0008 §17.27 item 2, §17.28 item 1 (W5-S01)⟩ The uninstall fence: while
-//! one control connection holds it, every **other** connection's request that can start
-//! or advance remote or CA work is refused `SERVICE_UNAVAILABLE`, reason
-//! `uninstall_in_progress` (`heimdall_contract::request::UninstallFenceRequest`).
+//! ⟨M03; ADR-0008 §17.27 item 2, §17.28 item 1 (W5-S01), §17.31 item 2 (W5-C02)⟩ The
+//! uninstall fence: while one control connection holds it, every **other**
+//! connection's request that can start or advance remote or CA work is refused
+//! `SERVICE_UNAVAILABLE`, reason `uninstall_in_progress`
+//! (`heimdall_contract::request::UninstallFenceRequest`).
 //!
-//! **Where the gate lives.** The runtime's dispatcher knows the connection, so it
-//! classifies each request (`heimdall_runtime::dispatch`'s table, also in
-//! `.m03-wave5-r3-api.md` § U3) and, for a fenced one from a connection that is not the
-//! holder, takes the shared admission guard ([`Operations::uninstall_fence_admission`]),
-//! refuses while another connection holds the fence, and otherwise keeps the guard
-//! until the request has been handled. The holder's requests run inside
-//! [`as_fence_holder`] and are never refused. Two checks stay here, for work no request
-//! carries: every certificate reservation (`Operations::reserve_issuance_with`, the
-//! one choke point; refused unless it runs in the holder's scope) and the supervisor
-//! passes `Operations::reverify_pass` and `Operations::managed_reissue_pass` (they do
-//! nothing while it is held).
+//! **The boundary** (§17.31 item 2). One admission, [`Operations::uninstall_fence_admit`],
+//! is taken by every piece of work that starts or advances remote or CA work, and held
+//! until that work ends:
+//! * the dispatcher, for each fenced request ([`fenced`]) from a connection that is not
+//!   the holder (`heimdall_runtime::dispatch`; the request-to-verdict table is in
+//!   `.m03-wave5-r3-api.md` § U3);
+//! * the application routes themselves, so a caller that is not the dispatcher meets
+//!   the same check: `Operations::enrollment_request` and `Operations::issuer_request`
+//!   for their fenced actions ([`Operations::enrollment_fence_admission`],
+//!   [`Operations::issuer_fence_admission`]) and `Operations::decide` for an approval;
+//! * the supervisor passes that reserve or dispatch (`Operations::managed_reissue_pass`,
+//!   the re-verification pass), which do nothing while it is refused;
+//! * the deferred follow-through of a step result (initial verification): the result
+//!   is recorded, and the follow-through runs only when admitted (otherwise the next
+//!   `enroll step` or `enroll reconcile` after the fence is lifted runs it).
 //!
-//! **Serialization.** `acquire` takes the admission guard exclusively, so it completes
-//! only after every fenced request already past its check has been handled (bounded by
-//! [`ACQUIRE_WAIT`]), and none passes its check after it. An inventory read after
+//! Both **reservations** (`Operations::reserve_issuance_with`, the one choke point of
+//! a grant certificate, and `Operations::reserve_verification`) take their own
+//! admission ([`Operations::fence_admit_reservation`]) before their check and hold it
+//! across their store write, so a reservation past its check is never overtaken by an
+//! acquisition: the acquisition waits for it, or the reservation is refused.
+//!
+//! The holder's own work runs inside [`as_fence_holder`] and is never refused.
+//!
+//! **Serialization.** `acquire` first marks the fence as being acquired: from then on
+//! new work ([`Operations::uninstall_fence_admit`]) is refused. It then waits (bounded by
+//! [`ACQUIRE_WAIT`]) until no admission is held, and takes the fence in the same
+//! critical section that observed none. A reservation may still join while the fence
+//! is being acquired (it is nested inside admitted work, or is a single bounded store
+//! write) and the acquisition waits for it too; once the fence is held every
+//! reservation outside the holder's scope is refused. An admission never waits, so
+//! nested admissions cannot deadlock against an acquisition. An inventory read after
 //! `acquire` therefore sees every obligation admitted before it.
 //!
 //! **Revalidation input.** [`unresolved_remote_steps`]: the enrollment operations with
@@ -27,28 +45,43 @@
 //! released by `release` on that connection, when that connection ends for any reason
 //! (the dispatcher's per-connection guard), and with the runtime (it is never stored).
 
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use heimdall_contract::Code;
-use heimdall_contract::envelope::reason;
+use heimdall_contract::enrollment::EnrollmentRequest;
+use heimdall_contract::envelope::{EffectStatus, reason};
 use heimdall_contract::ids::OperationId;
+use heimdall_contract::issuer::IssuerRequest;
+use heimdall_contract::request::{Request, Verdict};
 use heimdall_store::Txn;
 
 use super::Operations;
 use crate::error::OpError;
 
-/// How long `acquire` waits for fenced requests already past their check.
+/// How long `acquire` waits for admitted work to end.
 pub const ACQUIRE_WAIT: Duration = Duration::from_secs(20);
 
 /// The fence's state (one per runtime, in `Operations`).
 #[derive(Debug, Default)]
 pub(crate) struct UninstallFence {
+    state: Mutex<FenceState>,
+    /// Woken when the last admission ends, or the fence is taken.
+    changed: tokio::sync::Notify,
+    /// ⟨debug builds only⟩ The next reservation's pause after its check
+    /// ([`Operations::debug_pause_next_reservation`]).
+    #[cfg(debug_assertions)]
+    pause: Mutex<Option<ReservationPause>>,
+}
+
+#[derive(Debug, Default)]
+struct FenceState {
     /// The holding connection, if any.
-    holder: Mutex<Option<u64>>,
-    /// Shared by each fenced request from its check to its end; exclusive for
-    /// `acquire`.
-    admissions: tokio::sync::RwLock<()>,
+    holder: Option<u64>,
+    /// Admissions held now (work past its check that has not ended).
+    admitted: usize,
+    /// Acquisitions waiting for the admissions to end.
+    acquiring: usize,
 }
 
 tokio::task_local! {
@@ -66,7 +99,8 @@ fn in_holder_scope() -> bool {
     FENCE_HOLDER.try_with(|()| ()).is_ok()
 }
 
-/// The refusal of fenced work (`SERVICE_UNAVAILABLE`, `uninstall_in_progress`).
+/// The refusal of fenced work (`SERVICE_UNAVAILABLE`, `uninstall_in_progress`, effect
+/// `none`).
 #[must_use]
 pub fn uninstall_in_progress() -> OpError {
     OpError::new(
@@ -74,6 +108,44 @@ pub fn uninstall_in_progress() -> OpError {
         "an uninstall is in progress: no new or continued enrollment, CA or issuance work, and no approval, is admitted until it ends",
     )
     .with_reason(reason::UNINSTALL_IN_PROGRESS)
+    .with_effect(EffectStatus::None)
+}
+
+/// ⟨ADR-0008 §17.27 item 2, §17.28 item 1⟩ Whether `request` can start or advance
+/// remote or CA work, so that the uninstall fence refuses it from any connection but
+/// the holder:
+/// * fenced: `enrollment` `apply`, `verify`, `remove` (own and foreign), `reconcile`,
+///   `abandon` and `step` (dispatching a remote step); `issuer` `register` (rotation
+///   and restore included), `unlock` and `retire` (with or without `deleted_locator`);
+///   `decide` with `approve`, whatever the kind;
+/// * not fenced: every read-only request (`inspect`, `observe`, the previews, `issuer`
+///   `status` and `bundle`), `decide` with `deny`, `enrollment` `step_result` (a step
+///   dispatched before the fence records its truth; its follow-through is deferred),
+///   `issuer` `bundle_written`, and every M01/M02 request (`ensure` and `bind` reach a
+///   certificate only through the reservation, which is refused itself while the fence
+///   is held). An unknown action is fenced (fail closed).
+#[must_use]
+pub fn fenced(request: &Request) -> bool {
+    match request {
+        Request::Enrollment(r) => enrollment_fenced(r),
+        Request::Issuer(r) => issuer_fenced(r),
+        Request::Decide(r) => r.verdict != Verdict::Deny,
+        _ => false,
+    }
+}
+
+fn enrollment_fenced(r: &EnrollmentRequest) -> bool {
+    !matches!(
+        r,
+        EnrollmentRequest::Preview { .. } | EnrollmentRequest::StepResult { .. }
+    )
+}
+
+fn issuer_fenced(r: &IssuerRequest) -> bool {
+    !matches!(
+        r,
+        IssuerRequest::Status | IssuerRequest::Bundle { .. } | IssuerRequest::BundleWritten { .. }
+    )
 }
 
 /// What [`Operations::uninstall_fence_acquire`] answers.
@@ -85,19 +157,176 @@ pub enum FenceAcquired {
 }
 
 impl UninstallFence {
+    fn state(&self) -> MutexGuard<'_, FenceState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn holder(&self) -> Option<u64> {
-        *self.holder.lock().unwrap_or_else(PoisonError::into_inner)
+        self.state().holder
     }
 }
 
-/// Held by a fenced request from its check until it has been handled.
-pub type FenceAdmission<'a> = tokio::sync::RwLockReadGuard<'a, ()>;
+/// Held by admitted work from its check until it ends: an acquisition waits for every
+/// one to be dropped. The holder's scope gets one that counts nothing.
+#[must_use = "the admission covers the work only while it is held"]
+#[derive(Debug)]
+pub struct FenceAdmission {
+    fence: Option<Arc<UninstallFence>>,
+}
+
+impl Drop for FenceAdmission {
+    fn drop(&mut self) {
+        if let Some(fence) = self.fence.take() {
+            let last = {
+                let mut s = fence.state();
+                s.admitted = s.admitted.saturating_sub(1);
+                s.admitted == 0
+            };
+            if last {
+                fence.changed.notify_waiters();
+            }
+        }
+    }
+}
+
+/// Counts an acquisition in progress until it ends (taken, refused, timed out or
+/// dropped).
+struct Acquiring<'a>(&'a UninstallFence);
+
+impl Drop for Acquiring<'_> {
+    fn drop(&mut self) {
+        let mut s = self.0.state();
+        s.acquiring = s.acquiring.saturating_sub(1);
+    }
+}
+
+/// ⟨debug builds only⟩ A reservation's pause after its fence check, before its store
+/// write ([`Operations::debug_pause_next_reservation`]).
+#[cfg(debug_assertions)]
+#[derive(Debug)]
+pub struct ReservationPause {
+    reached: tokio::sync::oneshot::Sender<()>,
+    resume: tokio::sync::oneshot::Receiver<()>,
+}
+
+/// ⟨debug builds only⟩ The test's side of a [`ReservationPause`].
+#[cfg(debug_assertions)]
+#[derive(Debug)]
+pub struct ReservationPauseControl {
+    /// Completes when the reservation has passed its check.
+    pub reached: tokio::sync::oneshot::Receiver<()>,
+    /// Send (or drop) to let it continue to its store write.
+    pub resume: tokio::sync::oneshot::Sender<()>,
+}
+
+/// Whether new work may start now, or only a reservation may join.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Admit {
+    /// New work: refused while the fence is held or being acquired.
+    Work,
+    /// A reservation: refused while the fence is held; joins while it is being acquired.
+    Reservation,
+}
 
 impl Operations {
-    /// The shared admission guard a fenced request holds from its check (against
-    /// [`Self::uninstall_fence_holder`]) until it has been handled.
-    pub async fn uninstall_fence_admission(&self) -> FenceAdmission<'_> {
-        self.inner.uninstall_fence.admissions.read().await
+    fn fence_admit(&self, kind: Admit) -> Result<FenceAdmission, OpError> {
+        if in_holder_scope() {
+            return Ok(FenceAdmission { fence: None });
+        }
+        let fence = &self.inner.uninstall_fence;
+        let mut s = fence.state();
+        if s.holder.is_some() || (kind == Admit::Work && s.acquiring > 0) {
+            return Err(uninstall_in_progress());
+        }
+        s.admitted += 1;
+        Ok(FenceAdmission {
+            fence: Some(Arc::clone(fence)),
+        })
+    }
+
+    /// ⟨§17.31 item 2⟩ The admission of work that starts or advances remote or CA work
+    /// (module docs): refused while the fence is held or being acquired, unless it runs
+    /// in the holder's scope; held until the work ends. Never waits.
+    ///
+    /// # Errors
+    /// `SERVICE_UNAVAILABLE` / `uninstall_in_progress`, effect `none`.
+    pub fn uninstall_fence_admit(&self) -> Result<FenceAdmission, OpError> {
+        self.fence_admit(Admit::Work)
+    }
+
+    /// [`Self::uninstall_fence_admit`] for an `enrollment` request whose action is
+    /// fenced ([`fenced`]); the other actions get an admission that counts nothing.
+    ///
+    /// # Errors
+    /// As [`Self::uninstall_fence_admit`].
+    pub fn enrollment_fence_admission(
+        &self,
+        req: &EnrollmentRequest,
+    ) -> Result<FenceAdmission, OpError> {
+        if enrollment_fenced(req) {
+            self.uninstall_fence_admit()
+        } else {
+            Ok(FenceAdmission { fence: None })
+        }
+    }
+
+    /// [`Self::uninstall_fence_admit`] for an `issuer` request whose action is fenced
+    /// ([`fenced`]); the other actions get an admission that counts nothing.
+    ///
+    /// # Errors
+    /// As [`Self::uninstall_fence_admit`].
+    pub fn issuer_fence_admission(&self, req: &IssuerRequest) -> Result<FenceAdmission, OpError> {
+        if issuer_fenced(req) {
+            self.uninstall_fence_admit()
+        } else {
+            Ok(FenceAdmission { fence: None })
+        }
+    }
+
+    /// ⟨§17.31 item 2⟩ A certificate reservation's admission, taken before its check and
+    /// held across its store write: refused while the fence is held (unless it runs in
+    /// the holder's scope); while the fence is being acquired it joins, and the
+    /// acquisition waits for it.
+    pub(crate) async fn fence_admit_reservation(&self) -> Result<FenceAdmission, OpError> {
+        let admission = self.fence_admit(Admit::Reservation)?;
+        #[cfg(debug_assertions)]
+        self.debug_reservation_pause().await;
+        Ok(admission)
+    }
+
+    /// ⟨debug builds only; tests⟩ Pause the next certificate reservation (grant or
+    /// verification) after its fence check, before its store write, until the returned
+    /// control's `resume` is sent or dropped. Release builds have no pause.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn debug_pause_next_reservation(&self) -> ReservationPauseControl {
+        let (reached_tx, reached) = tokio::sync::oneshot::channel();
+        let (resume, resume_rx) = tokio::sync::oneshot::channel();
+        *self
+            .inner
+            .uninstall_fence
+            .pause
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(ReservationPause {
+            reached: reached_tx,
+            resume: resume_rx,
+        });
+        ReservationPauseControl { reached, resume }
+    }
+
+    #[cfg(debug_assertions)]
+    async fn debug_reservation_pause(&self) {
+        let pause = self
+            .inner
+            .uninstall_fence
+            .pause
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(p) = pause {
+            let _ = p.reached.send(());
+            let _ = p.resume.await;
+        }
     }
 
     /// The connection holding the uninstall fence, if any.
@@ -112,44 +341,60 @@ impl Operations {
         self.uninstall_fence_holder().is_some()
     }
 
-    /// The check of work no request carries (a certificate reservation): refused while
-    /// the fence is held, unless it runs in the holder's scope ([`as_fence_holder`]).
-    pub(crate) fn fence_check(&self) -> Result<(), OpError> {
-        if self.uninstall_fence_held() && !in_holder_scope() {
-            return Err(uninstall_in_progress());
-        }
-        Ok(())
-    }
-
     /// `uninstall_fence.acquire` for `connection` (the dispatcher's per-connection
-    /// identity): waits (bounded by [`ACQUIRE_WAIT`]) until every fenced request already
-    /// past its check has been handled, then holds the fence. Idempotent on the holding
-    /// connection.
+    /// identity): from now on new work is refused; waits (bounded by [`ACQUIRE_WAIT`])
+    /// until every admission already held has ended, then holds the fence. Idempotent
+    /// on the holding connection.
     ///
     /// # Errors
     /// `SERVICE_UNAVAILABLE` / `uninstall_in_progress` while another connection holds
-    /// it, or when fenced requests did not drain in time (nothing changed).
+    /// it, or when admitted work did not end in time (nothing changed).
     pub async fn uninstall_fence_acquire(&self, connection: u64) -> Result<FenceAcquired, OpError> {
         let fence = &self.inner.uninstall_fence;
-        let Ok(_exclusive) = tokio::time::timeout(ACQUIRE_WAIT, fence.admissions.write()).await
-        else {
-            return Err(OpError::new(
-                Code::ServiceUnavailable,
-                "work being admitted did not settle in time, so the uninstall fence was not taken; nothing was changed",
-            )
-            .with_reason(reason::UNINSTALL_IN_PROGRESS));
-        };
-        let mut holder = fence.holder.lock().unwrap_or_else(PoisonError::into_inner);
-        match *holder {
-            Some(h) if h != connection => Err(OpError::new(
+        let other_holds = || {
+            OpError::new(
                 Code::ServiceUnavailable,
                 "another uninstall holds the fence; nothing was changed",
             )
-            .with_reason(reason::UNINSTALL_IN_PROGRESS)),
-            _ => {
-                *holder = Some(connection);
-                Ok(FenceAcquired::Held)
+            .with_reason(reason::UNINSTALL_IN_PROGRESS)
+        };
+        {
+            let mut s = fence.state();
+            match s.holder {
+                Some(h) if h != connection => return Err(other_holds()),
+                Some(_) => return Ok(FenceAcquired::Held),
+                None => s.acquiring += 1,
             }
+        }
+        let _acquiring = Acquiring(fence);
+        let wait = async {
+            loop {
+                let mut changed = std::pin::pin!(fence.changed.notified());
+                changed.as_mut().enable();
+                {
+                    let mut s = fence.state();
+                    match s.holder {
+                        Some(h) if h != connection => return Err(other_holds()),
+                        Some(_) => return Ok(FenceAcquired::Held),
+                        None if s.admitted == 0 => {
+                            s.holder = Some(connection);
+                            drop(s);
+                            fence.changed.notify_waiters();
+                            return Ok(FenceAcquired::Held);
+                        }
+                        None => {}
+                    }
+                }
+                changed.await;
+            }
+        };
+        match tokio::time::timeout(ACQUIRE_WAIT, wait).await {
+            Ok(r) => r,
+            Err(_) => Err(OpError::new(
+                Code::ServiceUnavailable,
+                "work being admitted did not settle in time, so the uninstall fence was not taken; nothing was changed",
+            )
+            .with_reason(reason::UNINSTALL_IN_PROGRESS)),
         }
     }
 
@@ -157,16 +402,11 @@ impl Operations {
     /// connection ends: lifts the fence if `connection` holds it, else does nothing.
     /// Returns whether the fence is still held (by another connection).
     pub fn uninstall_fence_release(&self, connection: u64) -> bool {
-        let mut holder = self
-            .inner
-            .uninstall_fence
-            .holder
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if *holder == Some(connection) {
-            *holder = None;
+        let mut s = self.inner.uninstall_fence.state();
+        if s.holder == Some(connection) {
+            s.holder = None;
         }
-        holder.is_some()
+        s.holder.is_some()
     }
 }
 
@@ -307,6 +547,29 @@ mod tests {
         }
         assert!(ops.reverify_pass().await.unwrap().is_empty());
         assert!(ops.managed_reissue_pass().await.unwrap().is_empty());
+        // ⟨§17.31 item 2⟩ The application route meets the same boundary as the
+        // dispatcher: an approval is refused, a denial is not.
+        let attended = Caller {
+            attendance: crate::Attendance::Attended { since: t0() },
+            interaction: heimdall_contract::request::InteractionMode::Interactive,
+            ..owner()
+        };
+        let decide = |verdict| heimdall_contract::request::DecideRequest {
+            decision_id: heimdall_contract::ids::DecisionId::from_random_bytes([5; 16]),
+            verdict,
+        };
+        assert!(is_fenced(
+            &ops.decide(
+                &attended,
+                decide(heimdall_contract::request::Verdict::Approve)
+            )
+            .await
+            .unwrap_err()
+        ));
+        let denied = ops
+            .decide(&attended, decide(heimdall_contract::request::Verdict::Deny))
+            .await;
+        assert!(!denied.as_ref().is_err_and(is_fenced), "{denied:?}");
         assert!(ops.uninstall_fence_release(2), "still held by 1");
         assert!(!ops.uninstall_fence_release(1));
         assert!(!ops.uninstall_fence_held());
@@ -324,16 +587,55 @@ mod tests {
     #[tokio::test]
     async fn uninstall_fence_acquire_waits_for_admissions_in_progress() {
         let ops = ops().await;
-        let admission = ops.uninstall_fence_admission().await;
+        let admission = ops.uninstall_fence_admit().unwrap();
+        let nested = ops.uninstall_fence_admit().unwrap();
         let o2 = ops.clone();
         let acquiring = tokio::spawn(async move { o2.uninstall_fence_acquire(7).await });
         tokio::task::yield_now().await;
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!acquiring.is_finished(), "acquire waits for the admission");
         assert!(!ops.uninstall_fence_held());
+        // ⟨§17.31 item 2⟩ While it is being acquired, new work is refused at once
+        // (never queued), and a reservation joins it (the acquisition waits for it).
+        assert!(is_fenced(&ops.uninstall_fence_admit().unwrap_err()));
+        let joined = ops.fence_admit_reservation().await.unwrap();
+        drop(nested);
         drop(admission);
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !acquiring.is_finished(),
+            "acquire waits for the joined reservation"
+        );
+        drop(joined);
         assert_eq!(acquiring.await.unwrap().unwrap(), FenceAcquired::Held);
         assert_eq!(ops.uninstall_fence_holder(), Some(7));
+        assert!(is_fenced(&ops.uninstall_fence_admit().unwrap_err()));
+        assert!(is_fenced(&ops.fence_admit_reservation().await.unwrap_err()));
+        // The holder's scope is never refused, and counts nothing.
+        as_fence_holder(async {
+            let _a = ops.uninstall_fence_admit().unwrap();
+            let _r = ops.fence_admit_reservation().await.unwrap();
+        })
+        .await;
+        assert!(!ops.uninstall_fence_release(7));
+        drop(ops.uninstall_fence_admit().unwrap());
+    }
+
+    /// A dropped (cancelled) acquisition stops refusing new work.
+    #[tokio::test]
+    async fn uninstall_fence_dropped_acquisition_reopens_admission() {
+        let ops = ops().await;
+        let admission = ops.uninstall_fence_admit().unwrap();
+        let o2 = ops.clone();
+        let acquiring = tokio::spawn(async move { o2.uninstall_fence_acquire(8).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(is_fenced(&ops.uninstall_fence_admit().unwrap_err()));
+        acquiring.abort();
+        let _ = acquiring.await;
+        drop(ops.uninstall_fence_admit().unwrap());
+        drop(admission);
+        assert!(!ops.uninstall_fence_held());
     }
 
     /// `unresolved_remote_steps_lists_dispatched_and_uncertain_steps` (ADR-0008 §17.28

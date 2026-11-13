@@ -11,6 +11,10 @@
 //!   `~/.ssh`): where a case gets past the acknowledgement, the runtime directory is a
 //!   regular file, so the CLI cannot prepare it and starts nothing. The state database
 //!   is never written by the CLI.
+//! * ⟨ADR-0008 §17.31 item 1⟩ The purge's instance lock excludes a runtime start-up
+//!   (`runtime_start_refused_while_the_purge_lock_is_held`: the one case that runs
+//!   `service run`, under the test configuration over a scratch account, refused at the
+//!   lock before anything is opened).
 //! * Doctor (m03-plan U12, §5 item 14, §17.25 item 13): `slot_free` with its command,
 //!   `managed_dir_unsafe`, `enrollment_evidence_stale`, `reverification_inconclusive`
 //!   and `client_trace_family_unrecorded`, read-only and never repaired.
@@ -2314,4 +2318,83 @@ fn uninstall_fence_scope_end_to_end() {
         operation_id: op,
     }));
     assert!(!is_fenced(&env), "{env:?}");
+}
+
+/// `runtime_start_refused_while_the_purge_lock_is_held` (ADR-0008 §17.31 item 1,
+/// W5-C01, through the real binary): while this test holds the runtime's instance lock
+/// (`<state>/service.lock`, `InstanceLock`, as the purge holds it from its final read
+/// through its deletion), `heimdall service run` over the same state fails at once
+/// (`SERVICE_UNAVAILABLE`, exit 5) before it opens the state database: the database is
+/// byte-identical and nothing is advertised. The runtime runs under the test
+/// configuration with a scratch account (`HEIMDALL_TEST_SSH_HOME`, a scratch secret
+/// store), never the account's `~/.ssh` or keychain; it is this test's own child, waited
+/// for, and stopped through its own handle if it ever outlived the bound.
+#[test]
+fn runtime_start_refused_while_the_purge_lock_is_held() {
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+    let scratch = tempfile::tempdir().unwrap();
+    let account = account(scratch.path());
+    let home = scratch.path().join("home");
+    let db = seed_state(&home, &[]);
+    let state = home.join("state");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        for d in [scratch.path(), home.as_path(), state.as_path()] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+    let before = std::fs::read(&db).unwrap();
+    let lock = heimdall_runtime::InstanceLock::try_acquire(&state).unwrap();
+    let mut cmd = Command::new(super::bin());
+    cmd.args(["--json", "service", "run"])
+        .env_clear()
+        .env("HEIMDALL_HOME", &home)
+        .env("HOME", &account)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HEIMDALL_TEST_ADAPTER", "prepare")
+        .env("HEIMDALL_TEST_SSH_HOME", &account)
+        .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if cfg!(windows) {
+        for k in ["SystemRoot", "PATH", "TEMP", "TMP"] {
+            if let Some(v) = std::env::var_os(k) {
+                cmd.env(k, v);
+            }
+        }
+    } else {
+        cmd.env("PATH", "/usr/bin:/bin");
+    }
+    let mut child = cmd.spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            // Our own unreaped child: its handle names exactly this process.
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("a runtime start-up got past the held instance lock");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().unwrap();
+    drop(lock);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    heimdall_testkit::assert_no_canary(&stdout);
+    heimdall_testkit::assert_no_canary(&stderr);
+    assert_eq!(out.status.code(), Some(5), "{stdout} {stderr}");
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["code"], "SERVICE_UNAVAILABLE", "{v}");
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the start-up wrote nothing"
+    );
+    assert!(
+        !home.join("run").join("instance.json").exists(),
+        "nothing was advertised"
+    );
 }

@@ -103,3 +103,19 @@ paths, user names, canaries and keys, and none were found. There was no question
 |---|---|
 | `m03-wave5-r7-worklog-I.md` | The integrator's round-7 worklog and validation |
 | `m03-wave5-r7-worklog-L5.md` | L5: the store's payload checks for `TargetChangeApproved` and the manual-recovery events |
+
+## Round 8 (base `0cd94961`; implements ADR-0008 §17.31 items 1–6, the re-check findings W5-C01..C05)
+
+These were moved here from the worktree root at the end of round 8. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r8-brief.md` | The common round-8 brief |
+| `m03-wave5-r8-api.md` | Round-8 ownership, the shared-file rule for `steps.rs`, the worker sections and requests |
+| `m03-wave5-r8-questions.md` | P8's reason (ANSWERED, §17.31 item 6), Q-I-R8-1 (ANSWERED), Q-L5-13 (ANSWERED), Q-G8-1 (applied by the integrator), Q-G8-2 |
+| `m03-wave5-r8-worklog-I.md` | The integrator's round-8 worklog: the `uninstall_shutdown_unconfirmed` reason, G8's hookups and their revert proofs, the direct-issuer fence regression, validation |
+| `m03-wave5-r8-worklog-P8.md` | P8: the purge after a confirmed stop under the runtime's instance lock (W5-C01), the writer audit |
+| `m03-wave5-r8-worklog-G8.md` | G8: the fence at the reservations, the supervisor passes and the deferred step-result follow-through (W5-C02) |
+| `m03-wave5-r8-worklog-L5.md` | L5: the shared post-removal finalization (W5-C03), the recovery-purpose analysis (item 4) |
+| `m03-wave5-r8-worklog-K4.md` | K4: retirement after a new-item restore (W5-C05) |

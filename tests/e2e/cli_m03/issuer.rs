@@ -2582,6 +2582,151 @@ fn issuer_restore_after_access_denial_writes_a_new_item_and_lists_the_orphan() {
     );
 }
 
+/// ⟨ADR-0008 §17.31 item 5; wave-5 re-check W5-C05⟩
+/// `recheck_retire_after_new_item_restore_deletes_only_current_generation`, macOS on the
+/// product-file test store ([`access_denied_rig`]): copy B restores to the new item
+/// `<environment>#r1` (typed `yes`), then retires the CA (typed `yes`, human output). The
+/// current item is deleted and its deletion confirmed (`deleted_locator`), the CA is
+/// `retired`; the old, access-denied item is never deleted and stays in
+/// `orphan_store_items` with its service and account; the command exits 0 (effect applied),
+/// names the Keychain Access step for the orphan, and advises no restore (`issuer status`
+/// neither). Before the fix the
+/// displaced item's refused deletion answered exit 4 / effect `none` / "restore".
+#[cfg(target_os = "macos")]
+#[test]
+fn recheck_retire_after_new_item_restore_deletes_only_current_generation() {
+    let owner = owner_keychains();
+    let (rig, fp, passphrase, backup, _s) = access_denied_rig();
+    let env_id = rig
+        .store()
+        .transaction(|tx| tx.self_environment())
+        .unwrap()
+        .unwrap();
+    let service = format!("heimdall-issuer/{}", fp.as_str());
+    let old = format!("service={service};account={}", env_id.as_str());
+    let new = format!("service={service};account={}#r1", env_id.as_str());
+    let listed = |rig: &Rig| -> Vec<String> {
+        rig.product_store()
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|i| i.locator)
+            .collect()
+    };
+    // The new-item restore (§17.28 item 7).
+    let backup_arg = backup.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "restore",
+        "--backup",
+        backup_arg.as_str(),
+        "--not-stolen",
+    ];
+    let pty = Pty::open();
+    let mut s = start_cli(&rig, "restore-new-item", &args, Some(&pty), CEREMONY);
+    assert!(pty.wait_for("Backup passphrase: ", &mut s.child));
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line(&passphrase);
+    assert!(
+        pty.wait_for(
+            "Type 'yes' to record the restored store item: ",
+            &mut s.child
+        ),
+        "{}",
+        pty.transcript()
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    let out = finish(&mut s);
+    assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
+    assert_eq!(listed(&rig), vec![old.clone(), new.clone()]);
+    // The retirement, human output.
+    let fp_arg = fp.to_string();
+    let pty = Pty::open();
+    let mut s = start_cli(
+        &rig,
+        "retire-after-restore",
+        &["issuer", "retire", fp_arg.as_str()],
+        Some(&pty),
+        PROMPT,
+    );
+    assert!(
+        pty.wait_for("[y/N]: ", &mut s.child),
+        "{}",
+        pty.transcript()
+    );
+    std::thread::sleep(Duration::from_millis(200));
+    pty.type_line("yes");
+    let out = finish(&mut s);
+    let t = pty.transcript();
+    assert_eq!(out.code, 0, "exit 0, the retirement applied: {out:?}\n{t}");
+    let text = format!("{}{}{t}", out.stdout, out.stderr);
+    assert!(text.contains("retired"), "{text}");
+    assert!(
+        text.contains(&format!(
+            "delete it yourself in Keychain Access (service {service}, account {})",
+            env_id.as_str()
+        )),
+        "the orphan's step: {text}"
+    );
+    assert!(
+        !text.contains("issuer restore") && !text.contains("rerun the restore"),
+        "no restore advice after a completed retirement: {text}"
+    );
+    assert!(!text.contains("effect_status"), "{text}");
+    // The current item deleted and confirmed; the CA retired.
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Retired));
+    // The old item is still in the keychain, and listed with its service and account.
+    assert_eq!(
+        listed(&rig),
+        vec![old.clone()],
+        "only the current item went"
+    );
+    let st = rig.cli(&["--json", "issuer", "status"]);
+    assert_eq!(st.code, 0, "{st:?}");
+    let st = st.json();
+    assert_eq!(st["code"], "OK", "{st}");
+    assert_eq!(st["state"], "succeeded", "{st}");
+    let row = st["data"]["cas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["fingerprint"] == fp.as_str())
+        .cloned()
+        .unwrap();
+    assert_eq!(row["state"], "retired", "{st}");
+    assert!(
+        st["data"]["orphan_store_items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["locator"] == old.as_str() && o["fingerprint"] == fp.as_str()),
+        "the old item is listed: {st}"
+    );
+    assert!(
+        !st["data"]["orphan_store_items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["locator"] == new.as_str()),
+        "the current item's deletion was confirmed: {st}"
+    );
+    let human = rig.cli(&["issuer", "status"]).stdout;
+    assert!(
+        !human.contains("rerun the restore"),
+        "no restore advice for a retired CA: {human}"
+    );
+    assert!(human.contains("now retired"), "{human}");
+    assert_eq!(listed(&rig), vec![old], "still never deleted");
+    drop(rig);
+    assert_eq!(
+        owner_keychains(),
+        owner,
+        "the owner's keychains are unchanged"
+    );
+}
+
 /// ⟨M03 wave 5, round 3; the round's `issuer_store_locked` flake⟩
 /// `issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony`, macOS on the
 /// product-file test store: the CLI runs from its own copy of the binary; while it waits at

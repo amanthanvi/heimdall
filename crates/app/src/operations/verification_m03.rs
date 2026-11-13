@@ -227,11 +227,17 @@ impl Operations {
     /// bounds. The inner `Err` is the predicate's refusal; nothing is written then.
     ///
     /// # Errors
-    /// `STATE_UNAVAILABLE` (store) or `INTERNAL_ERROR` (no randomness).
+    /// `STATE_UNAVAILABLE` (store), `INTERNAL_ERROR` (no randomness), or
+    /// `SERVICE_UNAVAILABLE` / `uninstall_in_progress` while an uninstall holds the
+    /// fence (nothing written).
     pub async fn reserve_verification(
         &self,
         req: VerificationRequest,
     ) -> Result<Result<VerificationEntry, VerificationRefusal>, OpError> {
+        // ⟨ADR-0008 §17.31 item 2 (W5-C02)⟩ no verification certificate while an
+        // uninstall holds the fence (unless the holder's own request reserves it): the
+        // admission is taken before the check and held across the store write below.
+        let _admission = self.fence_admit_reservation().await?;
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let gate = self.inner.timegate.in_txn();

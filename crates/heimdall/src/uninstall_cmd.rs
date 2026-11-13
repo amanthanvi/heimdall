@@ -54,6 +54,16 @@
 //! resource is not confirmed absent; only then does it delete the state store and the
 //! snapshots. It never reports an unresolved cleanup as success.
 //!
+//! **⟨ADR-0008 §17.31 item 1 (W5-C01)⟩ The deletion is excluded from every writer.** A
+//! purge runs only after the runtime's stop is **confirmed**; a refused or failed
+//! shutdown, or one whose connection is lost, refuses it (`SERVICE_UNAVAILABLE`, exit 5,
+//! retryable, no reason; effect `partial`), deleting nothing. After the stop and before
+//! its final inventory and bundle read, the CLI takes the runtime's own exclusive
+//! instance lock (`<state>/service.lock`, which runtime start-up takes before it opens
+//! the state database) and holds it through the deletion ([`purge_locked`]); a
+//! replacement runtime holding it refuses the purge the same way. The lock file is kept
+//! and released last.
+//!
 //! **Purging needs its own attended confirmation** (ADR-0007 §12.31 item 1, Q6). Before
 //! anything is started or changed, `--purge-state` shows what it will discard (the state
 //! database with its counts of operations, grants, decisions, catalog records, events and
@@ -1394,23 +1404,34 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     let stopped = stop_runtime(ctx, client).await;
     let mut purged = false;
     let mut refused_purge = false;
-    // ⟨§17.27 item 2⟩ The last check, with the runtime stopped: the outstanding
-    // obligations are still exactly the confirmed ones (work admitted before the
-    // fence and still running could have moved them), or nothing is deleted.
+    // ⟨§17.27 item 2; §17.31 item 1 (W5-C01)⟩ The last check, only after a confirmed
+    // stop and under the runtime's own instance lock ([`purge_locked`]): the
+    // outstanding obligations are still exactly the confirmed ones (work admitted
+    // before the fence and still running could have moved them), and no runtime can
+    // start and write between that read and the deletion; or nothing is deleted.
     let mut changed = None;
-    if purge && complete && absent {
-        match Inventory::read(&db) {
-            Ok(now) if confirmed.same_obligations(&now) => {}
-            Ok(now) => changed = Some(now),
-            Err(_) => changed = Some(Inventory::default()),
-        }
-    }
+    let mut unavailable = None;
+    let mut bundle_now = None;
     if purge {
-        if complete && absent && changed.is_none() {
-            purged = purge_state(&paths.state_dir).is_ok();
-            left = remaining(ctx, &dirs, purged);
-        } else {
-            refused_purge = true;
+        match purge_after_stop(
+            stopped,
+            complete && absent,
+            &paths.state_dir,
+            &confirmed,
+            args,
+            LOCK_WAIT,
+            || {},
+        )
+        .await
+        {
+            PurgeEnd::Purged(deleted) => {
+                purged = deleted.is_ok();
+                left = remaining(ctx, &dirs, purged);
+            }
+            PurgeEnd::Incomplete => refused_purge = true,
+            PurgeEnd::Changed(now) => changed = Some(now),
+            PurgeEnd::Bundle(out) => bundle_now = Some(out),
+            PurgeEnd::Unavailable(message) => unavailable = Some(message),
         }
     }
     if !complete {
@@ -1429,6 +1450,12 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     );
     if let Some(now) = changed {
         return inventory_changed(Some(out), &now, EffectStatus::Partial);
+    }
+    if let Some(message) = unavailable {
+        return annotate(not_purged(out, message), &inv, bundle.as_deref());
+    }
+    if let Some(refused) = bundle_now {
+        return annotate(after_stop(out, refused), &inv, bundle.as_deref());
     }
     if refused_purge {
         let message = if complete {
@@ -1632,7 +1659,9 @@ fn report(
 /// `Request::Shutdown` on uninstall's own session (it negotiated `service-control/1`
 /// and holds the uninstall fence until the runtime closes it), then wait (bounded)
 /// until the advertisement is gone.
-async fn stop_runtime(ctx: &Ctx, mut c: crate::client::Client) -> bool {
+/// `false` unless the stop is confirmed: a refused or failed request, or a connection
+/// lost before its answer (a `SERVICE_UNAVAILABLE` transport failure), is not a stop.
+async fn stop_runtime<S: crate::cli::Session>(ctx: &Ctx, mut c: S) -> bool {
     let env = c.request(Request::Shutdown(ShutdownRequest {})).await;
     drop(c);
     if env.code != Code::Ok {
@@ -1664,7 +1693,187 @@ async fn stop_runtime(ctx: &Ctx, mut c: crate::client::Client) -> bool {
     not_live
 }
 
-/// Delete the state store and the snapshots (only after every check passed).
+/// How the purge's last step ended ([`purge_after_stop`]).
+enum PurgeEnd {
+    /// The rollback is incomplete or a projection resource is not confirmed absent:
+    /// not attempted (the existing `CONFIG_CONFLICT` refusals).
+    Incomplete,
+    /// ⟨ADR-0008 §17.31 item 1 (W5-C01)⟩ Refused, nothing deleted: the runtime's stop
+    /// was not confirmed, or its instance lock could not be taken
+    /// (`SERVICE_UNAVAILABLE`, [`not_purged`]; the message).
+    Unavailable(&'static str),
+    /// Refused under the lock, nothing deleted: the outstanding obligations are not
+    /// the confirmed ones (or could not be read: listed as none).
+    Changed(Inventory),
+    /// Refused under the lock, nothing deleted: the bundle no longer passes its check.
+    Bundle(Outcome),
+    /// Every check passed under the lock; the deletion's own result.
+    Purged(std::io::Result<()>),
+}
+
+/// The stop was not confirmed (the request was refused or failed, the connection was
+/// lost before its answer, or the runtime was still live at the end of the wait).
+const NOT_STOPPED: &str = "--purge-state refused: the runtime did not confirm its shutdown (the shutdown request failed or its connection was lost), so it could still be writing; nothing was purged: the state database, the backups and every recovery record are kept. Stop the runtime (`heimdall service stop`) or wait for it to stop, then run `heimdall uninstall` again";
+
+/// Another process (a replacement runtime) holds the instance lock.
+const LOCK_HELD: &str = "--purge-state refused: a runtime started again while uninstall was running and holds this installation's instance lock, so it could be writing; nothing was purged: the state database, the backups and every recovery record are kept. Stop the runtime (`heimdall service stop`) or wait for it to stop, then run `heimdall uninstall` again";
+
+/// The instance lock could not be taken (I/O).
+const LOCK_FAILED: &str = "--purge-state refused: this installation's instance lock could not be taken, so a runtime could start and write; nothing was purged: the state database, the backups and every recovery record are kept. Run `heimdall uninstall --purge-state` again";
+
+/// How long the purge waits for the runtime's instance lock after the confirmed stop:
+/// a stopping runtime removes its advertisement before it releases the lock, so the
+/// lock can still be held briefly; a lock still held at the end is a replacement.
+const LOCK_WAIT: Duration = Duration::from_secs(10);
+
+/// ⟨ADR-0008 §17.31 item 1 (W5-C01)⟩ The purge's last step. Not attempted while the
+/// rollback is incomplete (`ready` false); refused, deleting nothing, unless the
+/// runtime's stop was confirmed (`stopped`); otherwise [`purge_locked`].
+async fn purge_after_stop(
+    stopped: bool,
+    ready: bool,
+    state_dir: &Path,
+    confirmed: &Inventory,
+    args: &UninstallArgs,
+    wait: Duration,
+    paused: impl FnOnce(),
+) -> PurgeEnd {
+    if !ready {
+        return PurgeEnd::Incomplete;
+    }
+    if !stopped {
+        return PurgeEnd::Unavailable(NOT_STOPPED);
+    }
+    purge_locked(state_dir, confirmed, args, wait, paused).await
+}
+
+/// ⟨ADR-0008 §17.31 item 1 (W5-C01)⟩ Under the runtime's own exclusive instance lock
+/// (`<state>/service.lock`, [`heimdall_runtime::InstanceLock`], the lock runtime
+/// start-up takes before it opens the store): the final inventory read and the
+/// bundle's re-check, then the deletion, then the release. While it is held no
+/// runtime can start (start-up fails `AlreadyRunning` before it touches the state
+/// database), so nothing can be written between the final read and the deletion; a
+/// replacement runtime already holding it refuses the purge, deleting nothing.
+///
+/// The bundle is re-checked against the `confirmed` inventory (the file read again,
+/// its digest looked up again in the database about to be deleted): this uninstall's
+/// own retirements legitimately changed the CAs since.
+///
+/// The lock file itself is never deleted, and the lock is released only after the
+/// deletion: unlinking a held lock file would let a start-up create a fresh file at
+/// the same path and lock that one while this process still held the old one. After
+/// the release a start-up finds no state database and begins a new installation.
+///
+/// `paused` runs between the final read and the deletion, with the lock held: tests
+/// schedule a competing start-up there; the command passes a no-op (no test variable
+/// reaches it).
+async fn purge_locked(
+    state_dir: &Path,
+    confirmed: &Inventory,
+    args: &UninstallArgs,
+    wait: Duration,
+    paused: impl FnOnce(),
+) -> PurgeEnd {
+    let lock = match instance_lock(state_dir, wait).await {
+        Ok(lock) => lock,
+        Err(why) => return PurgeEnd::Unavailable(why),
+    };
+    let db = state_dir.join(heimdall_runtime::service::STATE_DB_FILE);
+    match Inventory::read(&db) {
+        Ok(now) if confirmed.same_obligations(&now) => {}
+        Ok(now) => return PurgeEnd::Changed(now),
+        Err(_) => return PurgeEnd::Changed(Inventory::default()),
+    }
+    if let Err(refused) = enrollment_refusal(confirmed, args, &db) {
+        return PurgeEnd::Bundle(refused);
+    }
+    paused();
+    let deleted = purge_state(state_dir);
+    drop(lock);
+    PurgeEnd::Purged(deleted)
+}
+
+/// Take the runtime's instance lock for `state_dir`, waiting at most `wait` while
+/// another process holds it ([`LOCK_WAIT`]).
+async fn instance_lock(
+    state_dir: &Path,
+    wait: Duration,
+) -> Result<heimdall_runtime::InstanceLock, &'static str> {
+    use heimdall_runtime::instance::InstanceError;
+    let deadline = Instant::now() + wait;
+    loop {
+        match heimdall_runtime::InstanceLock::try_acquire(state_dir) {
+            Ok(lock) => return Ok(lock),
+            Err(InstanceError::AlreadyRunning) if Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(InstanceError::AlreadyRunning) => return Err(LOCK_HELD),
+            Err(InstanceError::Io(_)) => return Err(LOCK_FAILED),
+        }
+    }
+}
+
+/// `SERVICE_UNAVAILABLE` (exit 5, retryable; no reason), effect `partial` (the
+/// rollback and the stop happened; nothing was purged), keeping `out`'s report under
+/// the error, with `heimdall uninstall --purge-state` as the next command.
+fn not_purged(out: Outcome, message: &str) -> Outcome {
+    // ⟨ADR-0008 §17.31 item 6⟩ an unconfirmed stop and a replacement runtime holding the
+    // instance lock share the reason and the next step (the owner does the same thing);
+    // the message says which case it was. A lock I/O failure stays reasonless.
+    let unconfirmed_stop = message == NOT_STOPPED || message == LOCK_HELD;
+    let mut error = heimdall_app::OpError::new(Code::ServiceUnavailable, message.to_owned())
+        .with_effect(EffectStatus::Partial);
+    if unconfirmed_stop {
+        error = error.with_reason(reason::UNINSTALL_SHUTDOWN_UNCONFIRMED);
+    }
+    let refused =
+        Outcome::of(output::error_value(error.into_envelope())).with_human(format!("{message}\n"));
+    let mut refused = after_stop(out, refused);
+    if let serde_json::Value::Object(map) = &mut refused.env.data {
+        let (command, step) = if unconfirmed_stop {
+            ("heimdall service stop", Some(SHUTDOWN_UNCONFIRMED_NEXT))
+        } else {
+            ("heimdall uninstall --purge-state", None)
+        };
+        map.insert(
+            "next_command".to_owned(),
+            serde_json::Value::String(command.to_owned()),
+        );
+        if let Some(step) = step {
+            map.insert(
+                "next_step".to_owned(),
+                serde_json::Value::String(step.to_owned()),
+            );
+        }
+    }
+    refused
+}
+
+/// ⟨ADR-0008 §17.31 item 6⟩ The next step of `uninstall_shutdown_unconfirmed`.
+const SHUTDOWN_UNCONFIRMED_NEXT: &str = "stop the runtime (`heimdall service stop`) or wait for it to stop, then run `heimdall uninstall` again";
+
+/// A refusal raised after the stop: its effect is `partial` (the rollback and the stop
+/// happened; nothing was purged), with `out`'s report (and human text) kept under it.
+fn after_stop(out: Outcome, mut refused: Outcome) -> Outcome {
+    if let serde_json::Value::Object(map) = &mut refused.env.data {
+        if let Some(serde_json::Value::Object(error)) = map.get_mut("error") {
+            error.insert(
+                "effect_status".to_owned(),
+                serde_json::to_value(EffectStatus::Partial).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if let serde_json::Value::Object(data) = out.env.data {
+            for (k, v) in data {
+                map.entry(k).or_insert(v);
+            }
+        }
+    }
+    let human = std::mem::take(&mut refused.human);
+    refused.with_human(format!("{}{human}", out.human))
+}
+
+/// Delete the state store and the snapshots (only after every check passed, under the
+/// instance lock: [`purge_locked`]).
 fn purge_state(state_dir: &Path) -> std::io::Result<()> {
     let db = state_dir.join(heimdall_runtime::service::STATE_DB_FILE);
     for suffix in ["", "-wal", "-shm", "-journal"] {
@@ -2683,5 +2892,347 @@ mod tests {
         };
         assert_eq!(out.env.code, Code::ServiceUnavailable);
         assert_eq!(s.sent, vec!["uninstall_fence.acquire".to_owned()]);
+    }
+
+    // --- ADR-0008 §17.31 item 1 (W5-C01): the purge holds the runtime's instance lock ---
+
+    /// A disposable state directory (owner-only, whatever the umask) with a fresh state
+    /// database holding one CA, and the inventory the owner confirmed.
+    fn state_dir() -> (tempfile::TempDir, PathBuf, Inventory) {
+        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+        let state = d.path().join("state");
+        std::fs::create_dir(&state).unwrap_or_else(|e| panic!("{e}"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700))
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+        let db = database(&state, |tx| tx.insert_issuer(&issuer()));
+        std::fs::create_dir(state.join("backups")).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(state.join("backups").join("ssh_config.orig"), b"Host x\n")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert!(confirmed.clear());
+        (d, state, confirmed)
+    }
+
+    fn db_of(state: &Path) -> PathBuf {
+        state.join(heimdall_runtime::service::STATE_DB_FILE)
+    }
+
+    /// The purge's last step after a confirmed stop, with a bounded lock wait.
+    fn purge_now(
+        state: &Path,
+        confirmed: &Inventory,
+        wait: Duration,
+        paused: impl FnOnce(),
+    ) -> PurgeEnd {
+        block_on(purge_after_stop(
+            true,
+            true,
+            state,
+            confirmed,
+            &plain_purge(),
+            wait,
+            paused,
+        ))
+    }
+
+    fn refused_unavailable(end: &PurgeEnd) -> Option<&'static str> {
+        match end {
+            PurgeEnd::Unavailable(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    /// A shutdown session answering every request with `answer`, recording each kind.
+    struct Stop {
+        answer: Envelope<serde_json::Value>,
+        sent: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    }
+
+    impl crate::cli::Session for Stop {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.sent.borrow_mut().push(request.kind().to_owned());
+            self.answer.clone()
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            Envelope::ok(serde_json::json!({}))
+        }
+    }
+
+    /// `uninstall_purge_refuses_unconfirmed_stop` (ADR-0008 §17.31 item 1, W5-C01): a
+    /// shutdown whose connection is lost before its answer (the client's transport
+    /// failure, `SERVICE_UNAVAILABLE`) or that the runtime refuses is not a confirmed
+    /// stop, and the purge after it deletes nothing: `SERVICE_UNAVAILABLE` (exit 5,
+    /// retryable, no reason), effect `partial`, the report kept under it, naming
+    /// `heimdall uninstall --purge-state`.
+    #[test]
+    fn uninstall_purge_refuses_unconfirmed_stop() {
+        let (_d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        let before = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        for answer in [
+            crate::setup_cmd::failure(
+                Code::ServiceUnavailable,
+                "fixture: the connection was lost",
+                None,
+            ),
+            crate::setup_cmd::failure(Code::CapabilityUnavailable, "fixture: refused", None),
+        ] {
+            let sent = std::rc::Rc::default();
+            let s = Stop {
+                answer,
+                sent: std::rc::Rc::clone(&sent),
+            };
+            let stopped = block_on(stop_runtime(&ctx(true, false), s));
+            assert_eq!(*sent.borrow(), vec!["shutdown".to_owned()]);
+            assert!(!stopped, "an unconfirmed stop counted as stopped");
+            let end = block_on(purge_after_stop(
+                stopped,
+                true,
+                &state,
+                &confirmed,
+                &plain_purge(),
+                Duration::from_millis(200),
+                || panic!("nothing is read or deleted after an unconfirmed stop"),
+            ));
+            let Some(message) = refused_unavailable(&end) else {
+                panic!("an unconfirmed stop let the purge through");
+            };
+            assert_eq!(std::fs::read(&db).unwrap_or_else(|e| panic!("{e}")), before);
+            assert!(state.join("backups").join("ssh_config.orig").exists());
+            let out = not_purged(
+                report(true, stopped, false, None, Vec::new(), Vec::new()),
+                message,
+            );
+            assert_eq!(out.exit, ExitCode::Unavailable, "exit 5");
+            assert_eq!(out.env.code, Code::ServiceUnavailable);
+            let error = &out.env.data["error"];
+            assert_eq!(error["retryable"], true, "{error}");
+            assert_eq!(
+                error["reason"], "uninstall_shutdown_unconfirmed",
+                "§17.31 item 6: {error}"
+            );
+            assert_eq!(out.env.data["next_command"], "heimdall service stop");
+            assert_eq!(out.env.data["next_step"], SHUTDOWN_UNCONFIRMED_NEXT);
+            assert_eq!(error["effect_status"], "partial", "{error}");
+            assert!(
+                error["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("the runtime did not confirm its shutdown")
+                        && m.contains("nothing was purged")),
+                "{error}"
+            );
+            assert_eq!(out.env.data["runtime_stopped"], false);
+            assert_eq!(out.env.data["purged"], false);
+        }
+    }
+
+    /// The probe's options: a runtime over `root`'s state, run and log directories, with
+    /// no projection and no managed wiring (nothing outside `root`, never the account's
+    /// SSH files), on a virtual clock.
+    fn runtime_paths(root: &Path) -> heimdall_runtime::Paths {
+        heimdall_runtime::Paths {
+            config_dir: root.join("config"),
+            state_dir: root.join("state"),
+            runtime_dir: root.join("run"),
+            log_dir: root.join("log"),
+        }
+    }
+
+    fn runtime_options() -> heimdall_runtime::service::ServiceOptions {
+        let mut o = heimdall_runtime::service::ServiceOptions::with_clock(
+            heimdall_testkit::VirtualClock::at(Timestamp::now()),
+            heimdall_testkit::ScriptedTimeSync::new(heimdall_domain::time::SyncStatus::Unknown),
+        );
+        o.endpoint_prefix = "hmtest-".to_owned();
+        o
+    }
+
+    /// A real runtime start-up over `root` on its own thread and executor: its result,
+    /// the started service dropped (so its lock is released) before it returns.
+    fn start_runtime(root: &Path) -> Result<(), String> {
+        let paths = runtime_paths(root);
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap_or_else(|e| panic!("{e}"));
+            rt.block_on(async {
+                heimdall_runtime::Service::start_with(
+                    paths,
+                    heimdall_runtime::Config::default(),
+                    runtime_options(),
+                    tokio_util::sync::CancellationToken::new(),
+                )
+                .await
+                .map(drop)
+                .map_err(|e| format!("{e:?}"))
+            })
+        })
+        .join()
+        .unwrap_or_else(|_| panic!("the start-up thread panicked"))
+    }
+
+    /// `uninstall_purge_excludes_runtime_start_while_locked` (ADR-0008 §17.31 item 1,
+    /// W5-C01): at the point between the purge's final read and its deletion (the lock
+    /// held), a real runtime start-up over the same state fails `AlreadyRunning` and
+    /// writes nothing (the database is byte-identical); the purge then deletes the
+    /// database and the backups, keeps the lock file and releases the lock, so the next
+    /// start-up takes it.
+    #[test]
+    fn uninstall_purge_excludes_runtime_start_while_locked() {
+        let (d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        let before = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        let root = d.path().to_path_buf();
+        let mut tried = None;
+        let end = purge_now(&state, &confirmed, Duration::from_millis(200), || {
+            tried = Some(start_runtime(&root));
+            assert_eq!(
+                std::fs::read(&db).unwrap_or_else(|e| panic!("{e}")),
+                before,
+                "the refused start-up wrote nothing"
+            );
+        });
+        let tried = tried.unwrap_or_else(|| panic!("the pause point was not reached"));
+        assert!(
+            tried.as_ref().is_err_and(|e| e.contains("AlreadyRunning")),
+            "a start-up got past the lock the purge holds: {tried:?}"
+        );
+        assert!(matches!(end, PurgeEnd::Purged(Ok(()))), "the purge ran");
+        assert!(!db.exists(), "the database was deleted");
+        assert!(!state.join("backups").exists(), "the backups were deleted");
+        assert!(state.join("service.lock").exists(), "the lock file is kept");
+        assert!(
+            block_on(instance_lock(&state, Duration::from_secs(5))).is_ok(),
+            "the lock is released after the deletion"
+        );
+    }
+
+    /// `uninstall_purge_refuses_replacement_runtime` (ADR-0008 §17.31 item 1, W5-C01): a
+    /// replacement runtime started after the stop holds the instance lock and writes (a
+    /// foreign-removal obligation): the purge waits its bound, then refuses with nothing
+    /// deleted (`SERVICE_UNAVAILABLE`), and the replacement's record is kept. A lock held
+    /// only briefly (a stopping runtime releasing it after its advertisement) is waited
+    /// for, and the purge then runs.
+    #[test]
+    fn uninstall_purge_refuses_replacement_runtime() {
+        let (d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        let paths = runtime_paths(d.path());
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|e| panic!("{e}"));
+        let service = rt
+            .block_on(heimdall_runtime::Service::start_with(
+                paths,
+                heimdall_runtime::Config::default(),
+                runtime_options(),
+                tokio_util::sync::CancellationToken::new(),
+            ))
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let f = foreign(6);
+        service
+            .store()
+            .transaction(|tx| tx.insert_foreign_removal(&f))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            panic!("nothing is read or deleted while a replacement holds the lock")
+        });
+        assert_eq!(
+            refused_unavailable(&end),
+            Some(LOCK_HELD),
+            "a replacement runtime's lock did not refuse the purge"
+        );
+        // ⟨§17.31 item 6⟩ the shared reason, with a message naming this case.
+        let out = not_purged(
+            report(true, true, false, None, Vec::new(), Vec::new()),
+            LOCK_HELD,
+        );
+        assert_eq!(out.exit, ExitCode::Unavailable, "exit 5");
+        let error = &out.env.data["error"];
+        assert_eq!(error["reason"], "uninstall_shutdown_unconfirmed", "{error}");
+        assert!(
+            error["message"].as_str().is_some_and(|m| m
+                .contains("a runtime started again while uninstall was running")
+                && !m.contains("did not confirm its shutdown")),
+            "{error}"
+        );
+        assert_eq!(out.env.data["next_command"], "heimdall service stop");
+        drop(service);
+        drop(rt);
+        assert!(db.exists(), "the database was not deleted");
+        let now = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(now.foreign, vec![f], "the replacement's record is kept");
+        // A briefly held lock is waited for.
+        let (_d2, state2, confirmed2) = state_dir();
+        let held =
+            heimdall_runtime::InstanceLock::try_acquire(&state2).unwrap_or_else(|e| panic!("{e}"));
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            drop(held);
+        });
+        let end = purge_now(&state2, &confirmed2, Duration::from_secs(10), || {});
+        release
+            .join()
+            .unwrap_or_else(|_| panic!("the holder thread panicked"));
+        assert!(matches!(end, PurgeEnd::Purged(Ok(()))), "the purge waited");
+        assert!(!db_of(&state2).exists());
+    }
+
+    /// `recheck_purge_must_exclude_writer_after_final_read` (the wave-5 re-check's
+    /// scheduled interleaving, W5-C01; ADR-0008 §17.31 item 1): after the stop, a
+    /// replacement takes the real `InstanceLock` and writes a foreign-removal obligation
+    /// through a fresh `Store`; the purge refuses with nothing deleted. Scheduled at the
+    /// point between the purge's final read and its deletion instead, the replacement
+    /// cannot take the lock, so it cannot write there.
+    #[test]
+    fn recheck_purge_must_exclude_writer_after_final_read() {
+        let (_d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        let replacement =
+            heimdall_runtime::InstanceLock::try_acquire(&state).unwrap_or_else(|e| panic!("{e}"));
+        let f = foreign(7);
+        let store = Store::open(&db, Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| tx.insert_foreign_removal(&f))
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            panic!("the purge reached its deletion while a replacement held the lock")
+        });
+        assert_eq!(refused_unavailable(&end), Some(LOCK_HELD));
+        assert!(
+            db.exists(),
+            "the database was deleted under the replacement"
+        );
+        let now = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(now.foreign, vec![f], "the replacement's obligation is kept");
+        drop(replacement);
+        // The writer scheduled after the final read: excluded.
+        let (_d2, state2, confirmed2) = state_dir();
+        let mut excluded = None;
+        let end = purge_now(&state2, &confirmed2, Duration::from_millis(300), || {
+            excluded = Some(matches!(
+                heimdall_runtime::InstanceLock::try_acquire(&state2),
+                Err(heimdall_runtime::instance::InstanceError::AlreadyRunning)
+            ));
+        });
+        assert_eq!(
+            excluded,
+            Some(true),
+            "a replacement took the lock between the final read and the deletion"
+        );
+        assert!(matches!(end, PurgeEnd::Purged(Ok(()))));
     }
 }

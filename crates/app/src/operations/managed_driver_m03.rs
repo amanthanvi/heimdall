@@ -495,11 +495,12 @@ impl Operations {
     /// # Errors
     /// [`OpError`]: a store failure is reported (W3-R11), never an empty success.
     pub async fn managed_reissue_pass(&self) -> Result<Vec<GrantId>, OpError> {
-        // ⟨ADR-0008 §17.27 item 2⟩ nothing new while an uninstall holds the fence (the
-        // next pass runs once it is lifted).
-        if self.uninstall_fence_held() {
+        // ⟨ADR-0008 §17.27 item 2, §17.31 item 2⟩ nothing new while an uninstall holds
+        // the fence or is acquiring it (the next pass runs once it is lifted); the
+        // admission is held for the whole pass, so an acquisition waits for it.
+        let Ok(_admission) = self.uninstall_fence_admit() else {
             return Ok(Vec::new());
-        }
+        };
         let Some(wiring) = self.managed_wiring() else {
             return Ok(Vec::new());
         };

@@ -47,6 +47,10 @@
 #[cfg(windows)]
 #[path = "enroll_m03/windows.rs"]
 mod windows;
+// ⟨M03 wave 5, round 8 (W5-C02)⟩ the uninstall fence at the reservations.
+#[cfg(any(unix, windows))]
+#[path = "enroll_m03/fence.rs"]
+mod fence;
 
 #[cfg(any(unix, windows))]
 mod fx {
@@ -6531,6 +6535,121 @@ async fn to_lock_holder_unresolved(w: &World, op: &OperationId, token: &str, hol
     assert_eq!(
         r.hold.unwrap().reason,
         heimdall_domain::enrollment::HoldReason::LockHolderUnresolved
+    );
+}
+
+// --- ⟨ADR-0008 §17.31 item 3; W5-C03⟩ manual recovery finishes a removal like every route
+
+/// The re-check's scenario: `enroll remove <id>` approved; its real remove step runs
+/// against the loopback sshd but its result is reported lost (`remove_unknown`); three
+/// unproven fences of a test-owned holder's lock leave it `held`
+/// (`lock_holder_unresolved`); the owner checks and stops that holder and removes its
+/// lock; `enroll reconcile <op> --after-manual-recovery` runs its real inspect, which
+/// shows the line absent. Returns the operation.
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
+#[cfg(unix)]
+async fn manually_recovered_removal(
+    w: &World,
+    id: &heimdall_contract::ids::EnrollmentId,
+    rid: &str,
+) -> OperationId {
+    let e = w.remove(id, rid).await.unwrap_err();
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+    let rm = e.operation_id.clone().unwrap();
+    w.decide(&e, Verdict::Approve).await.unwrap();
+    let StepAnswer::Step { step } = w.step_answer(&rm).await else {
+        panic!("inspect");
+    };
+    w.run_and_report(&rm, &step).await;
+    let StepAnswer::Step { step } = w.step_answer(&rm).await else {
+        panic!("remove");
+    };
+    assert_eq!(step.stage, RemoteStage::Remove);
+    let _ = run_step(&w.home, &step).await;
+    assert!(
+        !w.registry_text().contains(&w.record(id).marker),
+        "it took effect"
+    );
+    w.result(
+        &rm,
+        &step.step_token,
+        heimdall_enroll::remote::KILLED_EXIT_STATUS,
+        "HM1 ready\n",
+        "",
+    )
+    .await
+    .unwrap();
+    assert_eq!(w.record(id).state, EnrollmentState::RemoveUnknown);
+    let holder = Holder::start();
+    w.plant_lock(&step.step_token, holder.pid, "00", remote_now() + 3600);
+    for _ in 0..3 {
+        reconcile_round(w, &rm).await;
+    }
+    let held = w.record(id);
+    assert_eq!(held.state, EnrollmentState::Held);
+    assert_eq!(
+        held.hold.unwrap().reason,
+        heimdall_domain::enrollment::HoldReason::LockHolderUnresolved
+    );
+    // The owner checked the holder (test-owned), stopped it and removed its lock.
+    drop(holder);
+    std::fs::remove_file(w.lock_path()).unwrap();
+    w.reconcile(&attended(), &rm, true).await.unwrap();
+    let StepAnswer::Step { step } = w.step_answer(&rm).await else {
+        panic!("the manual-recovery inspect");
+    };
+    assert_eq!(step.stage, RemoteStage::Inspect);
+    let r = w.run_and_report(&rm, &step).await;
+    assert_eq!(r.state, EnrollmentState::Removed, "{r:?}");
+    assert!(w.op(&rm).state.is_settled());
+    rm
+}
+
+/// ⟨§17.31 item 3; W5-C03⟩ A `withdrawn` record carrying a past-not-after `late_write`
+/// residual, its removal manually recovered (the line absent on a clean inspect after
+/// the not-after, no lock): it ends `removed` with the residual cleared, through the
+/// same post-removal finalization as every other route, and is no longer an
+/// outstanding obligation.
+#[cfg(unix)]
+#[tokio::test]
+async fn recheck_manual_recovered_withdrawn_removal_clears_residual() {
+    let w = World::new().await;
+    let r = withdrawn_late_write(&w, true, true);
+    manually_recovered_removal(&w, &r.id, "req_mrw_rm").await;
+    assert_eq!(w.marker_lines(), 0);
+    let after = w.record(&r.id);
+    assert_eq!(after.state, EnrollmentState::Removed);
+    assert_eq!(after.late_write, None, "the residual is cleared");
+    assert!(
+        !w.tx(|tx| tx.outstanding_obligations())
+            .enrollments
+            .iter()
+            .any(|o| o.id == r.id),
+        "no longer an outstanding obligation"
+    );
+}
+
+/// ⟨§17.31 item 3; W5-C03⟩ The pair's last enrollment under its CA (verified for real),
+/// its removal manually recovered: it ends `removed` and the CA leaves the pair's
+/// issuing set (§17.29 item 9), as on every other route to a confirmed removal.
+#[cfg(unix)]
+#[tokio::test]
+async fn recheck_manual_recovered_last_removal_drops_issuing_ca() {
+    let w = World::new().await;
+    let op = w.approved(&w.spec(), "req_mrl").await;
+    let res = w
+        .drive(&op)
+        .await
+        .unwrap_or_else(|e| panic!("enrollment: {e:?}"));
+    assert_eq!(res.state, EnrollmentState::Verified);
+    let ca = w.issuer.ca.fingerprint().clone();
+    assert!(issuing_cas(&w).contains(&ca));
+    let id = w.records().pop().unwrap().id;
+    manually_recovered_removal(&w, &id, "req_mrl_rm").await;
+    assert_eq!(w.marker_lines(), 0);
+    assert!(
+        !issuing_cas(&w).contains(&ca),
+        "no verified enrollment trusts the CA: dropped"
     );
 }
 

@@ -266,8 +266,11 @@ pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use uninstall_fence_m03::{
     ACQUIRE_WAIT as UNINSTALL_FENCE_ACQUIRE_WAIT, FenceAcquired, FenceAdmission, as_fence_holder,
-    uninstall_in_progress, unresolved_remote_steps,
+    fenced as uninstall_fenced, uninstall_in_progress, unresolved_remote_steps,
 };
+// ⟨§17.31 item 2⟩ The deterministic reservation pause (debug builds only).
+#[cfg(debug_assertions)]
+pub use uninstall_fence_m03::ReservationPauseControl;
 // ⟨W4-C02⟩ The scope evidence selection a fresh preparation and a follower share.
 pub use managed_driver_m03::pair_evidence_under_ca;
 pub use pair_mechanism_m03::unattended_refusal;
@@ -10927,6 +10930,13 @@ impl Operations {
                 "owner decisions need the owner role",
             ));
         }
+        // ⟨ADR-0008 §17.28 item 1, §17.31 item 2⟩ An approval is fenced work: refused
+        // while an uninstall holds the fence (or is acquiring it), and admitted until
+        // its follow-through has ended; a denial is not.
+        let _admission = match req.verdict {
+            Verdict::Deny => None,
+            _ => Some(self.uninstall_fence_admit()?),
+        };
         // A denial narrows and never waits for safe time.
         let deny_now = match req.verdict {
             Verdict::Approve => None,
@@ -11629,9 +11639,11 @@ impl Operations {
         req: IssuanceRequest,
         named_ca: Option<heimdall_contract::ids::CaFingerprint>,
     ) -> Result<IssuanceEntry, OpError> {
-        // ⟨ADR-0008 §17.27 item 2, §17.28 item 1⟩ no new certificate while an
-        // uninstall holds the fence (unless the holder's own request reserves it).
-        self.fence_check()?;
+        // ⟨ADR-0008 §17.27 item 2, §17.28 item 1, §17.31 item 2⟩ no new certificate
+        // while an uninstall holds the fence (unless the holder's own request reserves
+        // it). The admission is taken before the check and held across the store
+        // write below, so an acquisition waits for this reservation or refuses it.
+        let _admission = self.fence_admit_reservation().await?;
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();

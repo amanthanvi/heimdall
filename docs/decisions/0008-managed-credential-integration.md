@@ -4457,6 +4457,12 @@ No review has run yet. These rulings complete the wave before its reviews.
    - After a new-item restore, retiring the CA deletes the current item and confirms its deletion, so the CA becomes `retired`. The displaced, access-denied old item is handled by the existing denied-displaced-item path: it stays in `orphan_store_items` with its Keychain Access instruction.
    - The command then reports success (exit 0, effect applied), with the orphan as a note and its next step. It never reports effect `none`, and it never advises a restore after a completed retirement.
    - **The regression:** the re-check's restore-then-retire test.
+6. **An unconfirmed shutdown has a named reason: `uninstall_shutdown_unconfirmed`** (additive, authorized; `SERVICE_UNAVAILABLE`, exit 5, retryable).
+   - **Which refusals:** a purge refused because the runtime did not confirm its shutdown carries it, and so does one refused because a replacement runtime holds `service.lock` (Q-I-R8-1). The owner's next step is the same for both: stop the runtime (`heimdall service stop`), then run `heimdall uninstall` again.
+   - **The messages say which case it was:** "the runtime did not confirm its shutdown", or "a runtime started again while uninstall was running".
+   - A lock I/O failure stays without a reason.
+7. **Q-L5-13, accepted:** a restated recovery `purpose` is not compared. It lives only in the operation's journal receipt, which the store transaction cannot decode. Persisting it on the record later, as an additive field, would make it checkable.
+8. **Q-G8-2: a fence refusal during verification is an error, never a verification result.** `verify_operation` returns the fence refusal from `run_verification` instead of recording it as an inconclusive verification. A refusal says nothing about the remote, so it must not change the enrollment's evidence. It is believed unreachable now that the boundary holds admissions, and is fixed anyway. **The regression:** a forced fence refusal leaves the enrollment's evidence and state unchanged, and returns the refusal.
 
 ## 18. Consequences
 

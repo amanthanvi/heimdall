@@ -88,11 +88,24 @@ pub(super) fn status(st: &IssuerStatus, notes: &[String]) -> String {
         if let Some(l) = &o.locator {
             let _ = write!(out, "  {l}");
         }
-        if registered {
+        // ⟨§17.31 item 5⟩ Once its CA is retired, no restore is advised.
+        let retired = o.fingerprint.as_ref().is_some_and(|f| {
+            st.cas
+                .iter()
+                .any(|c| c.fingerprint == *f && c.state == CaState::Retired)
+        });
+        if retired {
+            let _ = writeln!(
+                out,
+                "\n  left by a restore of a CA that is now retired: Heimdall deletes it no more; delete it yourself in the store"
+            );
+        } else if registered {
             let _ = writeln!(
                 out,
                 "\n  displaced by a restore: `heimdall issuer retire {fp}` deletes it once the CA is retired, or rerun the restore"
             );
+        }
+        if registered {
             // ⟨ADR-0008 §17.28 item 7⟩ The item a restore after an access-list denial left.
             if o.store == heimdall_contract::issuer::StoreKind::MacosLoginKeychain
                 && let Some((service, account)) = o.locator.as_deref().and_then(keychain_parts)
@@ -146,7 +159,7 @@ pub(super) fn registered(r: &Registered, backup: Option<&str>) -> String {
 }
 
 /// `issuer retire` finished.
-pub(super) fn retired(st: &IssuerStatus, ca: &CaFingerprint) -> String {
+pub(super) fn retired(st: &IssuerStatus, ca: &CaFingerprint, notes: &[String]) -> String {
     let state = st
         .cas
         .iter()
@@ -159,7 +172,7 @@ pub(super) fn retired(st: &IssuerStatus, ca: &CaFingerprint) -> String {
             "Its store item was deleted. Destroy its offline backup file and passphrase too."
         );
     }
-    out.push_str(&status(st, &[]));
+    out.push_str(&status(st, notes));
     out
 }
 

@@ -1140,7 +1140,13 @@ impl Supervisor {
         if let Err(e) = self.operations.issuer_supervision_pass().await {
             tracing::warn!(code = %e.code, "issuer supervision pass failed");
         }
-        if let Err(e) = self.operations.reverify_pass().await {
+        // ⟨ADR-0008 §17.31 item 2⟩ Re-verification reserves certificates and logs in: it
+        // is admitted through the fence's one boundary and holds that admission for the
+        // whole pass (so an uninstall's acquisition waits for it); while the fence is
+        // held or being acquired the pass is skipped, and the next round runs it.
+        if let Ok(_admission) = self.operations.uninstall_fence_admit()
+            && let Err(e) = self.operations.reverify_pass().await
+        {
             tracing::warn!(code = %e.code, "re-verification pass failed");
         }
         if let Err(e) = self.operations.enrollment_step_timeout_pass().await {
