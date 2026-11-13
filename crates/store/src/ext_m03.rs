@@ -317,14 +317,25 @@ fn removal_origin_kept(
 
 /// ⟨ADR-0008 §17.30 item 4⟩ Whether `kind`'s payload agrees with the stored record
 /// (the facts the app derives from it): `WithdrawnRemovalApproved { late_write }` with
-/// the stored residual's presence, `OwnerReverify { hold }` with the stored hold's kind
-/// (no stored hold never agrees). Every other event carries no such restatement here.
+/// the stored residual's presence; ⟨§17.30 item 8⟩ `OwnerReverify { hold }`,
+/// `TargetChangeApproved { hold }` and `ManualRecoveryLine{Present,Absent} { hold, .. }`
+/// with the stored hold's kind (no stored hold never agrees). Every other event
+/// restates no stored field (outcomes, or facts the operation's journal holds), or is
+/// checked by `removal_origin_kept` (the cancel and absence origins).
 fn payload_agrees(stored: &EnrollmentRecord, kind: EnrollmentEventKind) -> bool {
     match kind {
         EnrollmentEventKind::WithdrawnRemovalApproved { late_write } => {
             late_write == stored.late_write.is_some()
         }
-        EnrollmentEventKind::OwnerReverify { hold } => stored.hold.map(|h| h.kind()) == Some(hold),
+        // ⟨§17.30 items 4, 6, 8⟩ Every event that restates the stored hold, by kind (the
+        // event carries only the kind). A manual-recovery event's `purpose` names the
+        // interrupted step, which the record does not store: nothing to compare.
+        EnrollmentEventKind::OwnerReverify { hold }
+        | EnrollmentEventKind::TargetChangeApproved { hold }
+        | EnrollmentEventKind::ManualRecoveryLinePresent { hold, .. }
+        | EnrollmentEventKind::ManualRecoveryLineAbsent { hold, .. } => {
+            stored.hold.map(|h| h.kind()) == Some(hold)
+        }
         _ => true,
     }
 }
@@ -924,7 +935,8 @@ impl Txn<'_> {
     /// ⟨ADR-0008 §17.30 item 4⟩ An event whose payload restates a stored fact must
     /// agree with the stored record, or it is the inner `Err` with nothing written:
     /// `WithdrawnRemovalApproved { late_write }` with `stored.late_write.is_some()`, and
-    /// `OwnerReverify { hold }` with the stored hold's kind (`stored.hold.map(kind)`).
+    /// `OwnerReverify { hold }`, ⟨item 8⟩ `TargetChangeApproved { hold }` and the
+    /// manual-recovery events' `hold` with the stored hold's kind (`stored.hold.map(kind)`).
     ///
     /// ⟨§17.30 item 5⟩ An own account-form removal admitted from `withdrawn` or
     /// `abandoned` records its removal origin (that state, its evidence and hold) when

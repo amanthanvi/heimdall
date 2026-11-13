@@ -790,6 +790,12 @@ fn second_live_enrollment_for_pair_and_ca_still_refused() {
             &removal,
         )?
         .unwrap();
+        // ⟨ADR-0008 §17.30 item 8⟩ held for `lock_holder_unresolved`, so the manual
+        // recovery's restated hold kind agrees with the stored one.
+        removal.hold = Some(heimdall_domain::enrollment::EnrollmentHold {
+            reason: heimdall_domain::enrollment::HoldReason::LockHolderUnresolved,
+            evidence_based: false,
+        });
         tx.transition_enrollment(
             EnrollmentState::Removing,
             EnrollmentEventKind::RemovalHeld,
@@ -983,6 +989,142 @@ fn transition_refuses_event_payload_that_differs_from_the_stored_record() {
         Ok(())
     })
     .unwrap();
+}
+
+/// ⟨ADR-0008 §17.30 item 8⟩ The shared case of the hold-restating events: `held`
+/// records of one account-form pair, each under its own CA, whose stored holds have the
+/// kinds `host_key_changed`, `lock_holder_unresolved`, `other` and none. Every event
+/// `make(k)` whose `k` differs from a record's stored hold kind is refused with the
+/// inner `Err(InvalidTransition)` and changes nothing: every `enrollments` column and
+/// the event log stay byte-identical. That includes the events the domain table alone
+/// admits (`k == wanted` on a record of another kind). `make(wanted)` on the record whose
+/// stored hold kind is `wanted` commits, to `commits_to`.
+fn hold_payload_checked(
+    make: &dyn Fn(heimdall_domain::enrollment::HoldKind) -> EnrollmentEventKind,
+    wanted: heimdall_domain::enrollment::HoldKind,
+    commits_to: EnrollmentState,
+) {
+    use heimdall_domain::enrollment::{EnrollmentHold, HoldKind, HoldReason};
+    use heimdall_store::RawDocuments;
+    let s = mem();
+    let p = pair("dest1", "git");
+    s.transaction(|tx| {
+        let holds = [
+            Some(EnrollmentHold {
+                reason: HoldReason::HostKeyChanged,
+                evidence_based: false,
+            }),
+            Some(EnrollmentHold {
+                reason: HoldReason::LockHolderUnresolved,
+                evidence_based: false,
+            }),
+            Some(EnrollmentHold {
+                reason: HoldReason::RegistryChanged,
+                evidence_based: false,
+            }),
+            None,
+        ];
+        let mut records = Vec::new();
+        for (i, hold) in holds.into_iter().enumerate() {
+            let n = u8::try_from(i).unwrap() + 1;
+            tx.insert_issuer(&issuer(n, CaState::Active))?;
+            let mut r = with_state(enrollment(n, &ca(n), &p), EnrollmentState::Held);
+            r.hold = hold;
+            tx.seed_enrollment(&r)?;
+            records.push(r);
+        }
+        let snapshot = |tx: &mut Txn<'_>| {
+            (
+                tx.raw_documents(RawDocuments::Enrollments).unwrap(),
+                tx.raw_documents(RawDocuments::Events).unwrap(),
+            )
+        };
+        let mut refused = 0;
+        for r in &records {
+            let stored_kind = r.hold.map(|h| h.kind());
+            for k in HoldKind::ALL {
+                if stored_kind == Some(k) {
+                    continue;
+                }
+                let kind = make(k);
+                let before = snapshot(tx);
+                let out = tx.transition_enrollment(r.state, kind, r)?;
+                no_canary(&out);
+                let e = out.expect_err("a hold kind that differs from the stored hold");
+                assert_eq!(e.from, EnrollmentState::Held, "{kind:?}");
+                assert_eq!(e.event.kind, kind);
+                assert_eq!(
+                    snapshot(tx),
+                    before,
+                    "nothing changes: {kind:?} on {stored_kind:?}"
+                );
+                assert_eq!(tx.enrollment(&r.id)?.as_ref(), Some(r), "{kind:?}");
+                refused += 1;
+            }
+        }
+        assert!(refused >= 3 * HoldKind::ALL.len() - 3, "{refused}");
+        let matching = records
+            .iter()
+            .find(|r| r.hold.map(|h| h.kind()) == Some(wanted))
+            .unwrap();
+        let moved = tx
+            .transition_enrollment(EnrollmentState::Held, make(wanted), matching)?
+            .unwrap();
+        assert_eq!(moved.state, commits_to);
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// ⟨§17.30 item 8⟩ `TargetChangeApproved { hold }` restates the stored hold's kind:
+/// refused, nothing changed, when it differs; `host_key_changed` on a host-key hold
+/// commits (`held → reverifying`).
+#[test]
+fn transition_refuses_target_change_hold_that_differs_from_the_stored_record() {
+    use heimdall_domain::enrollment::HoldKind;
+    hold_payload_checked(
+        &|hold| EnrollmentEventKind::TargetChangeApproved { hold },
+        HoldKind::HostKeyChanged,
+        EnrollmentState::Reverifying,
+    );
+}
+
+/// ⟨§17.30 item 8⟩ `ManualRecoveryLinePresent { hold, purpose }` restates the stored
+/// hold's kind (for every purpose; the purpose names the interrupted step, which the
+/// record does not store): refused, nothing changed, when it differs;
+/// `lock_holder_unresolved` on such a hold commits (a removal's stays `held`).
+#[test]
+fn transition_refuses_manual_recovery_line_present_hold_that_differs_from_the_stored_record() {
+    use heimdall_domain::enrollment::{HoldKind, RecoveryPurpose};
+    for purpose in RecoveryPurpose::ALL {
+        hold_payload_checked(
+            &|hold| EnrollmentEventKind::ManualRecoveryLinePresent { hold, purpose },
+            HoldKind::LockHolderUnresolved,
+            match purpose {
+                RecoveryPurpose::Append => EnrollmentState::AppliedUnverified,
+                _ => EnrollmentState::Held,
+            },
+        );
+    }
+}
+
+/// ⟨§17.30 item 8⟩ `ManualRecoveryLineAbsent { hold, purpose }` likewise: refused,
+/// nothing changed, when the hold kind differs; `lock_holder_unresolved` on such a hold
+/// commits (append `withdrawn`, rollback `verification_failed`, removal `removed`).
+#[test]
+fn transition_refuses_manual_recovery_line_absent_hold_that_differs_from_the_stored_record() {
+    use heimdall_domain::enrollment::{HoldKind, RecoveryPurpose};
+    for purpose in RecoveryPurpose::ALL {
+        hold_payload_checked(
+            &|hold| EnrollmentEventKind::ManualRecoveryLineAbsent { hold, purpose },
+            HoldKind::LockHolderUnresolved,
+            match purpose {
+                RecoveryPurpose::Append => EnrollmentState::Withdrawn,
+                RecoveryPurpose::Rollback => EnrollmentState::VerificationFailed,
+                _ => EnrollmentState::Removed,
+            },
+        );
+    }
 }
 
 /// ⟨ADR-0008 §17.30 item 5⟩ A removal admitted from `withdrawn` (carrying `late_write`)

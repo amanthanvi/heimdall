@@ -93,3 +93,13 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r6-questions.md` | Q-L5-9 (ANSWERED, §17.30 item 6), Q-L5-10 to 12 |
 | `m03-wave5-r6-worklog-I.md` | The integrator's round-6 worklog and validation |
 | `m03-wave5-r6-worklog-L5.md` | L5: the `abandoned` residual clearing (item 3), the store's payload checks (item 4), and the held-removal uniqueness conflict, reproduced and fixed (item 5) |
+
+## Round 7 (base `7259203f`; implements ADR-0008 §17.30 item 8)
+
+These were moved here from the worktree root at the end of round 7. They have been scanned for home
+paths, user names, canaries and keys, and none were found. There was no questions file.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r7-worklog-I.md` | The integrator's round-7 worklog and validation |
+| `m03-wave5-r7-worklog-L5.md` | L5: the store's payload checks for `TargetChangeApproved` and the manual-recovery events |

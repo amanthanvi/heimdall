@@ -4428,6 +4428,35 @@ No review has run yet. These rulings complete the wave before its reviews.
 6. **Q-L5-9, confirmed:** the store compares `OwnerReverify { hold }` with the stored hold **by kind**, because the event carries only the kind. A mismatched kind is refused, and nothing changes.
 7. **Q-L5-11, confirmed:** the held-removal conflict came from a removal origin that was never recorded. The `(pair, CA)` index already exempted held records carrying an origin, and the account-form removal path did not record one. Recording it needed no migration. Q-L5-12: the recorded origin also covers a re-removal from `held` of the same removal.
 8. **Q-L5-10: the same payload check applies to every event that restates stored state.** `TargetChangeApproved { hold }` and the manual-recovery events are refused when what they restate differs from the stored record, as in item 4. **The regression:** each mismatch is refused, and nothing changes.
+### 17.31 Orchestrator rulings on wave 5's re-check (2026-11-13)
+
+**Source:** the independent re-check of `baf2c88f..7259203f` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck.md`. Verdict: fix first, with W5-C01 to W5-C05.
+- **What held:** the original twelve findings' scenarios pass, and all 17 semantic reverts failed their regressions.
+- **What did not:** W5-S01 is not fully closed, and the new findings are on paths the regressions did not cover.
+
+1. **W5-C01: the purge holds the runtime's own instance lock from its final read through the deletion.**
+   - **Shutdown first:** uninstall purges only after the runtime's shutdown is confirmed. A failed or dropped stop refuses the purge (exit 5, retryable), deleting nothing.
+   - **The lock:** after the confirmed stop, and before its final inventory and bundle read, the CLI acquires the same exclusive instance lock (`service.lock`, `InstanceLock`) that runtime start-up takes. It holds that lock through the deletion. If a replacement runtime holds the lock, the purge refuses and deletes nothing.
+   - **Other writers:** every other path that writes the state database must either take that lock or go through the runtime. The integrator lists every writer and confirms this.
+   - **The regressions:**
+     - a failed or dropped shutdown refuses the purge;
+     - a replacement runtime holding the lock refuses it;
+     - while the purge holds the lock, a runtime start-up waits or fails and writes nothing;
+     - the re-check's scheduled interleaving now refuses.
+2. **W5-C02: the fence is enforced where the reservations are made, not only in the dispatcher.**
+   - The grant reservation and the verification reservation check the fence under the admission guard, and that guard is held across their store write, so a fence acquisition cannot overtake a reservation that has passed its check. Supervisor passes and every application route go through the same boundary.
+   - **A `StepResult` for a step dispatched before the fence is recorded durably,** as §17.28 item 1 allows. Its effectful follow-through, such as initial verification, is deferred until admission reopens. If the uninstall purges, the follow-through never runs. If it refuses and lifts the fence, the normal pass or a reconcile picks it up. The result itself is never discarded.
+   - **The regressions:** the re-check's three probes (the step-result issuance, the direct verification reservation and the direct admission) are each refused or deferred under the fence. A deferred verification runs after the fence lifts.
+3. **W5-C03: every route to a confirmed removal finishes the same way.**
+   - Residual clearing under D5 §6.7's condition (§17.30 items 2–3) and the issuing-set rule (§17.29 item 9) are one shared post-removal finalization. The manual-recovery absence route (`--after-manual-recovery`) uses it too, keeping its own transition and receipt.
+   - **The regressions:** the re-check's two probes. A manually recovered withdrawn removal clears its residual, and a manually recovered last removal drops the issuing CA.
+4. **W5-C04: covered by round 7, which checks every hold-carrying event's hold by kind against the stored record.**
+   - A restated recovery purpose is compared too, if it is persisted where the same store transaction can read it.
+   - **The regressions:** the re-check's three mismatches are refused, and nothing changes.
+5. **W5-C05: retirement reports what it did.**
+   - After a new-item restore, retiring the CA deletes the current item and confirms its deletion, so the CA becomes `retired`. The displaced, access-denied old item is handled by the existing denied-displaced-item path: it stays in `orphan_store_items` with its Keychain Access instruction.
+   - The command then reports success (exit 0, effect applied), with the orphan as a note and its next step. It never reports effect `none`, and it never advises a restore after a completed retirement.
+   - **The regression:** the re-check's restore-then-retire test.
 
 ## 18. Consequences
 
