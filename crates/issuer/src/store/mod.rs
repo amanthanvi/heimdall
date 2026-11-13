@@ -75,17 +75,25 @@ pub enum StoreAvailability {
     Corrupt,
     /// No product store exists here (headless Linux, WSL, a container, a runner).
     Unsupported,
+    /// ⟨ADR-0008 §17.28 item 6⟩ The store is unlocked, but the item's access list does
+    /// not trust this executable, so the CA key cannot be read (macOS
+    /// `errSecAuthFailed` from an **unlocked** keychain: the item trusts the creating
+    /// executable's code identity, which an ad-hoc-signed build changes with every
+    /// update). Unlocking cannot help; the recovery is the log-intact restore. Only an
+    /// item read reports it, never [`SecretStore::availability`].
+    AccessDenied,
 }
 
 impl StoreAvailability {
-    /// Every value, in ADR-0008 D1's order.
-    pub const ALL: [StoreAvailability; 6] = [
+    /// Every value, in ADR-0008 D1's order (then ⟨§17.28 item 6⟩ `access_denied`).
+    pub const ALL: [StoreAvailability; 7] = [
         StoreAvailability::Available,
         StoreAvailability::Locked,
         StoreAvailability::InteractionNotAllowed,
         StoreAvailability::Missing,
         StoreAvailability::Corrupt,
         StoreAvailability::Unsupported,
+        StoreAvailability::AccessDenied,
     ];
 
     /// The wire name.
@@ -98,12 +106,14 @@ impl StoreAvailability {
             StoreAvailability::Missing => "missing",
             StoreAvailability::Corrupt => "corrupt",
             StoreAvailability::Unsupported => "unsupported",
+            StoreAvailability::AccessDenied => "access_denied",
         }
     }
 
     /// The `CAPABILITY_UNAVAILABLE` sub-reason for an unavailable store
-    /// (`issuer_store_locked` when an owner unlock can help, else
-    /// `issuer_store_unavailable`); `None` when available.
+    /// (`issuer_store_locked` when an owner unlock can help; ⟨§17.28 item 6⟩
+    /// `issuer_store_access_denied` when the access list denied this executable, which
+    /// no unlock can help; else `issuer_store_unavailable`); `None` when available.
     #[must_use]
     pub fn refusal_reason(self) -> Option<&'static str> {
         match self {
@@ -114,6 +124,7 @@ impl StoreAvailability {
             StoreAvailability::Missing
             | StoreAvailability::Corrupt
             | StoreAvailability::Unsupported => Some(reason::ISSUER_STORE_UNAVAILABLE),
+            StoreAvailability::AccessDenied => Some(reason::ISSUER_STORE_ACCESS_DENIED),
         }
     }
 }
@@ -176,10 +187,27 @@ pub enum StoreError {
     /// the running program: the file at this program's path was replaced (an update, a
     /// rebuild) after it started. Nothing was written: the item would trust the new file,
     /// and this process could never read it back.
+    ///
+    /// ⟨ADR-0008 §17.28 item 5⟩ Reason `issuer_executable_changed`
+    /// ([`StoreError::refusal_reason`]), `SERVICE_UNAVAILABLE` (retryable).
     #[error(
-        "Heimdall's executable was replaced while this command ran (an update?), so the CA key store item would not trust the running program: nothing was stored; run the command again"
+        "Heimdall's executable was replaced while this command ran (an update?), so the CA key store item would not trust the running program: nothing was stored; finish installing or updating Heimdall, then run the command again"
     )]
     ExecutableChanged,
+}
+
+impl StoreError {
+    /// The stable sub-reason of this failure, when it has one: the availability's
+    /// ([`StoreAvailability::refusal_reason`]) or ⟨§17.28 item 5⟩
+    /// `issuer_executable_changed`.
+    #[must_use]
+    pub fn refusal_reason(&self) -> Option<&'static str> {
+        match self {
+            StoreError::Unavailable(a) => a.refusal_reason(),
+            StoreError::ExecutableChanged => Some(reason::ISSUER_EXECUTABLE_CHANGED),
+            _ => None,
+        }
+    }
 }
 
 /// The K_ca custody store (ADR-0008 D1; F23). Implementations are synchronous and
@@ -211,6 +239,36 @@ pub trait SecretStore: Send + Sync {
     /// (the keychain, the Secret Service, the DPAPI directory) lists only this
     /// installation's items, so nothing here ever names another installation's item.
     fn list(&self) -> Result<Vec<StoreItemRef>, StoreError>;
+
+    /// ⟨ADR-0008 §17.28 item 7⟩ Read exactly `item` (an item of this installation, by its
+    /// recorded locator), without user interaction. [`StoreError::NotFound`] when `item`
+    /// names no item of this installation in this store.
+    ///
+    /// Additive (defaulted, so no implementor changes): a store whose items have one
+    /// locator per CA reads by fingerprint, as [`SecretStore::get`].
+    fn get_item(&self, item: &StoreItemRef) -> Result<SecretCaKey, StoreError> {
+        if item.kind != self.kind() {
+            return Err(StoreError::NotFound);
+        }
+        self.get(&item.fingerprint)
+    }
+
+    /// ⟨ADR-0008 §17.28 item 7⟩ Store `key` for `fingerprint` in a **new** item whose
+    /// locator differs from every existing item's: the restore after an
+    /// `issuer_store_access_denied` read, when the recorded item can no longer be read
+    /// (or deleted) by this executable. Never overwrites, never deletes; refused
+    /// ([`StoreError::AlreadyExists`]) when no free locator is left.
+    ///
+    /// Additive (defaulted): a store without per-executable access lists never reports
+    /// that denial, and refuses this ([`StoreError::Failed`]).
+    fn put_new_item(
+        &self,
+        fingerprint: &CaFingerprint,
+        key: &SecretCaKey,
+    ) -> Result<StoreItemRef, StoreError> {
+        let _ = (fingerprint, key);
+        Err(StoreError::Failed)
+    }
 }
 
 #[cfg(test)]
@@ -229,7 +287,8 @@ mod tests {
                 "interaction_not_allowed",
                 "missing",
                 "corrupt",
-                "unsupported"
+                "unsupported",
+                "access_denied"
             ]
         );
         for a in StoreAvailability::ALL {
@@ -245,6 +304,36 @@ mod tests {
         assert_eq!(
             StoreAvailability::Unsupported.refusal_reason(),
             Some(reason::ISSUER_STORE_UNAVAILABLE)
+        );
+    }
+
+    /// ⟨ADR-0008 §17.28 items 5, 6⟩ An access-list denial is its own reason, never the
+    /// lock's; a replaced executable is `issuer_executable_changed`.
+    #[test]
+    fn access_denied_and_executable_changed_have_their_own_reasons() {
+        assert_eq!(
+            StoreAvailability::AccessDenied.refusal_reason(),
+            Some(reason::ISSUER_STORE_ACCESS_DENIED)
+        );
+        assert_eq!(
+            StoreError::Unavailable(StoreAvailability::AccessDenied).refusal_reason(),
+            Some(reason::ISSUER_STORE_ACCESS_DENIED)
+        );
+        for locked in [
+            StoreAvailability::Locked,
+            StoreAvailability::InteractionNotAllowed,
+        ] {
+            assert_eq!(locked.refusal_reason(), Some(reason::ISSUER_STORE_LOCKED));
+        }
+        assert_eq!(
+            StoreError::ExecutableChanged.refusal_reason(),
+            Some(reason::ISSUER_EXECUTABLE_CHANGED)
+        );
+        assert_eq!(StoreError::Failed.refusal_reason(), None);
+        assert!(
+            StoreError::ExecutableChanged
+                .to_string()
+                .contains("finish installing or updating Heimdall, then run the command again")
         );
     }
 

@@ -142,6 +142,11 @@ fn issuer_failure(e: &IssuerError) -> OpError {
                     Code::CapabilityUnavailable,
                     reason::ISSUER_STORE_UNAVAILABLE,
                 ),
+                // ⟨ADR-0008 §17.28 item 6⟩ An access-list denial: its own reason, never the lock.
+                reason::ISSUER_STORE_ACCESS_DENIED => (
+                    Code::CapabilityUnavailable,
+                    reason::ISSUER_STORE_ACCESS_DENIED,
+                ),
                 reason::ISSUER_NOT_INITIALIZED => {
                     (Code::CapabilityUnavailable, reason::ISSUER_NOT_INITIALIZED)
                 }
@@ -1474,5 +1479,39 @@ mod last_bundle_tests {
                 Ok(())
             })
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod store_reason_tests {
+    //! ⟨ADR-0008 §17.28 item 6⟩ The issuer's store reasons as the request's error.
+    use super::*;
+
+    /// An access-list denial answers `issuer_store_access_denied` with the restore as its
+    /// next step; a locked store stays `issuer_store_locked`.
+    #[test]
+    fn access_denial_is_its_own_reason_with_the_restore_next() {
+        let e = issuer_failure(&IssuerError::Unavailable(
+            reason::ISSUER_STORE_ACCESS_DENIED.into(),
+        ));
+        assert_eq!(e.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            e.reason.as_deref(),
+            Some(reason::ISSUER_STORE_ACCESS_DENIED)
+        );
+        assert!(
+            e.message.contains(crate::issuer::STORE_ACCESS_DENIED_NEXT),
+            "{}",
+            e.message
+        );
+        let locked = issuer_failure(&IssuerError::Unavailable(
+            reason::ISSUER_STORE_LOCKED.into(),
+        ));
+        assert_eq!(locked.reason.as_deref(), Some(reason::ISSUER_STORE_LOCKED));
+        assert!(
+            !locked
+                .message
+                .contains(crate::issuer::STORE_ACCESS_DENIED_NEXT)
+        );
     }
 }

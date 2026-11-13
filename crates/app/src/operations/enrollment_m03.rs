@@ -1005,7 +1005,9 @@ pub(super) fn result_for(
     if record.late_write.is_some() {
         notes.push(EnrollmentNote {
             kind: EnrollmentNoteKind::PossibleLateWrite,
-            command: Some(format!("heimdall enroll remove {}", record.id)),
+            // ⟨ADR-0008 §17.28 item 3⟩ only an attended absence check after the not-after
+            // clears the residual.
+            command: Some(format!("heimdall enroll verify {} --absence", record.id)),
         });
     }
     EnrollmentResult {
@@ -1647,6 +1649,27 @@ mod tests {
                 .notes
                 .iter()
                 .all(|n| n.command.as_deref() != Some("heimdall connect <alias>"))
+        );
+    }
+
+    /// ⟨ADR-0008 §17.28 item 3⟩ the `possible_late_write` note names the only command that
+    /// clears the residual: an attended absence check (never `enroll remove`, which a
+    /// `withdrawn` record cannot take).
+    #[test]
+    fn late_write_note_names_the_absence_check() {
+        let mut withdrawn = record(EnrollmentState::Withdrawn, None);
+        withdrawn.late_write = Some(heimdall_domain::enrollment::LateWrite {
+            step_token: "tok".to_owned(),
+            not_after_remote: 1_800_000_600,
+        });
+        let note = result_of(&withdrawn, None)
+            .notes
+            .into_iter()
+            .find(|n| n.kind == EnrollmentNoteKind::PossibleLateWrite)
+            .unwrap();
+        assert_eq!(
+            note.command.as_deref(),
+            Some(format!("heimdall enroll verify {ID} --absence").as_str())
         );
     }
 }

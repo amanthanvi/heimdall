@@ -961,6 +961,42 @@ impl Txn<'_> {
         Ok(Ok(record))
     }
 
+    /// ⟨ADR-0008 §17.28 item 3⟩ Clear an enrollment's `late_write` residual (D5 §6.7):
+    /// a compare-and-swap on the stored record's `expected` state **and** its
+    /// residual's `step_token`, which sets only `late_write = None` and `updated_at`.
+    /// It moves no state and changes nothing else. Returns the cleared record, or
+    /// `None` (nothing written) when the record is missing, in another state, or does
+    /// not carry that exact residual. It never sets a residual; the caller decides,
+    /// from an inspection, that absence was observed.
+    pub fn clear_late_write(
+        &mut self,
+        id: &EnrollmentId,
+        expected: EnrollmentState,
+        step_token: &str,
+        now: Timestamp,
+    ) -> Result<Option<EnrollmentRecord>> {
+        let Some(stored) = self.enrollment(id)? else {
+            return Ok(None);
+        };
+        if stored.state != expected
+            || stored.late_write.as_ref().map(|l| l.step_token.as_str()) != Some(step_token)
+        {
+            return Ok(None);
+        }
+        let mut record = stored;
+        record.late_write = None;
+        record.updated_at = now;
+        let n = self.tx.execute(
+            "UPDATE enrollments SET record_json = ?2 WHERE id = ?1 AND state = ?3",
+            rusqlite::params![
+                record.id.as_str(),
+                codec::doc(&record)?,
+                codec::enum_str(&expected)?,
+            ],
+        )?;
+        Ok((n == 1).then_some(record))
+    }
+
     /// The CAs with a `verified` enrollment for the pair. A `reverifying` record is not
     /// counted (the store cannot tell which state it started from; fail closed).
     pub fn verified_cas_for_pair(&mut self, pair: &AccessPair) -> Result<BTreeSet<CaFingerprint>> {

@@ -316,6 +316,20 @@ fn next_of(
 ) -> Next {
     use EnrollmentState as S;
     let j = &ctx.journal;
+    // ⟨ADR-0008 §17.28 item 3⟩ The `late_write` absence check reads, once per step,
+    // until it settles (`verify::record_late_write_check`).
+    if super::verify::late_write_ctx(ctx) {
+        return if ctx.op.state.is_settled() {
+            Next::Nothing
+        } else {
+            Next::Issue {
+                stage: RemoteStage::Inspect,
+                purpose: StepPurpose::Reconcile,
+                terminate: false,
+                removal: None,
+            }
+        };
+    }
     if let Some(r) = &j.reconcile {
         // A fence the last classification asked for (`Fence`, or `Terminate` past the
         // holder's not-after), on the same unconsumed reading.
@@ -553,10 +567,17 @@ impl Operations {
                     terminate,
                     removal,
                 } => {
-                    return self
-                        .issue(&ctx, stage, purpose, terminate, removal)
-                        .await
-                        .map(|s| StepAnswer::Step { step: Box::new(s) });
+                    let issued = self.issue(&ctx, stage, purpose, terminate, removal).await;
+                    if let Err(e) = &issued
+                        && e.code != Code::RequestConflict
+                        && super::verify::late_write_ctx(&ctx)
+                    {
+                        // ⟨§17.28 item 3⟩ A check whose read cannot be issued (route or
+                        // endpoint changed, no client) ends with that refusal, keeping
+                        // the residual; the owner runs it again.
+                        self.settle_late_write_check(&ctx.op.id, e).await?;
+                    }
+                    return issued.map(|s| StepAnswer::Step { step: Box::new(s) });
                 }
                 Next::Verify => {
                     self.start_initial_verification(id).await?;
@@ -1228,6 +1249,19 @@ fn record_result(
     let now = r.now;
     let eid = ctx.record.id.to_string();
     let marker = ctx.record.marker.clone();
+    if super::verify::late_write_ctx(ctx) {
+        super::verify::record_late_write_check(
+            tx,
+            emit,
+            ctx,
+            r.issued.stage,
+            r.class,
+            r.stdout,
+            now,
+            r.retention,
+        )?;
+        return Ok(false);
+    }
     if ctx.journal.reconcile.is_some() {
         return record_reconcile(tx, emit, ctx, r);
     }

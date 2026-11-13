@@ -9,3 +9,5 @@ Options:
       --not-stolen       The backup is not believed stolen
       --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
   -h, --help             Print help
+
+Also the recovery when the issuer reports `issuer_store_access_denied` (on macOS, an ad-hoc-signed build after an update): the CA is restored to a new store item, recorded after a typed `yes`; the old item is kept and listed under orphan store items, to be deleted in Keychain Access (Heimdall never deletes it).

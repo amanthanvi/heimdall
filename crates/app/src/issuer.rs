@@ -150,6 +150,16 @@ pub fn register_disclosures(
     out
 }
 
+/// ⟨ADR-0008 §17.28 item 6⟩ The next command for `issuer_store_access_denied`: the D5
+/// log-intact restore (the CA's backup is restored to a store item this build can read).
+pub const STORE_ACCESS_DENIED_NEXT: &str = "heimdall issuer restore --backup <file>";
+
+/// ⟨ADR-0008 §17.28 items 6, 7⟩ The guidance for `issuer_store_access_denied`: the restore
+/// writes the CA key to a **new** store item this build can read (recorded through the
+/// attended registration); the old item is kept and listed, for the owner to delete in
+/// Keychain Access. Heimdall never deletes it, and no deletion is needed first.
+pub const STORE_ACCESS_DENIED_GUIDANCE: &str = "the CA key store is unlocked, but its item no longer trusts this Heimdall executable (on macOS an ad-hoc-signed build loses access to the CA key after an update): unlocking cannot help. Run `heimdall issuer restore --backup <file>`: it restores the CA to a new store item this build can read; then delete the old item it lists under orphan store items (`heimdall issuer status`) in Keychain Access. Heimdall never deletes it";
+
 /// ⟨§17.17 item 10, U4-Q2(b)⟩ What `issuer unlock` tells the owner when the platform
 /// store is not available: Heimdall never shows a store prompt, so the owner unlocks
 /// the store in the desktop session and asks again. `None` for a reason that is not a
@@ -160,6 +170,8 @@ pub fn unlock_guidance(reason_code: &str) -> Option<&'static str> {
         reason::ISSUER_STORE_LOCKED => Some(
             "the platform secret store is locked or would need a prompt, which Heimdall never shows: unlock it in the desktop session (the login keychain on macOS, the login collection of the Secret Service on Linux, the user's logon session on Windows), then run `heimdall issuer unlock` again",
         ),
+        // ⟨ADR-0008 §17.28 item 6⟩ No unlock helps: the item no longer trusts this build.
+        reason::ISSUER_STORE_ACCESS_DENIED => Some(STORE_ACCESS_DENIED_GUIDANCE),
         reason::ISSUER_STORE_UNAVAILABLE => Some(
             "the platform secret store is unavailable or does not hold the registered CA: check that the desktop session's store is running and holds this installation's item (`heimdall issuer status` lists orphan items); restore the CA from its backup if the item was lost",
         ),
@@ -407,5 +419,10 @@ mod tests {
         );
         assert!(unlock_guidance(reason::ISSUER_STORE_LOCKED).is_some());
         assert!(unlock_guidance(reason::ISSUER_UNAVAILABLE).is_none());
+        // ⟨§17.28 item 6⟩ The access denial names the restore, not an unlock.
+        let denied = unlock_guidance(reason::ISSUER_STORE_ACCESS_DENIED).unwrap();
+        assert!(denied.contains(STORE_ACCESS_DENIED_NEXT), "{denied}");
+        assert!(denied.contains("unlocking cannot help"), "{denied}");
+        assert!(denied.contains("new store item"), "{denied}");
     }
 }

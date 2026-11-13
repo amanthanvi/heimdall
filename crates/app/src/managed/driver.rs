@@ -509,6 +509,8 @@ fn issuer_store_reason(why: &str) -> Option<&'static str> {
     [
         reason::ISSUER_STORE_LOCKED,
         reason::ISSUER_STORE_UNAVAILABLE,
+        // ⟨ADR-0008 §17.28 item 6⟩
+        reason::ISSUER_STORE_ACCESS_DENIED,
     ]
     .into_iter()
     .find(|r| *r == why)
@@ -558,5 +560,29 @@ mod tests {
             super::validity_start(later, starts_at).unwrap(),
             "2026-11-13T10:59:30Z".parse::<Timestamp>().unwrap()
         );
+    }
+}
+
+#[cfg(test)]
+mod store_reason_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    /// ⟨ADR-0008 §17.28 item 6⟩ A refused activation carries the issuer's access-list
+    /// denial as its own reason (never `issuer_store_locked`, never `issuer_unavailable`).
+    #[test]
+    fn sign_failure_carries_the_access_denial() {
+        use heimdall_contract::envelope::reason;
+        for r in [
+            reason::ISSUER_STORE_ACCESS_DENIED,
+            reason::ISSUER_STORE_LOCKED,
+            reason::ISSUER_STORE_UNAVAILABLE,
+        ] {
+            let e = AdapterError::Unavailable(format!(
+                "{ISSUER_SIGN_FAILED}{ISSUER_SIGN_FAILED_SEP}{}",
+                issuer_store_reason(r).unwrap()
+            ));
+            assert_eq!(issuer_sign_failure_reason(&e), Some(r));
+        }
     }
 }

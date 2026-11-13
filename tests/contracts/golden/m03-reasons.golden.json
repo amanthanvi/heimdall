@@ -1,5 +1,5 @@
 {
- "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table; `warning_reasons` are the Warning.reason values with the warning code each refines (ADR-0008 \u00a717.25 item 15); the `new` rows uninstall_in_progress and uninstall_inventory_changed are ADR-0008 \u00a717.27 item 2 (W5-S01), and uninstall_remote_step_unresolved is \u00a717.28 item 1",
+ "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table; `warning_reasons` are the Warning.reason values with the warning code each refines (ADR-0008 \u00a717.25 item 15); the `new` rows uninstall_in_progress and uninstall_inventory_changed are ADR-0008 \u00a717.27 item 2 (W5-S01), uninstall_remote_step_unresolved is \u00a717.28 item 1, issuer_executable_changed is \u00a717.28 item 5, and issuer_store_access_denied (a reason and a doctor finding) is \u00a717.28 item 6",
  "new": [
   {
    "reason": "issuer_not_initialized",
@@ -19,6 +19,10 @@
   },
   {
    "reason": "issuer_store_locator_unrecorded",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "issuer_store_access_denied",
    "code": "CAPABILITY_UNAVAILABLE"
   },
   {
@@ -254,6 +258,10 @@
    "code": "SERVICE_UNAVAILABLE"
   },
   {
+   "reason": "issuer_executable_changed",
+   "code": "SERVICE_UNAVAILABLE"
+  },
+  {
    "reason": "issuer_rate_limited",
    "code": "BACKPRESSURE"
   },
@@ -297,6 +305,7 @@
   "enrollment_evidence_stale",
   "client_trace_family_unrecorded",
   "slot_free",
-  "managed_dir_unsafe"
+  "managed_dir_unsafe",
+  "issuer_store_access_denied"
  ]
 }

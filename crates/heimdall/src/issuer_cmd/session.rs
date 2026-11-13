@@ -49,7 +49,7 @@ use heimdall_issuer::ceremony::{
 };
 use heimdall_issuer::store::SecretStore;
 
-use super::{delete_exact, displaced_of, open_store, render, shown, status_of, test_config};
+use super::{delete_displaced, displaced_of, open_store, render, shown, status_of, test_config};
 use crate::cli::{IssuerCommand, IssuerRotateCommand};
 use crate::client::{Client, Ctx};
 use crate::output;
@@ -616,7 +616,18 @@ fn resolve_displaced(
         let Some(locator) = item.locator else {
             continue;
         };
-        delete_exact(store, ca, item.store, &locator).map_err(|e| Done::Answer(Box::new(e)))?;
+        // ⟨§17.28 item 7⟩ An item this executable cannot read stays, listed for the owner.
+        if !delete_displaced(store, ca, item.store, &locator)
+            .map_err(|e| Done::Answer(Box::new(e)))?
+        {
+            let line = format!(
+                "The old store item ({locator}) stays listed under orphan store items: {}.\n",
+                super::keep_instruction(&locator)
+            );
+            let _ = tty.write_text(&line);
+            text.push_str(&line);
+            continue;
+        }
         s.confirm_deleted(ca, &locator)
             .map_err(|e| Done::Answer(Box::new(e)))?;
         let line = format!("Deleted the store item the restore displaced ({locator}).\n");

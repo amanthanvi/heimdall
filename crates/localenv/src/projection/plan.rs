@@ -145,7 +145,11 @@ use super::replace::{self, DirHandle, Quarantine, ReplaceRefusal};
 use super::{ManagedSectionSpec, ProjectionConfig};
 use crate::clients::ClientKind;
 use crate::fs::BoundedSource;
-use crate::git::{DefaultGitSsh, observe_global, observe_global_for, origin_of, winning_origin};
+use crate::git::{
+    DefaultGitSsh, GitGlobalObservation, observe_global_for_within, observe_global_within,
+    origin_of, winning_origin,
+};
+use crate::local_query::LOCAL_QUERY_TIMEOUT;
 use crate::materialize::{PublicKeyLine, public_key_bytes};
 
 /// Bytes read of one file the preview inspects (the §5.3 bound).
@@ -1024,6 +1028,23 @@ impl<'a> Builder<'a> {
 
     // --- the Git item -------------------------------------------------------------------
 
+    /// The bound on each local query of the Git observation (`LOCAL_QUERY_TIMEOUT`
+    /// unless a test injects one).
+    fn query_bound(&self) -> std::time::Duration {
+        self.config
+            .test
+            .local_query_timeout
+            .unwrap_or(LOCAL_QUERY_TIMEOUT)
+    }
+
+    /// Hand the observation to a test's diagnostics, when one is configured.
+    fn observed(&self, obs: GitGlobalObservation) -> GitGlobalObservation {
+        if let Some(f) = &self.config.git_observed {
+            f(&obs);
+        }
+        obs
+    }
+
     fn plan_git_apply(&mut self) -> Result<(), PreviewError> {
         let undetermined = GitSshSelection {
             source: GitSshSource::Default,
@@ -1041,12 +1062,13 @@ impl<'a> Builder<'a> {
         // item is applied, is not a user's `core.sshCommand`. The observation splits it
         // out; it is judged below, once the global file's blocks are known.
         let p_git_path = self.config.managed_git_path();
-        let obs = observe_global_for(
+        let obs = self.observed(observe_global_for_within(
             &self.config.env,
             &self.config.clients,
             self.config.queries,
             &p_git_path,
-        );
+            self.query_bound(),
+        ));
         let before = GitSshSelection {
             source: GitSshSource::Default,
             scope: None,
@@ -1230,7 +1252,12 @@ impl<'a> Builder<'a> {
 
     fn plan_git_rollback(&mut self) -> Result<(), PreviewError> {
         let p_git_path = self.config.managed_git_path();
-        let obs = observe_global(&self.config.env, &self.config.clients, self.config.queries);
+        let obs = self.observed(observe_global_within(
+            &self.config.env,
+            &self.config.clients,
+            self.config.queries,
+            self.query_bound(),
+        ));
         // §5.2 for the Git item: with B_git in effect the selection is P_git's value;
         // after the rollback it is a user value, when one remains, or Git's default.
         // P_git's own value, by its origin as the observation shows origins (the

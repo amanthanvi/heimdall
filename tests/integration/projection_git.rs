@@ -398,6 +398,11 @@ struct Fx {
     env: EnvironmentId,
     git: PathBuf,
     system: PathBuf,
+    /// The `unreadable` entries of every Git observation a preview planned from, in
+    /// order (`ProjectionConfig::git_observed`; names of queries and files, no values).
+    observed: Arc<Mutex<Vec<Vec<String>>>>,
+    /// The bound injected on the Git observation's local queries (`None`: the constant).
+    query_bound: Option<std::time::Duration>,
 }
 
 impl Fx {
@@ -415,6 +420,8 @@ impl Fx {
             env: EnvironmentId::from_random_bytes(random()),
             git: find_program("git").expect("git is installed on the harness"),
             system,
+            observed: Arc::default(),
+            query_bound: None,
         }
     }
 
@@ -495,7 +502,53 @@ impl Fx {
             ],
         };
         c.test.git_item_any_default = cfg!(unix);
+        c.test.local_query_timeout = self.query_bound;
+        let observed = Arc::clone(&self.observed);
+        c.git_observed = Some(Arc::new(move |obs| {
+            observed
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(obs.unreadable.clone());
+        }));
         c
+    }
+
+    /// A preview whose Git observation must be complete: a query that failed or timed
+    /// out (on a loaded harness, `git` start-up can overrun the bound) fails the test
+    /// with the entries named, not with two bare digests. Fail closed either way: an
+    /// incomplete observation plans a different digest, so it is never accepted here.
+    fn complete_preview(
+        &self,
+        spec: &ProjectionSpec,
+        intent: &PreviewIntent,
+        what: &str,
+    ) -> ProjectionPlan {
+        let (plan, unreadable) = self.observed_preview(spec, intent);
+        assert!(
+            unreadable.as_ref().is_some_and(Vec::is_empty),
+            "{what}: the preview's Git observation was incomplete: {unreadable:?} \
+             (plan digest {}, Git item {:?})",
+            plan.view.plan_digest,
+            plan.view.git.as_ref().map(|g| g.reason.clone()),
+        );
+        plan
+    }
+
+    /// A preview and the `unreadable` entries of the one Git observation it planned
+    /// from (`None` when it planned from none, or from more than one).
+    fn observed_preview(
+        &self,
+        spec: &ProjectionSpec,
+        intent: &PreviewIntent,
+    ) -> (ProjectionPlan, Option<Vec<String>>) {
+        let before = self.observed.lock().unwrap().len();
+        let plan = self.writer().preview(spec, intent).unwrap();
+        let seen = self.observed.lock().unwrap();
+        let unreadable = match &seen[before..] {
+            [one] => Some(one.clone()),
+            _ => None,
+        };
+        (plan, unreadable)
     }
 
     fn hooked(&self, hook: &Arc<Hook>) -> ProjectionConfig {
@@ -834,9 +887,9 @@ fn git_first_adoption_previews_reproduce_their_plan_digest() {
         }
         let spec = fx.spec(None);
         let intent = PreviewIntent::Apply { include_git: true };
-        let preview = |spec: &ProjectionSpec| fx.writer().preview(spec, &intent).unwrap();
-        let (a, b) = (preview(&spec), preview(&spec));
         let label = format!("global_present={global_present}");
+        let preview = |spec: &ProjectionSpec| fx.complete_preview(spec, &intent, &label);
+        let (a, b) = (preview(&spec), preview(&spec));
         let (ai, bi) = (a.intent(), b.intent());
         let include = step_ref(&ai, FileRole::GitInclude);
         assert!(include.commit, "{label}: B_git is inserted");
@@ -4513,4 +4566,75 @@ fn git_spaced_client_path_is_quoted_and_runs() {
             .any(|accepted| accepted.fingerprint == fingerprint),
         "the server accepted the fixture key"
     );
+}
+
+/// M03 wave 5 r4 (F1): a native Windows run once saw the two previews of
+/// `git_first_adoption_previews_reproduce_their_plan_digest` give different digests. A
+/// `git` that starts slowly (process-spawn load, antivirus scanning) overran the 2 s
+/// local-query bound: the timed-out query made the observation incomplete, the Git item
+/// `not_applicable` (`git_config_unreadable`) and the digest different. Here a wrapper
+/// `git` sleeps 3 s on the second `git config --global` query only. At the old 2 s bound
+/// (injected) the digests still differ, fail closed, with the timed-out query named; at
+/// `LOCAL_QUERY_TIMEOUT` (10 s) they are equal. Unix only: the wrapper is a `/bin/sh`
+/// script (a Windows-native variant needs a compiled delaying wrapper).
+#[cfg(unix)]
+#[test]
+fn git_preview_digest_is_stable_under_a_slow_git() {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::time::Duration;
+    let mut fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let ctl = fx.home.root.join("slow-git");
+    std::fs::create_dir(&ctl).unwrap();
+    std::fs::set_permissions(&ctl, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let wrapper = ctl.join("git");
+    // The child's environment is the scratch one (no PATH): absolute programs only.
+    let script = format!(
+        "#!/bin/sh\n\
+         case \" $* \" in *\" --global \"*)\n\
+         n=$(/bin/cat '{c}/n' 2>/dev/null || echo 0); n=$((n + 1)); echo \"$n\" > '{c}/n'\n\
+         if [ \"$n\" = 2 ]; then /bin/sleep 3; fi;;\n\
+         esac\n\
+         exec '{g}' \"$@\"\n",
+        c = ctl.display(),
+        g = fx.git.display()
+    );
+    std::fs::write(&wrapper, script).unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    fx.git = wrapper;
+    let spec = fx.spec(None);
+    let intent = PreviewIntent::Apply { include_git: true };
+
+    // The old bound: the slow query times out, and the observation says which one.
+    fx.query_bound = Some(Duration::from_secs(2));
+    let (a, a_unreadable) = fx.observed_preview(&spec, &intent);
+    assert_eq!(a_unreadable, Some(Vec::new()), "the first preview is fast");
+    let (b, b_unreadable) = fx.observed_preview(&spec, &intent);
+    assert_eq!(
+        b_unreadable,
+        Some(vec![
+            "git config --global (timed out after 2000 ms)".to_owned()
+        ]),
+        "the slow query is named"
+    );
+    assert_ne!(
+        a.view.plan_digest, b.view.plan_digest,
+        "an incomplete observation plans another digest (fail closed)"
+    );
+    let reason = |p: &ProjectionPlan| p.view.git.as_ref().and_then(|g| g.reason.clone());
+    assert_eq!(reason(&a), None);
+    assert_eq!(reason(&b).as_deref(), Some("git_config_unreadable"));
+
+    // LOCAL_QUERY_TIMEOUT: the same 3 s query is waited for and the digests agree.
+    fx.query_bound = None;
+    std::fs::remove_file(ctl.join("n")).unwrap();
+    let c = fx.complete_preview(&spec, &intent, "fast, at LOCAL_QUERY_TIMEOUT");
+    let started = std::time::Instant::now();
+    let d = fx.complete_preview(&spec, &intent, "slow (3 s), at LOCAL_QUERY_TIMEOUT");
+    assert!(
+        started.elapsed() >= Duration::from_secs(3),
+        "the slow query ran"
+    );
+    assert_eq!(c.view.plan_digest, d.view.plan_digest);
+    assert_eq!(c.view.plan_digest, a.view.plan_digest, "the complete plan");
 }

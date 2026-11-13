@@ -2320,6 +2320,268 @@ fn issuer_init_backup_path_controls_never_reach_the_terminal() {
     assert_ne!(rest.len(), t.len(), "the passphrase's region was cleared");
 }
 
+/// Replace `rig`'s program (stopped runtime) by a re-signed copy of itself at the same path:
+/// another code identity, what an update of an ad-hoc-signed build does.
+#[cfg(target_os = "macos")]
+fn update_program_in_place(rig: &Rig, identifier: &str) {
+    let variant = rig.program.with_file_name("updated");
+    std::fs::copy(&rig.program, &variant).unwrap();
+    let signed = Command::new("/usr/bin/codesign")
+        .args(["-f", "-s", "-", "-i", identifier])
+        .arg(&variant)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(signed.success(), "codesign re-signed the copy");
+    std::fs::rename(&variant, &rig.program).unwrap();
+}
+
+/// A product-store rig whose CA item the current program can no longer read: `issuer init`
+/// writes K_ca with this rig's program (copy A); the program is then replaced by a re-signed
+/// copy at the same path (copy B: an update of an ad-hoc-signed build, another code
+/// identity) and the runtime restarted, so its issuer child (B) is denied the item
+/// (`errSecAuthFailed` from an unlocked keychain). Returns the rig, the CA, the backup's
+/// passphrase and path, and the init's terminal (kept open).
+#[cfg(target_os = "macos")]
+fn access_denied_rig() -> (Rig, CaFingerprint, String, PathBuf, Started) {
+    let mut rig = Rig::product();
+    let backup = rig.file("denied.key");
+    let (fp, passphrase, started) = init_on_pty(&rig, &backup);
+    let st = rig.cli(&["--json", "issuer", "status"]).json();
+    assert_eq!(st["data"]["state"], "ready", "{st}");
+    rig.stop();
+    update_program_in_place(&rig, "heimdall-updated");
+    rig.start();
+    // The keychain is unlocked: this is the access list, not the lock.
+    assert_eq!(
+        rig.product_store().availability(),
+        heimdall_issuer::store::StoreAvailability::Available
+    );
+    (rig, fp, passphrase, backup, started)
+}
+
+/// ⟨ADR-0008 §17.28 item 6⟩ `issuer_store_access_denied_when_another_binary_reads_the_item`,
+/// macOS on the product-file test store (a disposable file keychain, unlocked throughout;
+/// [`access_denied_rig`]). Reported through the real paths as `issuer_store_access_denied`,
+/// never `issuer_store_locked`: `issuer status` (the child's load), `issuer unlock` (the
+/// runtime's reload) with `next_command` the restore, and the doctor's finding.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_store_access_denied_when_another_binary_reads_the_item() {
+    let owner = owner_keychains();
+    let (rig, fp, _passphrase, _backup, _s) = access_denied_rig();
+    let out = rig.cli(&["--json", "issuer", "status"]);
+    let st = out.json();
+    assert_eq!(out.code, 0, "{out:?}");
+    assert_eq!(st["data"]["state"], "store_unavailable", "{st}");
+    assert_eq!(st["data"]["reason"], "issuer_store_access_denied", "{st}");
+    let human = rig.cli(&["issuer", "status"]);
+    assert!(
+        human.stdout.contains(
+            "Run `heimdall issuer restore --backup <file>`: it restores the CA to a new store item"
+        ),
+        "{human:?}"
+    );
+    // `issuer unlock`: the runtime's reload reads the item again and is denied again.
+    let pty = Pty::open();
+    let mut s = start_cli(
+        &rig,
+        "unlock",
+        &["--json", "issuer", "unlock"],
+        Some(&pty),
+        CEREMONY,
+    );
+    let out = finish(&mut s);
+    let env = out.json();
+    assert_eq!(out.code, 4, "{out:?}\n{}", pty.transcript());
+    assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{out:?}");
+    assert_eq!(reason(&env), "issuer_store_access_denied", "{out:?}");
+    assert_eq!(
+        env["data"]["next_command"], "heimdall issuer restore --backup <file>",
+        "{out:?}"
+    );
+    assert!(out.message().contains("unlocking cannot help"), "{out:?}");
+    // The doctor reports it (from the running runtime's status; it never reads K_ca).
+    let doc = rig.cli(&["--json", "doctor"]);
+    assert_eq!(doc.code, 0, "{doc:?}");
+    let doc = doc.json();
+    let found: Vec<&Value> = doc["data"]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["code"] == "issuer_store_access_denied")
+        .collect();
+    assert_eq!(found.len(), 1, "{doc}");
+    assert_eq!(found[0]["reason"], "issuer_store_access_denied");
+    let message = found[0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("heimdall issuer restore --backup <file>")
+            && message.contains("new store item")
+            && message.contains("Keychain Access"),
+        "{message}"
+    );
+    assert!(
+        !doc.to_string().contains("issuer_store_locked"),
+        "never the lock: {doc}"
+    );
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Active));
+    drop(rig);
+    assert_eq!(
+        owner_keychains(),
+        owner,
+        "the owner's keychains are unchanged"
+    );
+}
+
+/// ⟨ADR-0008 §17.28 item 7⟩ `issuer_restore_after_access_denial_writes_a_new_item_and_lists_the_orphan`,
+/// macOS on the product-file test store ([`access_denied_rig`]: copy A wrote the item, copy
+/// B is denied it). B runs `issuer restore --backup <file>` on a pty with no deletion first:
+/// the key goes to a new item (same service, account `<environment>#r1`), the attended
+/// `RegisterIssuer` decision carries that locator with a compare-and-swap against the old
+/// one and is approved by a typed `yes`; the issuer (B) reads the new item (`ready`);
+/// `issuer status` lists the old item under `orphan_store_items` with its service and
+/// account and the Keychain Access instruction; nothing is deleted (the old item is still in
+/// the keychain).
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_restore_after_access_denial_writes_a_new_item_and_lists_the_orphan() {
+    use heimdall_domain::decision::{DecisionKind, DecisionState};
+    let owner = owner_keychains();
+    let (rig, fp, passphrase, backup, _s) = access_denied_rig();
+    let env_id = rig
+        .store()
+        .transaction(|tx| tx.self_environment())
+        .unwrap()
+        .unwrap();
+    let service = format!("heimdall-issuer/{}", fp.as_str());
+    let old = format!("service={service};account={}", env_id.as_str());
+    let new = format!("service={service};account={}#r1", env_id.as_str());
+    let recorded = |rig: &Rig| {
+        rig.store()
+            .transaction(|tx| tx.issuer_store_locator(&fp))
+            .unwrap()
+    };
+    assert_eq!(recorded(&rig).as_deref(), Some(old.as_str()));
+    let listed = |rig: &Rig| -> Vec<String> {
+        rig.product_store()
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|i| i.locator)
+            .collect()
+    };
+    assert_eq!(listed(&rig), vec![old.clone()]);
+    let backup_arg = backup.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "restore",
+        "--backup",
+        backup_arg.as_str(),
+        "--not-stolen",
+    ];
+    let pty = Pty::open();
+    let mut s = start_cli(&rig, "restore-new-item", &args, Some(&pty), CEREMONY);
+    assert!(pty.wait_for("Backup passphrase: ", &mut s.child));
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line(&passphrase);
+    assert!(
+        pty.wait_for(
+            "Type 'yes' to record the restored store item: ",
+            &mut s.child
+        ),
+        "{}",
+        pty.transcript()
+    );
+    // The pending RegisterIssuer decision: the new locator, CAS against the old one.
+    let pending: Vec<_> = rig
+        .pending()
+        .into_iter()
+        .filter_map(|d| match d.kind {
+            DecisionKind::RegisterIssuer {
+                ca_fingerprint,
+                store_locator,
+                expected_store_locator,
+                ..
+            } if ca_fingerprint == fp => Some((d.id, store_locator, expected_store_locator)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pending.len(), 1, "one RegisterIssuer decision");
+    let (decision, locator, expected) = pending.into_iter().next().unwrap();
+    assert_eq!(locator.as_deref(), Some(new.as_str()), "the new locator");
+    assert_eq!(
+        expected.as_deref(),
+        Some(old.as_str()),
+        "CAS against the old"
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    let out = finish(&mut s);
+    let t = pty.transcript();
+    assert_eq!(out.code, 0, "{out:?}\n{t}");
+    assert!(t.contains("restored to the store and reloaded"), "{t}");
+    assert!(t.contains("Heimdall never deletes"), "{t}");
+    assert!(
+        t.contains(&format!(
+            "Keychain Access (service {service}, account {})",
+            env_id.as_str()
+        )),
+        "{t}"
+    );
+    for form in passphrase_forms(&passphrase) {
+        assert!(!t.contains(&form) && !out.stdout.contains(&form));
+    }
+    let d = rig
+        .store()
+        .transaction(|tx| tx.decision(&decision))
+        .unwrap()
+        .unwrap();
+    assert_eq!(d.state, DecisionState::Approved);
+    assert_eq!(recorded(&rig).as_deref(), Some(new.as_str()), "swapped");
+    // Nothing deleted: both items are in the keychain.
+    assert_eq!(listed(&rig), vec![old.clone(), new.clone()]);
+    // B reads its new item: the issuer is ready (after a fresh reload too).
+    let st = rig.cli(&["--json", "issuer", "status"]).json();
+    assert_eq!(st["data"]["state"], "ready", "{st}");
+    assert_eq!(st["data"]["cas"][0]["store_locator"], new.as_str(), "{st}");
+    let orphans = st["data"]["orphan_store_items"].as_array().unwrap();
+    assert!(
+        orphans
+            .iter()
+            .any(|o| o["locator"] == old.as_str() && o["fingerprint"] == fp.as_str()),
+        "the old item is listed with its service and account: {st}"
+    );
+    let human = rig.cli(&["issuer", "status"]).stdout;
+    assert!(
+        human.contains(&format!(
+            "delete it in Keychain Access (service {service}, account {})",
+            env_id.as_str()
+        )),
+        "{human}"
+    );
+    let pty = Pty::open();
+    let mut s = start_cli(
+        &rig,
+        "unlock-after",
+        &["--json", "issuer", "unlock"],
+        Some(&pty),
+        CEREMONY,
+    );
+    let out = finish(&mut s);
+    assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
+    assert_eq!(out.json()["data"]["state"], "ready", "{out:?}");
+    assert_eq!(listed(&rig), vec![old, new], "still nothing deleted");
+    assert_eq!(rig.ca_state(&fp), Some(CaState::Active));
+    drop(rig);
+    assert_eq!(
+        owner_keychains(),
+        owner,
+        "the owner's keychains are unchanged"
+    );
+}
+
 /// ⟨M03 wave 5, round 3; the round's `issuer_store_locked` flake⟩
 /// `issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony`, macOS on the
 /// product-file test store: the CLI runs from its own copy of the binary; while it waits at
@@ -2370,7 +2632,14 @@ fn issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony() {
     let env = out.json();
     assert_eq!(env["code"], "SERVICE_UNAVAILABLE", "{out:?}");
     assert_ne!(reason(&env), "issuer_store_locked", "{out:?}");
+    // ⟨ADR-0008 §17.28 item 5⟩ Its own reason, and the next step.
+    assert_eq!(reason(&env), "issuer_executable_changed", "{out:?}");
     assert!(out.message().contains("executable was replaced"), "{out:?}");
+    assert!(
+        out.message()
+            .contains("finish installing or updating Heimdall, then run the command again"),
+        "{out:?}"
+    );
     assert!(
         rig.product_store().list().unwrap().is_empty(),
         "no keychain item was written"

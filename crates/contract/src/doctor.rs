@@ -472,6 +472,12 @@ pub mod finding {
     /// clears refuse until it is removed (ADR-0008 §17.20 item 15: "the doctor (U12) reports
     /// it"; nothing is repaired silently).
     pub const MANAGED_DIR_UNSAFE: &str = "managed_dir_unsafe";
+    /// ⟨M03; ADR-0008 §17.28 item 6⟩ The running issuer reports that the CA key store's
+    /// access list denied it a read of a registered CA key (reason
+    /// `issuer_store_access_denied`; on macOS an ad-hoc-signed build after an update).
+    /// Next: `heimdall issuer restore --backup <file>`. Read from a runtime that is
+    /// already running; the doctor never starts one and never reads a CA key.
+    pub const ISSUER_STORE_ACCESS_DENIED: &str = "issuer_store_access_denied";
 
     /// ⟨M03⟩ The findings M03 adds (m03-plan §5 item 14); [`ALL`] stays M02's list.
     pub const M03: &[&str] = &[
@@ -480,6 +486,7 @@ pub mod finding {
         CLIENT_TRACE_FAMILY_UNRECORDED,
         SLOT_FREE,
         MANAGED_DIR_UNSAFE,
+        ISSUER_STORE_ACCESS_DENIED,
     ];
 }
 

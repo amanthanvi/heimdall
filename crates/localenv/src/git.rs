@@ -9,8 +9,12 @@
 //!
 //! * the local queries of §5.6, `git config --system|--global --includes --show-origin
 //!   -z --get-all core.sshCommand`, run with the caller's environment snapshot, stdin
-//!   null, no shell, 2 s, and the filesystem root as the working directory, so no
-//!   repository's local scope or `includeIf` condition can apply;
+//!   null, no shell, bounded by `LOCAL_QUERY_TIMEOUT` (10 s), and the filesystem root as
+//!   the working directory, so no repository's local scope or `includeIf` condition
+//!   can apply. A query that fails is listed in `unreadable` by what it asked (`git
+//!   config --global`, `git var GIT_CONFIG_SYSTEM`), and one that ran past the bound
+//!   says so (`… (timed out after <n> ms)`): the observation is then incomplete and the
+//!   item `not_applicable` (fail closed);
 //! * the static scan of the system file, both global files and every file they
 //!   include, conditionally or not (§5.6, M2-R08). Each `core.sshCommand` key is
 //!   counted; its value is read from the key's line only to digest it, then dropped.
@@ -47,6 +51,7 @@
 //! core.sshCommand` with the child's environment), then `GIT_SSH`, then Git's default.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use heimdall_contract::doctor::{
     GitScope, GitSshClassification, GitSshSelection, GitSshSource, GitValueObservation,
@@ -275,28 +280,56 @@ enum QueryAnswer {
     Found(Vec<u8>),
     /// Exit 1: nothing set.
     Absent,
-    /// Anything else (error, timeout, unparsed).
-    Failed,
+    /// Anything else (error, unparsed, or a timeout when `timed_out`).
+    Failed {
+        /// The bound fired and the query was killed.
+        timed_out: bool,
+    },
+}
+
+impl QueryAnswer {
+    /// The failure as an `unreadable` entry for the query `what`: the query's own words,
+    /// with the bound when it timed out (so a test or a report names it).
+    fn failure_entry(what: &str, timed_out: bool, bound: Duration) -> String {
+        if timed_out {
+            format!("{what} (timed out after {} ms)", bound.as_millis())
+        } else {
+            what.to_owned()
+        }
+    }
 }
 
 fn git_query(git: &Path, args: &[&str], env: &Env, cwd: &Path) -> QueryAnswer {
+    git_query_within(git, args, env, cwd, LOCAL_QUERY_TIMEOUT)
+}
+
+fn git_query_within(
+    git: &Path,
+    args: &[&str],
+    env: &Env,
+    cwd: &Path,
+    bound: Duration,
+) -> QueryAnswer {
     let Ok(out) = run_contained(&Spec {
         program: git,
         args: args.iter().map(Into::into).collect(),
         env: Some(env),
         cwd: Some(cwd),
-        timeout: LOCAL_QUERY_TIMEOUT,
+        timeout: bound,
         max_output: LOCAL_QUERY_OUTPUT_BYTES,
     }) else {
-        return QueryAnswer::Failed;
+        return QueryAnswer::Failed { timed_out: false };
     };
-    if out.timed_out || out.stdout.len() >= LOCAL_QUERY_OUTPUT_BYTES {
-        return QueryAnswer::Failed;
+    if out.timed_out {
+        return QueryAnswer::Failed { timed_out: true };
+    }
+    if out.stdout.len() >= LOCAL_QUERY_OUTPUT_BYTES {
+        return QueryAnswer::Failed { timed_out: false };
     }
     match out.status.and_then(|s| s.code()) {
         Some(0) => QueryAnswer::Found(out.stdout),
         Some(1) => QueryAnswer::Absent,
-        _ => QueryAnswer::Failed,
+        _ => QueryAnswer::Failed { timed_out: false },
     }
 }
 
@@ -575,25 +608,32 @@ pub fn value_at_line(bytes: &[u8], start: usize) -> Option<String> {
 }
 
 /// The system file Git reads, when it reads one: `Ok(None)` when Git reads none
-/// (`GIT_CONFIG_NOSYSTEM`), `Err(())` when it cannot be established.
+/// (`GIT_CONFIG_NOSYSTEM`), `Err(why)` when it cannot be established (`why` is the
+/// `unreadable` entry).
 fn system_file(
     env: &Env,
     git: Option<&Path>,
     queries: LocalQueries,
-) -> Result<Option<PathBuf>, ()> {
+    bound: Duration,
+) -> Result<Option<PathBuf>, String> {
+    const NOT_ESTABLISHED: &str = "git system configuration (path not established)";
     if let (Some(git), LocalQueries::Enabled) = (git, queries) {
-        return match git_query(git, &["var", "GIT_CONFIG_SYSTEM"], env, &query_cwd()) {
+        let args = ["var", "GIT_CONFIG_SYSTEM"];
+        return match git_query_within(git, &args, env, &query_cwd(), bound) {
             QueryAnswer::Found(out) => {
                 let text = String::from_utf8_lossy(&out);
                 let line = text.lines().next().unwrap_or_default().trim();
                 if line.is_empty() {
-                    Err(())
+                    Err(NOT_ESTABLISHED.to_owned())
                 } else {
                     Ok(Some(PathBuf::from(line)))
                 }
             }
             QueryAnswer::Absent => Ok(None),
-            QueryAnswer::Failed => Err(()),
+            QueryAnswer::Failed { timed_out } => Err(format!(
+                "{NOT_ESTABLISHED}: {}",
+                QueryAnswer::failure_entry("git var GIT_CONFIG_SYSTEM", timed_out, bound)
+            )),
         };
     }
     let nosystem = env
@@ -605,7 +645,7 @@ fn system_file(
     }
     match env.get("GIT_CONFIG_SYSTEM").filter(|v| !v.is_empty()) {
         Some(p) => Ok(Some(PathBuf::from(p))),
-        None => Err(()),
+        None => Err(NOT_ESTABLISHED.to_owned()),
     }
 }
 
@@ -618,7 +658,19 @@ pub fn observe_global(
     clients: &ClientInventory,
     queries: LocalQueries,
 ) -> GitGlobalObservation {
-    observe(env, clients, queries, None)
+    observe(env, clients, queries, None, LOCAL_QUERY_TIMEOUT)
+}
+
+/// [`observe_global`] with each local query bounded by `bound` instead of
+/// `LOCAL_QUERY_TIMEOUT` (a test's injected bound; production passes the constant).
+#[must_use]
+pub fn observe_global_within(
+    env: &Env,
+    clients: &ClientInventory,
+    queries: LocalQueries,
+    bound: Duration,
+) -> GitGlobalObservation {
+    observe(env, clients, queries, None, bound)
 }
 
 /// ADR-0007 §12.34 item 8, additive: [`observe_global`], with the occurrences that are
@@ -638,7 +690,20 @@ pub fn observe_global_for(
     queries: LocalQueries,
     managed: &Path,
 ) -> GitGlobalObservation {
-    observe(env, clients, queries, Some(managed))
+    observe(env, clients, queries, Some(managed), LOCAL_QUERY_TIMEOUT)
+}
+
+/// [`observe_global_for`] with each local query bounded by `bound` instead of
+/// `LOCAL_QUERY_TIMEOUT` (a test's injected bound; production passes the constant).
+#[must_use]
+pub fn observe_global_for_within(
+    env: &Env,
+    clients: &ClientInventory,
+    queries: LocalQueries,
+    managed: &Path,
+    bound: Duration,
+) -> GitGlobalObservation {
+    observe(env, clients, queries, Some(managed), bound)
 }
 
 /// The origin string an observation reports for the file at `path` (`file:` and the
@@ -804,6 +869,7 @@ fn observe(
     clients: &ClientInventory,
     queries: LocalQueries,
     managed: Option<&Path>,
+    bound: Duration,
 ) -> GitGlobalObservation {
     let git = clients.selected(ClientKind::Git).map(|c| c.path.clone());
     let home = git_home(env);
@@ -822,12 +888,10 @@ fn observe(
         walk.unreadable.push("Git home (HOME unset)".to_owned());
     }
     // Static scan: the system file, then the global files in read order.
-    match system_file(env, git.as_deref(), queries) {
+    match system_file(env, git.as_deref(), queries, bound) {
         Ok(Some(path)) => walk.file(&path, GitScope::System, 0, false, &mut Vec::new()),
         Ok(None) => {}
-        Err(()) => walk
-            .unreadable
-            .push("git system configuration (path not established)".to_owned()),
+        Err(why) => walk.unreadable.push(why),
     }
     for root in &global_files(env).roots() {
         walk.file(root, GitScope::Global, 0, false, &mut Vec::new());
@@ -850,7 +914,7 @@ fn observe(
                 "--get-all",
                 "core.sshCommand",
             ];
-            match git_query(git, &args, env, &query_cwd()) {
+            match git_query_within(git, &args, env, &query_cwd(), bound) {
                 QueryAnswer::Found(out) => match parse_origin_values(&out) {
                     Some(pairs) => {
                         for (origin, value) in pairs {
@@ -865,7 +929,11 @@ fn observe(
                     None => unreadable.push(format!("git config {flag} (output not understood)")),
                 },
                 QueryAnswer::Absent => {}
-                QueryAnswer::Failed => unreadable.push(format!("git config {flag}")),
+                QueryAnswer::Failed { timed_out } => unreadable.push(QueryAnswer::failure_entry(
+                    &format!("git config {flag}"),
+                    timed_out,
+                    bound,
+                )),
             }
         }
     }
@@ -1017,7 +1085,7 @@ pub fn resolve_run_selection(
             };
         }
         QueryAnswer::Absent => {}
-        QueryAnswer::Failed => {
+        QueryAnswer::Failed { .. } => {
             return selection(
                 GitSshSource::Config,
                 None,

@@ -17,3 +17,5 @@ Options:
       --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
       --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
   -h, --help             Print help
+
+On macOS, a build without a Developer ID signature (ad-hoc-signed) may lose access to its CA key after an update: the key store item trusts the exact build that created it. The issuer then reports `issuer_store_access_denied`. Run `heimdall issuer restore --backup <file>`: it restores the CA to a new store item, then lists the old item under orphan store items; delete that one in Keychain Access (Heimdall never deletes it).

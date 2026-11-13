@@ -22,6 +22,14 @@ pub(super) fn status(st: &IssuerStatus, notes: &[String]) -> String {
     let _ = write!(out, "issuer: {}", word(&st.state));
     if let Some(r) = &st.reason {
         let _ = write!(out, " ({r})");
+        // ⟨ADR-0008 §17.28 item 6⟩ The access-list denial and its recovery.
+        if r == heimdall_contract::envelope::reason::ISSUER_STORE_ACCESS_DENIED {
+            let _ = write!(
+                out,
+                "\n{}",
+                heimdall_app::issuer::STORE_ACCESS_DENIED_GUIDANCE
+            );
+        }
     }
     let _ = writeln!(out, "\nboundary: {}", word(&st.issuer_isolation));
     if st.cas.is_empty() {
@@ -85,6 +93,15 @@ pub(super) fn status(st: &IssuerStatus, notes: &[String]) -> String {
                 out,
                 "\n  displaced by a restore: `heimdall issuer retire {fp}` deletes it once the CA is retired, or rerun the restore"
             );
+            // ⟨ADR-0008 §17.28 item 7⟩ The item a restore after an access-list denial left.
+            if o.store == heimdall_contract::issuer::StoreKind::MacosLoginKeychain
+                && let Some((service, account)) = o.locator.as_deref().and_then(keychain_parts)
+            {
+                let _ = writeln!(
+                    out,
+                    "  if this Heimdall executable cannot read it (issuer_store_access_denied, after an update), Heimdall never deletes it: delete it in Keychain Access (service {service}, account {account})"
+                );
+            }
         } else {
             let _ = writeln!(
                 out,
@@ -102,6 +119,14 @@ pub(super) fn status(st: &IssuerStatus, notes: &[String]) -> String {
         let _ = writeln!(out, "note: {n}");
     }
     out
+}
+
+/// ⟨ADR-0008 §17.28 item 7⟩ The service and account of a keychain locator
+/// (`service=<s>;account=<a>`), or `None` for another form.
+pub(super) fn keychain_parts(locator: &str) -> Option<(&str, &str)> {
+    let rest = locator.strip_prefix("service=")?;
+    let (service, account) = rest.split_once(";account=")?;
+    (!service.is_empty() && !account.is_empty()).then_some((service, account))
 }
 
 /// A registered CA (init, rotate begin).

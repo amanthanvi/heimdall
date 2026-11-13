@@ -4378,6 +4378,32 @@ No review has run yet. These rulings complete the wave before its reviews.
      - has the runtime report an access-list denial reading K_ca as a distinct, additive reason `issuer_store_access_denied` (authorized), with that restore as its next step, rather than as `issuer_store_locked` or a generic unavailability. The doctor reports it too.
    - **The regression:** a test reads a disposable product store's item with a different binary and sees `issuer_store_access_denied`, not `issuer_store_locked`.
    - U13 records the claim's limit in the claims table.
+7. **K4-Q1: after an access-list denial, restore writes a new item; it never needs a manual delete first.**
+   - When the recorded K_ca item reads `issuer_store_access_denied`, `heimdall issuer restore --backup <file>` writes the restored key to a **new** item with a distinct locator. On macOS that is the same service, with a restore-generation suffix on the account (`<environment>#r<n>`).
+   - The new locator is recorded through the attended `RegisterIssuer` decision, compare-and-swapped against the expected old locator. This is the existing path for a restore that changes the locator (§17.22 item 12; §17.23 item 4), so it adds no new authority.
+   - The old item is listed in `orphan_store_items` with its exact service and account, for the owner to delete in Keychain Access. Heimdall never deletes it, because it cannot do so without a prompt.
+   - **The regression:** binary copy A writes the item and copy B restores it. B gets a new item under a new locator, the decision records it, the old item is listed as an orphan, and nothing is deleted.
+8. **Q-I-R4-1:** two default-implemented methods on `heimdall_issuer`'s `SecretStore` trait, `get_item` and `put_new_item`, are accepted. The change is additive, and no existing signature changes.
+
+### 17.29 Orchestrator rulings on wave 5, round 4 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r4-questions.md`.
+
+1. **Q-L4-1, confirmed:** the absence check that can clear `late_write` is the client-run, read-only inspect step on the owner's terminal, and it is attended. It is not the runtime's Verifier, which can see neither the marker line nor the step's lock.
+2. **Q-I-R4-2 and Q-L4-2: a late write found present is a definite result with a way out.** This amends D5 §6.2's `withdrawn` row, which listed no transition.
+   - When an absence check runs after the not-after and observes the marker line **present**, the late write landed. Trust of ours remains, although the record says `withdrawn`.
+   - The check reports that as a definite result, not as `verification_inconclusive`: an additive reason `late_write_present` (authorized), whose next step is `heimdall enroll remove <enrollment>`. The residual is kept.
+   - **The amendment:** a `withdrawn` record that carries `late_write` may move to `removing` through a new attended `RemoveEnrollment` of the exact line by marker, as `abandoned` already may. On success the record ends `removed`, with the residual cleared.
+   - Inconclusive and failed checks still use `verification_inconclusive`.
+   - **The regressions:** a line-present check reports `late_write_present` and keeps the residual. The following `enroll remove` removes exactly that line and clears the residual. A `withdrawn` record without a residual still refuses `enroll remove`.
+3. **K4-Q2, confirmed:** `issuer_store_access_denied` is `CAPABILITY_UNAVAILABLE` (exit 4). An unchanged retry cannot fix it; the restore can.
+4. **K4-Q3, confirmed:** the doctor reports the denial only from a running runtime's issuer status. The doctor never reads K_ca itself.
+5. **K4's limit (orphan listing):** a deleted orphan stays listed until a later restore sees it gone. That is kept as built. U13 tests on a disposable macOS account whether an attributes-only keychain query can confirm the deletion without a prompt; if it can, `issuer status` refreshes the listing.
+6. **Q-F1-2, accepted:** the test-only localenv hooks (`observe_global_within`, and the `ProjectionTestConfig` bound and callback). They must stay unreachable in release builds, like every other test hook. The release gate covers them, or gains a probe if it does not.
+7. **F1, the local query bound (Q-F1-1):**
+   - **The cause, confirmed:** a `git config` query slower than the 2 s bound made the git observation incomplete. That correctly changed the plan digest, but on Windows under load it also made two previews of an unchanged plan differ.
+   - **The ruling:** `LOCAL_QUERY_TIMEOUT` is 10 s for every local query. An incomplete observation still changes the digest and leaves the selection undetermined (fail closed), and the unreadable entry names the timed-out query.
+   - ADR-0007 and m02-plan §2 now state 10 s.
 
 ## 18. Consequences
 

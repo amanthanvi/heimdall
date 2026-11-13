@@ -136,7 +136,8 @@ pub enum Command {
     /// Remove the projection, restore your files, and report what remains (M02).
     Uninstall(UninstallArgs),
     /// The local issuer: its CA key, status, recovery bundle (M03; ADR-0008 D3, D4).
-    #[command(subcommand)]
+    // ⟨ADR-0008 §17.28 item 6⟩ The ad-hoc-signed macOS update caveat and its recovery.
+    #[command(subcommand, after_help = ISSUER_UPDATE_HELP)]
     Issuer(IssuerCommand),
     /// Enroll a destination for managed credentials and manage its enrollments (M03;
     /// ADR-0008 D5).
@@ -767,6 +768,14 @@ pub struct DelegateArgs {
     pub request_id: String,
 }
 
+/// ⟨ADR-0008 §17.28 item 6⟩ `issuer --help`'s note: an ad-hoc-signed macOS build may lose
+/// access to its CA key after an update, and the recovery. No K_ca continuity across
+/// updates is claimed.
+const ISSUER_UPDATE_HELP: &str = "On macOS, a build without a Developer ID signature (ad-hoc-signed) may lose access to its CA key after an update: the key store item trusts the exact build that created it. The issuer then reports `issuer_store_access_denied`. Run `heimdall issuer restore --backup <file>`: it restores the CA to a new store item, then lists the old item under orphan store items; delete that one in Keychain Access (Heimdall never deletes it).";
+
+/// ⟨ADR-0008 §17.28 item 6⟩ `issuer restore --help`'s note on that recovery.
+const ISSUER_RESTORE_HELP: &str = "Also the recovery when the issuer reports `issuer_store_access_denied` (on macOS, an ad-hoc-signed build after an update): the CA is restored to a new store item, recorded after a typed `yes`; the old item is kept and listed under orphan store items, to be deleted in Keychain Access (Heimdall never deletes it).";
+
 /// `issuer` subcommands (m03-plan §5 item 24; ADR-0008 D3, D4).
 #[derive(Debug, Subcommand)]
 pub enum IssuerCommand {
@@ -803,6 +812,7 @@ pub enum IssuerCommand {
         fingerprint: String,
     },
     /// Restore the CA key from a backup (the passphrase is typed on the terminal).
+    #[command(after_help = ISSUER_RESTORE_HELP)]
     Restore {
         /// The encrypted backup file.
         #[arg(long, value_name = "FILE")]

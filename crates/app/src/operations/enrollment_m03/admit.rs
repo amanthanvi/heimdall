@@ -537,6 +537,47 @@ impl Operations {
                         EnrollmentEventKind::StartVerification
                     }
                     (VerifyMode::Absence, S::ManualRemovalPending) => EnrollmentEventKind::OwnerConfirmsRemoved,
+                    (VerifyMode::Absence, _) if super::verify::late_write_checkable(&record) => {
+                        // ⟨ADR-0008 §17.28 item 3; D5 §6.7⟩ The `late_write` residual's
+                        // absence check: one client-executed `inspect` through the
+                        // attended CLI's existing access (`enroll step`); the record's
+                        // state never moves, and only an observed absence after the
+                        // residual's not-after clears it (`verify::record_late_write_check`).
+                        if !attended {
+                            return Ok(Err(OpError::new(
+                                Code::InteractionRequired,
+                                "the late_write absence check runs only on an attended session",
+                            )
+                            .with_effect(EffectStatus::None)));
+                        }
+                        if let Some((mut open, mut j)) = open_operation_of(tx, &record.id)? {
+                            if !super::verify::is_late_write_check(&open, &j) {
+                                return Ok(Err(refuse(
+                                    Code::ConfigConflict,
+                                    "enrollment_state",
+                                    "another operation of this enrollment is open; finish it first",
+                                )));
+                            }
+                            // An earlier check that never finished (its step lost or timed
+                            // out) is superseded: its step can no longer be reported.
+                            j.outstanding = None;
+                            put_journal(tx, &open.id, &j, now)?;
+                            let superseded = OpError::new(
+                                Code::OperationCancelled,
+                                "superseded by a newer late_write absence check",
+                            )
+                            .with_effect(EffectStatus::None);
+                            super::settle_open(tx, emit, &mut open, &superseded, now, retention)?;
+                        }
+                        let mut op = insert_op(tx, &key, hash, kind, &request, &environment, op_id, now)?;
+                        op_to(&mut op, OperationEvent::Start, now)?;
+                        tx.update_operation(&op)?;
+                        emit.op(tx, &op)?;
+                        put_journal(tx, &op.id, &journal, now)?;
+                        // The answer is `enrollment_respond`'s for a running operation:
+                        // `ACCEPTED`, next `step`.
+                        return Ok(Ok((op.id, false)));
+                    }
                     (VerifyMode::TargetChange, S::Held) if hold == Some(HoldKind::HostKeyChanged) => {
                         journal.reverify_from = Some(ReverifyFrom::Held);
                         journal.proposed_target = proposed.clone();
@@ -578,7 +619,6 @@ impl Operations {
             })
             .await??;
         let (id, run) = r;
-        let _ = attended;
         if run {
             self.verify_operation(&id).await?;
         }

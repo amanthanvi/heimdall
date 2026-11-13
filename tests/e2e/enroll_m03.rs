@@ -5064,6 +5064,202 @@ async fn uncertain_append_left_for_withdrawn_keeps_late_write_residual() {
     assert!(lw.not_after_remote > 0);
 }
 
+// --- ⟨ADR-0008 §17.28 item 3⟩ the `late_write` residual's absence check ---------------
+
+/// An attended `enroll verify <id> --absence`, driven through its client-executed
+/// `inspect` against the loopback sshd (the CLI's loop): its operation and outcome.
+#[cfg(any(unix, windows))]
+async fn late_write_check(
+    w: &World,
+    id: &heimdall_contract::ids::EnrollmentId,
+    rid: &str,
+) -> (OperationId, Result<EnrollmentResult, OpError>) {
+    let e = w
+        .verify(id, rid, VerifyMode::Absence)
+        .await
+        .expect_err("the check runs through its step");
+    assert_eq!(e.code, Code::Accepted, "{e:?}");
+    let op = e.operation_id.clone().expect("the check's operation");
+    let out = w.drive(&op).await;
+    assert!(
+        w.receipts(&op)
+            .iter()
+            .any(|r| r.stage == heimdall_domain::operation::enrollment_stage::INSPECT_OBSERVED),
+        "the real inspect ran"
+    );
+    assert!(w.op(&op).state.is_settled(), "the check settles");
+    (op, out)
+}
+
+/// An abandoned record whose uncertain append left the `late_write` residual (the
+/// append reported killed; `ran`: it really ran, so its line landed).
+#[cfg(any(unix, windows))]
+async fn abandoned_with_late_write(
+    w: &World,
+    rid: &str,
+    ran: bool,
+) -> heimdall_domain::enrollment::EnrollmentRecord {
+    let op = w.approved(&w.spec(), rid).await;
+    w.uncertain_append(&op, ran).await;
+    let id = w.records().pop().unwrap().id;
+    w.req(
+        &attended(),
+        EnrollmentRequest::Abandon {
+            enrollment_id: id.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    let r = w.record(&id);
+    assert_eq!(r.state, EnrollmentState::Abandoned);
+    assert!(r.late_write.is_some(), "the residual");
+    r
+}
+
+/// ⟨§17.28 item 3⟩ An attended absence check before the residual's not-after (on the
+/// destination's clock) keeps the residual, though the line is absent; an unattended
+/// one is refused before anything.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn absence_verify_before_not_after_keeps_late_write() {
+    let w = World::with(short_steps()).await;
+    let r = abandoned_with_late_write(&w, "req_lwb", false).await;
+    let residual = r.late_write.clone().unwrap();
+    assert!(residual.not_after_remote > remote_now(), "not yet past");
+    assert_eq!(w.marker_lines(), 0, "the line is absent");
+    let e = w
+        .req(
+            &unattended(),
+            EnrollmentRequest::Verify {
+                enrollment_id: r.id.clone(),
+                request_id: RequestId::parse("req_lwb_un").unwrap(),
+                mode: VerifyMode::Absence,
+                wait: WaitMode::default(),
+            },
+        )
+        .await
+        .expect_err("unattended");
+    assert_eq!(e.code, Code::InteractionRequired, "{e:?}");
+    let (_, out) = late_write_check(&w, &r.id, "req_lwb_abs").await;
+    let e = out.expect_err("kept");
+    assert_eq!(
+        e.reason.as_deref(),
+        Some("verification_inconclusive"),
+        "{e:?}"
+    );
+    assert!(e.message.contains("not-after"), "{e:?}");
+    let after = w.record(&r.id);
+    assert_eq!(after.late_write, Some(residual), "the residual is kept");
+    assert_eq!(after.state, EnrollmentState::Abandoned, "no state moves");
+    assert!(
+        w.tx(|tx| tx.outstanding_obligations())
+            .enrollments
+            .iter()
+            .any(|o| o.id == r.id),
+        "still an outstanding obligation"
+    );
+}
+
+/// ⟨§17.28 item 3⟩ An attended absence check after the residual's not-after that
+/// observes no marker line and no lock clears the residual in the same transaction as
+/// its result; the record's state does not move.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn absence_verify_after_not_after_observing_absence_clears_late_write() {
+    let w = World::with(short_steps()).await;
+    let r = abandoned_with_late_write(&w, "req_lwa", false).await;
+    past_not_after().await;
+    assert!(r.late_write.as_ref().unwrap().not_after_remote < remote_now());
+    let (op, out) = late_write_check(&w, &r.id, "req_lwa_abs").await;
+    let res = out.unwrap_or_else(|e| panic!("cleared: {e:?}"));
+    assert_eq!(res.state, EnrollmentState::Abandoned);
+    assert!(
+        res.notes
+            .iter()
+            .all(|n| n.kind != heimdall_contract::enrollment::EnrollmentNoteKind::PossibleLateWrite),
+        "{:?}",
+        res.notes
+    );
+    let after = w.record(&r.id);
+    assert_eq!(after.late_write, None, "cleared");
+    assert_eq!(after.state, EnrollmentState::Abandoned, "no state moves");
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    assert_eq!(w.marker_lines(), 0);
+}
+
+/// ⟨§17.28 item 3⟩ An attended absence check after the not-after that observes the
+/// marker line (the uncertain append landed) keeps the residual.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn absence_verify_observing_line_present_keeps_late_write() {
+    let w = World::with(short_steps()).await;
+    let r = abandoned_with_late_write(&w, "req_lwp", true).await;
+    assert_eq!(w.marker_lines(), 1, "the append landed");
+    past_not_after().await;
+    let (_, out) = late_write_check(&w, &r.id, "req_lwp_abs").await;
+    let e = out.expect_err("kept");
+    assert!(e.message.contains("marker line"), "{e:?}");
+    let after = w.record(&r.id);
+    assert_eq!(after.late_write, r.late_write, "the residual is kept");
+    assert_eq!(after.state, EnrollmentState::Abandoned);
+    assert_eq!(w.marker_lines(), 1, "the check changes nothing remote");
+}
+
+/// ⟨§17.28 item 3; §17.27 item 1⟩ Two `withdrawn` records with the residual: the one
+/// whose check, after its not-after, observed absence no longer counts as an
+/// outstanding obligation (`Txn::outstanding_obligations`); the one whose not-after
+/// has not passed still does.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn late_write_cleared_record_is_no_longer_an_outstanding_obligation() {
+    let w = World::new().await;
+    let seed = |not_after: i64, token: &str| {
+        let token = token.to_owned();
+        w.seed_with(
+            EnrollmentState::Withdrawn,
+            EnrollmentForm::Account,
+            w.served_target(),
+            None,
+            move |r| {
+                r.late_write = Some(heimdall_domain::enrollment::LateWrite {
+                    step_token: token,
+                    not_after_remote: not_after,
+                });
+            },
+        )
+    };
+    let past = seed(remote_now() - 120, &"a1".repeat(16));
+    let future = seed(remote_now() + 3600, &"b2".repeat(16));
+    let outstanding = |w: &World| -> Vec<heimdall_contract::ids::EnrollmentId> {
+        w.tx(|tx| tx.outstanding_obligations())
+            .enrollments
+            .into_iter()
+            .map(|r| r.id)
+            .collect()
+    };
+    let before = outstanding(&w);
+    assert!(
+        before.contains(&past.id) && before.contains(&future.id),
+        "{before:?}"
+    );
+    let (_, out) = late_write_check(&w, &past.id, "req_lwo_past").await;
+    out.unwrap_or_else(|e| panic!("cleared: {e:?}"));
+    let (_, out) = late_write_check(&w, &future.id, "req_lwo_future").await;
+    out.expect_err("kept");
+    assert_eq!(w.record(&past.id).late_write, None);
+    assert_eq!(w.record(&past.id).state, EnrollmentState::Withdrawn);
+    assert!(w.record(&future.id).late_write.is_some());
+    let after = outstanding(&w);
+    assert!(
+        !after.contains(&past.id),
+        "cleared: not outstanding: {after:?}"
+    );
+    assert!(
+        after.contains(&future.id),
+        "uncleared: still outstanding: {after:?}"
+    );
+}
+
 /// m03-plan U10 (D4 item 3; §6.2): a CA is retired only once every enrollment under it
 /// is final or `abandoned` (U10-B's retirement precondition over U10-A's records).
 #[cfg(any(unix, windows))]

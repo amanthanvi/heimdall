@@ -72,16 +72,38 @@ const UNLOAD_POLL: std::time::Duration = std::time::Duration::from_millis(200);
 /// Handle `issuer` (module docs).
 pub(crate) fn run(ctx: &Ctx, command: IssuerCommand) -> ExitCode {
     match command {
-        IssuerCommand::Status => setup_cmd::block(ctx, status(ctx)),
-        IssuerCommand::Bundle { out, redact } => {
-            setup_cmd::block(ctx, bundle(ctx, &out, redact.is_some()))
+        IssuerCommand::Status => setup_cmd::block(ctx, async { with_next(status(ctx).await) }),
+        IssuerCommand::Bundle { out, redact } => setup_cmd::block(ctx, async {
+            with_next(bundle(ctx, &out, redact.is_some()).await)
+        }),
+        IssuerCommand::Retire { fingerprint } => {
+            setup_cmd::block(ctx, async { with_next(retire(ctx, &fingerprint).await) })
         }
-        IssuerCommand::Retire { fingerprint } => setup_cmd::block(ctx, retire(ctx, &fingerprint)),
         command @ (IssuerCommand::Init { .. }
         | IssuerCommand::Rotate(_)
         | IssuerCommand::Restore { .. }
-        | IssuerCommand::Unlock) => session::ceremony(ctx, command).emit(ctx),
+        | IssuerCommand::Unlock) => with_next(session::ceremony(ctx, command)).emit(ctx),
     }
+}
+
+/// ⟨ADR-0008 §17.28 item 6⟩ An `issuer_store_access_denied` refusal (from this process's
+/// store read or the runtime's) names its next command in `data.next_command`: the
+/// log-intact restore, `heimdall issuer restore --backup <file>`. Every other outcome is
+/// unchanged.
+fn with_next(mut outcome: Outcome) -> Outcome {
+    let denied = outcome
+        .env
+        .data
+        .pointer("/error/reason")
+        .and_then(serde_json::Value::as_str)
+        == Some(reason::ISSUER_STORE_ACCESS_DENIED);
+    if denied && let serde_json::Value::Object(map) = &mut outcome.env.data {
+        map.insert(
+            "next_command".to_owned(),
+            serde_json::Value::String(heimdall_app::issuer::STORE_ACCESS_DENIED_NEXT.to_owned()),
+        );
+    }
+    outcome
 }
 
 // --- shared -----------------------------------------------------------------------------
@@ -187,6 +209,38 @@ pub(crate) fn delete_exact(
     locator: &str,
 ) -> Result<(), Envelope<serde_json::Value>> {
     retire::delete_awaiting(store, ca, kind, locator).map_err(|e| deletion_refused(&e))
+}
+
+/// ⟨ADR-0008 §17.28 item 7⟩ [`delete_exact`] for an item a restore displaced, except one
+/// this executable cannot read (`issuer_store_access_denied`): that one is never deleted
+/// (the store reads an item before deleting it, so nothing was touched) and `Ok(false)`
+/// says it was kept, for the owner to delete in Keychain Access.
+pub(crate) fn delete_displaced(
+    store: &dyn SecretStore,
+    ca: &CaFingerprint,
+    kind: StoreKind,
+    locator: &str,
+) -> Result<bool, Envelope<serde_json::Value>> {
+    match retire::delete_awaiting(store, ca, kind, locator) {
+        Ok(()) => Ok(true),
+        Err(RetireError::Store(StoreError::Unavailable(
+            heimdall_issuer::store::StoreAvailability::AccessDenied,
+        ))) => Ok(false),
+        Err(e) => Err(deletion_refused(&e)),
+    }
+}
+
+/// ⟨ADR-0008 §17.28 item 7⟩ What the owner does with a kept unreadable item: its exact
+/// service and account, deleted in Keychain Access (Heimdall never deletes it).
+pub(crate) fn keep_instruction(locator: &str) -> String {
+    match render::keychain_parts(locator) {
+        Some((service, account)) => format!(
+            "this Heimdall executable cannot read it, so Heimdall never deletes it: delete it yourself in Keychain Access (service {service}, account {account})"
+        ),
+        None => format!(
+            "this Heimdall executable cannot read it, so Heimdall never deletes it: delete it yourself in the platform store ({locator})"
+        ),
+    }
 }
 
 /// The items a restore displaced for `ca` (`orphan_store_items` with a locator).

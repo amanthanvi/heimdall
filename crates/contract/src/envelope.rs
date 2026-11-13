@@ -327,6 +327,12 @@ pub mod reason {
     /// installation recorded no store locator for its key item, so nothing is deleted
     /// (ADR-0008 §17.21 item 3, §17.17 item 3).
     pub const ISSUER_STORE_LOCATOR_UNRECORDED: &str = "issuer_store_locator_unrecorded";
+    /// ⟨M03; ADR-0008 §17.28 item 6⟩ `CAPABILITY_UNAVAILABLE` (exit 4): the store is
+    /// unlocked, but its access list denied this executable a read of the CA key (on
+    /// macOS `errSecAuthFailed` from an unlocked keychain: an ad-hoc-signed build's
+    /// identity changes with every update). Next: `heimdall issuer restore --backup
+    /// <file>` (the log-intact restore). Never reported as `issuer_store_locked`.
+    pub const ISSUER_STORE_ACCESS_DENIED: &str = "issuer_store_access_denied";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair has no `verified` enrollment.
     pub const PAIR_NOT_ENROLLED: &str = "pair_not_enrolled";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair is not in the catalog.
@@ -445,6 +451,11 @@ pub mod reason {
     pub const ENROLLMENT_HOST_KEY_MISMATCH: &str = "enrollment_host_key_mismatch";
     /// ⟨M03⟩ `SERVICE_UNAVAILABLE`: The issuer child is restarting.
     pub const ISSUER_RESTARTING: &str = "issuer_restarting";
+    /// ⟨M03; ADR-0008 §17.28 item 5⟩ `SERVICE_UNAVAILABLE` (exit 5, retryable): the
+    /// running executable no longer matches the identity a new store item's access list
+    /// would trust (its file was replaced, an update or a rebuild), so nothing was
+    /// written. Next: finish installing or updating Heimdall, then run the command again.
+    pub const ISSUER_EXECUTABLE_CHANGED: &str = "issuer_executable_changed";
     /// ⟨M03⟩ `BACKPRESSURE`: The issuer's signature rate limit was reached.
     pub const ISSUER_RATE_LIMITED: &str = "issuer_rate_limited";
     /// ⟨M03⟩ `CREDENTIAL_EXPIRED`: Use after a lock revocation.
@@ -471,6 +482,7 @@ pub mod reason {
         (ISSUER_STORE_LOCKED, Code::CapabilityUnavailable),
         (ISSUER_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
         (ISSUER_STORE_LOCATOR_UNRECORDED, Code::CapabilityUnavailable),
+        (ISSUER_STORE_ACCESS_DENIED, Code::CapabilityUnavailable),
         (PAIR_NOT_ENROLLED, Code::CapabilityUnavailable),
         (PAIR_NOT_ADOPTED, Code::CapabilityUnavailable),
         (ENROLLMENT_UNVERIFIED, Code::CapabilityUnavailable),
@@ -538,6 +550,7 @@ pub mod reason {
         (APPROVAL_LAPSED, Code::DecisionStale),
         (ENROLLMENT_HOST_KEY_MISMATCH, Code::HostTrustChanged),
         (ISSUER_RESTARTING, Code::ServiceUnavailable),
+        (ISSUER_EXECUTABLE_CHANGED, Code::ServiceUnavailable),
         (ISSUER_RATE_LIMITED, Code::Backpressure),
         (GRANT_ENDED_SESSION_LOCKED, Code::CredentialExpired),
         (UNINSTALL_IN_PROGRESS, Code::ServiceUnavailable),

@@ -3550,7 +3550,7 @@ mod tests {
                 "{text}"
             );
             assert!(
-                text.contains(&format!("`heimdall enroll remove {}`", ids[1])),
+                text.contains(&format!("`heimdall enroll verify {} --absence`", ids[1])),
                 "{text}"
             );
             let mut b = app.clone();

@@ -55,3 +55,17 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r3-worklog-U3.md` | U3: the outstanding-obligation inventory (W5-R01, R02), the uninstall admission fence and revalidation (W5-S01; the widened scope), the uninstall preview under `--json` |
 | `m03-wave5-r3-worklog-K3.md` | K3: interactive-only ceremonies (W5-R03), the 120 s bound (R04/S04), Ctrl-C and EOF cancel (S05), sanitized text (S06), the issuer lock text (R05/S03), the release build (item 10); the `issuer_store_locked` root cause (replaced executable vs. the keychain access list) |
 | `m03-wave5-r3-worklog-D3.md` | D3: consent prose under `--json` (W5-S02), the enrollment lock text (R05/S03), `destination_lines` (R06), the shared lock-text helper |
+
+## Round 4 (base `607160ff`; implements ADR-0008 §17.28 items 3, 5, 6, 7 and 8, plus F1)
+
+These were moved here from the worktree root at the end of round 4. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r4-brief.md` | The common round-4 brief |
+| `m03-wave5-r4-questions.md` | Q-L4-1 to 3, the K4 questions (K4-Q1 ANSWERED, §17.28 item 7), the F1 questions, Q-I-R4-1 (ANSWERED, §17.28 item 8) and Q-I-R4-2 |
+| `m03-wave5-r4-worklog-I.md` | The integrator's round-4 worklog: the late-write note command, the `umask 002` doctor fixture fix, validation |
+| `m03-wave5-r4-worklog-L4.md` | L4: `late_write` cleared by an attended absence check after the not-after (§17.28 item 3) |
+| `m03-wave5-r4-worklog-K4.md` | K4: `issuer_executable_changed`, `issuer_store_access_denied` (+ doctor finding), the release note, restore to a new `#r<n>` item (§17.28 items 5–7) |
+| `m03-wave5-r4-worklog-F1.md` | F1: the Windows plan-digest flake: a 2 s local-query timeout on `git config`, raised to 10 s; the timed-out query is named |

@@ -13,7 +13,7 @@
 //! `stat` (identity selection), agent sockets by `stat` and `\\.\pipe\` by listing, the
 //! Git files of §5.6, and the catalog facts the caller read from the store read-only
 //! ([`LocalContext::catalog`]). With local queries: `<ssh> -V`, `ssh-keygen -F` and the
-//! `git config`/`git var` queries, each contained and bounded at 2 s.
+//! `git config`/`git var` queries, each contained and bounded at 10 s (`LOCAL_QUERY_TIMEOUT`).
 //!
 //! **Reporting rules:** paths are shown with `~` for the account home; command
 //! directives (`ProxyCommand`, `LocalCommand`, `KnownHostsCommand`) are shown as

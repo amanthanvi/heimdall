@@ -977,6 +977,30 @@ pub(super) mod world {
             hold: Option<HoldReason>,
             late_write: bool,
         ) -> EnrollmentRecord {
+            let now = Timestamp::now();
+            self.seed_record(
+                ca,
+                state,
+                form,
+                target,
+                hold,
+                late_write.then(|| LateWrite {
+                    step_token: "ab".repeat(16),
+                    not_after_remote: now.as_second() + 3600,
+                }),
+            )
+        }
+
+        /// ⟨§17.28 item 3⟩ A record seeded in `state` under `ca` with exactly `late_write`.
+        pub fn seed_record(
+            &self,
+            ca: &TestCa,
+            state: EnrollmentState,
+            form: EnrollmentForm,
+            target: ApprovedTarget,
+            hold: Option<HoldReason>,
+            late_write: Option<LateWrite>,
+        ) -> EnrollmentRecord {
             let id = EnrollmentId::from_random_bytes(rand16());
             let marker = marker_for(&id);
             let line = format!(
@@ -1015,10 +1039,7 @@ pub(super) mod world {
                     evidence_based: false,
                 }),
                 removal_origin: None,
-                late_write: late_write.then(|| LateWrite {
-                    step_token: "ab".repeat(16),
-                    not_after_remote: now.as_second() + 3600,
-                }),
+                late_write,
                 state,
                 verified_at: (state == EnrollmentState::Verified).then_some(now),
                 evidence: None,
@@ -1849,6 +1870,79 @@ fn enroll_reconcile_after_manual_recovery_never_redispatches() {
             .any(|n| n["kind"] == "possible_late_write"),
         "{v}"
     );
+}
+
+/// ⟨ADR-0008 §17.28 item 3⟩ `heimdall enroll verify <id> --absence` on the owner's
+/// terminal (attended), for a `withdrawn` record carrying the `late_write` residual:
+/// exactly one step (an inspect) runs for real against the loopback sshd; after the
+/// residual's not-after, with no marker line, the residual is cleared and the state
+/// stays `withdrawn`; before its not-after it is kept. `--non-interactive` (unattended)
+/// is refused before any step and keeps it.
+#[cfg(unix)]
+#[test]
+fn enroll_verify_absence_clears_late_write_only_after_not_after() {
+    use heimdall_domain::enrollment::LateWrite;
+    let w = World::new();
+    let now = heimdall_contract::Timestamp::now().as_second();
+    let seed = |not_after: i64| {
+        w.seed_record(
+            &w.ca,
+            EnrollmentState::Withdrawn,
+            EnrollmentForm::Account,
+            w.served_target(),
+            None,
+            Some(LateWrite {
+                step_token: "cd".repeat(16),
+                not_after_remote: not_after,
+            }),
+        )
+    };
+    let past = seed(now - 120);
+    let future = seed(now + 3600);
+    // Unattended: refused before any step, the residual kept.
+    let pid = past.id.to_string();
+    let out = w.cli(&[
+        "--json",
+        "--non-interactive",
+        "enroll",
+        "verify",
+        &pid,
+        "--absence",
+    ]);
+    let v = one_envelope(&out);
+    assert_eq!(v["code"], "INTERACTION_REQUIRED", "{v}");
+    assert_eq!(out.code, exit_of(&v), "{out:?}");
+    assert_eq!(w.step_runs(), 0, "{out:?}");
+    assert!(w.record(&past.id).late_write.is_some());
+    // Attended, after the not-after: one inspect, cleared.
+    let pty = terminal::Pty::open();
+    let mut child = pty.start(
+        &w.env(),
+        &w.home.root,
+        &["enroll", "verify", &pid, "--absence"],
+    );
+    let (code, t) = pty.finish(&mut child);
+    assert_eq!(code, Some(0), "{t}");
+    assert!(t.contains("step inspect"), "{t}");
+    assert_eq!(w.step_runs(), 1, "one inspect, nothing else: {t}");
+    let after = w.record(&past.id);
+    assert_eq!(after.late_write, None, "cleared: {t}");
+    assert_eq!(after.state, EnrollmentState::Withdrawn, "{t}");
+    assert!(!t.contains("possible_late_write"), "{t}");
+    // Attended, before the not-after: kept.
+    let fid = future.id.to_string();
+    let pty = terminal::Pty::open();
+    let mut child = pty.start(
+        &w.env(),
+        &w.home.root,
+        &["enroll", "verify", &fid, "--absence"],
+    );
+    let (code, t) = pty.finish(&mut child);
+    assert_ne!(code, Some(0), "{t}");
+    assert!(t.contains("not-after"), "{t}");
+    assert_eq!(w.step_runs(), 2, "{t}");
+    assert!(w.record(&future.id).late_write.is_some(), "kept: {t}");
+    assert_eq!(w.marker_lines(), 0, "nothing written");
 }
 
 /// m03-plan U12 (ADR-0006 §3.1; R3): every enroll decision kind (`enroll_account`,

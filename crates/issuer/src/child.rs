@@ -46,7 +46,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use heimdall_app::timegate::TimeGate;
+use heimdall_contract::ids::CaFingerprint;
 use heimdall_contract::issuer::CaState;
+use heimdall_credential::cert::SecretCaKey;
 use heimdall_domain::time::{Clock, SyncStatus, TimePolicy, TimeSync};
 use heimdall_store::{NoFaults, Store};
 
@@ -55,7 +57,7 @@ use crate::check::verify_reservation;
 use crate::protocol::{
     HEADER_BYTES, IssuanceRef, IssuerRefusal, PROTOCOL, Request, Response, body_len,
 };
-use crate::store::{SecretStore, StoreAvailability, StoreError};
+use crate::store::{SecretStore, StoreAvailability, StoreError, StoreItemRef};
 
 /// The child's exit status when the issuer is not in this build (wave 0), or cannot
 /// serve at all (`EX_UNAVAILABLE`, 69). The runtime's supervisor reads any nonzero
@@ -168,6 +170,29 @@ fn availability_of(e: &StoreError) -> StoreAvailability {
 }
 
 impl Child<'_> {
+    /// ⟨ADR-0008 §17.28 item 7⟩ The CA key from its **recorded** item (`get_item` by the
+    /// recorded locator: after a restore to a new item, that one), else, with no locator
+    /// recorded or none of this installation's items at it, by fingerprint (`get`).
+    fn read_key(&self, fingerprint: &CaFingerprint) -> Result<SecretCaKey, StoreError> {
+        let recorded = self
+            .db
+            .transaction(|tx| tx.issuer_store_locator(fingerprint))
+            .ok()
+            .flatten();
+        if let Some(locator) = recorded {
+            let item = StoreItemRef {
+                kind: self.store.kind(),
+                fingerprint: fingerprint.clone(),
+                locator,
+            };
+            match self.store.get_item(&item) {
+                Err(StoreError::NotFound) => {}
+                other => return other,
+            }
+        }
+        self.store.get(fingerprint)
+    }
+
     /// `load`: every registered `active`/`pending` CA from the store, or nothing.
     fn load(&mut self) -> Response {
         self.cas.clear();
@@ -186,7 +211,7 @@ impl Child<'_> {
             if !matches!(issuer.state, CaState::Active | CaState::Pending) {
                 continue;
             }
-            let key = match self.store.get(&issuer.ca_fingerprint) {
+            let key = match self.read_key(&issuer.ca_fingerprint) {
                 Ok(key) => key,
                 Err(e) => {
                     self.cas.clear();

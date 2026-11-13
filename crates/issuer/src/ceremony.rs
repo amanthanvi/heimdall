@@ -717,6 +717,10 @@ impl CeremonyError {
             | CeremonyError::Store(StoreError::Unavailable(a)) => {
                 a.refusal_reason().map(str::to_owned)
             }
+            // ⟨§17.28 item 5⟩ `issuer_executable_changed`.
+            CeremonyError::Store(e @ StoreError::ExecutableChanged) => {
+                e.refusal_reason().map(str::to_owned)
+            }
             CeremonyError::TestStoreNotRegistrable => {
                 Some(reason::ISSUER_STORE_UNAVAILABLE.to_owned())
             }
@@ -1060,6 +1064,82 @@ fn store_and_check(
     Ok(item)
 }
 
+/// The log-intact restore's store item (D4 item 4; §17.22 item 12; ⟨§17.28 item 7⟩).
+///
+/// * The **recorded** item (`recorded`, read by its locator and listed in this
+///   installation's store) already holds this key: adopted, nothing written.
+/// * It is unreadable with `issuer_store_access_denied` (on macOS, an ad-hoc-signed build
+///   after an update): [`new_item_after_denial`]. The old item is never deleted.
+/// * Otherwise the ordinary write and read-back ([`store_and_check`], adopting an item
+///   that already holds the key); a denial there is handled the same way.
+fn restore_item(
+    tty: &mut dyn Tty,
+    store: &dyn SecretStore,
+    fingerprint: &CaFingerprint,
+    key: &SecretCaKey,
+    recorded: Option<&str>,
+) -> Result<StoreItemRef, CeremonyError> {
+    if let Some(locator) = recorded {
+        let item = StoreItemRef {
+            kind: store.kind(),
+            fingerprint: fingerprint.clone(),
+            locator: locator.to_owned(),
+        };
+        match store.get_item(&item) {
+            Ok(back) => {
+                if !back.same_key(key) {
+                    return Err(CeremonyError::KeyMismatch);
+                }
+                if store.list()?.contains(&item) {
+                    return Ok(item);
+                }
+            }
+            Err(StoreError::Unavailable(StoreAvailability::AccessDenied)) => {
+                return new_item_after_denial(tty, store, fingerprint, key, Some(&item));
+            }
+            Err(_) => {}
+        }
+    }
+    match store_and_check(store, fingerprint, key, true) {
+        Err(CeremonyError::StoreUnavailable(StoreAvailability::AccessDenied)) => {
+            new_item_after_denial(tty, store, fingerprint, key, None)
+        }
+        other => other,
+    }
+}
+
+/// ⟨ADR-0008 §17.28 item 7⟩ The recorded item cannot be read by this executable: the key
+/// goes to a **new** item with a distinct locator ([`SecretStore::put_new_item`]; an item
+/// of this installation that already holds this key and that this executable can read is
+/// adopted instead, e.g. after a restore that was not confirmed), read back, and returned
+/// for the attended registration's compare-and-swap. Nothing is deleted.
+fn new_item_after_denial(
+    tty: &mut dyn Tty,
+    store: &dyn SecretStore,
+    fingerprint: &CaFingerprint,
+    key: &SecretCaKey,
+    unreadable: Option<&StoreItemRef>,
+) -> Result<StoreItemRef, CeremonyError> {
+    write(
+        tty,
+        "The CA key store item recorded for this CA can no longer be read by this Heimdall executable (issuer_store_access_denied; on macOS, an ad-hoc-signed build after an update). The CA is restored to a new store item; Heimdall never deletes the old one.\n",
+    )?;
+    for candidate in store.list()? {
+        if candidate.fingerprint != *fingerprint || Some(&candidate) == unreadable {
+            continue;
+        }
+        if store.get_item(&candidate).is_ok_and(|k| k.same_key(key)) {
+            return Ok(candidate);
+        }
+    }
+    let item = store.put_new_item(fingerprint, key)?;
+    let back = store.get_item(&item)?;
+    if !back.same_key(key) {
+        return Err(CeremonyError::KeyMismatch);
+    }
+    Ok(item)
+}
+
 /// D4 item 1, steps 1–8 (init and rotate-begin).
 fn create_ca(
     tty: &mut dyn Tty,
@@ -1253,7 +1333,7 @@ pub fn restore(
         if !matches!(ca.state, CaState::Active | CaState::Pending) {
             return Err(CeremonyError::CaRetired);
         }
-        let item = store_and_check(store, &fingerprint, &key, true)?;
+        let item = restore_item(tty, store, &fingerprint, &key, ca.store_locator.as_deref())?;
         client.attend()?;
         // ⟨§17.22 item 12⟩ A new store item (another locator than the recorded one):
         // registered again, compare-and-swap against the recorded locator; the
@@ -1456,6 +1536,31 @@ pub fn replace_orphan(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// ⟨ADR-0008 §17.28 items 5, 6⟩ The ceremony's codes and reasons for a replaced
+    /// executable and an access-list denial; a locked store stays `issuer_store_locked`.
+    #[test]
+    fn executable_changed_and_access_denied_reasons() {
+        let changed = CeremonyError::from(StoreError::ExecutableChanged);
+        assert_eq!(changed.code(), Code::ServiceUnavailable);
+        assert_eq!(
+            changed.reason().as_deref(),
+            Some(reason::ISSUER_EXECUTABLE_CHANGED)
+        );
+        let denied = CeremonyError::from(StoreError::Unavailable(StoreAvailability::AccessDenied));
+        assert_eq!(denied.code(), Code::CapabilityUnavailable);
+        assert_eq!(
+            denied.reason().as_deref(),
+            Some(reason::ISSUER_STORE_ACCESS_DENIED)
+        );
+        let locked = CeremonyError::from(StoreError::Unavailable(
+            StoreAvailability::InteractionNotAllowed,
+        ));
+        assert_eq!(
+            locked.reason().as_deref(),
+            Some(reason::ISSUER_STORE_LOCKED)
+        );
+    }
 
     /// Every `DisclosureKind` wire name in the exported public schema.
     fn every_kind() -> Vec<DisclosureKind> {

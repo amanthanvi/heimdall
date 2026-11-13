@@ -189,6 +189,13 @@ pub(crate) async fn doctor<P: Prompter>(
     {
         report.findings.push(f);
     }
+    // ⟨ADR-0008 §17.28 item 6⟩ The issuer's access-list denial, as the running runtime's
+    // `issuer.status` reports it (never starting one; the doctor never reads a CA key).
+    if ca_registered(ctx)
+        && let Some(f) = issuer_store_finding(ctx).await
+    {
+        report.findings.push(f);
+    }
     let value = serde_json::to_value(&report).unwrap_or_default();
     let human = output::render_doctor(&value);
     let mut env = Envelope::ok(value);
@@ -868,6 +875,52 @@ pub(crate) fn time_confirmation_pending(
         )
 }
 
+/// ⟨ADR-0008 §17.28 item 6⟩ `issuer_store_access_denied` when a runtime is already running
+/// (never started here) and its `issuer.status` reports that the CA key store's access
+/// list denied the issuer a read (on macOS, an ad-hoc-signed build after an update). Only
+/// the issuer child and the owner-present ceremony ever read a CA key (ADR-0008 D1), so
+/// with no runtime running nothing is reported. `None` otherwise.
+async fn issuer_store_finding(ctx: &Ctx) -> Option<Finding> {
+    use heimdall_contract::envelope::reason;
+    use heimdall_contract::issuer::{IssuerRequest, IssuerStatus};
+    let mut client = crate::client::connect(ctx, false).await.ok()?;
+    let env = client.request(Request::Issuer(IssuerRequest::Status)).await;
+    if !env.code.is_success() {
+        return None;
+    }
+    let status: IssuerStatus = serde_json::from_value(env.data).ok()?;
+    issuer_store_finding_of(&status, reason::ISSUER_STORE_ACCESS_DENIED)
+}
+
+/// The finding for an `issuer.status` whose reason is `denied` (module docs).
+fn issuer_store_finding_of(
+    status: &heimdall_contract::issuer::IssuerStatus,
+    denied: &str,
+) -> Option<Finding> {
+    if status.reason.as_deref() != Some(denied) {
+        return None;
+    }
+    Some(Finding {
+        code: finding::ISSUER_STORE_ACCESS_DENIED.to_owned(),
+        severity: FindingSeverity::Problem,
+        subject: ResourceRef {
+            kind: "issuer".to_owned(),
+            id: None,
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "the issuer cannot read its CA key, so no certificate can be issued (issuer_store_access_denied): {}",
+            heimdall_app::issuer::STORE_ACCESS_DENIED_GUIDANCE
+        ),
+        next: NextAction {
+            action: "owner_decision".to_owned(),
+            ..NextAction::default()
+        },
+        reason: Some(denied.to_owned()),
+    })
+}
+
 /// Whether an issuer CA is registered: one that is neither `deleted` nor `retired`.
 fn ca_registered_in(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<bool> {
     use heimdall_contract::issuer::CaState;
@@ -1371,6 +1424,46 @@ mod tests {
             gate(&input(Some(&skewed), None, None)),
         ] {
             assert!(!time_confirmation_pending(&status, true), "{status:?}");
+        }
+    }
+
+    /// ⟨ADR-0008 §17.28 item 6⟩ The finding only for an `issuer.status` reporting the
+    /// access-list denial (never the lock, another store reason, or none).
+    #[test]
+    fn issuer_store_finding_only_for_the_access_denial() {
+        use heimdall_contract::envelope::reason;
+        use heimdall_contract::issuer::{IssuerState, IssuerStatus};
+        use heimdall_contract::managed::IssuerIsolation;
+        let status = |r: Option<&str>| IssuerStatus {
+            state: IssuerState::StoreUnavailable,
+            reason: r.map(str::to_owned),
+            cas: Vec::new(),
+            orphan_store_items: Vec::new(),
+            issuer_isolation: IssuerIsolation::SameUserProcess,
+            bundle_stale: false,
+        };
+        let denied = reason::ISSUER_STORE_ACCESS_DENIED;
+        let found = issuer_store_finding_of(&status(Some(denied)), denied);
+        assert!(found.is_some(), "the access denial is reported");
+        let Some(f) = found else { return };
+        assert_eq!(f.code, finding::ISSUER_STORE_ACCESS_DENIED);
+        assert_eq!(f.reason.as_deref(), Some(denied));
+        assert!(
+            f.message
+                .contains("heimdall issuer restore --backup <file>"),
+            "{}",
+            f.message
+        );
+        assert!(f.message.contains("unlocking cannot help"));
+        for other in [
+            Some(reason::ISSUER_STORE_LOCKED),
+            Some(reason::ISSUER_STORE_UNAVAILABLE),
+            None,
+        ] {
+            assert!(
+                issuer_store_finding_of(&status(other), denied).is_none(),
+                "{other:?}"
+            );
         }
     }
 

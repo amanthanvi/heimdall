@@ -11,28 +11,34 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use heimdall_contract::enrollment::{EnrollmentForm, EnrollmentNext, EnrollmentState};
+use heimdall_contract::enrollment::{
+    EnrollmentForm, EnrollmentNext, EnrollmentState, RemoteStage, VerifyMode,
+};
 use heimdall_contract::envelope::{EffectStatus, reason};
 use heimdall_contract::ids::OperationId;
 use heimdall_contract::managed::ClockMeasurement;
 use heimdall_contract::{Code, Timestamp};
 use heimdall_domain::enrollment::{
-    EnrollmentEventKind, EnrollmentEvidence, EnrollmentHold, HoldReason, ReverifyFrom,
+    EnrollmentEventKind, EnrollmentEvidence, EnrollmentHold, EnrollmentRecord, HoldReason,
+    LateWrite, ReverifyFrom,
 };
 use heimdall_domain::issuance::principal_for;
-use heimdall_domain::operation::{EffectReceipt, enrollment_stage};
+use heimdall_domain::operation::{EffectReceipt, OperationKind, OperationRecord, enrollment_stage};
 use heimdall_domain::verification::{
     ClassifyContext, InconclusiveReason, KnownOffset, VerificationPhase, VerificationPurpose,
     VerificationRefusal, VerificationVerdict,
 };
+use heimdall_registry::classify::{Inspection, StepClass};
+use heimdall_registry::hm1;
+use heimdall_store::Txn;
 
-use super::super::{Operations, internal};
+use super::super::{Emit, Operations, internal};
 use super::steps::{Ctx, load_ctx};
 use super::{
-    adapter, move_record, pair_of, put_journal, receipt, record_preference, result_for, settle_ok,
-    settle_open, store_conflict,
+    adapter, emit_record, move_record, pair_of, put_journal, receipt, record_preference,
+    result_for, settle_ok, settle_open, store_conflict,
 };
-use crate::enrollment::plan_of_record;
+use crate::enrollment::{Journal, plan_of_record};
 use crate::error::OpError;
 use crate::operations::VerificationRequest;
 use crate::ports::{IssuanceRef, IssuanceTable, VerificationOutcome};
@@ -99,6 +105,29 @@ impl Operations {
         };
         self.record_verification(&ctx, phase, absence, &observed)
             .await
+    }
+
+    /// ⟨ADR-0008 §17.28 item 3⟩ End a `late_write` absence check whose read could not
+    /// be issued with `err` (no step outstanding; the residual is kept).
+    pub(super) async fn settle_late_write_check(
+        &self,
+        id: &OperationId,
+        err: &OpError,
+    ) -> Result<(), OpError> {
+        let (oid, err) = (id.clone(), err.clone());
+        let retention = self.retention();
+        let now = self.narrowing_now().await;
+        self.write(move |tx, emit| {
+            let Ok(mut ctx) = load_ctx(tx, &oid)? else {
+                return Ok(());
+            };
+            if !late_write_ctx(&ctx) || ctx.journal.outstanding.is_some() {
+                return Ok(());
+            }
+            let err = err.with_effect(EffectStatus::None);
+            settle_open(tx, emit, &mut ctx.op, &err, now, retention)
+        })
+        .await
     }
 
     /// ⟨round 3⟩ Whether the runtime's target evaluator finds a host-key change of
@@ -499,6 +528,180 @@ impl Operations {
         }
         Ok(())
     }
+}
+
+// --- ⟨ADR-0008 §17.28 item 3⟩ the `late_write` residual's absence check -------------
+//
+// D5 §6.7: the residual clears only when an `inspect` whose **destination clock
+// reading** (the HM1 record's `remote_now`, epoch seconds on the destination) is
+// strictly past the residual's `not_after_remote` (also destination-clock seconds,
+// from `heimdall_registry::fence::not_after_remote`) shows no marker line and no lock
+// with the residual's token. That is exactly `heimdall_registry::fence::late_write_cleared`;
+// no local or safe wall time, and no drift allowance (`RESIDUAL_DRIFT_PPM` belongs to
+// the revocation residual), enters it. The runtime Verifier's certificate check sees
+// neither the lock nor the marker line, so it is not used here.
+//
+// `enroll verify <enrollment> --absence` on an account-form record carrying the
+// residual (whatever its state: `withdrawn`, `abandoned`, and an abandoned record's
+// later states) admits an `enrollment.verify` operation (attended callers only) that
+// issues one client-executed `inspect` and settles with its result; the record's state
+// never moves. Only an observed absence clears the residual, in the same transaction
+// as the operation's result; every other outcome keeps it.
+
+/// Whether `record` takes the `late_write` absence check (account form, carrying the
+/// residual; the system form's absence check is §6.9's, from `manual_removal_pending`).
+pub(super) fn late_write_checkable(record: &EnrollmentRecord) -> bool {
+    record.form == EnrollmentForm::Account && record.late_write.is_some()
+}
+
+/// Whether `op` (with its journal) is a `late_write` absence check of an own record.
+pub(super) fn is_late_write_check(op: &OperationRecord, j: &Journal) -> bool {
+    op.kind == OperationKind::EnrollmentVerify
+        && j.mode == Some(VerifyMode::Absence)
+        && j.foreign.is_none()
+}
+
+/// Whether `ctx` is a `late_write` absence check (an absence verification of an
+/// account-form record; the system form's never is).
+pub(super) fn late_write_ctx(ctx: &Ctx) -> bool {
+    ctx.foreign.is_none()
+        && ctx.record.form == EnrollmentForm::Account
+        && is_late_write_check(&ctx.op, &ctx.journal)
+}
+
+/// The answer of a check that kept the residual.
+fn kept(msg: String) -> OpError {
+    OpError::new(Code::CapabilityUnavailable, msg)
+        .with_reason(reason::VERIFICATION_INCONCLUSIVE)
+        .with_effect(EffectStatus::None)
+}
+
+/// Why `reading` does not clear `residual` (the first unmet condition of
+/// `late_write_cleared`, in its order).
+fn kept_because(reading: &Inspection, residual: &LateWrite, marker: &str, id: &str) -> OpError {
+    use heimdall_registry::classify::{FileKind, LockReading};
+    if reading.remote_now <= residual.not_after_remote {
+        return kept(format!(
+            "the residual's not-after (remote time {}) has not passed on the destination's clock (remote time {}); the late_write residual is kept: run `heimdall enroll verify {id} --absence` again after it",
+            residual.not_after_remote, reading.remote_now
+        ));
+    }
+    let lock_ours = match &reading.lock {
+        LockReading::None => false,
+        LockReading::Held(h) => h.token == residual.step_token,
+        _ => true,
+    };
+    if lock_ours {
+        return kept(
+            "the uncertain append's lock (or an unreadable lock record) is still present; the late_write residual is kept".to_owned(),
+        );
+    }
+    if !matches!(reading.file, FileKind::Regular | FileKind::Absent) {
+        return kept(
+            "the registry could not be read as a regular file; the late_write residual is kept"
+                .to_owned(),
+        );
+    }
+    let present = reading.marker_lines > 0
+        || reading
+            .preimage()
+            .is_none_or(|c| heimdall_registry::line::marker_lines(c, marker) > 0);
+    if present {
+        return kept(format!(
+            "the registry holds this enrollment's marker line: the uncertain append may have landed; the late_write residual is kept. Remove the line with `heimdall enroll remove {id}`"
+        ));
+    }
+    kept("the inspection did not establish absence; the late_write residual is kept".to_owned())
+}
+
+/// The answer of an inspection that did not complete.
+fn not_inspected(class: StepClass) -> OpError {
+    let (code, why) = match class {
+        StepClass::HostTrustChanged => {
+            (Code::HostTrustChanged, reason::ENROLLMENT_HOST_KEY_MISMATCH)
+        }
+        StepClass::ProviderLocked => (Code::ProviderLocked, "provider_locked"),
+        StepClass::InteractionRequired => (Code::InteractionRequired, "interaction_required"),
+        _ => (
+            Code::CapabilityUnavailable,
+            reason::VERIFICATION_INCONCLUSIVE,
+        ),
+    };
+    OpError::new(
+        code,
+        "the registry inspection did not complete; the late_write residual is kept",
+    )
+    .with_reason(why)
+    .with_effect(EffectStatus::None)
+}
+
+/// Record the check's step result (one transaction, the caller's): an absence observed
+/// after the not-after clears the residual and settles the operation succeeded; any
+/// other result keeps it and settles the operation failed. A settled operation (a
+/// superseded check) records nothing more.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn record_late_write_check(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    ctx: &mut Ctx,
+    stage: RemoteStage,
+    class: StepClass,
+    stdout: &str,
+    now: Timestamp,
+    retention: Duration,
+) -> heimdall_store::Result<()> {
+    if stage == RemoteStage::Inspect {
+        tx.append_stage_receipt(
+            &ctx.op.id,
+            &receipt(
+                enrollment_stage::INSPECT_OBSERVED,
+                now,
+                EffectReceipt::NotAttempted,
+            ),
+        )?;
+    }
+    put_journal(tx, &ctx.op.id, &ctx.journal, now)?;
+    if ctx.op.state.is_settled() {
+        return Ok(());
+    }
+    let marker = ctx.record.marker.clone();
+    let id = ctx.record.id.to_string();
+    let reading = (stage == RemoteStage::Inspect && class == StepClass::Confirmed)
+        .then(|| {
+            hm1::parse(stdout.as_bytes())
+                .ok()
+                .and_then(|rec| Inspection::from_record(&rec, &marker).ok())
+        })
+        .flatten();
+    let Some(reading) = reading else {
+        return settle_open(tx, emit, &mut ctx.op, &not_inspected(class), now, retention);
+    };
+    let Some(residual) = ctx.record.late_write.clone() else {
+        // Already cleared (by an earlier check): nothing more to observe.
+        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
+            .map_err(|_| store_conflict("result"))?;
+        return settle_ok(tx, emit, &mut ctx.op, data, now, retention);
+    };
+    if !heimdall_registry::fence::late_write_cleared(&reading, &residual, &marker) {
+        let err = kept_because(&reading, &residual, &marker, &id);
+        return settle_open(tx, emit, &mut ctx.op, &err, now, retention);
+    }
+    let Some(cleared) =
+        tx.clear_late_write(&ctx.record.id, ctx.record.state, &residual.step_token, now)?
+    else {
+        let err = OpError::new(
+            Code::ConfigConflict,
+            "the enrollment changed during the check; the late_write residual is kept: run the check again",
+        )
+        .with_reason("enrollment_state")
+        .with_effect(EffectStatus::None);
+        return settle_open(tx, emit, &mut ctx.op, &err, now, retention);
+    };
+    emit_record(tx, emit, &cleared, Some(&ctx.op.id))?;
+    ctx.record = cleared;
+    let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
+        .map_err(|_| store_conflict("result"))?;
+    settle_ok(tx, emit, &mut ctx.op, data, now, retention)
 }
 
 /// ⟨round 3⟩ The outcome of a re-verification that never ran because the evaluation

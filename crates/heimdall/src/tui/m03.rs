@@ -467,7 +467,7 @@ fn late_write_lines(e: &Enrollment) -> Vec<Line<'static>> {
             "  an uncertain append may still land on the host until its not-after; it stays listed until an inspect after that shows absence",
         ),
         plain(format!(
-            "  remove it with `heimdall enroll remove {}`",
+            "  after the not-after: `heimdall enroll verify {} --absence` (ADR-0008 §17.28 item 3)",
             e.id
         )),
     ]

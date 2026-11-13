@@ -175,6 +175,10 @@ pub struct ProjectionTestConfig {
     /// `heimdall_sshconf::render::ManagedIdentityForm::select` (`None` in production;
     /// the INT-Q10 observation tests render each form).
     pub managed_identity_form: Option<heimdall_sshconf::render::ManagedIdentityForm>,
+    /// The bound on each local query of the Git item's observation, overriding
+    /// `local_query::LOCAL_QUERY_TIMEOUT` (`None` in production; M03 wave 5 r4 F1: the
+    /// slow-Git regression runs it at the earlier 2 s and at the constant).
+    pub local_query_timeout: Option<std::time::Duration>,
 }
 
 /// The writer's configuration: its only state.
@@ -214,7 +218,15 @@ pub struct ProjectionConfig {
     pub managed: Option<Arc<dyn ManagedPairSource>>,
     /// Test-only switches.
     pub test: ProjectionTestConfig,
+    /// Test-only diagnostics (`None` in production): called with every Git observation
+    /// a preview plans from, so a test that sees two digests differ can name what the
+    /// observation could not read (its `unreadable` entries, never a value).
+    pub git_observed: Option<GitObserved>,
 }
+
+/// A test's view of the Git observations a preview plans from
+/// ([`ProjectionConfig::git_observed`]).
+pub type GitObserved = Arc<dyn Fn(&crate::git::GitGlobalObservation) + Send + Sync>;
 
 impl ProjectionConfig {
     /// A configuration with no hook, an empty environment and inventory, local queries
@@ -233,6 +245,7 @@ impl ProjectionConfig {
             keys: None,
             managed: None,
             test: ProjectionTestConfig::default(),
+            git_observed: None,
         }
     }
 
@@ -281,6 +294,7 @@ impl std::fmt::Debug for ProjectionConfig {
             .field("managed", &self.managed.is_some())
             .field("queries", &self.queries)
             .field("test", &self.test)
+            .field("git_observed", &self.git_observed.is_some())
             .finish_non_exhaustive()
     }
 }
