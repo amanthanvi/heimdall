@@ -901,14 +901,36 @@ impl LoopbackSshd {
     /// ⟨M03⟩ Append one line to the account-form registry (as an administrator or the
     /// enrollment would; scratch only). A missing final newline is added first.
     ///
+    /// ⟨round 5, Y-W⟩ The write is read back through the same path: the file must be
+    /// its earlier bytes, then the line and one `\n` (no `\r`), or this fails. A setup
+    /// that plants damage (a duplicate or damaged marker line) therefore never falls
+    /// through silently to a run without it (a replaced, lost or CRLF write). Whether
+    /// the server read it through its own path is the inspect reading's to show.
+    ///
     /// # Errors
-    /// No registry, or the write fails.
+    /// No registry, the write fails, or the read-back differs.
     pub fn append_registry_line(&self, line: &str) -> io::Result<()> {
         let path = self
             .registry
             .as_ref()
             .ok_or_else(|| io::Error::other("this fixture sshd has no registry"))?;
-        append_line(path, line)
+        if line.contains(['\n', '\r']) {
+            return Err(io::Error::other("a registry line is one line"));
+        }
+        let before = fs::read(path).unwrap_or_default();
+        append_line(path, line)?;
+        let mut expected = before;
+        if expected.last().is_some_and(|&b| b != b'\n') {
+            expected.push(b'\n');
+        }
+        expected.extend_from_slice(line.as_bytes());
+        expected.push(b'\n');
+        if fs::read(path)? != expected {
+            return Err(io::Error::other(
+                "the registry line did not land: the read-back differs",
+            ));
+        }
+        Ok(())
     }
 
     fn publickey_log(&self, marker: &str) -> Vec<AcceptedKey> {
@@ -2214,5 +2236,48 @@ mod tests {
         );
         assert_eq!(sshd.listening(), ["127.0.0.1:22"]);
         assert_eq!(sshd.account(), None);
+    }
+
+    /// ⟨round 5, Y-W⟩ A registry write is read back: the earlier bytes kept, the line
+    /// and one `\n` added (a missing final newline first), a multi-line "line" refused
+    /// with nothing written, no registry an error.
+    #[test]
+    fn registry_append_is_read_back_or_fails() {
+        let scratch = Scratch::new().unwrap();
+        let registry = scratch.path().join("authorized_keys");
+        fs::write(&registry, b"keep-me").unwrap();
+        let mut sshd = LoopbackSshd {
+            host: LOOPBACK.to_owned(),
+            port: 22,
+            host_key_line: String::new(),
+            account: None,
+            log: None,
+            log_start: 0,
+            child: None,
+            harness_keys: None,
+            destination_id: None,
+            registry: Some(registry.clone()),
+            registry_remote: None,
+            harness_registry: None,
+            ca_keys: None,
+            principals_dir: None,
+            _lease: None,
+        };
+        sshd.append_registry_line("a b heimdall:enr_x").unwrap();
+        sshd.append_registry_line("a b heimdall:enr_x x").unwrap();
+        assert_eq!(
+            fs::read(&registry).unwrap(),
+            b"keep-me\na b heimdall:enr_x\na b heimdall:enr_x x\n"
+        );
+        for bad in ["one\ntwo", "crlf\r"] {
+            assert!(sshd.append_registry_line(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(
+            fs::read(&registry).unwrap(),
+            b"keep-me\na b heimdall:enr_x\na b heimdall:enr_x x\n",
+            "nothing written for a refused line"
+        );
+        sshd.registry = None;
+        assert!(sshd.append_registry_line("x").is_err());
     }
 }

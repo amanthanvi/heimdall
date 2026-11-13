@@ -47,6 +47,11 @@ const META_LOCK_DISCLOSURE_ACK: &str = "lock_disclosure_acknowledged_at";
 /// `meta`: the session-lock epoch the revocation pass last acknowledged (ADR-0008 D9;
 /// §17.1 item 9). Never lowers.
 const META_LOCK_ACK_EPOCH: &str = "session_lock_acknowledged_epoch";
+/// `meta` (⟨wave 4, round 5, W4-C01⟩; no schema, as `cleanup_intent:`): one row per
+/// released managed binding whose endpoint and files are not yet recorded removed
+/// (`Txn::record_released_binding_cleanup`). Key `<prefix><binding>`, value the
+/// binding ID.
+const META_RELEASED_BINDING_CLEANUP_PREFIX: &str = "managed_released_binding_cleanup:";
 
 /// A registered CA, one `issuers` row (ADR-0008 D4; m03-plan §5 item 18). Public
 /// metadata only: the CA's **public** key, digests and dates.
@@ -1471,7 +1476,13 @@ impl Txn<'_> {
     /// * a grant, in any state, with a slot `held` or `clearing` for a **released**
     ///   binding (D10 item 2: `held(b, g)` → `clearing` when `b` is released, even
     ///   while the grant lives on through another reference). The slot is freed last,
-    ///   so its row is the obligation for that binding's slot, files and mux path.
+    ///   so its row is the obligation for that binding's slot, files and mux path;
+    /// * ⟨round 5, W4-C01⟩ a grant, in any state, with a **released** binding whose
+    ///   release cleanup is not recorded done
+    ///   ([`Self::record_released_binding_cleanup`], written in the release
+    ///   transaction): the binding's endpoint and files of every generation it was
+    ///   materialized at, with or without a slot. The row is removed only once they are
+    ///   gone ([`Self::released_binding_cleanup_done`]).
     pub fn managed_cleanup_owed(&mut self, environment: &EnvironmentId) -> Result<Vec<GrantId>> {
         let mut out: BTreeSet<String> = BTreeSet::new();
         {
@@ -1508,11 +1519,44 @@ impl Txn<'_> {
                 .collect::<std::result::Result<_, _>>()?;
             out.extend(rows);
         }
+        for b in self.meta_with_prefix(META_RELEASED_BINDING_CLEANUP_PREFIX)? {
+            let binding = parse_binding(&b)?;
+            if let Some(record) = self.binding(&binding)?
+                && record.environment == *environment
+            {
+                out.insert(record.grant.as_str().to_owned());
+            }
+        }
         out.iter()
             .map(|g| {
                 GrantId::parse(g).map_err(|_| codec::doc_error("stored grant id is malformed"))
             })
             .collect()
+    }
+
+    /// ⟨M03 wave 4, round 5 (W4-C01)⟩ ADR-0008 §17.22 items 9–10: in the release
+    /// transaction of the managed binding `binding`, the durable obligation for its
+    /// endpoint and files (every resource generation it was materialized at, a
+    /// re-issue's included), held or not a slot. Idempotent. Listed through
+    /// [`Self::managed_cleanup_owed`] until [`Self::released_binding_cleanup_done`].
+    pub fn record_released_binding_cleanup(&mut self, binding: &BindingId) -> Result<()> {
+        self.set_meta(
+            &format!("{META_RELEASED_BINDING_CLEANUP_PREFIX}{binding}"),
+            binding.as_str(),
+        )
+    }
+
+    /// ⟨W4-C01⟩ Whether `binding`'s release cleanup is still owed.
+    pub fn released_binding_cleanup_owed(&mut self, binding: &BindingId) -> Result<bool> {
+        Ok(self
+            .meta(&format!("{META_RELEASED_BINDING_CLEANUP_PREFIX}{binding}"))?
+            .is_some())
+    }
+
+    /// ⟨W4-C01⟩ Record `binding`'s release cleanup done (its endpoint and files gone);
+    /// nothing when none was owed.
+    pub fn released_binding_cleanup_done(&mut self, binding: &BindingId) -> Result<()> {
+        self.delete_meta(&format!("{META_RELEASED_BINDING_CLEANUP_PREFIX}{binding}"))
     }
 
     // --- owned connections (ADR-0008 D8 item 2) ------------------------------------------

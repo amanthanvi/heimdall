@@ -25,6 +25,13 @@
 //!   it, never derived) whose files are at a new generation, and `ssh.exe` signs through
 //!   it with the new K_env.
 //!
+//!
+//! ⟨round 5, item 4⟩ The in-box client's host-key failure paths, for its trace row:
+//! [`windows_client_trace_row_host_key_changed_observation`] and
+//! [`windows_client_trace_row_host_key_unknown_observation`] (observations, not gated on
+//! the row), and [`windows_verification_host_key_mismatch_holds_no_rollback`] (gated on
+//! it, as every test needing a conclusive verification).
+//!
 //! A run without the harness fixture **fails** with that reason (`World::with`).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -576,4 +583,292 @@ async fn windows_client_trace_row_observation() {
             }
         }
     }
+}
+
+// =====================================================================================
+// ⟨round 5, item 4⟩ The in-box client's host-key failure paths, for its trace row
+// =====================================================================================
+
+/// The observation redaction of [`windows_client_trace_row_observation`] (the scratch
+/// root, in both separator forms, and the account), and a key blob (`AAAA…`, a public
+/// key's base64) masked; a canary in a line is a defect (the line is never printed).
+fn observation_redactor(w: &World) -> impl Fn(&str) -> String {
+    let root = w.home.root.to_string_lossy().into_owned();
+    let account = w.account.as_str().to_owned();
+    move |l: &str| {
+        let t = l
+            .replace(&root, "<scratch>")
+            .replace(&root.replace('\\', "/"), "<scratch>");
+        let t = if account.len() >= 2 {
+            t.replace(&account, "<user>")
+        } else {
+            t
+        };
+        let t = t
+            .split(' ')
+            .map(|word| {
+                if word.starts_with("AAAA") && word.len() >= 40 {
+                    "<key>"
+                } else {
+                    word
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        heimdall_testkit::assert_no_canary(&t);
+        t
+    }
+}
+
+/// What the in-box client prints about a host key (the markers a row's
+/// `host_key_failure` set is taken from; the 10.5p1 and 9.6p1 rows' strings and the
+/// lines around them).
+const HOST_KEY_MARKERS: &[&str] = &[
+    "host key",
+    "Host key",
+    "HOST IDENTIFICATION",
+    "known_hosts",
+    "strict checking",
+    "fingerprint",
+];
+
+/// Whether `line` is printed by a host-key observation: every non-debug line, and every
+/// line about a host key.
+fn host_key_line(line: &str) -> bool {
+    !line.trim().is_empty()
+        && (!line.starts_with("debug") || HOST_KEY_MARKERS.iter().any(|m| line.contains(m)))
+}
+
+/// A verified record of this world's pair whose approved host key is a fresh fixture key
+/// the server does not serve, its registry line present, and the alias evaluating to
+/// that approved key (the route matches: only the server's key differs, as for a host
+/// whose key changed since the approval). Returns the record and the registry's bytes.
+fn host_key_changed_record(w: &World) -> (heimdall_domain::enrollment::EnrollmentRecord, Vec<u8>) {
+    let fake = FixtureKey::generate().public_line_without_comment();
+    let (kt, kb) = {
+        let mut f = fake.split_whitespace();
+        (f.next().unwrap().to_owned(), f.next().unwrap().to_owned())
+    };
+    let mut approved = w.served_target();
+    approved.host_key = raw_key(&kt, &kb).approved();
+    assert_ne!(approved.host_key, w.served_target().host_key);
+    let record = w.seed(
+        EnrollmentState::Verified,
+        EnrollmentForm::Account,
+        approved,
+        None,
+    );
+    w.sshd.append_registry_line(&w.line_of(&record)).unwrap();
+    assert_eq!(w.marker_lines(), 1);
+    w.target.evaluation.lock().unwrap().host_keys = vec![raw_key(&kt, &kb)];
+    (record, std::fs::read(&w.registry).unwrap())
+}
+
+/// ⟨round 5, item 4⟩ **The observation** of the in-box client's **changed host key**
+/// path, for its trace row's `host_key_failure` set (`heimdall_enroll::trace`'s unit
+/// test requires every recorded row to have one; the 9.6p1 row's came from
+/// `integration_enroll_verify`'s `verification_host_key_mismatch_holds_no_rollback`,
+/// which is not built on Windows). A re-verification of a record whose approved host
+/// key the server does not serve runs through the real verifier (its generated
+/// known-hosts file pins the approved key) against the harness's WSL sshd, in an
+/// observation world (parsed under the first recorded row's label, each attempt's raw
+/// trace dumped; its outcome is **no evidence**). Every non-debug line and every
+/// host-key line of both attempts is printed, redacted as the matched-path observation
+/// redacts, as `m03 observation: client_trace_row … field=host_key_failure …`. It
+/// asserts only that both attempts ran and were dumped, and that nothing was removed.
+/// Not gated on the row (it produces it).
+#[tokio::test]
+async fn windows_client_trace_row_host_key_changed_observation() {
+    let w = World::with(WorldOptions {
+        observe_trace: true,
+        ..WorldOptions::default()
+    })
+    .await;
+    let dump = w.trace_dump.clone().expect("an observation world");
+    let (record, before) = host_key_changed_record(&w);
+    let result = w.verify(&record.id, "req_whk", VerifyMode::Presence).await;
+    let redact = observation_redactor(&w);
+    let v = w.client_version;
+    let family = v.family.as_str();
+    let outcome = match &result {
+        Ok(c) => format!("ok {}", c.data["state"]),
+        Err(e) => format!("{} {:?}", e.code, e.reason),
+    };
+    #[allow(clippy::print_stderr)] // the observed facts for the client's trace row
+    {
+        eprintln!(
+            "m03 observation: client_trace_row family={family} version={v} \
+             field=host_key_failure verification={outcome} state={:?}",
+            w.record(&record.id).state
+        );
+        for which in ["positive", "negative"] {
+            let text = std::fs::read(dump.join(format!("{which}.trace")))
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+                .unwrap_or_else(|_| panic!("the {which} attempt ran and was dumped"));
+            assert!(!text.is_empty(), "the {which} attempt's trace is empty");
+            for line in text.lines() {
+                let line = line.trim_end_matches('\r');
+                if host_key_line(line) {
+                    eprintln!(
+                        "m03 observation: client_trace_row family={family} version={v} \
+                         field=host_key_failure attempt={which} line={:?}",
+                        redact(line)
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(
+        std::fs::read(&w.registry).unwrap(),
+        before,
+        "nothing removed or written"
+    );
+}
+
+/// ⟨round 5, item 4⟩ **The observation** of the in-box client's **unknown host** path
+/// (no key known for the host at all). The 10.5p1 row's `host_key_failure` set carries
+/// this path's lines (`No ED25519 host key is known for …`); the 9.6p1 row does not (not
+/// observed). The verifier always pins the approved key, so this path is the in-box
+/// `ssh.exe` run directly, as an attempt runs it (`-F <scratch config>`, `-v -T`,
+/// `BatchMode yes`, `StrictHostKeyChecking yes`, `HostKeyAlgorithms ssh-ed25519`, a
+/// `HostKeyAlias` of the verifier's form), with empty scratch known-hosts files, no
+/// agent and no public-key, password or keyboard-interactive authentication, against
+/// the harness's WSL sshd. Every non-debug line and every host-key line is printed,
+/// redacted, as `m03 observation: client_trace_row … field=host_key_unknown …`. It
+/// asserts only that the client exited non-zero with some output. Not gated on the row.
+#[tokio::test]
+async fn windows_client_trace_row_host_key_unknown_observation() {
+    let w = World::new().await;
+    let dir = w.home.scratch().subdir("unknown-host").unwrap();
+    owner_only_dir(&dir);
+    let known = dir.join("known_hosts");
+    let global = dir.join("global_known_hosts");
+    std::fs::write(&known, b"").unwrap();
+    std::fs::write(&global, b"").unwrap();
+    let opt_path = heimdall_testkit::home::ssh_option_path;
+    let mut cmd = tokio::process::Command::new(system_ssh());
+    cmd.arg("-F")
+        .arg(&w.home.user_config)
+        .args(["-o", &format!("UserKnownHostsFile={}", opt_path(&known))])
+        .args(["-o", &format!("GlobalKnownHostsFile={}", opt_path(&global))])
+        .args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            "HostKeyAlgorithms=ssh-ed25519",
+            "-o",
+            "HostKeyAlias=hm-verify-0000000000000000",
+            "-o",
+            "IdentityAgent=none",
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "PubkeyAuthentication=no",
+            "-o",
+            "PasswordAuthentication=no",
+            "-o",
+            "KbdInteractiveAuthentication=no",
+            "-o",
+            "ConnectTimeout=20",
+            "-v",
+            "-T",
+            ALIAS,
+            "true",
+        ])
+        .env("SSH_AUTH_SOCK", w.home.decoy_agent().endpoint().locator())
+        .env("HOME", &w.home.git_home)
+        .env_remove("SSH_ASKPASS")
+        .env_remove("SSH_ASKPASS_REQUIRE")
+        .env_remove("SSH_AGENT_PID")
+        .env_remove("DISPLAY")
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(60), cmd.output())
+        .await
+        .expect("the client exits within 60 s")
+        .expect("the client runs");
+    assert!(!out.status.success(), "no host key known: refused");
+    let text = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(!text.is_empty(), "the client printed its trace");
+    let redact = observation_redactor(&w);
+    let v = w.client_version;
+    let family = v.family.as_str();
+    #[allow(clippy::print_stderr)] // the observed facts for the client's trace row
+    {
+        eprintln!(
+            "m03 observation: client_trace_row family={family} version={v} \
+             field=host_key_unknown exit={:?}",
+            out.status.code()
+        );
+        for line in text.lines() {
+            let line = line.trim_end_matches('\r');
+            if host_key_line(line) {
+                eprintln!(
+                    "m03 observation: client_trace_row family={family} version={v} \
+                     field=host_key_unknown line={:?}",
+                    redact(line)
+                );
+            }
+        }
+    }
+    assert_eq!(
+        std::fs::read(&known).unwrap(),
+        b"",
+        "strict checking added no key"
+    );
+}
+
+/// ⟨round 5, item 4⟩ The Windows port of `integration_enroll_verify`'s
+/// `verification_host_key_mismatch_holds_no_rollback` (D5 §6.5; §17.4 item 5): a
+/// re-verification whose server host key is not the approved one ends `held`
+/// (`host_key_changed`, not evidence-based) with `host_trust_changed` /
+/// `enrollment_host_key_mismatch`, and nothing is rolled back: the registry is
+/// byte-for-byte unchanged, no login was accepted, no removal opened. Needs the in-box
+/// client's recorded trace row: **fails** `client_trace_family_unrecorded` until it is
+/// recorded (never a pass, never a skip).
+#[tokio::test]
+async fn windows_verification_host_key_mismatch_holds_no_rollback() {
+    let w = World::new().await;
+    w.require_recorded_client();
+    let (record, before) = host_key_changed_record(&w);
+    let accepted = w.sshd.accepted_certificates().len();
+    let e = w
+        .verify(&record.id, "req_whm", VerifyMode::Presence)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::HostTrustChanged, "{e:?}");
+    assert_eq!(
+        e.reason.as_deref(),
+        Some("enrollment_host_key_mismatch"),
+        "{e:?}"
+    );
+    let r = w.record(&record.id);
+    assert_eq!(r.state, EnrollmentState::Held);
+    assert_eq!(
+        r.hold.map(|h| (h.reason, h.evidence_based)),
+        Some((
+            heimdall_domain::enrollment::HoldReason::HostKeyChanged,
+            false
+        ))
+    );
+    assert_eq!(r.target, record.target, "the approved target is kept");
+    assert_eq!(
+        std::fs::read(&w.registry).unwrap(),
+        before,
+        "no rollback: the line stays"
+    );
+    assert_eq!(w.marker_lines(), 1);
+    assert_eq!(
+        w.sshd.accepted_certificates().len(),
+        accepted,
+        "no login through a changed host key"
+    );
+    assert!(
+        !w.tx(|tx| tx.open_operations())
+            .iter()
+            .any(|o| o.kind == OperationKind::EnrollmentRemove),
+        "no removal opened"
+    );
 }

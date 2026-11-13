@@ -378,6 +378,17 @@ fn concrete_endpoint(kind: Option<EndpointKind>, locator: &str) -> Option<String
     Some(rendered)
 }
 
+/// The concrete endpoint a catalog-recorded existing-access endpoint renders to (step
+/// 8's rule: an absolute, normalized socket path, or a pipe as `//./pipe/<name>`):
+/// what a plan approves, a record stores and the host re-validates before each step.
+/// ⟨round 5, Y-W⟩ A foreign removal names its endpoint through this too, never the
+/// catalog's raw locator (on Windows `\\.\pipe\<name>`, which no step can pin).
+/// `None` for anything that is not concrete.
+#[must_use]
+pub fn catalog_endpoint(endpoint: &EndpointRef) -> Option<String> {
+    concrete_endpoint(Some(endpoint.kind), &normalized_path(&endpoint.locator))
+}
+
 /// Whether `endpoint` (rendered) is, or is under, one of Heimdall's endpoints.
 fn is_heimdall(endpoint: &str, heimdall: &[String]) -> bool {
     let ours = |entry: &String| {
@@ -477,10 +488,7 @@ pub fn build(
     }
     // 8. A concrete endpoint that is not Heimdall's.
     let (endpoint, endpoint_source) = match record.source.endpoint() {
-        Some(EndpointRef { kind, locator }) => (
-            concrete_endpoint(Some(*kind), &normalized_path(locator)),
-            EndpointSource::CatalogRecord,
-        ),
+        Some(e) => (catalog_endpoint(e), EndpointSource::CatalogRecord),
         None => match &context.alias_identity_agent {
             AgentReading::Determined(value) => (
                 concrete_endpoint(None, &normalized_path(value)),

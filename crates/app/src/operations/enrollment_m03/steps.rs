@@ -98,10 +98,9 @@ fn foreign_image(
         }
         _ => None,
     };
-    let endpoint = identity
-        .source
-        .endpoint()
-        .map(|e| crate::enrollment::endpoint_ref(&e.locator));
+    // ⟨round 5, Y-W⟩ The concrete rendering an own record stores (the catalog's
+    // `\\.\pipe\<name>` is `//./pipe/<name>`), re-validated before every step.
+    let endpoint = crate::enrollment::foreign_endpoint(&identity.source);
     let record = EnrollmentRecord {
         id,
         destination,

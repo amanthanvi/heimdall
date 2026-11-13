@@ -4699,6 +4699,39 @@ async fn foreign_removal_refuses_bundle_host_mismatch() {
     assert!(w.foreign_records(&t.marker).is_empty());
 }
 
+/// ⟨round 5, Y-W-Q2⟩ A foreign removal whose local identity records an existing-access
+/// endpoint that is not concrete (a relative socket path; on Windows a pipe with no
+/// name) is refused at admission with `existing_access_endpoint_unrecorded`, exactly as
+/// `plan::build` step 8 refuses an own enrollment: no decision, no record, nothing
+/// remote.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn foreign_removal_refuses_non_concrete_recorded_endpoint() {
+    let w = World::new().await;
+    let t = w.foreign(EnrollmentForm::Account);
+    let before = w.registry_text();
+    let mut identity = w.tx(|tx| tx.identity(&w.identity)).unwrap();
+    identity.revision += 1;
+    identity.source = heimdall_domain::catalog::IdentitySource::NativeAgent {
+        endpoint: agent_ref(if cfg!(windows) {
+            r"\\.\pipe\"
+        } else {
+            "relative-agent.sock"
+        }),
+    };
+    w.tx(|tx| tx.upsert_identity(&identity));
+    let e = w.remove_foreign(&t, "req_fu").await.unwrap_err();
+    assert_eq!(e.code, Code::CapabilityUnavailable, "{e:?}");
+    assert_eq!(
+        e.reason.as_deref(),
+        Some("existing_access_endpoint_unrecorded"),
+        "{e:?}"
+    );
+    assert!(w.foreign_records(&t.marker).is_empty(), "nothing written");
+    assert!(w.tx(|tx| tx.open_operations()).is_empty());
+    assert_eq!(w.registry_text(), before, "nothing remote");
+}
+
 /// m03-plan U10 (§17.4 item 10; B R2-07): a lost reply of the foreign removal's remove
 /// step is reconciled by marker.
 #[cfg(any(unix, windows))]
@@ -5101,6 +5134,13 @@ async fn reenroll_after_abandoned_uses_new_marker_old_residual_listed() {
 }
 
 /// A foreign record held for a damaged line (two marker lines).
+///
+/// ⟨round 5, Y-W⟩ The setup fails loudly unless the damage is what held it: the
+/// damage line is read back through the fixture's path
+/// (`LoopbackSshd::append_registry_line` checks its own write), the server's
+/// inspect reading (the remote script's, through the path the server reads) saw both
+/// marker lines and classed them `damaged`, and nothing else stopped the removal
+/// first (the drive's outcome is in every message).
 #[cfg(any(unix, windows))]
 async fn held_foreign(w: &World, rid: &str) -> heimdall_contract::enrollment::ForeignRemovalTarget {
     let t = w.foreign(EnrollmentForm::Account);
@@ -5112,15 +5152,47 @@ async fn held_foreign(w: &World, rid: &str) -> heimdall_contract::enrollment::Fo
         .unwrap()
         .to_owned();
     w.sshd.append_registry_line(&format!("{line} x")).unwrap();
+    assert_eq!(
+        w.registry_text()
+            .lines()
+            .filter(|l| l.contains(&t.marker))
+            .count(),
+        2,
+        "the damage line landed in the registry"
+    );
     let e = w.remove_foreign(&t, rid).await.unwrap_err();
     let rm = e.operation_id.clone().unwrap();
     w.decide(&e, Verdict::Approve).await.unwrap();
-    let _ = w.drive(&rm).await;
-    assert_eq!(
-        w.foreign_records(&t.marker).pop().unwrap().state,
-        EnrollmentState::Held
-    );
+    let driven = w.drive(&rm).await;
+    assert_held_by_damage(w, &rm, &t.marker, &driven, 2);
     t
+}
+
+/// ⟨round 5, Y-W⟩ A foreign removal is `held` because the server's inspect reading
+/// saw `marker_lines` marker lines and classed the registry `damaged`, not because a
+/// step was refused before any inspect (the setup's damage must be what holds it).
+#[cfg(any(unix, windows))]
+fn assert_held_by_damage(
+    w: &World,
+    rm: &OperationId,
+    marker: &str,
+    driven: &Result<EnrollmentResult, OpError>,
+    marker_lines: u64,
+) {
+    let i = w
+        .journal(rm)
+        .inspection
+        .unwrap_or_else(|| panic!("no inspect reading: the drive ended {driven:?}"));
+    assert_eq!(
+        (i.reading.marker_lines, i.reading.marker_class.as_deref()),
+        (marker_lines, Some("damaged")),
+        "the server read the damage; the drive ended {driven:?}"
+    );
+    assert_eq!(
+        w.foreign_records(marker).pop().unwrap().state,
+        EnrollmentState::Held,
+        "the drive ended {driven:?}"
+    );
 }
 
 /// m03-plan U10 (§17.7 item 4): a held foreign removal (a damaged line: two marker
@@ -6941,11 +7013,9 @@ async fn journal_never_stores_marker_bearing_foreign_lines() {
     let e = w.remove_foreign(&t, "req_mb2").await.unwrap_err();
     let rm = e.operation_id.clone().unwrap();
     w.decide(&e, Verdict::Approve).await.unwrap();
-    let _ = w.drive(&rm).await;
-    assert_eq!(
-        w.foreign_records(&t.marker).pop().unwrap().state,
-        EnrollmentState::Held
-    );
+    // ⟨round 5, Y-W⟩ Held by the damage the server read, never by an earlier refusal.
+    let driven = w.drive(&rm).await;
+    assert_held_by_damage(&w, &rm, &t.marker, &driven, 4);
     assert_eq!(
         w.registry_text(),
         before,

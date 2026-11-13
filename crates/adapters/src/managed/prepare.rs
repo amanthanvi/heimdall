@@ -583,7 +583,9 @@ pub fn pair_integrations(
 /// **under the CA of the certificate being prepared** for the pair (⟨§17.22 item 7⟩:
 /// another CA's evidence says nothing about this certificate's principals; a pair with
 /// no prepared certificate has none). Evidence the comparison invalidated is already
-/// gone from the snapshot ([`invalidate_evidence`]).
+/// gone from the snapshot ([`invalidate_evidence`]). ⟨W4-C02⟩ The selection is
+/// [`heimdall_app::operations::pair_evidence_under_ca`], the one a managed follower's
+/// commit uses for its installed certificate's CA.
 #[must_use]
 pub fn pair_evidence<'a>(
     managed: &'a ManagedSources,
@@ -594,18 +596,7 @@ pub fn pair_evidence<'a>(
         .iter()
         .filter_map(|p| {
             let ca = &prepared.certificates.iter().find(|c| &c.pair == p)?.ca;
-            managed
-                .enrollments
-                .iter()
-                .filter(|e| {
-                    e.destination == p.destination
-                        && e.account == p.account
-                        && e.state == EnrollmentState::Verified
-                        && &e.ca_fingerprint == ca
-                })
-                .filter_map(|e| e.evidence.as_ref())
-                .max_by_key(|e| e.verified_at)
-                .map(|e| (p, e))
+            heimdall_app::operations::pair_evidence_under_ca(managed, p, ca).map(|e| (p, e))
         })
         .collect()
 }

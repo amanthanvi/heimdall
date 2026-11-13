@@ -30,6 +30,7 @@ use heimdall_contract::enrollment::{
 use heimdall_contract::ids::{DecisionId, EnrollmentId, ForeignRemovalId};
 use heimdall_contract::provider::{EndpointKind, EndpointRef};
 use heimdall_contract::setup::PlanDigest;
+use heimdall_domain::catalog::IdentitySource;
 use heimdall_domain::enrollment::{
     Determinism, EnrollmentRecord, ProxyRoute, ReverifyFrom, TargetEvaluation,
 };
@@ -755,6 +756,22 @@ pub fn endpoint_ref(rendered: &str) -> EndpointRef {
     }
 }
 
+/// ⟨round 5, Y-W⟩ The existing-access endpoint a foreign removal approves and
+/// re-validates for the local alias's catalog identity: the recorded endpoint's
+/// concrete rendering, by the plan's own rule
+/// (`heimdall_registry::plan::catalog_endpoint`), exactly what an own enrollment's
+/// record stores. On Windows the catalog records a pipe as `\\.\pipe\<name>` and every
+/// plan, record and host check names `//./pipe/<name>`; the raw locator matched neither
+/// the host's re-validation (`existing_access_changed`) nor the step's pins. `None`: no
+/// recorded endpoint, or one that is not concrete (refused, as a plan refuses it).
+#[must_use]
+pub fn foreign_endpoint(source: &IdentitySource) -> Option<EndpointRef> {
+    source
+        .endpoint()
+        .and_then(heimdall_registry::plan::catalog_endpoint)
+        .map(|r| endpoint_ref(&r))
+}
+
 /// The plan an existing record approved, rebuilt from the record (and `target`, the
 /// approved or a proposed target), the CA's public key and the generated paths: what
 /// every later step, the removal and the verification use (§17.19 item 5: "the
@@ -916,6 +933,43 @@ mod tests {
         assert_eq!(p.hostname, t.hostname);
         assert!(proposed_target(&t, &eval(&[("AAAA", false)])).is_none());
         assert!(proposed_target(&t, &eval(&[("BBBB", false), ("CCCC", false)])).is_none());
+    }
+
+    /// ⟨round 5, Y-W⟩ A foreign removal's endpoint is the catalog endpoint's concrete
+    /// rendering, the form an own enrollment's record stores and the host re-validates:
+    /// a catalog pipe `\\.\pipe\<name>` (any case of the prefix) is `//./pipe/<name>`,
+    /// whose step pins render; a socket path is unchanged; nothing else is concrete.
+    #[test]
+    fn foreign_endpoint_is_the_concrete_rendering() {
+        let agent = |endpoint: EndpointRef| IdentitySource::NativeAgent { endpoint };
+        let pipe = EndpointRef {
+            kind: EndpointKind::NamedPipe,
+            locator: r"\\.\PIPE\hm-fixture-agent-1".into(),
+        };
+        let r = foreign_endpoint(&agent(pipe.clone())).unwrap();
+        assert_eq!(r.locator, "//./pipe/hm-fixture-agent-1");
+        assert_eq!(r.kind, EndpointKind::NamedPipe);
+        assert!(step::access_pins(&r.locator, "/identity.pub").is_ok());
+        assert!(
+            step::access_pins(&pipe.locator, "/identity.pub").is_err(),
+            "the raw catalog form never pins"
+        );
+        let sock = EndpointRef {
+            kind: EndpointKind::UnixSocket,
+            locator: "/run/user/1/agent.sock".into(),
+        };
+        assert_eq!(foreign_endpoint(&agent(sock.clone())).unwrap(), sock);
+        for bad in ["rel.sock", "/a/../b", r"\\.\pipe\", "SSH_AUTH_SOCK"] {
+            let e = EndpointRef {
+                kind: EndpointKind::UnixSocket,
+                locator: bad.into(),
+            };
+            assert_eq!(foreign_endpoint(&agent(e)), None, "{bad}");
+        }
+        let file = IdentitySource::PublicKeyFile {
+            path: "/k.pub".into(),
+        };
+        assert_eq!(foreign_endpoint(&file), None);
     }
 
     #[test]

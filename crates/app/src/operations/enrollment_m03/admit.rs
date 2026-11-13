@@ -1185,13 +1185,16 @@ impl Operations {
                 "the local alias is not a managed destination with an adopted identity",
             ));
         };
-        if identity.source.endpoint().is_none() {
+        // ⟨round 5, Y-W⟩ The concrete endpoint the steps pin and re-validate (an own
+        // plan's rule); a recorded endpoint that is not concrete is refused here, as
+        // a plan refuses it, before any decision.
+        let Some(endpoint) = crate::enrollment::foreign_endpoint(&identity.source) else {
             return Err(refuse(
                 Code::CapabilityUnavailable,
                 r::EXISTING_ACCESS_ENDPOINT_UNRECORDED,
                 "the local alias's identity names no existing-access endpoint",
             ));
-        }
+        };
         let evaluator = ports
             .wiring
             .target
@@ -1257,10 +1260,7 @@ impl Operations {
         getrandom::fill(&mut fb).map_err(|_| internal("randomness"))?;
         let fid = heimdall_contract::ids::ForeignRemovalId::from_random_bytes(fb);
         let lifetime = self.limits().decision_lifetime;
-        let invocation = identity
-            .source
-            .endpoint()
-            .and_then(|e| heimdall_registry::step::access_pins(&e.locator, "/identity.pub").ok())
+        let invocation = heimdall_registry::step::access_pins(&endpoint.locator, "/identity.pub")
             .map(|p| heimdall_registry::step::render_invocation(&p))
             .unwrap_or_default();
         let r = self

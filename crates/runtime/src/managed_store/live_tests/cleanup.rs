@@ -259,6 +259,17 @@ async fn parent_with_child_delegation(
     p: &Process,
     tag: &str,
 ) -> (EnsureData, EnsureData) {
+    delegated_parent(w, p, tag, true).await
+}
+
+/// [`parent_with_child_delegation`], the parent launch-bound (holding both slots) when
+/// `bind`, else ⟨W4-C01⟩ an ensure-only parent: every slot stays free.
+async fn delegated_parent(
+    w: &Live,
+    p: &Process,
+    tag: &str,
+    bind: bool,
+) -> (EnsureData, EnsureData) {
     for pr in pairs() {
         w.feed.observe(
             pr.destination.as_str(),
@@ -269,9 +280,11 @@ async fn parent_with_child_delegation(
         .ensure(p, tag, RequiredCapabilities::default())
         .await
         .unwrap();
-    launch_bind(p, &parent.binding_id, tag, None)
-        .await
-        .unwrap_or_else(|e| panic!("bind: {} {}", e.code, e.message));
+    if bind {
+        launch_bind(p, &parent.binding_id, tag, None)
+            .await
+            .unwrap_or_else(|e| panic!("bind: {} {}", e.code, e.message));
+    }
     let child = p
         .ops
         .delegate(
@@ -442,4 +455,177 @@ async fn unfinished_cleanup_after_slot_files_removed_is_retried_until_clean() {
         assert_eq!(slot_of(&w, &pr), SlotState::Free { generation: 1 });
     }
     assert!(owed(&w).is_empty());
+}
+
+/// ⟨W4-C01⟩ The re-check's scenario: an ensure-only parent (every slot free) and a
+/// real child delegation of it; the runtime restarts in the same boot and the real
+/// re-issue pass restores the parent's binding at a newer resource generation. The
+/// parent is then released while the child keeps its grant live. Returns the
+/// restarted process, the parent, the child and the parent's restored endpoint
+/// locator and generation.
+async fn reissued_slotless_parent(
+    w: &Live,
+    tag: &str,
+) -> (Process, EnsureData, EnsureData, String, u64) {
+    let p = w.process(Arc::new(NoStageHook)).await;
+    let (parent, child) = delegated_parent(w, &p, tag, false).await;
+    for pr in pairs() {
+        assert_eq!(
+            slot_of(w, &pr),
+            SlotState::Free { generation: 0 },
+            "no slot"
+        );
+    }
+    // The restart in the same boot: nothing of `p` runs again.
+    p.shutdown.cancel();
+    drop(p);
+    let q = w.process(Arc::new(NoStageHook)).await;
+    let reissued = q.ops.managed_reissue_pass().await.unwrap();
+    assert!(
+        reissued.contains(&parent.grant_id),
+        "the parent's grant is re-issued: {reissued:?}"
+    );
+    assert_eq!(grant_state(w, &parent.grant_id), GrantState::Active);
+    let (endpoint, generation) = q
+        .registry
+        .binding_endpoint(&parent.binding_id)
+        .expect("the parent's restored endpoint");
+    assert!(
+        generation.0 > 1,
+        "restored at a newer generation: {}",
+        generation.0
+    );
+    assert_eq!(
+        w.binding_dirs(&parent.binding_id)
+            .into_iter()
+            .map(|(_, g)| g)
+            .collect::<Vec<_>>(),
+        vec![generation.0],
+        "the parent's files at the restored generation"
+    );
+    assert!(listed(&endpoint.locator).await.unwrap() >= 1);
+    for pr in pairs() {
+        assert_eq!(
+            slot_of(w, &pr),
+            SlotState::Free { generation: 0 },
+            "no slot"
+        );
+    }
+    still_signs(&q, &child.grant_id, &child.binding_id).await;
+    (q, parent, child, endpoint.locator, generation.0)
+}
+
+/// The still-referenced parent grant keeps K_env (in the vault, its instance and
+/// gate), both grants stay `active`, and the child still signs.
+async fn grant_kept_and_child_signs(
+    w: &Live,
+    q: &Process,
+    parent: &EnsureData,
+    child: &EnsureData,
+) {
+    assert_eq!(grant_state(w, &parent.grant_id), GrantState::Active);
+    assert_eq!(grant_state(w, &child.grant_id), GrantState::Active);
+    assert!(
+        q.table.public_key(&parent.grant_id).is_some(),
+        "the parent grant's K_env is still in the vault"
+    );
+    assert_eq!(w.live_instances(&parent.grant_id), 1);
+    assert!(q.ops.signing_gates().contains(&parent.grant_id));
+    still_signs(q, &child.grant_id, &child.binding_id).await;
+}
+
+/// ⟨W4-C01; §17.22 items 5, 9, 10; D10 item 2⟩ Releasing a re-issued binding that holds
+/// no slot clears its **actual** generation: after the restart and the re-issue pass
+/// (generation > 1), the release removes its endpoint and files at once, the
+/// obligation stays listed by `managed_cleanup_owed` until the supervisor's pass
+/// records it done, and the still-referenced grant keeps K_env while the child signs.
+#[tokio::test]
+async fn released_reissued_slotless_binding_loses_endpoint_and_files_while_grant_lives() {
+    let w = Live::new();
+    let (q, parent, child, locator, generation) = reissued_slotless_parent(&w, "c01").await;
+    let out = release(&q, &parent.binding_id).await;
+    assert_eq!(out["grant_state"], "active", "{out}");
+    let endpoint_retained = q.registry.binding_endpoint(&parent.binding_id).is_some();
+    let files_retained = !w.binding_dirs(&parent.binding_id).is_empty();
+    let cleanup_owed = owed(&w);
+    assert!(
+        !endpoint_retained && !files_retained,
+        "released re-issued slotless binding (generation {generation}): \
+         endpoint_retained={endpoint_retained}, files_retained={files_retained}, \
+         cleanup_owed={}",
+        cleanup_owed.len()
+    );
+    assert!(gone(&locator).await, "the endpoint stopped answering");
+    assert_eq!(
+        cleanup_owed,
+        vec![parent.grant_id.clone()],
+        "listed until the pass records it done"
+    );
+    let cleaned = supervisor(&w, &q).ended_slot_pass().await.unwrap();
+    assert_eq!(cleaned, vec![parent.grant_id.clone()]);
+    assert!(owed(&w).is_empty(), "nothing owed once done");
+    assert!(w.binding_dirs(&parent.binding_id).is_empty());
+    for pr in pairs() {
+        assert_eq!(slot_of(&w, &pr), SlotState::Free { generation: 0 });
+    }
+    grant_kept_and_child_signs(&w, &q, &parent, &child).await;
+    assert!(
+        supervisor(&w, &q)
+            .ended_slot_pass()
+            .await
+            .unwrap()
+            .is_empty(),
+        "nothing left to clean"
+    );
+    q.shutdown.cancel();
+}
+
+/// ⟨W4-C01⟩ The same release, its cleanup failing (the re-issued generation's files
+/// cannot be removed): the obligation is durable and discoverable without any slot
+/// (`managed_cleanup_owed` lists the grant), every pass retries it while the error
+/// lasts, and the first pass after it clears removes the files and records it done.
+/// K_env is kept throughout and the child still signs.
+#[tokio::test]
+async fn failed_release_cleanup_of_reissued_slotless_binding_is_retried_until_clean() {
+    let w = Live::new();
+    let (q, parent, child, locator, generation) = reissued_slotless_parent(&w, "c01-retry").await;
+    let dirs = w.binding_dirs(&parent.binding_id);
+    assert_eq!(dirs.len(), 1);
+    set_mode(&dirs[0].0, 0o500);
+    let out = release(&q, &parent.binding_id).await;
+    assert_eq!(out["grant_state"], "active", "{out}");
+    assert!(gone(&locator).await, "the endpoint is removed first");
+    assert_eq!(
+        w.binding_dirs(&parent.binding_id)
+            .into_iter()
+            .map(|(_, g)| g)
+            .collect::<Vec<_>>(),
+        vec![generation],
+        "the injected failure keeps the files"
+    );
+    assert_eq!(
+        owed(&w),
+        vec![parent.grant_id.clone()],
+        "owed without any slot"
+    );
+    let sup = supervisor(&w, &q);
+    for _ in 0..2 {
+        assert!(
+            sup.ended_slot_pass().await.unwrap().is_empty(),
+            "still failing: not done"
+        );
+        assert_eq!(owed(&w), vec![parent.grant_id.clone()], "still owed");
+        assert_eq!(w.binding_dirs(&parent.binding_id).len(), 1);
+    }
+    set_mode(&dirs[0].0, 0o700);
+    let cleaned = sup.ended_slot_pass().await.unwrap();
+    assert_eq!(cleaned, vec![parent.grant_id.clone()]);
+    assert!(
+        w.binding_dirs(&parent.binding_id).is_empty(),
+        "no binding file"
+    );
+    assert!(owed(&w).is_empty(), "recorded done");
+    assert!(q.registry.binding_endpoint(&parent.binding_id).is_none());
+    grant_kept_and_child_signs(&w, &q, &parent, &child).await;
+    q.shutdown.cancel();
 }

@@ -65,3 +65,18 @@ Windows against the WSL harness sshd, and the binding, follower and re-issued pi
 | `m03-wave4-r3b-questions.md` | R3BB-Q1, R3BW-Q1. |
 | `m03-wave4-r3b-worklog.md` | The integrator's worklog for this pass. |
 | `m03-wave4-r3b-worklog-{M,B,W}.md` | Each worker's worklog with revert proofs (W's has the per-test Windows table). |
+
+## Round 5 (W4-C01, W4-C02; the Windows `e2e_enroll_m03` failures; ADR-0008 §17.22–§17.24)
+
+Rounds 3–4 were checkpointed at `4866642d`. Round 5 fixed the re-check's two findings and the Windows run's
+failures, with workers **Y-S** (W4-C02: a managed follower's scope claim recomputed from current evidence at its
+commit), **Y-C** (W4-C01: releasing a re-issued binding clears every owned generation, with a durable retry) and
+**Y-W** (the foreign removal's endpoint is the catalog locator's concrete rendering; held setups fail loudly;
+item 4, the Windows-only observations of the in-box client's host-key failure lines). The integrator ran the
+final checks; questions Y-W-Q1 and Y-W-Q2 were ruled by the orchestrator (recorded in ADR-0008).
+
+| File | What it is |
+|---|---|
+| `m03-wave4-r5-api.md` | Round-5 ownership map, each worker's landed interfaces, requests. |
+| `m03-wave4-r5-questions.md` | Y-W-Q1 (scope), Y-W-Q2 (unrecorded or non-concrete foreign endpoint refused at admission). |
+| `m03-wave4-r5-worklog-{S,C,W}.md` | Each worker's worklog with its revert proofs. |

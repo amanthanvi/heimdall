@@ -34,12 +34,15 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use heimdall_adapters::managed::EndCleanup;
 use heimdall_adapters::managed::effects::{GrantScopes, ManagedEffectsImpl, SlotStore};
-use heimdall_adapters::managed::files;
 use heimdall_adapters::managed::prepare::{GrantTerms, ManagedSourceRead};
 use heimdall_app::Operations;
-use heimdall_app::ports::{
-    AdapterError, IssuerPort, IssuerStatusSnapshot, ManagedEffects, ManagedSlot,
-};
+use heimdall_app::ports::{AdapterError, IssuerPort, IssuerStatusSnapshot, ManagedSlot};
+// ⟨round 5, W4-C01⟩ Used by the live tests only since `StoreCleanup` clears through
+// `ManagedEffectsImpl::clear_binding_generations`.
+#[cfg(all(test, unix))]
+use heimdall_adapters::managed::files;
+#[cfg(all(test, unix))]
+use heimdall_app::ports::ManagedEffects;
 use heimdall_contract::GrantState;
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{BindingId, CaFingerprint, EnvironmentId, GrantId};
@@ -526,14 +529,31 @@ impl StoreCleanup {
             .map_err(|_| AdapterError::Unavailable("store".to_owned()))
     }
 
+    /// ⟨round 5, W4-C01⟩ The highest resource generation `binding` can own, from the
+    /// store: its grant's credential-instance count, at least 1 (the app's
+    /// `binding_generation_bound_in`: a preparation and a follower write generation 1,
+    /// a re-issue its instance count). 1 for a binding the store does not know.
+    fn generation_bound(&self, binding: &BindingId) -> heimdall_store::Result<u64> {
+        self.sources.store.transaction(|tx| {
+            let Some(b) = tx.binding(binding)? else {
+                return Ok(1);
+            };
+            let count = tx.credential_instances_for_grant(&b.grant)?.len();
+            Ok(u64::try_from(count).unwrap_or(u64::MAX).max(1))
+        })
+    }
+
     /// Clean up each binding in `bindings` (and each holder named by `slots`):
     /// every slot it holds or is clearing is cleared by its own generation, its
-    /// binding endpoints and files are removed by generation (found on disk by their
-    /// marker), and only then are its slots' mux paths cleared and the slots freed
-    /// (§17.22 item 9: freeing a slot never ends the obligation while the binding's
-    /// files or a mux path remain). `false` when anything failed (retried by the next
-    /// pass: the `clearing` row, or the grant's undestroyed instance, keeps it
-    /// discoverable).
+    /// binding endpoints and files are removed ⟨round 5, W4-C01⟩ at **every**
+    /// generation it owns (the store's bound, and whatever is found on disk by
+    /// marker; `ManagedEffectsImpl::clear_binding_generations`, verified gone), and
+    /// only then are its slots' mux paths cleared and the slots freed (§17.22 item 9:
+    /// freeing a slot never ends the obligation while the binding's files or a mux
+    /// path remain), and a released binding's own obligation recorded done
+    /// (`Txn::released_binding_cleanup_done`). `false` when anything failed (retried
+    /// by the next pass: the release's obligation row, the `clearing` row, or the
+    /// grant's undestroyed instance keeps it discoverable).
     async fn clean_bindings(
         &self,
         bindings: &[BindingId],
@@ -554,12 +574,12 @@ impl StoreCleanup {
                     done = false;
                 }
             }
-            match files::binding_directories_of(self.effects.runtime_dir(), b) {
-                Ok(dirs) => {
-                    for (_, generation) in dirs {
-                        if self.effects.clear(b, generation).is_err() {
-                            done = false;
-                        }
+            // ⟨round 5, W4-C01⟩ Every generation the binding owns (a re-issue's
+            // newer one included), verified gone.
+            match self.generation_bound(b) {
+                Ok(bound) => {
+                    if self.effects.clear_binding_generations(b, bound).is_err() {
+                        done = false;
                     }
                 }
                 Err(_) => done = false,
@@ -577,6 +597,16 @@ impl StoreCleanup {
                         done = false;
                     }
                 }
+            }
+            // ⟨W4-C01⟩ Only now is a released binding's own obligation recorded done.
+            if done
+                && self
+                    .sources
+                    .store
+                    .transaction(|tx| tx.released_binding_cleanup_done(b))
+                    .is_err()
+            {
+                done = false;
             }
             ok &= done;
         }
@@ -1020,6 +1050,9 @@ mod live_tests {
 
     /// ⟨R3-C1⟩ ADR-0008 §17.22 items 4, 9, 10 (`managed_store/live_tests/cleanup.rs`).
     mod cleanup;
+    /// ⟨Y-S, round 5⟩ W4-C02: a follower's own scope evidence
+    /// (`managed_store/live_tests/follower_scope.rs`).
+    mod follower_scope;
     /// ⟨R3-C2⟩ ADR-0008 §17.22 items 5, 6, 8 (`managed_store/live_tests/pipeline.rs`).
     mod pipeline;
     /// ⟨X-M⟩ ADR-0008 §17.23 items 1 and 5 (`managed_store/live_tests/selection.rs`).

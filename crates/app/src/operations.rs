@@ -261,6 +261,8 @@ mod issuer_m03;
 mod managed_driver_m03;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
+// ⟨W4-C02⟩ The scope evidence selection a fresh preparation and a follower share.
+pub use managed_driver_m03::pair_evidence_under_ca;
 pub use pair_mechanism_m03::unattended_refusal;
 pub use verification_m03::VerificationRequest;
 // ⟨M03⟩ U3: the issuer's read-only check shares the publish predicate (`issuance_ro`).
@@ -7899,6 +7901,16 @@ impl Operations {
             Some(Err(e)) => (None, Some(e)),
             None => (None, None),
         };
+        // ⟨M03 wave 4, round 5 (W4-C02); §17.22 item 7, §17.23 item 1⟩ Every newly
+        // committed managed follower's scope claim is its own, from evidence read now
+        // (the grant's pairs, the current client and target evaluation, the installed
+        // certificates' CAs), never the leader's historical result: it replaces the
+        // `destination_scope` of the facts below, before the minimums are checked.
+        let follower_scope = if attached && managed {
+            Some(self.follower_scope(&gid, resolved.adapter.as_ref()).await?)
+        } else {
+            None
+        };
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
         let parent_binding = st
@@ -7947,11 +7959,16 @@ impl Operations {
                 let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
                 // ⟨M02⟩ U0b rows 4 and 5: without this drive's facts, the grant's
                 // stored history; then fresh eligibility in this transaction.
-                let facts = match facts {
+                let mut facts = match facts {
                     Some(f) => f,
                     None => Facts::conservative(&g, tx.grant_prepared_facts(&gid)?.as_ref(), now),
                 }
                 .with_eligibility(tx, now)?;
+                // ⟨W4-C02⟩ A managed follower reports, and is held to its minimum by, its
+                // own claim at this commit's time.
+                if let Some(scope) = &follower_scope {
+                    facts.enforcement.destination_scope = scope.claim(now);
+                }
                 // ⟨§17.22 item 6⟩ A follower whose own binding could not be
                 // materialized is refused here, on the attached refusal path (no grant
                 // event: the grant is not its own).

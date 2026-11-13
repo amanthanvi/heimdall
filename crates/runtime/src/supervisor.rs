@@ -1226,7 +1226,9 @@ impl Supervisor {
     ///   (`Txn::held_slots_of_ended_grants`);
     /// * every terminal grant with a credential instance not yet `destroyed`, and
     ///   every grant (live ones included) with a slot held or clearing for a released
-    ///   binding (`Txn::managed_cleanup_owed`).
+    ///   binding, ⟨round 5, W4-C01⟩ or with a released binding whose release cleanup
+    ///   (its endpoint and files of every generation, slot or no slot) is not yet
+    ///   recorded done (`Txn::managed_cleanup_owed`; `StoreCleanup` records it done).
     ///
     /// For each: an ended managed grant's K_env is destroyed in memory
     /// (`Operations::managed_end_destroy_keys`); the managed adapter's end cleanup

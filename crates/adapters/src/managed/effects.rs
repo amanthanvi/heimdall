@@ -938,6 +938,54 @@ impl ManagedEffectsImpl {
         first.map_or(Ok(()), Err)
     }
 
+    /// ⟨M03 wave 4, round 5 (W4-C01)⟩ Clear `binding`'s endpoint and files of **every**
+    /// generation it owns ([`ManagedEffects::clear`] for each): each generation in
+    /// `1..=bound` (the caller's durable bound: the store's
+    /// `app`-side `binding_generation_bound_in`), each generation its files are found
+    /// at on disk (by marker, [`files::binding_directories_of`]), and the generation of
+    /// this instance's last materialization of it. Then verified: no binding directory
+    /// of it is left on disk and no endpoint of it runs. Never touches K_env, the
+    /// listing of another binding, or a slot (each slot is cleared by its own store
+    /// generation, [`Self::clear_slot`]).
+    ///
+    /// # Errors
+    /// The first failed clear (every generation is still attempted), or
+    /// `binding_resources_remain` when the verification finds something left.
+    pub fn clear_binding_generations(
+        &self,
+        binding: &BindingId,
+        bound: u64,
+    ) -> Result<(), AdapterError> {
+        let mut generations: BTreeSet<u64> = (1..=bound).collect();
+        generations.extend(
+            files::binding_directories_of(&self.runtime_dir, binding)
+                .map_err(|e| adapter_from_files(&e))?
+                .into_iter()
+                .map(|(_, g)| g),
+        );
+        if let Some(m) = self.lock().materialized.get(binding) {
+            generations.insert(m.generation);
+        }
+        let mut first = None;
+        for g in generations {
+            if let Err(e) = self.clear(binding, g) {
+                first.get_or_insert(e);
+            }
+        }
+        if let Some(e) = first {
+            return Err(e);
+        }
+        let left = !files::binding_directories_of(&self.runtime_dir, binding)
+            .map_err(|e| adapter_from_files(&e))?
+            .is_empty();
+        if left || self.endpoints.binding_endpoint(binding).is_some() {
+            return Err(AdapterError::Unavailable(
+                "binding_resources_remain".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     /// ⟨§17.21 items 1–2⟩ The bindings this instance materialized for `grant`.
     #[must_use]
     pub fn materialized_bindings(&self, grant: &GrantId) -> Vec<BindingId> {

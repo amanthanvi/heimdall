@@ -1057,6 +1057,11 @@ impl Operations {
 /// runtime's ended-binding cleanup removes the slot files and the mux path, then frees
 /// it. Returns whether the binding is a managed one (its endpoint, listing and files
 /// are then cleared after the commit, [`Operations::after_binding_release_m03`]).
+///
+/// ⟨round 5, W4-C01⟩ The same transaction records the released binding's own
+/// obligation for its endpoint and files (`Txn::record_released_binding_cleanup`),
+/// with or without a slot: `Txn::managed_cleanup_owed` lists it until the runtime's
+/// ended-binding cleanup has removed every generation of them and recorded it done.
 pub(super) fn release_binding_slots_in(
     tx: &mut Txn<'_>,
     binding: &heimdall_domain::binding::BindingRecord,
@@ -1065,6 +1070,7 @@ pub(super) fn release_binding_slots_in(
     if binding.mechanism != MANAGED_CERTIFICATE {
         return Ok(false);
     }
+    tx.record_released_binding_cleanup(&binding.id)?;
     for slot in tx.slots_for_binding(&binding.id)? {
         if let heimdall_domain::managed::SlotState::Held {
             binding: holder,
@@ -1080,16 +1086,34 @@ pub(super) fn release_binding_slots_in(
     Ok(true)
 }
 
+/// ⟨round 5, W4-C01⟩ The highest resource generation a binding of `grant` can have
+/// been materialized at: the grant's credential-instance count (at least
+/// [`crate::managed::driver::BINDING_GENERATION`]). A preparation and a follower write
+/// `BINDING_GENERATION`; a re-issue writes its instance count, its new instance
+/// already counted ([`Operations::reissue_consumers`]); instances are never removed,
+/// so every generation the binding's endpoint and files exist at is in
+/// `BINDING_GENERATION..=` this bound.
+pub(super) fn binding_generation_bound_in(
+    tx: &mut Txn<'_>,
+    grant: &GrantId,
+) -> heimdall_store::Result<u64> {
+    let count = u64::try_from(instances_of(tx, grant)?.len()).unwrap_or(u64::MAX);
+    Ok(count.max(crate::managed::driver::BINDING_GENERATION))
+}
+
 impl Operations {
     /// ⟨§17.22 item 10 (W4-R08)⟩ After the commit of a managed binding's release: its
     /// binding endpoint is removed and it is detached from the signer (so neither its
     /// endpoint nor the environment endpoint lists it any more), and its files are
-    /// removed (`ManagedEffects::clear` at
-    /// [`crate::managed::driver::BINDING_GENERATION`]). K_env is not touched: it goes
-    /// only with the grant's last reference ([`Self::after_release_m03`]). Best effort:
-    /// the slot files, the mux path and any file left are completed by the runtime's
-    /// ended-binding cleanup, discovered from the `clearing` slot row and, at the
-    /// grant's end, from the grant's bindings.
+    /// removed. ⟨round 5, W4-C01⟩ Of **every** generation it owns, not a constant: a
+    /// re-issue restored it at a newer one. Each generation in
+    /// `BINDING_GENERATION..=`[`binding_generation_bound_in`] is cleared
+    /// (`ManagedEffects::clear` is fenced by generation and idempotent; an absent
+    /// generation is a no-op). K_env is not touched: it goes only with the grant's
+    /// last reference ([`Self::after_release_m03`]). Best effort: whatever is left
+    /// (the slot files, the mux path, a file whose removal failed) is completed by the
+    /// runtime's ended-binding cleanup, discovered from the release's durable
+    /// obligation ([`release_binding_slots_in`]) and the `clearing` slot rows.
     pub(super) async fn after_binding_release_m03(
         &self,
         binding: &heimdall_contract::ids::BindingId,
@@ -1097,10 +1121,24 @@ impl Operations {
         let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone()) else {
             return;
         };
-        if effects
-            .clear(binding, crate::managed::driver::BINDING_GENERATION)
-            .is_err()
-        {
+        let bid = binding.clone();
+        let bound = self
+            .write(move |tx, _| match tx.binding(&bid)? {
+                Some(b) => binding_generation_bound_in(tx, &b.grant),
+                None => Ok(crate::managed::driver::BINDING_GENERATION),
+            })
+            .await;
+        let Ok(bound) = bound else {
+            tracing::warn!(
+                "managed binding release: its generations could not be read; the supervisor's pass retries"
+            );
+            return;
+        };
+        let mut complete = true;
+        for generation in crate::managed::driver::BINDING_GENERATION..=bound {
+            complete &= effects.clear(binding, generation).is_ok();
+        }
+        if !complete {
             tracing::warn!(
                 "managed binding release: its files were not all removed; the supervisor's pass retries"
             );
@@ -1566,6 +1604,163 @@ pub(super) fn name_follower_endpoint(
         if p.endpoint.is_some() {
             p.endpoint = Some(endpoint.clone());
         }
+    }
+}
+
+// --- ⟨M03 wave 4, round 5 (W4-C02); ADR-0008 §17.22 item 7, §17.23 item 1⟩ a follower's
+// own scope evidence ------------------------------------------------------------------
+
+/// ⟨§17.22 item 7⟩ The evidence a managed `destination_scope` claim for `pair` rests on:
+/// the newest (`verified_at`) evidence of the pair's `verified` enrollments **under
+/// `ca`**, the CA of the certificate the claim is for (another CA's evidence says
+/// nothing about this certificate's principals). `managed` is a snapshot the managed
+/// adapter's `read_sources` built, so evidence the comparison invalidated (the alias no
+/// longer evaluates to the approved target, or the evidence does not name the current
+/// client) is already gone from it. The one selection both a fresh preparation
+/// (`heimdall_adapters::managed::prepare::pair_evidence`) and a follower's commit
+/// ([`FollowerScope::claim`]) use.
+#[must_use]
+pub fn pair_evidence_under_ca<'a>(
+    managed: &'a crate::ports::ManagedSources,
+    pair: &AccessPair,
+    ca: &CaFingerprint,
+) -> Option<&'a heimdall_domain::enrollment::EnrollmentEvidence> {
+    managed
+        .enrollments
+        .iter()
+        .filter(|e| {
+            e.destination == pair.destination
+                && e.account == pair.account
+                && e.state == heimdall_domain::enrollment::EnrollmentState::Verified
+                && &e.ca_fingerprint == ca
+        })
+        .filter_map(|e| e.evidence.as_ref())
+        .max_by_key(|e| e.verified_at)
+}
+
+/// ⟨W4-C02; §17.22 item 7⟩ What a newly committed managed follower's own scope claim is
+/// computed from, read for it (never the leader's historical result): the grant's
+/// pairs, the CA of the certificate **installed** for each pair under the grant (the
+/// key the follower's binding signs with), and the managed read sources of those pairs
+/// read now ([`crate::ports::CredentialAdapter::read_sources`] of the grant's managed
+/// adapter: the evidence comparison against the current target evaluation and client
+/// ran in it).
+#[derive(Debug, Clone, Default)]
+pub(super) struct FollowerScope {
+    pairs: std::collections::BTreeSet<AccessPair>,
+    cas: std::collections::BTreeMap<AccessPair, CaFingerprint>,
+    managed: Option<crate::ports::ManagedSources>,
+}
+
+impl FollowerScope {
+    /// The follower's `destination_scope` at `now` (the commit's accepted time), by the
+    /// rule of a fresh preparation's report (ADR-0008 D12; §17.23 item 1):
+    /// `verified_server_principals` only when the grant has pairs and **every** pair
+    /// has an installed certificate whose CA's evidence ([`pair_evidence_under_ca`])
+    /// still holds and is fresh (`fresh_until > now`); otherwise `unknown`. No read
+    /// sources (no managed adapter, or a read that failed) claim nothing.
+    pub(super) fn claim(
+        &self,
+        now: Timestamp,
+    ) -> heimdall_contract::request::DestinationScopeEnforcement {
+        use heimdall_contract::request::DestinationScopeEnforcement as Scope;
+        let Some(managed) = &self.managed else {
+            return Scope::Unknown;
+        };
+        let holds = |p: &AccessPair| {
+            self.cas
+                .get(p)
+                .and_then(|ca| pair_evidence_under_ca(managed, p, ca))
+                .is_some_and(|e| e.fresh_until > now)
+        };
+        if !self.pairs.is_empty() && self.pairs.iter().all(holds) {
+            Scope::VerifiedServerPrincipals
+        } else {
+            Scope::Unknown
+        }
+    }
+}
+
+/// ⟨W4-C02⟩ The CA of the certificate installed for each pair of `grant`: the issuance
+/// entries attached to the grant's `installed` credential instances. A pair whose
+/// installed entries name no CA, or more than one, has none (its claim is `unknown`).
+fn installed_cas_in(
+    tx: &mut Txn<'_>,
+    grant: &GrantId,
+) -> heimdall_store::Result<std::collections::BTreeMap<AccessPair, CaFingerprint>> {
+    let mut found: std::collections::BTreeMap<AccessPair, Option<CaFingerprint>> =
+        std::collections::BTreeMap::new();
+    for instance in instances_of(tx, grant)?
+        .into_iter()
+        .filter(|i| i.state == CredentialState::Installed)
+    {
+        for id in &instance.certificates {
+            let Some(entry) = tx.issuance_entry(id)? else {
+                continue;
+            };
+            if entry.grant != *grant {
+                continue;
+            }
+            let ca = entry.bounds.ca_fingerprint.clone();
+            found
+                .entry(entry.pair.clone())
+                .and_modify(|seen| {
+                    if *seen != ca {
+                        *seen = None;
+                    }
+                })
+                .or_insert(ca);
+        }
+    }
+    Ok(found
+        .into_iter()
+        .filter_map(|(p, ca)| ca.map(|ca| (p, ca)))
+        .collect())
+}
+
+impl Operations {
+    /// ⟨W4-C02; ADR-0008 §17.22 item 7, §17.23 item 1⟩ The fresh evidence of a coalesced,
+    /// decision-joined or recovered follower of the managed `grant`, read just before its
+    /// commit: the grant's pairs and their installed certificates' CAs (one store
+    /// transaction), then the managed read sources of the catalog's pairs through
+    /// `adapter`'s own `read_sources` (on the blocking pool, as a preparation reads
+    /// them), whose evidence comparison runs against the current target evaluation and
+    /// client. Anything missing (the grant, the adapter, a catalog pair) leaves the
+    /// claim `unknown` ([`FollowerScope::claim`]); a store failure is the commit's.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub(super) async fn follower_scope(
+        &self,
+        grant: &GrantId,
+        adapter: Option<&heimdall_domain::operation::AdapterIdentity>,
+    ) -> Result<FollowerScope, OpError> {
+        let gid = grant.clone();
+        let read = self
+            .write(move |tx, _| {
+                let Some(g) = tx.grant(&gid)? else {
+                    return Ok(None);
+                };
+                let named = super::catalog_pairs(tx, &g.scope.pairs)?.unwrap_or_default();
+                let cas = installed_cas_in(tx, &gid)?;
+                Ok(Some((g.scope.pairs.clone(), cas, named)))
+            })
+            .await?;
+        let Some((pairs, cas, named)) = read else {
+            return Ok(FollowerScope::default());
+        };
+        let managed = match self
+            .adapter(adapter)
+            .filter(|a| a.descriptor().identity.mechanism == MANAGED_CERTIFICATE)
+        {
+            Some(a) => super::read_prepare_sources(&a, &named).await.managed,
+            None => None,
+        };
+        Ok(FollowerScope {
+            pairs,
+            cas,
+            managed,
+        })
     }
 }
 

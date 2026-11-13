@@ -4158,6 +4158,41 @@ No review has run yet. These rulings complete the wave before its reviews.
    - **The locator:** the materialization reports the endpoint locator it actually created, in an additive field of its result. A follower's `consumer.signing_endpoint` is that locator, never one derived by string substitution.
    - **W4-N01's Windows port** covers the follower's and the re-issued binding's pipe forms.
 
+### 17.24 Orchestrator rulings on wave 4, round 5: the re-check, the Windows port's failures and the round-5 questions (2026-11-13)
+
+**Sources:**
+- **The independent re-check** of `e566cc46..4866642d` (Codex): `tests/evidence/artifacts/review-m03-code/wave4-recheck.md`. Verdict: fix first, with W4-C01 (medium) and W4-C02 (high). Every round-3/4 finding is resolved except W4-R04, which W4-C02 leaves open on one path.
+- **The native Windows run at `4866642d`** (in-box `OpenSSH_for_Windows_9.5p2`, the WSL fixture sshd 9.6p1): the harness exited 1 after 1138 s. W4-N01's port ran, and `e2e_enroll_m03` was the only failing binary (29 passed, 20 failed). Canary count 0.
+  - 15 failures were the expected `client_trace_family_unrecorded`: the Win32 row was not yet recorded, so every verification was inconclusive. `windows_client_trace_row_observation` passed and printed the observation lines the row is recorded from (item 5).
+  - The other 5 are item 3.
+- **The round-5 questions:** `wave4-notes/m03-wave4-r5-questions.md`.
+
+**Findings:**
+1. **W4-C02: a follower's scope claim is its own, computed now.**
+   - A joined, coalesced or recovered follower recomputes its managed `destination_scope` from the evidence that holds at its own commit: every pair of the grant, the current client and target, and the CA of the certificate actually installed.
+   - A leader's earlier result never satisfies a follower's present minimum. Invalid or stale evidence gives `unknown`, and a minimum that needs the scope is refused.
+   - This closes W4-R04 on the last path the re-check found.
+   - **The regressions** (`live_tests/follower_scope.rs`): a decision-joined and a coalesced follower are each refused when the verifying client changes after the leader's commit. The refused follower's binding is cleaned up, and the leader stands. A follower with no minimum commits and reports `unknown`, and one with valid evidence meets the minimum.
+2. **W4-C01: releasing a re-issued binding clears what it actually owns.**
+   - Release clears every generation the binding owned, from `BINDING_GENERATION` up to the highest it reached, not only the first. K_env stays while another reference keeps the grant live.
+   - Release records a durable cleanup obligation in the same transaction, with or without a slot. `managed_cleanup_owed` lists it until the binding's directories and endpoint are verified gone.
+   - No migration: the obligation is a store meta row, like `cleanup_intent:`.
+   - **The regressions** (`live_tests/cleanup.rs`): a re-issued, slotless parent binding is released while a child keeps the grant live. Its endpoint and files go, and the child still signs with K_env. When the release cleanup fails, the next pass retries it until clean.
+3. **The Windows failures share one root cause: a foreign removal used the raw catalog locator.**
+   - An own enrollment records the plan's rendered endpoint (`plan::build` step 8). A foreign removal has no plan, and its context took the catalog's raw locator instead. On Windows that is `\\.\pipe\<name>`, never the rendered `//./pipe/<name>`.
+   - The existing-access re-check before every step correctly refused it (`existing_access_changed`). On Unix the socket path renders to itself, so only Windows saw it.
+   - **The fix (Y-W-Q1, accepted):** both the foreign removal and its admission use step 8's rendering (`plan::catalog_endpoint`). The re-check is unchanged.
+   - **The regressions:** `foreign_endpoint_is_the_concrete_rendering`, and the two foreign-removal tests that failed on Windows.
+   - The three held-setup tests discarded the drive's error, so they reported `Removing` instead of the real failure. The setup now asserts that its damage landed and reports the drive's outcome. The testkit's registry append verifies its write by reading it back.
+4. **Y-W-Q2, confirmed: a foreign removal needs a concrete recorded endpoint.**
+   - When the recorded endpoint is absent or not concrete (relative, containing `..`, `SSH_AUTH_SOCK`, or an empty pipe name), admission refuses with `existing_access_endpoint_unrecorded`. Step 8 refuses an own enrollment the same way.
+   - Before this, such a removal was approved and then failed at its first step. On Windows its disclosed invocation was also empty.
+   - **The regression:** `foreign_removal_refuses_non_concrete_recorded_endpoint`, with a relative socket path on Unix and an empty pipe name on Windows. Nothing is written, no operation opens, and the registry is unchanged.
+5. **Round 5 item 4: the Windows client's host-key failure is observed, not assumed.**
+   - Windows-only tests print the in-box client's changed-host-key and unknown-host lines as `m03 observation: client_trace_row … field=host_key_failure` lines, ungated, so the row can be recorded from them.
+   - The ported "a host-key change ends held, with no rollback" test is gated on the recorded row.
+   - The Win32 9.5p2 row is recorded in `crates/enroll/src/trace.rs` only from those native lines. Until then the in-box client stays unrecorded, and its verifications are inconclusive.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):
