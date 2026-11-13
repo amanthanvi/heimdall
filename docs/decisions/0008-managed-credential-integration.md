@@ -4304,6 +4304,52 @@ No review has run yet. These rulings complete the wave before its reviews.
    - U13 owns the native harnesses (m03-plan U13). It builds that harness and runs these tests on Windows, and U12's acceptance on Windows is closed there.
    - Until then they are listed as **blocked: Windows interactive harness (U13)**, never as passed.
 
+### 17.27 Orchestrator rulings on wave 5's reviews (2026-11-13)
+
+**Sources:**
+- **The code review** (Codex, independent): `tests/evidence/artifacts/review-m03-code/wave5.md`. Verdict: fix first, with W5-R01 to W5-R06.
+- **The security review** (Codex, independent; plan §6.7): `wave5-security.md`. Verdict: fix first, with W5-S01 to W5-S06.
+- Every finding was reproduced by a disposable probe. W5-R04 duplicates W5-S04, and W5-R05 duplicates W5-S03.
+
+**Uninstall and the recovery inventory:**
+1. **W5-R01, W5-R02: the inventory holds every outstanding remote obligation, not only open enrollments.**
+   - **Outstanding means:** every non-final enrollment; every enrollment in any state whose `late_write` residual is unresolved (absence not yet observed after its not-after); and every foreign removal not yet final, including an abandoned system-form record that is still `pending_until_line_removed`.
+   - Uninstall lists all of them, and its purge guard, acknowledgement and bundle requirement count all of them.
+   - The recovery bundle exports them as additive fields (authorized). Foreign removals are exported only by their public removal descriptors, with no foreign bytes (W4-S02). The bundle's freshness and content check covers them as well.
+   - **The regressions:** an abandoned foreign system-form record, and a `withdrawn` record with an unresolved `late_write`, each block a purge that has no acknowledgement or bundle, end to end.
+2. **W5-S01: a destructive uninstall is fenced against admission and revalidated before anything is deleted.**
+   - After the owner's typed confirmation, and before any destructive step, the CLI asks the runtime to close admission of new enrollment, CA and issuance work for this uninstall.
+   - The fence is authorized as an additive runtime request. While it holds, new requests are refused with `SERVICE_UNAVAILABLE`, reason `uninstall_in_progress`.
+   - Under the fence, the CLI re-reads the inventory and repeats the bundle check against the state about to be destroyed. If the inventory differs from the one the owner confirmed, uninstall refuses (exit 4, reason `uninstall_inventory_changed`, next: run `heimdall uninstall` again), lifts the fence, and deletes nothing.
+   - An open enrollment operation is itself an outstanding obligation (item 1), so an enrollment in flight blocks the purge rather than racing it.
+   - **The regression:** the reviewer's two-CLI race. An enrollment approved while the purge waits at its confirmation must leave the state undeleted.
+
+**Consent and disclosures:**
+3. **W5-S02: `--json` never removes consent text from the terminal.**
+   - Whenever an interactive confirmation will be asked, the complete human preview and every disclosure's prose are written to the terminal (stderr) first, whatever the output mode. Stdout keeps exactly one envelope.
+   - This applies to every path that can approve: `enroll`, removal, reconcile and verify decisions, the issuer ceremonies, uninstall, and generic decision completion.
+   - **The regression:** `--json enroll` on a pty shows the disclosure prose before the prompt.
+4. **W5-R05 and W5-S03: both the issuer and the enrollment confirmation show the runtime's conditional lock text.** This widens §17.26 item 6, Q-IS2-5.
+   - The text comes from `inspect capabilities.lock.disclosure`, carried into `RegisterDecision.lock_text` and into the enrollment consent renderer.
+   - If a decision carries `lock_continuity_once` and that text cannot be obtained or rendered, the CLI refuses to approve (exit 3). The once-only acknowledgement is therefore recorded only for a decision whose conditional text was actually shown.
+   - **The regressions:** a continuing configuration and a revoke-on-lock configuration, each with saved limits, on both paths.
+
+**The issuer ceremonies:**
+5. **W5-R03: a ceremony requires an interactive invocation,** meaning stdin is a TTY and `--non-interactive` is absent. The CLI checks this before connecting, attending or opening the store. The controlling terminal is still used for the passphrase after that check.
+   - **The regressions:** stdin redirected while a controlling terminal stays attached exits 3 with nothing sent. The successful pty fixtures give a TTY stdin.
+6. **W5-R04 and W5-S04: every ceremony confirmation is bounded by the same 120 s prompt timeout** as ordinary decisions.
+   - On timeout the CLI restores the terminal modes, clears any secret display, zeroizes the ceremony material, sends nothing further and returns `NotConfirmed` (exit 3). A late `yes` is never honoured.
+   - **The regression:** the real terminal reader, tested with an injectable clock or deadline so the test does not wait 120 s, plus one real-time case if it is cheap.
+7. **W5-S05: Ctrl-C and EOF cancel at every ceremony prompt, the passphrase's `written` acknowledgement included.**
+   - Cancellation is a distinct read outcome. It is propagated at once, with no retry: the display is cleared, the terminal restored, and the result is `NotConfirmed`, exit 3.
+   - Only an ordinary wrong answer may be retried.
+8. **W5-S06: every untrusted string in ceremony text is sanitized** with the same sanitizer the ordinary renderers use: paths, aliases, labels and anything taken from arguments or files. The only control sequences that reach the terminal are those the ceremony itself emits to clear its secret display.
+   - **The regression:** a real pty with a backup filename that carries clear-screen and cursor-home controls.
+
+**Smaller fixes:**
+9. **W5-R06:** `destination_lines` reads the runtime's `items` (and the older `destinations`). Its test uses the runtime's real shape, including a managed preference whose policy cannot be computed.
+10. **The release-profile test build:** `retire::tests::test_store_item_deleted_by_exact_locator_in_debug_builds_only` does not compile under `--release` (`crates/issuer/src/retire.rs`, an inline `const` assertion). Gate or restructure it so that `cargo test --release -p heimdall-issuer --lib` compiles and passes. Keep the security reviewer's release-only deletion-gate probe as a permanent integration test.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):
