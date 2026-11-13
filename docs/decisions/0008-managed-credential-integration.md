@@ -4166,6 +4166,10 @@ No review has run yet. These rulings complete the wave before its reviews.
   - 15 failures were the expected `client_trace_family_unrecorded`: the Win32 row was not yet recorded, so every verification was inconclusive. `windows_client_trace_row_observation` passed and printed the observation lines the row is recorded from (item 5).
   - The other 5 are item 3.
 - **The round-5 questions:** `wave4-notes/m03-wave4-r5-questions.md`.
+- **The independent re-check of round 5**, `4866642d..a533fc40` (Codex): `tests/evidence/artifacts/review-m03-code/wave4-recheck5.md`. Verdict: merge. W4-C01, W4-C02 and the Windows correction are resolved, five reverts of its own each failed (exit 101) and passed restored, and it found no new actionable defect (item 6).
+- **The native development checks at `a533fc40`:**
+  - **devbox** (9.6p1): all 20 selected binaries passed (837 passed, 0 failed, 4 ignored), `e2e_enroll_m03` 67 of 67; canary count 0;
+  - **Windows** (in-box 9.5p2): the harness exited 1 after 1173 s. `e2e_enroll_m03` was the only failing binary (37 passed, 16 failed), and all 16 were the expected `client_trace_family_unrecorded`. The five tests of item 3 and the item-4 observations passed. Totals over 84 binaries: 2367 passed, 16 failed, 7 ignored; canary count 0.
 
 **Findings:**
 1. **W4-C02: a follower's scope claim is its own, computed now.**
@@ -4191,7 +4195,15 @@ No review has run yet. These rulings complete the wave before its reviews.
 5. **Round 5 item 4: the Windows client's host-key failure is observed, not assumed.**
    - Windows-only tests print the in-box client's changed-host-key and unknown-host lines as `m03 observation: client_trace_row … field=host_key_failure` lines, ungated, so the row can be recorded from them.
    - The ported "a host-key change ends held, with no rollback" test is gated on the recorded row.
-   - The Win32 9.5p2 row is recorded in `crates/enroll/src/trace.rs` only from those native lines. Until then the in-box client stays unrecorded, and its verifications are inconclusive.
+   - **The Win32 9.5p2 row is recorded** in `crates/enroll/src/trace.rs` from native lines only:
+     - its matched-path fields from `windows_client_trace_row_observation` at `4866642d`, which spell every field exactly as the portable rows do;
+     - its `host_key_failure` set from the `a533fc40` observations: `Host key verification failed.`, `REMOTE HOST IDENTIFICATION HAS CHANGED`, ` has changed and you have requested strict checking.` (changed key, through the real verifier, held with `enrollment_host_key_mismatch`), and `No ED25519 host key is known for` (unknown host, exit 255).
+     - The ECDSA and RSA unknown-host forms the 10.5p1 row carries were not observed on 9.5p2 and are not recorded.
+   - **The regressions:** two unit tests parse the observed lines with the row (the positive accepted, the negative refused, both host-key traces failures with no other event). Each fails when its row string is changed to an unobserved one (exit 101) and passes restored. On Windows the 16 gated tests then run conclusively, and the native rerun is their evidence.
+6. **The supervisor's cleanup and re-issue passes stay serial.**
+   - The re-check's adversarial probe ran the ended-binding cleanup pass concurrently with a paused re-issue, and resources were recreated after cleanup had acknowledged the obligation.
+   - Production awaits those passes one after another in one supervisor loop, and the startup re-issue precedes that loop, so the probe's interleaving is not reachable. It is not a finding.
+   - **The constraint:** they must not run concurrently unless a binding-lifecycle fence first orders a re-issue's restoration against the release cleanup of the same binding.
 
 ## 18. Consequences
 

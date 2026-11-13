@@ -1198,11 +1198,17 @@ fn trace_patterns_keyed_by_release_family() {
     // The devbox's 9.6p1, recorded from its observed run (any portable 9.6p1 build).
     let devbox = ClientVersion::parse("OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13").unwrap();
     assert!(patterns_for(devbox.family, devbox).is_ok());
+    // The Windows PC's in-box 9.5p2, recorded from its native runs (any 9.5p2 build of
+    // Win32-OpenSSH); the portable family never borrows it.
+    let inbox = ClientVersion::parse("OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2").unwrap();
+    assert_eq!(inbox.family, ClientFamily::Win32);
+    assert!(patterns_for(ClientFamily::Win32, inbox).is_ok());
+    assert!(patterns_for(ClientFamily::Portable, inbox).is_err());
     // Rows not observed yet: unrecorded until a native run records them.
     for text in [
         "OpenSSH_9.7p1 Ubuntu-3ubuntu13.5, OpenSSL 3.0.13",
         "OpenSSH_for_Windows_10.3p1, LibreSSL 3.4.3",
-        "OpenSSH_for_Windows_9.5p2, LibreSSL 3.4.3",
+        "OpenSSH_for_Windows_9.5p1, LibreSSL 3.4.3",
     ] {
         let v = ClientVersion::parse(text).unwrap();
         assert!(patterns_for(v.family, v).is_err(), "{text}");

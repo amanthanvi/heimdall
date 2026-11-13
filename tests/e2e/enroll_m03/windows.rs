@@ -490,11 +490,12 @@ async fn windows_reissue_restores_the_binding_pipe_and_signs_with_the_new_key() 
 }
 
 /// W4-N01: **the observation** the in-box client's trace row is recorded from (as
-/// `integration_enroll_verify`'s `observe_unrecorded_trace` for a Unix client). The
-/// in-box `OpenSSH_for_Windows` client has no row in `heimdall_enroll::trace::RECORDED`,
-/// so every verification through it is inconclusive by design, and the Windows tests
-/// that need a conclusive one fail on `World::require_recorded_client` until the row is
-/// recorded from real output. This test runs one enrollment against the harness's WSL
+/// `integration_enroll_verify`'s `observe_unrecorded_trace` for a Unix client). A client
+/// with no row in `heimdall_enroll::trace::RECORDED` makes every verification
+/// inconclusive by design, and the Windows tests that need a conclusive one fail on
+/// `World::require_recorded_client` until its row is recorded from real output (the
+/// in-box 9.5p2's row was recorded from this test's lines at `4866642d` and the
+/// host-key observations' at `a533fc40`). This test runs one enrollment against the harness's WSL
 /// sshd with an observation verifier (it parses under the first recorded row's label
 /// and dumps each attempt's raw trace; its report is **no evidence of a
 /// verification**), then prints every trace line a row's fields come from, and the
