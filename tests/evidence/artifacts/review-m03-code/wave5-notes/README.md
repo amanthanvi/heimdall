@@ -81,3 +81,15 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r5-questions.md` | Q-L5-2 to Q-L5-8 (Q-L5-5 and Q-L5-8 ANSWERED, §17.29 items 9–10) and the `late_write_present` code (ANSWERED, item 8) |
 | `m03-wave5-r5-worklog-I.md` | The integrator's round-5 worklog: the release-gate probe for the localenv test hooks (item 6), validation |
 | `m03-wave5-r5-worklog-L5.md` | L5: `late_write_present`; the `withdrawn` + `late_write` removal edge; the issuing-set rule on removal and its regressions |
+
+## Round 6 (base `aa7577e3`; implements ADR-0008 §17.30 items 3–5, plus the item-6 ruling)
+
+These were moved here from the worktree root at the end of round 6. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r6-brief.md` | The common round-6 brief |
+| `m03-wave5-r6-questions.md` | Q-L5-9 (ANSWERED, §17.30 item 6), Q-L5-10 to 12 |
+| `m03-wave5-r6-worklog-I.md` | The integrator's round-6 worklog and validation |
+| `m03-wave5-r6-worklog-L5.md` | L5: the `abandoned` residual clearing (item 3), the store's payload checks (item 4), and the held-removal uniqueness conflict, reproduced and fixed (item 5) |

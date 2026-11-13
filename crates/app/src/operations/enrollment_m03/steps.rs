@@ -1677,15 +1677,18 @@ fn removal_confirmed(
     let mut updated = ctx.record.clone();
     updated.updated_at = now;
     updated.hold = None;
-    // ⟨ADR-0008 §17.29 item 2⟩ The removal a withdrawn record's `late_write` residual
-    // admitted clears the residual in the same transaction as its result, once the
-    // removal's own reading settles it (`verify::removal_settles_late_write`).
+    // ⟨ADR-0008 §17.29 item 2, §17.30 items 2-3⟩ A removal admitted from `withdrawn` or
+    // `abandoned` (its persisted removal origin, §17.30 item 5) clears the `late_write`
+    // residual in the same transaction as its result, once the removal's own reading
+    // settles it (`verify::removal_settles_late_write`); otherwise the residual is kept.
     if ctx.foreign.is_none()
         && let Some(residual) = &ctx.record.late_write
-        && tx
-            .stage_receipts(&ctx.op.id)?
-            .iter()
-            .any(|r| r.stage == super::LATE_WRITE_REMOVAL_STAGE)
+        && ctx.record.removal_origin.as_ref().is_some_and(|o| {
+            matches!(
+                o.state,
+                EnrollmentState::Withdrawn | EnrollmentState::Abandoned
+            )
+        })
         && super::verify::removal_settles_late_write(&ctx.journal, residual)
     {
         updated.late_write = None;

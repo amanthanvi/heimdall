@@ -4425,6 +4425,9 @@ No review has run yet. These rulings complete the wave before its reviews.
    - A record whose removal was admitted from `withdrawn` or `abandoned` keeps its removal origin through every later state of that removal, `held` included. The uniqueness index on `(pair, CA)` excludes records that carry a removal origin, as it already excludes `abandoned` (Q25).
    - Reproduce the conflict first: a store-level test holds such a removal beside a live enrollment of the same pair and CA, and today the transition is rejected. Then fix it.
    - **The regression:** with the fix the transition commits, and the live enrollment is unaffected. Reverted, the test fails.
+6. **Q-L5-9, confirmed:** the store compares `OwnerReverify { hold }` with the stored hold **by kind**, because the event carries only the kind. A mismatched kind is refused, and nothing changes.
+7. **Q-L5-11, confirmed:** the held-removal conflict came from a removal origin that was never recorded. The `(pair, CA)` index already exempted held records carrying an origin, and the account-form removal path did not record one. Recording it needed no migration. Q-L5-12: the recorded origin also covers a re-removal from `held` of the same removal.
+8. **Q-L5-10: the same payload check applies to every event that restates stored state.** `TargetChangeApproved { hold }` and the manual-recovery events are refused when what they restate differs from the stored record, as in item 4. **The regression:** each mismatch is refused, and nothing changes.
 
 ## 18. Consequences
 

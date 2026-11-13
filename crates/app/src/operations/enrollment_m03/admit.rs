@@ -1159,7 +1159,8 @@ pub(super) fn decision_apply(
         DecisionKind::RemoveEnrollment { fresh_target, .. } => {
             journal.fresh_target = fresh_target.clone();
             // ⟨ADR-0008 §17.29 item 2⟩ A withdrawn record leaves its final state only
-            // with the `late_write` residual (the table's guard), and records so.
+            // with the `late_write` residual (the table's guard; the store checks the
+            // payload against the stored record, §17.30 item 4).
             let from_withdrawn = enrollment.state == EnrollmentState::Withdrawn;
             let event = if from_withdrawn {
                 EnrollmentEventKind::WithdrawnRemovalApproved {
@@ -1168,17 +1169,9 @@ pub(super) fn decision_apply(
             } else {
                 EnrollmentEventKind::RemoveEnrollmentApproved
             };
+            // ⟨§17.30 item 5⟩ The store records the removal's origin for a removal
+            // admitted from `withdrawn` or `abandoned` (`Txn::transition_enrollment`).
             move_record(tx, emit, enrollment.state, event, &updated, Some(&op.id))?;
-            if from_withdrawn {
-                tx.append_stage_receipt(
-                    &op.id,
-                    &super::receipt(
-                        super::LATE_WRITE_REMOVAL_STAGE,
-                        now,
-                        heimdall_domain::operation::EffectReceipt::NotAttempted,
-                    ),
-                )?;
-            }
             op_to(&mut op, OperationEvent::Approved, now)?;
             tx.update_operation(&op)?;
             emit.op(tx, &op)?;

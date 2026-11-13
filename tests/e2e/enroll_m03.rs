@@ -5456,6 +5456,67 @@ async fn withdrawn_without_late_write_refuses_remove() {
     assert_eq!(w.registry_text(), before, "nothing remote");
 }
 
+// --- ⟨ADR-0008 §17.30 item 3⟩ an abandoned record's residual on removal -----------------
+
+/// ⟨§17.30 item 3⟩ An abandoned record whose uncertain append landed (its residual
+/// recorded by the real abandon), removed through its real steps after the residual's
+/// not-after on the destination's clock with no lock present: it ends `removed` with
+/// the residual cleared in the same transaction, and is no longer an outstanding
+/// obligation.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn abandoned_with_late_write_removed_after_not_after_clears_residual() {
+    let w = World::with(short_steps()).await;
+    let r = abandoned_with_late_write(&w, "req_ablw_a", true).await;
+    assert_eq!(w.marker_lines(), 1, "the late write landed");
+    past_not_after().await;
+    assert!(r.late_write.as_ref().unwrap().not_after_remote < remote_now());
+    assert!(!w.lock_present(), "no lock");
+    remove_to_removed(&w, &r.id, "req_ablw_a_rm").await;
+    assert_eq!(w.marker_lines(), 0, "the line removed");
+    let after = w.record(&r.id);
+    assert_eq!(after.state, EnrollmentState::Removed);
+    assert_eq!(
+        after.removal_origin.as_ref().map(|o| o.state),
+        Some(EnrollmentState::Abandoned)
+    );
+    assert_eq!(after.late_write, None, "the residual is cleared");
+    assert!(
+        !w.tx(|tx| tx.outstanding_obligations())
+            .enrollments
+            .iter()
+            .any(|o| o.id == r.id),
+        "no longer an outstanding obligation"
+    );
+}
+
+/// ⟨§17.30 item 3⟩ The same removal before the residual's not-after (the destination's
+/// clock has not passed it): the line is removed and the record ends `removed`, but the
+/// residual is kept (a writer that had not yet taken its lock could still pass its own
+/// checks), so the record stays an outstanding obligation for the absence check.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn abandoned_with_late_write_removed_before_not_after_keeps_residual() {
+    let w = World::new().await;
+    let r = abandoned_with_late_write(&w, "req_ablw_b", true).await;
+    assert!(
+        r.late_write.as_ref().unwrap().not_after_remote > remote_now(),
+        "not yet past"
+    );
+    remove_to_removed(&w, &r.id, "req_ablw_b_rm").await;
+    assert_eq!(w.marker_lines(), 0, "the line removed");
+    let after = w.record(&r.id);
+    assert_eq!(after.state, EnrollmentState::Removed);
+    assert_eq!(after.late_write, r.late_write, "the residual is kept");
+    assert!(
+        w.tx(|tx| tx.outstanding_obligations())
+            .enrollments
+            .iter()
+            .any(|o| o.id == r.id),
+        "still an outstanding obligation"
+    );
+}
+
 // --- ⟨ADR-0008 §17.29 item 9⟩ the issuing set on a confirmed removal --------------------
 
 /// The pair's issuing-CA set.

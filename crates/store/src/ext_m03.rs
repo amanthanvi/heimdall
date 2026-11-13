@@ -315,6 +315,36 @@ fn removal_origin_kept(
     !(stored.is_some_and(|o| o.ca_not_held_seen) && updated != stored)
 }
 
+/// ⟨ADR-0008 §17.30 item 4⟩ Whether `kind`'s payload agrees with the stored record
+/// (the facts the app derives from it): `WithdrawnRemovalApproved { late_write }` with
+/// the stored residual's presence, `OwnerReverify { hold }` with the stored hold's kind
+/// (no stored hold never agrees). Every other event carries no such restatement here.
+fn payload_agrees(stored: &EnrollmentRecord, kind: EnrollmentEventKind) -> bool {
+    match kind {
+        EnrollmentEventKind::WithdrawnRemovalApproved { late_write } => {
+            late_write == stored.late_write.is_some()
+        }
+        EnrollmentEventKind::OwnerReverify { hold } => stored.hold.map(|h| h.kind()) == Some(hold),
+        _ => true,
+    }
+}
+
+/// ⟨ADR-0008 §17.30 item 5⟩ The admissions of a removal from a state outside the
+/// `(pair, CA)` uniqueness index (`withdrawn` with its residual, `abandoned`): the
+/// removal records that state as its origin.
+fn removal_admission(expected: EnrollmentState, kind: EnrollmentEventKind) -> bool {
+    matches!(
+        (expected, kind),
+        (
+            EnrollmentState::Withdrawn,
+            EnrollmentEventKind::WithdrawnRemovalApproved { .. }
+        ) | (
+            EnrollmentState::Abandoned,
+            EnrollmentEventKind::RemoveEnrollmentApproved
+        )
+    )
+}
+
 fn slot_name(state: &SlotState) -> Result<&'static str> {
     match state {
         SlotState::Free { .. } => Ok("free"),
@@ -890,6 +920,17 @@ impl Txn<'_> {
     /// enrollment holds the same (pair, CA); an event the table refuses is the inner
     /// `Err`, as is a cancel or absence result whose `origin` is not the record's
     /// persisted `removal_origin` (§17.4 item 5).
+    ///
+    /// ⟨ADR-0008 §17.30 item 4⟩ An event whose payload restates a stored fact must
+    /// agree with the stored record, or it is the inner `Err` with nothing written:
+    /// `WithdrawnRemovalApproved { late_write }` with `stored.late_write.is_some()`, and
+    /// `OwnerReverify { hold }` with the stored hold's kind (`stored.hold.map(kind)`).
+    ///
+    /// ⟨§17.30 item 5⟩ An own account-form removal admitted from `withdrawn` or
+    /// `abandoned` records its removal origin (that state, its evidence and hold) when
+    /// the caller's record carries none, and an account-form record keeps its stored
+    /// origin through every later transition whose `updated` omits it. A `held`
+    /// removal residual therefore stays outside the `(pair, CA)` uniqueness index.
     pub fn transition_enrollment(
         &mut self,
         expected: EnrollmentState,
@@ -915,9 +956,30 @@ impl Txn<'_> {
             record: stored.facts(),
             kind,
         };
+        if !payload_agrees(&stored, kind) {
+            return Ok(Err(InvalidTransition {
+                from: expected,
+                event,
+            }));
+        }
+        let mut record = updated.clone();
+        if stored.form == heimdall_contract::enrollment::EnrollmentForm::Account
+            && record.removal_origin.is_none()
+        {
+            record.removal_origin = if removal_admission(expected, kind) {
+                Some(RemovalOrigin {
+                    state: expected,
+                    evidence: stored.evidence.clone(),
+                    hold: stored.hold,
+                    ca_not_held_seen: false,
+                })
+            } else {
+                stored.removal_origin.clone()
+            };
+        }
         if !removal_origin_kept(
             stored.removal_origin.as_ref(),
-            updated.removal_origin.as_ref(),
+            record.removal_origin.as_ref(),
             kind,
         ) {
             return Ok(Err(InvalidTransition {
@@ -929,7 +991,6 @@ impl Txn<'_> {
             Ok(next) => next,
             Err(refused) => return Ok(Err(refused)),
         };
-        let mut record = updated.clone();
         record.state = next;
         let n = self
             .tx

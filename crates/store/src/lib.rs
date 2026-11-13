@@ -643,6 +643,11 @@ pub enum RawDocuments {
     ProjectionConsent,
     /// ⟨M03⟩ `resources.record_json`, keyed by resource ID.
     Resources,
+    /// ⟨M03; ADR-0008 §17.30 item 4⟩ every `enrollments` column (`state`,
+    /// `removal_origin_set` and `record_json`, joined by `|`), keyed by enrollment ID.
+    Enrollments,
+    /// ⟨M03; ADR-0008 §17.30 item 4⟩ `events.record_json`, keyed by sequence number.
+    Events,
 }
 
 impl Txn<'_> {
@@ -676,6 +681,16 @@ impl Txn<'_> {
                  ORDER BY environment, item"
             }
             RawDocuments::Resources => "SELECT id, record_json FROM resources ORDER BY id",
+            RawDocuments::Enrollments => {
+                "SELECT id, destination_id || '|' || account || '|' || ca_fingerprint || '|' ||
+                        form || '|' || marker || '|' || state || '|' ||
+                        coalesce(verified_at, '') || '|' || removal_origin_set || '|' ||
+                        record_json
+                 FROM enrollments ORDER BY id"
+            }
+            RawDocuments::Events => {
+                "SELECT CAST(seq AS TEXT), record_json FROM events ORDER BY seq"
+            }
         };
         let mut stmt = self.tx.prepare(sql)?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
