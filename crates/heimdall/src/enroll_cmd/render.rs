@@ -35,16 +35,224 @@ pub(super) fn system_lines(plan: &EnrollmentPlan) -> heimdall_domain::decision::
 
 /// One disclosure, in words (ADR-0008 D5 §6.1): the shared text
 /// (`heimdall_issuer::ceremony::disclosure_text`, §17.25 item 10, IS2-R1) for the plan's
-/// alias; nothing here retypes a disclosure.
+/// alias; nothing here retypes a disclosure. ⟨§17.27 item 4⟩ `lock` is the runtime's
+/// conditional lock text (`m03_cmd::lock_disclosure_text`); `lock_continuity_once` without
+/// it is never the general sentence but [`LOCK_TEXT_UNAVAILABLE`] (the approval is then
+/// refused, exit 3).
 #[must_use]
-pub(crate) fn disclosure_text(kind: DisclosureKind, alias: &str) -> String {
+pub(crate) fn disclosure_text(kind: DisclosureKind, alias: &str, lock: Option<&str>) -> String {
+    if kind == DisclosureKind::LockContinuityOnce && lock.is_none() {
+        return LOCK_TEXT_UNAVAILABLE.to_owned();
+    }
     heimdall_issuer::ceremony::disclosure_text(
         kind,
         &heimdall_issuer::ceremony::DisclosureContext {
             alias: Some(alias),
-            lock: None,
+            lock,
         },
     )
+}
+
+/// ⟨§17.27 item 4⟩ What `lock_continuity_once` shows when the runtime's conditional lock
+/// text could not be read: never the general sentence, and the approval is refused.
+pub(crate) const LOCK_TEXT_UNAVAILABLE: &str = "The runtime's lock disclosure (what happens to approved work when you lock the screen, under your saved limits) could not be read, so it cannot be shown: this decision cannot be approved until it can.";
+
+/// The disclosures a recorded decision request carries (`inspect decisions`
+/// `request`): a `RegisterIssuer`'s top-level `disclosures`, an enrollment decision's
+/// `summary.disclosures`; each entry its kind, or `None` for a name this build does not
+/// know (shown as `UNKNOWN_DISCLOSURE`). The alias is the summary's, when present.
+#[must_use]
+pub(crate) fn recorded_disclosures(
+    request: &serde_json::Value,
+) -> (Vec<(String, Option<DisclosureKind>)>, Option<String>) {
+    let summary = request.get("summary");
+    let list = request
+        .get("disclosures")
+        .or_else(|| summary.and_then(|s| s.get("disclosures")))
+        .and_then(serde_json::Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    let kinds = list
+        .iter()
+        .map(|d| {
+            (
+                d.as_str().unwrap_or("?").to_owned(),
+                serde_json::from_value::<DisclosureKind>(d.clone()).ok(),
+            )
+        })
+        .collect();
+    let alias = summary
+        .and_then(|s| s.get("alias"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    (kinds, alias)
+}
+
+/// ⟨§17.27 item 4⟩ Whether a recorded decision request carries `lock_continuity_once`
+/// (its approval records the once-only acknowledgement).
+#[must_use]
+pub(crate) fn carries_lock_disclosure(request: &serde_json::Value) -> bool {
+    recorded_disclosures(request)
+        .0
+        .iter()
+        .any(|(_, k)| *k == Some(DisclosureKind::LockContinuityOnce))
+}
+
+/// ⟨§17.27 item 3⟩ Every disclosure of a recorded decision request, in words (the
+/// shared texts; `lock` the runtime's conditional lock text), or empty when it carries
+/// none. The approval prompt shows it in every output mode (stderr).
+#[must_use]
+pub(crate) fn recorded_disclosure_prose(request: &serde_json::Value, lock: Option<&str>) -> String {
+    let (kinds, alias) = recorded_disclosures(request);
+    if kinds.is_empty() {
+        return String::new();
+    }
+    let alias = alias.unwrap_or_else(|| "<alias>".to_owned());
+    let mut out = "Disclosures (what approving this decision means):\n".to_owned();
+    for (name, kind) in kinds {
+        let text = match kind {
+            Some(k) => disclosure_text(k, &alias, lock),
+            None => heimdall_issuer::ceremony::UNKNOWN_DISCLOSURE.to_owned(),
+        };
+        out.push_str(&format!("  * {name}: {text}\n"));
+    }
+    out
+}
+
+/// ⟨§17.27 item 3⟩ The human form of a recorded enrollment-family decision request, for
+/// generic decision completion (`heimdall decision approve|deny`), which has no preview
+/// of its own: an enrollment's summary (the form, the registry, the CA, the approved
+/// target, the existing-access invocation, the host-trust pins, the bootstrap; a system
+/// form's lines), a removal's target, invocation, affected grants and residual, a target
+/// change's key diff. Empty for any other kind (its recorded request is shown as is).
+#[must_use]
+pub(crate) fn recorded_preview(kind: &str, request: &serde_json::Value) -> String {
+    let text = |v: &serde_json::Value, k: &str| {
+        v.get(k)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("?")
+            .to_owned()
+    };
+    let words = |v: Option<&serde_json::Value>| {
+        v.and_then(serde_json::Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default()
+    };
+    let target = |v: Option<&serde_json::Value>| {
+        v.and_then(|t| serde_json::from_value::<ApprovedTarget>(t.clone()).ok())
+    };
+    let mut out = String::new();
+    match kind {
+        "enroll_account" | "enroll_system_form" => {
+            let Some(s) = request.get("summary") else {
+                return out;
+            };
+            out.push_str(&format!(
+                "Enrollment of {} ({}), account {}, form {}\n",
+                text(s, "alias"),
+                text(s, "destination_id"),
+                text(s, "account"),
+                text(s, "form")
+            ));
+            if let Some(r) = s.get("registry") {
+                out.push_str(&format!(
+                    "  registry: {} ({})\n",
+                    text(r, "path_display"),
+                    text(r, "resolved_by")
+                ));
+            }
+            out.push_str(&format!("  line SHA-256: {}\n", text(s, "line_sha256")));
+            out.push_str(&format!("  CA: {}\n", text(s, "ca_fingerprint")));
+            if let Some(t) = target(s.get("approved_target")) {
+                out.push_str(&format!("  approved target: {}\n", target_line(&t)));
+            }
+            out.push_str(&format!(
+                "    every remote step runs: ssh {} -T {}\n",
+                words(s.get("invocation")),
+                text(s, "alias")
+            ));
+            out.push_str(&format!(
+                "  host-trust pins: {}\n",
+                words(s.get("host_trust"))
+            ));
+            if s.get("bootstrap").and_then(serde_json::Value::as_bool) == Some(true) {
+                out.push_str(
+                    "  bootstrap: if the registry's directory is absent, create it with mode 0700\n",
+                );
+            }
+            if let Some(l) = request.get("sshd_lines").and_then(|l| {
+                serde_json::from_value::<heimdall_domain::decision::SystemFormLines>(l.clone()).ok()
+            }) {
+                out.push_str("  you install, yourself (Heimdall never edits sshd_config):\n");
+                out.push_str(&format!(
+                    "    TrustedUserCAKeys file line: {}\n",
+                    l.trusted_user_ca_keys_line
+                ));
+                out.push_str(&format!(
+                    "    AuthorizedPrincipalsFile line: {}\n",
+                    l.principals_line
+                ));
+                for d in &l.sshd_directives {
+                    out.push_str(&format!("    sshd_config: {d}\n"));
+                }
+            }
+            out.push_str(&format!(
+                "  plan digest: {}\n",
+                text(request, "plan_digest")
+            ));
+        }
+        "remove_enrollment" => {
+            out.push_str("Removal of an enrollment\n");
+            if let Some(t) = request.get("target") {
+                out.push_str(&format!(
+                    "  target: {}\n",
+                    serde_json::to_string(t).unwrap_or_default()
+                ));
+            }
+            out.push_str(&format!(
+                "  every remote step runs: ssh {}\n",
+                words(request.get("invocation"))
+            ));
+            let grants = words(request.get("affected_grants"));
+            out.push_str(&format!(
+                "  live grants under this CA for the pair, degraded on approval: {}\n",
+                if grants.is_empty() {
+                    "none"
+                } else {
+                    grants.as_str()
+                }
+            ));
+            if let Some(until) = request
+                .get("pair_residual_until")
+                .and_then(serde_json::Value::as_str)
+            {
+                out.push_str(&format!(
+                    "  certificates already issued stay valid until {until} (the pair residual)\n"
+                ));
+            }
+            if let Some(fresh) = target(request.get("fresh_target").filter(|v| !v.is_null())) {
+                out.push_str(&format!(
+                    "  held for a host-key change: the removal runs against the freshly evaluated target {}\n",
+                    target_line(&fresh)
+                ));
+            }
+        }
+        "approve_target_change" => {
+            if let (Some(a), Some(n)) = (
+                target(request.get("approved")),
+                target(request.get("proposed")),
+            ) {
+                out.push_str(&key_diff(&a, &n));
+                out.push_str("Approving re-verifies the enrollment against the new key; the approved target is replaced only if that verification passes.\n");
+            }
+        }
+        _ => {}
+    }
+    out
 }
 
 /// The wire name of a serializable enum value (`snake_case`).
@@ -122,7 +330,7 @@ pub(super) fn summary_diff(approved: Option<&TargetSummary>, fresh: &ApprovedTar
 /// disclosures, and the exact line (account form) or the lines the owner installs
 /// (system form).
 #[must_use]
-pub(super) fn preview(plan: &EnrollmentPlan) -> String {
+pub(super) fn preview(plan: &EnrollmentPlan, lock: Option<&str>) -> String {
     let mut out = format!(
         "Enrollment preview for {} ({}), account {}, form {}\n",
         plan.alias,
@@ -199,7 +407,7 @@ pub(super) fn preview(plan: &EnrollmentPlan) -> String {
         out.push_str(&format!(
             "    * {}: {}\n",
             wire(d),
-            disclosure_text(*d, &plan.alias)
+            disclosure_text(*d, &plan.alias, lock)
         ));
     }
     out.push_str(&format!("  plan digest: {}\n", plan.plan_digest));
@@ -466,11 +674,13 @@ mod tests {
                     lock: None,
                 },
             );
-            assert_eq!(disclosure_text(kind, "lab"), shared, "{kind:?}");
+            if kind != DisclosureKind::LockContinuityOnce {
+                assert_eq!(disclosure_text(kind, "lab", None), shared, "{kind:?}");
+            }
             assert_ne!(shared, UNKNOWN_DISCLOSURE, "{kind:?}");
         }
         assert!(
-            disclosure_text(DisclosureKind::OrdinarySshNeedsHeldSlot, "lab")
+            disclosure_text(DisclosureKind::OrdinarySshNeedsHeldSlot, "lab", None)
                 .contains(&slot_free_command("lab"))
         );
     }

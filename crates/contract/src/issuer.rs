@@ -323,6 +323,40 @@ pub struct BundleEnrollment {
     pub late_write: Option<BundleLateWrite>,
 }
 
+/// ⟨ADR-0008 §17.27 item 1 (W5-R01)⟩ One foreign removal that is not final, in a
+/// recovery bundle: its **public removal descriptor** only (the fields of
+/// [`crate::enrollment::ForeignRemovalTarget`], hostname and port omitted when
+/// redacted) and its state. Never foreign bytes (W4-S02): no remote line, no
+/// journal content; the line is identified by `line_sha256` alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct BundleForeignRemoval {
+    /// `heimdall:enr_…` (the writing installation's marker).
+    pub marker: String,
+    /// This device's managed alias for the host.
+    pub local_alias: String,
+    /// The source bundle's destination ID: a label only.
+    pub bundle_destination_id: String,
+    /// Hostname; absent in a redacted bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    /// Port; absent in a redacted bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Account.
+    pub account: AccountName,
+    /// The CA's OpenSSH public key.
+    pub ca_public_key: String,
+    /// The full line's SHA-256 (hex).
+    pub line_sha256: String,
+    /// The canonical registry.
+    pub registry: RegistryCanonical,
+    /// Form.
+    pub form: EnrollmentForm,
+    /// State (the foreign-removal subset; `abandoned` keeps
+    /// `pending_until_line_removed`).
+    pub state: EnrollmentState,
+}
+
 /// `issuer.bundle` data: a file written only by the CLI (§5 "RecoveryBundle").
 /// Never a private key, a passphrase or a socket path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -337,6 +371,11 @@ pub struct RecoveryBundle {
     pub cas: Vec<BundleCa>,
     /// Enrollments.
     pub enrollments: Vec<BundleEnrollment>,
+    /// ⟨ADR-0008 §17.27 item 1; additive⟩ The foreign removals that are not final, by
+    /// their public removal descriptors. Absent when there are none (an older bundle
+    /// decodes and re-encodes unchanged).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub foreign_removals: Vec<BundleForeignRemoval>,
     /// Removal instructions.
     pub instructions: Vec<String>,
 }
@@ -352,6 +391,20 @@ mod tests {
         assert!(!schema.contains("scratch"), "{schema}");
         let r: Result<StoreKind, _> = serde_json::from_str("\"scratch_test\"");
         assert!(r.is_err());
+    }
+
+    /// ⟨ADR-0008 §17.27 item 1⟩ `foreign_removals` is additive: a bundle without it
+    /// decodes (empty) and re-encodes byte-identically; one with it round-trips.
+    #[test]
+    fn bundle_foreign_removals_are_additive() {
+        let old = r#"{"schema":"heimdall-recovery-bundle/1","created_at":"2026-11-10T14:00:00Z","redacted":false,"cas":[],"enrollments":[],"instructions":[]}"#;
+        let b: RecoveryBundle = serde_json::from_str(old).unwrap();
+        assert!(b.foreign_removals.is_empty());
+        assert_eq!(serde_json::to_string(&b).unwrap(), old);
+        let with = r#"{"schema":"heimdall-recovery-bundle/1","created_at":"2026-11-10T14:00:00Z","redacted":false,"cas":[],"enrollments":[],"foreign_removals":[{"marker":"heimdall:enr_x","local_alias":"web","bundle_destination_id":"dst_a","hostname":"example.invalid","port":22,"account":"deploy","ca_public_key":"ssh-ed25519 AAAA","line_sha256":"ab","registry":{"resolved_by":"remote_home"},"form":"system","state":"abandoned"}],"instructions":[]}"#;
+        let b: RecoveryBundle = serde_json::from_str(with).unwrap();
+        assert_eq!(b.foreign_removals[0].state, EnrollmentState::Abandoned);
+        assert_eq!(serde_json::to_string(&b).unwrap(), with);
     }
 
     #[test]

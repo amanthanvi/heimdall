@@ -40,3 +40,18 @@ home paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r2-worklog-R2.md` | R2: the `TIME_UNCERTAIN` reason (item 15), `PrepareOutcome.managed` (18), `connection_policy` (19), capabilities `lock` plus the acknowledgement fix (21), policy results (22), the lock signal (23) |
 | `m03-wave5-r2-worklog-T2.md` | T2: the TUI reads the runtime data (items 4, 15, 19 to 21), read-only CLI-decided kinds with Deny allowed (10; Q-T2-1 and Q-T2-2) |
 | `m03-wave5-r2-worklog-A2.md` | A2: the close exit follows the code (item 16), rendering (19, 22), the managed halves through the real binary, IS2-R1 and IS2-R4; found A2-Q1 |
+
+## Round 3 (base `a4a41d9e`; implements ADR-0008 §17.27 items 1–10, the review fixes W5-R01–R06 and W5-S01–S06, plus §17.28 item 1)
+
+These were moved here from the worktree root at the end of round 3. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r3-brief.md` | The common round-3 brief (round 2's, plus the §17.27 and review specifics) |
+| `m03-wave5-r3-api.md` | Ownership, the shared lock-text helper and the sanitizer, readings; U3's fence request-to-verdict table |
+| `m03-wave5-r3-questions.md` | Q-U3-1 to 4 (Q-U3-2 ANSWERED, §17.28 item 1), K3-Q1 to Q3 |
+| `m03-wave5-r3-worklog-I.md` | The integrator's round-3 worklog: validation, the release-gate ordering fix, the flake root cause |
+| `m03-wave5-r3-worklog-U3.md` | U3: the outstanding-obligation inventory (W5-R01, R02), the uninstall admission fence and revalidation (W5-S01; the widened scope), the uninstall preview under `--json` |
+| `m03-wave5-r3-worklog-K3.md` | K3: interactive-only ceremonies (W5-R03), the 120 s bound (R04/S04), Ctrl-C and EOF cancel (S05), sanitized text (S06), the issuer lock text (R05/S03), the release build (item 10); the `issuer_store_locked` root cause (replaced executable vs. the keychain access list) |
+| `m03-wave5-r3-worklog-D3.md` | D3: consent prose under `--json` (W5-S02), the enrollment lock text (R05/S03), `destination_lines` (R06), the shared lock-text helper |

@@ -268,6 +268,9 @@ impl OwnerSession for FakeSession {
             ca_fingerprint: fingerprint_of(&request.ca_public_key),
             backup_sha256: request.backup_sha256.clone(),
             disclosures,
+            // ⟨ADR-0008 §17.26 item 6⟩ The runtime's conditional lock text (none here: this
+            // fake's decisions carry no `lock_continuity_once`).
+            lock_text: None,
         };
         self.next += 1;
         self.pending.push((decision.clone(), request.clone()));
@@ -1101,6 +1104,8 @@ fn bundle_with(ca: &CaFingerprint, state: EnrollmentState) -> RecoveryBundle {
             late_write: None,
         }],
         instructions: Vec::new(),
+        // ⟨ADR-0008 §17.27 item 1⟩ U3's additive field (U3 → K3 request).
+        foreign_removals: Vec::new(),
     }
 }
 

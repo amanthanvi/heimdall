@@ -140,6 +140,29 @@ pub struct ManagedSlot {
     pub updated_at: Timestamp,
 }
 
+/// ⟨ADR-0008 §17.27 item 1⟩ What [`Txn::outstanding_obligations`] reads: every
+/// outstanding remote obligation, the uninstall inventory's source.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OutstandingObligations {
+    /// Enrollments not final, or in any state with an unresolved `late_write`.
+    pub enrollments: Vec<EnrollmentRecord>,
+    /// Foreign removals not final.
+    pub foreign_removals: Vec<ForeignRemovalRecord>,
+    /// Enrollment operations open or `outcome_unknown`.
+    pub operations: Vec<OpenEnrollmentOperation>,
+}
+
+/// One enrollment operation that is open or unresolved ([`OutstandingObligations`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenEnrollmentOperation {
+    /// The operation.
+    pub id: OperationId,
+    /// Its kind (`enrollment.apply`, `.verify` or `.remove`).
+    pub kind: heimdall_domain::operation::OperationKind,
+    /// Its state.
+    pub state: heimdall_contract::OperationState,
+}
+
 /// Result of [`Txn::mark_lost_instances`] (U0b row 8): the instances it changed, as
 /// stored afterwards, each list in instance-ID order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -794,6 +817,64 @@ impl Txn<'_> {
         Ok(by_created(v, |r: &EnrollmentRecord| {
             (r.created_at, r.id.as_str().to_owned())
         }))
+    }
+
+    /// ⟨ADR-0008 §17.27 item 1 (W5-R01, W5-R02)⟩ Every outstanding remote obligation,
+    /// in one read (it writes nothing, so it runs on a store opened read-only):
+    /// * every enrollment that is not final, and every enrollment in **any** state
+    ///   whose `late_write` residual is unresolved (the record still carries it: no
+    ///   inspect after its not-after has shown absence yet), oldest first;
+    /// * every foreign removal that is not final (an abandoned system-form record,
+    ///   still `pending_until_line_removed`, included), oldest first;
+    /// * every enrollment operation (`enrollment.*`) that is open or unresolved
+    ///   (queued, running, awaiting approval, `outcome_unknown`), oldest first: an
+    ///   enrollment in flight is itself an obligation.
+    ///
+    /// A database whose schema predates a table (an older file read without migrating)
+    /// has none of its rows.
+    pub fn outstanding_obligations(&mut self) -> Result<OutstandingObligations> {
+        let table = |tx: &mut Self, name: &str| -> Result<bool> {
+            Ok(tx.tx.query_row(
+                "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                [name],
+                |r| r.get(0),
+            )?)
+        };
+        let mut out = OutstandingObligations::default();
+        if table(self, "enrollments")? {
+            let all = self.enrollment_rows(
+                "SELECT record_json, removal_origin_set, state FROM enrollments",
+                [],
+            )?;
+            out.enrollments = by_created(
+                all.into_iter()
+                    .filter(|r| !r.state.is_final() || r.late_write.is_some())
+                    .collect(),
+                |r: &EnrollmentRecord| (r.created_at, r.id.as_str().to_owned()),
+            );
+        }
+        if table(self, "foreign_removals")? {
+            let all: Vec<ForeignRemovalRecord> =
+                self.docs("SELECT record_json FROM foreign_removals", [])?;
+            out.foreign_removals = by_created(
+                all.into_iter().filter(|r| !r.state.is_final()).collect(),
+                |r: &ForeignRemovalRecord| (r.created_at, r.id.as_str().to_owned()),
+            );
+        }
+        let mut ops = self.open_operations()?;
+        ops.extend(self.unresolved_operations()?);
+        ops.retain(|o| o.kind.is_enrollment());
+        ops.sort_by(|a, b| (a.created_at, a.id.as_str()).cmp(&(b.created_at, b.id.as_str())));
+        ops.dedup_by(|a, b| a.id == b.id);
+        out.operations = ops
+            .into_iter()
+            .map(|o| OpenEnrollmentOperation {
+                id: o.id,
+                kind: o.kind,
+                state: o.state,
+            })
+            .collect();
+        Ok(out)
     }
 
     /// Apply one D5 §6.2 event to an enrollment: a compare-and-swap on `expected`

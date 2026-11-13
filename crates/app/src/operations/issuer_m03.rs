@@ -93,7 +93,7 @@ use heimdall_store::{IssuerRecord, StoreError, Txn};
 use super::{Emit, Operations, approval_needed, internal, plus};
 use crate::context::Caller;
 use crate::error::{Completed, OpError, OpResult};
-use crate::issuer::bundle::{EnrollmentEntry, Redaction, StoreView, export};
+use crate::issuer::bundle::{EnrollmentEntry, Redaction, StoreView, export_with_foreign};
 use crate::issuer::{
     IssuerLifecycle, ca_public_key_fingerprint, enrollment_counts, is_sha256_hex,
     register_disclosures, retire_admissible, unlock_guidance,
@@ -626,9 +626,12 @@ impl Operations {
 
     async fn issuer_bundle(&self, redact_hostnames: bool) -> OpResult<serde_json::Value> {
         let created_at = self.inner.config.clock.wall();
-        let (cas, enrollments, aliases) = self
+        let (cas, enrollments, aliases, foreign) = self
             .write(move |tx, _| {
                 let (cas, enrollments) = read_cas_and_enrollments(tx)?;
+                // ⟨ADR-0008 §17.27 item 1 (W5-R01)⟩ the foreign removals not yet final,
+                // read in the same transaction (only their descriptors are exported).
+                let foreign = tx.outstanding_obligations()?.foreign_removals;
                 let cas: Vec<IssuerRecord> = cas.into_iter().map(|(c, _)| c).collect();
                 let mut aliases = Vec::with_capacity(enrollments.len());
                 for e in &enrollments {
@@ -638,7 +641,7 @@ impl Operations {
                             .map_or_else(|| e.destination.as_str().to_owned(), |d| d.alias),
                     );
                 }
-                Ok((cas, enrollments, aliases))
+                Ok((cas, enrollments, aliases, foreign))
             })
             .await?;
         let entries: Vec<EnrollmentEntry<'_>> = enrollments
@@ -651,12 +654,13 @@ impl Operations {
         } else {
             Redaction::None
         };
-        let bundle = export(
+        let bundle = export_with_foreign(
             &StoreView {
                 created_at,
                 cas: &cas,
                 enrollments: &entries,
             },
+            &foreign,
             redact,
         )
         .map_err(|_| internal("the recovery bundle names an unregistered CA"))?;

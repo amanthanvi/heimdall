@@ -424,13 +424,19 @@ mod tests {
         );
         assert_eq!(store.list().unwrap().len(), 2);
         let got = delete_awaiting(&store, &f1, kind, &i1.locator);
-        if cfg!(debug_assertions) {
+        // ⟨ADR-0008 §17.27 item 10⟩ Each profile compiles only its own branch, so the
+        // compile-time assertion of the other profile is never evaluated.
+        #[cfg(debug_assertions)]
+        {
             const { assert!(TEST_STORE_DELETION) };
             assert_eq!(got, Ok(()));
             assert_eq!(store.list().unwrap(), vec![i2.clone()], "only i1 went");
             // Again: an absent item counts as deleted.
             assert_eq!(delete_awaiting(&store, &f1, kind, &i1.locator), Ok(()));
-        } else {
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            const { assert!(!TEST_STORE_DELETION) };
             assert_eq!(got, Err(RetireError::LocatorMismatch));
             assert_eq!(store.list().unwrap().len(), 2);
         }

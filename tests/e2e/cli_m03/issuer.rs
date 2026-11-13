@@ -75,6 +75,19 @@ struct Rig {
     service: Option<Running>,
     /// The product-file test store this test created (`None`: the scratch store).
     product: Option<PathBuf>,
+    /// The `heimdall` program every process of this rig runs (the CLI cases, the issuer
+    /// child): this rig's **own snapshot** of the built binary, in its scratch directory.
+    ///
+    /// Why (round 3's `issuer_store_locked` flake, root-caused): a keychain item's access
+    /// list trusts the code **at the program's path on disk** at the time of the write.
+    /// `target/debug/heimdall` is shared, and a concurrent `cargo` build (another worker,
+    /// another suite) replaces it while a ceremony runs; the item then trusted the new
+    /// file, the running CLI's read-back failed (`errSecAuthFailed`) and the ceremony
+    /// ended `issuer_store_locked`. The product now refuses that write
+    /// (`issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony`); the snapshot
+    /// keeps every rig's program fixed for its whole life, so no rebuild elsewhere can
+    /// change it mid-test.
+    program: PathBuf,
 }
 
 /// A directory created owner-only (the devbox's umask is 002).
@@ -107,6 +120,10 @@ impl Rig {
         heimdall_runtime::Paths::under(&home).ensure().unwrap();
         let account = tmp.path().join("account");
         private_dir(&account);
+        let program_dir = tmp.path().join("program");
+        private_dir(&program_dir);
+        let program = program_dir.join("heimdall");
+        std::fs::copy(bin(), &program).unwrap();
         let product = product.then(|| {
             let path = home.join("test-ca.keychain-db");
             create_product_store(&path);
@@ -118,6 +135,7 @@ impl Rig {
             account,
             service: None,
             product,
+            program,
         };
         rig.start();
         // The native environment's record (a `setup` would make it), its managed
@@ -201,7 +219,7 @@ impl Rig {
         use heimdall_runtime::service::{ManagedOptions, ServiceOptions, SessionLockWiring};
         let paths = heimdall_runtime::Paths::under(&self.home);
         let child = heimdall_issuer::client::ChildCommand {
-            program: PathBuf::from(bin()),
+            program: self.program.clone(),
             args: vec!["internal".into(), "issuer".into()],
             env: vec![
                 ("HEIMDALL_HOME".into(), self.home.clone().into()),
@@ -325,17 +343,106 @@ impl Rig {
             .map(|r| r.state)
     }
 
+    /// The newest event's sequence in this installation's environment (a request that
+    /// changed anything leaves an event).
+    #[cfg(unix)]
+    fn event_head(&self) -> u64 {
+        let env = self
+            .store()
+            .transaction(|tx| tx.self_environment())
+            .unwrap()
+            .unwrap();
+        self.store()
+            .transaction(move |tx| {
+                tx.events_after(
+                    &env,
+                    0,
+                    &heimdall_contract::event::EventFilter::default(),
+                    1,
+                )
+            })
+            .unwrap()
+            .head_seq
+    }
+
+    /// ⟨ADR-0008 D9 item 1⟩ A saved standing policy `id` applicable here (its profile, this
+    /// installation's environment), with its own maximum window, cutoff and lock behaviour:
+    /// the "saved limits" the runtime's lock disclosure states.
+    #[cfg(target_os = "macos")]
+    fn seed_policy(
+        &self,
+        id: &str,
+        lock_behavior: heimdall_contract::managed::LockBehavior,
+        max_window: Duration,
+        cutoff_at: Option<Timestamp>,
+    ) {
+        use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+        use heimdall_domain::profile::ProfileDefinition;
+        let env = self
+            .store()
+            .transaction(|tx| tx.self_environment())
+            .unwrap()
+            .unwrap();
+        let profile = heimdall_contract::ids::ProfileId::parse(&format!("{id}-profile")).unwrap();
+        let policy = heimdall_contract::ids::PolicyId::parse(id).unwrap();
+        self.store()
+            .transaction(move |tx| {
+                tx.upsert_profile(&ProfileDefinition {
+                    id: profile.clone(),
+                    revision: 1,
+                    scope: heimdall_domain::scope::Scope::empty(),
+                    label: None,
+                })?;
+                tx.upsert_policy(
+                    &StandingPolicy {
+                        id: policy.clone(),
+                        revision: PolicyRevision(1),
+                        profile: profile.clone(),
+                        workspace: None,
+                        scope: heimdall_domain::scope::Scope::empty(),
+                        environments: [env.clone()].into_iter().collect(),
+                        max_window,
+                        pause: PauseState::Active,
+                        cutoff_at,
+                        source: PolicySource::SetupDefault,
+                        lock_behavior,
+                        connection: Default::default(),
+                    },
+                    false,
+                )
+                .map(|_| ())
+            })
+            .unwrap();
+    }
+
     fn pending(&self) -> Vec<heimdall_domain::decision::DecisionRecord> {
         self.store()
             .transaction(|tx| tx.pending_decisions())
             .unwrap()
     }
 
-    /// The CLI with stdin closed, no terminal involved.
+    /// The CLI ([`Rig::program`]) with stdin closed, no terminal involved (as the parent's
+    /// `run`, with this rig's program).
     fn cli(&self, args: &[&str]) -> Out {
-        let value = self.store_value();
-        let extra: Vec<(&str, &str)> = vec![("HEIMDALL_TEST_SECRET_STORE", value.as_str())];
-        run(&self.home, &self.account, args, &extra)
+        let out = Command::new(&self.program)
+            .args(args)
+            .env_clear()
+            .env("HEIMDALL_HOME", &self.home)
+            .env("HOME", &self.account)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("PATH", "/usr/bin:/bin")
+            .env("HEIMDALL_TEST_SECRET_STORE", self.store_value())
+            .stdin(Stdio::null())
+            .output()
+            .expect("spawn heimdall");
+        let out = Out {
+            code: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        };
+        assert_no_canary(&out.stdout);
+        assert_no_canary(&out.stderr);
+        out
     }
 }
 
@@ -588,7 +695,18 @@ struct Wiring {
     stderr_tty: bool,
 }
 
+/// ⟨ADR-0008 §17.27 item 5⟩ A ceremony's invocation: the pty is the controlling terminal
+/// and stdin (an interactive invocation); stdout and stderr stay their own files, so the
+/// test shows what reaches the terminal only.
 const CEREMONY: Wiring = Wiring {
+    tty: true,
+    stdin_tty: true,
+    stderr_tty: false,
+};
+/// ⟨§17.27 item 5⟩ stdin redirected (`/dev/null`) while the pty stays the controlling
+/// terminal: not an interactive invocation.
+#[cfg(unix)]
+const REDIRECTED_STDIN: Wiring = Wiring {
     tty: true,
     stdin_tty: false,
     stderr_tty: false,
@@ -606,7 +724,7 @@ const NO_TTY: Wiring = Wiring {
 
 #[cfg(unix)]
 fn start_cli(rig: &Rig, case: &str, args: &[&str], pty: Option<&Pty>, wiring: Wiring) -> Started {
-    let mut argv = vec![bin()];
+    let mut argv = vec![rig.program.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|a| (*a).to_owned()));
     start_argv(rig, case, argv, pty, wiring)
 }
@@ -677,12 +795,20 @@ fn start_argv(
 
 /// Wait for the case to exit; its exit code and its stdout/stderr (scanned).
 fn finish(started: &mut Started) -> Out {
-    let deadline = Instant::now() + LIMIT;
+    finish_within(started, LIMIT).expect("the CLI case did not finish")
+}
+
+/// [`finish`] bounded by `limit`: `None` while the case still runs then (the case is
+/// stopped by its own handle when `started` drops).
+fn finish_within(started: &mut Started, limit: Duration) -> Option<Out> {
+    let deadline = Instant::now() + limit;
     let code = loop {
         if let Some(s) = started.child.try_wait().unwrap() {
             break s.code().unwrap_or(-1);
         }
-        assert!(Instant::now() < deadline, "the CLI case did not finish");
+        if Instant::now() >= deadline {
+            return None;
+        }
         std::thread::sleep(Duration::from_millis(20));
     };
     let stdout = std::fs::read_to_string(&started.stdout).unwrap_or_default();
@@ -690,11 +816,11 @@ fn finish(started: &mut Started) -> Out {
     assert_no_canary(&stdout);
     assert_no_canary(&stderr);
     assert!(!stderr.contains("panicked"), "{stderr}");
-    Out {
+    Some(Out {
         code,
         stdout,
         stderr,
-    }
+    })
 }
 
 /// Every file under `dir`, recursively.
@@ -1385,7 +1511,7 @@ fn test_ca_ceremony_captures_passphrase_only_from_pty() {
     use heimdall_testkit::ca::ceremony::{CeremonyRun, run as ceremony_run};
     let rig = Rig::product();
     let backup = rig.file("testca.key");
-    let bin = PathBuf::from(bin());
+    let bin = rig.program.clone();
     let env: Vec<(OsString, OsString)> = rig
         .env()
         .into_iter()
@@ -1813,4 +1939,452 @@ fn issuer_status_bundle_unlock_json_envelopes() {
         pty.transcript()
     );
     rig.stop();
+}
+
+// --- M03 wave 5, round 3 (ADR-0008 §17.27 items 3–8) ------------------------------------------
+
+/// ⟨ADR-0008 §17.27 item 5; W5-R03⟩ `issuer_ceremonies_refuse_redirected_stdin_with_a_terminal_attached`:
+/// every ceremony (`init`, `init --replace-orphan`, `rotate begin`, `restore`, `unlock`)
+/// with stdin redirected (`/dev/null`) while the pty stays the controlling terminal is not an
+/// interactive invocation: exit 3 `INTERACTION_REQUIRED`, effect `none`, before anything is
+/// connected, attended or opened. Nothing reaches the terminal; no request changed the
+/// runtime (no event, no decision, no CA); no backup is written and the store keeps its one
+/// item. Runs on every Unix host (the refusal precedes the store).
+#[cfg(unix)]
+#[test]
+fn issuer_ceremonies_refuse_redirected_stdin_with_a_terminal_attached() {
+    let rig = Rig::new();
+    let orphan = rig.seed_orphan();
+    let fp = orphan.fingerprint.to_string();
+    let backup = rig.file("redirected.key");
+    let b = backup.to_string_lossy().into_owned();
+    let restore_from = rig.file("absent-backup.key");
+    let r = restore_from.to_string_lossy().into_owned();
+    let head = rig.event_head();
+    let cases: Vec<(&str, Vec<&str>)> = vec![
+        ("init", vec!["--json", "issuer", "init", "--backup-out", &b]),
+        (
+            "replace-orphan",
+            vec![
+                "--json",
+                "issuer",
+                "init",
+                "--backup-out",
+                &b,
+                "--replace-orphan",
+                &fp,
+                "--no-bundle-available",
+            ],
+        ),
+        (
+            "rotate",
+            vec!["--json", "issuer", "rotate", "begin", "--backup-out", &b],
+        ),
+        (
+            "restore",
+            vec![
+                "--json",
+                "issuer",
+                "restore",
+                "--backup",
+                &r,
+                "--not-stolen",
+            ],
+        ),
+        ("unlock", vec!["--json", "issuer", "unlock"]),
+        ("human-init", vec!["issuer", "init", "--backup-out", &b]),
+    ];
+    for (label, args) in cases {
+        let pty = Pty::open();
+        let mut s = start_cli(
+            &rig,
+            &format!("redirected-{label}"),
+            &args,
+            Some(&pty),
+            REDIRECTED_STDIN,
+        );
+        let out = finish_within(&mut s, Duration::from_secs(30)).unwrap_or_else(|| {
+            panic!(
+                "{label}: still running (it reached a prompt): {:?}",
+                pty.transcript()
+            )
+        });
+        assert_eq!(out.code, 3, "{label}: {out:?}\n{:?}", pty.transcript());
+        if args[0] == "--json" {
+            let env = out.json();
+            assert_eq!(env["code"], "INTERACTION_REQUIRED", "{label}: {out:?}");
+            assert_eq!(env["data"]["error"]["effect_status"], "none", "{label}");
+            assert!(out.message().contains("stdin"), "{label}: {out:?}");
+        } else {
+            assert!(out.stderr.contains("stdin"), "{label}: {out:?}");
+        }
+        assert!(
+            pty.transcript().is_empty(),
+            "{label}: nothing on the terminal: {:?}",
+            pty.transcript()
+        );
+    }
+    assert_eq!(rig.event_head(), head, "no request changed the runtime");
+    assert!(rig.pending().is_empty(), "no decision");
+    assert!(
+        rig.store()
+            .transaction(|tx| tx.issuers())
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(rig.scratch_store().list().unwrap(), vec![orphan]);
+    assert!(!backup.exists(), "no backup");
+}
+
+/// ⟨ADR-0008 §17.27 item 7; W5-S05, the security reviewer's probe⟩
+/// `issuer_init_ctrl_c_or_eof_at_written_sends_nothing_more`, macOS on the product-file test
+/// store: after the `yes`, Ctrl-C (ETX) or end of input (Ctrl-D) at the passphrase's
+/// `written` acknowledgement ends the ceremony at once (no retry; well within the 120 s
+/// prompt timeout): exit 3 `INTERACTION_REQUIRED`, the passphrase's region cleared, no
+/// keychain item, nothing registered, the lock acknowledgement not recorded. (The backup
+/// written at step 4 stays, D4 item 1's crash point between steps 4 and 6.)
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_ctrl_c_or_eof_at_written_sends_nothing_more() {
+    let rig = Rig::product();
+    for (label, bytes) in [("Ctrl-C", &b"\x03"[..]), ("EOF", &b"\x04"[..])] {
+        let backup = rig.file(&format!("written-{label}.key"));
+        let backup_arg = backup.to_string_lossy().into_owned();
+        let args = [
+            "--json",
+            "issuer",
+            "init",
+            "--backup-out",
+            backup_arg.as_str(),
+        ];
+        let pty = Pty::open();
+        let mut s = start_cli(
+            &rig,
+            &format!("written-{label}"),
+            &args,
+            Some(&pty),
+            CEREMONY,
+        );
+        assert!(
+            pty.wait_for("Type 'yes' to register this CA: ", &mut s.child),
+            "{label}: {}",
+            pty.transcript()
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        pty.type_line("yes");
+        assert!(pty.wait_for("Type 'written'", &mut s.child), "{label}");
+        let at = pty.transcript().len();
+        std::thread::sleep(Duration::from_millis(300));
+        pty.type_bytes(bytes);
+        let out = finish_within(&mut s, Duration::from_secs(15))
+            .unwrap_or_else(|| panic!("{label} at `written` did not end the ceremony"));
+        let t = pty.transcript();
+        assert_eq!(out.code, 3, "{label}: {out:?}");
+        assert_eq!(out.json()["code"], "INTERACTION_REQUIRED", "{label}");
+        assert!(
+            t[at..].contains("A\r\x1b[J"),
+            "{label}: the passphrase was cleared"
+        );
+        assert_eq!(t.matches("Type 'written'").count(), 1, "{label}: no retry");
+        assert!(
+            rig.product_store().list().unwrap().is_empty(),
+            "{label}: no keychain item"
+        );
+        assert!(
+            rig.store()
+                .transaction(|tx| tx.issuers())
+                .unwrap()
+                .is_empty(),
+            "{label}: nothing registered"
+        );
+        assert!(
+            rig.store()
+                .transaction(|tx| tx.lock_disclosure_ack())
+                .unwrap()
+                .is_none(),
+            "{label}: the lock disclosure was not acknowledged"
+        );
+        assert!(!has_passphrase_shape(&out.stdout) && !has_passphrase_shape(&out.stderr));
+    }
+}
+
+/// The lock-text case of `issuer init --json` on a pty (macOS, the product-file test store):
+/// the runtime's conditional `inspect capabilities` `lock.disclosure` names `expect` (the
+/// saved limits) and is not the general sentence; before the prompt the terminal shows the
+/// whole preview and every disclosure's prose, the lock disclosure as that exact text
+/// (§17.27 items 3, 4); the approval then records the once-only acknowledgement, and stdout
+/// carries exactly one envelope.
+#[cfg(target_os = "macos")]
+fn init_shows_runtime_lock_text(rig: &Rig, case: &str, expect: &[&str]) {
+    use heimdall_contract::enrollment::DisclosureKind;
+    use heimdall_issuer::ceremony::{DisclosureContext, disclosure_text};
+    let caps = rig.cli(&["--json", "inspect", "capabilities"]);
+    assert_eq!(caps.code, 0, "{caps:?}");
+    let text = caps.json()["data"]["lock"]["disclosure"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the runtime reports its lock disclosure: {caps:?}"))
+        .to_owned();
+    for e in expect {
+        assert!(text.contains(e), "{e:?} in the runtime's text: {text}");
+    }
+    let general = disclosure_text(
+        DisclosureKind::LockContinuityOnce,
+        &DisclosureContext::default(),
+    );
+    assert_ne!(text, general);
+    let backup = rig.file(&format!("{case}.key"));
+    let backup_arg = backup.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "init",
+        "--backup-out",
+        backup_arg.as_str(),
+    ];
+    let pty = Pty::open();
+    let mut s = start_cli(rig, case, &args, Some(&pty), CEREMONY);
+    assert!(
+        pty.wait_for("Type 'yes' to register this CA: ", &mut s.child),
+        "{}",
+        pty.transcript()
+    );
+    let shown = pty.transcript();
+    let before = &shown[..shown.find("Type 'yes'").unwrap()];
+    for needle in ["Register CA SHA256:", "backup SHA-256 ", "backup file "] {
+        assert!(before.contains(needle), "{needle:?}: {before}");
+    }
+    for kind in [
+        DisclosureKind::SameUserIssuerBoundary,
+        DisclosureKind::CaTrustBlastRadius,
+        DisclosureKind::BackupInstructions,
+    ] {
+        let prose = disclosure_text(kind, &DisclosureContext::default());
+        assert!(before.contains(&prose), "{kind:?}: {before}");
+    }
+    assert!(before.contains(&text), "the runtime's lock text: {before}");
+    assert!(!before.contains(&general), "not the general sentence");
+    assert!(
+        rig.store()
+            .transaction(|tx| tx.lock_disclosure_ack())
+            .unwrap()
+            .is_none()
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    assert!(pty.wait_for("Type 'written'", &mut s.child));
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("written");
+    let out = finish(&mut s);
+    assert_eq!(out.code, 0, "{out:?}\n{}", pty.transcript());
+    // Stdout: exactly one envelope (the child-mode entry's own libtest lines aside); stderr
+    // none.
+    let envelopes = |text: &str| {
+        text.lines()
+            .filter(|l| serde_json::from_str::<Value>(l.trim()).is_ok_and(|v| v.is_object()))
+            .count()
+    };
+    assert_eq!(envelopes(&out.stdout), 1, "{out:?}");
+    assert_eq!(envelopes(&out.stderr), 0, "{out:?}");
+    assert_eq!(out.json()["code"], "OK");
+    assert!(
+        rig.store()
+            .transaction(|tx| tx.lock_disclosure_ack())
+            .unwrap()
+            .is_some(),
+        "the acknowledgement is recorded for the decision that showed the text"
+    );
+}
+
+/// ⟨ADR-0008 §17.26 item 6, §17.27 items 3, 4; W5-R05, W5-S03⟩
+/// `issuer_init_shows_the_continuing_lock_text_with_saved_limits`: a saved continuing policy
+/// with a maximum window and a cutoff.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_shows_the_continuing_lock_text_with_saved_limits() {
+    let rig = Rig::product();
+    let cutoff: Timestamp = "2031-01-01T00:00:00Z".parse().unwrap();
+    rig.seed_policy(
+        "daily",
+        heimdall_contract::managed::LockBehavior::Continue,
+        Duration::from_secs(2 * 3600),
+        Some(cutoff),
+    );
+    init_shows_runtime_lock_text(
+        &rig,
+        "lock-continue",
+        &["\"daily\"", "after approval", "no new work after"],
+    );
+}
+
+/// ⟨ADR-0008 §17.26 item 6, §17.27 items 3, 4; W5-R05, W5-S03⟩
+/// `issuer_init_shows_the_revoke_on_lock_text_with_saved_limits`: a saved revoke-on-lock
+/// policy with its maximum window, beside a continuing one.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_shows_the_revoke_on_lock_text_with_saved_limits() {
+    let rig = Rig::product();
+    rig.seed_policy(
+        "strict",
+        heimdall_contract::managed::LockBehavior::RevokeOnLock,
+        Duration::from_secs(3600),
+        None,
+    );
+    rig.seed_policy(
+        "relaxed",
+        heimdall_contract::managed::LockBehavior::Continue,
+        Duration::from_secs(4 * 3600),
+        None,
+    );
+    init_shows_runtime_lock_text(
+        &rig,
+        "lock-revoke",
+        &["\"strict\" ends when you lock the screen", "\"relaxed\""],
+    );
+}
+
+/// `transcript` without the ceremony's own control sequences (the passphrase region's
+/// clearing: cursor up `ESC [ n A`, carriage return, `ESC [ J`).
+#[cfg(target_os = "macos")]
+fn without_own_clearing(transcript: &str) -> String {
+    let mut out = String::new();
+    let mut rest = transcript;
+    while let Some(at) = rest.find("\x1b[") {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 2..];
+        let digits = tail.chars().take_while(char::is_ascii_digit).count();
+        match tail[digits..].chars().next() {
+            Some('A') if digits > 0 => rest = &tail[digits + 1..],
+            Some('J') if digits == 0 => rest = &tail[1..],
+            _ => {
+                out.push_str("\x1b[");
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// ⟨ADR-0008 §17.27 item 8; W5-S06⟩ `issuer_init_backup_path_controls_never_reach_the_terminal`,
+/// macOS on the product-file test store: a `--backup-out` file name carrying clear-screen and
+/// cursor-home controls is shown sanitized (by `output::sanitize_for_terminal`, the ordinary
+/// renderers' sanitizer) in the decision and after the backup is written; the only control
+/// sequences on the terminal are the ceremony's own clearing of the passphrase.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_backup_path_controls_never_reach_the_terminal() {
+    let rig = Rig::product();
+    let backup = rig.file("ctl\x1b[2J\x1b[Hname.key");
+    let backup_arg = backup.to_string_lossy().into_owned();
+    let args = [
+        "--json",
+        "issuer",
+        "init",
+        "--backup-out",
+        backup_arg.as_str(),
+    ];
+    let pty = Pty::open();
+    let mut s = start_cli(&rig, "ctl-path", &args, Some(&pty), CEREMONY);
+    assert!(
+        pty.wait_for("Type 'yes' to register this CA: ", &mut s.child),
+        "{:?}",
+        pty.transcript()
+    );
+    let shown = pty.transcript();
+    assert!(
+        !shown.contains('\x1b'),
+        "no control sequence before the yes: {shown:?}"
+    );
+    assert!(
+        shown.contains("ctlname.key"),
+        "the path, sanitized: {shown:?}"
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    assert!(pty.wait_for("Type 'written'", &mut s.child));
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("written");
+    let out = finish(&mut s);
+    let t = pty.transcript();
+    assert_eq!(out.code, 0, "{out:?}\n{t:?}");
+    assert!(backup.exists(), "the backup at the given name");
+    assert!(t.contains("Backup written: "), "{t:?}");
+    for raw in ["\x1b[2J", "\x1b[H"] {
+        assert!(!t.contains(raw), "{raw:?} reached the terminal");
+    }
+    let rest = without_own_clearing(&t);
+    assert!(
+        !rest.contains('\x1b'),
+        "only the ceremony's own clearing: {rest:?}"
+    );
+    assert_ne!(rest.len(), t.len(), "the passphrase's region was cleared");
+}
+
+/// ⟨M03 wave 5, round 3; the round's `issuer_store_locked` flake⟩
+/// `issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony`, macOS on the
+/// product-file test store: the CLI runs from its own copy of the binary; while it waits at
+/// the passphrase's `written` prompt, that file is replaced by a re-signed copy (another
+/// code identity: what an update, or a concurrent rebuild of a shared `target/`, does).
+/// The keychain item's access list would then trust the new file and the running CLI could
+/// never read it back (`errSecAuthFailed`, reported before the fix as `issuer_store_locked`
+/// with an orphan item). Now nothing is written: `SERVICE_UNAVAILABLE` (exit 5) naming the
+/// replaced executable, no keychain item, nothing registered or acknowledged.
+#[cfg(target_os = "macos")]
+#[test]
+fn issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony() {
+    let rig = Rig::product();
+    let dir = rig.file("own-bin");
+    private_dir(&dir);
+    let copy = dir.join("heimdall");
+    std::fs::copy(&rig.program, &copy).unwrap();
+    let variant = dir.join("variant");
+    std::fs::copy(&rig.program, &variant).unwrap();
+    let signed = Command::new("/usr/bin/codesign")
+        .args(["-f", "-s", "-", "-i", "heimdall-replaced"])
+        .arg(&variant)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(signed.success(), "codesign re-signed the variant");
+    let backup = rig.file("replaced.key");
+    let argv = vec![
+        copy.to_string_lossy().into_owned(),
+        "--json".into(),
+        "issuer".into(),
+        "init".into(),
+        "--backup-out".into(),
+        backup.to_string_lossy().into_owned(),
+    ];
+    let pty = Pty::open();
+    let mut s = start_argv(&rig, "replaced", argv, Some(&pty), CEREMONY);
+    assert!(pty.wait_for("Type 'yes' to register this CA: ", &mut s.child));
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("yes");
+    assert!(pty.wait_for("Type 'written'", &mut s.child));
+    std::fs::rename(&variant, &copy).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    pty.type_line("written");
+    let out = finish(&mut s);
+    assert_eq!(out.code, 5, "{out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "SERVICE_UNAVAILABLE", "{out:?}");
+    assert_ne!(reason(&env), "issuer_store_locked", "{out:?}");
+    assert!(out.message().contains("executable was replaced"), "{out:?}");
+    assert!(
+        rig.product_store().list().unwrap().is_empty(),
+        "no keychain item was written"
+    );
+    assert!(
+        rig.store()
+            .transaction(|tx| tx.issuers())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        rig.store()
+            .transaction(|tx| tx.lock_disclosure_ack())
+            .unwrap()
+            .is_none()
+    );
 }

@@ -501,6 +501,55 @@ fn issuer_clock(
     }
 }
 
+// --- the runtime's conditional lock text (ADR-0008 §17.27 item 4; D9 item 1) ---------
+
+/// ⟨§17.27 item 4; wave 5 round 3 api R2⟩ The runtime's conditional lock text from an
+/// `inspect capabilities` answer: `data.lock.disclosure`, sanitized for the terminal
+/// with the ordinary renderers' sanitizer ([`output::sanitize_for_terminal`]). `None`
+/// when the answer is a refusal, carries no `lock` (the runtime could not read it), or
+/// its text is absent, not a string, or empty once sanitized: a caller whose decision
+/// carries `lock_continuity_once` then refuses to approve (exit 3), so the once-only
+/// acknowledgement is recorded only for a decision whose conditional text was shown.
+#[must_use]
+pub(crate) fn lock_disclosure_text(capabilities: &Envelope<serde_json::Value>) -> Option<String> {
+    if !capabilities.code.is_success() {
+        return None;
+    }
+    let raw = capabilities.data.get("lock")?.get("disclosure")?.as_str()?;
+    let text = output::sanitize_for_terminal(raw);
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
+/// [`lock_disclosure_text`] of a fresh `inspect capabilities` on `s` (read-only).
+pub(crate) async fn fetch_lock_disclosure_text<S: crate::cli::Session>(
+    s: &mut S,
+) -> Option<String> {
+    let env = s
+        .request(Request::Inspect(
+            heimdall_contract::request::InspectRequest {
+                subject: InspectSubject::Capabilities,
+                preview: None,
+            },
+        ))
+        .await;
+    lock_disclosure_text(&env)
+}
+
+/// ⟨§17.27 item 4⟩ The refusal to approve a decision carrying `lock_continuity_once`
+/// whose conditional lock text could not be obtained or rendered: nothing was sent, the
+/// decision stays pending (exit 3, `INTERACTION_REQUIRED`).
+pub(crate) fn lock_text_unavailable(
+    decision: Option<&str>,
+    operation: Option<heimdall_contract::ids::OperationId>,
+) -> Envelope<serde_json::Value> {
+    setup_cmd::not_confirmed(
+        decision,
+        operation,
+        "the runtime's lock disclosure could not be read, so it cannot be shown; approval is refused until it can be",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

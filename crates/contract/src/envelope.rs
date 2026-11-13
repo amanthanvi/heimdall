@@ -449,6 +449,17 @@ pub mod reason {
     pub const ISSUER_RATE_LIMITED: &str = "issuer_rate_limited";
     /// ⟨M03⟩ `CREDENTIAL_EXPIRED`: Use after a lock revocation.
     pub const GRANT_ENDED_SESSION_LOCKED: &str = "grant_ended_session_locked";
+    /// ⟨M03; ADR-0008 §17.27 item 2⟩ `SERVICE_UNAVAILABLE`: an uninstall holds the
+    /// fence, so new enrollment, CA and issuance work is not admitted.
+    pub const UNINSTALL_IN_PROGRESS: &str = "uninstall_in_progress";
+    /// ⟨M03; ADR-0008 §17.27 item 2⟩ `CAPABILITY_UNAVAILABLE` (exit 4): the
+    /// outstanding-obligation inventory read under the fence differs from the one the
+    /// owner confirmed; nothing was deleted (next: `heimdall uninstall` again).
+    pub const UNINSTALL_INVENTORY_CHANGED: &str = "uninstall_inventory_changed";
+    /// ⟨M03; ADR-0008 §17.28 item 1⟩ `CAPABILITY_UNAVAILABLE` (exit 4): under the
+    /// fence, an enrollment operation still has a dispatched step without its result
+    /// (its remote effect is unknown), so the purge is refused; nothing was deleted.
+    pub const UNINSTALL_REMOTE_STEP_UNRESOLVED: &str = "uninstall_remote_step_unresolved";
 
     /// ⟨M03⟩ Every new stable sub-reason of m03-plan §5 item 14, with the code it is
     /// used with, in the table's order. `driver_unavailable` (M02, in [`ALL`]) is
@@ -529,6 +540,12 @@ pub mod reason {
         (ISSUER_RESTARTING, Code::ServiceUnavailable),
         (ISSUER_RATE_LIMITED, Code::Backpressure),
         (GRANT_ENDED_SESSION_LOCKED, Code::CredentialExpired),
+        (UNINSTALL_IN_PROGRESS, Code::ServiceUnavailable),
+        (UNINSTALL_INVENTORY_CHANGED, Code::CapabilityUnavailable),
+        (
+            UNINSTALL_REMOTE_STEP_UNRESOLVED,
+            Code::CapabilityUnavailable,
+        ),
     ];
 }
 

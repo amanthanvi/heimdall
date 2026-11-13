@@ -967,6 +967,47 @@ pub struct ConfirmTimeRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ShutdownRequest {}
 
+/// ⟨M03; ADR-0008 §17.27 item 2 (W5-S01)⟩ The uninstall fence (capability
+/// [`crate::ipc::capability::SERVICE_CONTROL_V1`]; owner principal only, any
+/// session). Wire form `{"op":"uninstall_fence","action":"acquire"|"release"}`.
+///
+/// While a connection holds the fence, the runtime refuses the admission of new
+/// enrollment, CA and issuance work with `SERVICE_UNAVAILABLE`, reason
+/// `uninstall_in_progress`: enrollment apply, verify, removal (own and foreign) and
+/// reconcile; issuer registration (rotation and restore included) and unlock; every
+/// certificate reservation; and the approval of an enrollment or CA-registration
+/// decision. Work already admitted is not cut short (its results are recorded), and
+/// the CLI revalidates its inventory under the fence instead.
+///
+/// **Lifetime:** bound to the acquiring connection. It is released by `release`
+/// on that connection, or when that connection closes for any reason (the CLI
+/// finished, refused, or died), and with the runtime. At most one connection holds
+/// it; `acquire` from another connection while it is held is refused
+/// `SERVICE_UNAVAILABLE` / `uninstall_in_progress`; `acquire` on the holding
+/// connection and `release` on a connection that does not hold it are no-ops
+/// answering the fence's state. Not an operation: no operation ID, no idempotency
+/// record. Answer: `OK {"fence": "held" | "released"}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "action", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum UninstallFenceRequest {
+    /// Close admission for this connection's uninstall.
+    Acquire,
+    /// Lift it (when this connection holds it).
+    Release,
+}
+
+impl UninstallFenceRequest {
+    /// `uninstall_fence.acquire` / `uninstall_fence.release`.
+    #[must_use]
+    pub fn kind(self) -> &'static str {
+        match self {
+            UninstallFenceRequest::Acquire => "uninstall_fence.acquire",
+            UninstallFenceRequest::Release => "uninstall_fence.release",
+        }
+    }
+}
+
 /// A request sent over the control endpoint. The variant is the operation kind.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -1011,6 +1052,9 @@ pub enum Request {
     /// ⟨M03⟩ Owned connections (needs `connections/1`, not offered until the
     /// activation change set).
     Connections(ConnectionsRequest),
+    /// ⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence ([`UninstallFenceRequest`];
+    /// owner principal, needs `service-control/1`).
+    UninstallFence(UninstallFenceRequest),
 }
 
 /// How the application admits a request (m02-plan U0 "journaled kinds"; ADR-0006
@@ -1050,6 +1094,7 @@ impl Request {
             Request::Issuer(r) => r.kind(),
             Request::Enrollment(r) => r.kind(),
             Request::Connections(r) => r.kind(),
+            Request::UninstallFence(r) => r.kind(),
         }
     }
 
@@ -1102,6 +1147,10 @@ impl Request {
             Request::Connections(
                 ConnectionsRequest::Close { .. } | ConnectionsRequest::Register { .. },
             ) => Admission::Synchronous,
+            // ⟨ADR-0008 §17.27 item 2⟩ runtime state only, no operation row.
+            Request::UninstallFence(
+                UninstallFenceRequest::Acquire | UninstallFenceRequest::Release,
+            ) => Admission::Synchronous,
         }
     }
 
@@ -1113,7 +1162,9 @@ impl Request {
     #[must_use]
     pub fn required_capability(&self) -> Option<&'static str> {
         match self {
-            Request::Shutdown(_) => Some(crate::ipc::capability::SERVICE_CONTROL_V1),
+            Request::Shutdown(_) | Request::UninstallFence(_) => {
+                Some(crate::ipc::capability::SERVICE_CONTROL_V1)
+            }
             Request::Setup(_) | Request::Catalog(_) => Some(crate::ipc::capability::SETUP_V1),
             Request::Issuer(_) => Some(crate::ipc::capability::ISSUER_V1),
             Request::Enrollment(_) => Some(crate::ipc::capability::ENROLLMENT_V1),
@@ -1180,6 +1231,35 @@ mod tests {
     use super::*;
     use crate::envelope::Envelope;
     use crate::ipc::{ClientMessage, ServerMessage, capability};
+
+    /// ⟨ADR-0008 §17.27 item 2⟩ The fence's wire forms, kinds and classification:
+    /// `service-control/1`, not attended-only, synchronous (no operation row).
+    #[test]
+    fn uninstall_fence_wire_forms() {
+        for (wire, action, kind) in [
+            (
+                r#"{"op":"uninstall_fence","action":"acquire"}"#,
+                UninstallFenceRequest::Acquire,
+                "uninstall_fence.acquire",
+            ),
+            (
+                r#"{"op":"uninstall_fence","action":"release"}"#,
+                UninstallFenceRequest::Release,
+                "uninstall_fence.release",
+            ),
+        ] {
+            let r: Request = serde_json::from_str(wire).unwrap();
+            assert_eq!(r, Request::UninstallFence(action));
+            assert_eq!(serde_json::to_string(&r).unwrap(), wire);
+            assert_eq!(r.kind(), kind);
+            assert_eq!(r.admission(), Admission::Synchronous);
+            assert_eq!(
+                r.required_capability(),
+                Some(capability::SERVICE_CONTROL_V1)
+            );
+            assert!(!r.requires_attended_session());
+        }
+    }
 
     /// ADR-0006 §13.6 item 8: `{"op":"shutdown"}` is the whole wire form, it needs
     /// `service-control/1`, it is not attended-only, not a widening action and not

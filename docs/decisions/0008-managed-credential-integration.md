@@ -4350,6 +4350,35 @@ No review has run yet. These rulings complete the wave before its reviews.
 9. **W5-R06:** `destination_lines` reads the runtime's `items` (and the older `destinations`). Its test uses the runtime's real shape, including a managed preference whose policy cannot be computed.
 10. **The release-profile test build:** `retire::tests::test_store_item_deleted_by_exact_locator_in_debug_builds_only` does not compile under `--release` (`crates/issuer/src/retire.rs`, an inline `const` assertion). Gate or restructure it so that `cargo test --release -p heimdall-issuer --lib` compiles and passes. Keep the security reviewer's release-only deletion-gate probe as a permanent integration test.
 
+### 17.28 Orchestrator rulings on wave 5, round 3 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r3-questions.md`.
+
+1. **Q-U3-2, the uninstall fence's lifetime and scope:**
+   - **Lifetime, accepted as built:** the fence belongs to the acquiring connection and is released when that uninstall finishes, refuses or crashes. Acquisition waits up to 20 s for admissions already in progress, and a plain uninstall is revalidated too.
+   - **Scope, widened:** while the fence is held, every connection except the holder is refused (`SERVICE_UNAVAILABLE`, `uninstall_in_progress`) every request that can start or advance remote or CA work. That covers admissions, `Enrollment::Step`, `abandon`, `reconcile`, issuer `register`/`unlock`/`retire`, and approvals.
+   - **Still allowed:** read-only requests, denials, and a `StepResult` for a step dispatched before the fence. The holder's own requests, including its inline retire, are exempt.
+   - **Revalidation:** if any operation has a dispatched step without its result, the purge is refused (`uninstall_remote_step_unresolved`, exit 4) and nothing is deleted.
+2. **Q-U3-1 and Q-U3-3, accepted as built:**
+   - the fence is a top-level request under `service-control/1`;
+   - the two revalidation refusals use `CAPABILITY_UNAVAILABLE` (exit 4), with the next command in `data.next_command`.
+3. **Q-U3-4: a `late_write` residual is cleared only by observed absence.**
+   - D5 §6.7 keeps the residual until an inspection after its not-after establishes absence. Nothing cleared it before this ruling.
+   - An attended `enroll verify <enrollment> --absence` that runs after the residual's not-after, and observes the line absent, clears `late_write` in the same transaction as its result. Any other outcome keeps it.
+   - Until it is cleared, the record stays an outstanding obligation (§17.27 item 1).
+   - **The regressions:** a verify before the not-after keeps the residual; one after it that observes absence clears it; one that observes the line present keeps it.
+4. **K3-Q1:** on Windows, Ctrl-C at a ceremony prompt ends the process and sends nothing, which fails closed. U13's native interactive harness checks it, and decides whether a console control handler is needed to answer exit 3.
+5. **K3-Q2: an additive reason `issuer_executable_changed`** (authorized) is added for the refusal to write when the running executable no longer matches the identity the store's access list would trust. It stays `SERVICE_UNAVAILABLE` (exit 5, retryable), with next: "finish installing or updating Heimdall, then run the command again".
+6. **K3-Q3: the macOS store access list across updates.** This is the `issuer_store_locked` root cause, observed in round 3.
+   - **The fact:** the K_ca item's access list trusts the creating executable's code identity. An ad-hoc-signed build's identity is its exact code hash, so a rebuilt or updated ad-hoc binary can no longer read the item (`errSecAuthFailed`). A Developer ID signature gives a stable identity that survives updates. ADR-0005 §5.2 listed this behaviour as unknown; it is now observed with a disposable file keychain.
+   - **Developer ID signing and notarization stay an owner-blocked release input** (ADR-0004 Q-F; the owner's Apple Developer membership).
+   - **Until that input arrives, a release built with ad-hoc signatures:**
+     - does not claim K_ca continuity across updates on macOS;
+     - says in its release notes and `issuer` help that after an update the CA may need `heimdall issuer restore --backup <file>`, the D5 log-intact restore;
+     - has the runtime report an access-list denial reading K_ca as a distinct, additive reason `issuer_store_access_denied` (authorized), with that restore as its next step, rather than as `issuer_store_locked` or a generic unavailability. The doctor reports it too.
+   - **The regression:** a test reads a disposable product store's item with a different binary and sees `issuer_store_access_denied`, not `issuer_store_locked`.
+   - U13 records the claim's limit in the claims table.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

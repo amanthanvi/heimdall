@@ -1771,6 +1771,25 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
     let answer_line = answered.map_or_else(String::new, |code| {
         format!("The runtime answered {code} with this decision reference.\n")
     });
+    // ⟨ADR-0008 §17.27 items 3 and 4⟩ Generic completion has no preview of its own: the
+    // recorded request's human form and every disclosure in words are shown before the
+    // prompt, in every output mode (stderr). Approving one that discloses lock
+    // continuity needs the runtime's conditional lock text; without it the approval is
+    // refused (exit 3) and nothing is sent.
+    let recorded = record
+        .as_ref()
+        .and_then(|r| r.get("request"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let lock = if crate::enroll_cmd::carries_lock_disclosure(&recorded) {
+        let text = crate::m03_cmd::fetch_lock_disclosure_text(s).await;
+        if text.is_none() && verdict == Verdict::Approve {
+            return crate::m03_cmd::lock_text_unavailable(Some(decision), operation);
+        }
+        text
+    } else {
+        None
+    };
     let text = match &record {
         Some(r) => {
             let request =
@@ -1778,8 +1797,12 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
                     .unwrap_or_default();
             let field = |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("?").to_owned();
             let expired = r.get("expired").and_then(serde_json::Value::as_bool) == Some(true);
+            let human = crate::enroll_cmd::recorded_preview(&field("kind"), &recorded);
+            let disclosures =
+                crate::enroll_cmd::recorded_disclosure_prose(&recorded, lock.as_deref());
             format!(
-                "{answer_line}Owner decision {decision}\n  kind: {}\n  expires: {}{}\n  recorded request (exactly what {} applies to):\n{}\n\
+                "{answer_line}{human}Owner decision {decision}\n  kind: {}\n  expires: {}{}\n  recorded request (exactly what {} applies to):\n{}\n\
+                 {disclosures}\
                  Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.\n\
                  {verb} exactly this request?\n",
                 field("kind"),
@@ -1849,7 +1872,7 @@ fn decide_without_session(ctx: &Ctx, decision: &str) -> Done {
 /// `decision approve|deny` on a connected session: `Attend` first, the listing
 /// with the exact recorded request, the prompt, `Decide` on `yes`. Without a
 /// terminal (or with `--non-interactive`) nothing is sent.
-async fn decide_flow<S: Session, P: Prompter>(
+pub(crate) async fn decide_flow<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
     ctx: &Ctx,

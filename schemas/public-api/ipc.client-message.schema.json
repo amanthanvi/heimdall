@@ -2767,6 +2767,20 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence ([`UninstallFenceRequest`];\nowner principal, needs `service-control/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "uninstall_fence"
+            }
+          },
+          "$ref": "#/$defs/UninstallFenceRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -2951,6 +2965,37 @@
           "description": "The Linux Secret Service.",
           "type": "string",
           "const": "linux_secret_service"
+        }
+      ]
+    },
+    "UninstallFenceRequest": {
+      "description": "⟨M03; ADR-0008 §17.27 item 2 (W5-S01)⟩ The uninstall fence (capability\n[`crate::ipc::capability::SERVICE_CONTROL_V1`]; owner principal only, any\nsession). Wire form `{\"op\":\"uninstall_fence\",\"action\":\"acquire\"|\"release\"}`.\n\nWhile a connection holds the fence, the runtime refuses the admission of new\nenrollment, CA and issuance work with `SERVICE_UNAVAILABLE`, reason\n`uninstall_in_progress`: enrollment apply, verify, removal (own and foreign) and\nreconcile; issuer registration (rotation and restore included) and unlock; every\ncertificate reservation; and the approval of an enrollment or CA-registration\ndecision. Work already admitted is not cut short (its results are recorded), and\nthe CLI revalidates its inventory under the fence instead.\n\n**Lifetime:** bound to the acquiring connection. It is released by `release`\non that connection, or when that connection closes for any reason (the CLI\nfinished, refused, or died), and with the runtime. At most one connection holds\nit; `acquire` from another connection while it is held is refused\n`SERVICE_UNAVAILABLE` / `uninstall_in_progress`; `acquire` on the holding\nconnection and `release` on a connection that does not hold it are no-ops\nanswering the fence's state. Not an operation: no operation ID, no idempotency\nrecord. Answer: `OK {\"fence\": \"held\" | \"released\"}`.",
+      "oneOf": [
+        {
+          "description": "Close admission for this connection's uninstall.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "acquire"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "Lift it (when this connection holds it).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "release"
+            }
+          },
+          "required": [
+            "action"
+          ]
         }
       ]
     },

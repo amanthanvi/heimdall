@@ -172,6 +172,14 @@ pub enum StoreError {
     /// The store refused the operation for another reason.
     #[error("the secret store refused the operation")]
     Failed,
+    /// ⟨M03 wave 5, round 3⟩ The item's access list would trust an executable that is not
+    /// the running program: the file at this program's path was replaced (an update, a
+    /// rebuild) after it started. Nothing was written: the item would trust the new file,
+    /// and this process could never read it back.
+    #[error(
+        "Heimdall's executable was replaced while this command ran (an update?), so the CA key store item would not trust the running program: nothing was stored; run the command again"
+    )]
+    ExecutableChanged,
 }
 
 /// The K_ca custody store (ADR-0008 D1; F23). Implementations are synchronous and

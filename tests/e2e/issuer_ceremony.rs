@@ -61,6 +61,8 @@ const DIR: &str = "HM_U4_DIR";
 #[cfg(unix)]
 const ARGV: &str = "HM_U4_ARGV";
 const LIMIT: Duration = Duration::from_secs(120);
+/// ⟨ADR-0008 §17.27 item 6⟩ The prompt bound of the `short_` cases.
+const SHORT_TIMEOUT: Duration = Duration::from_millis(1500);
 
 // -----------------------------------------------------------------------------
 // The child side: a ceremony on the controlling terminal
@@ -184,6 +186,7 @@ impl OwnerSession for FakeRuntime {
                 heimdall_contract::enrollment::DisclosureKind::CaTrustBlastRadius,
                 heimdall_contract::enrollment::DisclosureKind::BackupInstructions,
             ],
+            lock_text: None,
         })
     }
 
@@ -225,8 +228,15 @@ fn run_case(case: &str, dir: &Path) {
         non_interactive: case == "non_interactive",
     };
     // `no_tty`: the session has no controlling terminal; `non_interactive`: it has
-    // one, and the flag is refused first.
-    let outcome = match ControllingTerminal::open() {
+    // one, and the flag is refused first. ⟨ADR-0008 §17.27 item 6⟩ A `short_` case bounds
+    // each prompt by [`SHORT_TIMEOUT`] instead of the CLI's 120 s (the injectable bound of
+    // the real terminal reader).
+    let timeout = if case.starts_with("short_") {
+        SHORT_TIMEOUT
+    } else {
+        Duration::from_secs(120)
+    };
+    let outcome = match ControllingTerminal::open(timeout) {
         Ok(mut tty) => ceremony::init(&mut tty, &mut runtime, &store, &options),
         Err(e) => Err(e),
     };
@@ -245,6 +255,22 @@ fn run_case(case: &str, dir: &Path) {
             result.insert("outcome", serde_json::json!("refused"));
             result.insert("code", serde_json::to_value(e.code()).unwrap());
             result.insert("error", serde_json::json!(e.to_string()));
+        }
+    }
+    // ⟨§17.27 item 6⟩ The controlling terminal's mode after the ceremony: `ISIG` back on,
+    // `VEOL` no longer Ctrl-C (the ceremony read's mode was restored).
+    #[cfg(unix)]
+    if let Ok(tty) = std::fs::File::open("/dev/tty") {
+        use rustix::termios::{LocalModes, SpecialCodeIndex, tcgetattr};
+        if let Ok(t) = tcgetattr(&tty) {
+            result.insert(
+                "isig",
+                serde_json::json!(t.local_modes.contains(LocalModes::ISIG)),
+            );
+            result.insert(
+                "veol_ctrl_c",
+                serde_json::json!(t.special_codes[SpecialCodeIndex::VEOL] == 0x03),
+            );
         }
     }
     result.insert("events", serde_json::json!(runtime.events));
@@ -455,6 +481,27 @@ impl Pty {
         let mut f = std::fs::File::from(self.master.try_clone()?);
         f.write_all(text.as_bytes())?;
         f.write_all(b"\n")
+    }
+
+    /// Type raw bytes (Ctrl-C, Ctrl-D) at the terminal.
+    fn type_bytes(&self, bytes: &[u8]) {
+        let mut f = std::fs::File::from(self.master.try_clone().unwrap());
+        f.write_all(bytes).unwrap();
+    }
+}
+
+/// The child's exit status if it exits within `limit`; `None` (still running) else.
+#[cfg(unix)]
+fn exits_within(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            return Some(s);
+        }
+        if Instant::now() > deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 
@@ -929,4 +976,139 @@ fn d5_backup_restores_with_stock_ssh_keygen() {
     let status = wait(&mut child);
     assert!(!status.success());
     assert!(!pty.transcript().lines().any(|l| l.trim() == public));
+}
+
+// -----------------------------------------------------------------------------
+// ⟨ADR-0008 §17.27 items 6, 7⟩ The bounded, cancellable ceremony reads, on the real
+// terminal reader (`ControllingTerminal` on the pty as the controlling terminal)
+// -----------------------------------------------------------------------------
+
+#[cfg(unix)]
+/// What every ceremony that stopped unconfirmed shows: refused `NotConfirmed` (exit 3's
+/// `INTERACTION_REQUIRED`), one registration and no approval or store-item report, the
+/// store empty, and the terminal back in its own mode (`ISIG` on, `VEOL` not Ctrl-C).
+fn assert_not_confirmed_and_nothing_more(dir: &Path) {
+    let result = read_result(dir);
+    assert_eq!(result["outcome"], "refused", "{result}");
+    assert_eq!(result["code"], "INTERACTION_REQUIRED", "{result}");
+    assert!(
+        result["error"].as_str().unwrap().contains("not confirmed"),
+        "{result}"
+    );
+    assert_eq!(
+        result["events"],
+        serde_json::json!(["status", "attend", "register"]),
+        "nothing more was sent"
+    );
+    assert_eq!(result["approved"], 0);
+    assert!(files_under(&dir.join("store")).is_empty(), "nothing stored");
+    assert_eq!(
+        (&result["isig"], &result["veol_ctrl_c"]),
+        (&serde_json::json!(true), &serde_json::json!(false)),
+        "the terminal's mode was restored: {result}"
+    );
+}
+
+#[cfg(unix)]
+/// ⟨W5-R04, W5-S04⟩ `ceremony_registration_prompt_times_out_and_sends_nothing`: the
+/// registration confirmation unanswered within the bound (shortened from 120 s through
+/// `ControllingTerminal::open`'s bound) ends `NotConfirmed` with nothing written or sent;
+/// the terminal's mode is restored, and a `yes` typed after the timeout is never honoured.
+#[test]
+fn ceremony_registration_prompt_times_out_and_sends_nothing() {
+    let dir = scratch();
+    std::fs::create_dir(dir.path().join("store")).unwrap();
+    let pty = Pty::open();
+    let mut started = start_case(dir.path(), "short_init", Some(&pty.slave));
+    pty.wait_for("Type 'yes' to register this CA: ", &mut started.child);
+    let asked = Instant::now();
+    let status = exits_within(&mut started.child, Duration::from_secs(30))
+        .expect("the unanswered prompt timed out");
+    assert!(status.success(), "child exit {:?}", status.code());
+    assert!(
+        asked.elapsed() >= SHORT_TIMEOUT - Duration::from_millis(200),
+        "not before the bound: {:?}",
+        asked.elapsed()
+    );
+    assert_not_confirmed_and_nothing_more(dir.path());
+    assert!(
+        !dir.path().join("ca-backup.key").exists(),
+        "no backup written"
+    );
+    // A late `yes`: the ceremony is over; nothing more happens.
+    let _ = pty.try_type_line("yes");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!dir.path().join("ca-backup.key").exists());
+    assert!(files_under(&dir.path().join("store")).is_empty());
+    assert!(!pty.transcript().contains("without the spaces"));
+}
+
+#[cfg(unix)]
+/// ⟨W5-R04, W5-S04⟩ `ceremony_written_prompt_times_out_clears_and_stores_nothing`: the
+/// passphrase's `written` acknowledgement unanswered within the bound clears the
+/// passphrase's screen region and ends `NotConfirmed`: no store item, no report, no
+/// approval. (The backup written at step 4 stays: D4 item 1's crash point between steps 4
+/// and 6, a backup file whose CA nothing trusts.)
+#[test]
+fn ceremony_written_prompt_times_out_clears_and_stores_nothing() {
+    let dir = scratch();
+    std::fs::create_dir(dir.path().join("store")).unwrap();
+    let pty = Pty::open();
+    let mut started = start_case(dir.path(), "short_init", Some(&pty.slave));
+    pty.wait_for("Type 'yes' to register this CA: ", &mut started.child);
+    pty.type_line("yes");
+    pty.wait_for("Type 'written'", &mut started.child);
+    let status = exits_within(&mut started.child, Duration::from_secs(30))
+        .expect("the unanswered acknowledgement timed out");
+    assert!(status.success(), "child exit {:?}", status.code());
+    assert_not_confirmed_and_nothing_more(dir.path());
+    let transcript = pty.transcript();
+    let written = transcript.find("Type 'written'").unwrap();
+    assert!(
+        transcript[written..].contains("\x1b[J"),
+        "the passphrase's region was cleared"
+    );
+    assert_eq!(transcript.matches("Type 'written'").count(), 1, "no retry");
+}
+
+#[cfg(unix)]
+/// The init case (the 120 s bound) up to the passphrase's `written` prompt, then `bytes`
+/// typed there: the ceremony must end at once (well within the bound), with no retry.
+fn cancel_at_written(bytes: &[u8]) {
+    let dir = scratch();
+    std::fs::create_dir(dir.path().join("store")).unwrap();
+    let pty = Pty::open();
+    let mut started = start_case(dir.path(), "init", Some(&pty.slave));
+    pty.wait_for("Type 'yes' to register this CA: ", &mut started.child);
+    pty.type_line("yes");
+    pty.wait_for("Type 'written'", &mut started.child);
+    std::thread::sleep(Duration::from_millis(200));
+    pty.type_bytes(bytes);
+    let status = exits_within(&mut started.child, Duration::from_secs(10))
+        .expect("the cancellation ended the ceremony at once (no retry)");
+    assert!(status.success(), "child exit {:?}", status.code());
+    assert_not_confirmed_and_nothing_more(dir.path());
+    let transcript = pty.transcript();
+    let written = transcript.find("Type 'written'").unwrap();
+    assert!(
+        transcript[written..].contains("\x1b[J"),
+        "the passphrase's region was cleared"
+    );
+    assert_eq!(transcript.matches("Type 'written'").count(), 1, "no retry");
+}
+
+#[cfg(unix)]
+/// ⟨W5-S05⟩ `ceremony_ctrl_c_at_written_cancels_at_once`: Ctrl-C at the passphrase's
+/// `written` acknowledgement is a cancellation, not a wrong answer.
+#[test]
+fn ceremony_ctrl_c_at_written_cancels_at_once() {
+    cancel_at_written(b"\x03");
+}
+
+#[cfg(unix)]
+/// ⟨W5-S05⟩ `ceremony_eof_at_written_cancels_at_once`: end of input (Ctrl-D) at the
+/// `written` acknowledgement likewise.
+#[test]
+fn ceremony_eof_at_written_cancels_at_once() {
+    cancel_at_written(b"\x04");
 }

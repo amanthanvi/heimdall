@@ -290,8 +290,23 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
             )
         })
         .unwrap_or_default();
+    // ⟨ADR-0008 §17.27 items 3 and 4⟩ Every disclosure the recorded request carries is
+    // shown in words, in every output mode (the prompt is on stderr). One that discloses
+    // lock continuity needs the runtime's conditional lock text: without it the approval
+    // is refused (exit 3) and nothing is sent, so the once-only acknowledgement is only
+    // ever recorded for a decision whose conditional text was shown.
+    let lock = if crate::enroll_cmd::carries_lock_disclosure(&request) {
+        match crate::m03_cmd::fetch_lock_disclosure_text(s).await {
+            Some(t) => Some(t),
+            None => return crate::m03_cmd::lock_text_unavailable(Some(decision), operation),
+        }
+    } else {
+        None
+    };
+    let disclosures = crate::enroll_cmd::recorded_disclosure_prose(&request, lock.as_deref());
     let text = format!(
         "{preface}\n{restore}Owner decision {decision}\n  kind: {}\n  expires: {}\n  recorded request (exactly what approve applies to):\n{}\n\
+         {disclosures}\
          Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.\n\
          Approve exactly this request?\n",
         field("kind"),

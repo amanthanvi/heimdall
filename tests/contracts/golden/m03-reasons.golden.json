@@ -1,5 +1,5 @@
 {
- "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table; `warning_reasons` are the Warning.reason values with the warning code each refines (ADR-0008 \u00a717.25 item 15)",
+ "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table; `warning_reasons` are the Warning.reason values with the warning code each refines (ADR-0008 \u00a717.25 item 15); the `new` rows uninstall_in_progress and uninstall_inventory_changed are ADR-0008 \u00a717.27 item 2 (W5-S01), and uninstall_remote_step_unresolved is \u00a717.28 item 1",
  "new": [
   {
    "reason": "issuer_not_initialized",
@@ -260,6 +260,18 @@
   {
    "reason": "grant_ended_session_locked",
    "code": "CREDENTIAL_EXPIRED"
+  },
+  {
+   "reason": "uninstall_in_progress",
+   "code": "SERVICE_UNAVAILABLE"
+  },
+  {
+   "reason": "uninstall_inventory_changed",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "uninstall_remote_step_unresolved",
+   "code": "CAPABILITY_UNAVAILABLE"
   }
  ],
  "existing": [

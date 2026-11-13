@@ -183,7 +183,7 @@ fn foreign_remove_cli_refuses_redacted_bundle() {
 // =====================================================================================
 
 #[cfg(unix)]
-mod world {
+pub(super) mod world {
     use std::ffi::OsString;
     use std::future::Future;
     use std::path::{Path, PathBuf};
@@ -768,6 +768,78 @@ mod world {
             self.service.as_ref().unwrap().store.transaction(f).unwrap()
         }
 
+        /// ⟨§17.27 item 4⟩ Save (or revise) the standing policy `id` of profile
+        /// `<id>-profile` over this world's pair, with `lock` behaviour, a maximum window
+        /// and an optional cutoff: the saved limits the runtime's conditional lock text
+        /// (`inspect capabilities` `lock.disclosure`) states.
+        pub fn save_policy(
+            &self,
+            id: &str,
+            revision: u64,
+            lock: heimdall_contract::managed::LockBehavior,
+            max_window: std::time::Duration,
+            cutoff: Option<Timestamp>,
+        ) {
+            use heimdall_contract::ids::{PolicyId, ProfileId};
+            use heimdall_domain::policy::{
+                PauseState, PolicyRevision, PolicySource, StandingPolicy,
+            };
+            use heimdall_domain::profile::ProfileDefinition;
+            use heimdall_domain::scope::{AccessPair, Capability, Scope};
+            let scope = Scope {
+                pairs: [AccessPair {
+                    destination: self.destination.clone(),
+                    account: self.account.clone(),
+                }]
+                .into_iter()
+                .collect(),
+                capabilities: [Capability::SshAuthentication].into_iter().collect(),
+            };
+            let profile = ProfileId::parse(&format!("{id}-profile")).unwrap();
+            let env = self
+                .tx(|tx| tx.self_environment())
+                .expect("the runtime's environment");
+            let policy = StandingPolicy {
+                id: PolicyId::parse(id).unwrap(),
+                revision: PolicyRevision(revision),
+                profile: profile.clone(),
+                workspace: None,
+                scope: scope.clone(),
+                environments: [env].into_iter().collect(),
+                max_window,
+                pause: PauseState::Active,
+                cutoff_at: cutoff,
+                source: PolicySource::SetupDefault,
+                lock_behavior: lock,
+                connection: Default::default(),
+            };
+            self.tx(|tx| {
+                tx.upsert_profile(&ProfileDefinition {
+                    id: profile.clone(),
+                    revision: 1,
+                    scope: scope.clone(),
+                    label: None,
+                })?;
+                tx.upsert_policy(&policy, false).map(|_| ())
+            });
+        }
+
+        /// The once-only lock acknowledgement, if recorded.
+        pub fn lock_ack(&self) -> Option<Timestamp> {
+            self.tx(|tx| tx.lock_disclosure_ack())
+        }
+
+        /// The runtime's conditional lock text (`inspect capabilities` `lock.disclosure`).
+        pub fn lock_text(&self) -> String {
+            let out = self.cli(&["--json", "inspect", "capabilities"]);
+            assert_eq!(out.code, 0, "{out:?}");
+            let v: serde_json::Value = serde_json::from_str(out.stdout.trim()).unwrap();
+            v["data"]["lock"]["disclosure"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no lock disclosure: {v}"))
+                .to_owned()
+        }
+
         /// The environment every heimdall process of this world gets.
         pub fn env(&self) -> Vec<(OsString, OsString)> {
             vec![
@@ -1110,6 +1182,10 @@ mod terminal {
 
     const SLAVE: &str = "HM_W5E_PTY_SLAVE";
     const ARGS: &str = "HM_W5E_PTY_ARGS";
+    /// ⟨§17.27 item 3⟩ When set, the child's stdout is this file instead of the terminal
+    /// (stdin and stderr stay the pty), so a `--json` case reads its envelope apart from
+    /// the prompt and the consent text.
+    const STDOUT: &str = "HM_W5E_PTY_STDOUT";
 
     /// Child-mode entry of the pty cases; does nothing in a normal run.
     #[test]
@@ -1126,7 +1202,17 @@ mod terminal {
             .unwrap();
         rustix::process::ioctl_tiocsctty(&tty).unwrap();
         rustix::stdio::dup2_stdin(&tty).unwrap();
-        rustix::stdio::dup2_stdout(&tty).unwrap();
+        match std::env::var_os(STDOUT) {
+            Some(file) => {
+                let out = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(file)
+                    .unwrap();
+                rustix::stdio::dup2_stdout(&out).unwrap();
+            }
+            None => rustix::stdio::dup2_stdout(&tty).unwrap(),
+        }
         rustix::stdio::dup2_stderr(&tty).unwrap();
         drop(tty);
         let args: Vec<String> = serde_json::from_str(&args).unwrap();
@@ -1134,6 +1220,7 @@ mod terminal {
         let err = Command::new(bin())
             .args(args)
             .env_remove("HEIMDALL_E2E_BIN")
+            .env_remove(STDOUT)
             .exec();
         panic!("exec failed: {err}");
     }
@@ -1212,6 +1299,28 @@ mod terminal {
 
         /// `heimdall <args>` on this terminal with exactly `env`, in `cwd`.
         pub fn start(&self, env: &[(OsString, OsString)], cwd: &Path, args: &[&str]) -> Child {
+            self.start_with(env, cwd, args, None)
+        }
+
+        /// ⟨§17.27 item 3⟩ [`Pty::start`] with the child's stdout written to `stdout` (a
+        /// new file), its stdin and stderr the terminal.
+        pub fn start_split(
+            &self,
+            env: &[(OsString, OsString)],
+            cwd: &Path,
+            args: &[&str],
+            stdout: &Path,
+        ) -> Child {
+            self.start_with(env, cwd, args, Some(stdout))
+        }
+
+        fn start_with(
+            &self,
+            env: &[(OsString, OsString)],
+            cwd: &Path,
+            args: &[&str],
+            stdout: Option<&Path>,
+        ) -> Child {
             let json = serde_json::to_string(&args).unwrap();
             let mut cmd = Command::new(std::env::current_exe().unwrap());
             cmd.args([
@@ -1226,6 +1335,9 @@ mod terminal {
             .current_dir(cwd);
             for (k, v) in env {
                 cmd.env(k, v);
+            }
+            if let Some(file) = stdout {
+                cmd.env(STDOUT, file);
             }
             cmd.env(SLAVE, &self.slave)
                 .env(ARGS, &json)
@@ -1283,6 +1395,29 @@ mod terminal {
             assert!(!t.contains("panicked"), "{t}");
             (code, t)
         }
+    }
+
+    /// ⟨§17.27 item 3⟩ `heimdall <args>` (a `--json` line) on a fresh pty whose stdout is
+    /// a file: at the first `[y/N]` prompt, the terminal so far (what the owner saw before
+    /// answering), then `answer` typed; the exit code, the whole terminal transcript, and
+    /// stdout alone.
+    pub fn answer_split(
+        env: &[(OsString, OsString)],
+        cwd: &Path,
+        args: &[&str],
+        answer: &[u8],
+    ) -> (Option<i32>, String, String, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("stdout");
+        let pty = Pty::open();
+        let mut child = pty.start_split(env, cwd, args, &file);
+        pty.wait_for("[y/N]", &mut child);
+        let before = pty.transcript();
+        pty.write(answer);
+        let (code, t) = pty.finish(&mut child);
+        let stdout = std::fs::read_to_string(&file).unwrap_or_default();
+        heimdall_testkit::assert_no_canary(&stdout);
+        (code, before, t, stdout)
     }
 
     /// `heimdall <args>` on a fresh pty: at the first `[y/N]` prompt, type `answer`
@@ -2094,4 +2229,291 @@ fn enroll_step_pauses_at_the_runtime_inserted_pause_point() {
     );
     assert_eq!(w.marker_lines(), 1, "released, the append wrote: {t}");
     assert_ne!(code, Some(2), "{t}");
+}
+
+// =====================================================================================
+// ⟨ADR-0008 §17.27 items 3 and 4⟩ consent text in every output mode; the runtime's
+// conditional lock text (W5-S02, W5-R05/S03)
+// =====================================================================================
+
+/// The shared words of `kind` for this world's alias (`heimdall_issuer::ceremony::
+/// disclosure_text`, §17.25 item 10), never retyped here.
+#[cfg(unix)]
+fn shared_text(kind: heimdall_contract::enrollment::DisclosureKind) -> String {
+    heimdall_issuer::ceremony::disclosure_text(
+        kind,
+        &heimdall_issuer::ceremony::DisclosureContext {
+            alias: Some(ALIAS),
+            lock: None,
+        },
+    )
+}
+
+/// The general lock sentence (`DisclosureContext { lock: None }`): never what an
+/// approval prompt shows for `lock_continuity_once`.
+#[cfg(unix)]
+fn general_lock_sentence() -> String {
+    shared_text(heimdall_contract::enrollment::DisclosureKind::LockContinuityOnce)
+}
+
+/// Every enrollment disclosure but the lock one, in words.
+#[cfg(unix)]
+fn non_lock_disclosures() -> Vec<String> {
+    use heimdall_contract::enrollment::DisclosureKind as K;
+    [
+        K::ConfigCommandsRunAsOrdinaryUse,
+        K::CaTrustBlastRadius,
+        K::RemoveWindow,
+        K::ReconcileMayStopOwnStaleScript,
+        K::OrdinarySshNeedsHeldSlot,
+    ]
+    .into_iter()
+    .map(shared_text)
+    .collect()
+}
+
+/// stdout of a `--json` pty case: exactly one envelope (its value).
+#[cfg(unix)]
+fn one_envelope_of(stdout: &str) -> serde_json::Value {
+    one_envelope(&Out {
+        code: 0,
+        stdout: stdout.to_owned(),
+        stderr: String::new(),
+    })
+}
+
+/// m03-plan U12 ⟨ADR-0008 §17.27 item 3; W5-S02, the security reviewer's probe⟩ `--json
+/// enroll` on a terminal shows the complete human preview and every disclosure's prose
+/// on the terminal (stderr) **before** the typed-`yes` prompt: the exact line, each
+/// shared disclosure text and the runtime's conditional lock text (never the general
+/// sentence). stdout holds exactly one envelope, nothing else; answered "no", nothing
+/// was sent (exit 3, the decision pending, no line written).
+#[cfg(unix)]
+#[test]
+fn json_enroll_on_a_terminal_shows_disclosure_prose_before_the_prompt() {
+    let w = World::new();
+    let reg = w.registry_remote.clone();
+    w.save_policy(
+        "pol-d3",
+        1,
+        heimdall_contract::managed::LockBehavior::Continue,
+        std::time::Duration::from_secs(2 * 3600),
+        None,
+    );
+    let lock = w.lock_text();
+    assert!(
+        lock.contains("under your saved policy \"pol-d3\""),
+        "{lock}"
+    );
+    let (code, before, t, stdout) = terminal::answer_split(
+        &w.env(),
+        &w.home.root,
+        &["--json", "enroll", ALIAS, "--registry-path", &reg],
+        b"no\n",
+    );
+    assert_eq!(code, Some(3), "{t}");
+    let prefix = format!(
+        "cert-authority,principals=\"hm:{DESTINATION}:{}\" {} heimdall:enr_",
+        w.account,
+        w.ca.public_line()
+    );
+    assert!(before.contains("exact line to be written:"), "{before}");
+    assert!(before.contains(&prefix), "{before}");
+    for text in non_lock_disclosures() {
+        assert!(before.contains(&text), "{text}: {before}");
+    }
+    assert!(
+        before.contains(&format!("lock_continuity_once: {lock}")),
+        "the runtime's lock text before the prompt: {before}"
+    );
+    assert!(!t.contains(&general_lock_sentence()), "{t}");
+    let v = one_envelope_of(&stdout);
+    assert_eq!(v["code"], "INTERACTION_REQUIRED", "{v}");
+    assert!(
+        v["data"]["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not confirmed (answered no)"),
+        "{v}"
+    );
+    assert!(!stdout.contains("[y/N]"), "no prompt on stdout: {stdout}");
+    assert_eq!(
+        pending_of(&w, "enroll_account").len(),
+        1,
+        "nothing was sent"
+    );
+    assert_eq!(w.marker_lines(), 0);
+    assert_eq!(w.lock_ack(), None, "nothing acknowledged");
+}
+
+/// m03-plan U12 ⟨ADR-0008 §17.27 item 4; W5-R05/S03, enrollment half⟩ The enrollment
+/// confirmation shows the runtime's conditional lock text with the saved limits:
+/// * a **continuing** configuration (policy `pol-d3`, at most 2 h, a cutoff): the text
+///   names the window, the policy and the cutoff;
+/// * a **revoke-on-lock** configuration (the same policy revised to `revoke_on_lock`,
+///   beside a continuing `pol-d3-long` of 12 h): the text says `pol-d3`'s work ends at a
+///   lock and names `pol-d3-long`'s window.
+///
+/// Each is exactly `inspect capabilities` `lock.disclosure`, shown before the prompt,
+/// never the general sentence. Answered "no", the once-only acknowledgement stays
+/// unrecorded; answered "yes" on the shown text, it is recorded.
+#[cfg(unix)]
+#[test]
+fn enroll_consent_shows_the_runtimes_lock_text_with_saved_limits() {
+    use heimdall_contract::managed::LockBehavior;
+    let w = World::new();
+    let reg = w.registry_remote.clone();
+    let argv = ["enroll", ALIAS, "--registry-path", reg.as_str()];
+    use heimdall_contract::Timestamp;
+    let cutoff = Timestamp::from_second(Timestamp::now().as_second() + 30 * 86_400).unwrap();
+    let hours = |h: u64| std::time::Duration::from_secs(h * 3600);
+
+    // A continuing configuration with saved limits.
+    w.save_policy("pol-d3", 1, LockBehavior::Continue, hours(2), Some(cutoff));
+    let lock = w.lock_text();
+    for limit in [
+        "at most 2h after approval, under your saved policy \"pol-d3\"".to_owned(),
+        format!("(no new work after {cutoff})"),
+    ] {
+        assert!(lock.contains(&limit), "{limit}: {lock}");
+    }
+    let (code, t) = terminal::answer(&w.env(), &w.home.root, &argv, b"no\n");
+    assert_eq!(code, Some(3), "{t}");
+    let prompt_at = t.find("[y/N]").unwrap();
+    let lock_at = t.find(&lock).unwrap_or_else(|| panic!("{lock}: {t}"));
+    assert!(lock_at < prompt_at, "shown before the prompt: {t}");
+    assert!(!t.contains(&general_lock_sentence()), "{t}");
+    assert_eq!(w.lock_ack(), None, "answered no: not acknowledged");
+    w.deny_pending();
+
+    // A revoke-on-lock configuration with saved limits.
+    w.save_policy("pol-d3", 2, LockBehavior::RevokeOnLock, hours(2), None);
+    w.save_policy("pol-d3-long", 1, LockBehavior::Continue, hours(12), None);
+    let lock = w.lock_text();
+    for limit in [
+        "Work under your saved policy \"pol-d3\" ends when you lock the screen (revoke on lock).",
+        "at most 12h after approval, under your saved policy \"pol-d3-long\"",
+    ] {
+        assert!(lock.contains(limit), "{limit}: {lock}");
+    }
+    let pty = terminal::Pty::open();
+    let mut child = pty.start(&w.env(), &w.home.root, &argv);
+    pty.wait_for("[y/N]", &mut child);
+    let before = pty.transcript();
+    assert!(
+        before.contains(&format!("lock_continuity_once: {lock}")),
+        "{before}"
+    );
+    assert!(!before.contains(&general_lock_sentence()), "{before}");
+    assert_eq!(w.lock_ack(), None);
+    pty.write(b"yes\n");
+    let (code, t) = pty.finish(&mut child);
+    assert!(code.is_some(), "{t}");
+    assert!(
+        pending_of(&w, "enroll_account").is_empty(),
+        "approved on the shown text: {t}"
+    );
+    assert!(
+        w.lock_ack().is_some(),
+        "the once-only acknowledgement is recorded for the decision that showed it: {t}"
+    );
+}
+
+/// m03-plan U12 ⟨ADR-0008 §17.27 item 3; W5-S02⟩ A removal path: `--json enroll remove`
+/// on a terminal shows the removal's consent text (what is removed, the pinned remote
+/// invocation, the affected grants) on the terminal before the prompt; stdout holds
+/// exactly one envelope; answered "no", nothing was sent (exit 3, the record unchanged).
+#[cfg(unix)]
+#[test]
+fn json_remove_on_a_terminal_shows_the_removal_consent_before_the_prompt() {
+    let w = World::new();
+    let r = w.seed(
+        EnrollmentState::Verified,
+        EnrollmentForm::Account,
+        w.served_target(),
+        None,
+        false,
+    );
+    let id = r.id.to_string();
+    let (code, before, t, stdout) = terminal::answer_split(
+        &w.env(),
+        &w.home.root,
+        &["--json", "enroll", "remove", &id],
+        b"no\n",
+    );
+    assert_eq!(code, Some(3), "{t}");
+    for needle in [
+        format!("You are deciding the removal of enrollment {id}."),
+        "Every remote step runs: ssh ".to_owned(),
+        "Live grants under this CA for the pair, degraded on approval: none".to_owned(),
+        "kind: remove_enrollment".to_owned(),
+    ] {
+        assert!(before.contains(&needle), "{needle}: {before}");
+    }
+    let v = one_envelope_of(&stdout);
+    assert_eq!(v["code"], "INTERACTION_REQUIRED", "{v}");
+    assert_eq!(
+        pending_of(&w, "remove_enrollment").len(),
+        1,
+        "nothing was sent"
+    );
+    assert_eq!(w.record(&r.id).state, EnrollmentState::Verified);
+}
+
+/// m03-plan U12 ⟨ADR-0008 §17.27 items 3 and 4; W5-S02, generic decision completion⟩
+/// `heimdall --json decision approve` of a pending `EnrollAccount` decision (made by a
+/// `--non-interactive enroll`) shows the recorded enrollment in human form and every
+/// disclosure's prose, the runtime's conditional lock text included, on the terminal
+/// before the prompt; stdout holds exactly one envelope; answered "no", the decision
+/// stays pending and nothing is acknowledged.
+#[cfg(unix)]
+#[test]
+fn json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt() {
+    let w = World::new();
+    let reg = w.registry_remote.clone();
+    let out = w.cli(&[
+        "--json",
+        "--non-interactive",
+        "enroll",
+        ALIAS,
+        "--registry-path",
+        &reg,
+    ]);
+    assert_eq!(out.code, 3, "{out:?}");
+    let decision = one_envelope(&out)["next"]["decision_ref"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let lock = w.lock_text();
+    let (code, before, t, stdout) = terminal::answer_split(
+        &w.env(),
+        &w.home.root,
+        &["--json", "decision", "approve", &decision],
+        b"no\n",
+    );
+    assert_eq!(code, Some(3), "{t}");
+    assert!(
+        before.contains(&format!(
+            "Enrollment of {ALIAS} ({DESTINATION}), account {}, form account",
+            w.account
+        )),
+        "{before}"
+    );
+    assert!(before.contains("every remote step runs: ssh "), "{before}");
+    for text in non_lock_disclosures() {
+        assert!(before.contains(&text), "{text}: {before}");
+    }
+    assert!(
+        before.contains(&format!("lock_continuity_once: {lock}")),
+        "{before}"
+    );
+    assert!(!t.contains(&general_lock_sentence()), "{t}");
+    let v = one_envelope_of(&stdout);
+    assert_eq!(v["code"], "INTERACTION_REQUIRED", "{v}");
+    assert_eq!(
+        pending_of(&w, "enroll_account"),
+        vec![decision],
+        "nothing was sent"
+    );
+    assert_eq!(w.lock_ack(), None);
 }

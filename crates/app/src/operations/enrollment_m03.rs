@@ -625,6 +625,12 @@ impl Operations {
     /// # Errors
     /// [`OpError`] (a store failure is reported, never an empty success).
     pub async fn reverify_pass(&self) -> Result<Vec<EnrollmentId>, OpError> {
+        // ⟨ADR-0008 §17.27 item 2⟩ nothing new while an uninstall holds the fence (a
+        // re-verification admitted by a pass already running is in the CLI's last
+        // check before it deletes anything).
+        if self.uninstall_fence_held() {
+            return Ok(Vec::new());
+        }
         self.reverify_due().await
     }
 

@@ -3,8 +3,11 @@
 //!
 //! * **The ceremonies** (`init` with or without `--replace-orphan`, `rotate begin`,
 //!   `restore`, `unlock`) run `heimdall_issuer::ceremony` on the **controlling
-//!   terminal** ([`session`]): `--non-interactive` and a process without a terminal are
-//!   refused (exit 3) before any store or runtime contact. The owner session is the
+//!   terminal** ([`session`]): `--non-interactive`, a stdin that is not a terminal
+//!   (ADR-0008 §17.27 item 5) and a process without a terminal are refused (exit 3) before
+//!   any store or runtime contact. Every prompt is bounded by the CLI's prompt timeout, and
+//!   Ctrl-C and end of input cancel at once (§17.27 items 6, 7); every ceremony text is
+//!   sanitized (item 8). The owner session is the
 //!   IPC [`crate::client::Client`] on this module's own current-thread executor, one
 //!   `block_on` per request. The passphrase is written only through the terminal:
 //!   never stdout, stderr, an argument, an environment variable or a log.

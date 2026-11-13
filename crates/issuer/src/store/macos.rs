@@ -75,6 +75,7 @@ fn status_error(code: i32) -> StoreError {
         ERR_NO_SUCH_KEYCHAIN | ERR_NO_DEFAULT_KEYCHAIN | ERR_INVALID_KEYCHAIN => {
             StoreError::Unavailable(StoreAvailability::Missing)
         }
+        sys::ERR_CS_REQ_FAILED => StoreError::ExecutableChanged,
         _ => StoreError::Failed,
     }
 }

@@ -44,6 +44,9 @@ mod render;
 /// The enrollment plan's disclosure wording (one set for the CLI and the TUI).
 #[allow(unused_imports)] // offered to the TUI (T-R1); the preview uses it in place
 pub(crate) use render::disclosure_text;
+/// ⟨§17.27 items 3 and 4⟩ A recorded decision request's disclosures and human form, for
+/// every approval prompt (`setup_cmd::confirm_and_decide`, `cli::confirm_and_decide`).
+pub(crate) use render::{carries_lock_disclosure, recorded_disclosure_prose, recorded_preview};
 
 use std::path::Path;
 
@@ -361,7 +364,18 @@ pub(crate) async fn enroll_flow<S: Session, P: Prompter>(
         ));
     };
     let plan_value = preview.data.clone();
-    let shown = render::preview(&plan);
+    // ⟨§17.27 item 4⟩ The runtime's conditional lock text, when the plan discloses lock
+    // continuity: the preview shows it (never the general sentence). Without it the
+    // preview says so, and the approval prompt refuses (`setup_cmd::confirm_and_decide`).
+    let lock = if plan
+        .disclosures
+        .contains(&heimdall_contract::enrollment::DisclosureKind::LockContinuityOnce)
+    {
+        crate::m03_cmd::fetch_lock_disclosure_text(s).await
+    } else {
+        None
+    };
+    let shown = render::preview(&plan, lock.as_deref());
     show(ctx, &shown);
     if REFUSE_UNHELD_INTERACTIVE_IDENTITY
         && !heimdall_enroll::remote::INTERACTIVE_FOREGROUND_HANDOFF
@@ -393,8 +407,16 @@ pub(crate) async fn enroll_flow<S: Session, P: Prompter>(
     let digest = plan.plan_digest.to_string();
     let form = plan.form;
     let preface = |recorded: Option<&serde_json::Value>| {
-        let mut t =
-            format!("You are deciding the enrollment previewed above (plan digest {digest}).\n");
+        // ⟨§17.27 item 3⟩ `--json` never removes the consent text from the terminal: the
+        // human preview (suppressed on stderr in that mode above) heads the prompt.
+        let mut t = if ctx.json {
+            format!("{}\n", shown.trim_end())
+        } else {
+            String::new()
+        };
+        t.push_str(&format!(
+            "You are deciding the enrollment previewed above (plan digest {digest}).\n"
+        ));
         if form == EnrollmentForm::System {
             let lines = recorded
                 .and_then(|r| r.get("sshd_lines"))
@@ -1075,6 +1097,336 @@ mod tests {
                 .and_then(|n| n.decision_ref.as_deref()),
             Some(DEC)
         );
+    }
+
+    // --- ⟨§17.27 items 3 and 4⟩ the consent text and the runtime's lock text ----------
+
+    const LOCK_TEXT: &str = "Approved work is designed to keep working while your screen or password manager is locked, until its end time: at most 2h after approval, under your saved policy \"pol-d3\". On this computer that has not been verified yet.";
+
+    /// A control session answering `inspect decisions` with one pending decision of
+    /// `kind` whose recorded request is `request`, and `inspect capabilities` with
+    /// `capabilities`; it records every request's kind (`inspect:<subject>`).
+    struct Consent {
+        sent: Vec<String>,
+        kind: &'static str,
+        request: serde_json::Value,
+        capabilities: Envelope<serde_json::Value>,
+    }
+
+    impl Session for Consent {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            match request {
+                Request::Inspect(i) => {
+                    let subject = serde_json::to_value(i.subject).unwrap();
+                    self.sent
+                        .push(format!("inspect:{}", subject.as_str().unwrap_or("?")));
+                    match i.subject {
+                        InspectSubject::Capabilities => self.capabilities.clone(),
+                        _ => Envelope::ok(serde_json::json!({"decisions": [{
+                            "decision_id": DEC, "kind": self.kind, "state": "pending",
+                            "expires_at": "2026-11-03T00:15:00Z", "expired": false,
+                            "request": self.request.clone(),
+                        }]})),
+                    }
+                }
+                other => {
+                    self.sent.push(other.kind().to_owned());
+                    Envelope::ok(serde_json::json!({}))
+                }
+            }
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            self.sent.push("attend".to_owned());
+            Envelope::ok(serde_json::json!({"attended": true}))
+        }
+    }
+
+    /// A prompter that records each prompt's text and answers `answer`.
+    struct Records {
+        asked: Vec<String>,
+        answer: Answer,
+    }
+
+    impl Prompter for Records {
+        async fn ask(&mut self, text: &str) -> Answer {
+            self.asked.push(text.to_owned());
+            self.answer
+        }
+    }
+
+    fn interactive(json: bool) -> Ctx {
+        Ctx {
+            json,
+            non_interactive: false,
+            home: None,
+            stdin_tty: true,
+        }
+    }
+
+    fn block_on<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    /// The recorded request of an `EnrollAccount` decision (`decision_view`'s shape:
+    /// the kind's fields, its plan summary's disclosures).
+    fn enroll_account_request() -> serde_json::Value {
+        serde_json::json!({
+            "kind": "enroll_account",
+            "operation": "op_00112233445566778899aabbccddeeff",
+            "plan_digest": "ab".repeat(32),
+            "summary": {
+                "destination_id": "dst_lab", "alias": "lab", "account": "deploy",
+                "form": "account",
+                "registry": {"path_display": "$HOME/.ssh/authorized_keys", "resolved_by": "remote_home"},
+                "line_sha256": "cd".repeat(32),
+                "ca_fingerprint": format!("SHA256:{}", "A".repeat(43)),
+                "approved_target": {"hostname": "127.0.0.1", "port": 22, "user": "deploy",
+                    "proxy": "none", "host_key": {"algorithm": "ssh-ed25519", "key": "AAAA",
+                    "fingerprint": "SHA256:k"}},
+                "invocation": ["-o", "IdentityAgent=/a"],
+                "host_trust": ["-o", "UserKnownHostsFile=/k"],
+                "bootstrap": true,
+                "disclosures": ["ca_trust_blast_radius", "lock_continuity_once", "a_future_kind"],
+            },
+        })
+    }
+
+    fn capabilities_with(text: &str) -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"lock": {"behavior": "continue", "disclosure": text}}))
+    }
+
+    /// m03-plan U12 ⟨§17.27 item 4; W5-R05/S03; api R2⟩ The shared helper reads
+    /// `inspect capabilities` `lock.disclosure`, sanitized with the ordinary renderers'
+    /// sanitizer; a refusal, an absent `lock`, a non-string or an empty text is `None`.
+    #[test]
+    fn lock_disclosure_text_reads_the_runtimes_capabilities() {
+        use crate::m03_cmd::lock_disclosure_text;
+        assert_eq!(
+            lock_disclosure_text(&capabilities_with(LOCK_TEXT)).as_deref(),
+            Some(LOCK_TEXT)
+        );
+        assert_eq!(
+            lock_disclosure_text(&capabilities_with("keeps \u{1b}[2J\u{1b}[Hworking\u{7}"))
+                .as_deref(),
+            Some("keeps working")
+        );
+        let refused = output::error_value(
+            heimdall_app::OpError::new(Code::InternalError, "store").into_envelope(),
+        );
+        for env in [
+            refused,
+            Envelope::ok(serde_json::json!({"mechanisms": []})),
+            Envelope::ok(serde_json::json!({"lock": {"behavior": "continue"}})),
+            Envelope::ok(serde_json::json!({"lock": {"disclosure": 3}})),
+            capabilities_with(" \u{1b}[2J "),
+        ] {
+            assert_eq!(lock_disclosure_text(&env), None, "{:?}", env.data);
+        }
+    }
+
+    /// m03-plan U12 ⟨§17.27 item 4; W5-R05/S03⟩ On the enrollment path, an
+    /// `EnrollAccount` decision carrying `lock_continuity_once` whose conditional lock
+    /// text cannot be read (`inspect capabilities` refused, or without `lock`) is never
+    /// approved: the owner is not asked, no `decide` is sent (so the once-only
+    /// acknowledgement is not recorded), and the outcome is exit 3 with the decision
+    /// reference. With the text, the prompt shows it verbatim (never the general
+    /// sentence) and only then is `decide` sent.
+    #[test]
+    fn enrollment_approval_refused_without_the_runtimes_lock_text() {
+        let pending = || {
+            output::error_value(
+                heimdall_app::OpError::new(Code::ApprovalRequired, "owner approval required")
+                    .with_decision(DEC.to_owned())
+                    .into_envelope(),
+            )
+        };
+        let request = Request::Enrollment(EnrollmentRequest::Abandon {
+            enrollment_id: EnrollmentId::parse("enr_00112233445566778899aabbccddeeff").unwrap(),
+        });
+        let refused = output::error_value(
+            heimdall_app::OpError::new(Code::InternalError, "store").into_envelope(),
+        );
+        for (json, caps) in [
+            (true, refused.clone()),
+            (false, refused),
+            (true, Envelope::ok(serde_json::json!({"mechanisms": []}))),
+        ] {
+            let mut s = Consent {
+                sent: Vec::new(),
+                kind: "enroll_account",
+                request: enroll_account_request(),
+                capabilities: caps,
+            };
+            let mut p = Records {
+                asked: Vec::new(),
+                answer: Answer::Yes,
+            };
+            let digest = "ab".repeat(32);
+            let out = block_on(decided(
+                &mut s,
+                &mut p,
+                &interactive(json),
+                &request,
+                pending(),
+                &|_| "the enrollment".to_owned(),
+                Some(&digest),
+            ));
+            let Err(env) = out else {
+                panic!("approved without the lock text");
+            };
+            assert!(p.asked.is_empty(), "never asked: {:?}", p.asked);
+            assert!(
+                !s.sent.iter().any(|k| k == "decide"),
+                "nothing was decided: {:?}",
+                s.sent
+            );
+            assert!(
+                s.sent.iter().any(|k| k == "inspect:capabilities"),
+                "{:?}",
+                s.sent
+            );
+            let out = Outcome::of(env);
+            assert_eq!(out.exit as i32, 3);
+            assert_eq!(out.env.code, Code::InteractionRequired);
+            assert!(
+                out.env.data["error"]["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("lock disclosure could not be read"),
+                "{:?}",
+                out.env
+            );
+            assert_eq!(
+                out.env
+                    .next
+                    .as_ref()
+                    .and_then(|n| n.decision_ref.as_deref()),
+                Some(DEC)
+            );
+        }
+
+        // With the runtime's text: shown, in words, before the prompt; then `decide`.
+        let mut s = Consent {
+            sent: Vec::new(),
+            kind: "enroll_account",
+            request: enroll_account_request(),
+            capabilities: capabilities_with(LOCK_TEXT),
+        };
+        let mut p = Records {
+            asked: Vec::new(),
+            answer: Answer::Yes,
+        };
+        let digest = "ab".repeat(32);
+        let out = block_on(decided(
+            &mut s,
+            &mut p,
+            &interactive(true),
+            &request,
+            pending(),
+            &|_| "the enrollment".to_owned(),
+            Some(&digest),
+        ));
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(p.asked.len(), 1);
+        let shown = &p.asked[0];
+        assert!(
+            shown.contains(&format!("* lock_continuity_once: {LOCK_TEXT}")),
+            "{shown}"
+        );
+        assert!(
+            shown.contains(&format!(
+                "* ca_trust_blast_radius: {}",
+                disclosure_text(
+                    heimdall_contract::enrollment::DisclosureKind::CaTrustBlastRadius,
+                    "lab",
+                    None
+                )
+            )),
+            "{shown}"
+        );
+        assert!(
+            shown.contains(&format!(
+                "* a_future_kind: {}",
+                heimdall_issuer::ceremony::UNKNOWN_DISCLOSURE
+            )),
+            "{shown}"
+        );
+        assert!(
+            !shown.contains("Managed signing continues while your desktop is locked"),
+            "never the general sentence: {shown}"
+        );
+        assert!(
+            shown.find(LOCK_TEXT) < shown.find("Approve exactly this request?"),
+            "{shown}"
+        );
+        assert!(s.sent.iter().any(|k| k == "decide"), "{:?}", s.sent);
+    }
+
+    /// m03-plan U12 ⟨§17.27 items 3 and 4; W5-S02⟩ Generic decision completion
+    /// (`heimdall decision approve`) of an enrollment decision shows its human form and
+    /// every disclosure in words before the prompt, in `--json` mode too, and refuses to
+    /// approve (exit 3, nothing sent) when the lock text cannot be read; denying it needs
+    /// no lock text.
+    #[test]
+    fn generic_decision_completion_shows_disclosures_and_needs_the_lock_text() {
+        use heimdall_contract::request::Verdict;
+        let run = |caps: Envelope<serde_json::Value>, verdict: Verdict| {
+            let mut s = Consent {
+                sent: Vec::new(),
+                kind: "enroll_account",
+                request: enroll_account_request(),
+                capabilities: caps,
+            };
+            let mut p = Records {
+                asked: Vec::new(),
+                answer: Answer::Yes,
+            };
+            let done = block_on(crate::cli::decide_flow(
+                &mut s,
+                &mut p,
+                &interactive(true),
+                DEC,
+                verdict,
+            ));
+            (done, s.sent, p.asked)
+        };
+        let (done, sent, asked) = run(capabilities_with(LOCK_TEXT), Verdict::Approve);
+        assert_eq!(done.env.code, Code::Ok, "{:?}", done.env);
+        assert_eq!(asked.len(), 1);
+        let shown = &asked[0];
+        for needle in [
+            "Enrollment of lab (dst_lab), account deploy, form account",
+            "every remote step runs: ssh -o IdentityAgent=/a -T lab",
+            "bootstrap: if the registry's directory is absent",
+            &format!("* lock_continuity_once: {LOCK_TEXT}"),
+            "* ca_trust_blast_radius: ",
+        ] {
+            assert!(shown.contains(needle), "{needle}: {shown}");
+        }
+        assert!(sent.iter().any(|k| k == "decide"), "{sent:?}");
+
+        let refused = output::error_value(
+            heimdall_app::OpError::new(Code::InternalError, "store").into_envelope(),
+        );
+        let (done, sent, asked) = run(refused.clone(), Verdict::Approve);
+        assert!(asked.is_empty(), "{asked:?}");
+        assert!(!sent.iter().any(|k| k == "decide"), "{sent:?}");
+        assert_eq!(done.exit as i32, 3, "{:?}", done.env);
+        assert_eq!(done.env.code, Code::InteractionRequired);
+
+        let (done, sent, asked) = run(refused, Verdict::Deny);
+        assert_eq!(asked.len(), 1, "a denial is still asked");
+        assert!(
+            asked[0].contains(render::LOCK_TEXT_UNAVAILABLE),
+            "{}",
+            asked[0]
+        );
+        assert!(sent.iter().any(|k| k == "decide"), "{sent:?}");
+        assert_eq!(done.env.code, Code::Ok);
     }
 
     #[test]

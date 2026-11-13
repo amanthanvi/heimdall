@@ -644,7 +644,8 @@ fn connection_policy_lines(cp: &serde_json::Value, head: &str) -> Vec<String> {
 }
 
 /// ⟨§17.25 item 19⟩ The connection-policy lines of `destination show` (one destination
-/// object) or `destination list` / `inspect destinations` (`destinations[]`): for each
+/// object) or `destination list` / `inspect destinations` (the runtime's `items[]`,
+/// `Operations::destinations_view`; ⟨§17.27 item 9⟩ and the older `destinations[]`): for each
 /// destination whose `preference` names the managed mechanism, the policy and the
 /// runtime's wording (`preference.connection_policy`) verbatim, or that it is unknown.
 /// A destination without a managed preference (every M02 listing) gives no line.
@@ -667,7 +668,8 @@ pub(crate) fn destination_lines(data: &serde_json::Value) -> Vec<String> {
         }
     };
     if let Some(items) = data
-        .get("destinations")
+        .get("items")
+        .or_else(|| data.get("destinations"))
         .and_then(serde_json::Value::as_array)
     {
         return items.iter().flat_map(one).collect();
@@ -1098,5 +1100,50 @@ mod tests {
             m03_lines(&restarted),
             vec![CONNECTION_POLICY_UNKNOWN.to_owned()]
         );
+    }
+
+    /// ⟨ADR-0008 §17.27 item 9; W5-R06⟩ `destination list` and `inspect destinations`
+    /// render the runtime's real list shape, `{"items": [...]}`
+    /// (`Operations::destinations_view`). The items below are a real `inspect
+    /// destinations` answer, captured from the CLI-started runtime of
+    /// `e2e_cli_m03 access::access_ensure_strict_reports_strict_disconnect` (lab2: a
+    /// managed pair in a saved policy, its policy computed) and of `access::
+    /// destination_prefer_resolves_alias_and_journals_the_preference` (lab1: a managed
+    /// preference in no saved policy, whose policy cannot be computed, so "unknown";
+    /// seen: observed); those tests assert the same lines from the live answer.
+    #[test]
+    fn destination_list_renders_the_runtimes_items_shape() {
+        let data: serde_json::Value = serde_json::from_str(
+            r#"{"items": [
+            {"account":"deploy","alias":"lab2","definition":"managed","destination_id":"h2",
+             "hostname":"127.0.0.1","identity_id":"idn_99524804984d960a168fe75318215824",
+             "label":null,"port":null,
+             "preference":{"connection_policy":{"existing":"graceful","multiplexing":"disabled",
+                 "wording":"New connections stop at the deadline; existing sessions may stay connected."},
+                 "mechanism":"managed_certificate","projection":{"generation":1,"state":"applied"}},
+             "revision":1,"updated_at":"2026-11-13T09:26:30.495429Z"},
+            {"account":"deploy","alias":"lab1","definition":"managed","destination_id":"dst-lab1",
+             "hostname":"lab1.example.invalid","identity_id":"idn_81549ea3ed849236f3ca5f6b607d3572",
+             "label":null,"port":null,
+             "preference":{"mechanism":"managed_certificate","projection":{"state":"pending"}},
+             "revision":1,"updated_at":"2026-11-13T09:26:30.495416Z"},
+            {"alias":"seen","definition":"observed","destination_id":"seen","label":null,
+             "revision":1,"updated_at":"2026-11-13T09:26:30.503668Z"}
+            ]}"#,
+        )
+        .unwrap();
+        let expected = vec![
+            "lab2: connection policy: existing graceful, multiplexing disabled.".to_owned(),
+            "New connections stop at the deadline; existing sessions may stay connected."
+                .to_owned(),
+            "lab1: connection policy unknown (the runtime reports none for this pair).".to_owned(),
+        ];
+        assert_eq!(destination_lines(&data), expected);
+        // `inspect destinations` (through `emit`) shows the same lines.
+        assert_eq!(m03_lines(&data), expected);
+        // The older `destinations` spelling still reads.
+        let older = serde_json::json!({ "destinations": data["items"].clone() });
+        assert_eq!(destination_lines(&older), expected);
+        assert!(destination_lines(&serde_json::json!({"items": []})).is_empty());
     }
 }

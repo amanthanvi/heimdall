@@ -6,8 +6,23 @@
 //! current-thread executor.
 //!
 //! **Order of refusals.** `--non-interactive`, an unreadable `--bundle`, a missing
-//! `--not-stolen` and a process without a controlling terminal are refused before the
-//! runtime is contacted (none starts) and before the store is opened.
+//! `--not-stolen`, ⟨ADR-0008 §17.27 item 5⟩ an invocation that is not interactive (stdin
+//! not a terminal, [`Ctx::interactive`]) and a process without a controlling terminal are
+//! refused before the runtime is contacted (none starts), before anything is attended and
+//! before the store is opened. The controlling terminal still carries the ceremony
+//! itself (the passphrase is never on stdin, stdout or stderr).
+//!
+//! **The terminal** ([`SanitizedTerminal`]; §17.27 items 6–8). Every prompt is bounded by
+//! the CLI's prompt timeout ([`crate::prompt::PROMPT_TIMEOUT`], as ordinary decisions);
+//! Ctrl-C, end of input and the timeout end the ceremony at once (exit 3). Every text a
+//! ceremony writes passes through the ordinary renderers' sanitizer,
+//! [`output::sanitize_for_terminal`]; only the ceremony's own clearing of the
+//! passphrase's screen region reaches the terminal as a control sequence.
+//!
+//! **The lock disclosure** (§17.26 item 6, §17.27 item 4). A registration decision
+//! carrying `lock_continuity_once` gets the runtime's conditional text from `inspect
+//! capabilities` ([`crate::m03_cmd::lock_disclosure_text`]) in
+//! [`RegisterDecision::lock_text`]; without it the ceremony refuses to ask (exit 3).
 //!
 //! **What is reported.** On success, the issuer status after the ceremony. On a refusal
 //! by the runtime, the runtime's own envelope (code, reason, decision reference). A
@@ -29,7 +44,8 @@ use heimdall_contract::request::{
 };
 use heimdall_issuer::ceremony::{
     self, CeremonyError, ControllingTerminal, InitOptions, OwnerSession, RegisterDecision,
-    RegisterRequest, ReplaceOrphanOptions, RestoreOptions, Restored, SessionError, Tty,
+    RegisterRequest, ReplaceOrphanOptions, RestoreOptions, Restored, SessionError, Tty, TtyRead,
+    Zeroizing,
 };
 use heimdall_issuer::store::SecretStore;
 
@@ -55,6 +71,38 @@ enum Plan {
         backup: std::path::PathBuf,
     },
     Unlock,
+}
+
+/// ⟨ADR-0008 §17.27 item 8⟩ The ceremony's terminal as this CLI gives it (module docs):
+/// the controlling terminal, each write sanitized by [`output::sanitize_for_terminal`]
+/// (the ordinary renderers' sanitizer), so no path, alias, label, fingerprint, digest,
+/// locator or runtime text reaches the screen as a control sequence. Only
+/// [`Tty::clear_lines`], the ceremony's own clearing of the passphrase's region, is
+/// passed through. The sanitized copy of a text holding the passphrase is zeroized as it
+/// drops (it is built at its final size: no reallocation leaves a copy).
+pub(super) struct SanitizedTerminal(ControllingTerminal);
+
+impl Tty for SanitizedTerminal {
+    fn write_text(&mut self, text: &str) -> std::io::Result<()> {
+        let clean = Zeroizing::new(output::sanitize_for_terminal(text));
+        self.0.write_text(&clean)
+    }
+
+    fn read_line(&mut self) -> std::io::Result<Option<Zeroizing<String>>> {
+        self.0.read_line()
+    }
+
+    fn read_hidden(&mut self) -> std::io::Result<Option<Zeroizing<String>>> {
+        self.0.read_hidden()
+    }
+
+    fn read_answer(&mut self, hidden: bool) -> std::io::Result<TtyRead> {
+        self.0.read_answer(hidden)
+    }
+
+    fn clear_lines(&mut self, lines: usize) -> std::io::Result<()> {
+        self.0.clear_lines(lines)
+    }
 }
 
 /// The owner session over the control endpoint (module docs).
@@ -187,16 +235,37 @@ impl OwnerSession for WireSession<'_> {
         ) else {
             return Err(self.refuse(stale()));
         };
-        let disclosures: Vec<DisclosureKind> = recorded
-            .get("disclosures")
-            .cloned()
-            .and_then(|d| serde_json::from_value(d).ok())
-            .unwrap_or_default();
+        // A disclosure list this build cannot read is never shown as none.
+        let disclosures: Vec<DisclosureKind> = match recorded.get("disclosures") {
+            None | Some(serde_json::Value::Null) => Vec::new(),
+            Some(d) => match serde_json::from_value(d.clone()) {
+                Ok(d) => d,
+                Err(_) => {
+                    return Err(self.refuse(setup_cmd::not_confirmed(
+                        Some(&decision),
+                        None,
+                        "the decision carries a disclosure this version of Heimdall cannot show; update Heimdall before approving it",
+                    )));
+                }
+            },
+        };
+        // ⟨ADR-0008 §17.26 item 6, §17.27 item 4⟩ The runtime's conditional lock text,
+        // for the decision that carries the once-only lock disclosure.
+        let lock_text = if disclosures.contains(&DisclosureKind::LockContinuityOnce) {
+            let capabilities = self.send(Request::Inspect(InspectRequest {
+                subject: InspectSubject::Capabilities,
+                preview: None,
+            }));
+            crate::m03_cmd::lock_disclosure_text(&capabilities)
+        } else {
+            None
+        };
         Ok(RegisterDecision {
             decision_id,
             ca_fingerprint,
             backup_sha256: field("backup_sha256").to_owned(),
             disclosures,
+            lock_text,
         })
     }
 
@@ -228,8 +297,14 @@ fn ceremony_failure(
         return Outcome::of(env);
     }
     let env = match e {
-        CeremonyError::NotConfirmed => {
-            setup_cmd::not_confirmed(decision, None, "the confirmation word was not typed")
+        CeremonyError::NotConfirmed => setup_cmd::not_confirmed(
+            decision,
+            None,
+            "the confirmation word was not typed: another answer, end of input, Ctrl-C, or no answer within the prompt timeout",
+        ),
+        // ⟨§17.27 item 4⟩ The decision's lock disclosure could not be shown: nothing asked.
+        CeremonyError::DisclosureUnavailable => {
+            crate::m03_cmd::lock_text_unavailable(decision, None)
         }
         CeremonyError::StoreUnavailable(a) => failure(
             Code::CapabilityUnavailable,
@@ -326,6 +401,13 @@ fn plan_of(command: IssuerCommand) -> Result<Plan, Outcome> {
 
 /// Run one ceremony command (module docs).
 pub(super) fn ceremony(ctx: &Ctx, command: IssuerCommand) -> Outcome {
+    // The test configuration first (it reads only the environment): a release build
+    // refuses every `HEIMDALL_TEST_*` variable with exit 2 before any other answer
+    // (`release_build_refuses_m03_test_gates`, `tools/validation/release-gate.sh`).
+    let test = match test_config(ctx) {
+        Ok(s) => s,
+        Err(o) => return o,
+    };
     if ctx.non_interactive {
         return ceremony_failure(&CeremonyError::NonInteractive, None, None);
     }
@@ -334,20 +416,25 @@ pub(super) fn ceremony(ctx: &Ctx, command: IssuerCommand) -> Outcome {
         Ok(p) => p,
         Err(o) => return o,
     };
-    let test = match test_config(ctx) {
-        Ok(s) => s,
-        Err(o) => return o,
-    };
-    let mut tty = match ControllingTerminal::open() {
-        Ok(t) => t,
+    // ⟨ADR-0008 §17.27 item 5⟩ An interactive invocation (stdin a terminal, no
+    // `--non-interactive`), checked before anything is connected, attended or opened.
+    if !ctx.interactive() {
+        return Outcome::of(failure(
+            Code::InteractionRequired,
+            "the issuer ceremonies need an interactive invocation: stdin must be a terminal (not redirected) and --non-interactive absent; nothing was sent",
+            None,
+        ));
+    }
+    let mut tty = match ControllingTerminal::open(crate::prompt::PROMPT_TIMEOUT) {
+        Ok(t) => SanitizedTerminal(t),
         Err(e) => return ceremony_failure(&e, None, None),
     };
     let rt = match crate::service_cmd::current_thread() {
         Ok(rt) => rt,
         Err(env) => return Outcome::of(output::error_value(env)),
     };
-    // The ceremony holds the controlling terminal: the owner can interact, whatever
-    // stdin is. Attendance is still sent by the ceremony itself, first.
+    // The invocation is interactive (above); the ceremony itself runs on the controlling
+    // terminal and sends attendance first.
     let client = match rt.block_on(crate::client::connect_as(
         ctx,
         true,
@@ -415,7 +502,7 @@ impl From<SessionError> for Done {
 }
 
 fn run_plan(
-    tty: &mut ControllingTerminal,
+    tty: &mut SanitizedTerminal,
     s: &mut WireSession<'_>,
     store: &dyn SecretStore,
     plan: &Plan,
@@ -517,7 +604,7 @@ fn run_plan(
 /// each item it displaced by exact identity, and confirm each on the attended session
 /// (the item holds the same CA key as the new one, or is already gone).
 fn resolve_displaced(
-    tty: &mut ControllingTerminal,
+    tty: &mut SanitizedTerminal,
     s: &mut WireSession<'_>,
     store: &dyn SecretStore,
     ca: &CaFingerprint,

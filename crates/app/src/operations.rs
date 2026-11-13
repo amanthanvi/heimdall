@@ -260,8 +260,14 @@ mod decisions_m03;
 mod enrollment_m03;
 mod issuer_m03;
 mod managed_driver_m03;
+// ⟨M03⟩ wave 5, round 3 (ADR-0008 §17.27 item 2, W5-S01): the uninstall fence.
+mod uninstall_fence_m03;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
+pub use uninstall_fence_m03::{
+    ACQUIRE_WAIT as UNINSTALL_FENCE_ACQUIRE_WAIT, FenceAcquired, FenceAdmission, as_fence_holder,
+    uninstall_in_progress, unresolved_remote_steps,
+};
 // ⟨W4-C02⟩ The scope evidence selection a fresh preparation and a follower share.
 pub use managed_driver_m03::pair_evidence_under_ca;
 pub use pair_mechanism_m03::unattended_refusal;
@@ -687,6 +693,8 @@ struct Inner {
     narrowing: narrowing::NarrowingState,
     /// ⟨M03⟩ U0b row 4 (O): the verification entries this runtime instance reserved.
     managed_ops: managed_state_m03::ManagedOpsState,
+    /// ⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence (`uninstall_fence_m03`).
+    uninstall_fence: Arc<uninstall_fence_m03::UninstallFence>,
 }
 
 /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: marks one operation's preparation as running in
@@ -5450,6 +5458,7 @@ impl Operations {
             signing_gates: crate::managed::SigningGates::new(),
             narrowing: narrowing::NarrowingState::default(),
             managed_ops: managed_state_m03::ManagedOpsState::default(),
+            uninstall_fence: Arc::default(),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -11620,6 +11629,9 @@ impl Operations {
         req: IssuanceRequest,
         named_ca: Option<heimdall_contract::ids::CaFingerprint>,
     ) -> Result<IssuanceEntry, OpError> {
+        // ⟨ADR-0008 §17.27 item 2, §17.28 item 1⟩ no new certificate while an
+        // uninstall holds the fence (unless the holder's own request reserves it).
+        self.fence_check()?;
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();

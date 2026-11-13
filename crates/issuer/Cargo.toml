@@ -81,6 +81,12 @@ rustix = { workspace = true, features = ["pty"] }
 name = "integration_issuer_store"
 path = "../../tests/integration/issuer_store.rs"
 
+# M03 wave 5, round 3 (ADR-0008 §17.27 item 10): the release-profile deletion gate of
+# `retire::delete_awaiting` (run with and without `--release`).
+[[test]]
+name = "integration_issuer_release_gate"
+path = "../../tests/integration/issuer_release_gate.rs"
+
 # M03 wave 2 (U3): the issuer child, its protocol and the client (m03-plan U3 "Tests").
 [[test]]
 name = "integration_issuer_child"

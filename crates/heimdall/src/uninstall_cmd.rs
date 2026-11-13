@@ -73,22 +73,21 @@ use heimdall_contract::enrollment::{EnrollmentView, TargetSummary};
 use heimdall_contract::envelope::{EffectStatus, Envelope, reason};
 use heimdall_contract::ids::CaFingerprint;
 use heimdall_contract::issuer::{CaState, RECOVERY_BUNDLE_SCHEMA, RecoveryBundle, StoreKind};
-use heimdall_contract::request::{InspectSubject, Request, ShutdownRequest};
+use heimdall_contract::request::{InspectSubject, Request, ShutdownRequest, UninstallFenceRequest};
 use heimdall_contract::setup::{RemainingArtifact, RemainingArtifactKind};
 use heimdall_contract::{Code, ExitCode};
-use heimdall_domain::enrollment::EnrollmentRecord;
+use heimdall_domain::enrollment::{EnrollmentRecord, ForeignRemovalRecord};
 use heimdall_issuer::retire::{KeepReason, StoreFate, uninstall_store_plan};
 use heimdall_issuer::store::{SecretStoreKind, StoreItemRef};
 use heimdall_store::ext::TableCounts;
-use heimdall_store::{NoFaults, Store, StoreError};
+use heimdall_store::{NoFaults, OpenEnrollmentOperation, Store, StoreError};
 
 use crate::cli::{Prompter, TerminalPrompt, UninstallArgs};
 use crate::client::Ctx;
 use crate::output;
 use crate::prompt::Answer;
 use crate::setup_cmd::{
-    Outcome, block, entries, inspect, non_interactive_reason, request_id, rollback_intent, session,
-    shown,
+    Outcome, block, entries, inspect, non_interactive_reason, request_id, rollback_intent, shown,
 };
 
 /// How long uninstall waits for the cleaner to confirm the projection resources absent.
@@ -161,13 +160,27 @@ enum Fate {
     Retired,
 }
 
-/// What uninstall reads from the state database before anything else, read-only.
-#[derive(Debug, Default)]
+/// What uninstall reads from the state database before anything else, read-only:
+/// ⟨ADR-0008 §17.27 item 1⟩ every outstanding remote obligation
+/// (`Txn::outstanding_obligations`), the CAs and their store items.
+#[derive(Debug, Default, Clone)]
 struct Inventory {
-    /// The enrollments that are not final, oldest first.
+    /// The outstanding enrollments, oldest first: every one that is not final, and
+    /// every one in any state whose `late_write` residual is unresolved (W5-R02).
     open: Vec<EnrollmentRecord>,
+    /// ⟨W5-R01⟩ The foreign removals that are not final (an abandoned system-form
+    /// one, still `pending_until_line_removed`, included), oldest first.
+    foreign: Vec<ForeignRemovalRecord>,
+    /// The enrollment operations open or `outcome_unknown` (an enrollment in flight
+    /// is itself an obligation, §17.27 item 2), oldest first.
+    operations: Vec<OpenEnrollmentOperation>,
+    /// ⟨ADR-0008 §17.28 item 1⟩ The enrollment operations with a dispatched step
+    /// without its result, or an uncertain mutation (remote effect unknown), oldest
+    /// first (`heimdall_app::operations::unresolved_remote_steps`).
+    unresolved_steps: Vec<heimdall_contract::ids::OperationId>,
     /// The last enrollment or CA change: any enrollment record's `updated_at` (final
-    /// ones included), and any CA's registration, backup and retirement times.
+    /// ones included), any foreign removal's creation, and any CA's registration,
+    /// backup and retirement times.
     last_change: Option<Timestamp>,
     /// Every registered CA (retired ones included) and its state, which a fresh bundle
     /// lists as it is now (a CA's state changes carry no time of their own).
@@ -218,9 +231,10 @@ impl Inventory {
         };
         store
             .transaction(|tx| {
-                let open = tx.open_enrollments()?;
+                let outstanding = tx.outstanding_obligations()?;
+                let unresolved = heimdall_app::operations::unresolved_remote_steps(tx)?;
                 let issuers = tx.issuers()?;
-                let mut all = open.clone();
+                let mut all = outstanding.enrollments.clone();
                 let mut locators = Vec::new();
                 for i in &issuers {
                     for r in tx.enrollments_for_ca(&i.ca_fingerprint)? {
@@ -231,9 +245,9 @@ impl Inventory {
                     }
                     locators.push(tx.issuer_store_locator(&i.ca_fingerprint)?);
                 }
-                Ok((open, all, issuers, locators))
+                Ok((outstanding, unresolved, all, issuers, locators))
             })
-            .map(|(open, all, issuers, locators)| {
+            .map(|(outstanding, unresolved, all, issuers, locators)| {
                 let views: Vec<EnrollmentView> = all.iter().map(view).collect();
                 let cas = issuers
                     .iter()
@@ -273,29 +287,132 @@ impl Inventory {
                     })
                     .collect();
                 Inventory {
-                    last_change: all.iter().map(|r| r.updated_at).chain(ca_change).max(),
+                    last_change: all
+                        .iter()
+                        .map(|r| r.updated_at)
+                        .chain(outstanding.foreign_removals.iter().map(|f| f.created_at))
+                        .chain(ca_change)
+                        .max(),
                     cas,
-                    open,
+                    open: outstanding.enrollments,
+                    foreign: outstanding.foreign_removals,
+                    operations: outstanding.operations,
+                    unresolved_steps: unresolved,
                     items,
                 }
             })
             .map_err(|_| "the enrollments could not be read")
     }
 
-    /// The `enrollments` listing (marker, destination, state).
+    /// ⟨§17.27 item 1⟩ Whether no remote obligation is outstanding.
+    fn clear(&self) -> bool {
+        self.open.is_empty() && self.foreign.is_empty() && self.operations.is_empty()
+    }
+
+    /// How many remote obligations are outstanding.
+    fn count(&self) -> usize {
+        self.open.len() + self.foreign.len() + self.operations.len()
+    }
+
+    /// ⟨§17.27 item 2⟩ Whether `now` is the inventory the owner confirmed: the same
+    /// outstanding obligations in the same states, the same CAs in the same states,
+    /// and the same last change.
+    fn same_as(&self, now: &Inventory) -> bool {
+        self.same_obligations(now) && self.cas == now.cas && self.last_change == now.last_change
+    }
+
+    /// ⟨§17.27 item 2⟩ The outstanding obligations alone (the last check before the
+    /// state is deleted, after this uninstall's own retirements changed the CAs).
+    fn same_obligations(&self, now: &Inventory) -> bool {
+        self.open == now.open
+            && self.foreign == now.foreign
+            && self.operations == now.operations
+            && self.unresolved_steps == now.unresolved_steps
+    }
+
+    /// The `enrollments` listing (marker, destination, state, and the unresolved
+    /// `late_write` residual when there is one).
     fn enrollments_json(&self) -> serde_json::Value {
         serde_json::Value::Array(
             self.open
                 .iter()
                 .map(|e| {
-                    serde_json::json!({
+                    let mut v = serde_json::json!({
                         "marker": e.marker,
                         "destination_id": e.destination.as_str(),
                         "state": e.state.as_str(),
+                    });
+                    if let (Some(l), serde_json::Value::Object(map)) = (&e.late_write, &mut v) {
+                        map.insert(
+                            "late_write".to_owned(),
+                            serde_json::json!({ "not_after_remote": l.not_after_remote }),
+                        );
+                    }
+                    v
+                })
+                .collect(),
+        )
+    }
+
+    /// ⟨W5-R01⟩ The `foreign_removals` listing: each by its public removal descriptor
+    /// (never foreign bytes) and state.
+    fn foreign_json(&self) -> serde_json::Value {
+        serde_json::Value::Array(
+            self.foreign
+                .iter()
+                .map(|f| {
+                    serde_json::json!({
+                        "marker": f.target.marker,
+                        "local_alias": f.target.local_alias,
+                        "account": f.target.account.as_str(),
+                        "form": f.target.form,
+                        "line_sha256": f.target.line_sha256,
+                        "state": f.state.as_str(),
                     })
                 })
                 .collect(),
         )
+    }
+
+    /// The `enrollment_operations` listing (operation, kind, state).
+    fn operations_json(&self) -> serde_json::Value {
+        serde_json::Value::Array(
+            self.operations
+                .iter()
+                .map(|o| {
+                    serde_json::json!({
+                        "operation_id": o.id.as_str(),
+                        "kind": o.kind.as_str(),
+                        "state": o.state,
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// Insert the inventory's listings into `map`: `enrollments` (unless present),
+    /// `foreign_removals` and `enrollment_operations` when any.
+    fn insert_listing(&self, map: &mut serde_json::Map<String, serde_json::Value>) {
+        if !map.contains_key("enrollments") {
+            map.insert("enrollments".to_owned(), self.enrollments_json());
+        }
+        if !self.foreign.is_empty() {
+            map.insert("foreign_removals".to_owned(), self.foreign_json());
+        }
+        if !self.operations.is_empty() {
+            map.insert("enrollment_operations".to_owned(), self.operations_json());
+        }
+        if !self.unresolved_steps.is_empty() {
+            map.insert(
+                "unresolved_steps".to_owned(),
+                serde_json::Value::Array(
+                    self.unresolved_steps
+                        .iter()
+                        .map(|o| serde_json::Value::String(o.as_str().to_owned()))
+                        .collect(),
+                ),
+            );
+        }
     }
 
     /// The `store_items` listing, each with its fate.
@@ -417,19 +534,60 @@ fn item_line(i: &StoreItem) -> String {
     }
 }
 
-/// One line per remaining enrollment: marker, destination, state.
-fn enrollment_lines(open: &[EnrollmentRecord]) -> String {
+/// ⟨§17.27 item 1⟩ One line per outstanding remote obligation: each enrollment
+/// (marker, destination, state, and its unresolved late write), each foreign removal
+/// (marker, alias, account, form, state) and each enrollment operation in flight.
+fn obligation_lines(inv: &Inventory) -> String {
     let mut out = String::new();
-    for e in open {
+    for e in &inv.open {
         out.push_str(&format!(
-            "    {} {} {}\n",
+            "    {} {} {}",
             e.marker,
             e.destination.as_str(),
             e.state.as_str()
         ));
+        if let Some(l) = &e.late_write {
+            out.push_str(&format!(
+                " (late_write: an uncertain append may still land until remote time {}; its absence after that is not yet observed)",
+                l.not_after_remote
+            ));
+        }
+        out.push('\n');
+    }
+    for f in &inv.foreign {
+        let form = serde_json::to_value(f.target.form)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default();
+        let pending = if f.state == heimdall_contract::enrollment::EnrollmentState::Abandoned {
+            " (pending_until_line_removed: its line may still trust the CA)"
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            "    foreign removal {} via {} account {} ({form} form) {}{pending}\n",
+            f.target.marker,
+            f.target.local_alias,
+            f.target.account.as_str(),
+            f.state.as_str()
+        ));
+    }
+    for o in &inv.operations {
+        let state = serde_json::to_value(o.state)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "    operation {} {} {state}\n",
+            o.id.as_str(),
+            o.kind.as_str()
+        ));
     }
     out
 }
+
+/// The heading of the obligation listing.
+const OBLIGATIONS: &str = "Outstanding remote obligations (enrollments that are not final or whose late write is unresolved, foreign removals that are not final, enrollment operations in flight)";
 
 /// Add the inventory to `out`: `enrollments` (when any are not final and the key is
 /// not there yet), `store_items` and, when one was accepted, `bundle`; and the same in
@@ -437,11 +595,11 @@ fn enrollment_lines(open: &[EnrollmentRecord]) -> String {
 fn annotate(mut out: Outcome, inv: &Inventory, bundle: Option<&str>) -> Outcome {
     let mut human = String::new();
     if let serde_json::Value::Object(map) = &mut out.env.data {
-        if !inv.open.is_empty() && !map.contains_key("enrollments") {
-            map.insert("enrollments".to_owned(), inv.enrollments_json());
+        if !inv.clear() && !map.contains_key("enrollments") {
+            inv.insert_listing(map);
             human.push_str(&format!(
-                "Remote enrollments that are not final (they stay enrolled):\n{}",
-                enrollment_lines(&inv.open)
+                "{OBLIGATIONS}; they stay:\n{}",
+                obligation_lines(inv)
             ));
         }
         if !inv.items.is_empty() {
@@ -466,12 +624,9 @@ fn annotate(mut out: Outcome, inv: &Inventory, bundle: Option<&str>) -> Outcome 
 fn enrollment_error(inv: &Inventory, error: heimdall_app::OpError, message: &str) -> Outcome {
     let mut env = output::error_value(error.with_effect(EffectStatus::None).into_envelope());
     if let serde_json::Value::Object(map) = &mut env.data {
-        map.insert("enrollments".to_owned(), inv.enrollments_json());
+        inv.insert_listing(map);
     }
-    let human = format!(
-        "Remote enrollments that are not final ({message}):\n{}",
-        enrollment_lines(&inv.open)
-    );
+    let human = format!("{OBLIGATIONS} ({message}):\n{}", obligation_lines(inv));
     Outcome::of(env).with_human(human)
 }
 
@@ -553,12 +708,30 @@ fn check_bundle(
         }
     }
     for e in &inv.open {
-        if !bundle
-            .enrollments
-            .iter()
-            .any(|b| b.marker == e.marker && b.state == e.state)
-        {
+        let late = e.late_write.as_ref().map(|l| l.not_after_remote);
+        if !bundle.enrollments.iter().any(|b| {
+            b.marker == e.marker
+                && b.state == e.state
+                && b.late_write.map(|l| l.not_after_remote) == late
+        }) {
             return required("the bundle does not list every remaining enrollment as it is now");
+        }
+    }
+    // ⟨§17.27 item 1 (W5-R01)⟩ every outstanding foreign removal, by its descriptor
+    // and state.
+    for f in &inv.foreign {
+        let t = &f.target;
+        if !bundle.foreign_removals.iter().any(|b| {
+            b.marker == t.marker
+                && b.local_alias == t.local_alias
+                && b.account == t.account
+                && b.line_sha256 == t.line_sha256
+                && b.form == t.form
+                && b.state == f.state
+        }) {
+            return required(
+                "the bundle does not list every outstanding foreign removal as it is now",
+            );
         }
     }
     match recorded(&heimdall_issuer::backup::sha256_hex(&bytes)) {
@@ -585,7 +758,7 @@ fn enrollment_refusal(
     args: &UninstallArgs,
     db: &Path,
 ) -> Result<Option<String>, Outcome> {
-    if inv.open.is_empty() {
+    if inv.clear() {
         return Ok(None);
     }
     if args.keep_remote_enrollments {
@@ -606,8 +779,8 @@ fn enrollment_refusal(
         heimdall_app::OpError::new(
             Code::ConfigConflict,
             format!(
-                "--purge-state refused: {} remote enrollment(s) are not final; remove them with `{ENROLL_REMOVE}`, or keep them with --keep-remote-enrollments and a fresh recovery bundle; nothing was changed",
-                inv.open.len()
+                "--purge-state refused: {} remote obligation(s) are outstanding (enrollments not final or with an unresolved late write, foreign removals not final, enrollment operations in flight); remove them with `{ENROLL_REMOVE}`, or keep them with --keep-remote-enrollments and a fresh recovery bundle; nothing was changed",
+                inv.count()
             ),
         ),
         "remove them first",
@@ -631,8 +804,8 @@ fn unreadable(why: &str) -> Outcome {
 /// The prompt of a plain `uninstall` while enrollments are not final (D4 item 6).
 fn plain_ack_text(inv: &Inventory) -> String {
     format!(
-        "Remote enrollments that are not final:\n{}Their lines stay on the destinations, and the state database (kept) still records them. To remove them first, answer no and run `{ENROLL_REMOVE}` for each.\n{}Uninstall anyway and leave them enrolled?\n",
-        enrollment_lines(&inv.open),
+        "{OBLIGATIONS}:\n{}Their lines stay on the destinations, and the state database (kept) still records them. To remove them first, answer no and run `{ENROLL_REMOVE}` for each.\n{}Uninstall anyway and leave them enrolled?\n",
+        obligation_lines(inv),
         inv.store_items_text()
     )
 }
@@ -657,8 +830,8 @@ async fn confirm_plain<P: Prompter>(
             heimdall_app::OpError::new(
                 Code::InteractionRequired,
                 format!(
-                    "uninstall not confirmed ({why}): {} remote enrollment(s) are not final; remove them first with `{ENROLL_REMOVE}`, or leave them enrolled by typing yes to `heimdall uninstall` on a terminal or by running `heimdall uninstall --keep-remote-enrollments`; nothing was changed",
-                    inv.open.len()
+                    "uninstall not confirmed ({why}): {} remote obligation(s) are outstanding; remove them first with `{ENROLL_REMOVE}`, or leave them enrolled by typing yes to `heimdall uninstall` on a terminal or by running `heimdall uninstall --keep-remote-enrollments`; nothing was changed",
+                    inv.count()
                 ),
             ),
             "remove them first",
@@ -697,6 +870,10 @@ async fn retire_offered<S: crate::cli::Session, P: Prompter>(
             item.retire = Some(RetireRun::NotRun(non_interactive_reason(ctx).to_owned()));
             continue;
         }
+        // ⟨ADR-0008 §17.27 item 3⟩ The item's fate and the backup reminder reach the
+        // terminal (stderr) before the retirement's own confirmation, whatever the
+        // output mode.
+        crate::output::prompt(&format!("{}\n", item_line(item)));
         let out = crate::issuer_cmd::retire_to_retired(s, p, ctx, &item.ca).await;
         if out.env.code.is_success() {
             item.fate = Fate::Retired;
@@ -1081,10 +1258,10 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     // A purge is refused while remote enrollments remain (unless kept with a fresh
     // bundle), so the owner is not asked to type yes for something that will not happen;
     // a plain uninstall lists them and offers `enroll remove` first.
-    let mut inv = match Inventory::read(&db) {
-        Ok(inv) => inv,
+    let (mut inv, known) = match Inventory::read(&db) {
+        Ok(inv) => (inv, true),
         Err(why) if purge => return unreadable(why),
-        Err(_) => Inventory::default(),
+        Err(_) => (Inventory::default(), false),
     };
     let mut bundle = None;
     if purge {
@@ -1092,7 +1269,7 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
             Ok(b) => bundle = b,
             Err(refused) => return annotate(refused, &inv, None),
         }
-    } else if !inv.open.is_empty()
+    } else if !inv.clear()
         && let Err(refused) = confirm_plain(ctx, prompt, &inv, args.keep_remote_enrollments).await
     {
         return annotate(refused, &inv, None);
@@ -1102,11 +1279,11 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     if purge
         && let Err(refused) = confirm_purge(ctx, prompt, || {
             let mut d = Discard::read(ctx, &paths.state_dir, &dirs);
-            d.kept_remote = (!inv.open.is_empty()).then(|| {
+            d.kept_remote = (!inv.clear()).then(|| {
                 format!(
-                    "  Remote enrollments kept (recorded in {}):\n{}",
+                    "  {OBLIGATIONS}, kept (recorded in {}):\n{}",
                     bundle.as_deref().unwrap_or_default(),
-                    enrollment_lines(&inv.open)
+                    obligation_lines(&inv)
                 )
             });
             d.store_items = inv.store_items_text();
@@ -1116,10 +1293,26 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     {
         return annotate(refused, &inv, bundle.as_deref());
     }
-    let mut client = match session(ctx, true).await {
+    // ⟨ADR-0008 §17.27 item 2 (W5-S01)⟩ One session for the whole uninstall, with
+    // `service-control/1`: it holds the uninstall fence from here until the runtime
+    // stops (or this process ends), and asks for the stop itself.
+    let mut client = match crate::client::connect_requiring(
+        ctx,
+        true,
+        &[heimdall_contract::ipc::capability::SERVICE_CONTROL_V1],
+    )
+    .await
+    {
         Ok(c) => c,
-        Err(o) => return o,
+        Err(e) => return Outcome::of(output::error_value(*e)),
     };
+    // Close admission, then revalidate against the state about to be changed: an
+    // inventory (or a bundle) that no longer matches what the owner confirmed lifts
+    // the fence and stops here, with nothing deleted.
+    if let Err(refused) = fence_and_revalidate(&mut client, &db, &inv, known, args).await {
+        return refused;
+    }
+    let confirmed = inv.clone();
     let projections = match inspect(&mut client, InspectSubject::Projections).await {
         Ok(d) => d,
         Err(o) => return o,
@@ -1196,12 +1389,24 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     // §17.25 item 9: the offered K_ca store items are retired inline, behind the
     // retirement's own typed confirmation, while the runtime still runs.
     retire_offered(&mut client, prompt, ctx, &mut inv).await;
-    // Stop the runtime gracefully (it removes its endpoints and advertisement).
+    // Stop the runtime gracefully (it removes its endpoints and advertisement); the
+    // fence ends with it.
     let stopped = stop_runtime(ctx, client).await;
     let mut purged = false;
     let mut refused_purge = false;
+    // ⟨§17.27 item 2⟩ The last check, with the runtime stopped: the outstanding
+    // obligations are still exactly the confirmed ones (work admitted before the
+    // fence and still running could have moved them), or nothing is deleted.
+    let mut changed = None;
+    if purge && complete && absent {
+        match Inventory::read(&db) {
+            Ok(now) if confirmed.same_obligations(&now) => {}
+            Ok(now) => changed = Some(now),
+            Err(_) => changed = Some(Inventory::default()),
+        }
+    }
     if purge {
-        if complete && absent {
+        if complete && absent && changed.is_none() {
             purged = purge_state(&paths.state_dir).is_ok();
             left = remaining(ctx, &dirs, purged);
         } else {
@@ -1222,6 +1427,9 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
         left,
         quarantine,
     );
+    if let Some(now) = changed {
+        return inventory_changed(Some(out), &now, EffectStatus::Partial);
+    }
     if refused_purge {
         let message = if complete {
             "--purge-state refused: a projection resource is not confirmed absent yet; nothing was purged"
@@ -1236,6 +1444,134 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
         );
     }
     annotate(out, &inv, bundle.as_deref())
+}
+
+/// ⟨ADR-0008 §17.27 item 2 (W5-S01)⟩ After the owner's confirmation and before any
+/// destructive step: close admission of new enrollment, CA and issuance work
+/// (`UninstallFence::Acquire`, held by this session until it ends), re-read the
+/// inventory and, for a purge, repeat the guard and the bundle check against the state
+/// about to be destroyed. An inventory other than the confirmed one is
+/// `uninstall_inventory_changed` (exit 4); any refusal lifts the fence first. Nothing
+/// is deleted on any `Err`. A plain uninstall whose first read failed (`known`
+/// false) has no confirmed inventory to compare, and keeps the state anyway.
+async fn fence_and_revalidate<S: crate::cli::Session>(
+    s: &mut S,
+    db: &Path,
+    confirmed: &Inventory,
+    known: bool,
+    args: &UninstallArgs,
+) -> Result<(), Outcome> {
+    let held = s
+        .request(Request::UninstallFence(UninstallFenceRequest::Acquire))
+        .await;
+    if !held.code.is_success() {
+        return Err(Outcome::of(held));
+    }
+    let refuse = async |s: &mut S, out: Outcome| {
+        let _ = s
+            .request(Request::UninstallFence(UninstallFenceRequest::Release))
+            .await;
+        Err(out)
+    };
+    if !known && !args.purge_state {
+        return Ok(());
+    }
+    let now = match Inventory::read(db) {
+        Ok(now) => now,
+        Err(why) => return refuse(s, unreadable(why)).await,
+    };
+    if !confirmed.same_as(&now) {
+        return refuse(s, inventory_changed(None, &now, EffectStatus::None)).await;
+    }
+    // ⟨ADR-0008 §17.28 item 1⟩ a dispatched step without its result (or an uncertain
+    // mutation): its remote effect is unknown, so nothing is purged.
+    if args.purge_state && !now.unresolved_steps.is_empty() {
+        return refuse(s, step_unresolved(&now)).await;
+    }
+    if args.purge_state
+        && let Err(refused) = enrollment_refusal(&now, args, db)
+    {
+        return refuse(s, annotate(refused, &now, None)).await;
+    }
+    Ok(())
+}
+
+/// `uninstall_remote_step_unresolved` (`CAPABILITY_UNAVAILABLE`, exit 4; ADR-0008
+/// §17.28 item 1): under the fence, an enrollment operation still has a dispatched step
+/// without its result (its remote effect is unknown); listed, nothing deleted.
+fn step_unresolved(now: &Inventory) -> Outcome {
+    let ops: Vec<&str> = now.unresolved_steps.iter().map(|o| o.as_str()).collect();
+    let mut env = output::error_value(
+        heimdall_app::OpError::new(
+            Code::CapabilityUnavailable,
+            format!(
+                "--purge-state refused: enrollment operation(s) {} have a remote step dispatched without its result, so its remote effect is unknown; nothing was changed. Let the step finish (or reconcile the operation), then run `heimdall uninstall` again",
+                ops.join(", ")
+            ),
+        )
+        .with_reason(reason::UNINSTALL_REMOTE_STEP_UNRESOLVED)
+        .with_effect(EffectStatus::None)
+        .into_envelope(),
+    );
+    if let serde_json::Value::Object(map) = &mut env.data {
+        now.insert_listing(map);
+        map.insert(
+            "next_command".to_owned(),
+            serde_json::Value::String("heimdall uninstall".to_owned()),
+        );
+    }
+    let human = format!(
+        "{OBLIGATIONS}:\n{}Remote steps without a result: {}\nRun `heimdall uninstall` again once they are resolved.\n",
+        obligation_lines(now),
+        ops.join(", ")
+    );
+    Outcome::of(env).with_human(human)
+}
+
+/// `uninstall_inventory_changed` (`CAPABILITY_UNAVAILABLE`, exit 4; ADR-0008 §17.27
+/// item 2): the outstanding obligations differ from the ones the owner confirmed.
+/// Lists them as they are `now`; `base` (a later check's report) is kept under the
+/// error; `effect` says what already happened (`none` before any destructive step).
+fn inventory_changed(base: Option<Outcome>, now: &Inventory, effect: EffectStatus) -> Outcome {
+    let done = if effect == EffectStatus::None {
+        "nothing was changed"
+    } else {
+        "the state database, the backups and every recovery record are kept (nothing was purged)"
+    };
+    let mut env = output::error_value(
+        heimdall_app::OpError::new(
+            Code::CapabilityUnavailable,
+            format!(
+                "uninstall refused: the outstanding remote obligations changed since you confirmed them (an enrollment, removal or CA changed meanwhile); {done}. Run `heimdall uninstall` again to review them as they are now"
+            ),
+        )
+        .with_reason(reason::UNINSTALL_INVENTORY_CHANGED)
+        .with_effect(effect)
+        .into_envelope(),
+    );
+    let mut human = String::new();
+    if let Some(b) = base {
+        if let (serde_json::Value::Object(map), serde_json::Value::Object(data)) =
+            (&mut env.data, b.env.data)
+        {
+            for (k, v) in data {
+                map.entry(k).or_insert(v);
+            }
+        }
+        human = b.human;
+    }
+    if let serde_json::Value::Object(map) = &mut env.data {
+        now.insert_listing(map);
+        map.insert(
+            "next_command".to_owned(),
+            serde_json::Value::String("heimdall uninstall".to_owned()),
+        );
+    }
+    human.push_str(&format!(
+        "{OBLIGATIONS}, as they are now:\n{}Run `heimdall uninstall` again.\n",
+        obligation_lines(now)
+    ));
+    Outcome::of(env).with_human(human)
 }
 
 /// `CONFIG_CONFLICT`, effect `partial`, keeping `out`'s data under the error.
@@ -1293,15 +1629,10 @@ fn report(
     Outcome::of(env).with_human(human)
 }
 
-/// `Request::Shutdown` on a session requiring `service-control/1`, then wait (bounded)
+/// `Request::Shutdown` on uninstall's own session (it negotiated `service-control/1`
+/// and holds the uninstall fence until the runtime closes it), then wait (bounded)
 /// until the advertisement is gone.
-async fn stop_runtime(ctx: &Ctx, client: crate::client::Client) -> bool {
-    use heimdall_contract::ipc::capability::SERVICE_CONTROL_V1;
-    drop(client);
-    let Ok(mut c) = crate::client::connect_requiring(ctx, false, &[SERVICE_CONTROL_V1]).await
-    else {
-        return false;
-    };
+async fn stop_runtime(ctx: &Ctx, mut c: crate::client::Client) -> bool {
     let env = c.request(Request::Shutdown(ShutdownRequest {})).await;
     drop(c);
     if env.code != Code::Ok {
@@ -1668,16 +1999,44 @@ mod tests {
             last_change: open.iter().map(|r| r.updated_at).max(),
             cas: vec![(ca(), CaState::Active)],
             open,
-            items: Vec::new(),
+            ..Inventory::default()
         }
     }
 
     /// A bundle created at `at`, listing `records` (each in its state).
     fn bundle(at: Timestamp, records: &[EnrollmentRecord], redacted: bool) -> Vec<u8> {
+        bundle_with(at, records, &[], redacted)
+    }
+
+    /// [`bundle`] with `foreign` removals too (each by its descriptor and state).
+    fn bundle_with(
+        at: Timestamp,
+        records: &[EnrollmentRecord],
+        foreign: &[ForeignRemovalRecord],
+        redacted: bool,
+    ) -> Vec<u8> {
+        let foreign_removals: Vec<serde_json::Value> = foreign
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "marker": f.target.marker,
+                    "local_alias": f.target.local_alias,
+                    "bundle_destination_id": f.target.bundle_destination_id,
+                    "hostname": f.target.bundle_hostname,
+                    "port": f.target.bundle_port,
+                    "account": f.target.account.as_str(),
+                    "ca_public_key": f.target.ca_public_key,
+                    "line_sha256": f.target.line_sha256,
+                    "registry": f.target.registry,
+                    "form": f.target.form,
+                    "state": f.state.as_str(),
+                })
+            })
+            .collect();
         let enrollments: Vec<serde_json::Value> = records
             .iter()
             .map(|r| {
-                serde_json::json!({
+                let mut v = serde_json::json!({
                     "marker": r.marker,
                     "destination_id": r.destination.as_str(),
                     "alias": "lab",
@@ -1689,7 +2048,14 @@ mod tests {
                     "ca_fingerprint": r.ca_fingerprint.as_str(),
                     "ca_public_key": "ssh-ed25519 AAAA",
                     "line_sha256": r.line_sha256,
-                })
+                });
+                if let (Some(l), serde_json::Value::Object(map)) = (&r.late_write, &mut v) {
+                    map.insert(
+                        "late_write".to_owned(),
+                        serde_json::json!({ "not_after_remote": l.not_after_remote }),
+                    );
+                }
+                v
             })
             .collect();
         serde_json::to_vec(&serde_json::json!({
@@ -1704,6 +2070,7 @@ mod tests {
                 "state": "active",
             }],
             "enrollments": enrollments,
+            "foreign_removals": foreign_removals,
             "instructions": [],
         }))
         .unwrap_or_default()
@@ -1979,5 +2346,342 @@ mod tests {
         assert_eq!(inv.items[0].fate, Fate::DeletionOffered);
         assert!(inv.items[1].retire.is_none(), "a kept item is not retired");
         assert_eq!(inv.store_items_json()[0]["retire"]["ran"], true);
+    }
+
+    /// A foreign system-form removal `n`, `planned` (its public descriptor only).
+    fn foreign(n: u8) -> ForeignRemovalRecord {
+        use heimdall_contract::enrollment::{
+            EnrollmentForm, EnrollmentState, ForeignRemovalTarget, RegistryCanonical,
+        };
+        use heimdall_contract::ids::{AccountName, ForeignRemovalId, OperationId};
+        use heimdall_domain::enrollment::RegistryResolvedBy;
+        ForeignRemovalRecord {
+            id: ForeignRemovalId::from_random_bytes([n; 16]),
+            target: ForeignRemovalTarget {
+                local_alias: format!("lab{n}"),
+                bundle_destination_id: format!("dst-other{n}"),
+                bundle_hostname: "example.invalid".into(),
+                bundle_port: 22,
+                account: AccountName::parse("deploy").unwrap_or_else(|e| panic!("{e}")),
+                marker: format!("heimdall:enr_{}", "f".repeat(32)),
+                ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIforeign".into(),
+                line_sha256: "cd".repeat(32),
+                registry: RegistryCanonical {
+                    path: None,
+                    resolved_by: RegistryResolvedBy::RemoteHome,
+                },
+                form: EnrollmentForm::System,
+            },
+            state: EnrollmentState::Planned,
+            operation: OperationId::from_random_bytes([n; 16]),
+            created_at: t0(),
+            removal_origin: None,
+        }
+    }
+
+    /// A fresh state database in `d` with `seed` applied.
+    fn database(
+        d: &Path,
+        seed: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()>,
+    ) -> PathBuf {
+        let db = d.join("state.db");
+        let store = Store::open(&db, Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store.transaction(seed).unwrap_or_else(|e| panic!("{e}"));
+        db
+    }
+
+    /// A purge with no acknowledgement and no bundle.
+    fn plain_purge() -> UninstallArgs {
+        UninstallArgs {
+            keep_remote_enrollments: false,
+            purge_state: true,
+            bundle: None,
+        }
+    }
+
+    /// `uninstall_purge_refuses_abandoned_foreign_system_form_removal` (ADR-0008 §17.27
+    /// item 1, W5-R01, the reviewer's probe): a foreign system-form removal moved to
+    /// `manual_removal_pending` and then abandoned (still `pending_until_line_removed`)
+    /// is read by the real inventory and refuses a purge without the acknowledgement
+    /// (`CONFIG_CONFLICT`) or without a bundle (`bundle_required`), listed by its
+    /// descriptor.
+    #[test]
+    fn uninstall_purge_refuses_abandoned_foreign_system_form_removal() {
+        use heimdall_contract::enrollment::EnrollmentState as S;
+        use heimdall_domain::enrollment::EnrollmentEventKind as K;
+        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let f = foreign(4);
+        let db = database(d.path(), |tx| {
+            tx.insert_foreign_removal(&f)?;
+            let mut r = tx
+                .transition_foreign_removal(S::Planned, K::ManualRemovalConfirmed, &f)?
+                .unwrap_or_else(|e| panic!("{e:?}"));
+            r = tx
+                .transition_foreign_removal(r.state, K::OwnerAbandon, &r)?
+                .unwrap_or_else(|e| panic!("{e:?}"));
+            assert_eq!(r.state, S::Abandoned);
+            Ok(())
+        });
+        let inv = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(inv.foreign.len(), 1, "{inv:?}");
+        assert!(!inv.clear());
+        let Err(out) = enrollment_refusal(&inv, &plain_purge(), &db) else {
+            panic!("an abandoned foreign removal let a purge through");
+        };
+        assert_eq!(out.env.code, Code::ConfigConflict);
+        assert_eq!(
+            out.env.data["foreign_removals"][0]["marker"],
+            f.target.marker.as_str()
+        );
+        assert_eq!(out.env.data["foreign_removals"][0]["state"], "abandoned");
+        assert!(
+            out.human.contains("pending_until_line_removed"),
+            "{}",
+            out.human
+        );
+        let keep = UninstallArgs {
+            keep_remote_enrollments: true,
+            ..plain_purge()
+        };
+        let Err(out) = enrollment_refusal(&inv, &keep, &db) else {
+            panic!("no bundle was needed");
+        };
+        assert_eq!(out.env.data["error"]["reason"], reason::BUNDLE_REQUIRED);
+    }
+
+    /// `uninstall_purge_refuses_withdrawn_late_write` (ADR-0008 §17.27 item 1, W5-R02,
+    /// the reviewer's probe): a `withdrawn` record (final) whose `late_write` residual
+    /// is unresolved, with a remote not-after still ahead and one already passed with no
+    /// absence observed since, is outstanding: listed with its residual and refusing a
+    /// purge without acknowledgement or bundle. A final record without it is not.
+    #[test]
+    fn uninstall_purge_refuses_withdrawn_late_write() {
+        use heimdall_contract::enrollment::EnrollmentState as S;
+        use heimdall_domain::enrollment::LateWrite;
+        let now = Timestamp::now().as_second();
+        for not_after in [now + 3600, now - 3600] {
+            let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+            let mut late = record(1, S::Withdrawn);
+            late.late_write = Some(LateWrite {
+                step_token: "ab".repeat(16),
+                not_after_remote: not_after,
+            });
+            let quiet = record(2, S::Withdrawn);
+            let db = database(d.path(), |tx| {
+                tx.insert_issuer(&issuer())?;
+                tx.seed_enrollment(&late)?;
+                tx.seed_enrollment(&quiet)
+            });
+            let inv = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                inv.open.iter().map(|r| &r.marker).collect::<Vec<_>>(),
+                vec![&late.marker],
+                "only the unresolved residual is outstanding"
+            );
+            let Err(out) = enrollment_refusal(&inv, &plain_purge(), &db) else {
+                panic!("a withdrawn record with a late write let a purge through");
+            };
+            assert_eq!(out.env.code, Code::ConfigConflict);
+            assert_eq!(
+                out.env.data["enrollments"][0]["late_write"]["not_after_remote"],
+                not_after
+            );
+            assert!(out.human.contains("late_write"), "{}", out.human);
+        }
+    }
+
+    fn issuer() -> heimdall_store::IssuerRecord {
+        heimdall_store::IssuerRecord {
+            ca_fingerprint: ca(),
+            public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfixture0".into(),
+            state: CaState::Active,
+            store_kind: StoreKind::LinuxSecretService,
+            backup_sha256: "00".repeat(32),
+            backup_created_at: t0(),
+            restored_without_log: false,
+            created_at: t0(),
+            retired_at: None,
+        }
+    }
+
+    /// ADR-0008 §17.27 item 1: the bundle's content check covers the outstanding
+    /// foreign removals (descriptor and state) and each unresolved late write.
+    #[test]
+    fn a_bundle_lists_outstanding_foreign_removals_and_late_writes() {
+        use heimdall_contract::enrollment::EnrollmentState as S;
+        use heimdall_domain::enrollment::LateWrite;
+        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let mut late = record(1, S::Withdrawn);
+        late.late_write = Some(LateWrite {
+            step_token: "ab".repeat(16),
+            not_after_remote: 1_900_000_000,
+        });
+        let mut abandoned = foreign(3);
+        abandoned.state = S::Abandoned;
+        let mut inv = inventory(vec![late.clone()]);
+        inv.foreign = vec![abandoned.clone()];
+        let at = t0()
+            .checked_add(Duration::from_secs(60))
+            .unwrap_or_else(|_| panic!("time"));
+        let any = |_: &str| Ok(Some(t0()));
+        let write = |name: &str, bytes: Vec<u8>| {
+            let p = d.path().join(name);
+            std::fs::write(&p, &bytes).unwrap_or_else(|e| panic!("{e}"));
+            p
+        };
+        let full = write(
+            "full",
+            bundle_with(
+                at,
+                std::slice::from_ref(&late),
+                std::slice::from_ref(&abandoned),
+                false,
+            ),
+        );
+        assert_eq!(check_bundle(&inv, &full, &any), Ok(()));
+        let no_foreign = write("nf", bundle(at, std::slice::from_ref(&late), false));
+        assert!(
+            check_bundle(&inv, &no_foreign, &any)
+                .is_err_and(|(w, r)| r == reason::BUNDLE_REQUIRED && w.contains("foreign removal"))
+        );
+        let mut planned = abandoned.clone();
+        planned.state = S::Planned;
+        let other_state = write(
+            "os",
+            bundle_with(at, std::slice::from_ref(&late), &[planned], false),
+        );
+        assert!(check_bundle(&inv, &other_state, &any).is_err());
+        let mut quiet = late.clone();
+        quiet.late_write = None;
+        let no_late = write("nl", bundle_with(at, &[quiet], &[abandoned], false));
+        assert!(
+            check_bundle(&inv, &no_late, &any)
+                .is_err_and(|(w, _)| w.contains("every remaining enrollment"))
+        );
+    }
+
+    /// A session answering the fence's requests (`acquire`: `acquired`), recording
+    /// every request kind it is sent.
+    struct FenceSession {
+        acquired: Envelope<serde_json::Value>,
+        sent: Vec<String>,
+        /// Run once, between the fence's acquisition and the inventory's re-read.
+        between: Option<Box<dyn FnOnce()>>,
+    }
+
+    impl crate::cli::Session for FenceSession {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.sent.push(request.kind().to_owned());
+            match request {
+                Request::UninstallFence(UninstallFenceRequest::Acquire) => {
+                    if let Some(f) = self.between.take() {
+                        f();
+                    }
+                    self.acquired.clone()
+                }
+                _ => Envelope::ok(serde_json::json!({ "fence": "released" })),
+            }
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            Envelope::ok(serde_json::json!({}))
+        }
+    }
+
+    /// `uninstall_revalidates_under_the_fence` (ADR-0008 §17.27 item 2, W5-S01): after
+    /// the confirmation the fence is acquired first; an inventory that changed since
+    /// (here an enrollment admitted while the owner was reading the prompt) is
+    /// `uninstall_inventory_changed` (`CAPABILITY_UNAVAILABLE`, exit 4, effect `none`,
+    /// listing it as it is now, naming `heimdall uninstall`), and the fence is released.
+    /// An unchanged inventory goes on with the fence held; a refused acquisition stops
+    /// with nothing else sent.
+    #[test]
+    fn uninstall_revalidates_under_the_fence() {
+        use heimdall_contract::enrollment::EnrollmentState as S;
+        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let db = database(d.path(), |tx| tx.insert_issuer(&issuer()));
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert!(confirmed.clear());
+        let ok = || Envelope::ok(serde_json::json!({ "fence": "held" }));
+        // Unchanged: on, fence held (no release sent).
+        let mut s = FenceSession {
+            acquired: ok(),
+            sent: Vec::new(),
+            between: None,
+        };
+        assert!(
+            block_on(fence_and_revalidate(
+                &mut s,
+                &db,
+                &confirmed,
+                true,
+                &plain_purge()
+            ))
+            .is_ok()
+        );
+        assert_eq!(s.sent, vec!["uninstall_fence.acquire".to_owned()]);
+        // An enrollment admitted after the confirmation: refused, released.
+        let admitted = record(5, S::Planned);
+        let db2 = db.clone();
+        let r2 = admitted.clone();
+        let mut s = FenceSession {
+            acquired: ok(),
+            sent: Vec::new(),
+            between: Some(Box::new(move || {
+                let store = Store::open(&db2, Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+                store
+                    .transaction(|tx| tx.seed_enrollment(&r2))
+                    .unwrap_or_else(|e| panic!("{e}"));
+            })),
+        };
+        let Err(out) = block_on(fence_and_revalidate(
+            &mut s,
+            &db,
+            &confirmed,
+            true,
+            &plain_purge(),
+        )) else {
+            panic!("a changed inventory was not refused");
+        };
+        assert_eq!(out.exit, ExitCode::Denied, "exit 4");
+        assert_eq!(out.env.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            out.env.data["error"]["reason"],
+            reason::UNINSTALL_INVENTORY_CHANGED
+        );
+        assert_eq!(out.env.data["error"]["effect_status"], "none");
+        assert_eq!(
+            out.env.data["enrollments"][0]["marker"],
+            admitted.marker.as_str()
+        );
+        assert_eq!(out.env.data["next_command"], "heimdall uninstall");
+        assert_eq!(
+            s.sent,
+            vec![
+                "uninstall_fence.acquire".to_owned(),
+                "uninstall_fence.release".to_owned()
+            ],
+            "the fence is lifted after the refusal"
+        );
+        // A refused acquisition (another uninstall holds it): nothing else is sent.
+        let mut s = FenceSession {
+            acquired: crate::setup_cmd::failure(
+                Code::ServiceUnavailable,
+                "another uninstall holds the fence",
+                Some(reason::UNINSTALL_IN_PROGRESS),
+            ),
+            sent: Vec::new(),
+            between: None,
+        };
+        let Err(out) = block_on(fence_and_revalidate(
+            &mut s,
+            &db,
+            &confirmed,
+            true,
+            &plain_purge(),
+        )) else {
+            panic!("a refused fence went on");
+        };
+        assert_eq!(out.env.code, Code::ServiceUnavailable);
+        assert_eq!(s.sent, vec!["uninstall_fence.acquire".to_owned()]);
     }
 }

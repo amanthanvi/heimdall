@@ -33,6 +33,9 @@ pub(crate) mod macos {
 
     /// `errSecParam`.
     const ERR_SEC_PARAM: OsStatus = -50;
+    /// `errSecCSReqFailed`: the running code does not satisfy the requirement of the
+    /// application the access list would trust ([`add_generic_password_trusting_self`]).
+    pub(crate) const ERR_CS_REQ_FAILED: OsStatus = -67050;
     /// `kSecGenericPasswordItemClass` (`'genp'`).
     const GENERIC_PASSWORD_CLASS: u32 = u32::from_be_bytes(*b"genp");
     /// `kSecServiceItemAttr` (`'svce'`).
@@ -79,6 +82,12 @@ pub(crate) mod macos {
             item: *mut *mut c_void,
         ) -> OsStatus;
         fn SecKeychainGetStatus(keychain: *mut c_void, status: *mut u32) -> OsStatus;
+        fn SecTrustedApplicationCopyRequirement(
+            app: CFTypeRef,
+            requirement: *mut CFTypeRef,
+        ) -> OsStatus;
+        fn SecCodeCopySelf(flags: u32, code: *mut CFTypeRef) -> OsStatus;
+        fn SecCodeCheckValidity(code: CFTypeRef, flags: u32, requirement: CFTypeRef) -> OsStatus;
         #[cfg(debug_assertions)]
         fn SecKeychainDelete(keychain: *mut c_void) -> OsStatus;
     }
@@ -95,8 +104,20 @@ pub(crate) mod macos {
     /// `keychain`, with an access list (SecAccess) whose only trusted application is
     /// this executable (ADR-0008 D1).
     ///
+    /// ⟨M03 wave 5, round 3⟩ `SecTrustedApplicationCreateFromPath(NULL)` reads the code
+    /// **at this program's path on disk**, not the running code. When that file was
+    /// replaced after the program started (an update; a rebuild of a shared build tree),
+    /// the access list would trust the new file, and this process's own read-back would
+    /// need a prompt (`errSecAuthFailed` with interaction off, reported as
+    /// `issuer_store_locked`), leaving an item no registration names. So before anything
+    /// is written, the running code must satisfy the trusted application's own
+    /// requirement (`SecCodeCheckValidity`); otherwise nothing is written
+    /// ([`ERR_CS_REQ_FAILED`]). A Developer ID update that keeps the designated
+    /// requirement still passes.
+    ///
     /// # Errors
-    /// The failing call's `OSStatus` (`errSecDuplicateItem` when the item exists).
+    /// The failing call's `OSStatus` (`errSecDuplicateItem` when the item exists;
+    /// [`ERR_CS_REQ_FAILED`] when the executable on disk is not the running program).
     pub(crate) fn add_generic_password_trusting_self(
         keychain: &SecKeychain,
         service: &str,
@@ -114,6 +135,7 @@ pub(crate) mod macos {
         // SAFETY: the call succeeded, so `app` is a +1 CF object owned here alone;
         // CFType releases it exactly once.
         let app = unsafe { CFType::wrap_under_create_rule(app) };
+        running_code_satisfies(&app)?;
         let trusted = CFArray::from_CFTypes(&[app]);
         let descriptor = CFString::new(label);
         let mut access: CFTypeRef = ptr::null();
@@ -184,6 +206,39 @@ pub(crate) mod macos {
         // valid out-pointer.
         let rc = unsafe { SecKeychainGetStatus(keychain_ref(keychain), &raw mut status) };
         if rc == 0 { Ok(status) } else { Err(rc) }
+    }
+
+    /// Whether the running program satisfies `app`'s requirement (see
+    /// [`add_generic_password_trusting_self`]); [`ERR_CS_REQ_FAILED`] when it does not or
+    /// when either cannot be read (fail closed).
+    fn running_code_satisfies(app: &CFType) -> Result<(), OsStatus> {
+        let mut requirement: CFTypeRef = ptr::null();
+        // SAFETY: `app` is a live SecTrustedApplication; `requirement` is a valid
+        // out-pointer.
+        let status = unsafe {
+            SecTrustedApplicationCopyRequirement(app.as_CFTypeRef(), &raw mut requirement)
+        };
+        if status != 0 || requirement.is_null() {
+            return Err(ERR_CS_REQ_FAILED);
+        }
+        // SAFETY: the call succeeded, so `requirement` is a +1 CF object owned here alone.
+        let requirement = unsafe { CFType::wrap_under_create_rule(requirement) };
+        let mut code: CFTypeRef = ptr::null();
+        // SAFETY: `code` is a valid out-pointer; flags 0 (`kSecCSDefaultFlags`).
+        let status = unsafe { SecCodeCopySelf(0, &raw mut code) };
+        if status != 0 || code.is_null() {
+            return Err(ERR_CS_REQ_FAILED);
+        }
+        // SAFETY: as for `requirement`.
+        let code = unsafe { CFType::wrap_under_create_rule(code) };
+        // SAFETY: both references are live CF objects for the call.
+        let status =
+            unsafe { SecCodeCheckValidity(code.as_CFTypeRef(), 0, requirement.as_CFTypeRef()) };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(ERR_CS_REQ_FAILED)
+        }
     }
 
     /// `SecKeychainDelete` on a disposable file keychain (test configuration only).

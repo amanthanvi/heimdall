@@ -798,6 +798,36 @@ fn managed_strict_half() {
         human.stdout.lines().any(|l| l == wording),
         "the runtime's wording, verbatim: {human:?}"
     );
+    // ⟨ADR-0008 §17.27 item 9; W5-R06⟩ `destination list` of the runtime's real `items[]`:
+    // the managed pair's computed connection policy and its wording, verbatim.
+    let inspected = rt.run(&["--json", "inspect", "destinations"]);
+    assert_eq!(inspected.code, 0, "{inspected:?}");
+    let lab2 = inspected.json()["data"]["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the runtime lists `items`: {inspected:?}"))
+        .iter()
+        .find(|d| d["alias"] == MANAGED_ALIAS)
+        .cloned()
+        .unwrap();
+    let policy = &lab2["preference"]["connection_policy"];
+    let head = format!(
+        "{MANAGED_ALIAS}: connection policy: existing {}, multiplexing {}.",
+        policy["existing"].as_str().unwrap(),
+        policy["multiplexing"].as_str().unwrap()
+    );
+    let listed = rt.run(&["destination", "list"]);
+    assert_eq!(listed.code, 0, "{listed:?}");
+    assert!(
+        listed.stdout.lines().any(|l| l == head),
+        "{head}: {listed:?}"
+    );
+    assert!(
+        listed
+            .stdout
+            .lines()
+            .any(|l| l == policy["wording"].as_str().unwrap()),
+        "the runtime's wording, verbatim: {listed:?}"
+    );
 }
 
 /// The managed half of `revoke_output_lists_owned_connections_and_ordinary_note`.
@@ -1211,6 +1241,46 @@ fn destination_prefer_resolves_alias_and_journals_the_preference() {
         "managed_certificate",
         "{listing:?}"
     );
+    // ⟨ADR-0008 §17.27 item 9; W5-R06⟩ The runtime's list shape is `items[]`: lab1/deploy
+    // is in no saved policy, so its managed preference's connection policy cannot be
+    // computed (no `connection_policy`), and both `destination list` and `inspect
+    // destinations` say it is unknown, from that real answer.
+    let inspected = rt.run(&["--json", "inspect", "destinations"]);
+    assert_eq!(inspected.code, 0, "{inspected:?}");
+    let items = inspected.json()["data"]["items"].clone();
+    let lab1 = items
+        .as_array()
+        .unwrap_or_else(|| panic!("the runtime lists `items`: {inspected:?}"))
+        .iter()
+        .find(|d| d["alias"] == "lab1")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        lab1["preference"]["mechanism"], "managed_certificate",
+        "{lab1}"
+    );
+    assert!(
+        lab1["preference"].get("connection_policy").is_none(),
+        "{lab1}"
+    );
+    for argv in [&["destination", "list"][..], &["inspect", "destinations"]] {
+        let human = rt.run(argv);
+        assert_eq!(human.code, 0, "{argv:?}: {human:?}");
+        assert_eq!(
+            human
+                .stdout
+                .matches(
+                    "lab1: connection policy unknown (the runtime reports none for this pair)."
+                )
+                .count(),
+            1,
+            "{argv:?}: {human:?}"
+        );
+        assert!(
+            !human.stdout.contains("seen: connection policy"),
+            "{human:?}"
+        );
+    }
     let again = rt.run(&["destination", "prefer", "lab1", "managed"]);
     assert_eq!(again.code, 0, "{again:?}");
     assert!(again.stdout.contains("unchanged"), "{again:?}");

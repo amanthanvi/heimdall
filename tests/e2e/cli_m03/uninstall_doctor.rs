@@ -38,7 +38,8 @@ use heimdall_contract::issuer::{
 use heimdall_contract::managed::PreferredMechanism;
 use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
 use heimdall_domain::enrollment::{
-    EnrollmentEvidence, EnrollmentRecord, EnrollmentState, PairPreference, ProjectionStatus,
+    EnrollmentEvidence, EnrollmentRecord, EnrollmentState, ForeignRemovalRecord, PairPreference,
+    ProjectionStatus,
 };
 use heimdall_domain::time::AttendedTimeConfirmation;
 use heimdall_store::{NoFaults, Store};
@@ -279,12 +280,28 @@ fn bundle_entry(r: &EnrollmentRecord) -> BundleEnrollment {
         ca_fingerprint: r.ca_fingerprint.clone(),
         ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfixture0".into(),
         line_sha256: r.line_sha256.clone(),
-        late_write: None,
+        late_write: r
+            .late_write
+            .as_ref()
+            .map(|l| heimdall_contract::issuer::BundleLateWrite {
+                not_after_remote: l.not_after_remote,
+            }),
     }
 }
 
 /// Write a recovery bundle at `path`, created at `at`, listing `records`.
 fn write_bundle(path: &Path, at: Timestamp, records: &[EnrollmentRecord], redacted: bool) {
+    write_bundle_with(path, at, records, &[], redacted);
+}
+
+/// [`write_bundle`] with the foreign removals `foreign` too (descriptor and state).
+fn write_bundle_with(
+    path: &Path,
+    at: Timestamp,
+    records: &[EnrollmentRecord],
+    foreign: &[ForeignRemovalRecord],
+    redacted: bool,
+) {
     let bundle = RecoveryBundle {
         schema: RECOVERY_BUNDLE_SCHEMA.to_owned(),
         created_at: at,
@@ -305,6 +322,22 @@ fn write_bundle(path: &Path, at: Timestamp, records: &[EnrollmentRecord], redact
                     e.port = None;
                 }
                 e
+            })
+            .collect(),
+        foreign_removals: foreign
+            .iter()
+            .map(|f| heimdall_contract::issuer::BundleForeignRemoval {
+                marker: f.target.marker.clone(),
+                local_alias: f.target.local_alias.clone(),
+                bundle_destination_id: f.target.bundle_destination_id.clone(),
+                hostname: (!redacted).then(|| f.target.bundle_hostname.clone()),
+                port: (!redacted).then_some(f.target.bundle_port),
+                account: f.target.account.clone(),
+                ca_public_key: f.target.ca_public_key.clone(),
+                line_sha256: f.target.line_sha256.clone(),
+                registry: f.target.registry.clone(),
+                form: f.target.form,
+                state: f.state,
             })
             .collect(),
         instructions: vec!["Remove the line carrying the marker.".into()],
@@ -600,6 +633,223 @@ fn uninstall_states_store_item_fate() {
         item["message"].as_str().unwrap().contains("never recorded"),
         "{out:?}"
     );
+}
+
+// --- ADR-0008 §17.27 items 1-3 (W5-R01, W5-R02, W5-S01) ---------------------------------
+
+/// A foreign system-form removal (another installation's enrollment, by its public
+/// descriptor), moved `planned → manual_removal_pending → abandoned`: the owner gave it up
+/// while its line may still trust that CA (`pending_until_line_removed`).
+fn abandoned_foreign(db: &Path) -> ForeignRemovalRecord {
+    use heimdall_contract::enrollment::{EnrollmentForm, ForeignRemovalTarget};
+    use heimdall_contract::ids::ForeignRemovalId;
+    use heimdall_domain::enrollment::{EnrollmentEventKind as K, RegistryResolvedBy};
+    let planned = ForeignRemovalRecord {
+        id: ForeignRemovalId::from_random_bytes([0x5a; 16]),
+        target: ForeignRemovalTarget {
+            local_alias: "lab-other".into(),
+            bundle_destination_id: "dst-elsewhere".into(),
+            bundle_hostname: "example.invalid".into(),
+            bundle_port: 22,
+            account: AccountName::parse("deploy").unwrap(),
+            marker: format!("heimdall:enr_{}", "e".repeat(32)),
+            ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIforeign0".into(),
+            line_sha256: "cd".repeat(32),
+            registry: RegistryCanonical {
+                path: None,
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            form: EnrollmentForm::System,
+        },
+        state: EnrollmentState::Planned,
+        operation: OperationId::from_random_bytes([0x5b; 16]),
+        created_at: t0(),
+        removal_origin: None,
+    };
+    let store = Store::open(db, Arc::new(NoFaults)).unwrap();
+    store
+        .transaction(|tx| {
+            tx.insert_foreign_removal(&planned)?;
+            let pending = tx
+                .transition_foreign_removal(
+                    EnrollmentState::Planned,
+                    K::ManualRemovalConfirmed,
+                    &planned,
+                )?
+                .unwrap();
+            Ok(tx
+                .transition_foreign_removal(pending.state, K::OwnerAbandon, &pending)?
+                .unwrap())
+        })
+        .unwrap()
+}
+
+/// The three purge attempts every outstanding obligation must survive without a bundle:
+/// a bare purge (`CONFIG_CONFLICT`, exit 6), one keeping the enrollments without a bundle
+/// (`bundle_required`, exit 4), and one with a fresh recorded bundle that does not list
+/// the obligation (`bundle_required`, exit 4, `why`). Returns the bare purge's output.
+fn purge_refusals(home: &Path, account: &Path, partial: &Path, why: &str) -> Out {
+    let purge = ["--json", "--non-interactive", "uninstall", "--purge-state"];
+    let bare = run(home, account, &purge, &[]);
+    assert_eq!(bare.code, 6, "{bare:?}");
+    assert_eq!(bare.json()["code"], "CONFIG_CONFLICT", "{bare:?}");
+    assert_eq!(bare.json()["data"]["error"]["effect_status"], "none");
+    assert!(bare.message().contains("--purge-state refused"), "{bare:?}");
+    let mut keep = purge.to_vec();
+    keep.push("--keep-remote-enrollments");
+    let out = run(home, account, &keep, &[]);
+    assert_eq!(out.code, 4, "{out:?}");
+    assert_eq!(out.json()["data"]["error"]["reason"], "bundle_required");
+    let arg = partial.to_string_lossy().into_owned();
+    keep.extend(["--bundle", &arg]);
+    let out = run(home, account, &keep, &[]);
+    assert_eq!(out.code, 4, "{out:?}");
+    assert_eq!(out.json()["data"]["error"]["reason"], "bundle_required");
+    assert!(out.message().contains(why), "{why}: {out:?}");
+    no_runtime(home, &out);
+    bare
+}
+
+/// `uninstall_purge_refuses_abandoned_foreign_system_form_removal` (ADR-0008 §17.27
+/// item 1, W5-R01, end to end): an abandoned foreign system-form removal, still
+/// `pending_until_line_removed`, is listed by its descriptor (`foreign_removals`, also in
+/// the human text) and blocks `--purge-state` without the acknowledgement or a bundle,
+/// and with a bundle that does not list it; a fresh recorded bundle listing it in its
+/// state is accepted (the purge then stops at its own confirmation). Nothing is written
+/// and no runtime is contacted.
+#[test]
+fn uninstall_purge_refuses_abandoned_foreign_system_form_removal() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = account(scratch.path());
+    let home = scratch.path().join("home");
+    let db = seed_state(&home, &[EnrollmentState::Removed]);
+    let foreign = abandoned_foreign(&db);
+    assert_eq!(foreign.state, EnrollmentState::Abandoned);
+    let at = t0().checked_add(Duration::from_secs(60)).unwrap();
+    let removed = enrollment(1, EnrollmentState::Removed);
+    let partial = scratch.path().join("partial.json");
+    write_bundle(&partial, at, std::slice::from_ref(&removed), false);
+    let full = scratch.path().join("full.json");
+    write_bundle_with(
+        &full,
+        at,
+        std::slice::from_ref(&removed),
+        std::slice::from_ref(&foreign),
+        false,
+    );
+    record_digest(&db, &partial);
+    record_digest(&db, &full);
+    let before = std::fs::read(&db).unwrap();
+
+    let bare = purge_refusals(
+        &home,
+        &account,
+        &partial,
+        "every outstanding foreign removal",
+    );
+    let listed = &bare.json()["data"]["foreign_removals"][0];
+    assert_eq!(listed["marker"], foreign.target.marker.as_str(), "{bare:?}");
+    assert_eq!(listed["state"], "abandoned");
+    assert_eq!(listed["form"], "system");
+    assert_eq!(listed["local_alias"], "lab-other");
+    let human = run(
+        &home,
+        &account,
+        &["--non-interactive", "uninstall", "--purge-state"],
+        &[],
+    );
+    assert_eq!(human.code, 6, "{human:?}");
+    assert!(
+        human.stdout.contains(&foreign.target.marker)
+            && human.stdout.contains("pending_until_line_removed"),
+        "{human:?}"
+    );
+
+    let arg = full.to_string_lossy().into_owned();
+    let out = run(
+        &home,
+        &account,
+        &[
+            "--json",
+            "--non-interactive",
+            "uninstall",
+            "--purge-state",
+            "--keep-remote-enrollments",
+            "--bundle",
+            &arg,
+        ],
+        &[],
+    );
+    assert_eq!(
+        out.code, 3,
+        "accepted, then the purge's own confirmation: {out:?}"
+    );
+    assert!(
+        out.message().contains("--purge-state not confirmed"),
+        "{out:?}"
+    );
+    no_runtime(&home, &out);
+    assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
+}
+
+/// `uninstall_purge_refuses_withdrawn_late_write` (ADR-0008 §17.27 item 1, W5-R02, end
+/// to end): a `withdrawn` record whose `late_write` residual is unresolved (absence not
+/// yet observed after its not-after; one not-after still ahead, one passed) is listed
+/// with its residual and blocks the purge like a live enrollment; a bundle listing the
+/// record without its residual is refused; one with it is accepted.
+#[test]
+fn uninstall_purge_refuses_withdrawn_late_write() {
+    use heimdall_domain::enrollment::LateWrite;
+    let now = Timestamp::now().as_second();
+    for (n, not_after) in [(1u8, now + 3600), (2, now - 3600)] {
+        let scratch = tempfile::tempdir().unwrap();
+        let account = account(scratch.path());
+        let home = scratch.path().join("home");
+        let db = seed_state(&home, &[]);
+        let mut late = enrollment(n, EnrollmentState::Withdrawn);
+        late.late_write = Some(LateWrite {
+            step_token: "ab".repeat(16),
+            not_after_remote: not_after,
+        });
+        let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        store.transaction(|tx| tx.seed_enrollment(&late)).unwrap();
+        drop(store);
+        let at = t0().checked_add(Duration::from_secs(60)).unwrap();
+        let mut quiet = late.clone();
+        quiet.late_write = None;
+        let partial = scratch.path().join("partial.json");
+        write_bundle(&partial, at, std::slice::from_ref(&quiet), false);
+        let full = scratch.path().join("full.json");
+        write_bundle(&full, at, std::slice::from_ref(&late), false);
+        record_digest(&db, &partial);
+        record_digest(&db, &full);
+        let before = std::fs::read(&db).unwrap();
+
+        let bare = purge_refusals(&home, &account, &partial, "every remaining enrollment");
+        assert_eq!(markers(&bare), vec![late.marker.clone()], "{bare:?}");
+        let listed = &bare.json()["data"]["enrollments"][0];
+        assert_eq!(listed["state"], "withdrawn");
+        assert_eq!(listed["late_write"]["not_after_remote"], not_after);
+
+        let arg = full.to_string_lossy().into_owned();
+        let out = run(
+            &home,
+            &account,
+            &[
+                "--json",
+                "--non-interactive",
+                "uninstall",
+                "--purge-state",
+                "--keep-remote-enrollments",
+                "--bundle",
+                &arg,
+            ],
+            &[],
+        );
+        assert_eq!(out.code, 3, "{out:?}");
+        no_runtime(&home, &out);
+        assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
+    }
 }
 
 /// Seed `home`'s store for the doctor: this installation's environment, and managed
@@ -1269,4 +1519,799 @@ fn doctor_reports_client_trace_family_unrecorded() {
         before,
         "the doctor wrote nothing"
     );
+}
+
+// --- the owner's terminal for uninstall (ADR-0008 §17.27 items 2 and 3) ------------------
+
+/// A pty whose session leader runs heimdall with stdin and stderr on the terminal and
+/// **stdout in a file**, so a `--json` case can check both what the terminal showed
+/// before the prompt and that stdout holds exactly one envelope (as `enroll`'s
+/// `terminal`, which puts all three on the pty). The test binary re-executes itself in
+/// child mode ([`pty::pty_child`]); its own child is stopped through its `Child`
+/// handle only.
+#[cfg(unix)]
+pub(super) mod pty {
+    use std::ffi::{OsStr, OsString};
+    use std::io::Read as _;
+    use std::os::fd::OwnedFd;
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::process::CommandExt as _;
+    use std::path::{Path, PathBuf};
+    use std::process::{Child, Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+
+    use super::super::bin;
+
+    const SLAVE: &str = "HM_U3_PTY_SLAVE";
+    const ARGS: &str = "HM_U3_PTY_ARGS";
+    const STDOUT: &str = "HM_U3_PTY_STDOUT";
+
+    /// Child-mode entry; does nothing in a normal run.
+    #[test]
+    #[ignore = "child-mode entry of the uninstall pty tests, started by them"]
+    fn pty_child() {
+        let (Some(slave), Some(args), Some(stdout)) = (
+            std::env::var_os(SLAVE),
+            std::env::var(ARGS).ok(),
+            std::env::var_os(STDOUT),
+        ) else {
+            return;
+        };
+        rustix::process::setsid().unwrap();
+        let tty = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(slave)
+            .unwrap();
+        rustix::process::ioctl_tiocsctty(&tty).unwrap();
+        let out = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(stdout)
+            .unwrap();
+        rustix::stdio::dup2_stdin(&tty).unwrap();
+        rustix::stdio::dup2_stdout(&out).unwrap();
+        rustix::stdio::dup2_stderr(&tty).unwrap();
+        drop(tty);
+        drop(out);
+        let args: Vec<String> = serde_json::from_str(&args).unwrap();
+        heimdall_testkit::term::default_terminal_signals_for_exec().unwrap();
+        let err = Command::new(bin())
+            .args(args)
+            .env_remove("HEIMDALL_E2E_BIN")
+            .exec();
+        panic!("exec failed: {err}");
+    }
+
+    /// A pseudo-terminal holding its slave for its life, its output drained.
+    pub struct Pty {
+        master: OwnedFd,
+        slave_fd: Option<OwnedFd>,
+        slave: PathBuf,
+        output: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Drop for Pty {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.slave_fd = None;
+        }
+    }
+
+    impl Pty {
+        pub fn open() -> Pty {
+            let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+            rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC).unwrap();
+            grantpt(&master).unwrap();
+            unlockpt(&master).unwrap();
+            let name = ptsname(&master, Vec::new()).unwrap();
+            let slave = PathBuf::from(OsStr::from_bytes(name.as_bytes()));
+            let slave_fd = rustix::fs::open(
+                &slave,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap();
+            rustix::termios::tcsetwinsize(
+                &slave_fd,
+                rustix::termios::Winsize {
+                    ws_row: 50,
+                    ws_col: 250,
+                    ws_xpixel: 0,
+                    ws_ypixel: 0,
+                },
+            )
+            .unwrap();
+            let output = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let reader = master.try_clone().unwrap();
+            let sink = std::sync::Arc::clone(&output);
+            let done = std::sync::Arc::clone(&stop);
+            std::thread::spawn(move || {
+                let mut f = std::fs::File::from(reader);
+                let mut buf = [0u8; 4096];
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    match f.read(&mut buf) {
+                        Ok(n) if n > 0 => sink.lock().unwrap().extend_from_slice(&buf[..n]),
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                        _ => std::thread::sleep(Duration::from_millis(10)),
+                    }
+                }
+            });
+            Pty {
+                master,
+                slave_fd: Some(slave_fd),
+                slave,
+                output,
+                stop,
+            }
+        }
+
+        pub fn write(&self, bytes: &[u8]) {
+            use std::io::Write as _;
+            let mut f = std::fs::File::from(self.master.try_clone().unwrap());
+            f.write_all(bytes).unwrap();
+        }
+
+        /// `heimdall <args>` on this terminal with exactly `env`, in `cwd`; its stdout
+        /// goes to `stdout` (created; it must not exist).
+        pub fn start(
+            &self,
+            env: &[(OsString, OsString)],
+            cwd: &Path,
+            args: &[&str],
+            stdout: &Path,
+        ) -> Child {
+            let json = serde_json::to_string(&args).unwrap();
+            let mut cmd = Command::new(std::env::current_exe().unwrap());
+            cmd.args([
+                "--exact",
+                "uninstall_doctor::pty::pty_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ])
+            .env_clear()
+            .current_dir(cwd);
+            for (k, v) in env {
+                cmd.env(k, v);
+            }
+            cmd.env(SLAVE, &self.slave)
+                .env(ARGS, &json)
+                .env(STDOUT, stdout)
+                .env("HEIMDALL_E2E_BIN", bin())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        }
+
+        pub fn transcript(&self) -> String {
+            String::from_utf8_lossy(&self.output.lock().unwrap()).into_owned()
+        }
+
+        /// Wait until the transcript contains `needle` (the child still running).
+        pub fn wait_for(&self, needle: &str, child: &mut Child) {
+            let deadline = Instant::now() + Duration::from_secs(90);
+            while !self.transcript().contains(needle) {
+                if child.try_wait().unwrap().is_some() {
+                    std::thread::sleep(Duration::from_millis(150));
+                    assert!(
+                        self.transcript().contains(needle),
+                        "the child exited before {needle:?}: {}",
+                        self.transcript()
+                    );
+                    return;
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("no {needle:?} on the terminal: {}", self.transcript());
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+
+        /// Wait for the child's exit; its code and the transcript (canary-scanned).
+        pub fn finish(&self, child: &mut Child) -> (Option<i32>, String) {
+            let deadline = Instant::now() + Duration::from_secs(120);
+            let code = loop {
+                if let Some(s) = child.try_wait().unwrap() {
+                    break s.code();
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("the pty child did not exit in time: {}", self.transcript());
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            };
+            std::thread::sleep(Duration::from_millis(150));
+            let t = self.transcript();
+            heimdall_testkit::assert_no_canary(&t);
+            assert!(!t.contains("panicked"), "{t}");
+            (code, t)
+        }
+    }
+
+    /// Exactly one envelope in the stdout file: one non-empty line, a JSON object.
+    pub fn one_envelope(stdout: &Path) -> serde_json::Value {
+        let text = std::fs::read_to_string(stdout).unwrap();
+        heimdall_testkit::assert_no_canary(&text);
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1, "exactly one envelope on stdout: {text:?}");
+        serde_json::from_str(lines[0]).unwrap()
+    }
+}
+
+/// `uninstall_json_shows_the_preview_on_the_terminal` (ADR-0008 §17.27 item 3 for
+/// uninstall): `--json uninstall --purge-state` on a real terminal writes the complete
+/// human preview to the terminal (stderr) before its typed confirmation: the
+/// outstanding obligations (a foreign removal `pending_until_line_removed`, a late
+/// write), the K_ca store item's fate and the reminder to destroy the offline backup;
+/// stdout holds exactly one envelope. Answering no changes nothing (exit 3, no runtime).
+#[cfg(unix)]
+#[test]
+fn uninstall_json_shows_the_preview_on_the_terminal() {
+    use heimdall_domain::enrollment::LateWrite;
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(scratch.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let account = account(scratch.path());
+    let home = scratch.path().join("home");
+    let db = seed_state(&home, &[]);
+    record_locator(&db);
+    let foreign = abandoned_foreign(&db);
+    let mut late = enrollment(1, EnrollmentState::Withdrawn);
+    late.late_write = Some(LateWrite {
+        step_token: "ab".repeat(16),
+        not_after_remote: Timestamp::now().as_second() + 3600,
+    });
+    let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
+    store.transaction(|tx| tx.seed_enrollment(&late)).unwrap();
+    drop(store);
+    let bundle = scratch.path().join("bundle.json");
+    write_bundle_with(
+        &bundle,
+        t0().checked_add(Duration::from_secs(60)).unwrap(),
+        std::slice::from_ref(&late),
+        std::slice::from_ref(&foreign),
+        false,
+    );
+    record_digest(&db, &bundle);
+    let before = std::fs::read(&db).unwrap();
+    let env: Vec<(std::ffi::OsString, std::ffi::OsString)> = vec![
+        ("PATH".into(), "/usr/bin:/bin".into()),
+        ("HOME".into(), account.clone().into_os_string()),
+        ("HEIMDALL_HOME".into(), home.clone().into_os_string()),
+        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+    ];
+    let arg = bundle.to_string_lossy().into_owned();
+    let stdout = scratch.path().join("stdout.json");
+    let term = pty::Pty::open();
+    let mut child = term.start(
+        &env,
+        scratch.path(),
+        &[
+            "--json",
+            "uninstall",
+            "--purge-state",
+            "--keep-remote-enrollments",
+            "--bundle",
+            &arg,
+        ],
+        &stdout,
+    );
+    term.wait_for("[y/N]", &mut child);
+    let shown = term.transcript();
+    let prompt_at = shown.find("[y/N]").unwrap();
+    let preview = &shown[..prompt_at];
+    for needle in [
+        "--purge-state permanently deletes Heimdall's state",
+        "Outstanding remote obligations",
+        foreign.target.marker.as_str(),
+        "pending_until_line_removed",
+        late.marker.as_str(),
+        "late_write",
+        "CA key (K_ca) store items:",
+        LOCATOR,
+        "deletion offered",
+        "destroy the offline backup",
+    ] {
+        assert!(
+            preview.contains(needle),
+            "{needle} before the prompt: {preview}"
+        );
+    }
+    assert!(
+        !preview.contains("\"schema_version\""),
+        "no envelope on the terminal: {preview}"
+    );
+    term.write(b"no\n");
+    let (code, _) = term.finish(&mut child);
+    assert_eq!(code, Some(3), "{}", term.transcript());
+    let v = pty::one_envelope(&stdout);
+    assert_eq!(v["code"], "INTERACTION_REQUIRED", "{v}");
+    assert!(no_runtime_started(&home), "nothing was started");
+    assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
+}
+
+/// No runtime was started under `home` (no advertisement, no log).
+#[cfg(unix)]
+fn no_runtime_started(home: &Path) -> bool {
+    !home.join("run").join("instance.json").exists()
+        && !home.join("log").join("runtime.log").exists()
+}
+
+/// `uninstall_purge_race_with_concurrent_enrollment_keeps_state` (ADR-0008 §17.27
+/// item 2, W5-S01, the reviewer's two-CLI race): `--json uninstall --purge-state` waits
+/// at its typed confirmation on one terminal while a second CLI's `enroll`, approved with
+/// a typed yes on another, writes its line through the loopback sshd. The purge's `yes`
+/// then takes the uninstall fence, re-reads the inventory, finds the new enrollment and
+/// refuses `uninstall_inventory_changed` (exit 4, effect `none`, listing it, naming
+/// `heimdall uninstall`): the state database, the enrollment record and the runtime are
+/// all still there, and the remote line stays recorded. The fence is lifted after the
+/// refusal: a new enrollment request is admitted again (refused only for its own reason,
+/// never `uninstall_in_progress`).
+#[cfg(unix)]
+#[test]
+fn uninstall_purge_race_with_concurrent_enrollment_keeps_state() {
+    use super::enroll::world::{ALIAS, World};
+    let w = World::new();
+    // The once-only lock disclosure is already acknowledged here, so the enrollment's
+    // approval needs nothing but its typed yes.
+    w.tx(|tx| tx.set_lock_disclosure_ack(Timestamp::now()).map(drop));
+    let db = w.home.root.join("state").join("state.db");
+    assert!(db.exists(), "the in-process runtime's store");
+    let out_dir = w.home.scratch().subdir("u3-race").unwrap();
+    let reg = w.registry_remote.clone();
+    let enrollments = || w.tx(|tx| tx.outstanding_obligations()).enrollments;
+    assert!(enrollments().is_empty());
+
+    // 1. The purge waits at its confirmation (the inventory it shows is empty).
+    let purge_term = pty::Pty::open();
+    let purge_out = out_dir.join("purge.json");
+    let mut purge = purge_term.start(
+        &w.env(),
+        &w.home.root,
+        &["--json", "uninstall", "--purge-state"],
+        &purge_out,
+    );
+    purge_term.wait_for("[y/N]", &mut purge);
+
+    // 2. Meanwhile a second CLI enrolls, approved with a typed yes.
+    let enroll_term = pty::Pty::open();
+    let enroll_out = out_dir.join("enroll.json");
+    let mut enroll = enroll_term.start(
+        &w.env(),
+        &w.home.root,
+        &["--json", "enroll", ALIAS, "--registry-path", &reg],
+        &enroll_out,
+    );
+    enroll_term.wait_for("[y/N]", &mut enroll);
+    enroll_term.write(b"yes\n");
+    let (code, t) = enroll_term.finish(&mut enroll);
+    assert!(code.is_some(), "{t}");
+    assert_eq!(
+        w.marker_lines(),
+        1,
+        "the enrollment was approved and written: {t}"
+    );
+    let admitted = enrollments();
+    assert_eq!(
+        admitted.len(),
+        1,
+        "one outstanding enrollment: {admitted:?}"
+    );
+
+    // 3. The purge is confirmed: fenced, revalidated, refused; nothing deleted.
+    purge_term.write(b"yes\n");
+    let (code, t) = purge_term.finish(&mut purge);
+    assert_eq!(code, Some(4), "{t}");
+    let v = pty::one_envelope(&purge_out);
+    assert_eq!(v["code"], "CAPABILITY_UNAVAILABLE", "{v}");
+    assert_eq!(
+        v["data"]["error"]["reason"], "uninstall_inventory_changed",
+        "{v}"
+    );
+    assert_eq!(v["data"]["error"]["effect_status"], "none", "{v}");
+    assert_eq!(v["data"]["next_command"], "heimdall uninstall", "{v}");
+    assert_eq!(
+        v["data"]["enrollments"][0]["marker"],
+        admitted[0].marker.as_str(),
+        "{v}"
+    );
+    assert!(db.exists(), "the state database was not deleted");
+    assert_eq!(enrollments(), admitted, "the enrollment record is kept");
+    assert_eq!(w.marker_lines(), 1, "the remote line is still recorded");
+    assert!(
+        w.home.root.join("run").join("instance.json").exists(),
+        "the runtime was not stopped"
+    );
+
+    // 4. The fence was lifted: an enrollment request is admitted again (here refused only
+    // because the pair is already enrolled under this CA).
+    let again = w.cli(&[
+        "--json",
+        "--non-interactive",
+        "enroll",
+        ALIAS,
+        "--registry-path",
+        &reg,
+    ]);
+    let v: serde_json::Value = serde_json::from_str(again.stdout.trim()).unwrap();
+    assert_ne!(
+        v["data"]["error"]["reason"], "uninstall_in_progress",
+        "the fence outlived the refused uninstall: {again:?}"
+    );
+    assert_ne!(v["code"], "SERVICE_UNAVAILABLE", "{again:?}");
+}
+
+// --- ADR-0008 §17.28 item 1: the fence's scope, and unresolved remote steps -------------
+
+/// A bare control-endpoint client (the wire of ADR-0006 §2: 4-byte big-endian length,
+/// then JSON), so a test can hold the fence on one connection and speak for another;
+/// the CLI has no command that only holds the fence.
+#[cfg(unix)]
+mod raw {
+    use std::io::{Read as _, Write as _};
+    use std::os::unix::net::UnixStream;
+    use std::path::Path;
+
+    use heimdall_contract::envelope::Envelope;
+    use heimdall_contract::ipc::{ClientHello, ClientMessage, PeerInfo, ServerMessage, capability};
+    use heimdall_contract::request::{InteractionMode, Request};
+
+    pub struct Raw {
+        stream: UnixStream,
+        seq: u64,
+    }
+
+    impl Raw {
+        /// An interactive, attended owner session on `root`'s control endpoint.
+        pub fn attended(root: &Path) -> Raw {
+            let stream = UnixStream::connect(root.join("run").join("control.sock")).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(60)))
+                .unwrap();
+            let mut raw = Raw { stream, seq: 0 };
+            let caps = [
+                capability::OPERATIONS_V1,
+                capability::SERVICE_CONTROL_V1,
+                capability::ISSUER_V1,
+                capability::ENROLLMENT_V1,
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+            raw.send(&ClientMessage::Hello(ClientHello {
+                protocol: heimdall_contract::PROTOCOL_VERSION,
+                schema_version: heimdall_contract::SchemaVersion::current(),
+                client: PeerInfo {
+                    name: "u3-raw-test".into(),
+                    version: "0".into(),
+                },
+                capabilities: caps,
+                required: [capability::OPERATIONS_V1.to_owned()].into_iter().collect(),
+                interaction: InteractionMode::Interactive,
+            }));
+            assert!(
+                matches!(raw.recv(), ServerMessage::Hello(_)),
+                "the runtime accepted the hello"
+            );
+            raw.seq += 1;
+            let seq = raw.seq;
+            raw.send(&ClientMessage::Attend { seq });
+            let attended = raw.reply(seq);
+            assert!(attended.code.is_success(), "{attended:?}");
+            raw
+        }
+
+        fn send(&mut self, m: &ClientMessage) {
+            let body = serde_json::to_vec(m).unwrap();
+            let len = u32::try_from(body.len()).unwrap().to_be_bytes();
+            self.stream.write_all(&len).unwrap();
+            self.stream.write_all(&body).unwrap();
+        }
+
+        fn recv(&mut self) -> ServerMessage {
+            let mut len = [0u8; 4];
+            self.stream.read_exact(&mut len).unwrap();
+            let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
+            self.stream.read_exact(&mut body).unwrap();
+            serde_json::from_slice(&body).unwrap()
+        }
+
+        fn reply(&mut self, seq: u64) -> Envelope<serde_json::Value> {
+            loop {
+                if let ServerMessage::Response {
+                    in_reply_to,
+                    envelope,
+                } = self.recv()
+                    && in_reply_to == seq
+                {
+                    heimdall_testkit::assert_no_canary(&serde_json::to_string(&envelope).unwrap());
+                    return envelope;
+                }
+            }
+        }
+
+        pub fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.seq += 1;
+            let seq = self.seq;
+            self.send(&ClientMessage::Request { seq, request });
+            self.reply(seq)
+        }
+    }
+}
+
+#[cfg(unix)]
+fn is_fenced(env: &heimdall_contract::envelope::Envelope<serde_json::Value>) -> bool {
+    env.code == heimdall_contract::Code::ServiceUnavailable
+        && env.data["error"]["reason"] == "uninstall_in_progress"
+}
+
+/// A paused enrollment: `enroll` approved on a pty, its append step dispatched and held
+/// at the script's `before_write` point (nothing written yet). Returns the pty, the CLI,
+/// its stdout file and the hooks.
+#[cfg(unix)]
+fn paused_enrollment(
+    w: &super::enroll::world::World,
+    hooks: &heimdall_testkit::registry::PauseHooks,
+    out: &Path,
+) -> (pty::Pty, std::process::Child) {
+    use heimdall_testkit::registry::hook;
+    w.tx(|tx| tx.set_lock_disclosure_ack(Timestamp::now()).map(drop));
+    hooks.arm(hook::BEFORE_WRITE).unwrap();
+    let mut env = w.env();
+    let (k, v) = hooks.env();
+    env.push((k.into(), v));
+    let reg = w.registry_remote.clone();
+    let term = pty::Pty::open();
+    let mut child = term.start(
+        &env,
+        &w.home.root,
+        &[
+            "--json",
+            "enroll",
+            super::enroll::world::ALIAS,
+            "--registry-path",
+            &reg,
+        ],
+        out,
+    );
+    term.wait_for("[y/N]", &mut child);
+    term.write(b"yes\n");
+    hooks
+        .wait_at_for(hook::BEFORE_WRITE, Duration::from_secs(90))
+        .unwrap_or_else(|e| panic!("no pause at before_write ({e}): {}", term.transcript()));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the CLI waits on the step"
+    );
+    (term, child)
+}
+
+/// `uninstall_purge_refuses_unresolved_remote_step` (ADR-0008 §17.28 item 1, end to
+/// end): an enrollment's append step is dispatched and paused remotely (no result yet).
+/// `uninstall --purge-state --keep-remote-enrollments` with a fresh recorded bundle
+/// listing it is confirmed with a typed yes; under the fence it finds the unresolved
+/// step and refuses `uninstall_remote_step_unresolved` (exit 4, effect `none`, naming
+/// the operation): the state database and the runtime are kept. Released, the step
+/// finishes and writes its line.
+#[cfg(unix)]
+#[test]
+fn uninstall_purge_refuses_unresolved_remote_step() {
+    use heimdall_testkit::registry::hook;
+    let (w, hooks) = super::enroll::world::World::with_pause();
+    let dir = w.home.scratch().subdir("u3-step").unwrap();
+    let (enroll_term, mut enroll) = paused_enrollment(&w, &hooks, &dir.join("enroll.json"));
+    let outstanding = w.tx(|tx| tx.outstanding_obligations());
+    assert_eq!(outstanding.enrollments.len(), 1, "{outstanding:?}");
+    let op = outstanding.operations[0].id.clone();
+    assert_eq!(
+        w.tx(heimdall_app::operations::unresolved_remote_steps),
+        vec![op.clone()]
+    );
+    // A fresh bundle listing the CA and the enrollment as they are, recorded.
+    let ca = w.tx(|tx| tx.issuer(w.ca.fingerprint())).unwrap();
+    let bundle = RecoveryBundle {
+        schema: RECOVERY_BUNDLE_SCHEMA.to_owned(),
+        created_at: Timestamp::now()
+            .checked_add(Duration::from_secs(60))
+            .unwrap(),
+        redacted: false,
+        cas: vec![BundleCa {
+            fingerprint: ca.ca_fingerprint.clone(),
+            public_key: ca.public_key.clone(),
+            backup_sha256: ca.backup_sha256.clone(),
+            backup_created_at: ca.backup_created_at,
+            state: ca.state,
+        }],
+        enrollments: outstanding.enrollments.iter().map(bundle_entry).collect(),
+        foreign_removals: Vec::new(),
+        instructions: Vec::new(),
+    };
+    let file = dir.join("bundle.json");
+    let bytes = serde_json::to_vec(&bundle).unwrap();
+    std::fs::write(&file, &bytes).unwrap();
+    let sha = heimdall_issuer::backup::sha256_hex(&bytes);
+    w.tx(|tx| tx.record_bundle_digest(&sha, bundle.created_at));
+    let db = w.home.root.join("state").join("state.db");
+
+    let arg = file.to_string_lossy().into_owned();
+    let purge_out = dir.join("purge.json");
+    let term = pty::Pty::open();
+    let mut purge = term.start(
+        &w.env(),
+        &w.home.root,
+        &[
+            "--json",
+            "uninstall",
+            "--purge-state",
+            "--keep-remote-enrollments",
+            "--bundle",
+            &arg,
+        ],
+        &purge_out,
+    );
+    term.wait_for("[y/N]", &mut purge);
+    term.write(b"yes\n");
+    let (code, t) = term.finish(&mut purge);
+    assert_eq!(code, Some(4), "{t}");
+    let v = pty::one_envelope(&purge_out);
+    assert_eq!(v["code"], "CAPABILITY_UNAVAILABLE", "{v}");
+    assert_eq!(
+        v["data"]["error"]["reason"], "uninstall_remote_step_unresolved",
+        "{v}"
+    );
+    assert_eq!(v["data"]["error"]["effect_status"], "none", "{v}");
+    assert_eq!(v["data"]["unresolved_steps"][0], op.as_str(), "{v}");
+    assert!(db.exists(), "the state database was not deleted");
+    assert!(
+        w.home.root.join("run").join("instance.json").exists(),
+        "the runtime was not stopped"
+    );
+    // Released, the paused step finishes: its result is recorded (the fence was lifted).
+    hooks.disarm(hook::BEFORE_WRITE).unwrap();
+    hooks.release(hook::BEFORE_WRITE).unwrap();
+    let (_, t) = enroll_term.finish(&mut enroll);
+    assert_eq!(w.marker_lines(), 1, "the step wrote its line: {t}");
+    assert!(
+        w.tx(heimdall_app::operations::unresolved_remote_steps)
+            .is_empty(),
+        "{t}"
+    );
+}
+
+/// `uninstall_fence_scope_end_to_end` (ADR-0008 §17.28 item 1): with an enrollment's
+/// append step dispatched before the fence and paused remotely, one connection takes
+/// the fence. From a second connection, `Step`, `abandon` and issuer `retire` are each
+/// refused `uninstall_in_progress`, and so is an approval, while a denial is accepted.
+/// The holder's own retirement and its approval are not refused. The pre-fence step's
+/// result is accepted and recorded when the script is released (its line written, the
+/// journal's step resolved); the CLI's next `Step` is then refused. When the holder's
+/// connection closes, the fence is lifted.
+#[cfg(unix)]
+#[test]
+fn uninstall_fence_scope_end_to_end() {
+    use heimdall_contract::enrollment::EnrollmentRequest;
+    use heimdall_contract::ids::{DecisionId, EnrollmentId};
+    use heimdall_contract::issuer::IssuerRequest;
+    use heimdall_contract::request::{DecideRequest, Request, UninstallFenceRequest, Verdict};
+    use heimdall_testkit::registry::hook;
+    let (w, hooks) = super::enroll::world::World::with_pause();
+    let dir = w.home.scratch().subdir("u3-scope").unwrap();
+    let (enroll_term, mut enroll) = paused_enrollment(&w, &hooks, &dir.join("enroll.json"));
+    let outstanding = w.tx(|tx| tx.outstanding_obligations());
+    let op = outstanding.operations[0].id.clone();
+    let enrollment: EnrollmentId = outstanding.enrollments[0].id.clone();
+    let state_at_pause = outstanding.enrollments[0].state;
+    let spare = w.add_ca();
+
+    let mut holder = raw::Raw::attended(&w.home.root);
+    let held = holder.request(Request::UninstallFence(UninstallFenceRequest::Acquire));
+    assert_eq!(held.data["fence"], "held", "{held:?}");
+    let mut other = raw::Raw::attended(&w.home.root);
+    let retire = || {
+        Request::Issuer(IssuerRequest::Retire {
+            ca_fingerprint: spare.fingerprint().clone(),
+            deleted_locator: None,
+        })
+    };
+    let decide = |id: &str, verdict| {
+        Request::Decide(DecideRequest {
+            decision_id: DecisionId::parse(id).unwrap(),
+            verdict,
+        })
+    };
+    for (what, request) in [
+        (
+            "step",
+            Request::Enrollment(EnrollmentRequest::Step {
+                operation_id: op.clone(),
+            }),
+        ),
+        (
+            "abandon",
+            Request::Enrollment(EnrollmentRequest::Abandon {
+                enrollment_id: enrollment.clone(),
+            }),
+        ),
+        ("retire", retire()),
+    ] {
+        let env = other.request(request);
+        assert!(is_fenced(&env), "{what} from a second connection: {env:?}");
+    }
+    // The holder's retirement is not refused; its decision is approved by the holder,
+    // and only refused when another connection approves it.
+    let first = holder.request(retire());
+    assert!(!is_fenced(&first), "{first:?}");
+    let decision = first
+        .next
+        .as_ref()
+        .and_then(|n| n.decision_ref.clone())
+        .unwrap_or_else(|| panic!("a retirement decision: {first:?}"));
+    let approve = other.request(decide(&decision, Verdict::Approve));
+    assert!(
+        is_fenced(&approve),
+        "an approval from a second connection: {approve:?}"
+    );
+    let deny = other.request(decide(&decision, Verdict::Deny));
+    assert!(
+        deny.code.is_success(),
+        "a denial from a second connection: {deny:?}"
+    );
+    let second = holder.request(retire());
+    let decision = second
+        .next
+        .as_ref()
+        .and_then(|n| n.decision_ref.clone())
+        .unwrap_or_else(|| panic!("a retirement decision: {second:?}"));
+    let approved = holder.request(decide(&decision, Verdict::Approve));
+    assert!(
+        approved.code.is_success(),
+        "the holder's approval: {approved:?}"
+    );
+    let after = w.tx(|tx| tx.issuer(spare.fingerprint())).unwrap();
+    assert_ne!(
+        after.state,
+        heimdall_contract::issuer::CaState::Active,
+        "the holder's retirement ran"
+    );
+
+    // The step dispatched before the fence reports its result: accepted and recorded.
+    hooks.disarm(hook::BEFORE_WRITE).unwrap();
+    hooks.release(hook::BEFORE_WRITE).unwrap();
+    let (_, t) = enroll_term.finish(&mut enroll);
+    assert_eq!(
+        w.marker_lines(),
+        1,
+        "the pre-fence step wrote its line: {t}"
+    );
+    let now = w.tx(|tx| tx.enrollment(&enrollment)).unwrap();
+    assert_ne!(now.state, state_at_pause, "its result was recorded: {t}");
+    assert!(
+        !w.tx(heimdall_app::operations::unresolved_remote_steps)
+            .contains(&op),
+        "{t}"
+    );
+    let cli = std::fs::read_to_string(dir.join("enroll.json")).unwrap_or_default();
+    assert!(
+        cli.contains("uninstall_in_progress") || t.contains("uninstall_in_progress"),
+        "the CLI's next step was refused: {cli} {t}"
+    );
+
+    // The holder's connection ends: lifted.
+    drop(holder);
+    std::thread::sleep(Duration::from_millis(300));
+    let env = other.request(Request::Enrollment(EnrollmentRequest::Step {
+        operation_id: op,
+    }));
+    assert!(!is_fenced(&env), "{env:?}");
 }

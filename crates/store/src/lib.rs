@@ -45,7 +45,9 @@ pub mod ext_m03;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
-pub use ext_m03::{IssuerRecord, LostInstances, ManagedSlot};
+pub use ext_m03::{
+    IssuerRecord, LostInstances, ManagedSlot, OpenEnrollmentOperation, OutstandingObligations,
+};
 
 /// Store errors. Mapped to `STATE_UNAVAILABLE` by the application layer.
 #[derive(Debug, thiserror::Error)]
