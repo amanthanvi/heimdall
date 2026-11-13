@@ -468,6 +468,10 @@ pub mod finding {
     pub const CLIENT_TRACE_FAMILY_UNRECORDED: &str = "client_trace_family_unrecorded";
     /// ⟨M03⟩ A managed alias's slot is free (with the command that holds one).
     pub const SLOT_FREE: &str = "slot_free";
+    /// ⟨M03⟩ A directory under the managed runtime directory is not owner-only, so binding
+    /// clears refuse until it is removed (ADR-0008 §17.20 item 15: "the doctor (U12) reports
+    /// it"; nothing is repaired silently).
+    pub const MANAGED_DIR_UNSAFE: &str = "managed_dir_unsafe";
 
     /// ⟨M03⟩ The findings M03 adds (m03-plan §5 item 14); [`ALL`] stays M02's list.
     pub const M03: &[&str] = &[
@@ -475,6 +479,7 @@ pub mod finding {
         ENROLLMENT_EVIDENCE_STALE,
         CLIENT_TRACE_FAMILY_UNRECORDED,
         SLOT_FREE,
+        MANAGED_DIR_UNSAFE,
     ];
 }
 

@@ -1,0 +1,11 @@
+Restore the CA key from a backup (the passphrase is typed on the terminal)
+
+Usage: heimdall issuer restore [OPTIONS] --backup <FILE>
+
+Options:
+      --backup <FILE>    The encrypted backup file
+      --json             Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --not-stolen       The backup is not believed stolen
+      --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+  -h, --help             Print help

@@ -838,6 +838,100 @@ async fn linux_revoke_on_lock_labelled_signal_unverified() {
     assert_eq!(codes, vec!["signal_unverified"]);
     let env = serde_json::to_value(done.into_envelope()).unwrap();
     assert_eq!(env["warnings"][0]["code"], "signal_unverified");
+
+    // ⟨M03 wave 5⟩ U9-Q3 (a): the operations label their own results, with no caller
+    // help: the `SetLockBehavior`, `ensure` (and `delegate`) and `inspect
+    // capabilities` results. The fake source stands in for logind through
+    // `set_session_lock_signal`, so this runs on every host.
+    let codes = |w: &[heimdall_contract::envelope::Warning]| -> Vec<String> {
+        w.iter().map(|x| x.code.clone()).collect()
+    };
+    let unverified = vec!["signal_unverified".to_owned()];
+    let w = world().await;
+    w.ops.set_session_lock_signal(linux);
+    assert_eq!(w.ops.session_lock_signal(), linux);
+    let ensure = |profile: ProfileId, tag: &str| EnsureRequest {
+        profile,
+        profile_revision: None,
+        scope: [h1()].into_iter().collect(),
+        environment: None,
+        work_id: WorkId::parse(&format!("w-{tag}")).unwrap(),
+        until: None,
+        required_capabilities: RequiredCapabilities::default(),
+        request_id: RequestId::parse(&format!("r-{tag}")).unwrap(),
+        interaction: InteractionMode::NonInteractive,
+        wait: WaitMode::Sync { timeout_ms: 30_000 },
+        connection: None,
+    };
+    let capabilities = heimdall_contract::request::InspectRequest {
+        subject: heimdall_contract::request::InspectSubject::Capabilities,
+        preview: None,
+    };
+    // A `continue` grant carries nothing; a `revoke_on_lock` one is labelled, once.
+    let c = w
+        .ops
+        .ensure(&owner(), ensure(dev(), "lbl-c"))
+        .await
+        .unwrap();
+    assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+    let r = w
+        .ops
+        .ensure(&owner(), ensure(ops_profile(), "lbl-r"))
+        .await
+        .unwrap();
+    assert_eq!(codes(&r.warnings), unverified);
+    let child = w
+        .ops
+        .delegate(
+            &owner(),
+            DelegateRequest {
+                parent_binding_id: r.data.binding_id.clone(),
+                scope: [h1()].into_iter().collect(),
+                until: Some(DeadlineIntent::Duration("1h".into())),
+                work_id: WorkId::parse("c-lbl").unwrap(),
+                request_id: RequestId::parse("d-lbl").unwrap(),
+                required_capabilities: RequiredCapabilities::default(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        codes(&child.warnings),
+        unverified,
+        "the delegated child too"
+    );
+    // The capabilities: `pol-ops` is `revoke_on_lock`, so the current behaviour is.
+    let caps = w.ops.inspect(&owner(), capabilities.clone()).await.unwrap();
+    assert_eq!(codes(&caps.warnings), unverified);
+    // The policy result, from the operations alone; `continue` carries nothing.
+    let set = |behavior| PolicyAction::SetLockBehavior {
+        policy_id: pol_ops(),
+        behavior,
+    };
+    let done = w.ops.policy(&attended(), set(RevokeOnLock)).await.unwrap();
+    assert_eq!(
+        codes(&done.warnings),
+        unverified,
+        "unchanged, still labelled"
+    );
+    // Another signal (macOS, Windows) labels nothing.
+    w.ops.set_session_lock_signal(LockSignal::MacosScreenLock);
+    let r2 = w
+        .ops
+        .ensure(&owner(), ensure(ops_profile(), "lbl-m"))
+        .await
+        .unwrap();
+    assert!(r2.warnings.is_empty(), "{:?}", r2.warnings);
+    let caps = w.ops.inspect(&owner(), capabilities.clone()).await.unwrap();
+    assert!(caps.warnings.is_empty(), "{:?}", caps.warnings);
+    let done = w.ops.policy(&attended(), set(RevokeOnLock)).await.unwrap();
+    assert!(done.warnings.is_empty(), "{:?}", done.warnings);
+    // A source that reads `unavailable` has no signal (and no label).
+    w.ops.set_session_lock_signal(linux);
+    w.lock.set_state(LockState::Unavailable);
+    assert_eq!(w.ops.session_lock_signal(), LockSignal::None);
+    let caps = w.ops.inspect(&owner(), capabilities).await.unwrap();
+    assert!(caps.warnings.is_empty(), "{:?}", caps.warnings);
 }
 
 /// ADR-0008 D9 item 2: a lock revokes every `revoke_on_lock` grant, with tombstone and

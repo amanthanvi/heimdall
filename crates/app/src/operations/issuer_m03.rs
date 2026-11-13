@@ -177,12 +177,13 @@ pub(crate) struct CaStoreItems {
 /// child says. Orphan store items: ⟨§17.22 item 12⟩ every item a restore displaced
 /// (with its locator) until its deletion is confirmed; items no registration names
 /// at all are the CLI's to find (the runtime holds no store handle).
-/// ⟨reading⟩ No record of a written bundle exists (the CLI writes the file), so the
-/// last bundle is reported stale whenever an enrollment exists.
+/// ⟨wave 5, U10B-Q3 (b)⟩ `bundle_stale`: [`bundle_stale`] over the recorded
+/// `last_bundle_at` (absent: stale whenever an enrollment exists, the wave-4 reading).
 pub(crate) fn status_view(
     snapshot: Option<&IssuerStatusSnapshot>,
     cas: &[(IssuerRecord, CaStoreItems)],
     enrollments: &[EnrollmentRecord],
+    last_bundle_at: Option<Timestamp>,
 ) -> IssuerStatus {
     let (state, reason_text) = if cas.is_empty() {
         (
@@ -225,9 +226,37 @@ pub(crate) fn status_view(
             })
             .collect(),
         issuer_isolation: IssuerIsolation::SameUserProcess,
-        bundle_stale: !enrollments.is_empty(),
+        bundle_stale: bundle_stale(cas, enrollments, last_bundle_at),
     }
 }
+
+/// ⟨wave 5, Q-IS2⟩ Whether a recovery bundle built at `last_bundle_at` predates an
+/// enrollment or CA change: no enrollment, never stale; no recorded bundle, stale;
+/// otherwise stale when any enrollment was updated, or any CA created or retired, at or
+/// after it (an equal instant counts as after: the fail-closed side).
+pub(crate) fn bundle_stale(
+    cas: &[(IssuerRecord, CaStoreItems)],
+    enrollments: &[EnrollmentRecord],
+    last_bundle_at: Option<Timestamp>,
+) -> bool {
+    if enrollments.is_empty() {
+        return false;
+    }
+    let Some(at) = last_bundle_at else {
+        return true;
+    };
+    enrollments.iter().any(|e| e.updated_at >= at)
+        || cas
+            .iter()
+            .any(|(c, _)| c.created_at >= at || c.retired_at.is_some_and(|r| r >= at))
+}
+
+/// ⟨wave 5, Q-IS2; U10B-Q3 (b)⟩ Whether the runtime records `last_bundle_at` when it
+/// answers `issuer.bundle` (unredacted bundles only: a redacted one cannot serve foreign
+/// removal). `false`, the fail-closed reading while who records it is escalated: no
+/// bundle is ever recorded, so `bundle_stale` stays true whenever an enrollment exists
+/// (the runtime cannot know the CLI wrote the file).
+pub(crate) const RECORD_LAST_BUNDLE_AT_ON_REPLY: bool = false;
 
 /// Every registered CA with its recorded store items.
 type CasWithItems = Vec<(IssuerRecord, CaStoreItems)>;
@@ -541,8 +570,13 @@ impl Operations {
 
     async fn issuer_status(&self, issuer: &dyn IssuerPort) -> OpResult<serde_json::Value> {
         let snapshot = issuer.status();
-        let (cas, enrollments) = self.write(|tx, _| read_cas_and_enrollments(tx)).await?;
-        let view = status_view(Some(&snapshot), &cas, &enrollments);
+        let (cas, enrollments, last_bundle_at) = self
+            .write(|tx, _| {
+                let (cas, enrollments) = read_cas_and_enrollments(tx)?;
+                Ok((cas, enrollments, tx.last_bundle_at()?))
+            })
+            .await?;
+        let view = status_view(Some(&snapshot), &cas, &enrollments, last_bundle_at);
         let data = serde_json::to_value(view).map_err(|_| internal("issuer status"))?;
         Ok(Completed::ok(Code::Ok, data))
     }
@@ -550,8 +584,11 @@ impl Operations {
     async fn issuer_bundle(&self, redact_hostnames: bool) -> OpResult<serde_json::Value> {
         let created_at = self.inner.config.clock.wall();
         let (cas, enrollments, aliases) = self
-            .write(|tx, _| {
+            .write(move |tx, _| {
                 let (cas, enrollments) = read_cas_and_enrollments(tx)?;
+                if RECORD_LAST_BUNDLE_AT_ON_REPLY && !redact_hostnames {
+                    tx.set_last_bundle_at(created_at)?;
+                }
                 let cas: Vec<IssuerRecord> = cas.into_iter().map(|(c, _)| c).collect();
                 let mut aliases = Vec::with_capacity(enrollments.len());
                 for e in &enrollments {
@@ -1208,5 +1245,152 @@ pub(super) fn decision_apply(
             }
         }
         _ => Ok(Ok(Vec::new())),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod last_bundle_tests {
+    //! ⟨wave 5, U10B-Q3 (b), Q-IS2⟩ The `last_bundle_at` refinement of `bundle_stale`.
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use heimdall_store::{NoFaults, Store};
+
+    use super::*;
+
+    fn at(s: u64) -> Timestamp {
+        "2026-11-01T00:00:00Z"
+            .parse::<Timestamp>()
+            .unwrap()
+            .checked_add(Duration::from_secs(s))
+            .unwrap()
+    }
+
+    fn ca(created: u64, retired: Option<u64>) -> (IssuerRecord, CaStoreItems) {
+        (
+            IssuerRecord {
+                ca_fingerprint: CaFingerprint::parse(&format!("SHA256:{}", "A".repeat(43)))
+                    .unwrap(),
+                public_key: "ssh-ed25519 AAAA".into(),
+                state: CaState::Active,
+                store_kind: StoreKind::LinuxSecretService,
+                backup_sha256: "ab".repeat(32),
+                backup_created_at: at(created),
+                restored_without_log: false,
+                created_at: at(created),
+                retired_at: retired.map(at),
+            },
+            CaStoreItems::default(),
+        )
+    }
+
+    fn enrollment_updated_at(t: Timestamp) -> EnrollmentRecord {
+        use heimdall_contract::ids::{AccountName, DestinationId, IdentityId};
+        use heimdall_domain::enrollment::{
+            ApprovedHostKey, ApprovedTarget, EnrollmentForm, EnrollmentState, ExistingAccessRecord,
+            NoProxy, RegistryCanonical, RegistryRef, RegistryResolvedBy, marker_for,
+        };
+        let id = EnrollmentId::from_random_bytes([1; 16]);
+        let account = AccountName::parse("deploy").unwrap();
+        EnrollmentRecord {
+            marker: marker_for(&id),
+            id,
+            destination: DestinationId::parse("dst-lab").unwrap(),
+            account: account.clone(),
+            ca_fingerprint: ca(0, None).0.ca_fingerprint,
+            form: EnrollmentForm::Account,
+            registry: RegistryRef {
+                path_display: "~/.ssh/authorized_keys".into(),
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            registry_canonical: RegistryCanonical {
+                path: None,
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            line_sha256: "ab".repeat(32),
+            target: ApprovedTarget {
+                hostname: "example.invalid".into(),
+                port: 22,
+                user: account,
+                proxy: NoProxy::None,
+                host_key: ApprovedHostKey {
+                    algorithm: "ssh-ed25519".into(),
+                    key: "AAAAC3NzaC1lZDI1NTE5AAAAIhostfixture".into(),
+                    fingerprint: "SHA256:hostfixture".into(),
+                },
+            },
+            existing_access: ExistingAccessRecord {
+                identity: IdentityId::from_random_bytes([1; 16]),
+                endpoint: None,
+                public_key_file: None,
+            },
+            hold: None,
+            removal_origin: None,
+            late_write: None,
+            state: EnrollmentState::Verified,
+            verified_at: None,
+            evidence: None,
+            created_at: t,
+            updated_at: t,
+        }
+    }
+
+    /// No enrollment: never stale. No recorded bundle: stale. A bundle after every
+    /// change: fresh; an enrollment or CA change at or after it: stale.
+    #[test]
+    fn bundle_stale_follows_the_last_recorded_bundle() {
+        let enrollment = enrollment_updated_at(at(10));
+        let cas = [ca(0, None)];
+        assert!(!bundle_stale(&cas, &[], None));
+        assert!(bundle_stale(&cas, std::slice::from_ref(&enrollment), None));
+        assert!(!bundle_stale(
+            &cas,
+            std::slice::from_ref(&enrollment),
+            Some(at(11))
+        ));
+        assert!(bundle_stale(
+            &cas,
+            std::slice::from_ref(&enrollment),
+            Some(at(10))
+        ));
+        assert!(bundle_stale(
+            &cas,
+            std::slice::from_ref(&enrollment),
+            Some(at(9))
+        ));
+        let retired = [ca(0, Some(20))];
+        assert!(bundle_stale(
+            &retired,
+            std::slice::from_ref(&enrollment),
+            Some(at(15))
+        ));
+        assert!(!bundle_stale(
+            &retired,
+            std::slice::from_ref(&enrollment),
+            Some(at(21))
+        ));
+    }
+
+    /// The meta key never lowers; it is absent until recorded.
+    #[test]
+    fn last_bundle_at_is_recorded_once_and_never_lowers() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        store
+            .transaction(|tx| {
+                assert_eq!(tx.last_bundle_at()?, None);
+                assert_eq!(tx.set_last_bundle_at(at(5))?, at(5));
+                assert_eq!(tx.set_last_bundle_at(at(3))?, at(5));
+                assert_eq!(tx.set_last_bundle_at(at(8))?, at(8));
+                assert_eq!(tx.last_bundle_at()?, Some(at(8)));
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// The fail-closed switch is off: the runtime never records a bundle.
+    #[test]
+    fn the_runtime_does_not_record_bundles_while_q_is2_is_open() {
+        const { assert!(!RECORD_LAST_BUNDLE_AT_ON_REPLY) };
     }
 }

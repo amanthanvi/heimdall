@@ -95,6 +95,8 @@ pub(crate) enum Screen {
     Profile(String),
     /// One operation's detail, by ID.
     Operation(String),
+    /// ⟨M03⟩ One enrollment record's detail, by ID.
+    Enrollment(String),
 }
 
 /// The two repairs of a held setup operation (ADR-0007 §5.7).
@@ -270,6 +272,9 @@ pub(crate) enum Update {
         /// The plan, or the refusal.
         plan: Result<RepairPlan, String>,
     },
+    /// ⟨M03⟩ The chores the store reader finds pending while the runtime is not
+    /// connected (F14), one line each.
+    OfflineChores(Vec<String>),
     /// A request finished (`what` names it).
     Done {
         /// What was sent.
@@ -619,6 +624,35 @@ pub(crate) enum Item {
         /// Message.
         message: String,
     },
+    /// ⟨M03⟩ F14: a pending chore with its one command (the time confirmation after a
+    /// reboot).
+    Chore {
+        /// The chore's line, its command first.
+        line: String,
+    },
+    /// ⟨M03⟩ An enrollment record that needs the owner (held, an unknown outcome, a
+    /// manual step).
+    Enrollment {
+        /// Enrollment ID.
+        id: String,
+        /// State.
+        state: String,
+    },
+    /// ⟨M03⟩ An enrollment record with the `late_write` residual.
+    LateWrite {
+        /// Enrollment ID.
+        id: String,
+    },
+    /// ⟨M03⟩ F04: a managed pair whose projection is pending.
+    ProjectionPending {
+        /// Alias.
+        alias: String,
+    },
+    /// ⟨M03⟩ D10 item 2: a managed alias whose slot is free (the doctor's `slot_free`).
+    SlotFree {
+        /// Alias.
+        alias: String,
+    },
 }
 
 impl Item {
@@ -631,6 +665,8 @@ impl Item {
                 | Item::Decision { .. }
                 | Item::Unresolved { .. }
                 | Item::Problem { .. }
+                | Item::Chore { .. }
+                | Item::Enrollment { .. }
         )
     }
 }
@@ -642,6 +678,8 @@ pub(crate) enum ActivityRow {
     Decision(String),
     /// An operation (ID).
     Operation(String),
+    /// ⟨M03⟩ An enrollment record (ID).
+    Enrollment(String),
 }
 
 /// The whole TUI state.
@@ -675,6 +713,9 @@ pub(crate) struct App {
     pub open_when_listed: Option<String>,
     /// Whether the color theme is off (`NO_COLOR`).
     pub no_color: bool,
+    /// ⟨M03⟩ The pending chores the store reader found while the runtime is not
+    /// connected.
+    pub offline_chores: Vec<String>,
 }
 
 impl App {
@@ -696,6 +737,7 @@ impl App {
             now,
             open_when_listed: None,
             no_color,
+            offline_chores: Vec::new(),
         }
     }
 
@@ -708,6 +750,22 @@ impl App {
         let mut attention = Vec::new();
         let mut working = Vec::new();
         let mut warnings = Vec::new();
+        let mut info = Vec::new();
+        // F14: the runtime's own view while it is connected; otherwise the store
+        // reader's (worker U's `doctor_cmd::pending_chores`, read-only).
+        if self.runtime == Runtime::Connected {
+            if let Some(message) = &self.catalog.m03.time_uncertain {
+                attention.push(Item::Chore {
+                    line: super::m03::time_chore_line(message),
+                });
+            }
+        } else {
+            attention.extend(
+                self.offline_chores
+                    .iter()
+                    .map(|line| Item::Chore { line: line.clone() }),
+            );
+        }
         for op in &self.catalog.operations {
             if op.is_held() {
                 attention.push(Item::Held {
@@ -735,6 +793,27 @@ impl App {
                 });
             }
         }
+        for e in &self.catalog.m03.enrollments {
+            if e.needs_attention() {
+                attention.push(Item::Enrollment {
+                    id: e.id.clone(),
+                    state: e.state.clone(),
+                });
+            }
+            if e.possible_late_write {
+                warnings.push(Item::LateWrite { id: e.id.clone() });
+            }
+        }
+        for d in &self.catalog.destinations {
+            if d.preference
+                .as_ref()
+                .is_some_and(super::m03::Preference::projection_pending)
+            {
+                warnings.push(Item::ProjectionPending {
+                    alias: d.alias.clone(),
+                });
+            }
+        }
         if let Some(doctor) = &self.doctor {
             for f in &doctor.report.findings {
                 let alias = (f.subject.kind == "destination" || f.subject.kind == "alias")
@@ -754,13 +833,38 @@ impl App {
                         alias,
                         message,
                     }),
+                    // ⟨M03⟩ D10 item 2: `slot_free` is informational and still shown,
+                    // with its command; other informational findings stay off the
+                    // overview.
+                    _ if code == super::m03::SLOT_FREE => {
+                        if let Some(alias) = self.finding_alias(f) {
+                            info.push(Item::SlotFree { alias });
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         attention.extend(working);
         attention.extend(warnings);
+        attention.extend(info);
         attention
+    }
+
+    /// The alias a finding concerns: its subject, by alias or by destination ID.
+    #[must_use]
+    pub(crate) fn finding_alias(&self, f: &heimdall_contract::doctor::Finding) -> Option<String> {
+        if f.subject.kind != "destination" && f.subject.kind != "alias" {
+            return None;
+        }
+        let id = f.subject.id.as_deref()?;
+        Some(
+            self.catalog
+                .destinations
+                .iter()
+                .find(|d| d.id == id)
+                .map_or_else(|| super::data::clean(id), |d| d.alias.clone()),
+        )
     }
 
     /// Ready, Working or Needs attention.
@@ -829,6 +933,13 @@ impl App {
                     .operations
                     .iter()
                     .map(|o| ActivityRow::Operation(o.id.clone())),
+            )
+            .chain(
+                self.catalog
+                    .m03
+                    .enrollments
+                    .iter()
+                    .map(|e| ActivityRow::Enrollment(e.id.clone())),
             )
             .collect()
     }
@@ -908,6 +1019,7 @@ impl App {
                 }
             }
             Update::Doctor(d) => self.doctor = Some(*d),
+            Update::OfflineChores(lines) => self.offline_chores = lines,
             Update::Operation { id, detail } => {
                 if matches!(&self.screen, Screen::Operation(open) if *open == id) {
                     self.operation = Some((id, detail));
@@ -1043,6 +1155,7 @@ impl App {
             Screen::Destination(alias) => self.destination_key(&alias, key),
             Screen::Profile(_) => self.detail_key(key),
             Screen::Operation(id) => self.operation_key(&id, key),
+            Screen::Enrollment(_) => self.detail_key(key),
         }
     }
 
@@ -1117,6 +1230,16 @@ impl App {
                         Key::Enter,
                     ) => self.open_operation(op),
                     (Item::Decision { id, .. }, Key::Enter) => self.open_decision(id),
+                    (Item::Enrollment { id, .. } | Item::LateWrite { id }, Key::Enter) => {
+                        self.open_enrollment(id);
+                        Vec::new()
+                    }
+                    (Item::ProjectionPending { alias } | Item::SlotFree { alias }, Key::Enter)
+                        if self.catalog.destination(&alias).is_some() =>
+                    {
+                        self.open_destination(alias);
+                        Vec::new()
+                    }
                     (
                         Item::Problem { alias: Some(a), .. } | Item::Warning { alias: Some(a), .. },
                         Key::Enter,
@@ -1163,6 +1286,10 @@ impl App {
                 match (sel.and_then(|i| rows.get(i)).cloned(), key) {
                     (Some(ActivityRow::Decision(id)), Key::Enter) => self.open_decision(id),
                     (Some(ActivityRow::Operation(id)), Key::Enter) => self.open_operation(id),
+                    (Some(ActivityRow::Enrollment(id)), Key::Enter) => {
+                        self.open_enrollment(id);
+                        Vec::new()
+                    }
                     _ => Vec::new(),
                 }
             }
@@ -1198,6 +1325,11 @@ impl App {
     fn open_destination(&mut self, alias: String) {
         self.tab = Tab::Destinations;
         self.screen = Screen::Destination(alias);
+        self.scroll = 0;
+    }
+
+    fn open_enrollment(&mut self, id: String) {
+        self.screen = Screen::Enrollment(id);
         self.scroll = 0;
     }
 
@@ -1413,9 +1545,19 @@ impl App {
                     ));
                     return (None, Vec::new());
                 }
-                if !self.catalog.decisions.iter().any(|d| d.id == p.id) {
+                let Some(listed) = self.catalog.decisions.iter().find(|d| d.id == p.id) else {
                     self.status = Some(format!(
                         "{} is not pending in this runtime: nothing was sent",
+                        p.id
+                    ));
+                    return (None, Vec::new());
+                };
+                // ⟨M03⟩ Q-T4/Q-T5: no approval for a disclosure the owner was not shown.
+                if p.verdict == Verdict::Approve
+                    && let Some(why) = super::m03::approve_block(&self.catalog, listed)
+                {
+                    self.status = Some(format!(
+                        "approve not sent for {}: {why}; nothing was sent",
                         p.id
                     ));
                     return (None, Vec::new());
@@ -1649,6 +1791,7 @@ pub(crate) mod tests {
             port: managed.then(|| "22".to_owned()),
             account: managed.then(|| "fixture".to_owned()),
             identity_id: managed.then(|| "idn_alpha".to_owned()),
+            preference: None,
         }
     }
 
@@ -1848,6 +1991,7 @@ pub(crate) mod tests {
             decisions: vec![apply_decision(), declare_decision()],
             projection_generation: Some(3),
             read_at: Some(t("2026-11-03T09:00:25Z")),
+            m03: Default::default(),
         };
         app.doctor = Some(Doctor {
             report: report(),

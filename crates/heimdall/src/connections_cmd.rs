@@ -1,18 +1,170 @@
 //! `heimdall connections [--json]` and `heimdall connections close <id>` (m03-plan
-//! §5 items 4a and 24; ADR-0008 D8).
+//! §5 items 4, 4a and 24; ADR-0008 D8).
 //!
-//! Wave 0: the argument tree is in `cli.rs`; both forms answer the wave-0 envelope of
-//! [`crate::m03_cmd`] before any runtime contact (U12 fills the bodies).
+//! * `connections` lists the owned connections (`inspect connections`, a read: it
+//!   never starts the runtime). An owned connection is a verified `ssh` client that
+//!   `heimdall connect` or `heimdall run` launched; connections ordinary `ssh` opened
+//!   are not Heimdall's and are not listed.
+//! * `connections close <id>` sends `Connections::Close` (owner role only; narrowing,
+//!   so no decision). The runtime re-verifies the process (PID, start time, image)
+//!   before any signal; a process it cannot verify is **never signalled**, and this
+//!   command says so. What the runtime answers is shown, never improved on.
+//!
+//! **Exit status of an incomplete close** (questions heading A, Q-A1): the runtime
+//! answers `OK` with `state` `closed`, `closing` (the close is pending and retried) or
+//! `unverified`. `closed` exits 0. The other two did not do what was asked, so they
+//! exit non-zero (`unverified` 4, `closing` 5) while the envelope is the runtime's,
+//! unchanged. [`INCOMPLETE_CLOSE_IS_NONZERO`] is the switch.
 
 use heimdall_contract::ExitCode;
+use heimdall_contract::envelope::Envelope;
+use heimdall_contract::ids::ConnectionId;
+use heimdall_contract::managed::{ConnectionEntry, ConnectionsRequest, ConnectionsView};
+use heimdall_contract::request::{InspectRequest, InspectSubject, Request};
 
 use crate::cli::{ConnectionsArgs, ConnectionsCommand};
 use crate::client::Ctx;
-use crate::m03_cmd;
+use crate::setup_cmd::{Outcome, block, session, usage};
+
+/// Whether a close that did not complete (`unverified`, `closing`) exits non-zero.
+/// `false` would exit 0 with the same envelope (the runtime's `OK`).
+pub(crate) const INCOMPLETE_CLOSE_IS_NONZERO: bool = true;
 
 /// Handle `connections`: no subcommand lists, `close <id>` closes.
 pub(crate) fn run(ctx: &Ctx, args: ConnectionsArgs) -> ExitCode {
     match args.command {
-        None | Some(ConnectionsCommand::Close { .. }) => m03_cmd::not_available(ctx),
+        None => block(ctx, list(ctx)),
+        Some(ConnectionsCommand::Close { id }) => block(ctx, close(ctx, id)),
     }
+}
+
+/// The footer every listing carries: what "owned" means (D8 item 2).
+pub(crate) const OWNED_MEANING: &str = "Owned connections are the ssh clients `heimdall connect` and `heimdall run` started; connections ordinary ssh opened are not listed.";
+
+/// The human listing of a `ConnectionsView`'s data: one block per connection, or that
+/// there are none. A value that is not a view is shown as the runtime sent it.
+#[must_use]
+pub(crate) fn render_list(data: &serde_json::Value) -> String {
+    let Ok(view) = serde_json::from_value::<ConnectionsView>(data.clone()) else {
+        return serde_json::to_string_pretty(data).unwrap_or_default();
+    };
+    let mut out = String::new();
+    if view.connections.is_empty() {
+        out.push_str("No owned connections.\n");
+    }
+    for c in &view.connections {
+        out.push_str(&entry_text(c));
+    }
+    out.push_str(OWNED_MEANING);
+    out.push('\n');
+    out
+}
+
+/// One connection: its identity, state, destination and grant, when it started, and
+/// when Heimdall will close it (`closes_at`; none: it stays until its process ends).
+fn entry_text(c: &ConnectionEntry) -> String {
+    fn word<T: serde::Serialize>(v: &T) -> String {
+        serde_json::to_value(v)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default()
+    }
+    let closes = c.closes_at.map_or_else(
+        || "when its process ends (existing connections stay)".to_owned(),
+        |t| t.to_string(),
+    );
+    format!(
+        "{} ({}, {})\n    destination {}, binding {}, grant {}\n    started {}, policy: existing {}, multiplexing {}\n    closes: {closes}\n",
+        c.id,
+        word(&c.kind),
+        word(&c.state),
+        c.destination_id,
+        c.binding_id,
+        c.grant_id,
+        c.started_at,
+        word(&c.policy.existing),
+        word(&c.policy.multiplexing),
+    )
+}
+
+/// `heimdall connections`: a read, never starting the runtime.
+async fn list(ctx: &Ctx) -> Outcome {
+    let mut client = match session(ctx, false).await {
+        Ok(c) => c,
+        Err(o) => return o,
+    };
+    let env = client
+        .request(Request::Inspect(InspectRequest {
+            subject: InspectSubject::Connections,
+            preview: None,
+        }))
+        .await;
+    let human = if env.code.is_success() {
+        render_list(&env.data)
+    } else {
+        String::new()
+    };
+    Outcome::of(env).with_human(human)
+}
+
+/// `heimdall connections close <id>`.
+async fn close(ctx: &Ctx, id: String) -> Outcome {
+    let Ok(connection_id) = ConnectionId::parse(&id) else {
+        return usage("invalid connection ID");
+    };
+    let mut client = match session(ctx, true).await {
+        Ok(c) => c,
+        Err(o) => return o,
+    };
+    let env = client
+        .request(Request::Connections(ConnectionsRequest::Close {
+            connection_id,
+        }))
+        .await;
+    close_outcome(env)
+}
+
+/// The outcome of a `Connections::Close` answer (module docs, "Exit status").
+#[must_use]
+pub(crate) fn close_outcome(env: Envelope<serde_json::Value>) -> Outcome {
+    if !env.code.is_success() {
+        return Outcome::of(env);
+    }
+    let text = |k: &str| {
+        env.data
+            .get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let (id, kind, state) = (text("connection_id"), text("kind"), text("state"));
+    let (human, exit) = match state.as_str() {
+        "closed" => (format!("Closed owned connection {id} ({kind}).\n"), None),
+        "unverified" => (
+            format!(
+                "Connection {id} ({kind}) was not signalled: its process could not be verified as the ssh client Heimdall started, so Heimdall treats it as unmanaged and leaves it running.\n"
+            ),
+            Some(ExitCode::Denied),
+        ),
+        "closing" => (
+            format!(
+                "Connection {id} ({kind}) is being closed; Heimdall retries until it ends. Run `heimdall connections` to see whether it is gone.\n"
+            ),
+            Some(ExitCode::Unavailable),
+        ),
+        // A state this build does not know is not reported as closed.
+        other => (
+            format!(
+                "Connection {id} ({kind}): the runtime reports state {other:?}; it is not known to be closed.\n"
+            ),
+            Some(ExitCode::Unavailable),
+        ),
+    };
+    let mut out = Outcome::of(env).with_human(human);
+    if let Some(exit) = exit
+        && INCOMPLETE_CLOSE_IS_NONZERO
+    {
+        out.exit = exit;
+    }
+    out
 }

@@ -8642,6 +8642,7 @@ impl Operations {
         };
         let ctx = caller.context.clone();
         let environment = self.inner.config.environment.clone();
+        let capabilities = matches!(req.subject, InspectSubject::Capabilities);
         let mut data =
             match req.subject {
                 // ⟨M02⟩ U0b row 19, phase 2: the same set as
@@ -9065,10 +9066,16 @@ impl Operations {
                 map.insert("preview".to_owned(), p);
             }
         }
-        Ok(Completed {
+        let mut done = Completed {
             warnings,
             ..Completed::ok(Code::Ok, data)
-        })
+        };
+        // ⟨M03 wave 5⟩ U9-Q3 (a): `inspect capabilities` carries the current lock
+        // behaviour's `signal_unverified` (ADR-0008 D9 items 1 and 3).
+        if capabilities {
+            self.label_capabilities_lock(&mut done).await;
+        }
+        Ok(done)
     }
 
     /// `inspect --preview`: resolution without effects.
@@ -9180,7 +9187,14 @@ impl Operations {
                 wait,
             )
             .await;
-        precheck.decorate(r)
+        // ⟨M03 wave 5⟩ U9-Q3 (a): a `revoke_on_lock` grant over an unverified signal
+        // carries `signal_unverified` (ADR-0008 D9 item 3).
+        let mut r = precheck.decorate(r);
+        if let Ok(done) = &mut r {
+            let grant = done.data.grant_id.clone();
+            self.label_grant_lock(done, &grant).await;
+        }
+        r
     }
 
     /// `bind` (materialize only in M01; launch is the CLI's job after ensure).
@@ -9275,14 +9289,18 @@ impl Operations {
             self.claim_replayed_launch(&done.data.binding_id, holder, &id)
                 .await?;
         }
-        Ok(Completed {
+        let grant = done.data.grant_id.clone();
+        let mut done = Completed {
             next: Some(NextAction {
                 action: "use_binding".to_owned(),
                 binding_id: Some(done.data.binding_id.clone()),
                 ..NextAction::default()
             }),
             ..done
-        })
+        };
+        // ⟨M03 wave 5⟩ U9-Q3 (a), as for `ensure`.
+        self.label_grant_lock(&mut done, &grant).await;
+        Ok(done)
     }
 
     /// ⟨M02⟩ ADR-0007 §12.25 item 4 (T04): a settled launch `bind` names this
@@ -9604,15 +9622,22 @@ impl Operations {
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
         let request_id = req.request_id.clone();
-        self.run_work(
-            caller,
-            OperationKind::Delegate,
-            Request::Delegate(req),
-            hash,
-            request_id,
-            WaitMode::default(),
-        )
-        .await
+        let mut r = self
+            .run_work(
+                caller,
+                OperationKind::Delegate,
+                Request::Delegate(req),
+                hash,
+                request_id,
+                WaitMode::default(),
+            )
+            .await;
+        // ⟨M03 wave 5⟩ U9-Q3 (a), as for `ensure`.
+        if let Ok(done) = &mut r {
+            let grant = done.data.grant_id.clone();
+            self.label_grant_lock(done, &grant).await;
+        }
+        r
     }
 
     /// `observe` (spec §11.5; timeout ≠ cancel).
@@ -10769,7 +10794,18 @@ impl Operations {
             .await??;
         match r {
             PolicyOutcome::Applied(p, changed) => {
-                Ok(Completed::ok(Code::Ok, policy_view(&p, changed)))
+                let mut done = Completed::ok(Code::Ok, policy_view(&p, changed));
+                // ⟨M03 wave 5⟩ U9-Q3 (a): a `SetLockBehavior` result is about the
+                // policy's behaviour now; `revoke_on_lock` over an unverified signal
+                // carries `signal_unverified` (ADR-0008 D9 item 3).
+                if matches!(req, PolicyAction::SetLockBehavior { .. }) {
+                    crate::lock::label_completed(
+                        &mut done,
+                        p.lock_behavior,
+                        self.session_lock_signal(),
+                    );
+                }
+                Ok(done)
             }
             PolicyOutcome::Decision(dec) => Err(approval_needed(
                 attended,

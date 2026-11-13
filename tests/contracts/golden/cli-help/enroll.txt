@@ -1,0 +1,47 @@
+Enroll a destination for managed credentials and manage its enrollments (M03; ADR-0008 D5)
+
+Usage: heimdall enroll [OPTIONS] <DESTINATION>
+       heimdall enroll <COMMAND>
+
+Commands:
+  status     List enrollments (read-only)
+  verify     Verify an enrollment
+  remove     Remove an enrollment, or a foreign one from a bundle
+  reconcile  Classify an operation that stopped between steps; never redispatches
+  abandon    Give an account up while it is unreachable, held or uncertain
+  help       Print this message or the help of the given subcommand(s)
+
+Arguments:
+  <DESTINATION>
+          The destination (ID or alias)
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+      --account <ACCOUNT>
+          The account; it must equal the catalog's
+
+      --form <FORM>
+          `account` (the default) or `system`
+
+          Possible values:
+          - account: The account's own registry
+          - system:  The system registry (manual removal)
+
+      --registry-path <PATH>
+          The registry path on the destination
+
+      --ca <FINGERPRINT>
+          The CA fingerprint to enroll under
+
+  -h, --help
+          Print help (see a summary with '-h')

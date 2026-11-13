@@ -214,6 +214,10 @@
    "code": "USAGE_ERROR"
   },
   {
+   "reason": "registry_path_invalid",
+   "code": "USAGE_ERROR"
+  },
+  {
    "reason": "connection_registration_failed",
    "code": "LAUNCH_FAILED"
   },
@@ -274,6 +278,7 @@
   "reverification_inconclusive",
   "enrollment_evidence_stale",
   "client_trace_family_unrecorded",
-  "slot_free"
+  "slot_free",
+  "managed_dir_unsafe"
  ]
 }

@@ -1,9 +1,28 @@
-//! M03 wave 0 end-to-end suite (U0 §5 item 24, U0b rows 16 and 18): the M03 command tree
+//! M03 end-to-end suite (U0 §5 item 24, U0b rows 16 and 18, U12): the M03 command tree
 //! through the **real binary** (`CARGO_BIN_EXE_heimdall`, or `HEIMDALL_E2E_BIN`).
 //!
-//! * `w0_m03_cli_commands_report_not_available_and_never_panic`: every M03 command line
-//!   answers the wave-0 envelope (M01's: `USAGE_ERROR`, exit 2) with its own handler,
-//!   never panics, and never creates the Heimdall home it names (no runtime contact).
+//! This parent file holds the cross-cutting checks (⟨wave 5⟩ rewritten from the wave-0
+//! "not available" assertions); the per-command suites are its submodules, one file per
+//! owner under `tests/e2e/cli_m03/`:
+//!
+//! * `enroll` (`enroll_cmd`): the client-executed enrollment loop, previews, decisions;
+//! * `issuer` (`issuer_cmd`): ceremonies, status, bundle, retire;
+//! * `access` (`m03_cmd`, `connections_cmd`, `output`): lock behaviour, connection
+//!   policy, `destination prefer`, `connections`, the help and discovery goldens;
+//! * `uninstall_doctor` (`uninstall_cmd`, `doctor_cmd`): remote enrollments at uninstall,
+//!   `slot_free`, `managed_dir_unsafe`, the status chore.
+//!
+//! The parent's own tests:
+//!
+//! * `m03_cli_commands_answer_without_a_runtime_and_never_panic` (was
+//!   `w0_m03_cli_commands_report_not_available_and_never_panic`): every M03 command line
+//!   that answers before any runtime contact answers its real exit class and code with
+//!   **no runtime** (stdin closed, a Heimdall home that does not exist), never panics,
+//!   never creates the home, never starts a runtime and never answers "not available".
+//!   The lines that start a runtime on demand (`enroll lab`, `destination prefer`) are
+//!   covered by their submodules.
+//! * `no_m03_source_contains_the_wave_0_text`: the M03 handler and TUI sources no longer
+//!   hold M01's wave-0 text.
 //! * `uninstall_refuses_purge_with_live_enrollments`: a state database at schema 6 with a
 //!   non-final enrollment makes `uninstall --purge-state` refuse before anything else,
 //!   listing marker, destination and state; only final ones leave it alone.
@@ -14,7 +33,8 @@
 //! the scratch Heimdall home (a path that does not exist yet), stdin closed. The
 //! fixtures are synthetic (fixture IDs, `example.invalid`, fake public keys); no owner
 //! key, agent or keychain is touched. Every stdout and stderr byte is scanned for
-//! canaries.
+//! canaries. A test here never starts a runtime it does not stop: a line that would
+//! start one is given an invalid ID (answered first) or is left to a submodule.
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
 
 use std::path::{Path, PathBuf};
@@ -110,151 +130,241 @@ fn run(home: &Path, account: &Path, args: &[&str], extra_env: &[(&str, &str)]) -
     out
 }
 
-/// Every M03 command line of m03-plan §5 item 24 (the same set as the in-process
-/// `m03_cmd` test: that one cannot be imported from a binary crate).
-const M03_LINES: &[&[&str]] = &[
-    &["issuer", "init", "--backup-out", "b.enc"],
-    &[
-        "issuer",
-        "init",
-        "--backup-out",
-        "b",
-        "--replace-orphan",
-        "fp",
-        "--bundle",
-        "f",
-    ],
-    &[
-        "issuer",
-        "init",
-        "--backup-out",
-        "b",
-        "--replace-orphan",
-        "fp",
-        "--no-bundle-available",
-    ],
-    &["issuer", "status"],
-    &["issuer", "unlock"],
-    &["issuer", "rotate", "begin", "--backup-out", "b.enc"],
-    &["issuer", "retire", "SHA256:abc"],
-    &["issuer", "restore", "--backup", "b.enc"],
-    &["issuer", "restore", "--backup", "b.enc", "--not-stolen"],
-    &["issuer", "bundle", "--out", "o.json"],
-    &[
-        "issuer",
-        "bundle",
-        "--out",
-        "o.json",
-        "--redact",
-        "hostnames",
-    ],
-    &["enroll", "lab"],
-    &[
-        "enroll",
-        "lab",
-        "--account",
-        "deploy",
-        "--form",
-        "system",
-        "--registry-path",
-        "p",
-        "--ca",
-        "fp",
-    ],
-    &["enroll", "status"],
-    &["enroll", "verify", "enr-1"],
-    &["enroll", "verify", "enr-1", "--absence"],
-    &["enroll", "verify", "enr-1", "--approve-target-change"],
-    &["enroll", "remove", "enr-1"],
-    &[
-        "enroll",
-        "remove",
-        "--from-bundle",
-        "f",
-        "--marker",
-        "m",
-        "--alias",
-        "a",
-    ],
-    &["enroll", "reconcile", "op-1"],
-    &["enroll", "reconcile", "op-1", "--after-manual-recovery"],
-    &["enroll", "abandon", "enr-1"],
-    &["destination", "prefer", "lab", "managed"],
-    &["destination", "prefer", "lab", "existing"],
-    &[
-        "access",
-        "ensure",
-        "--profile",
-        "p",
-        "--work-id",
-        "w",
-        "--request-id",
-        "r",
-        "--strict",
-    ],
-    &["access", "lock-behavior", "--policy", "pol", "continue"],
-    &[
-        "access",
-        "lock-behavior",
-        "--policy",
-        "pol",
-        "revoke-on-lock",
-    ],
-    &["access", "connection-policy", "--policy", "pol"],
-    &[
-        "access",
-        "connection-policy",
-        "--policy",
-        "pol",
-        "--existing",
-        "strict",
-        "--multiplexing",
-        "owned",
-    ],
-    &["connections"],
-    &["connections", "close", "conn-1"],
-    // ⟨wave 2⟩ `internal issuer` is no longer a wave-0 line: on a pipe it runs the
-    // issuer child (U3); see the end of the test below.
-    &["internal", "session-lock-state"],
+/// A line that has no ID of its own to refuse (a policy, a profile) is given this one:
+/// it parses as an argument and is refused as an invalid ID before any runtime contact
+/// (a valid ID would start the runtime on demand).
+const BAD: &str = "BAD ID";
+
+/// The M03 command lines of m03-plan §5 item 24 that answer **before any runtime
+/// contact**, each with its real exit code and envelope code (determined by running the
+/// binary, ⟨wave 5⟩). Not listed, because they start a detached runtime on demand and are
+/// covered by their submodules: `enroll lab` (bare), `destination prefer`, and the
+/// `access ensure --strict` / `lock-behavior` / `connection-policy` lines with a valid ID
+/// (here they carry [`BAD`]). `internal issuer` and `internal session-lock-state` are
+/// below.
+const ANSWERS_WITHOUT_A_RUNTIME: &[(&[&str], i32, &str)] = &[
+    // The ceremonies need the owner at a terminal: `--non-interactive` -> 3.
+    (
+        &["issuer", "init", "--backup-out", "b.enc"],
+        3,
+        "INTERACTION_REQUIRED",
+    ),
+    (
+        &[
+            "issuer",
+            "init",
+            "--backup-out",
+            "b",
+            "--replace-orphan",
+            "fp",
+            "--bundle",
+            "f",
+        ],
+        3,
+        "INTERACTION_REQUIRED",
+    ),
+    (
+        &[
+            "issuer",
+            "init",
+            "--backup-out",
+            "b",
+            "--replace-orphan",
+            "fp",
+            "--no-bundle-available",
+        ],
+        3,
+        "INTERACTION_REQUIRED",
+    ),
+    (&["issuer", "status"], 5, "SERVICE_UNAVAILABLE"),
+    (&["issuer", "unlock"], 3, "INTERACTION_REQUIRED"),
+    (
+        &["issuer", "rotate", "begin", "--backup-out", "b.enc"],
+        3,
+        "INTERACTION_REQUIRED",
+    ),
+    // `SHA256:abc` is not a CA fingerprint.
+    (&["issuer", "retire", "SHA256:abc"], 2, "USAGE_ERROR"),
+    (
+        &["issuer", "restore", "--backup", "b.enc"],
+        3,
+        "INTERACTION_REQUIRED",
+    ),
+    (
+        &["issuer", "restore", "--backup", "b.enc", "--not-stolen"],
+        3,
+        "INTERACTION_REQUIRED",
+    ),
+    (
+        &["issuer", "bundle", "--out", "o.json"],
+        5,
+        "SERVICE_UNAVAILABLE",
+    ),
+    (
+        &[
+            "issuer",
+            "bundle",
+            "--out",
+            "o.json",
+            "--redact",
+            "hostnames",
+        ],
+        5,
+        "SERVICE_UNAVAILABLE",
+    ),
+    // `enroll`: the fixture ID, CA or bundle does not parse (exit 2 before contact);
+    // `status` is a read and never starts a runtime (exit 5).
+    (
+        &[
+            "enroll",
+            "lab",
+            "--account",
+            "deploy",
+            "--form",
+            "system",
+            "--registry-path",
+            "p",
+            "--ca",
+            "fp",
+        ],
+        2,
+        "USAGE_ERROR",
+    ),
+    (&["enroll", "status"], 5, "SERVICE_UNAVAILABLE"),
+    (&["enroll", "verify", "enr-1"], 2, "USAGE_ERROR"),
+    (
+        &["enroll", "verify", "enr-1", "--absence"],
+        2,
+        "USAGE_ERROR",
+    ),
+    (
+        &["enroll", "verify", "enr-1", "--approve-target-change"],
+        2,
+        "USAGE_ERROR",
+    ),
+    (&["enroll", "remove", "enr-1"], 2, "USAGE_ERROR"),
+    (
+        &[
+            "enroll",
+            "remove",
+            "--from-bundle",
+            "f",
+            "--marker",
+            "m",
+            "--alias",
+            "a",
+        ],
+        2,
+        "USAGE_ERROR",
+    ),
+    (&["enroll", "reconcile", "op-1"], 2, "USAGE_ERROR"),
+    (
+        &["enroll", "reconcile", "op-1", "--after-manual-recovery"],
+        2,
+        "USAGE_ERROR",
+    ),
+    (&["enroll", "abandon", "enr-1"], 2, "USAGE_ERROR"),
+    // `access`: an invalid ID is refused before contact.
+    (
+        &[
+            "access",
+            "ensure",
+            "--profile",
+            BAD,
+            "--work-id",
+            "w",
+            "--request-id",
+            "r",
+            "--strict",
+        ],
+        2,
+        "USAGE_ERROR",
+    ),
+    (
+        &["access", "lock-behavior", "--policy", BAD, "continue"],
+        2,
+        "USAGE_ERROR",
+    ),
+    (
+        &["access", "lock-behavior", "--policy", BAD, "revoke-on-lock"],
+        2,
+        "USAGE_ERROR",
+    ),
+    // Neither `--existing` nor `--multiplexing`: refused first, whatever the policy.
+    (
+        &["access", "connection-policy", "--policy", "pol"],
+        2,
+        "USAGE_ERROR",
+    ),
+    (
+        &[
+            "access",
+            "connection-policy",
+            "--policy",
+            BAD,
+            "--existing",
+            "strict",
+            "--multiplexing",
+            "owned",
+        ],
+        2,
+        "USAGE_ERROR",
+    ),
+    // `connections` is a read (exit 5); the ID of `close` does not parse.
+    (&["connections"], 5, "SERVICE_UNAVAILABLE"),
+    (&["connections", "close", "conn-1"], 2, "USAGE_ERROR"),
 ];
 
-/// `w0_m03_cli_commands_report_not_available_and_never_panic`: M01's envelope for every
-/// M03 command, `--json` and human, with no runtime directory (nor the home) created.
+/// Assert that nothing of `home` was created: no home, no runtime directory.
+fn assert_no_runtime(home: &Path, what: &str) {
+    assert!(!home.exists(), "{what} created the Heimdall home");
+    assert!(
+        !home.join("run").exists(),
+        "{what} started a runtime (a run/ directory exists)"
+    );
+}
+
+/// `m03_cli_commands_answer_without_a_runtime_and_never_panic` (was
+/// `w0_m03_cli_commands_report_not_available_and_never_panic`): every M03 line that
+/// answers before runtime contact answers its real exit class and code, `--json` and
+/// human, with no runtime (stdin closed, a home that does not exist), never panics, never
+/// creates the home or a `run/` directory, and never answers "not available".
 #[test]
-fn w0_m03_cli_commands_report_not_available_and_never_panic() {
+fn m03_cli_commands_answer_without_a_runtime_and_never_panic() {
     let scratch = tempfile::tempdir().unwrap();
     let account = scratch.path().join("account");
     std::fs::create_dir_all(&account).unwrap();
-    let expected = not_available_text();
-    for (i, line) in M03_LINES.iter().enumerate() {
+    let wave_0 = not_available_text();
+    for (i, (line, exit, code)) in ANSWERS_WITHOUT_A_RUNTIME.iter().enumerate() {
         let home = scratch.path().join(format!("home-{i}"));
         let mut argv = vec!["--json", "--non-interactive"];
         argv.extend_from_slice(line);
         let out = run(&home, &account, &argv, &[]);
-        assert_eq!(out.code, 2, "{line:?}: {out:?}");
+        assert_eq!(out.code, *exit, "{line:?}: {out:?}");
         let env = out.json();
-        assert_eq!(env["code"], "USAGE_ERROR", "{line:?}: {out:?}");
-        assert_eq!(out.message(), expected, "{line:?}: {out:?}");
+        assert_eq!(env["code"], *code, "{line:?}: {out:?}");
         assert_eq!(env["data"]["error"]["effect_status"], "none", "{line:?}");
-        assert_eq!(env["next"]["action"], "fix_request", "{line:?}: {out:?}");
+        assert_ne!(out.message(), wave_0, "{line:?}: {out:?}");
         assert!(
-            !home.exists(),
-            "{line:?} created the Heimdall home (runtime contact)"
+            !out.stdout.contains("not available in this build"),
+            "{line:?}"
         );
         assert!(
-            !home.join("run").join("instance.json").exists(),
-            "{line:?} started a runtime"
+            !out.stderr.contains("not available in this build"),
+            "{line:?}"
         );
+        assert_no_runtime(&home, &format!("{line:?}"));
     }
 
-    // Human mode: the message on stderr, nothing on stdout but the head line, exit 2.
+    // Human mode: the message on stderr (not the wave-0 text), the exit class unchanged.
     let home = scratch.path().join("home-human");
     let out = run(&home, &account, &["issuer", "status"], &[]);
-    assert_eq!(out.code, 2, "{out:?}");
-    assert!(out.stderr.contains(&expected), "{out:?}");
-    assert!(!home.exists());
+    assert_eq!(out.code, 5, "{out:?}");
+    assert!(out.stderr.contains("no runtime is running"), "{out:?}");
+    assert!(!out.stderr.contains(&wave_0), "{out:?}");
+    assert_no_runtime(&home, "human issuer status");
 
-    // A line the tree refuses is an ordinary usage error, not the wave-0 answer.
+    // A line the tree refuses is an ordinary usage error.
     for line in [
         &["issuer", "init"][..],
         &["enroll"],
@@ -265,13 +375,15 @@ fn w0_m03_cli_commands_report_not_available_and_never_panic() {
     ] {
         let mut argv = vec!["--json"];
         argv.extend_from_slice(line);
-        let out = run(&scratch.path().join("home-usage"), &account, &argv, &[]);
+        let home = scratch.path().join("home-usage");
+        let out = run(&home, &account, &argv, &[]);
         assert_eq!(out.code, 2, "{line:?}: {out:?}");
         assert_eq!(out.json()["code"], "USAGE_ERROR", "{line:?}");
-        assert_ne!(out.message(), expected, "{line:?}");
+        assert_ne!(out.message(), wave_0, "{line:?}");
+        assert_no_runtime(&home, &format!("{line:?}"));
     }
 
-    // ⟨wave 2, U3⟩ `internal issuer` on a pipe is the issuer child: its stdout is the
+    // `internal issuer` on a pipe is the issuer child: its stdout is the
     // `heimdall-issuer/1` channel, so it prints no envelope. With no installation (no
     // state database) it cannot serve and exits `unavailable` (5), reading nothing and
     // creating neither the home nor a runtime.
@@ -279,7 +391,34 @@ fn w0_m03_cli_commands_report_not_available_and_never_panic() {
     let out = run(&home, &account, &["internal", "issuer"], &[]);
     assert_eq!(out.code, 5, "{out:?}");
     assert!(out.stdout.is_empty(), "{out:?}");
-    assert!(!home.exists(), "internal issuer created the Heimdall home");
+    assert_no_runtime(&home, "internal issuer");
+
+    // `internal session-lock-state` is a read-only query (exit 0, `OK`): the platform
+    // source's reading of this host, whatever it is (a locked or unknown host answers
+    // too), and it writes nothing, not even the home. (The deterministic states are
+    // `access.rs`'s, through `HEIMDALL_TEST_SESSION_LOCK`.)
+    let home = scratch.path().join("home-lock-state");
+    let out = run(
+        &home,
+        &account,
+        &["--json", "internal", "session-lock-state"],
+        &[],
+    );
+    assert_eq!(out.code, 0, "{out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "OK", "{out:?}");
+    assert_eq!(env["data"]["source"], "platform", "{out:?}");
+    let state = env["data"]["state"].as_str().unwrap_or_default();
+    assert!(
+        ["unlocked", "locked", "unknown", "unavailable"].contains(&state),
+        "{out:?}"
+    );
+    assert!(env["data"]["signal"].is_string(), "{out:?}");
+    assert!(
+        !out.stdout.contains("not available in this build"),
+        "{out:?}"
+    );
+    assert_no_runtime(&home, "internal session-lock-state");
 
     // `internal` is not listed in help; the M03 user commands are.
     let help = run(
@@ -304,6 +443,93 @@ fn w0_m03_cli_commands_report_not_available_and_never_panic() {
             .any(|l| l.trim_start().starts_with("internal")),
         "internal is hidden"
     );
+}
+
+/// The Rust sources of the M03 handlers and the TUI, relative to the `heimdall` crate:
+/// the files and (recursively) the directories that hold them.
+const M03_SOURCES: &[&str] = &[
+    "src/issuer_cmd.rs",
+    "src/issuer_cmd",
+    "src/enroll_cmd.rs",
+    "src/enroll_cmd",
+    "src/connections_cmd.rs",
+    "src/m03_cmd.rs",
+    "src/uninstall_cmd.rs",
+    "src/doctor_cmd.rs",
+    "src/tui",
+];
+
+fn collect_sources(path: &Path, into: &mut Vec<PathBuf>) {
+    if path.is_dir() {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(path)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        entries.sort();
+        for entry in entries {
+            collect_sources(&entry, into);
+        }
+    } else if path.extension().is_some_and(|e| e == "rs") {
+        into.push(path.to_path_buf());
+    }
+}
+
+/// No M03 handler or TUI source holds M01's wave-0 text any more. The text is built here
+/// at run time so this file does not hold it (as `cli_m01.rs` does for its own guard); the
+/// match ignores comment markers and line breaks, so a wrapped doc comment is caught too.
+#[test]
+fn no_m03_source_contains_the_wave_0_text() {
+    let words = [
+        "this",
+        "command",
+        "is",
+        "not",
+        "available",
+        "in",
+        "this",
+        "build",
+    ];
+    // The repository through `HM_REPO_ROOT` (testkit `repo`), never the compile-time root.
+    let crate_dir = heimdall_testkit::repo::repo_path("crates/heimdall");
+    let mut files = Vec::new();
+    for rel in M03_SOURCES {
+        let path = crate_dir.join(rel);
+        if path.exists() {
+            collect_sources(&path, &mut files);
+        }
+    }
+    assert!(
+        files.len() >= 8,
+        "the guard found only {} source files: {files:?}",
+        files.len()
+    );
+    // The assembling idiom of the wave-0 helpers (a message built from two halves).
+    let halves = [
+        ["not", "available"].join("_"),
+        ["in this build", "(planned for M03)"].join(" "),
+    ];
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap();
+        // Words only: drop comment markers, quotes, commas and line breaks.
+        let flat: Vec<&str> = text
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .filter(|w| !w.is_empty())
+            .collect();
+        let hit = flat.windows(words.len()).any(|w| w == words);
+        assert!(
+            !hit,
+            "{} holds the wave-0 text ({})",
+            file.display(),
+            words.join(" ")
+        );
+        for half in &halves {
+            assert!(
+                !text.contains(half.as_str()),
+                "{} holds `{half}` (the wave-0 helpers)",
+                file.display()
+            );
+        }
+    }
 }
 
 /// `enroll` reads `HEIMDALL_TEST_SCRIPT_PAUSE_DIR` in the CLI process: a relative value
@@ -336,8 +562,10 @@ fn m03_test_gates_are_validated_before_anything_else() {
         assert_eq!(debug_build, cfg!(debug_assertions), "{out:?}");
     }
 
-    // An absolute directory: a debug build goes on to the wave-0 answer, a release
-    // build refuses the variable.
+    // An absolute directory: a debug build refuses it too, naming the variable
+    // (`enroll_cmd::SCRIPT_PAUSE_POINTS_CONSUMED = false`: the pause points are not
+    // consumed CLI-side yet, so a set directory fails closed before any contact); a
+    // release build refuses the variable with its release message.
     let abs = scratch.path().join("pause");
     let abs = abs.to_string_lossy().into_owned();
     let out = run(
@@ -348,11 +576,16 @@ fn m03_test_gates_are_validated_before_anything_else() {
     );
     assert_eq!(out.code, 2, "{out:?}");
     if debug_build {
-        assert_eq!(out.message(), not_available_text(), "{out:?}");
+        assert!(
+            out.message().contains("HEIMDALL_TEST_SCRIPT_PAUSE_DIR"),
+            "{out:?}"
+        );
     } else {
         assert!(out.message().contains("HEIMDALL_TEST_"), "{out:?}");
     }
+    assert_ne!(out.message(), not_available_text(), "{out:?}");
     assert!(!home.exists());
+    assert!(!home.join("run").exists());
 
     // `service run`: a malformed value of each M03 variable ends the command at once
     // (exit 2, the variable named), before a runtime exists.
@@ -472,8 +705,10 @@ fn seed_state(home: &Path, states: &[EnrollmentState]) -> PathBuf {
 /// `uninstall_refuses_purge_with_live_enrollments`: a non-final enrollment refuses
 /// `--purge-state` before the confirmation, the rollback or any runtime contact, and
 /// lists marker, destination and state; `--keep-remote-enrollments` needs a bundle
-/// (`bundle_required`) and, with one, fails closed; final enrollments do not refuse;
-/// a plain `uninstall` is not affected by the new check.
+/// (`bundle_required`, exit 4) and a `--bundle` is refused the same way until a bundle
+/// write is recorded (`uninstall_cmd::BUNDLE_WRITE_RECORD_REQUIRED`); final enrollments
+/// do not refuse. (The plain `uninstall` listing and acknowledgement are
+/// `uninstall_doctor`'s.)
 #[test]
 fn uninstall_refuses_purge_with_live_enrollments() {
     let scratch = tempfile::tempdir().unwrap();
@@ -547,7 +782,9 @@ fn uninstall_refuses_purge_with_live_enrollments() {
         1
     );
 
-    // ...and with one, nothing can verify it yet: fail closed, nothing changed.
+    // ...and with one, nothing records which bundle was written yet
+    // (`uninstall_cmd::BUNDLE_WRITE_RECORD_REQUIRED = true`): every bundle is refused
+    // `bundle_required` (exit 4), the enrollments listed, nothing changed.
     let bundle = scratch.path().join("bundle.json");
     let bundle_arg = bundle.to_string_lossy().into_owned();
     let out = run(
@@ -564,10 +801,19 @@ fn uninstall_refuses_purge_with_live_enrollments() {
         ],
         &[],
     );
-    assert_eq!(out.code, 2, "{out:?}");
-    assert_eq!(out.message(), not_available_text(), "{out:?}");
-    assert!(db.exists());
-    assert!(!home.join("run").exists());
+    assert_eq!(out.code, 4, "{out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{out:?}");
+    assert_eq!(env["data"]["error"]["reason"], "bundle_required", "{out:?}");
+    assert_eq!(
+        env["data"]["enrollments"].as_array().unwrap().len(),
+        1,
+        "{out:?}"
+    );
+    assert_ne!(out.message(), not_available_text(), "{out:?}");
+    assert!(db.exists(), "the state store is kept");
+    assert_eq!(std::fs::read(&db).unwrap(), before, "nothing was written");
+    assert!(!home.join("run").exists(), "no runtime was contacted");
 
     // Only final enrollments: the new check does not refuse. The purge goes on to its
     // own confirmation, which `--non-interactive` never gives (exit 3, nothing changed).
@@ -604,3 +850,14 @@ fn uninstall_refuses_purge_with_live_enrollments() {
     assert_eq!(out.code, 6, "{out:?}");
     assert_eq!(out.json()["data"]["enrollments"][0]["state"], "abandoned");
 }
+
+// ⟨wave 5⟩ U12 suites, one file per owner (`.m03-wave5-api.md` R1); each reaches the
+// helpers above through `super::`.
+#[path = "cli_m03/access.rs"]
+mod access;
+#[path = "cli_m03/enroll.rs"]
+mod enroll;
+#[path = "cli_m03/issuer.rs"]
+mod issuer;
+#[path = "cli_m03/uninstall_doctor.rs"]
+mod uninstall_doctor;

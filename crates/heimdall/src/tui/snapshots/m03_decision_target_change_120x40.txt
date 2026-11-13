@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[!!] ┌Owner decision dec_target1 (approve_target_change)──────────────────────────────────────────────────────────┐
+Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+Stati│Exactly what approve applies to:                                                                            │
+> [!!│Enrollment enr_07070707070707070707070707070707 · operation op_verify1                                      │stopp
+  [!!│Target change (- approved, + proposed):                                                                     │
+  [!!│  HostName alpha.example.invalid                                                                            │
+  [!!│  Port 22                                                                                                   │
+  [!!│  User fixture                                                                                              │
+  [..│  host key type ssh-ed25519                                                                                 │
+  [ !│- host key fingerprint SHA256:hostOld                                                                       │)
+  [ !│+ host key fingerprint SHA256:hostNew                                                                       │
+  [ !│- host key AAAAC3NzaC1lZDI1NTE5AAAAIhostOld                                                                 │
+  [ i│+ host key AAAAC3NzaC1lZDI1NTE5AAAAIhostNew                                                                 │needs
+     │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │Tab: deny · Esc: send nothing                                                                               │
+     │Approve? Type yes to confirm [y/N]: _                                                                       │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+type yes, Enter · Tab approve/deny · Esc cancel

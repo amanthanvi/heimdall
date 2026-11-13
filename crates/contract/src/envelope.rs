@@ -418,6 +418,9 @@ pub mod reason {
     pub const LOCK_HOLDER_UNRESOLVED: &str = "lock_holder_unresolved";
     /// ⟨M03⟩ `USAGE_ERROR`: An enrollment account that differs from the catalog's.
     pub const ACCOUNT_OVERRIDE_REFUSED: &str = "account_override_refused";
+    /// ⟨M03⟩ `USAGE_ERROR`: An invalid `--registry-path` (D5 §6.1; U5P-Q3, ruled by ADR-0008
+    /// §17.20 item 13 and registered by wave 5).
+    pub const REGISTRY_PATH_INVALID: &str = "registry_path_invalid";
     /// ⟨M03⟩ `LAUNCH_FAILED`: Windows: the contained `ssh.exe` could not be registered.
     pub const CONNECTION_REGISTRATION_FAILED: &str = "connection_registration_failed";
     /// ⟨M03⟩ `LAUNCH_FAILED`: Windows: the grant ended or is unsafe; the child never resumed.
@@ -508,6 +511,7 @@ pub mod reason {
         (OWNED_CONNECTION_OPTION_CONFLICT, Code::ConfigConflict),
         (LOCK_HOLDER_UNRESOLVED, Code::ConfigConflict),
         (ACCOUNT_OVERRIDE_REFUSED, Code::UsageError),
+        (REGISTRY_PATH_INVALID, Code::UsageError),
         (CONNECTION_REGISTRATION_FAILED, Code::LaunchFailed),
         (CONNECTION_REGISTRATION_REFUSED, Code::LaunchFailed),
         (STEP_TOKEN_MISMATCH, Code::RequestConflict),

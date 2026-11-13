@@ -1,0 +1,40 @@
+Heimdall  1 Overview [2 Destinations] 3 Profiles  4 Activity  [!!] Needs attention
+alpha: managed destination
+Catalog: dst-alpha rev 2, updated 2026-11-02T08:00:00Z; listing read 09:00:25Z (5s ago)
+  [managed] rendered: HostName alpha.example.invalid Port 22 User fixture
+Managed readiness:
+  Mechanism managed_certificate · projection pending
+  [ !] managed_projection_pending: the managed projection for this pair is not applied yet; run `heimdall setup apply`
+  At the deadline:
+    unknown: no connection policy is reported for this pair
+  Owned connections: none up
+  Lock behaviour: unknown (not reported by the runtime)
+  [!!] Enrollment enr_01010101010101010101010101010101  fixture@alpha  held (needs you)
+  [--] Enrollment enr_02020202020202020202020202020202  fixture@alpha  withdrawn (final) · possible late write
+  [OK] Enrollment enr_03030303030303030303030303030303  fixture@alpha  verified
+Effective values (static pass at 09:00:20Z, 10s ago; nothing executed):
+  [managed]      HostName alpha.example.invalid  (~/.config/heimdall/ssh_config:3)
+  [inherited]    User fixture  (~/.ssh/config:9)
+  [undetermined] ProxyJump jump1 | jump2  (~/.ssh/config:14)
+Identity selection: exclusive (only the adopted key is offered); IdentitiesOnly yes
+  1. managed identity_file SHA256:fixtureAlphaKey (agent)  ~/.config/heimdall/ssh_config:5
+Identity: SHA256:fixtureAlphaKey ssh-ed25519 via native_agent at /scratch/agent.sock
+  Interaction: none, basis declared 2026-11-01T10:00:00Z (expires 2026-12-01T10:00:00Z)
+  Non-interactive use: eligible (checked 09:00:25Z (5s ago))
+Provider: native_agent availability unknown, interaction unknown (static level at 09:00:20Z (10s ago), inferred)
+Projection: healthy; committed generation 3
+Findings:
+  [ i] slot_free: ordinary `ssh alpha` works only while a binding holds this alias's managed slot; `heimdall run
+--profile <profile> -- ssh alpha` holds one while it runs (automatic activation is not available)
+
+
+
+
+
+
+
+
+
+
+
+c connect · p probes · Up/Down scroll · Esc back

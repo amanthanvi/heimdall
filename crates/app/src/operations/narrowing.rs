@@ -311,6 +311,10 @@ pub(super) struct NarrowingState {
     /// ⟨M03⟩ U9 (ADR-0008 §17.15 item 12, R3): the M01 `[session] lock_behavior` floor,
     /// merged fail closed into every grant's effective lock behaviour (`lock.rs`).
     pub(super) lock_floor: RwLock<heimdall_contract::managed::LockBehavior>,
+    /// ⟨M03 wave 5⟩ U9-Q3 (a): the signal the wired source uses, when the runtime named
+    /// it (`Operations::set_session_lock_signal`); otherwise the platform's
+    /// (`LockSignal::of_platform`).
+    pub(super) lock_signal: RwLock<Option<crate::lock::LockSignal>>,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -20,7 +20,7 @@ pub(crate) fn clean(s: &str) -> String {
         .collect()
 }
 
-fn text(v: &Value, key: &str) -> Option<String> {
+pub(crate) fn text(v: &Value, key: &str) -> Option<String> {
     match v.get(key)? {
         Value::String(s) => Some(clean(s)),
         Value::Number(n) => Some(n.to_string()),
@@ -33,11 +33,11 @@ fn text_or(v: &Value, key: &str, default: &str) -> String {
     text(v, key).unwrap_or_else(|| default.to_owned())
 }
 
-fn time(v: &Value, key: &str) -> Option<Timestamp> {
+pub(crate) fn time(v: &Value, key: &str) -> Option<Timestamp> {
     v.get(key)?.as_str()?.parse().ok()
 }
 
-fn items<'v>(data: &'v Value, keys: &[&str]) -> &'v [Value] {
+pub(crate) fn items<'v>(data: &'v Value, keys: &[&str]) -> &'v [Value] {
     keys.iter()
         .find_map(|k| data.get(*k).and_then(Value::as_array))
         .map_or(&[], Vec::as_slice)
@@ -80,6 +80,8 @@ pub(crate) struct Destination {
     pub account: Option<String>,
     /// Managed: its identity.
     pub identity_id: Option<String>,
+    /// ⟨M03⟩ Managed: the pair preference (`inspect destinations` `preference`).
+    pub preference: Option<super::m03::Preference>,
 }
 
 impl Destination {
@@ -95,6 +97,7 @@ impl Destination {
             port: text(v, "port"),
             account: text(v, "account"),
             identity_id: text(v, "identity_id"),
+            preference: v.get("preference").and_then(super::m03::Preference::of),
         })
     }
 
@@ -310,10 +313,11 @@ impl Decision {
         })
     }
 
-    /// The operation waiting on it, when the record names one.
+    /// The operation waiting on it, when the record names one (⟨M03⟩ the M03 kinds'
+    /// records name it `operation`).
     #[must_use]
     pub(crate) fn operation(&self) -> Option<String> {
-        text(&self.request, "operation_id")
+        text(&self.request, "operation_id").or_else(|| text(&self.request, "operation"))
     }
 }
 
@@ -334,6 +338,8 @@ pub(crate) struct Catalog {
     pub projection_generation: Option<u64>,
     /// When it was read.
     pub read_at: Option<Timestamp>,
+    /// ⟨M03⟩ The M03 listings and conditions of the same refresh.
+    pub m03: super::m03::Listings,
 }
 
 impl Catalog {
@@ -382,6 +388,7 @@ impl Catalog {
                 .collect(),
             projection_generation: generation,
             read_at: Some(read_at),
+            m03: super::m03::Listings::default(),
         }
     }
 

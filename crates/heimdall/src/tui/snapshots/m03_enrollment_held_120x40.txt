@@ -1,0 +1,40 @@
+Heimdall  1 Overview  2 Destinations  3 Profiles [4 Activity] [!!] Needs attention
+enr_01010101010101010101010101010101: fixture at alpha (account form)
+[!!] State: held (needs you)
+CA SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA · marker hm:m1
+Registry ~/.ssh/authorized_keys (resolved by remote_home)
+Approved target alpha.example.invalid:22 as fixture · host key SHA256:hostOld
+Verified unknown · evidence fresh until unknown
+Live grants: 0 · open operation none
+[!!] Held: host_key_changed
+  next: review the new host key: `heimdall enroll verify enr_01010101010101010101010101010101 --approve-target-change`,
+or `heimdall enroll remove enr_01010101010101010101010101010101`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down scroll · Esc back

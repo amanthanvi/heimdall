@@ -1,0 +1,12 @@
+ 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+enr_01010101010101010101010101010101:
+fixture at alpha (account form)
+[!!] State: held (needs you)
+CA
+SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAA · marker hm:m1
+Registry ~/.ssh/authorized_keys
+(resolved by remote_home)
+Approved target alpha.example.invalid:22
+as fixture · host key SHA256:hostOld
+Up/Down scroll · Esc back

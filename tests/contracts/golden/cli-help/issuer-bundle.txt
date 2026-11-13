@@ -1,0 +1,27 @@
+Write a recovery bundle
+
+Usage: heimdall issuer bundle [OPTIONS] --out <PATH>
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --out <PATH>
+          Where the bundle is written
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --redact <REDACT>
+          Redact a class of detail
+
+          Possible values:
+          - hostnames: Destination host names
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+  -h, --help
+          Print help (see a summary with '-h')

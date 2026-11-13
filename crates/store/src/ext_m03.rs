@@ -52,6 +52,10 @@ const META_LOCK_ACK_EPOCH: &str = "session_lock_acknowledged_epoch";
 /// (`Txn::record_released_binding_cleanup`). Key `<prefix><binding>`, value the
 /// binding ID.
 const META_RELEASED_BINDING_CLEANUP_PREFIX: &str = "managed_released_binding_cleanup:";
+/// `meta` (⟨wave 5, U10B-Q3 (b), ADR-0008 §17.21 item 10⟩; no schema): when the last
+/// recovery bundle was built (`Txn::set_last_bundle_at`). Who records it is escalated
+/// (`.m03-wave5-questions.md` Q-IS2); never lowers.
+const META_LAST_BUNDLE_AT: &str = "issuer_last_bundle_at";
 
 /// A registered CA, one `issuers` row (ADR-0008 D4; m03-plan §5 item 18). Public
 /// metadata only: the CA's **public** key, digests and dates.
@@ -1876,6 +1880,28 @@ impl Txn<'_> {
                 v.parse::<u64>()
                     .map_err(|_| codec::doc_error("stored lock epoch is malformed"))
             })
+            .transpose()
+    }
+
+    // --- the last recovery bundle (U10B-Q3 (b); ADR-0008 §17.21 item 10) ------------------
+
+    /// Record that a recovery bundle was built at `at`. The stored time never lowers: an
+    /// earlier `at` keeps the stored one, which is returned.
+    pub fn set_last_bundle_at(&mut self, at: Timestamp) -> Result<Timestamp> {
+        if let Some(stored) = self.last_bundle_at()?
+            && stored >= at
+        {
+            return Ok(stored);
+        }
+        self.set_meta(META_LAST_BUNDLE_AT, &codec::ts(at))?;
+        Ok(at)
+    }
+
+    /// When the last recovery bundle was built, if one was recorded.
+    pub fn last_bundle_at(&mut self) -> Result<Option<Timestamp>> {
+        self.meta(META_LAST_BUNDLE_AT)?
+            .as_deref()
+            .map(codec::parse_ts)
             .transpose()
     }
 

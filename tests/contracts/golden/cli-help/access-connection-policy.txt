@@ -1,0 +1,35 @@
+Choose what happens to owned connections at the deadline, and whether Heimdall owns a multiplex master (M03)
+
+Usage: heimdall access connection-policy [OPTIONS] --policy <POLICY>
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --policy <POLICY>
+          Policy ID
+
+      --existing <EXISTING>
+          What happens to existing owned connections at the deadline
+
+          Possible values:
+          - graceful: Existing dedicated sessions may stay connected
+          - strict:   Owned connections are closed at the deadline
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+      --multiplexing <MULTIPLEXING>
+          Whether Heimdall owns a multiplex master per pair
+
+          Possible values:
+          - disabled: No master
+          - owned:    One owned master per pair
+
+  -h, --help
+          Print help (see a summary with '-h')

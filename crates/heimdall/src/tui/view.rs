@@ -163,6 +163,12 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
         Screen::Operation(id) => {
             render_scrolled(frame, body, operation_lines(app, id, theme), app.scroll);
         }
+        Screen::Enrollment(id) => render_scrolled(
+            frame,
+            body,
+            super::m03::enrollment_lines(&app.catalog, id),
+            app.scroll,
+        ),
     }
     if let Some(modal) = &app.modal {
         render_modal(frame, app, modal, body, theme);
@@ -222,7 +228,7 @@ fn screen_hint(app: &App) -> &'static str {
         Screen::Tab(Tab::Profiles) => "/ search · Enter detail · ? help · q quit",
         Screen::Tab(Tab::Activity) => "Enter review · ? help · q quit",
         Screen::Destination(_) => "c connect · p probes · Up/Down scroll · Esc back",
-        Screen::Profile(_) => "Up/Down scroll · Esc back",
+        Screen::Profile(_) | Screen::Enrollment(_) => "Up/Down scroll · Esc back",
         Screen::Operation(_) => "r retry · k keep (held) · x cancel · Enter decision · Esc back",
     }
 }
@@ -297,7 +303,8 @@ fn runtime_line(app: &App) -> String {
 fn item_marker(item: &Item) -> &'static str {
     match item {
         Item::Working { .. } => "[..]",
-        Item::Warning { .. } => "[ !]",
+        Item::Warning { .. } | Item::LateWrite { .. } | Item::ProjectionPending { .. } => "[ !]",
+        Item::SlotFree { .. } => "[ i]",
         _ => "[!!]",
     }
 }
@@ -323,13 +330,30 @@ fn item_text(item: &Item) -> String {
             None => format!("{code}: {message}"),
         },
         Item::Working { op, kind, state } => format!("working: {kind} {op} {state}"),
+        Item::Chore { line } => line.clone(),
+        Item::Enrollment { id, state } => {
+            format!("enrollment {id} is {state} (Enter for its reason and next step)")
+        }
+        Item::LateWrite { id } => format!(
+            "{}: enrollment {id} (Enter for the residual and its command)",
+            heimdall_contract::envelope::m03_warning::POSSIBLE_LATE_WRITE
+        ),
+        Item::ProjectionPending { alias } => format!(
+            "{} ({alias}): run `{}` (the managed projection is not applied yet)",
+            super::m03::PROJECTION_PENDING,
+            super::m03::SETUP_APPLY_COMMAND
+        ),
+        Item::SlotFree { alias } => super::m03::slot_free_line(alias),
     }
 }
 
 fn item_style(item: &Item, theme: Theme) -> Style {
     match item {
         Item::Working { .. } => theme.fg(Color::Yellow),
-        Item::Warning { .. } => theme.fg(Color::Magenta),
+        Item::Warning { .. } | Item::LateWrite { .. } | Item::ProjectionPending { .. } => {
+            theme.fg(Color::Magenta)
+        }
+        Item::SlotFree { .. } => theme.fg(Color::Blue),
         _ => theme.fg(Color::Red),
     }
 }
@@ -524,8 +548,29 @@ fn render_activity(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
         lines.push(plain("  none"));
     }
     let mut ops_header = false;
+    let mut enr_header = false;
     for (i, r) in rows.iter().enumerate() {
         let spans = match r {
+            ActivityRow::Enrollment(id) => {
+                if !ops_header {
+                    ops_header = true;
+                    lines.push(Line::styled("Operations", theme.bold()));
+                    lines.push(plain("  none open"));
+                }
+                if !enr_header {
+                    enr_header = true;
+                    lines.push(Line::styled("Enrollments", theme.bold()));
+                }
+                let e = app.catalog.m03.enrollments.iter().find(|e| &e.id == id);
+                let (marker, _) = e.map_or(("[??]", ""), |e| super::m03::state_class(&e.state));
+                vec![
+                    Span::styled(marker, theme.fg(Color::Red)),
+                    Span::raw(e.map_or_else(
+                        || format!(" {id}"),
+                        |e| super::m03::enrollment_row(&app.catalog, e),
+                    )),
+                ]
+            }
             ActivityRow::Decision(id) => {
                 let d = app.catalog.decisions.iter().find(|d| &d.id == id);
                 let expiry = d.and_then(|d| d.expires_at).map_or_else(String::new, |t| {
@@ -637,6 +682,15 @@ fn destination_lines(app: &App, alias: &str, theme: Theme) -> Vec<Line<'static>>
                 d.account.as_deref().unwrap_or("?")
             )));
         }
+        // ⟨M03⟩ U12: managed readiness (projection, deadline wording, lock behaviour,
+        // owned connections, enrollments) for a managed-certificate pair.
+        lines.extend(super::m03::managed_lines(
+            &app.catalog,
+            d,
+            observation
+                .and_then(|o| o.identity_selection.as_ref())
+                .map(|s| s.selection),
+        ));
     }
     let doctor = app.doctor.as_ref();
     match (doctor, observation) {
@@ -772,7 +826,10 @@ fn destination_lines(app: &App, alias: &str, theme: Theme) -> Vec<Line<'static>>
             .report
             .findings
             .iter()
-            .filter(|f| f.subject.id.as_deref() == Some(alias))
+            .filter(|f| {
+                f.subject.id.as_deref() == Some(alias)
+                    || (dest.is_some_and(|d| f.subject.id.as_deref() == Some(d.id.as_str())))
+            })
             .collect();
         if !findings.is_empty() {
             lines.push(Line::styled("Findings:", theme.bold()));
@@ -1555,6 +1612,9 @@ fn decision_modal(app: &App, p: &DecisionPrompt, width: usize, theme: Theme) -> 
     match d.kind.as_str() {
         "apply_projection" => content.extend(apply_projection_lines(d, width, theme)),
         "declare_interaction" => content.extend(declare_lines(d)),
+        _ if let Some(lines) = super::m03::decision_lines(&app.catalog, d) => {
+            content.extend(lines);
+        }
         _ => {
             let text = serde_json::to_string_pretty(&d.request).unwrap_or_default();
             content.extend(text.lines().map(|l| plain(format!("  {}", clean(l)))));
@@ -2708,5 +2768,671 @@ mod tests {
         assert_eq!(age(n, t("2026-11-03T09:15:00Z")), "in 14m");
         assert_eq!(age(n, t("2026-11-01T09:00:30Z")), "2d ago");
         assert_eq!(hms(t("2026-11-03T09:00:25.123Z")), "09:00:25Z");
+    }
+
+    // ---- ⟨M03⟩ U12: the M03 views (m03-plan U12 "Tests", TUI) ------------------------
+
+    mod m03 {
+        use super::*;
+        use crate::tui::m03::fixtures::{enroll_decision, enrollment, target_change_decision};
+        use crate::tui::m03::{Listings, LockReport, PolicyReport, Preference, Projection};
+        use crate::tui::model::{Command, DecisionPrompt, Effect};
+        use heimdall_contract::enrollment::DisclosureKind;
+        use heimdall_contract::managed::{ExistingConnectionsMode, MultiplexingMode};
+        use heimdall_localenv::projection::plan::{
+            DEADLINE_GRACEFUL_EXCLUSIVE, DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+            DEADLINE_STRICT_EXCLUSIVE, DEADLINE_STRICT_NOT_EXCLUSIVE, slot_free_command,
+            slot_free_disclosure,
+        };
+
+        const TIME_MESSAGE: &str = "safe time cannot be established; activation is stopped";
+
+        fn pending() -> Preference {
+            Preference {
+                mechanism: "managed_certificate".to_owned(),
+                projection: Some(Projection::Pending),
+                policy: None,
+            }
+        }
+
+        /// The populated state with M03 records: `alpha` is a managed-certificate pair
+        /// whose projection is pending and whose slot is free; three enrollments (held
+        /// after a host-key change, withdrawn with the `late_write` residual, verified);
+        /// the time chore; an enrollment and a target-change decision.
+        pub(super) fn m03_app() -> App {
+            let mut app = populated();
+            app.catalog.destinations[0].preference = Some(pending());
+            app.catalog.m03 = Listings::of(
+                &serde_json::json!({"enrollments": [
+                    enrollment(1, "held", false, Some("host_key_changed")),
+                    enrollment(2, "withdrawn", true, None),
+                    enrollment(3, "verified", false, None),
+                ]}),
+                &serde_json::Value::Null,
+                &serde_json::Value::Null,
+                &[heimdall_contract::envelope::Warning {
+                    code: crate::tui::m03::TIME_UNCERTAIN.to_owned(),
+                    message: TIME_MESSAGE.to_owned(),
+                }],
+            );
+            app.catalog.decisions = vec![
+                enroll_decision(
+                    "dec_enroll1",
+                    vec![
+                        DisclosureKind::CaTrustBlastRadius,
+                        DisclosureKind::LockContinuityOnce,
+                    ],
+                ),
+                target_change_decision(),
+            ];
+            let dst = heimdall_contract::ids::DestinationId::parse("dst-alpha").unwrap();
+            if let Some(d) = &mut app.doctor {
+                d.report.findings.push(slot_free_disclosure("alpha", &dst));
+            }
+            app
+        }
+
+        fn detail(app: &App) -> App {
+            let mut a = app.clone();
+            press(&mut a, &[Key::Char('2'), Key::Enter]);
+            assert_eq!(a.screen, Screen::Destination("alpha".to_owned()));
+            a
+        }
+
+        fn flat(rows: &[String]) -> String {
+            rows.join(" ")
+                .replace(['│', '┌', '┐', '└', '┘', '─'], " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+
+        fn open(app: &App, id: &str) -> App {
+            let mut a = app.clone();
+            a.modal = Some(Modal::Decision(DecisionPrompt {
+                id: id.to_owned(),
+                verdict: Verdict::Approve,
+                input: String::new(),
+                reading: Reading::default(),
+            }));
+            a
+        }
+
+        fn decides(effects: &[Effect]) -> Vec<(String, Verdict)> {
+            effects
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::Worker(Command::Decide { id, verdict }) => Some((id.clone(), *verdict)),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// The M03 screens of the snapshot set (`m03_*`; the M02 set is unchanged).
+        fn m03_screens() -> Vec<(&'static str, App)> {
+            let base = m03_app();
+            let mut out = vec![("m03_overview", base.clone())];
+            out.push(("m03_destination_detail", detail(&base)));
+            let mut a = base.clone();
+            press(&mut a, &[Key::Char('4')]);
+            out.push(("m03_activity", a.clone()));
+            let rows = a.activity_rows();
+            let held = rows
+                .iter()
+                .position(|r| matches!(r, ActivityRow::Enrollment(_)))
+                .unwrap();
+            for _ in 0..held {
+                press(&mut a, &[Key::Down]);
+            }
+            press(&mut a, &[Key::Enter]);
+            out.push(("m03_enrollment_held", a));
+            out.push(("m03_decision_enroll", open(&base, "dec_enroll1")));
+            out.push(("m03_decision_target_change", open(&base, "dec_target1")));
+            out
+        }
+
+        /// ⟨M03⟩ TestBackend snapshots of the M03 views at 40×12 and 120×40; `NO_COLOR`
+        /// draws the same text and no cell carries a color.
+        #[test]
+        fn m03_testbackend_snapshots_at_40x12_and_120x40() {
+            for (name, app) in m03_screens() {
+                for (w, h) in [(40, 12), (120, 40)] {
+                    let (rows, _) = draw(&app, w, h);
+                    snapshot(&format!("{name}_{w}x{h}"), &rows);
+                    let (plain_rows, buffer) = draw(&no_color(&app), w, h);
+                    assert_eq!(rows, plain_rows, "{name} {w}x{h}: text differs");
+                    for c in buffer.content() {
+                        assert_eq!(c.fg, Color::Reset, "{name} {w}x{h}: {c:?}");
+                        assert_eq!(c.bg, Color::Reset, "{name} {w}x{h}: {c:?}");
+                    }
+                }
+            }
+        }
+
+        /// m03-plan U12 `managed_readiness_detail_exact_deadline_strings` (F15; ADR-0008
+        /// D8 item 6, §17.20 item 9): the managed detail shows the D8 wording, graceful
+        /// and strict, each in its exclusive and not-exclusive form, exactly U8's
+        /// strings (compared with the constants, never retyped); an unknown selection
+        /// gets the qualified text; the runtime's own wording (with D8 item 3's
+        /// owned-masters line) is shown verbatim; owned masters without it are never
+        /// presented as the plain text alone; no policy reads unknown.
+        #[test]
+        fn managed_readiness_detail_exact_deadline_strings() {
+            let policy = |existing, multiplexing, wording: Option<String>| PolicyReport {
+                existing: Some(existing),
+                multiplexing: Some(multiplexing),
+                wording,
+            };
+            let with = |selection: Option<IdentitySelection>, p: Option<PolicyReport>| {
+                let mut app = m03_app();
+                app.catalog.destinations[0].preference = Some(Preference {
+                    policy: p,
+                    ..pending()
+                });
+                if let Some(d) = &mut app.doctor {
+                    match selection {
+                        Some(sel) => {
+                            d.report.aliases[0]
+                                .identity_selection
+                                .as_mut()
+                                .unwrap()
+                                .selection = sel;
+                        }
+                        None => d.report.aliases.clear(),
+                    }
+                }
+                let app = detail(&app);
+                let lines: Vec<String> = crate::tui::m03::managed_lines(
+                    &app.catalog,
+                    &app.catalog.destinations[0],
+                    app.doctor_alias("alpha")
+                        .and_then(|o| o.identity_selection.as_ref())
+                        .map(|s| s.selection),
+                )
+                .iter()
+                .map(|l| l.to_string())
+                .collect();
+                let screen = flat(&draw(&app, 120, 60).0);
+                (lines, screen)
+            };
+            let cases = [
+                (
+                    IdentitySelection::Exclusive,
+                    ExistingConnectionsMode::Graceful,
+                    DEADLINE_GRACEFUL_EXCLUSIVE,
+                ),
+                (
+                    IdentitySelection::NotExclusive,
+                    ExistingConnectionsMode::Graceful,
+                    DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+                ),
+                (
+                    IdentitySelection::Exclusive,
+                    ExistingConnectionsMode::Strict,
+                    DEADLINE_STRICT_EXCLUSIVE,
+                ),
+                (
+                    IdentitySelection::NotExclusive,
+                    ExistingConnectionsMode::Strict,
+                    DEADLINE_STRICT_NOT_EXCLUSIVE,
+                ),
+            ];
+            let all = [
+                DEADLINE_GRACEFUL_EXCLUSIVE,
+                DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+                DEADLINE_STRICT_EXCLUSIVE,
+                DEADLINE_STRICT_NOT_EXCLUSIVE,
+            ];
+            for (selection, existing, expected) in cases {
+                let (lines, screen) = with(
+                    Some(selection),
+                    Some(policy(existing, MultiplexingMode::Disabled, None)),
+                );
+                let wording: Vec<&String> = lines
+                    .iter()
+                    .filter(|l| all.iter().any(|w| l.trim() == *w))
+                    .collect();
+                assert_eq!(
+                    wording,
+                    [&format!("    {expected}")],
+                    "{selection:?} {existing:?}: {lines:#?}"
+                );
+                assert!(
+                    screen.contains(expected),
+                    "{selection:?} {existing:?}: {screen}"
+                );
+            }
+            // No identity selection evaluated: `undetermined`, the qualified text.
+            let (lines, _) = with(
+                None,
+                Some(policy(
+                    ExistingConnectionsMode::Graceful,
+                    MultiplexingMode::Disabled,
+                    None,
+                )),
+            );
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.trim() == DEADLINE_GRACEFUL_NOT_EXCLUSIVE),
+                "{lines:#?}"
+            );
+            // The runtime's wording, owned-masters line included, verbatim.
+            let theirs = format!(
+                "{DEADLINE_STRICT_EXCLUSIVE} {}",
+                heimdall_adapters::managed::report::OWNED_MASTERS_DISCLOSURE
+            );
+            let (lines, screen) = with(
+                Some(IdentitySelection::Exclusive),
+                Some(policy(
+                    ExistingConnectionsMode::Strict,
+                    MultiplexingMode::OwnedMasters,
+                    Some(theirs.clone()),
+                )),
+            );
+            assert!(lines.iter().any(|l| l.trim() == theirs), "{lines:#?}");
+            assert!(screen.contains(&theirs), "{screen}");
+            // Owned masters without the runtime's wording: the base text and an explicit
+            // unknown, never the base text alone (switch OWNED_MASTERS_LINE).
+            if !cfg!(windows) {
+                let (lines, _) = with(
+                    Some(IdentitySelection::Exclusive),
+                    Some(policy(
+                        ExistingConnectionsMode::Graceful,
+                        MultiplexingMode::OwnedMasters,
+                        None,
+                    )),
+                );
+                let at = lines
+                    .iter()
+                    .position(|l| l.trim() == DEADLINE_GRACEFUL_EXCLUSIVE)
+                    .unwrap();
+                assert!(
+                    lines[at + 1].contains("[??] owned masters are applied"),
+                    "{lines:#?}"
+                );
+            }
+            // No policy reported: unknown, and none of the four texts.
+            let (lines, screen) = with(Some(IdentitySelection::Exclusive), None);
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("unknown: no connection policy is reported")),
+                "{lines:#?}"
+            );
+            for w in all {
+                assert!(!screen.contains(w), "{w}: {screen}");
+            }
+        }
+
+        /// m03-plan U12 `projection_pending_warning_and_setup_apply_hint` (F04): a
+        /// managed-certificate pair whose projection is pending is an overview warning
+        /// and a detail line, both naming `heimdall setup apply`; a warning, not Needs
+        /// attention; an applied projection shows neither. The preference is read from
+        /// `inspect destinations`' own shape.
+        #[test]
+        fn projection_pending_warning_and_setup_apply_hint() {
+            let c = crate::tui::data::Catalog::from_answers(
+                &serde_json::json!({"items": [
+                    {"destination_id": "dst-alpha", "alias": "alpha", "definition": "managed",
+                     "preference": {"mechanism": "managed_certificate",
+                                    "projection": {"state": "pending"}}},
+                    {"destination_id": "dst-b", "alias": "b", "definition": "managed",
+                     "preference": {"mechanism": "managed_certificate",
+                                    "projection": {"state": "applied", "generation": 4}}},
+                ]}),
+                &serde_json::Value::Null,
+                &serde_json::Value::Null,
+                &serde_json::Value::Null,
+                &serde_json::Value::Null,
+                &serde_json::Value::Null,
+                now(),
+            );
+            assert_eq!(c.destinations[0].preference, Some(pending()));
+            assert_eq!(
+                c.destinations[1]
+                    .preference
+                    .as_ref()
+                    .and_then(|p| p.projection.clone()),
+                Some(Projection::Applied(Some(4)))
+            );
+            let hint = "managed_projection_pending (alpha): run `heimdall setup apply` (the managed projection is not applied yet)";
+            let mut app = App::new(now(), false);
+            app.runtime = Runtime::Connected;
+            app.catalog = c;
+            app.doctor = Some(crate::tui::data::Doctor {
+                report: crate::tui::model::tests::report(),
+                taken_at: now(),
+            });
+            if let Some(d) = &mut app.doctor {
+                d.report.findings.clear();
+            }
+            let overview = flat(&draw(&app, 120, 40).0);
+            assert!(overview.contains(&format!("[ !] {hint}")), "{overview}");
+            assert_eq!(
+                overview.matches("managed_projection_pending").count(),
+                1,
+                "only the pending pair: {overview}"
+            );
+            assert_eq!(app.health(), crate::tui::model::Health::Ready, "a warning");
+            let screen = flat(&draw(&detail(&app), 120, 40).0);
+            assert!(
+                screen.contains(
+                    "[ !] managed_projection_pending: the managed projection for this pair is not applied yet; run `heimdall setup apply`"
+                ),
+                "{screen}"
+            );
+            assert!(screen.contains("projection pending"), "{screen}");
+            // Applied: no warning anywhere.
+            app.catalog.destinations[0].preference = Some(Preference {
+                projection: Some(Projection::Applied(Some(5))),
+                ..pending()
+            });
+            for a in [app.clone(), detail(&app)] {
+                let text = flat(&draw(&a, 120, 40).0);
+                assert!(!text.contains("managed_projection_pending"), "{text}");
+            }
+        }
+
+        /// m03-plan U12 ⟨r3⟩ `tui_shows_slot_free_with_command` (ADR-0008 D10 item 2,
+        /// §17.4 item 12): the doctor's `slot_free` finding is on the overview (shown,
+        /// not Needs attention) and in the destination detail, each with the command
+        /// that holds a slot, the doctor's own `slot_free_command`; `heimdall bind
+        /// materialize` is never offered.
+        #[test]
+        fn tui_shows_slot_free_with_command() {
+            let mut app = populated();
+            let dst = heimdall_contract::ids::DestinationId::parse("dst-alpha").unwrap();
+            if let Some(d) = &mut app.doctor {
+                d.report.findings = vec![slot_free_disclosure("alpha", &dst)];
+            }
+            app.catalog.operations.clear();
+            app.catalog.decisions.clear();
+            let command = slot_free_command("alpha");
+            assert_eq!(command, "heimdall run --profile <profile> -- ssh alpha");
+            // An overview row is one terminal row: the command comes first, whole.
+            let overview = flat(&draw(&app, 120, 40).0);
+            assert!(
+                overview.contains(&format!(
+                    "[ i] slot_free (alpha): hold the slot with `{command}`"
+                )),
+                "{overview}"
+            );
+            let items = app.overview_items();
+            assert_eq!(
+                item_text(&items[0]),
+                format!(
+                    "slot_free (alpha): hold the slot with `{command}` (ordinary `ssh alpha` needs a held slot)"
+                )
+            );
+            assert_eq!(app.health(), crate::tui::model::Health::Ready);
+            // Enter on it opens the destination.
+            let mut a = app.clone();
+            press(&mut a, &[Key::Enter]);
+            assert_eq!(a.screen, Screen::Destination("alpha".to_owned()));
+            let screen = flat(&draw(&a, 120, 40).0);
+            // The detail shows the doctor's own finding, which names the same command.
+            let message = flat(&[slot_free_disclosure("alpha", &dst).message]);
+            assert!(message.contains(&format!("`{command}`")), "{message}");
+            assert!(
+                screen.contains(&format!("[ i] slot_free: {message}")),
+                "{screen}"
+            );
+            for text in [&overview, &screen] {
+                assert!(!text.contains("bind materialize"), "{text}");
+            }
+        }
+
+        /// m03-plan U12 `lock_disclosure_once` (ADR-0008 D9 item 1, R-UX-03): the lock
+        /// disclosure is shown in the decision whose record carries it, and not in one
+        /// that does not (the runtime records it only until acknowledged); with no text
+        /// the TUI can show, Approve is not offered and nothing is sent, Deny still is;
+        /// with the runtime's text it is shown verbatim and Approve proceeds; the
+        /// managed detail always shows the current lock behaviour.
+        #[test]
+        fn lock_disclosure_once() {
+            let mut app = m03_app();
+            app.catalog.decisions = vec![
+                enroll_decision("dec_first", vec![DisclosureKind::LockContinuityOnce]),
+                enroll_decision("dec_second", vec![]),
+            ];
+            app.catalog.m03.time_uncertain = None;
+            let heading = "Lock disclosure (shown once; recorded when you approve):";
+            // The first: shown, without a text here: no approval can be sent.
+            let first = open(&app, "dec_first");
+            let text = flat(&read_everything(&first, 120, 40));
+            assert!(text.contains(heading), "{text}");
+            assert!(text.contains("[text not available in the TUI]"), "{text}");
+            assert!(text.contains("Approve is not offered here"), "{text}");
+            let mut a = first.clone();
+            type_text(&mut a, "yes");
+            let effects = press(&mut a, &[Key::Enter]);
+            assert!(decides(&effects).is_empty(), "{effects:?}");
+            assert!(
+                a.status.as_deref().unwrap().contains("approve not sent"),
+                "{:?}",
+                a.status
+            );
+            let mut a = first.clone();
+            press(&mut a, &[Key::Tab]);
+            draw(&a, 120, 40);
+            type_text(&mut a, "yes");
+            let effects = press(&mut a, &[Key::Enter]);
+            assert_eq!(decides(&effects), [("dec_first".to_owned(), Verdict::Deny)]);
+            // The second: no lock disclosure.
+            let text = flat(&read_everything(&open(&app, "dec_second"), 120, 40));
+            assert!(!text.contains("Lock disclosure"), "{text}");
+            assert!(text.contains("Disclosures: none"), "{text}");
+            // The runtime's text (Q-T5's `lock` report): verbatim, and Approve proceeds.
+            let said = "Approved work is designed to keep working while your screen or password manager is locked, until the end time you approve.";
+            app.catalog.m03.lock = Some(LockReport {
+                behavior: "continue".to_owned(),
+                disclosure: Some(said.to_owned()),
+            });
+            let mut a = open(&app, "dec_first");
+            let text = flat(&read_everything(&a, 120, 40));
+            assert!(text.contains(&format!("{heading} {said}")), "{text}");
+            assert!(!text.contains("Approve is not offered"), "{text}");
+            draw(&a, 120, 40);
+            type_text(&mut a, "yes");
+            let effects = press(&mut a, &[Key::Enter]);
+            assert_eq!(
+                decides(&effects),
+                [("dec_first".to_owned(), Verdict::Approve)]
+            );
+            // The detail always shows the current behaviour.
+            let screen = flat(&draw(&detail(&app), 120, 60).0);
+            assert!(screen.contains("Lock behaviour: continue"), "{screen}");
+            app.catalog.m03.lock = None;
+            let screen = flat(&draw(&detail(&app), 120, 60).0);
+            assert!(
+                screen.contains("Lock behaviour: unknown (not reported by the runtime)"),
+                "{screen}"
+            );
+        }
+
+        /// ⟨M03⟩ The target-change decision shows the key diff (approved `-`, proposed
+        /// `+`, the full keys) behind the typed yes; the enrollment decision its plan
+        /// line, registry, line digest and disclosures.
+        #[test]
+        fn m03_decisions_render_the_recorded_request_readably() {
+            let app = m03_app();
+            let text = flat(&read_everything(&open(&app, "dec_target1"), 120, 40));
+            for want in [
+                "- host key fingerprint SHA256:hostOld",
+                "+ host key fingerprint SHA256:hostNew",
+                "- host key AAAAC3NzaC1lZDI1NTE5AAAAIhostOld",
+                "+ host key AAAAC3NzaC1lZDI1NTE5AAAAIhostNew",
+                "HostName alpha.example.invalid",
+            ] {
+                assert!(text.contains(want), "{want}: {text}");
+            }
+            assert!(
+                !text.contains("- HostName"),
+                "unchanged fields once: {text}"
+            );
+            let prompt = flat(&draw(&open(&app, "dec_target1"), 120, 40).0);
+            assert!(
+                prompt.contains("Approve? Type yes to confirm [y/N]"),
+                "{prompt}"
+            );
+            let mut a = open(&app, "dec_target1");
+            draw(&a, 120, 40);
+            type_text(&mut a, "yes");
+            assert_eq!(
+                decides(&press(&mut a, &[Key::Enter])),
+                [("dec_target1".to_owned(), Verdict::Approve)]
+            );
+            let text = flat(&read_everything(&open(&app, "dec_enroll1"), 120, 40));
+            for want in [
+                "Plan: enroll fixture at alpha (dst-alpha), account form, under CA SHA256:",
+                "Registry ~/.ssh/authorized_keys (resolved by remote_home)",
+                &format!("line SHA-256 {}", "ab".repeat(32)),
+                "Existing access: ssh alpha",
+                "* ca_trust_blast_radius:",
+                "Lock disclosure (shown once",
+            ] {
+                assert!(text.contains(want), "{want}: {text}");
+            }
+            // An enrollment decision's operation is linked from its record.
+            assert_eq!(
+                app.catalog.decisions[0].operation().as_deref(),
+                Some("op_enroll1")
+            );
+        }
+
+        /// The enrollment detail: a held record's reason and next step, the
+        /// `late_write` residual with its command, and a held record with no reason
+        /// reported reads unknown (Q-T1).
+        #[test]
+        fn m03_enrollment_detail_shows_reason_next_step_and_late_write() {
+            let app = m03_app();
+            let ids: Vec<String> = app
+                .catalog
+                .m03
+                .enrollments
+                .iter()
+                .map(|e| e.id.clone())
+                .collect();
+            let mut a = app.clone();
+            a.screen = Screen::Enrollment(ids[0].clone());
+            let text = flat(&draw(&a, 120, 40).0);
+            assert!(text.contains("[!!] Held: host_key_changed"), "{text}");
+            assert!(
+                text.contains(&format!(
+                    "`heimdall enroll verify {} --approve-target-change`",
+                    ids[0]
+                )),
+                "{text}"
+            );
+            a.screen = Screen::Enrollment(ids[1].clone());
+            let text = flat(&draw(&a, 120, 40).0);
+            assert!(
+                text.contains("Possible late write (the late_write residual)"),
+                "{text}"
+            );
+            assert!(
+                text.contains(&format!("`heimdall enroll remove {}`", ids[1])),
+                "{text}"
+            );
+            let mut b = app.clone();
+            b.catalog.m03.enrollments[0].hold = None;
+            b.screen = Screen::Enrollment(ids[0].clone());
+            let text = flat(&draw(&b, 120, 40).0);
+            assert!(
+                text.contains("Held: reason unknown (not reported by the runtime) next: unknown"),
+                "{text}"
+            );
+            // The overview: the held record needs attention, the residual is a warning.
+            let overview = flat(&draw(&app, 120, 40).0);
+            assert!(
+                overview.contains(&format!("[!!] enrollment {} is held", ids[0])),
+                "{overview}"
+            );
+            assert!(
+                overview.contains(&format!(
+                    "[ !] possible_late_write: enrollment {} (Enter for the residual and its command)",
+                    ids[1]
+                )),
+                "{overview}"
+            );
+            assert!(!overview.contains(&format!("enrollment {} is", ids[2])));
+        }
+
+        /// The time chore on the overview (the pty half is `tui_m03`'s
+        /// `time_confirmation_chore_shown_after_reboot`): first, Needs attention, with
+        /// its one command.
+        #[test]
+        fn m03_time_chore_is_first_with_its_command() {
+            let app = m03_app();
+            let items = app.overview_items();
+            assert!(matches!(items[0], crate::tui::model::Item::Chore { .. }));
+            assert_eq!(app.health(), crate::tui::model::Health::Attention);
+            assert_eq!(
+                item_text(&items[0]),
+                format!(
+                    "time_confirmation_after_reboot: run `heimdall time confirm` ({TIME_MESSAGE}; after a reboot it needs one attended confirmation)"
+                )
+            );
+            // An overview row is one terminal row: the command comes first, whole.
+            let text = flat(&draw(&app, 120, 40).0);
+            assert!(
+                text.contains(
+                    "> [!!] time_confirmation_after_reboot: run `heimdall time confirm` (safe time"
+                ),
+                "{text}"
+            );
+        }
+
+        /// With no runtime connected, the chore comes from the store reader (worker U's
+        /// `doctor_cmd::pending_chores`), its command first; once connected, the
+        /// runtime's own view governs.
+        #[test]
+        fn m03_time_chore_offline_from_the_store_reader() {
+            let chore = crate::doctor_cmd::PendingChore {
+                chore: crate::doctor_cmd::TIME_CONFIRMATION_CHORE,
+                command: crate::doctor_cmd::TIME_CONFIRM_COMMAND,
+                message: "this machine restarted since its time was last trusted; managed issuance waits until you confirm the time once, attended: run `heimdall time confirm`".to_owned(),
+            };
+            let line = crate::tui::m03::chore_line(&chore);
+            assert_eq!(
+                line,
+                "time_confirmation_after_reboot: run `heimdall time confirm` (this machine restarted since its time was last trusted; managed issuance waits until you confirm the time once, attended)"
+            );
+            let mut app = m03_app();
+            app.runtime = Runtime::NotRunning;
+            app.catalog.m03.time_uncertain = None;
+            app.apply(crate::tui::model::Update::OfflineChores(vec![line.clone()]));
+            assert_eq!(item_text(&app.overview_items()[0]), line);
+            let text = flat(&draw(&app, 120, 40).0);
+            assert!(
+                text.contains("> [!!] time_confirmation_after_reboot: run `heimdall time confirm` (this machine"),
+                "{text}"
+            );
+            app.runtime = Runtime::Connected;
+            let text = flat(&draw(&app, 160, 40).0);
+            assert!(!text.contains("time_confirmation_after_reboot"), "{text}");
+        }
+
+        /// Search and the refresh never reach the issuer or a remote (the pty half is
+        /// `tui_m03`'s `tui_search_never_contacts_issuer_or_remote`): typing a search over
+        /// the M03 state produces no effect at all, and the refresh reads only `inspect`
+        /// subjects, never `issuer`.
+        #[test]
+        fn m03_search_and_refresh_never_reach_the_issuer() {
+            use heimdall_contract::request::InspectSubject;
+            assert!(
+                !crate::tui::worker::REFRESH_SUBJECTS.contains(&InspectSubject::Issuer),
+                "the refresh never asks the issuer"
+            );
+            let mut app = m03_app();
+            press(&mut app, &[Key::Char('2'), Key::Char('/')]);
+            let mut effects = type_text(&mut app, "alpha enroll issuer");
+            effects.extend(press(
+                &mut app,
+                &[Key::Backspace, Key::Enter, Key::Char('/'), Key::Esc],
+            ));
+            assert!(effects.is_empty(), "{effects:?}");
+        }
     }
 }

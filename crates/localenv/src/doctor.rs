@@ -171,6 +171,34 @@ pub struct LocalContext {
     pub catalog: Vec<CatalogAlias>,
     /// The Heimdall-managed include file P, when known (its role is `managed`).
     pub managed_file: Option<PathBuf>,
+    /// ⟨M03⟩ The managed facts the caller read from the store read-only and the
+    /// managed directories to check (m03-plan U12; [`ManagedFacts`]). Empty by default:
+    /// the doctor then reports no M03 finding.
+    pub managed: ManagedFacts,
+}
+
+/// ⟨M03⟩ A managed alias whose pair prefers managed certificates, whose projection is
+/// applied, and whose slot no binding holds (ADR-0008 D10 item 2; §17.4 item 12): its
+/// ordinary `ssh <alias>` fails closed until a binding holds the slot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FreeSlot {
+    /// The alias.
+    pub alias: String,
+    /// Its destination.
+    pub destination: heimdall_contract::ids::DestinationId,
+}
+
+/// ⟨M03⟩ What the doctor reads for its M03 findings (m03-plan §5 item 14). The caller
+/// fills it read-only (the store opened read-only; the runtime is never started), and
+/// [`run`] only reports: nothing is created, changed or repaired.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ManagedFacts {
+    /// The managed aliases whose slot is free (`slot_free`).
+    pub free_slots: Vec<FreeSlot>,
+    /// The managed directory trees to check (`managed_dir_unsafe`, ADR-0008 §17.20
+    /// item 15): each an anchor (the runtime or state directory) and the managed level
+    /// under it (`b`, `managed`). A tree whose level does not exist is not checked.
+    pub dirs: Vec<(PathBuf, String)>,
 }
 
 impl std::fmt::Debug for LocalContext {
@@ -203,6 +231,7 @@ impl LocalContext {
             client_isolation: None,
             catalog: Vec::new(),
             managed_file: None,
+            managed: ManagedFacts::default(),
         }
     }
 
@@ -455,6 +484,8 @@ pub fn run(ctx: &LocalContext, request: &DoctorRequest) -> DoctorReport {
         evaluations.insert(alias.clone(), evaluation);
     }
     let git = d.git(&inventory, &agents);
+    d.slot_free(&aliases);
+    d.managed_dirs();
     // The static level's own record: nothing configured ran, nothing was contacted
     // or changed; local queries ran contained.
     let mut static_record = probe::record(ProbeLevel::Static, "*", started_at);
@@ -1707,6 +1738,103 @@ fn destination(alias: &str, b: &RelevantBehavior) -> Option<(String, u16)> {
         Resolved::Undetermined(_) => return None,
     };
     Some((host, port))
+}
+
+// --- ⟨M03⟩ findings (m03-plan U12, §5 item 14) -----------------------------------------
+
+impl Doctor<'_> {
+    /// `slot_free` for each managed alias whose slot is free (ADR-0008 D10 item 2;
+    /// §17.4 item 12), with the command that holds one: the same finding as the
+    /// `ApplyProjection` preview's disclosure
+    /// ([`crate::projection::plan::slot_free_disclosure`]). Under `--redact` the alias
+    /// in the text is the report's `alias-<n>` (or `<redacted>`), as [`redact`] names it.
+    fn slot_free(&mut self, aliases: &[AliasObservation]) {
+        for free in &self.ctx.managed.free_slots {
+            let shown = if self.request.redact {
+                aliases
+                    .iter()
+                    .position(|a| a.alias == free.alias)
+                    .map_or_else(|| "<redacted>".to_owned(), |i| format!("alias-{}", i + 1))
+            } else {
+                free.alias.clone()
+            };
+            self.findings
+                .push(crate::projection::plan::slot_free_disclosure(
+                    &shown,
+                    &free.destination,
+                ));
+        }
+    }
+
+    /// `managed_dir_unsafe` (ADR-0008 §17.20 item 15): each managed directory that is
+    /// not owner-only, a symlink or reparse point, or not a directory, opened read-only
+    /// through [`crate::sys::ManagedDir`] (never created, followed or repaired). Binding
+    /// clears refuse until the owner removes it.
+    fn managed_dirs(&mut self) {
+        let home = self.ctx.paths.account_home.clone();
+        let mut unsafe_dirs: Vec<(PathBuf, &'static str)> = Vec::new();
+        for (anchor, level) in &self.ctx.managed.dirs {
+            check_managed_tree(anchor, level, &mut unsafe_dirs);
+        }
+        for (path, why) in unsafe_dirs {
+            let display = path_display(&path, &home);
+            self.add(
+                finding::MANAGED_DIR_UNSAFE,
+                FindingSeverity::Problem,
+                subject("directory", Some(&display)),
+                ProbeLevel::Static,
+                None,
+                format!(
+                    "{display} is unsafe ({why}): Heimdall's binding clears refuse `managed_dir_unsafe` until it is removed; nothing was repaired"
+                ),
+                "review_config",
+                Some(crate::sys::MANAGED_DIR_UNSAFE),
+            );
+        }
+    }
+}
+
+/// Check the managed tree `anchor/level` and each directory directly in it, pushing
+/// each refused directory with its nonsecret reason. Only `ManagedDirError::Unsafe`
+/// is reported: a failed platform call proves nothing either way.
+fn check_managed_tree(anchor: &Path, level: &str, out: &mut Vec<(PathBuf, &'static str)>) {
+    use crate::sys::{ManagedDir, ManagedDirError};
+    // Only an installation that has the managed level is checked (an M02 one has none).
+    if std::fs::symlink_metadata(anchor.join(level)).is_err() {
+        return;
+    }
+    let root = match ManagedDir::open_root(anchor) {
+        Ok(Some(root)) => root,
+        Ok(None) | Err(ManagedDirError::Sys(_)) => return,
+        Err(ManagedDirError::Unsafe(why)) => {
+            out.push((anchor.to_path_buf(), why));
+            return;
+        }
+    };
+    let dir = match root.child(level, false) {
+        Ok(Some(dir)) => dir,
+        Ok(None) | Err(ManagedDirError::Sys(_)) => return,
+        Err(ManagedDirError::Unsafe(why)) => {
+            out.push((anchor.join(level), why));
+            return;
+        }
+    };
+    let Ok(names) = dir.names() else {
+        return;
+    };
+    for name in names {
+        // A file is not a level; a symlink is (it is where a directory must be).
+        let is_level = match std::fs::symlink_metadata(anchor.join(level).join(&name)) {
+            Ok(m) => m.is_dir() || m.file_type().is_symlink(),
+            Err(_) => false,
+        };
+        if !is_level {
+            continue;
+        }
+        if let Err(ManagedDirError::Unsafe(why)) = dir.child(&name, false) {
+            out.push((anchor.join(level).join(&name), why));
+        }
+    }
 }
 
 /// `--redact`: aliases become `alias-<n>`; host names, user names and host key aliases

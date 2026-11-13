@@ -1,0 +1,13 @@
+Create the CA key and its offline backup (terminal only)
+
+Usage: heimdall issuer init [OPTIONS] --backup-out <PATH>
+
+Options:
+      --backup-out <PATH>             Where the encrypted backup is written
+      --json                          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --non-interactive               Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --replace-orphan <FINGERPRINT>  Replace the kept CA key with this fingerprint (D4 item 1)
+      --bundle <FILE>                 The recovery bundle that is cross-checked against the orphan
+      --home <DIR>                    Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --no-bundle-available           No bundle exists for the orphan
+  -h, --help                          Print help

@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[!!] ┌Owner decision dec_enroll1 (enroll_account)─────────────────────────────────────────────────────────────────┐
+Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+Stati│Exactly what approve applies to:                                                                            │
+> [!!│Plan: enroll fixture at alpha (dst-alpha), account form, under CA                                           │stopp
+  [!!│SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA                                                          │
+  [!!│Registry ~/.ssh/authorized_keys (resolved by remote_home) · line SHA-256                                    │
+  [!!│abababababababababababababababababababababababababababababababab                                            │
+  [!!│Plan digest bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb                                │
+  [..│Approved target: alpha.example.invalid:22 as fixture (proxy none)                                           │
+  [ !│  host key ssh-ed25519 SHA256:hostOld                                                                       │)
+  [ !│  key AAAAC3NzaC1lZDI1NTE5AAAAIhostOld                                                                      │
+  [ !│Existing access: ssh alpha                                                                                  │
+  [ i│Host trust: ~/.ssh/known_hosts:3                                                                            │needs
+     │Bootstrap step: none                                                                                        │
+     │Disclosures:                                                                                                │
+     │  * ca_trust_blast_radius: [text not available in the TUI]                                                  │
+     │  * Lock disclosure (shown once; recorded when you approve):                                                │
+     │    [text not available in the TUI]                                                                         │
+     │[!!] Approve is not offered here: the TUI cannot show the text of ca_trust_blast_radius,                    │
+     │lock_continuity_once; approve it where its disclosures are shown (the CLI), or deny it here                 │
+     │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │Tab: deny · Esc: send nothing                                                                               │
+     │Approve? Type yes to confirm [y/N]: _                                                                       │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+type yes, Enter · Tab approve/deny · Esc cancel

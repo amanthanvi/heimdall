@@ -95,6 +95,24 @@ impl LockSignal {
     pub fn available(self) -> bool {
         self != LockSignal::None
     }
+
+    /// ⟨M03 wave 5⟩ The signal this platform's runtime source uses (the table above;
+    /// `heimdall_runtime::session_lock`'s per-platform `SIGNAL`): what
+    /// [`Operations::session_lock_signal`] reports for a wired source that does not
+    /// read `unavailable`, unless the runtime named the signal itself
+    /// ([`Operations::set_session_lock_signal`]).
+    #[must_use]
+    pub const fn of_platform() -> LockSignal {
+        if cfg!(target_os = "macos") {
+            LockSignal::MacosScreenLock
+        } else if cfg!(windows) {
+            LockSignal::WindowsSession
+        } else if cfg!(target_os = "linux") {
+            LockSignal::LinuxLogind
+        } else {
+            LockSignal::None
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------------
@@ -386,7 +404,7 @@ pub fn disclosure(
 
 impl Operations {
     /// Every standing policy applicable in this environment (each profile's), by ID.
-    async fn applicable_policies(&self) -> Result<Vec<StandingPolicy>, OpError> {
+    pub(crate) async fn applicable_policies(&self) -> Result<Vec<StandingPolicy>, OpError> {
         let env = self.environment().clone();
         self.local_write(move |tx, _| {
             let mut out: Vec<StandingPolicy> = Vec::new();

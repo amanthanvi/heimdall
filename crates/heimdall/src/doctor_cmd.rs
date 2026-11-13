@@ -43,6 +43,17 @@
 //!   others" (human), and the `--json` envelope carries the same text as the warning
 //!   `config_commands_inventory`; no output calls the list complete (M2-S04).
 //! * The doctor exits 0 when it completes, whatever its findings.
+//! * ⟨M03⟩ (m03-plan U12, §5 item 14) The static level also reports, from facts this
+//!   module reads read-only ([`managed_facts`]; the runtime is never started):
+//!   `slot_free` for each managed alias whose pair prefers managed certificates, whose
+//!   projection is applied and whose slot no binding holds, with the command that holds
+//!   one (ADR-0008 D10 item 2, §17.4 item 12); and `managed_dir_unsafe` for each managed
+//!   directory under `<runtime_dir>/b/` or `<state_dir>/managed/` that is not owner-only
+//!   (§17.20 item 15), reported only, never repaired.
+//! * ⟨M03⟩ [`pending_chores`] is the store-backed reader of the chores the CLI and the
+//!   TUI show: `time_confirmation_after_reboot` with its one command,
+//!   `heimdall time confirm` (ADR-0008 D9 item 5; m03-plan U12). [`with_status_chores`]
+//!   adds them to the bare `heimdall` status.
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -59,7 +70,9 @@ use heimdall_contract::setup::ConflictKind;
 use heimdall_contract::{Code, ExitCode};
 use heimdall_domain::catalog::{DestinationDefinition, IdentityRecord, InteractionDeclaration};
 use heimdall_localenv::agents::EndpointLocator;
-use heimdall_localenv::doctor::{CatalogAlias, CatalogIdentity, DoctorRequest, LocalContext};
+use heimdall_localenv::doctor::{
+    CatalogAlias, CatalogIdentity, DoctorRequest, FreeSlot, LocalContext, ManagedFacts,
+};
 use heimdall_localenv::env::{Env, Platform};
 use heimdall_localenv::local_query::LocalQueries;
 use heimdall_localenv::paths::SshPaths;
@@ -113,6 +126,8 @@ pub(crate) fn run(ctx: &Ctx, args: DoctorArgs) -> ExitCode {
         },
         redact: args.redact,
     };
+    let mut local = local;
+    local.managed = managed_facts(ctx);
     let mut prompt = TerminalPrompt;
     crate::setup_cmd::block(ctx, doctor(ctx, &local, request, &mut prompt))
 }
@@ -565,6 +580,166 @@ pub(crate) fn projection_conflict(ctx: &Ctx) -> Result<Option<ConflictKind>, Str
     Ok(conflict)
 }
 
+// --- ⟨M03⟩ managed facts and pending chores (m03-plan U12) ------------------------------
+
+/// The doctor's M03 facts (module docs), read-only: the managed aliases whose slot is
+/// free, and the managed directory trees to check. Empty when the store cannot be read.
+pub(crate) fn managed_facts(ctx: &Ctx) -> ManagedFacts {
+    let mut facts = ManagedFacts::default();
+    if let Ok(paths) = ctx.paths() {
+        // `heimdall_credential::endpoints::BINDING_DIR` and the slot level of
+        // `heimdall_localenv::projection::content::managed_slot_paths`.
+        facts.dirs = vec![
+            (paths.runtime_dir.clone(), "b".to_owned()),
+            (paths.state_dir.clone(), "managed".to_owned()),
+        ];
+    }
+    facts.free_slots = free_slots(ctx);
+    facts
+}
+
+/// Every managed alias whose pair prefers managed certificates, whose projection is
+/// applied, and whose slot in this installation's environment is not held (ADR-0008
+/// D10 item 2: ordinary `ssh <alias>` then fails closed). Read-only; none when the
+/// store cannot be read or no environment was created yet.
+fn free_slots(ctx: &Ctx) -> Vec<FreeSlot> {
+    use heimdall_domain::enrollment::{PreferredMechanism, ProjectionStatus};
+    use heimdall_domain::managed::SlotState;
+    let Ok(store) = open_store(ctx) else {
+        return Vec::new();
+    };
+    store
+        .transaction(|tx| {
+            let Some(environment) = tx.self_environment()? else {
+                return Ok(Vec::new());
+            };
+            let mut out = Vec::new();
+            for d in tx.destinations()? {
+                let DestinationDefinition::Managed { account, .. } = &d.definition else {
+                    continue;
+                };
+                let pair = heimdall_domain::scope::AccessPair {
+                    destination: d.id.clone(),
+                    account: account.clone(),
+                };
+                let Some(preference) = tx.pair_preference(&pair)? else {
+                    continue;
+                };
+                if preference.mechanism != PreferredMechanism::ManagedCertificate
+                    || !matches!(preference.projection, ProjectionStatus::Applied { .. })
+                {
+                    continue;
+                }
+                if !matches!(tx.slot(&environment, &pair)?, SlotState::Held { .. }) {
+                    out.push(FreeSlot {
+                        alias: d.alias.clone(),
+                        destination: d.id.clone(),
+                    });
+                }
+            }
+            Ok(out)
+        })
+        .unwrap_or_default()
+}
+
+/// The chore's name: `ReadinessCondition::TimeConfirmationAfterReboot` on the wire.
+pub(crate) const TIME_CONFIRMATION_CHORE: &str = "time_confirmation_after_reboot";
+
+/// The chore's one command.
+pub(crate) const TIME_CONFIRM_COMMAND: &str = "heimdall time confirm";
+
+/// A chore the owner has to do before Heimdall can go on (m03-plan U12).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingChore {
+    /// Its stable name.
+    pub(crate) chore: &'static str,
+    /// Its one command.
+    pub(crate) command: &'static str,
+    /// Human text naming the command.
+    pub(crate) message: String,
+}
+
+/// Whether the attended time confirmation is owed after a reboot (ADR-0008 D9 item 5,
+/// §17.1 item 17): the store holds a time reference (the runtime anchor or an attended
+/// confirmation) from an earlier boot, and none for `current`. Time synchronization is
+/// not trusted in M03 (Q13), so only a same-boot reference lets the time gate pass
+/// (`heimdall_domain::time::gate`, `authorize.rs`'s boot filter).
+pub(crate) fn time_confirmation_pending(
+    confirmation: Option<&heimdall_domain::time::AttendedTimeConfirmation>,
+    anchor: Option<&heimdall_domain::time::TimeAnchor>,
+    current: &heimdall_domain::time::BootId,
+) -> bool {
+    let this_boot = confirmation.is_some_and(|c| c.boot_id == *current)
+        || anchor.is_some_and(|a| a.boot_id == *current);
+    let earlier = confirmation.is_some() || anchor.is_some();
+    earlier && !this_boot
+}
+
+/// The pending chores, read from the store read-only (the runtime is never started) and
+/// this boot's ID. Empty when the store cannot be read.
+pub(crate) fn pending_chores(ctx: &Ctx) -> Vec<PendingChore> {
+    use heimdall_domain::time::Clock as _;
+    let Ok(store) = open_store(ctx) else {
+        return Vec::new();
+    };
+    let Ok((confirmation, anchor)) =
+        store.transaction(|tx| Ok((tx.time_confirmation()?, tx.runtime_anchor()?)))
+    else {
+        return Vec::new();
+    };
+    let current = heimdall_runtime::platform::SystemClock.boot_id();
+    let mut out = Vec::new();
+    if time_confirmation_pending(confirmation.as_ref(), anchor.as_ref(), &current) {
+        out.push(PendingChore {
+            chore: TIME_CONFIRMATION_CHORE,
+            command: TIME_CONFIRM_COMMAND,
+            message: format!(
+                "this machine restarted since its time was last trusted; managed issuance waits until you confirm the time once, attended: run `{TIME_CONFIRM_COMMAND}`"
+            ),
+        });
+    }
+    out
+}
+
+/// Add `chores` to `env`'s data (only when some are pending, so an envelope without one
+/// is unchanged); an error envelope's message also names them.
+pub(crate) fn add_chores(env: &mut Envelope<serde_json::Value>, chores: &[PendingChore]) {
+    if chores.is_empty() {
+        return;
+    }
+    let listed: Vec<serde_json::Value> = chores
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "chore": c.chore,
+                "command": c.command,
+                "message": c.message,
+            })
+        })
+        .collect();
+    if let serde_json::Value::Object(map) = &mut env.data {
+        if let Some(serde_json::Value::Object(error)) = map.get_mut("error")
+            && let Some(serde_json::Value::String(message)) = error.get_mut("message")
+        {
+            for c in chores {
+                message.push_str(&format!(
+                    "; pending chore: run `{}` ({})",
+                    c.command, c.chore
+                ));
+            }
+        }
+        map.insert("chores".to_owned(), serde_json::Value::Array(listed));
+    }
+}
+
+/// The bare `heimdall` status (`cli::status`, either outcome) with the pending chores
+/// added ([`add_chores`]). ⟨U-R1⟩ `cli.rs` (the integrator's) calls it from the
+/// `Command::Status` arm; the TUI reuses [`pending_chores`].
+pub(crate) fn with_status_chores(ctx: &Ctx, mut done: crate::cli::Done) -> crate::cli::Done {
+    add_chores(&mut done.env, &pending_chores(ctx));
+    done
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -917,5 +1092,77 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// ADR-0008 D9 item 5 (F14): the time confirmation is owed after a reboot exactly
+    /// when the store's time references all belong to earlier boots.
+    #[test]
+    fn time_confirmation_is_pending_only_after_a_reboot() {
+        use heimdall_domain::time::{AttendedTimeConfirmation, BootId, TimeAnchor};
+        let now = BootId("boot-now".into());
+        let before = BootId("boot-before".into());
+        let wall: Timestamp = "2026-11-01T00:00:00Z".parse().unwrap_or_else(|_| panic!());
+        let conf = |b: &BootId| AttendedTimeConfirmation {
+            boot_id: b.clone(),
+            continuous: std::time::Duration::from_secs(1),
+            wall,
+            decision: heimdall_contract::ids::DecisionId::from_random_bytes([1; 16]),
+        };
+        let anchor = |b: &BootId| TimeAnchor {
+            boot_id: b.clone(),
+            continuous: std::time::Duration::from_secs(1),
+            wall,
+        };
+        assert!(
+            !time_confirmation_pending(None, None, &now),
+            "nothing recorded: no reboot"
+        );
+        assert!(time_confirmation_pending(Some(&conf(&before)), None, &now));
+        assert!(time_confirmation_pending(
+            None,
+            Some(&anchor(&before)),
+            &now
+        ));
+        assert!(time_confirmation_pending(
+            Some(&conf(&before)),
+            Some(&anchor(&before)),
+            &now
+        ));
+        assert!(!time_confirmation_pending(Some(&conf(&now)), None, &now));
+        assert!(!time_confirmation_pending(
+            Some(&conf(&before)),
+            Some(&anchor(&now)),
+            &now
+        ));
+    }
+
+    /// The chores are added only when pending; an error envelope's message names the
+    /// command too.
+    #[test]
+    fn chores_are_added_to_status_only_when_pending() {
+        let chore = PendingChore {
+            chore: TIME_CONFIRMATION_CHORE,
+            command: TIME_CONFIRM_COMMAND,
+            message: "m".into(),
+        };
+        let mut ok = Envelope::ok(serde_json::json!({"running": true}));
+        add_chores(&mut ok, &[]);
+        assert!(ok.data.get("chores").is_none());
+        add_chores(&mut ok, std::slice::from_ref(&chore));
+        assert_eq!(
+            ok.data["chores"][0]["chore"],
+            "time_confirmation_after_reboot"
+        );
+        assert_eq!(ok.data["chores"][0]["command"], "heimdall time confirm");
+        let mut err = failure(Code::ServiceUnavailable, "no runtime is running", None);
+        add_chores(&mut err, &[chore]);
+        assert_eq!(err.data["chores"][0]["command"], "heimdall time confirm");
+        let message = err.data["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.ends_with(
+                "; pending chore: run `heimdall time confirm` (time_confirmation_after_reboot)"
+            ),
+            "{message}"
+        );
     }
 }

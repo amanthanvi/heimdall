@@ -31,7 +31,8 @@ use heimdall_store::Txn;
 
 use super::narrowing::{NarrowingKind, NarrowingReport, SetReader};
 use super::{Operations, grant_context, revoke_locally_in};
-use crate::error::OpError;
+use crate::error::{Completed, OpError};
+use crate::lock::LockSignal;
 use crate::ports::SessionLockSource;
 
 /// What one lock pass did ([`Operations::on_session_lock`]).
@@ -121,6 +122,81 @@ impl Operations {
             .lock_floor
             .read()
             .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// ⟨M03 wave 5⟩ U9-Q3 (a): name the signal the wired session-lock source uses
+    /// (`heimdall_runtime::session_lock::PlatformSessionLockSource::signal`). Without
+    /// it, [`Self::session_lock_signal`] assumes this platform's
+    /// ([`LockSignal::of_platform`]).
+    pub fn set_session_lock_signal(&self, signal: LockSignal) {
+        *self
+            .inner
+            .narrowing
+            .lock_signal
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(signal);
+    }
+
+    /// ⟨M03 wave 5⟩ U9-Q3 (a): the signal behind the session-lock state, for the
+    /// `signal_unverified` label: [`LockSignal::None`] without a source or while the
+    /// source reads `unavailable` (as the runtime's source reports it); otherwise the
+    /// signal the runtime named, else this platform's.
+    #[must_use]
+    pub fn session_lock_signal(&self) -> LockSignal {
+        let wired = self
+            .inner
+            .narrowing
+            .lock_source
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|s| s.state() != SessionLockState::Unavailable);
+        if !wired {
+            return LockSignal::None;
+        }
+        self.inner
+            .narrowing
+            .lock_signal
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .unwrap_or_else(LockSignal::of_platform)
+    }
+
+    /// ⟨M03 wave 5⟩ U9-Q3 (a), ADR-0008 D9 item 3 (F19): label a result about the grant
+    /// `grant` with `signal_unverified` when its effective lock behaviour is
+    /// `revoke_on_lock` over an unverified signal (`crate::lock::label_completed`).
+    /// Over any other signal nothing is read and nothing added. A behaviour that cannot
+    /// be read (a store failure, an unknown grant) labels: the warning is the
+    /// fail-closed side.
+    pub(super) async fn label_grant_lock<T>(&self, done: &mut Completed<T>, grant: &GrantId) {
+        let signal = self.session_lock_signal();
+        if !signal.labelled_unverified() {
+            return;
+        }
+        let behavior = match self.effective_lock_behavior_of(grant).await {
+            Ok(Some(b)) => b,
+            _ => LockBehavior::RevokeOnLock,
+        };
+        crate::lock::label_completed(done, behavior, signal);
+    }
+
+    /// ⟨M03 wave 5⟩ U9-Q3 (a): label an `inspect capabilities` result with the
+    /// warnings of the current lock behaviour (the disclosure's: the strictest of the
+    /// applicable policies and the floor). Fail closed as [`Self::label_grant_lock`].
+    pub(super) async fn label_capabilities_lock<T>(&self, done: &mut Completed<T>) {
+        let signal = self.session_lock_signal();
+        if !signal.labelled_unverified() {
+            return;
+        }
+        let behavior = match self.applicable_policies().await {
+            Ok(policies) => crate::lock::effective_behavior_with_floor(
+                None,
+                &policies,
+                self.session_lock_floor(),
+            ),
+            Err(_) => LockBehavior::RevokeOnLock,
+        };
+        crate::lock::label_completed(done, behavior, signal);
     }
 
     /// ⟨M03⟩ U0b row 25: one lock pass for `epoch` (from `source.lock_epoch()`). With

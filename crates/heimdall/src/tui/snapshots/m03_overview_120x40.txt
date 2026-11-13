@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[!!] Needs attention
+Runtime: connected; listings read 09:00:25Z (5s ago)
+Static pass: 09:00:20Z (10s ago); 2 destinations, 1 profiles, 1 identities
+> [!!] time_confirmation_after_reboot: run `heimdall time confirm` (safe time cannot be established; activation is stopp
+  [!!] held: setup.apply op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
+  [!!] decision waiting: enroll_account dec_enroll1 (Enter to review)
+  [!!] decision waiting: approve_target_change dec_target1 (Enter to review)
+  [!!] enrollment enr_01010101010101010101010101010101 is held (Enter for its reason and next step)
+  [..] working: ensure op_run1 running
+  [ !] possible_late_write: enrollment enr_02020202020202020202020202020202 (Enter for the residual and its command)
+  [ !] managed_projection_pending (alpha): run `heimdall setup apply` (the managed projection is not applied yet)
+  [ !] identity_selection_not_exclusive (beta): identity_selection_not_exclusive message
+  [ i] slot_free (alpha): hold the slot with `heimdall run --profile <profile> -- ssh alpha` (ordinary `ssh alpha` needs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter open · r retry · k keep · R refresh · 1-4 views · ? help · q quit

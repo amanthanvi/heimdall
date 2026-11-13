@@ -1,0 +1,33 @@
+Heimdall: set up access once; your terminals, tools, and agents work across environments
+
+Usage: heimdall [OPTIONS] [COMMAND]
+
+Commands:
+  setup        Adopt supported local access: preview, apply, roll back or repair the managed OpenSSH projection (M02; ADR-0007 §5). Without an action, `apply`
+  connect      Convenience connect through the verified client; ordinary ssh also works (M02; ADR-0007 §8)
+  run          Ensure access then launch argv without a shell (spec §10.4) (M02)
+  status       Summary of the runtime, open work, and pending owner decisions. Never starts the runtime
+  doctor       Passive diagnostics by default (spec §10.2); explicit probes only by named level (M02; ADR-0007 §6). Never starts the runtime
+  tui          Terminal UI (M02)
+  destination  Destination catalog: managed and observed aliases (M02)
+  identity     Adopted identities and their interaction declarations (M02; ADR-0007 §7)
+  profile      Profiles: named sets of destination/account pairs (M02)
+  uninstall    Remove the projection, restore your files, and report what remains (M02)
+  issuer       The local issuer: its CA key, status, recovery bundle (M03; ADR-0008 D3, D4)
+  enroll       Enroll a destination for managed credentials and manage its enrollments (M03; ADR-0008 D5)
+  connections  Owned connections and their owner-side close (M03; ADR-0008 D8)
+  inspect      Read-only inspection of runtime state. Never starts the runtime
+  access       Access primitives
+  operation    Operation observation and control
+  decision     Pending owner decisions. Approving or denying needs a terminal and a typed `yes`; the runtime cannot verify that this client prompted (a same-user program can imitate the owner flow)
+  time         Owner time confirmation
+  service      Per-user runtime control
+  schema       Public schemas and code table (R-AP-08)
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+      --json             Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+  -h, --help             Print help
+  -V, --version          Print version

@@ -1,0 +1,12 @@
+[1 Over] 2 Dest  3 Prof  4 Acti  [!!]
+[┌Owner decision dec_enroll1 (enroll_a┐
+R│Recorded 09:00:00Z (30s ago) ·      │
+S│expires 09:15:00Z (in 14m)          │
+>│Exactly what approve applies to:    │r
+ │Plan: enroll fixture at alpha       │l
+ │(dst-alpha), account form, under CA │
+ │Tab: deny · Esc: send nothing       │_
+ │Approve? Type yes to confirm [y/N]: │1
+ │_                                   │
+ └ 33 more rows below (PgDn, End) ────┘e
+Up/Down PgUp/PgDn Home/End · Esc cancel

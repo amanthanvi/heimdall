@@ -4205,6 +4205,63 @@ No review has run yet. These rulings complete the wave before its reviews.
    - Production awaits those passes one after another in one supervisor loop, and the startup re-issue precedes that loop, so the probe's interleaving is not reachable. It is not a finding.
    - **The constraint:** they must not run concurrently unless a binding-lifecycle fence first orders a re-issue's restoration against the release cleanup of the same binding.
 
+### 17.25 Orchestrator rulings on wave 5, round 1: the U12 questions (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-questions.md` (round 1 of U12, the CLI and TUI surfaces).
+
+**The terminal and the enrollment loop:**
+1. **Q-I1 (U5IO-Q3), the terminal handoff: option (c), final for M03.**
+   - Interactive steps keep their own process group and fail closed at the step's bound. Before `Apply`, the CLI refuses an interactive enrollment whose existing-access identity is not agent-held (`INTERACTION_REQUIRED`), and it prints the handoff notice before the first interactive step.
+   - Every M03 plan pins an agent (`registry::step::access_pins`), so a valid plan never needs a terminal prompt for its key. The residual: a server that falls back to password or keyboard-interactive authentication still stalls until the bound. The handoff notice says so.
+   - Option (b), keeping ssh in the CLI's foreground group, is not scheduled. It needs its own ruling if passphrase-only keys must be enrolled directly.
+2. **Q-E2** is recorded as built.
+3. **Q-E1: option (b).** In debug builds, the runtime inserts the test pause points when it builds a step, from its own test configuration (`ManagedOptions::script_pause_dir`). The CLI only validates. No `heimdall → heimdall-registry` edge is added, and release builds are unchanged.
+4. **Q-E3 and Q-T1: option (a).** `EnrollmentView` gains an optional, additive `hold: {reason, next}` (authorized). The app computes `next` from `record.hold`, so `enroll status` and the TUI show the same command.
+5. **Q-E4:** the runtime's `ordinary_ssh_needs_held_slot` note uses `slot_free_command(alias)`, the same command as the preview, `status` and the doctor.
+6. **Q-I3:** accepted. The target-change and manual-recovery tests live in `e2e_cli_m03`. The TUI shows the same key diff in its decision modal.
+
+**The issuer:**
+7. **Q-IS1, the test store: options (b) and (d), both debug-only.**
+   - **(b):** a debug-build test selector chooses a disposable store of a **product** kind: on macOS a file keychain created by the test inside its scratch home and never added to the keychain search list; on Windows DPAPI under the scratch home. The CLI and `internal issuer` reach it through `m03_cmd::issuer_store`. It needs no contract change, and U10B-Q5's "no test store kind on the wire" stands.
+     - **The selector refuses** a relative path, a path outside the test's scratch home, any path under the user's `Library/Keychains`, and a path that existed before the test created it. A release build ignores it.
+     - Claims made through it stay disqualified by the debug profile (F03).
+   - **(d):** in debug builds, a scratch test-kind store's item may be deleted by its exact recorded locator. That proves the R2B order on Linux, which has no disposable Secret Service fixture.
+   - Together they unblock the passphrase-on-tty assertions, the `register_issuer` typed-yes test, the restore paths after registration, and `test_ca_ceremony_captures_passphrase_only_from_pty`.
+8. **Q-IS2 and Q-U1, a bundle's freshness: option (b) for both.**
+   - After the bundle file is completely written and fsynced, the CLI confirms it through an additive issuer request carrying the bundle's `created_at` and SHA-256 (authorized). The runtime records `last_bundle_at` and that digest, and never lowers them. `bundle_stale` then uses `last_bundle_at`, as U10B-Q3 (b) allowed.
+   - **Uninstall accepts a `--bundle`** only when the file passes the content check and its SHA-256 equals a digest this installation recorded. The content check: an unredacted `heimdall-recovery-bundle/1`, with `created_at` no earlier than the last enrollment or CA change, listing every non-final enrollment in its current state. A file that is hand-made, foreign, stale or partial is refused `bundle_required`.
+   - The record never stores the path.
+9. **Q-U3: option (b).** Worker I exposes one retire entry: the decision, the typed `yes`, the wait for `unloaded`, the exact-locator deletion and the `deleted_locator` confirmation. Uninstall runs it inline, behind its typed confirmation, before the runtime stops. Until that entry lands, uninstall offers `heimdall issuer retire <fingerprint>`.
+10. **Q-T4, the disclosure texts: option (a), with a limit on TUI approvals.**
+    - `heimdall_issuer::ceremony::disclosure_text` becomes public and covers every `DisclosureKind`. The CLI preview and the TUI use it, and nothing retypes a disclosure.
+    - **The TUI offers Approve only** for decision kinds whose follow-through needs no owner-present CLI step, and only when it can show every disclosure. Enrollment decisions (`enroll_*`, whose steps the CLI runs on the owner's terminal), issuer registration, rotation, restore (passphrase ceremony) and retirement (R2B deletion) are shown read-only, with their CLI command. So the TUI never approves an `enroll_account` without its exact registry line.
+
+**Uninstall, the doctor and chores:**
+11. **Q-U2: option (b).**
+    - A plain uninstall with live enrollments lists them and requires a typed `yes`. Without a terminal, or under `--non-interactive`, it exits 3 with nothing changed.
+    - `--keep-remote-enrollments` may also serve as the explicit acknowledgement for a plain uninstall, so scripted uninstalls stay possible. The state is kept, so nothing is lost.
+12. **Q-U4: the chore follows the time gate.** `time_confirmation_after_reboot` is pending exactly when the time gate would now refuse an issuance for lack of a time reference for this boot, and an issuer CA is registered. A never-confirmed store is therefore included when the gate needs a confirmation. A store with no CA shows no chore.
+13. **Q-U5: the doctor emits all three findings in U12.** `reverification_inconclusive` and `enrollment_evidence_stale` are read from the store, read-only. `client_trace_family_unrecorded` comes from the local client's version against `heimdall_enroll::trace::RECORDED`, naming the family and version.
+14. **Q-I2: option (a).** `doctor::finding::MANAGED_DIR_UNSAFE` is kept as an additive finding code (authorized).
+15. **Q-T6: option (a).** When the cause is no time reference for this boot, the runtime's `TIME_UNCERTAIN` warning carries an additive reason `time_confirmation_after_reboot` (authorized). The TUI keys on that reason, not on the code.
+
+**Connections, the managed report and the lock:**
+16. **Q-A1: option (a), the exit code follows the envelope code.**
+    - ADR-0006 §5 maps each code to one exit. A `connections close` that the runtime answers `OK` exits 0, whatever its `state`.
+    - The human output states plainly when the connection was not closed (`unverified`: identity not verified, nothing signalled; `closing`: still pending), and `--json` carries `state`. `INCOMPLETE_CLOSE_IS_NONZERO` is set `false`.
+17. **Q-A2:** the ordinary-ssh sentence stays one constant in the `heimdall` crate's output module, and the CLI and TUI share it. The adapters never print it, so it does not move.
+18. **Q-R1: option (a).**
+    - `PrepareOutcome` gains an additive `managed: Option<ManagedResultFacts>` (a frozen-port change, authorized here as row M2's amendment). `None` for every M01/M02 adapter.
+    - The managed adapter fills it from `report::compute`, on both preparation and re-issue. `Facts` carries it, and `ensure_data` copies the six fields for a managed binding.
+    - After a restart the commit uses `Facts::conservative`, the fields stay absent, and the CLI and TUI show "unknown" (fail closed).
+19. **Q-T2: option (a).** `inspect destinations` items gain `preference.connection_policy` (`ConnectionPolicyReport`, with the runtime's `connection_wording`), authorized as an additive field.
+20. **Q-T3: option (c).** The owned-masters sentence reaches the TUI only through the runtime's wording (items 18 and 19). Nothing moves, and nothing is retyped.
+21. **Q-T5: option (a), and the "shown once" reading corrected.**
+    - `inspect capabilities` gains a read-only `lock: {behavior, disclosure, acknowledged_at?}` from `Operations::lock_disclosure` (authorized).
+    - D9 item 1 shows the disclosure "in the `RegisterIssuer` and first `EnrollAccount` decisions… if not yet acknowledged". So approving **any** decision that displayed it, `RegisterIssuer` or `EnrollAccount`, records `lock_disclosure_acknowledged_at` once. Today only `RegisterIssuer` records it. This must be fixed, with a regression.
+22. **Q-R2: option (b).** The `SetLockBehavior` and connection-policy results gain `lock_behavior` and `connection {existing, multiplexing}`, recorded as an additive ADR-0006 row. M01 policy results are unchanged.
+23. **Q-R3:** the reading is confirmed. The runtime also calls `ops.set_session_lock_signal(p.signal())` explicitly in `service.rs`, so the label never relies on the default.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

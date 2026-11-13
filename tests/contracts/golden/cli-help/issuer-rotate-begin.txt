@@ -1,0 +1,10 @@
+Begin a rotation: a new CA key and a new offline backup
+
+Usage: heimdall issuer rotate begin [OPTIONS] --backup-out <PATH>
+
+Options:
+      --backup-out <PATH>  Where the new encrypted backup is written
+      --json               Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --non-interactive    Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --home <DIR>         Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+  -h, --help               Print help
