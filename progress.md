@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md) → M02 (existing-access slice) design in review
+**Current milestone:** M03 (managed credentials), waves 0–4 merged (wave 4 at fef2aecc, 2026-11-13); next wave 5 (U12). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -1034,4 +1034,27 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - `drive_preparation`, the install view and verification signatures (INT-Q13);
     - managed `connect` (U8-Q6) and `run`'s slot table;
     - Windows registration dispatch and the managed-alias `exclusive` classification.
-- **Next: M03 wave 4,** the activation change set: U10 (drivers and runtime wiring) and U0b phase 2.
+- **M03 wave 4 merged** (`fef2aecc`, 2026-11-13): U10 (application drivers and runtime wiring) with U0b phase 2, the activation change set. Managed bindings are materialized, enrollment drivers run end to end, and the runtime wires the issuer, re-issue, cleanup and verification.
+  - **How it was built:** one integrator agent (Opus 5.5) with worker subagents, in six rounds: `d74e35cf` (round 1, checkpoint), `e566cc46` (round 2), `4866642d` (rounds 3–4), `a533fc40` (round 5) and `4560b9e5` (round 6, the Win32 trace row, mine).
+  - **Reviews** (Codex, independent, on `codex-cpamc`):
+    - **the code review:** fix first, with W4-R01 to W4-R09: expiry not destroying the key, a re-issue reporting repair before restoring consumers, unmaterialized follower bindings, evidence not invalidated at comparison, cleanup owners recorded too late, a lost cleanup retry, a released binding keeping its slots, and byte identity;
+    - **the security review (plan §6.7):** fix first, with W4-S01 to W4-S03, all reproduced by probes: a held foreign removal executing an unapproved descriptor, foreign bytes in the journal, and a dropped service leaving the issuer running;
+    - **re-check 1** (`e566cc46..4866642d`): fix first, with W4-C01 (a released, re-issued, slotless binding kept its endpoint and files with no cleanup obligation) and W4-C02 (high: a joined follower met a scope minimum with invalidated evidence);
+    - **re-check 2** (`4866642d..a533fc40`): merge, with no new finding; its own five reverts each failed and passed restored.
+  - **Rulings:** ADR-0008 §17.21 to §17.24. The last of these keeps the supervisor's cleanup and re-issue passes serial unless they are fenced (§17.24 item 6).
+  - **W4-N01:** at `e566cc46`, `e2e_enroll_m03` ran no tests on Windows, so the enrollment e2e flows were ported. They use the in-box `ssh.exe`, the harness's WSL fixture sshd and pipe endpoints. The port's first native run found one Windows-only bug: a foreign removal used the raw catalog pipe locator instead of the rendered one (fixed in round 5).
+  - **The in-box client's trace row (Win32 9.5p2)** is recorded from native lines only (§17.24 item 5). Its matched-path fields spell everything as the portable rows do. Its host-key-failure set comes from the changed-key and unknown-host observations.
+  - **Native development checks** (not exit evidence):
+    - **devbox, 9.6p1:** all 14 selected binaries at `e566cc46` (631 passed); all 20 at `a533fc40` (837 passed, `e2e_enroll_m03` 67 of 67); canary count 0;
+    - **Windows, 9.5p2:**
+      - all 84 binaries at `e566cc46` (2317 passed), but with no enrollment e2e (W4-N01);
+      - at `4866642d`, 20 `e2e_enroll_m03` failures: 15 unrecorded-row failures and the 5 foreign-removal failures;
+      - at `a533fc40`, only the 16 expected unrecorded-row failures;
+      - at `4560b9e5`: all 84 binaries pass (2385 passed, 0 failed, 7 ignored), with `e2e_enroll_m03` 53 of 53, including the 16 tests the row gated; canary count 0.
+  - **check.sh at `a533fc40`:** every step 0; 2785 passed, 0 failed, 188 ignored. `linux-xcheck --workspace` and the umask-002 runs also exited 0. At `4560b9e5`, fmt, clippy (workspace and Windows) and the enroll tests exited 0.
+  - **Left for wave 5 (U12, CLI and TUI):**
+    - the owner-present CLI half of issuer deletion (R2B);
+    - the terminal handoff (U5IO-Q3);
+    - the doctor items `slot_free` and `managed_dir_unsafe`;
+    - `descriptor_mismatch`'s surface (m03-plan §5 item 14).
+- **Next: M03 wave 5,** U12: the CLI and TUI surfaces.
