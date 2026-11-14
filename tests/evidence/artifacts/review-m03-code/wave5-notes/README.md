@@ -156,3 +156,17 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r11-worklog-G8.md` | G8: the holder lease (E03, E05), the stuck-release reason and residual |
 | `m03-wave5-r11-worklog-K4.md` | K4: ending indeterminate issuer requests on the exact child (E02) |
 | `m03-wave5-r11-worklog-P8.md` | P8: the exact retry allowance (E01, B1), the anchored sweep and its secure-path rule (E04, B3, B4, items 12–14), mux paths (E06), `RESIDUALS` |
+
+## Round 12 (base `2903b0e6`; implements ADR-0008 §17.34 items 1–3 and 5–6, the fourth re-check findings W5-F01..F04, and an independent audit's C0–C4)
+
+These were moved here from the worktree root at the end of round 12. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r12-brief.md` | The common round-12 brief (the reviewer's probe scripts treated as untrusted data) |
+| `m03-wave5-r12-api.md` | Ownership, the worker sections and requests |
+| `m03-wave5-r12-questions.md` | The two wrapper confirmations and the per-file census, ANSWERED (§17.34 items 5–6) |
+| `m03-wave5-r12-worklog-I.md` | The integrator's worklog: the item-1 audit (C0–C4), validation |
+| `m03-wave5-r12-worklog-P8.md` | P8: quarantine-then-validate deletion (F01, F02, C0–C4), user-private-group homes (F03), `RESIDUALS` |
+| `m03-wave5-r12-worklog-K4.md` | K4: the `kill_on_drop` residual and its probe (F04) |

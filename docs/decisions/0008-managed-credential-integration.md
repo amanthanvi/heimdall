@@ -4602,6 +4602,16 @@ No review has run yet. These rulings complete the wave before its reviews.
    - **Why it is safe:** the child is unreaped, so the handle cannot reach a reused PID, and there is no lasting effect.
    - **The entry:** it names the probe (`recheck4_cancelling_stop_must_not_signal_unverified_child`).
 4. **Carried to round 12's re-check:** the questions the cut-off run did not finish (its own analysis of the lease, exact-child-stop and Windows paths, and a review of every `RESIDUALS` entry).
+5. **Two safe wrappers are accepted:** `heimdall_ipc::windows::file_id` and `heimdall_runtime::platform::user_private_group`. Both sit in modules that overview §9 already allows `unsafe` in.
+6. **The descriptor census and two more wrappers:**
+   - **The census is per file:** each held file (the database, `-wal` and `-shm`) gains exactly one descriptor through SQLite's open. That replaces a process-wide "no other new descriptors" check, which would race with other threads. A swapped-in file still fails, because the held file then shows a missing descriptor.
+   - **Two more safe wrappers are accepted,** in the same §9 modules: `move_no_replace` and `regular_file_descriptors`.
+   - **The round-12 audit of item 1 found C0–C4, and all are fixed:**
+     - C0: the database and its logs are held at their quarantine names before the read, an absent log is created exclusively, a decoy is refused, and the census runs;
+     - C1: the database is deleted last, and a partial failure renames back everything not yet started;
+     - C2: the Windows tree deletion keeps each directory pinned and checks each entry's file ID;
+     - C3: renames never replace an existing name;
+     - C4: one residual remains on every platform: an entry an actor itself placed inside a quarantined directory can be deleted.
 
 ## 18. Consequences
 

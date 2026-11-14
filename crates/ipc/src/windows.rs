@@ -77,7 +77,8 @@ use windows_sys::Win32::Security::{
     SECURITY_ATTRIBUTES, TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_TYPE_PIPE, GetFileType, GetFullPathNameW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
+    BY_HANDLE_FILE_INFORMATION, FILE_TYPE_PIPE, GetFileInformationByHandle, GetFileType,
+    GetFullPathNameW, MoveFileExW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
 };
 use windows_sys::Win32::System::Pipes::{
     GetNamedPipeClientComputerNameW, GetNamedPipeClientProcessId, ImpersonateNamedPipeClient,
@@ -673,6 +674,46 @@ fn handle_owner_sid(handle: RawHandle) -> io::Result<String> {
 /// The security information cannot be read.
 pub fn file_owner_sid(file: &std::fs::File) -> io::Result<String> {
     owner_sid_of(file.as_raw_handle(), SE_FILE_OBJECT)
+}
+
+/// ⟨ADR-0008 §17.34 item 1⟩ The identity of the file or directory behind `file`: its
+/// volume serial number and its 64-bit file index (`GetFileInformationByHandle`), the
+/// Windows equivalent of a device and inode pair for the uninstall purge's identity
+/// checks.
+///
+/// # Errors
+/// The information cannot be read.
+pub fn file_id(file: &std::fs::File) -> io::Result<(u64, u64)> {
+    // SAFETY: an all-zero BY_HANDLE_FILE_INFORMATION is a valid out-value.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: `file` owns the handle and keeps it open for the call; `info` is a valid
+    // out-pointer.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut info) };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((
+        u64::from(info.dwVolumeSerialNumber),
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    ))
+}
+
+/// ⟨ADR-0008 §17.34 item 1 (the purge's quarantine)⟩ Rename `from` to `to` **without
+/// replacing** anything at `to` (`MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`: an
+/// existing `to` fails with `ERROR_ALREADY_EXISTS`); a reparse point at `from` is moved
+/// as the link itself, never followed.
+///
+/// # Errors
+/// The rename failed (an existing `to` included).
+pub fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
+    let (a, b) = (wide(from), wide(to));
+    // SAFETY: both strings are NUL-terminated and outlive the call; flags 0 asks for no
+    // replacement.
+    if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// [`handle_owner_sid`] for an object of `object_type`.

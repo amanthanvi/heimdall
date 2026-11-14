@@ -3070,6 +3070,79 @@ fn issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony() {
     );
 }
 
+/// ⟨ADR-0008 §17.34 item 3 (W5-F04); `RESIDUALS`
+/// `issuer_cleanup_cancelled_kill_on_drop_signals_unreaped_child`⟩
+/// `recheck4_cancelling_stop_must_not_signal_unverified_child` **documents** the residual
+/// (it passes while the residual holds). The real child is stopped and the exact-child check
+/// cannot verify it (its image is unreadable), so the indeterminate `load`'s cleanup does not
+/// signal it and waits (≤ 5 s) for its exit. Cancelling that wait drops the cleanup, and the
+/// child handle's `kill_on_drop` signals the child. What the test shows:
+/// * the signal reaches only that child: while the PID is present it is the same process
+///   (its start token unchanged), unreaped, so the handle cannot reach a reused PID, and the
+///   child then ends;
+/// * no lasting effect: no store write (no event, the CA record unchanged), no CA loaded and
+///   no certificate produced; the fence can then be taken.
+#[cfg(unix)]
+#[test]
+fn recheck4_cancelling_stop_must_not_signal_unverified_child() {
+    let mut rig = Rig::new();
+    let (fp, _) = rig.seed_ca();
+    let ops = rig.service.as_ref().unwrap().ops.clone();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let issuer = real_issuer_with(&rig, |c| {
+            c.child_image = Some(Arc::new(|_| None));
+            c.request_timeout = Duration::from_secs(2);
+        })
+        .await;
+        let identity = issuer.identity().unwrap();
+        let pid = identity.pid;
+        let head = rig.event_head();
+        let record = rig.store().transaction(|tx| tx.issuer(&fp)).unwrap();
+        signal_pid("-STOP", pid);
+        // The load times out at 2 s; the cleanup's wait (≤ 5 s) is cancelled at 2.5 s.
+        let cancelled = tokio::time::timeout(Duration::from_millis(2500), issuer.reload()).await;
+        assert!(cancelled.is_err(), "cancelled during the cleanup's wait");
+        // Only that child is signalled: whatever holds the PID is still the same process
+        // (unreaped, its start token unchanged) until it has ended and been reaped.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let now = heimdall_runtime::platform::process_start_time(pid);
+            assert!(
+                now.is_none() || now == identity.start_token,
+                "the PID is held by another process"
+            );
+            if !running(pid) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the dropped handle signalled the child"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        // No lasting effect: nothing written, nothing loaded, nothing signed.
+        assert_eq!(rig.event_head(), head, "no store write");
+        assert_eq!(
+            rig.store().transaction(|tx| tx.issuer(&fp)).unwrap(),
+            record,
+            "the CA record is unchanged"
+        );
+        assert!(issuer.loaded_cas().is_empty(), "no CA loaded");
+        assert_ne!(
+            issuer.state(),
+            heimdall_contract::issuer::IssuerState::Ready
+        );
+        ops.uninstall_fence_acquire(FENCE_HOLDER).await.unwrap();
+        assert!(!ops.uninstall_fence_release(FENCE_HOLDER));
+        issuer.stop().await;
+        assert!(!running(pid), "no survivor");
+    });
+}
+
 /// ⟨ADR-0008 §17.33 item 11 (audit B2), recorded residual
 /// `issuer_request_hold_absent_for_leader_and_lease_work`⟩
 /// `residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission` (after the audit's

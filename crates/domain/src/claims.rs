@@ -144,7 +144,7 @@ pub struct Residual {
 pub const RESIDUALS: &[Residual] = &[
     Residual {
         id: "windows_purge_entry_replaced_between_check_and_delete",
-        description: "Windows purge sweep: a directory's handle is closed before its own RemoveDirectoryW, and a file is deleted by path after its check; in that window a same-user program can replace the entry in place, and the call removes that replacement entry (DeleteFileW and RemoveDirectoryW never follow a reparse point, so nothing outside the purge roots is reached). Not yet shown natively: the Windows chain's reparse-point refusal and owner-SID check (this user, SYSTEM or Administrators; ADR-0008 §17.33 item 13) are checked by cross-target clippy and unit tests of the pure classification only; native Windows evidence is carried to U13",
+        description: "Windows purge sweep (ADR-0008 §17.34 item 1; the audit's C2): entries are quarantined under random names (MoveFileExW, never replacing), validated, and deleted by path below pinned handles: each directory stays pinned (no share-delete, not a reparse point) while it is listed and emptied, each inspected entry is checked against its inspected file ID just before its deletion, and DeleteFileW/RemoveDirectoryW never follow a reparse point, so nothing outside the purge roots is reached. What remains beyond purge_entry_placed_in_quarantine_is_deleted: in the instant between an entry's unpinning and its DeleteFileW/RemoveDirectoryW, a same-user program that found its random quarantine path can replace it with an entry or link of its own, which is then removed (a link as the link itself). Not yet shown natively: the Windows chain's reparse-point refusal and owner-SID check (this user, SYSTEM or Administrators; ADR-0008 §17.33 item 13), the pinned final read and the deletion are checked by cross-target clippy and unit tests of the pure classification only; native Windows evidence is carried to U13",
         platform: Platform {
             os: "windows",
             arch: "x86_64",
@@ -159,20 +159,20 @@ pub const RESIDUALS: &[Residual] = &[
         adr: "ADR-0008 §17.33 items 4 and 7",
     },
     Residual {
-        id: "uninstall_state_swapped_and_restored_during_final_read",
-        description: "heimdall uninstall --purge-state anchors <state> once (no link on its chain, owner-only) and takes service.lock through that handle, but SQLite opens the database by path for the final inventory read and the bundle check; the path is verified by device and inode against the anchored directory immediately before and after them, so a swap that persists refuses with nothing deleted. A same-user program that swaps <state> away and back again entirely between those two checks makes the read see another database",
+        id: "purge_entry_placed_in_quarantine_is_deleted",
+        description: "purge sweep, every platform (ADR-0008 §17.34 item 1: an actor can at most cause the deletion of an entry it placed): what the purge deletes was inspected and validated under random quarantine names, and the state database, its -wal and -shm are held and confirmed for the final read (a swap there refuses, nothing deleted); but a same-user program that finds a random quarantine name can, after the last check, add its own entry inside a quarantined directory or put its own entry at a quarantine name, and the deletion removes that entry it placed. Owner data at an inspected path is never deleted and nothing outside the purge roots is reached",
         platform: Platform {
             os: "any",
             arch: "any",
         },
-        limits: "uninstall.purge_final_inventory_read",
+        limits: "uninstall.purge_anchored_deletion",
         probe: Probe {
             target: "-p heimdall --bin heimdall",
-            source: "crates/heimdall/src/uninstall_cmd.rs",
-            test: "uninstall_cmd::tests::uninstall_purge_refuses_a_swapped_owner_only_state",
+            source: "crates/heimdall/src/purge_sweep.rs",
+            test: "purge_sweep::tests::an_entry_placed_inside_a_quarantined_directory_is_deleted",
         },
         reason: ResidualReason::NeedsHostileSameUserProgram,
-        adr: "ADR-0008 §17.33 items 8 and 10",
+        adr: "ADR-0008 §17.34 item 1",
     },
     Residual {
         id: "issuer_request_hold_absent_for_leader_and_lease_work",
@@ -221,6 +221,22 @@ pub const RESIDUALS: &[Residual] = &[
         },
         reason: ResidualReason::FailClosedOnly,
         adr: "ADR-0008 §17.33 item 11",
+    },
+    Residual {
+        id: "issuer_cleanup_cancelled_kill_on_drop_signals_unreaped_child",
+        description: "cancelling the issuer client's cleanup of an indeterminate request during its exit wait (at most 5 s) drops the child's handle, and kill_on_drop then signals that child although the exact-child check (PID, start token, image) had not verified it, and its admission ends with the cleanup. The signal reaches only that child: it is unreaped, so its PID cannot be reused and the handle cannot reach another process; the child ends and nothing lasts (no store write, no CA loaded, no certificate published)",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "issuer.exact_child_signal (ADR-0008 §17.33 item 2)",
+        probe: Probe {
+            target: "-p heimdall --test e2e_cli_m03",
+            source: "tests/e2e/cli_m03/issuer.rs",
+            test: "issuer::recheck4_cancelling_stop_must_not_signal_unverified_child",
+        },
+        reason: ResidualReason::FailClosedOnly,
+        adr: "ADR-0008 §17.34 item 3",
     },
 ];
 
