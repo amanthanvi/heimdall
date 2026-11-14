@@ -135,6 +135,30 @@ use heimdall_issuer::client::{ChildCommand, ChildIssuer, ClientConfig};
 use heimdall_localenv::target::LocalTargetEvaluator;
 use std::path::PathBuf;
 
+/// The issuer client's configuration as the runtime wires it: `command`, `start_token`,
+/// and ⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩ the uninstall fence's load gate, and
+/// ⟨§17.33 item 2 (W5-E02)⟩ the request hold (a `sign` holds an extension of its caller's
+/// admission until its reply or its exact child's confirmed exit) and the image reader of
+/// the exact-child check (`localenv::sys::ProcessPin`). Public so tests drive the real
+/// `internal issuer` child through the same wiring.
+#[must_use]
+pub fn issuer_client_config(
+    command: ChildCommand,
+    start_token: heimdall_issuer::client::StartToken,
+    ops: &Operations,
+) -> ClientConfig {
+    let mut config = ClientConfig::new(command, start_token);
+    config.load_gate = Some(ops.issuer_load_gate());
+    config.request_hold = Some(ops.issuer_request_hold());
+    config.child_image = Some(Arc::new(|pid| {
+        heimdall_localenv::sys::ProcessPin::open(pid)
+            .ok()
+            .flatten()
+            .and_then(|p| p.image())
+    }));
+    config
+}
+
 /// File name of the state database inside `Paths::state_dir`.
 pub const STATE_DB_FILE: &str = "state.db";
 
@@ -2354,15 +2378,9 @@ impl ManagedParts {
         let start_token: heimdall_issuer::client::StartToken = m
             .issuer_start_token
             .unwrap_or_else(|| Arc::new(crate::platform::process_start_time));
-        // ⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩ Every start and load of the child
-        // (K_ca read into it) takes the uninstall fence's admission first: a restart or
-        // reload outside the holder's scope waits for the lift.
-        let load_gate = ops.issuer_load_gate();
-        let issuer = command.map(|c| {
-            let mut config = ClientConfig::new(c, start_token);
-            config.load_gate = Some(load_gate);
-            ChildIssuer::new(config)
-        });
+        // ⟨ADR-0008 §17.28 item 1, §17.32, §17.33 item 2⟩ The fence's load gate, the
+        // request hold and the exact-child check ([`issuer_client_config`]).
+        let issuer = command.map(|c| ChildIssuer::new(issuer_client_config(c, start_token, ops)));
         teardown.issuer.clone_from(&issuer);
         if let Some(i) = &issuer {
             self.sources.set_issuer(Arc::new(i.clone()));

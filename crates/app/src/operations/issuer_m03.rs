@@ -1076,6 +1076,25 @@ impl Operations {
         })
     }
 
+    /// ⟨ADR-0008 §17.33 item 2 (W5-E02)⟩ The issuer client's request hold
+    /// (`heimdall_issuer::client::ClientConfig::request_hold`): an extra counted admission
+    /// extending the one the calling task holds (the managed pipeline's), taken by a `sign`
+    /// and held until its reply is consumed or its child's exit is confirmed, so a fence
+    /// acquisition waits for a delivered signature even after its waiter was cancelled.
+    /// `None` when the task holds no admission (the holder's own work, or none). Weak, as
+    /// [`Self::issuer_load_gate`].
+    #[must_use]
+    pub fn issuer_request_hold(&self) -> Arc<dyn Fn() -> Option<Box<dyn Send>> + Send + Sync> {
+        let weak = Arc::downgrade(&self.inner);
+        Arc::new(move || {
+            let inner = weak.upgrade()?;
+            inner
+                .uninstall_fence
+                .write_extension()
+                .map(|a| Box::new(a) as Box<dyn Send>)
+        })
+    }
+
     /// After an issuer decision committed (see `decisions_m03`): a registration's
     /// child start or reload, a retirement's steps. Never fails the decide request.
     pub(super) async fn issuer_after_decision(&self, record: &DecisionRecord, verdict: Verdict) {

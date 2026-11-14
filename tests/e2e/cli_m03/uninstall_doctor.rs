@@ -1794,6 +1794,11 @@ fn uninstall_json_shows_the_preview_on_the_terminal() {
         ("HOME".into(), account.clone().into_os_string()),
         ("HEIMDALL_HOME".into(), home.clone().into_os_string()),
         ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+        // ⟨ADR-0008 §17.33 item 14⟩ the owner-only scratch base the purge checks from.
+        (
+            "HEIMDALL_TEST_PURGE_TRUSTED_TOP".into(),
+            scratch.path().to_path_buf().into_os_string(),
+        ),
     ];
     let arg = bundle.to_string_lossy().into_owned();
     let stdout = scratch.path().join("stdout.json");
@@ -1881,7 +1886,7 @@ fn uninstall_purge_race_with_concurrent_enrollment_keeps_state() {
     let purge_term = pty::Pty::open();
     let purge_out = out_dir.join("purge.json");
     let mut purge = purge_term.start(
-        &w.env(),
+        &purge_env(&w),
         &w.home.root,
         &["--json", "uninstall", "--purge-state"],
         &purge_out,
@@ -2152,7 +2157,7 @@ fn uninstall_purge_refuses_unresolved_remote_step() {
     let purge_out = dir.join("purge.json");
     let term = pty::Pty::open();
     let mut purge = term.start(
-        &w.env(),
+        &purge_env(&w),
         &w.home.root,
         &[
             "--json",
@@ -2397,4 +2402,16 @@ fn runtime_start_refused_while_the_purge_lock_is_held() {
         !home.join("run").join("instance.json").exists(),
         "nothing was advertised"
     );
+}
+
+/// ⟨ADR-0008 §17.33 item 14⟩ The enrollment world's environment for a purge: the
+/// secure-path check starts at the world's owner-only scratch root.
+#[cfg(unix)]
+fn purge_env(w: &super::enroll::world::World) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    let mut env = w.env();
+    env.push((
+        "HEIMDALL_TEST_PURGE_TRUSTED_TOP".into(),
+        w.home.root.clone().into_os_string(),
+    ));
+    env
 }

@@ -47,6 +47,22 @@
 //! `loading`: a cancelled start is `crashed` (the next demand restarts it), a cancelled
 //! load is retried by the next demand.
 //!
+//! **Indeterminate requests** (⟨ADR-0008 §17.33 item 2 (W5-E02)⟩). A `load` or a `sign`
+//! may already be delivered when its waiter is cancelled or times out: the child would then
+//! still read K_ca or sign, after the caller's admission was released and possibly after a
+//! fence acquisition. So such an exchange owns its admissions (the load gate's permit; for
+//! a `sign`, a [`ClientConfig::request_hold`] extension of the caller's admission) until its
+//! reply is consumed. If it ends without its reply (cancelled, timed out, or the link
+//! broke), the parent ends **that exact child** first: it re-verifies the child's PID,
+//! start token and (with [`ClientConfig::child_image`]) image, signals only a verified
+//! child (never by name), closes its stdin, and awaits its exit for at most
+//! [`STOP_TIMEOUT`]; only then are the admissions released. An exit that cannot be
+//! confirmed in that bound keeps them held (a background wait releases them when the exit
+//! is observed), so a fence acquisition waits and then reports that admitted work did not
+//! settle. The client is then `crashed`, and the next demand restarts it under the load
+//! gate. `unload` (it only removes a key), `status` (read-only) and `hello` (nothing is
+//! loaded before `load`) need no such ending.
+//!
 //! **Identity.** The child is the exact process this client spawned: its PID (from the
 //! spawn, confirmed by the `hello_ack`) and its start token, read through the
 //! injected [`StartToken`] (the runtime's `platform::process_start_time`; `heimdall-
@@ -137,6 +153,9 @@ pub type LoadGate = Arc<dyn Fn() -> Option<Box<dyn Send>> + Send + Sync>;
 /// Reads a process's opaque start token by PID (`None`: not readable).
 pub type StartToken = Arc<dyn Fn(u32) -> Option<String> + Send + Sync>;
 
+/// ⟨§17.33 item 2⟩ Reads a process's executable image by PID (`None`: not readable).
+pub type ImageReader = Arc<dyn Fn(u32) -> Option<PathBuf> + Send + Sync>;
+
 /// The exact identity of the running child.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChildIdentity {
@@ -144,6 +163,9 @@ pub struct ChildIdentity {
     pub pid: u32,
     /// Its start token (`None` when the platform reader could not read it).
     pub start_token: Option<String>,
+    /// ⟨§17.33 item 2⟩ Its executable image, read after its `hello_ack` (`None` without
+    /// a [`ClientConfig::child_image`] reader, or when it could not be read).
+    pub image: Option<PathBuf>,
 }
 
 /// What to spawn as the child.
@@ -187,6 +209,13 @@ pub struct ClientConfig {
     /// ⟨round 10 L1⟩ The admission every start and load takes first (`None`: always
     /// admitted).
     pub load_gate: Option<LoadGate>,
+    /// ⟨§17.33 item 2⟩ An extension of the calling task's admission, taken by every
+    /// `sign` and held until its reply is consumed or its child's exit is confirmed
+    /// (`None` reader, or `None` returned: nothing extra to hold).
+    pub request_hold: Option<LoadGate>,
+    /// ⟨§17.33 item 2⟩ The image reader the exact-child check uses before a signal
+    /// (`None`: the check is PID and start token only).
+    pub child_image: Option<ImageReader>,
 }
 
 impl ClientConfig {
@@ -200,6 +229,8 @@ impl ClientConfig {
             request_timeout: REQUEST_TIMEOUT,
             hello_timeout: HELLO_TIMEOUT,
             load_gate: None,
+            request_hold: None,
+            child_image: None,
         }
     }
 }
@@ -240,6 +271,8 @@ struct Link {
     outstanding: usize,
     /// A write did not finish: the stream is unusable.
     dirty: bool,
+    /// ⟨§17.33 item 2⟩ The child's identity, as spawned (image filled after `hello_ack`).
+    identity: ChildIdentity,
 }
 
 /// A broken link (EOF, a malformed frame, a write that failed).
@@ -277,6 +310,113 @@ impl Drop for Unfinished {
                 v.reason = Some(reason::ISSUER_RESTARTING.into());
             }
         });
+    }
+}
+
+/// ⟨§17.33 item 2⟩ The readers of the exact-child check ([`signal_exact`]).
+#[derive(Clone)]
+struct Verifier {
+    start_token: StartToken,
+    image: Option<ImageReader>,
+}
+
+/// ⟨§17.33 item 2⟩ A `load` or `sign` exchange in flight ([`Inner::exchange_ending`]):
+/// dropped while armed (its waiter cancelled), it ends the exact child in the background
+/// and releases `permits` only once that child's exit is confirmed.
+struct Indeterminate<'a> {
+    inner: Arc<Inner>,
+    slot: &'a mut Option<Link>,
+    permits: Vec<Box<dyn Send>>,
+    armed: bool,
+}
+
+impl Drop for Indeterminate<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let link = self.slot.take();
+        let permits = std::mem::take(&mut self.permits);
+        self.inner.mark_crashed();
+        let verifier = self.inner.verifier();
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                // Not one of the lifecycle's tasks: `stop` must not abort it (that would
+                // release the permits before the exit is confirmed).
+                drop(handle.spawn(end_child(verifier, link, permits)));
+            }
+            Err(_) => {
+                // No runtime to await the exit on: signal the verified child now and
+                // keep the admissions held (never released unconfirmed).
+                if let Some(mut link) = link {
+                    signal_exact(&verifier, &mut link.child, &link.identity);
+                    std::mem::forget(link);
+                }
+                std::mem::forget(permits);
+            }
+        }
+    }
+}
+
+/// ⟨§17.33 item 2⟩ Signal the child only if it is still the exact child spawned: not yet
+/// exited, its PID unchanged, its start token read now equal to the one read at spawn
+/// (an unreadable one never matches), and, with an image reader, its image read now equal
+/// to the one read after its `hello_ack`. Never by name or pattern. Returns whether the
+/// signal was sent.
+fn signal_exact(verifier: &Verifier, child: &mut Child, identity: &ChildIdentity) -> bool {
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        return false;
+    }
+    if child.id() != Some(identity.pid) {
+        return false;
+    }
+    let token = (verifier.start_token)(identity.pid);
+    if token.is_none() || token != identity.start_token {
+        return false;
+    }
+    if let Some(read) = &verifier.image {
+        match (read(identity.pid), &identity.image) {
+            (Some(now), Some(then)) if now == *then => {}
+            _ => return false,
+        }
+    }
+    child.start_kill().is_ok()
+}
+
+/// ⟨§17.33 item 2⟩ End `link`'s child: zeroize the buffer, signal the verified child
+/// ([`signal_exact`]), close its stdin (a child that was not signalled exits at EOF), and
+/// await its exit for at most [`STOP_TIMEOUT`]. `permits` are released only once the exit
+/// is confirmed; unconfirmed, a background wait keeps holding them until it is.
+async fn end_child(verifier: Verifier, link: Option<Link>, permits: Vec<Box<dyn Send>>) {
+    let Some(Link {
+        mut child,
+        stdin,
+        stdout,
+        mut buf,
+        identity,
+        ..
+    }) = link
+    else {
+        drop(permits);
+        return;
+    };
+    buf.zeroize();
+    signal_exact(&verifier, &mut child, &identity);
+    drop(stdin);
+    drop(stdout);
+    match tokio::time::timeout(STOP_TIMEOUT, child.wait()).await {
+        Ok(Ok(_)) => drop(permits),
+        _ => {
+            drop(tokio::spawn(async move {
+                loop {
+                    if child.wait().await.is_ok() {
+                        break;
+                    }
+                    tokio::time::sleep(STOP_TIMEOUT).await;
+                }
+                drop(permits);
+            }));
+        }
     }
 }
 
@@ -438,19 +578,65 @@ impl Inner {
         }
     }
 
-    /// End the link's child (exact owned handle) and mark `crashed`.
+    /// End the link's child (the exact, re-verified child; [`end_child`]) and mark
+    /// `crashed`.
     async fn crash(self: &Arc<Self>, slot: &mut Option<Link>) {
-        if let Some(mut link) = slot.take() {
-            let _ = link.child.start_kill();
-            let _ = link.child.wait().await;
-            link.buf.zeroize();
-        }
+        self.mark_crashed();
+        end_child(self.verifier(), slot.take(), Vec::new()).await;
+    }
+
+    /// The view after a child was ended: `crashed` (the next demand restarts it).
+    fn mark_crashed(&self) {
         self.update(|v| {
             v.state = IssuerState::Crashed;
             v.reason = Some(reason::ISSUER_RESTARTING.into());
             v.cas.clear();
             v.identity = None;
         });
+    }
+
+    /// The exact-child check's readers.
+    fn verifier(&self) -> Verifier {
+        Verifier {
+            start_token: Arc::clone(&self.config.start_token),
+            image: self.config.child_image.clone(),
+        }
+    }
+
+    /// ⟨§17.33 item 2⟩ [`Self::exchange`] for a request whose late effect must not outlive
+    /// its admission (`load`, `sign`; module docs): `permits` are held until the reply is
+    /// consumed. Ending without it (cancelled, timed out, broken), the exact child is ended
+    /// first and the view is `crashed`; the permits are released only once its exit is
+    /// confirmed ([`end_child`]).
+    async fn exchange_ending(
+        self: &Arc<Self>,
+        slot: &mut Option<Link>,
+        request: &Request,
+        bound: Duration,
+        permits: Vec<Box<dyn Send>>,
+    ) -> Result<Response, IssuerError> {
+        let mut pending = Indeterminate {
+            inner: Arc::clone(self),
+            slot,
+            permits,
+            armed: true,
+        };
+        let Some(link) = pending.slot.as_mut() else {
+            pending.armed = false;
+            return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
+        };
+        let r = self.exchange(link, request, bound).await;
+        pending.armed = false;
+        match r {
+            Ok(reply) => Ok(reply),
+            Err(e) => {
+                let link = pending.slot.take();
+                let permits = std::mem::take(&mut pending.permits);
+                self.mark_crashed();
+                end_child(self.verifier(), link, permits).await;
+                Err(e)
+            }
+        }
     }
 
     /// Spawn, hello, load: one start attempt (`starting → loading → ready |
@@ -462,17 +648,14 @@ impl Inner {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         }
         // ⟨round 10 L1⟩ Admitted first, held through the load; deferred: nothing spawned.
-        let Ok(_permit) = self.admit_load() else {
+        let Ok(permit) = self.admit_load() else {
             return Err(deferred());
         };
         let _unfinished = Unfinished {
             inner: Arc::clone(self),
             lifecycle,
         };
-        if let Some(mut old) = slot.take() {
-            let _ = old.child.start_kill();
-            let _ = old.child.wait().await;
-        }
+        end_child(self.verifier(), slot.take(), Vec::new()).await;
         self.set_state(IssuerState::Starting, None);
         let c = &self.config.command;
         let mut cmd = Command::new(&c.program);
@@ -493,6 +676,8 @@ impl Inner {
         let (Some(stdin), Some(stdout), Some(pid)) =
             (child.stdin.take(), child.stdout.take(), child.id())
         else {
+            // The child spawned a moment ago, on its own unreaped handle (it has spoken no
+            // protocol and holds no key): nothing else can carry this handle.
             let _ = child.start_kill();
             let _ = child.wait().await;
             self.set_state(
@@ -501,9 +686,10 @@ impl Inner {
             );
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         };
-        let identity = ChildIdentity {
+        let mut identity = ChildIdentity {
             pid,
             start_token: (self.config.start_token)(pid),
+            image: None,
         };
         *slot = Some(Link {
             child,
@@ -512,6 +698,7 @@ impl Inner {
             buf: Vec::new(),
             outstanding: 0,
             dirty: false,
+            identity: identity.clone(),
         });
         let nonce = token()?;
         let hello = Request::Hello {
@@ -528,8 +715,11 @@ impl Inner {
                 return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
             }
         }
+        // The image, once the child speaks the protocol (after any `exec`).
+        identity.image = self.config.child_image.as_ref().and_then(|read| read(pid));
+        link.identity.image.clone_from(&identity.image);
         self.update(|v| v.identity = Some(identity));
-        self.load_admitted(&mut slot, lifecycle).await
+        self.load_admitted(&mut slot, lifecycle, permit).await
     }
 
     /// `load` over the held link (`loading → ready | store_unavailable`) for
@@ -541,17 +731,19 @@ impl Inner {
         slot: &mut Option<Link>,
         lifecycle: u64,
     ) -> Result<(), IssuerError> {
-        let Ok(_permit) = self.admit_load() else {
+        let Ok(permit) = self.admit_load() else {
             return Err(deferred());
         };
-        self.load_admitted(slot, lifecycle).await
+        self.load_admitted(slot, lifecycle, permit).await
     }
 
-    /// [`Self::load_locked`] once admitted.
+    /// [`Self::load_locked`] once admitted: `permit` is held until the `load`'s reply is
+    /// consumed or its child's exit is confirmed ([`Self::exchange_ending`]).
     async fn load_admitted(
         self: &Arc<Self>,
         slot: &mut Option<Link>,
         lifecycle: u64,
+        permit: Option<Box<dyn Send>>,
     ) -> Result<(), IssuerError> {
         if !self.current(lifecycle) {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
@@ -565,11 +757,13 @@ impl Inner {
             inner: Arc::clone(self),
             lifecycle,
         };
-        let Some(link) = slot.as_mut() else {
-            return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
-        };
         match self
-            .exchange(link, &Request::Load {}, self.config.request_timeout)
+            .exchange_ending(
+                slot,
+                &Request::Load {},
+                self.config.request_timeout,
+                permit.into_iter().collect(),
+            )
             .await
         {
             Ok(Response::Loaded { cas }) => {
@@ -790,7 +984,8 @@ impl ChildIssuer {
                 .await
                 .is_err()
             {
-                let _ = link.child.start_kill();
+                // ⟨§17.33 item 2⟩ Only the re-verified exact child is signalled.
+                signal_exact(&self.inner.verifier(), &mut link.child, &link.identity);
                 let _ = link.child.wait().await;
             }
             link.buf.zeroize();
@@ -890,13 +1085,23 @@ impl IssuerPort for ChildIssuer {
             reservation: entry,
             subject_public_key: subject.to_owned(),
         };
+        // ⟨§17.33 item 2⟩ The caller's admission, extended for this exchange: held until
+        // the reply is consumed or the exact child's exit is confirmed.
+        let hold: Vec<Box<dyn Send>> = self
+            .inner
+            .config
+            .request_hold
+            .as_ref()
+            .and_then(|h| h())
+            .into_iter()
+            .collect();
         let mut slot = self.inner.link.lock().await;
-        let Some(link) = slot.as_mut() else {
+        if slot.is_none() {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
-        };
+        }
         match self
             .inner
-            .exchange(link, &request, self.inner.config.request_timeout)
+            .exchange_ending(&mut slot, &request, self.inner.config.request_timeout, hold)
             .await
         {
             Ok(Response::Signed {
@@ -915,8 +1120,12 @@ impl IssuerPort for ChildIssuer {
                     "reply does not match the request".into(),
                 ))
             }
+            // The exact child was already ended (`crashed`); a broken link restarts at once
+            // (under the load gate), a timed-out one on the next demand.
             Err(e) => {
-                self.broken(&mut slot, &e).await;
+                if !matches!(e, IssuerError::Timeout) {
+                    self.inner.supervise();
+                }
                 Err(e)
             }
         }

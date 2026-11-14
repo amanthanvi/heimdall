@@ -15603,7 +15603,6 @@ async fn w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged(
 /// no count reset, no lifted stop, no call.
 #[tokio::test]
 async fn uninstall_fence_retry_is_one_ordinary_round() {
-    use heimdall_app::operations::as_fence_holder;
     let (w, adapter) = r1310_pending_world().await;
     let g = r1310_withdrawn_pending(&w, &adapter, "u-retry").await;
     async fn record(w: &World) -> heimdall_domain::revocation::PendingRemoteRevocation {
@@ -15633,7 +15632,9 @@ async fn uninstall_fence_retry_is_one_ordinary_round() {
     assert_eq!(adapter.calls(), 1, "a refused retry calls nothing");
     assert_eq!(record(&w).await, before, "and changes nothing");
     // The holder: exactly one round.
-    let r = as_fence_holder(w.ops.uninstall_fence_retry_remote_revocations(7))
+    let r = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(7)
         .await
         .unwrap();
     assert_eq!(adapter.calls(), 2, "exactly one adapter call");
@@ -15650,14 +15651,17 @@ async fn uninstall_fence_retry_is_one_ordinary_round() {
     let cap = after.round_cap(u32::MAX);
     while record(&w).await.attempts < cap {
         let calls = adapter.calls();
-        as_fence_holder(w.ops.uninstall_fence_retry_remote_revocations(7))
+        w.ops
+            .uninstall_fence_retry_remote_revocations(7)
             .await
             .unwrap();
         assert_eq!(adapter.calls(), calls + 1);
     }
     let calls = adapter.calls();
     for _ in 0..2 {
-        let r = as_fence_holder(w.ops.uninstall_fence_retry_remote_revocations(7))
+        let r = w
+            .ops
+            .uninstall_fence_retry_remote_revocations(7)
             .await
             .unwrap();
         let v = serde_json::to_value(&r).unwrap();
@@ -15672,4 +15676,186 @@ async fn uninstall_fence_retry_is_one_ordinary_round() {
         calls,
         "a capped or stopped record calls nothing"
     );
+}
+
+/// `recheck3_released_holder_must_not_continue_retry_under_new_fence` (ADR-0008 §17.33
+/// item 1; re-check W5-E05): holder A (connection 7) retries two pending records and
+/// is paused inside the first round's adapter call. Another request on A's connection
+/// releases the fence: A's work is in flight, so the fence is only **releasing** (A's
+/// lease no longer stands) and B (connection 8) cannot acquire it. A's round result is
+/// not committed under the lost lease, the second round never starts, and the retry is
+/// refused `uninstall_in_progress`. Once A's work has ended the fence is lifted; B then
+/// acquires it, and no adapter call is ever made under B's fence.
+#[tokio::test]
+async fn recheck3_released_holder_must_not_continue_retry_under_new_fence() {
+    let (w, adapter) = r1310_pending_world().await;
+    let _a = r1310_withdrawn_pending(&w, &adapter, "e05-a").await;
+    r138_set_automatic_activation(&w, true);
+    let b = r136_ready(&w, "e05-b", "e05-b-work", "h2", "1h").await;
+    r138_set_automatic_activation(&w, false);
+    let e = err(r136_bind(&w, &b.binding_id, "e05-b-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+    assert_eq!(w.ops.pending_remote_revocations().await.unwrap().len(), 2);
+    w.ops.uninstall_fence_acquire(7).await.unwrap();
+    let calls = adapter.calls();
+    adapter.hold_revoke.store(true, Ordering::SeqCst);
+    let ops = w.ops.clone();
+    let retry = tokio::spawn(async move { ops.uninstall_fence_retry_remote_revocations(7).await });
+    adapter.revoke_entered.notified().await;
+    assert_eq!(
+        adapter.calls(),
+        calls + 1,
+        "A's first round is in its adapter call"
+    );
+    assert!(
+        w.ops.uninstall_fence_release(7),
+        "releasing: still held while A's work is in flight"
+    );
+    let e = w.ops.uninstall_fence_acquire(8).await.unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some("uninstall_in_progress"));
+    adapter.revoke_release.notify_one();
+    let e = retry.await.unwrap().unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some("uninstall_in_progress"), "{e:?}");
+    assert_eq!(adapter.calls(), calls + 1, "no second round");
+    assert!(!w.ops.uninstall_fence_held(), "lifted once A's work ended");
+    w.ops.uninstall_fence_acquire(8).await.unwrap();
+    assert_eq!(adapter.calls(), calls + 1, "nothing under B's fence");
+    assert!(!w.ops.uninstall_fence_release(8));
+}
+
+/// What [`RoundGapWrite`] does at the first transaction after a round's completion
+/// began (ADR-0008 §17.33 item 3, audit B1).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GapWrite {
+    /// An unfenced writer adds an obligation to the record after the round committed.
+    AddObligation,
+    /// An unfenced writer re-creates the record the round removed.
+    Recreate,
+    /// The round's completion transaction fails (the round answers `Err`).
+    FailCompletion,
+}
+
+/// A store hook that, once the adapter was called in a round, lets the round's own
+/// completion transaction run (or fails it, [`GapWrite::FailCompletion`]) and then, at
+/// the **next** transaction, commits an unfenced write of its own first: the gap the
+/// audit's probe `rvprobe_retry_reply_record_is_reread_after_its_round` scheduled.
+struct RoundGapWrite {
+    mode: GapWrite,
+    store: std::sync::OnceLock<Arc<Store>>,
+    adapter: std::sync::OnceLock<Arc<PendingCounter>>,
+    baseline: AtomicUsize,
+    seen: AtomicUsize,
+    record: std::sync::Mutex<Option<heimdall_domain::revocation::PendingRemoteRevocation>>,
+}
+
+impl FaultHook for RoundGapWrite {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        let Some(adapter) = self.adapter.get() else {
+            return FaultAction::Continue;
+        };
+        if point != FaultPoint::BeforeTransaction
+            || adapter.calls() <= self.baseline.load(Ordering::SeqCst)
+        {
+            return FaultAction::Continue;
+        }
+        match self.seen.fetch_add(1, Ordering::SeqCst) {
+            0 if self.mode == GapWrite::FailCompletion => FaultAction::Fail,
+            1 => {
+                let before = self.record.lock().unwrap().take();
+                if let (Some(store), Some(mut r)) = (self.store.get(), before) {
+                    let mode = self.mode;
+                    store
+                        .transaction(|tx| {
+                            if mode == GapWrite::AddObligation {
+                                r = tx.remote_revocation(&r.root)?.unwrap();
+                                let mut extra = r.obligations[0].clone();
+                                extra.adapter.instance = "gap-writer".into();
+                                r.obligations.push(extra);
+                            }
+                            tx.set_remote_revocation(&r)
+                        })
+                        .unwrap();
+                }
+                FaultAction::Continue
+            }
+            _ => FaultAction::Continue,
+        }
+    }
+}
+
+/// The world, one pending record, and a [`RoundGapWrite`] hook armed for the next round.
+async fn gap_world(mode: GapWrite) -> (World, Arc<PendingCounter>, Arc<RoundGapWrite>) {
+    let hook = Arc::new(RoundGapWrite {
+        mode,
+        store: std::sync::OnceLock::new(),
+        adapter: std::sync::OnceLock::new(),
+        baseline: AtomicUsize::new(usize::MAX),
+        seen: AtomicUsize::new(0),
+        record: std::sync::Mutex::new(None),
+    });
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        faults: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let _ = hook.store.set(w.store.clone());
+    let _ = hook.adapter.set(adapter.clone());
+    r1310_withdrawn_pending(&w, &adapter, "b1-gap").await;
+    let pending = w.ops.pending_remote_revocations().await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert!(!pending[0].obligations.is_empty(), "{pending:?}");
+    *hook.record.lock().unwrap() = Some(pending[0].clone());
+    hook.baseline.store(adapter.calls(), Ordering::SeqCst);
+    (w, adapter, hook)
+}
+
+async fn holder_retry(w: &World) -> serde_json::Value {
+    w.ops.uninstall_fence_acquire(7).await.unwrap();
+    let r = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(7)
+        .await
+        .unwrap();
+    serde_json::to_value(&r).unwrap()
+}
+
+/// `retry_allowance_is_the_rounds_own_commit_not_a_reread` (ADR-0008 §17.33 item 3,
+/// audit B1, after its probe `rvprobe_retry_reply_record_is_reread_after_its_round`):
+/// the retry's reply carries exactly the record the round's own transaction committed.
+/// An unfenced write committed after it (another obligation; a record re-created after
+/// the round removed it) is never in the reply, so uninstall's final comparison sees it
+/// as a difference; a failed round's reply carries no record at all.
+#[tokio::test]
+async fn retry_allowance_is_the_rounds_own_commit_not_a_reread() {
+    // A write after the round's commit: the reply is the round's record, not the later one.
+    let (w, _adapter, _hook) = gap_world(GapWrite::AddObligation).await;
+    let v = holder_retry(&w).await;
+    let now = w.ops.pending_remote_revocations().await.unwrap();
+    let reply: heimdall_domain::revocation::PendingRemoteRevocation =
+        serde_json::from_value(v[0]["record"].clone()).unwrap();
+    assert_eq!(
+        now[0].obligations.len(),
+        reply.obligations.len() + 1,
+        "the gap write landed after the round"
+    );
+    assert_ne!(
+        reply, now[0],
+        "the reply is the round's own commit, not a re-read"
+    );
+    // The round removed the record; a writer re-creates it: the reply says removed.
+    let (w, adapter, _hook) = gap_world(GapWrite::Recreate).await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    let v = holder_retry(&w).await;
+    assert_eq!(v[0]["outcome"], "completed", "{v}");
+    assert!(v[0]["record"].is_null(), "{v}");
+    assert_eq!(
+        w.ops.pending_remote_revocations().await.unwrap().len(),
+        1,
+        "the re-created record exists"
+    );
+    // The round's completion fails: no record, so nothing is admitted.
+    let (w, _adapter, _hook) = gap_world(GapWrite::FailCompletion).await;
+    let v = holder_retry(&w).await;
+    assert_eq!(v[0]["outcome"], "failed", "{v}");
+    assert!(v[0]["record"].is_null(), "{v}");
 }

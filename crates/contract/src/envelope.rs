@@ -476,6 +476,12 @@ pub mod reason {
     /// connection was lost), so the purge read and deleted nothing (next: stop the runtime
     /// with `heimdall service stop` or wait for it to stop, then `heimdall uninstall` again).
     pub const UNINSTALL_SHUTDOWN_UNCONFIRMED: &str = "uninstall_shutdown_unconfirmed";
+    /// ⟨M03; ADR-0008 §17.33 items 1 and 9⟩ `SERVICE_UNAVAILABLE` (exit 5, retryable): an
+    /// uninstall's fence release has waited past its bound for work the uninstall
+    /// started, so the fence stays releasing and fenced work is refused until that work
+    /// ends or the runtime restarts (next: stop the runtime with `heimdall service
+    /// stop`, then start it again with `heimdall service run --detach`).
+    pub const UNINSTALL_FENCE_RELEASE_STUCK: &str = "uninstall_fence_release_stuck";
     /// ⟨M03; ADR-0008 §17.29 item 2⟩ `CONFIG_CONFLICT` (exit 6): an attended
     /// `enroll verify <enrollment> --absence` run after the `late_write` residual's
     /// not-after observed the enrollment's marker line present: the uncertain append
@@ -571,6 +577,7 @@ pub mod reason {
             Code::CapabilityUnavailable,
         ),
         (UNINSTALL_SHUTDOWN_UNCONFIRMED, Code::ServiceUnavailable),
+        (UNINSTALL_FENCE_RELEASE_STUCK, Code::ServiceUnavailable),
         (LATE_WRITE_PRESENT, Code::ConfigConflict),
     ];
 }

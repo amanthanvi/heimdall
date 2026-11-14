@@ -734,3 +734,31 @@ async fn verification_result_write_records_only_the_run_it_started_from() {
     assert_eq!(w.records().pop().unwrap().state, EnrollmentState::Verified);
     assert_eq!(w.op(&op).state, OperationState::Succeeded);
 }
+
+// --- ⟨G8, round 11; ADR-0008 §17.33 item 1⟩ the holder lease --------------------------
+
+/// `recheck3_fence_holder_can_finish_own_verification` (§17.33 item 1; re-check
+/// W5-E03): with an append result durably deferred under the fence, the holder drives
+/// the verification itself, under its lease (as the dispatcher runs its requests): the
+/// spawned verification leader carries the lease, so its reservations are the holder's
+/// and are admitted; the verification signs its certificates and the enrollment is
+/// verified. The lease, released with the request, leaves the fence held.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn recheck3_fence_holder_can_finish_own_verification() {
+    let w = World::new().await;
+    let (op, signed) = append_result_under_fence(&w, "req_g8_e03").await;
+    let lease = w
+        .ops
+        .uninstall_fence_lease(HOLDER)
+        .expect("the holder's lease");
+    let r = heimdall_app::operations::with_fence_lease(lease, w.step(&op)).await;
+    r.unwrap_or_else(|e| panic!("the holder's own verification: {e:?}"));
+    assert!(
+        w.issuer.signed.load(Ordering::SeqCst) > signed,
+        "the holder's verification signed its certificates"
+    );
+    assert_eq!(w.records().pop().unwrap().state, EnrollmentState::Verified);
+    assert!(w.ops.uninstall_fence_held());
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+}

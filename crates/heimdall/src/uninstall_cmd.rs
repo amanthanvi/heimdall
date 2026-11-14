@@ -522,17 +522,20 @@ fn remote_revocation_key(root: &str) -> String {
     format!("remote_revocation:{root}")
 }
 
-/// ⟨ADR-0008 §17.32 item 7⟩ The `meta` rows are the confirmed ones but for this
-/// uninstall's own retry: for each record it retried, the row is gone when the retry
-/// answered it no longer pending; otherwise it still exists for the same root with
-/// exactly the answered `attempts` and `stopped`, covering no grant it did not cover
-/// (a confirmed grant leaves the record). Every other row is unchanged.
+/// ⟨ADR-0008 §17.32 item 7; §17.33 item 3 (W5-E01)⟩ The `meta` rows are the confirmed
+/// ones but for this uninstall's own retry: for each record it retried (and had
+/// confirmed), the row now holds **exactly** the record the retry returned, byte for
+/// byte in the store's form (`serde_json::to_string`, the store's `codec::doc`), or is
+/// gone when the retry returned none. Anything else in it (a new obligation, another
+/// count, stop, kind, effect or claim sequence, re-arm history or cap) is a difference,
+/// and so is every change to any other row.
 fn meta_unchanged_but_for(
     before: &[(String, String)],
     after: &[(String, String)],
     retries: &[RemoteRetry],
 ) -> bool {
-    use heimdall_domain::revocation::PendingRemoteRevocation;
+    // ⟨audit B1⟩ A failed round admits nothing: its row must be the confirmed bytes.
+    let retries: Vec<&RemoteRetry> = retries.iter().filter(|r| r.outcome != "failed").collect();
     let retried = |k: &str| {
         retries
             .iter()
@@ -549,21 +552,16 @@ fn meta_unchanged_but_for(
     }
     retries.iter().all(|r| {
         let key = remote_revocation_key(&r.root_grant);
-        let find = |rows: &[(String, String)]| {
-            rows.iter()
-                .find(|(k, _)| *k == key)
-                .and_then(|(_, v)| serde_json::from_str::<PendingRemoteRevocation>(v).ok())
+        let row = |rows: &[(String, String)]| {
+            rows.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone())
         };
-        let Some(was) = find(before) else {
+        if row(before).is_none() {
             return false;
-        };
-        match (r.pending, find(after)) {
-            (false, None) => true,
-            (true, Some(now)) => {
-                now.root == was.root
-                    && now.attempts == r.attempts_after
-                    && now.stopped == r.stopped
-                    && now.grants.iter().all(|g| was.grants.contains(g))
+        }
+        match (&r.record, row(after)) {
+            (None, None) => true,
+            (Some(record), Some(stored)) => {
+                serde_json::to_string(record).is_ok_and(|canonical| canonical == stored)
             }
             _ => false,
         }
@@ -1424,6 +1422,10 @@ struct RemoteRetry {
     stopped: bool,
     /// Whether it is still pending.
     pending: bool,
+    /// ⟨§17.33 item 3⟩ The complete record as stored right after the retry, or none
+    /// once it is gone: the only change the final check admits for it.
+    #[serde(default)]
+    record: Option<heimdall_domain::revocation::PendingRemoteRevocation>,
 }
 
 /// ⟨ADR-0008 §17.32 item 7⟩ Make the one retry attempt per pending remote revocation on
@@ -1464,12 +1466,13 @@ async fn retry_remote_revocations<S: crate::cli::Session>(
 fn apply_retries(inv: &mut Inventory, retries: &[RemoteRetry]) {
     inv.remote_revocations.retain_mut(|r| {
         match retries.iter().find(|t| t.root_grant == r.root.as_str()) {
-            Some(t) if !t.pending => false,
-            Some(t) => {
-                r.attempts = t.attempts_after;
-                r.stopped = t.stopped;
-                true
-            }
+            Some(t) => match &t.record {
+                Some(record) => {
+                    *r = record.clone();
+                    true
+                }
+                None => false,
+            },
             None => true,
         }
     });
@@ -1960,6 +1963,12 @@ async fn confirm_purge<P: Prompter>(
 }
 
 async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P) -> Outcome {
+    // ⟨ADR-0008 §17.33 item 14⟩ The debug-only trusted top of the purge's secure-path
+    // check; a release build refuses the variable (exit 2) before anything else.
+    let trusted_top = match crate::testcfg::purge_trusted_top(&|n| std::env::var_os(n)) {
+        Ok(t) => t,
+        Err(m) => return crate::setup_cmd::usage(&m),
+    };
     let purge = args.purge_state;
     let paths = match ctx.paths() {
         Ok(p) => p,
@@ -2141,7 +2150,7 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
         match purge_after_stop(
             stopped,
             complete && absent,
-            (&paths.state_dir, &paths.runtime_dir),
+            (&paths.state_dir, &paths.runtime_dir, trusted_top.as_deref()),
             (&confirmed, &own),
             args,
             LOCK_WAIT,
@@ -2149,10 +2158,11 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
         )
         .await
         {
-            PurgeEnd::Purged(deleted) => {
-                purged = deleted.is_ok();
+            PurgeEnd::Purged(Ok(())) => {
+                purged = true;
                 left = remaining(ctx, &dirs, purged);
             }
+            PurgeEnd::Purged(Err(_)) => unavailable = Some(SWEEP_REFUSED),
             PurgeEnd::Incomplete => refused_purge = true,
             PurgeEnd::Changed(now) => changed = Some(now),
             PurgeEnd::Bundle(out) => bundle_now = Some(out),
@@ -2174,6 +2184,9 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
         quarantine,
     );
     with_retries(&mut out, &retried);
+    if purge {
+        with_swept(&mut out, &paths.state_dir, &paths.runtime_dir);
+    }
     if let Some(now) = changed {
         return inventory_changed(Some(out), &now, EffectStatus::Partial);
     }
@@ -2458,7 +2471,7 @@ const LOCK_WAIT: Duration = Duration::from_secs(10);
 async fn purge_after_stop(
     stopped: bool,
     ready: bool,
-    dirs: (&Path, &Path),
+    dirs: (&Path, &Path, Option<&Path>),
     (confirmed, own): (&Inventory, &OwnChanges),
     args: &UninstallArgs,
     wait: Duration,
@@ -2496,18 +2509,27 @@ async fn purge_after_stop(
 /// schedule a competing start-up there; the command passes a no-op (no test variable
 /// reaches it).
 async fn purge_locked(
-    (state_dir, runtime_dir): (&Path, &Path),
+    (state_dir, runtime_dir, top): (&Path, &Path, Option<&Path>),
     confirmed: &Inventory,
     own: &OwnChanges,
     args: &UninstallArgs,
     wait: Duration,
     paused: impl FnOnce(),
 ) -> PurgeEnd {
-    let lock = match instance_lock(state_dir, wait).await {
+    use heimdall_runtime::service::STATE_DB_FILE;
+    // ⟨§17.33 item 10 (audit B3)⟩ One anchored `<state>` (and `<run>`) for the lock, the
+    // final read, the bundle check and the deletion.
+    let Ok(anchors) = crate::purge_sweep::Anchors::open(state_dir, runtime_dir, top) else {
+        return PurgeEnd::Unavailable(ROOTS_REFUSED);
+    };
+    let lock = match anchored_lock(&anchors, wait).await {
         Ok(lock) => lock,
         Err(why) => return PurgeEnd::Unavailable(why),
     };
-    let db = state_dir.join(heimdall_runtime::service::STATE_DB_FILE);
+    let db = state_dir.join(STATE_DB_FILE);
+    if anchors.verify(STATE_DB_FILE).is_err() {
+        return PurgeEnd::Unavailable(ROOTS_REFUSED);
+    }
     match Inventory::read(&db) {
         Ok(now) if confirmed.unchanged_but_for(&now, own) => {}
         Ok(now) => return PurgeEnd::Changed(now),
@@ -2516,14 +2538,65 @@ async fn purge_locked(
     if let Err(refused) = enrollment_refusal(confirmed, args, &db) {
         return PurgeEnd::Bundle(refused);
     }
+    // What was read is the database under the anchored `<state>` (the remaining
+    // residual, a swap away and back entirely within the read, is named:
+    // `purge_sweep::STATE_READ_RESIDUAL`).
+    if anchors.verify(STATE_DB_FILE).is_err() {
+        return PurgeEnd::Unavailable(ROOTS_REFUSED);
+    }
     paused();
-    let deleted = purge_state(state_dir, runtime_dir);
+    let deleted = anchors.purge(STATE_DB_FILE, || {});
     drop(lock);
     PurgeEnd::Purged(deleted)
 }
 
-/// Take the runtime's instance lock for `state_dir`, waiting at most `wait` while
+/// ⟨ADR-0008 §17.33 item 11 (audit B6)⟩ Name the directories the purge swept (human and
+/// JSON `purge_roots`): it sweeps this CLI's resolved `<state>` and `<run>`, so files a
+/// runtime left under another runtime directory (another `XDG_RUNTIME_DIR`) stay, and
+/// the owner can find them.
+fn with_swept(out: &mut Outcome, state_dir: &Path, runtime_dir: &Path) {
+    let home = home();
+    let (state, run) = (shown(state_dir, &home), shown(runtime_dir, &home));
+    if let serde_json::Value::Object(map) = &mut out.env.data {
+        map.insert(
+            "purge_roots".to_owned(),
+            serde_json::json!({ "state_dir": state, "runtime_dir": run }),
+        );
+    }
+    out.human.push_str(&format!(
+        "Purge roots: state {state}, runtime {run} (files a runtime left under another runtime directory are not swept)\n"
+    ));
+}
+
+/// ⟨ADR-0008 §17.33 item 10⟩ The anchored roots could not be established or changed.
+const ROOTS_REFUSED: &str = "--purge-state refused: the state or runtime directory, or one of its parent directories, is a link, is not this user's, or was replaced while uninstall was running; nothing was purged: the state database, the backups and every recovery record are kept. Run `heimdall uninstall --purge-state` again";
+
+/// ⟨ADR-0008 §17.33 items 4, 10⟩ The sweep refused (a link or reparse point, a database
+/// file that is not a regular file) or failed.
+const SWEEP_REFUSED: &str = "--purge-state refused: the deletion met a link, a reparse point or an unexpected file inside the state or runtime directory and stopped; it never follows one. Remove it, then run `heimdall uninstall --purge-state` again";
+
+/// Take `service.lock` through the anchored `<state>`, waiting at most `wait` while
 /// another process holds it ([`LOCK_WAIT`]).
+async fn anchored_lock(
+    anchors: &crate::purge_sweep::Anchors,
+    wait: Duration,
+) -> Result<crate::purge_sweep::LockGuard, &'static str> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match anchors.try_lock() {
+            Ok(Some(lock)) => return Ok(lock),
+            Ok(None) if Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Ok(None) => return Err(LOCK_HELD),
+            Err(_) => return Err(LOCK_FAILED),
+        }
+    }
+}
+
+/// Take the runtime's instance lock for `state_dir` by path, waiting at most `wait` while
+/// another process holds it (tests: whether the purge released it).
+#[cfg(test)]
 async fn instance_lock(
     state_dir: &Path,
     wait: Duration,
@@ -2604,57 +2677,14 @@ fn after_stop(out: Outcome, mut refused: Outcome) -> Outcome {
 /// ⟨ADR-0008 §17.32 item 7⟩ The directory of the environment's pair slots under the
 /// state directory (`heimdall_localenv::projection::content::managed_slot_paths`:
 /// `<state>/managed/<destination>/{key.pub,cert.pub}`).
+#[cfg(test)]
 const SLOT_DIR: &str = "managed";
 
 /// ⟨ADR-0008 §17.32 item 7⟩ The binding endpoints' directory under the runtime
 /// directory (`heimdall_credential::endpoints::BINDING_DIR`:
 /// `<run>/b/<tag>/{agent.sock,key.pub,cert-*.pub,.generation}`).
+#[cfg(test)]
 const BINDING_DIR: &str = "b";
-
-/// ⟨ADR-0008 §17.32 item 7⟩ Remove every path a cleanup intent's effects can leave
-/// (the binding directories with their endpoint sockets and files, and the pair slot
-/// files), whose intents the purge discards with the database: `<state>/managed` and
-/// `<run>/b`, whole. Each must be a real directory: a link or another file there is
-/// refused (never followed) and the purge stops before deleting anything else.
-/// `remove_dir_all` does not follow links inside it.
-fn sweep_managed(state_dir: &Path, runtime_dir: &Path) -> std::io::Result<()> {
-    for dir in [state_dir.join(SLOT_DIR), runtime_dir.join(BINDING_DIR)] {
-        match std::fs::symlink_metadata(&dir) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-            Ok(m) if m.file_type().is_dir() => std::fs::remove_dir_all(&dir)?,
-            Ok(_) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "a managed directory is not a directory",
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Delete the managed artifacts ([`sweep_managed`]) first, then the state store and
-/// the snapshots (only after every check passed, under the instance lock:
-/// [`purge_locked`]).
-fn purge_state(state_dir: &Path, runtime_dir: &Path) -> std::io::Result<()> {
-    sweep_managed(state_dir, runtime_dir)?;
-    let db = state_dir.join(heimdall_runtime::service::STATE_DB_FILE);
-    for suffix in ["", "-wal", "-shm", "-journal"] {
-        let mut name = db.clone().into_os_string();
-        name.push(suffix);
-        match std::fs::remove_file(PathBuf::from(name)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-        }
-    }
-    let backups = state_dir.join("backups");
-    if backups.is_dir() {
-        std::fs::remove_dir_all(backups)?;
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {
@@ -3690,6 +3720,15 @@ mod tests {
             std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700))
                 .unwrap_or_else(|e| panic!("{e}"));
         }
+        // The runtime directory beside it, owner-only as `Paths::ensure` makes it.
+        let run = d.path().join("run");
+        std::fs::create_dir(&run).unwrap_or_else(|e| panic!("{e}"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o700))
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
         let db = database(&state, |tx| tx.insert_issuer(&issuer()));
         std::fs::create_dir(state.join("backups")).unwrap_or_else(|e| panic!("{e}"));
         std::fs::write(state.join("backups").join("ssh_config.orig"), b"Host x\n")
@@ -3718,7 +3757,7 @@ mod tests {
         block_on(purge_after_stop(
             true,
             true,
-            (state, &run_of(state)),
+            (state, &run_of(state), state.parent()),
             (confirmed, &OwnChanges::default()),
             &plain_purge(),
             wait,
@@ -3779,7 +3818,7 @@ mod tests {
             let end = block_on(purge_after_stop(
                 stopped,
                 true,
-                (&state, &run_of(&state)),
+                (&state, &run_of(&state), state.parent()),
                 (&confirmed, &OwnChanges::default()),
                 &plain_purge(),
                 Duration::from_millis(200),
@@ -5008,6 +5047,37 @@ mod tests {
             attempts_after: 2,
             stopped: false,
             pending: true,
+            record: Some(after_retry()),
+        }
+    }
+
+    /// [`remote_revocation`] as the one retry left it: round 2 claimed and completed,
+    /// with its adapter obligation still pending.
+    fn after_retry() -> heimdall_domain::revocation::PendingRemoteRevocation {
+        let mut r = remote_revocation();
+        r.attempts = 2;
+        r.last_attempt_at = t0()
+            .checked_add(Duration::from_secs(5))
+            .unwrap_or_else(|_| panic!("time"));
+        r.claim_seq = Some(2);
+        r.obligations = vec![obligation("fake-a")];
+        r
+    }
+
+    /// A pending adapter obligation of [`remote_revocation`]'s root grant.
+    fn obligation(instance: &str) -> heimdall_domain::revocation::RemoteObligation {
+        heimdall_domain::revocation::RemoteObligation {
+            grant: remote_revocation().root,
+            adapter: heimdall_domain::operation::AdapterIdentity {
+                mechanism: "fake".to_owned(),
+                instance: instance.to_owned(),
+            },
+            reason: None,
+            attempts: Some(2),
+            stopped: false,
+            effect_round: Some(1),
+            effect_seq: Some(1),
+            kind: heimdall_domain::revocation::ObligationKind::default(),
         }
     }
 
@@ -5087,10 +5157,10 @@ mod tests {
         assert!(s.sent.is_empty());
     }
 
-    /// `uninstall_purge_admits_exactly_its_own_retry` (ADR-0008 §17.32 item 7): the
-    /// record as this uninstall's one retry left it (one more round) is admitted by the
-    /// final check; a record changed otherwise (another count) is a difference, and so
-    /// is the same change without the retry.
+    /// `uninstall_purge_admits_exactly_its_own_retry` (ADR-0008 §17.32 item 7, §17.33
+    /// item 3): the record exactly as this uninstall's one retry returned it is admitted
+    /// by the final check; another record (another count), no record, or a "gone"
+    /// answer while it is still stored is a difference.
     #[test]
     fn uninstall_purge_admits_exactly_its_own_retry() {
         let (_d, state, _) = state_dir();
@@ -5101,11 +5171,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         drop(store);
         let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
-        replacement_writes(&state, |tx| {
-            let mut r = remote_revocation();
-            r.attempts = 2;
-            tx.set_remote_revocation(&r)
-        });
+        replacement_writes(&state, |tx| tx.set_remote_revocation(&after_retry()));
         let now = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
         let own = |retries: Vec<RemoteRetry>| OwnChanges {
             retirements: Vec::new(),
@@ -5114,14 +5180,122 @@ mod tests {
         assert!(confirmed.unchanged_but_for(&now, &own(vec![retried_once()])));
         assert!(!confirmed.unchanged_but_for(&now, &own(Vec::new())));
         let mut three = retried_once();
-        three.attempts_after = 3;
+        if let Some(r) = &mut three.record {
+            r.attempts = 3;
+        }
         assert!(!confirmed.unchanged_but_for(&now, &own(vec![three])));
         let mut done = retried_once();
         done.pending = false;
+        done.record = None;
         assert!(
             !confirmed.unchanged_but_for(&now, &own(vec![done])),
-            "answered done, still there"
+            "answered gone, still stored"
         );
+    }
+
+    /// `retry_allowance_admits_no_recreated_record_and_nothing_on_failure` (ADR-0008
+    /// §17.33 item 3, audit B1): a round answered "removed" admits only its absence (a
+    /// record re-created afterwards is a difference); a failed round admits nothing (the
+    /// confirmed bytes stay admitted, any change, such as a claimed attempt, is a
+    /// difference).
+    #[test]
+    fn retry_allowance_admits_no_recreated_record_and_nothing_on_failure() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(seed_remote)
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        let own = |r: RemoteRetry| OwnChanges {
+            retirements: Vec::new(),
+            retries: vec![r],
+        };
+        let mut completed = retried_once();
+        completed.outcome = "completed".to_owned();
+        completed.pending = false;
+        completed.record = None;
+        let mut failed = retried_once();
+        failed.outcome = "failed".to_owned();
+        failed.record = None;
+        let unchanged = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            confirmed.unchanged_but_for(&unchanged, &own(failed.clone())),
+            "a failed round admits the confirmed bytes"
+        );
+        assert!(
+            !confirmed.unchanged_but_for(&unchanged, &own(completed.clone())),
+            "answered removed, still stored (re-created)"
+        );
+        replacement_writes(&state, |tx| tx.set_remote_revocation(&after_retry()));
+        let changed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            !confirmed.unchanged_but_for(&changed, &own(failed)),
+            "a failed round admits no change"
+        );
+        replacement_writes(&state, |tx| {
+            tx.clear_remote_revocation(&remote_revocation().root)
+        });
+        let removed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            confirmed.unchanged_but_for(&removed, &own(completed)),
+            "its absence is admitted"
+        );
+    }
+
+    /// `recheck3_retry_allowance_rejects_new_remote_obligation` (the third re-check's
+    /// probe, W5-E01; ADR-0008 §17.33 item 3): after the one retry returned its record,
+    /// a replacement takes the instance lock and writes that record with a **new**
+    /// adapter obligation and another claim sequence (the record-level attempt count and
+    /// stop state as answered), and releases the lock; the purge refuses
+    /// `uninstall_inventory_changed`, deleting nothing.
+    #[test]
+    fn recheck3_retry_allowance_rejects_new_remote_obligation() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| {
+                seed_remote(tx)?;
+                tx.set_remote_revocation(&after_retry())
+            })
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let mut confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        // The confirmation's read predates the retry: the record before it.
+        replacement_writes(&state, |tx| tx.set_remote_revocation(&remote_revocation()));
+        confirmed.snapshot = Inventory::read(&db_of(&state))
+            .unwrap_or_else(|e| panic!("{e}"))
+            .snapshot;
+        replacement_writes(&state, |tx| {
+            let mut r = after_retry();
+            r.obligations.push(obligation("fake-b"));
+            r.claim_seq = Some(3);
+            tx.set_remote_revocation(&r)
+        });
+        let own = OwnChanges {
+            retirements: Vec::new(),
+            retries: vec![retried_once()],
+        };
+        let end = block_on(purge_after_stop(
+            true,
+            true,
+            (&state, &run_of(&state), state.parent()),
+            (&confirmed, &own),
+            &plain_purge(),
+            Duration::from_millis(300),
+            || panic!("the purge reached its deletion over a new remote obligation"),
+        ));
+        let PurgeEnd::Changed(now) = end else {
+            panic!("a new remote obligation was purged");
+        };
+        let out = inventory_changed(None, &now, EffectStatus::Partial);
+        assert_eq!(
+            out.env.data["error"]["reason"],
+            reason::UNINSTALL_INVENTORY_CHANGED
+        );
+        assert!(db_of(&state).exists(), "nothing was deleted");
     }
 
     /// `uninstall_purge_refuses_remote_revocation_added_in_window` (ADR-0008 §17.32 item
@@ -5194,6 +5368,10 @@ mod tests {
             bdir.join(GENERATION_FILE),
             slot.key_pub.clone(),
             slot.cert_pub.clone(),
+            // ⟨§17.33 item 5⟩ `finish_slot`'s path: the slot's stable mux path, which
+            // `clear_slot_path` clears.
+            heimdall_localenv::projection::content::managed_mux_path(&run, &dest)
+                .unwrap_or_else(|e| panic!("{e:?}")),
         ];
         for p in &paths {
             std::fs::create_dir_all(p.parent().unwrap_or(&run)).unwrap_or_else(|e| panic!("{e}"));
@@ -5228,5 +5406,227 @@ mod tests {
         assert!(matches!(end, PurgeEnd::Purged(Err(_))), "refused");
         assert!(elsewhere.join("keep").exists(), "the link was not followed");
         assert!(db_of(&state).exists(), "nothing else was deleted");
+    }
+
+    // --- ADR-0008 §17.33 items 4-5 (W5-E04, W5-E06): the anchored sweep ---------------
+
+    /// A directory outside the purge's roots holding `b/marker` (what a replaced root or
+    /// a nested link would point at).
+    #[cfg(unix)]
+    fn outside(d: &Path) -> PathBuf {
+        let o = d.join("outside");
+        std::fs::create_dir_all(o.join("b")).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::create_dir_all(o.join("managed")).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(o.join("b").join("marker"), b"keep").unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(o.join("managed").join("marker"), b"keep").unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(o.join(heimdall_runtime::service::STATE_DB_FILE), b"keep")
+            .unwrap_or_else(|e| panic!("{e}"));
+        o
+    }
+
+    /// `recheck3_purge_never_follows_runtime_root_replacement` (the third re-check's
+    /// probe, W5-E04; ADR-0008 §17.33 item 4): at the point between the final read and
+    /// the deletion, the runtime directory is replaced by a link to a directory outside
+    /// the roots; the purge refuses, deleting nothing (the state database stays) and
+    /// touching nothing outside.
+    #[cfg(unix)]
+    #[test]
+    fn recheck3_purge_never_follows_runtime_root_replacement() {
+        let (d, state, confirmed) = state_dir();
+        let run = run_of(&state);
+        let o = outside(d.path());
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            std::fs::rename(&run, d.path().join("run.old")).unwrap_or_else(|e| panic!("{e}"));
+            std::os::unix::fs::symlink(&o, &run).unwrap_or_else(|e| panic!("{e}"));
+        });
+        assert!(matches!(end, PurgeEnd::Purged(Err(_))), "refused");
+        assert!(
+            o.join("b").join("marker").exists(),
+            "nothing outside is touched"
+        );
+        assert!(db_of(&state).exists(), "nothing was deleted");
+    }
+
+    /// ⟨Converge⟩ `uninstall_purge_never_follows_state_root_replacement`: the state
+    /// directory replaced by a link at the same point; its database, snapshots and slots
+    /// are reached only through the anchored root, so the purge refuses and the outside
+    /// directory (with a file named as the database) is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn uninstall_purge_never_follows_state_root_replacement() {
+        let (d, state, confirmed) = state_dir();
+        let o = outside(d.path());
+        let moved = d.path().join("state.old");
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            std::fs::rename(&state, &moved).unwrap_or_else(|e| panic!("{e}"));
+            std::os::unix::fs::symlink(&o, &state).unwrap_or_else(|e| panic!("{e}"));
+        });
+        assert!(matches!(end, PurgeEnd::Purged(Err(_))), "refused");
+        assert!(o.join(heimdall_runtime::service::STATE_DB_FILE).exists());
+        assert!(o.join("managed").join("marker").exists());
+        assert!(db_of(&moved).exists(), "the real database was not deleted");
+    }
+
+    /// `recheck3_purge_does_not_follow_nested_links` (the nested-link case, ADR-0008
+    /// §17.33 item 4): a binding directory that is a link to a directory outside the
+    /// roots refuses the purge in its first pass: nothing is deleted, inside or outside.
+    #[cfg(unix)]
+    #[test]
+    fn recheck3_purge_does_not_follow_nested_links() {
+        let (d, state, confirmed) = state_dir();
+        let run = run_of(&state);
+        let o = outside(d.path());
+        std::fs::create_dir(run.join("b")).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(run.join("b").join("inside"), b"x").unwrap_or_else(|e| panic!("{e}"));
+        std::os::unix::fs::symlink(o.join("b"), run.join("b").join("0123456789abcdef"))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        assert!(matches!(end, PurgeEnd::Purged(Err(_))), "refused");
+        assert!(
+            o.join("b").join("marker").exists(),
+            "nothing outside is touched"
+        );
+        assert!(
+            run.join("b").join("inside").exists(),
+            "nothing inside was deleted"
+        );
+        assert!(db_of(&state).exists());
+    }
+
+    /// `recheck3_purge_removes_cleanup_mux_path` (the third re-check's probe, W5-E06;
+    /// ADR-0008 §17.33 item 5): a stale socket at the slot's stable mux path
+    /// (`managed_mux_path`, which `finish_slot` clears), left with its cleanup record,
+    /// is gone after the purge.
+    #[cfg(unix)]
+    #[test]
+    fn recheck3_purge_removes_cleanup_mux_path() {
+        let (_d, state, confirmed) = state_dir();
+        let run = run_of(&state);
+        let dest = heimdall_contract::ids::DestinationId::parse("dst-lab1")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let mux = heimdall_localenv::projection::content::managed_mux_path(&run, &dest)
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        std::fs::create_dir_all(mux.parent().unwrap_or(&run)).unwrap_or_else(|e| panic!("{e}"));
+        drop(std::os::unix::net::UnixListener::bind(&mux).unwrap_or_else(|e| panic!("{e}")));
+        assert!(
+            std::fs::symlink_metadata(&mux).is_ok(),
+            "the stale socket exists"
+        );
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        assert!(matches!(end, PurgeEnd::Purged(Ok(()))), "the purge ran");
+        assert!(
+            std::fs::symlink_metadata(&mux).is_err(),
+            "the mux path was cleared"
+        );
+    }
+
+    /// ⟨§17.33 item 4⟩ A runtime root that is not owner-only refuses the purge before
+    /// anything is deleted.
+    #[cfg(unix)]
+    #[test]
+    fn uninstall_purge_refuses_a_shared_runtime_root() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (_d, state, confirmed) = state_dir();
+        let run = run_of(&state);
+        std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o770))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        assert!(refused_whole(&end), "refused");
+        assert!(db_of(&state).exists());
+    }
+
+    // --- ADR-0008 §17.33 items 10-11 (audit B3, B4, B6) ---------------------------------
+
+    /// Refused with nothing deleted: before the lock (the anchoring) or by the sweep.
+    #[cfg(unix)]
+    fn refused_whole(end: &PurgeEnd) -> bool {
+        matches!(end, PurgeEnd::Unavailable(_) | PurgeEnd::Purged(Err(_)))
+    }
+
+    /// `uninstall_purge_refuses_a_replaced_common_parent` (ADR-0008 §17.33 item 10,
+    /// after the audit's `rvprobe_purge_follows_a_replaced_ancestor`): at the point
+    /// between the final read and the deletion, the directory holding both `<state>` and
+    /// `<run>` is replaced by a link to another directory with its own `state.db`,
+    /// `backups/` and `run/b`; the purge refuses and deletes nothing, there or here.
+    #[cfg(unix)]
+    #[test]
+    fn uninstall_purge_refuses_a_replaced_common_parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (d, state, confirmed) = state_dir();
+        let root = d.path().to_path_buf();
+        let moved = root.with_extension("moved");
+        let other = root.with_extension("other");
+        for p in [
+            other.join("state").join("backups"),
+            other.join("run").join("b"),
+        ] {
+            std::fs::create_dir_all(&p).unwrap_or_else(|e| panic!("{e}"));
+            std::fs::write(p.join("keep"), b"x").unwrap_or_else(|e| panic!("{e}"));
+        }
+        std::fs::write(other.join("state").join("state.db"), b"other")
+            .unwrap_or_else(|e| panic!("{e}"));
+        for p in [&other, &other.join("state"), &other.join("run")] {
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o700))
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            std::fs::rename(&root, &moved).unwrap_or_else(|e| panic!("{e}"));
+            std::os::unix::fs::symlink(&other, &root).unwrap_or_else(|e| panic!("{e}"));
+        });
+        let kept = [
+            other.join("state").join("state.db"),
+            other.join("state").join("backups").join("keep"),
+            other.join("run").join("b").join("keep"),
+        ];
+        let ours = moved
+            .join("state")
+            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let (outside_kept, ours_kept) = (kept.iter().all(|p| p.exists()), ours.exists());
+        // Put the scratch directory back for its own cleanup.
+        std::fs::remove_file(&root).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::rename(&moved, &root).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::remove_dir_all(&other).unwrap_or_else(|e| panic!("{e}"));
+        assert!(refused_whole(&end), "refused");
+        assert!(outside_kept, "nothing in the other directory was deleted");
+        assert!(ours_kept, "nothing of ours was deleted");
+    }
+
+    /// `uninstall_purge_refuses_a_swapped_owner_only_state` (ADR-0008 §17.33 item 10, after
+    /// the audit's `rvprobe_purge_accepts_a_real_directory_root_swap`): `<state>` swapped
+    /// for another real, owner-only directory with its own database between the final
+    /// read and the deletion refuses: the anchored identity no longer matches the path,
+    /// and nothing is deleted in either directory.
+    #[cfg(unix)]
+    #[test]
+    fn uninstall_purge_refuses_a_swapped_owner_only_state() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (d, state, confirmed) = state_dir();
+        let moved = d.path().join("state.moved");
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            std::fs::rename(&state, &moved).unwrap_or_else(|e| panic!("{e}"));
+            std::fs::create_dir(&state).unwrap_or_else(|e| panic!("{e}"));
+            std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700))
+                .unwrap_or_else(|e| panic!("{e}"));
+            std::fs::write(db_of(&state), b"another").unwrap_or_else(|e| panic!("{e}"));
+        });
+        assert!(refused_whole(&end), "refused");
+        assert!(
+            db_of(&state).exists(),
+            "the swapped-in directory was not touched"
+        );
+        assert!(db_of(&moved).exists(), "the real database was not deleted");
+        assert!(moved.join("backups").exists());
+    }
+
+    /// `uninstall_report_names_the_swept_roots` (ADR-0008 §17.33 item 11, audit B6): the
+    /// report says which `<state>` and `<run>` the purge swept, in the JSON
+    /// (`purge_roots`) and the human text.
+    #[test]
+    fn uninstall_report_names_the_swept_roots() {
+        let mut out = report(true, true, true, None, Vec::new(), Vec::new());
+        with_swept(&mut out, Path::new("/x/state"), Path::new("/x/run"));
+        assert_eq!(out.env.data["purge_roots"]["state_dir"], "/x/state");
+        assert_eq!(out.env.data["purge_roots"]["runtime_dir"], "/x/run");
+        assert!(out.human.contains("runtime /x/run"), "{}", out.human);
     }
 }

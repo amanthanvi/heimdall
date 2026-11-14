@@ -463,6 +463,40 @@ pub fn enroll_hooks(
     enroll_hooks_in(AVAILABLE, env)
 }
 
+/// ⟨ADR-0008 §17.33 item 14⟩ Absolute directory from which `uninstall --purge-state`'s
+/// secure-path check starts instead of `/` (Linux test hosts keep scratch directories
+/// under the sticky `/tmp`, which the rule refuses). Debug builds only; the purge accepts
+/// it only when it is this user's owner-only directory and a strict ancestor of both
+/// purge roots, and still checks every component below it by the full rule.
+pub const PURGE_TRUSTED_TOP_ENV: &str = "HEIMDALL_TEST_PURGE_TRUSTED_TOP";
+
+/// ⟨ADR-0008 §17.33 item 14⟩ The purge's trusted top from `env`, for a build that can
+/// (`available`) or cannot honour the test configuration.
+///
+/// # Errors
+/// A refusal (a build without the test configuration) or a value that is not absolute.
+pub fn purge_trusted_top_in(
+    available: bool,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let top = env(PURGE_TRUSTED_TOP_ENV);
+    if let Some(msg) = refusal(available, top.is_some()) {
+        return Err(msg.to_owned());
+    }
+    top.map(|v| absolute_path(PURGE_TRUSTED_TOP_ENV, v))
+        .transpose()
+}
+
+/// ⟨ADR-0008 §17.33 item 14⟩ [`purge_trusted_top_in`] for this build.
+///
+/// # Errors
+/// As [`purge_trusted_top_in`].
+pub fn purge_trusted_top(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<std::path::PathBuf>, String> {
+    purge_trusted_top_in(AVAILABLE, env)
+}
+
 /// File (in the state directory) that records one line per `service run` start.
 #[cfg(debug_assertions)]
 pub const STARTS_FILE: &str = "test-service-starts";
@@ -1176,6 +1210,26 @@ mod tests {
         // Nothing set: a release build is fine.
         assert_eq!(m03_config_in(false, &|_| None), Ok(M03Config::default()));
         assert_eq!(enroll_hooks_in(false, &|_| None), Ok(None));
+    }
+
+    /// `purge_trusted_top_is_refused_in_a_release_build` (ADR-0008 §17.33 item 14): a
+    /// build without the test configuration refuses `HEIMDALL_TEST_PURGE_TRUSTED_TOP`;
+    /// a debug build takes an absolute value and refuses a relative one.
+    #[test]
+    fn purge_trusted_top_is_refused_in_a_release_build() {
+        let top = |v: &'static str| {
+            move |n: &str| (n == PURGE_TRUSTED_TOP_ENV).then(|| std::ffi::OsString::from(v))
+        };
+        assert_eq!(
+            purge_trusted_top_in(false, &top("/abs")).err().as_deref(),
+            refusal(false, true)
+        );
+        assert_eq!(purge_trusted_top_in(false, &|_| None), Ok(None));
+        assert_eq!(
+            purge_trusted_top_in(true, &top("/abs")),
+            Ok(Some(std::path::PathBuf::from("/abs")))
+        );
+        assert!(purge_trusted_top_in(true, &top("rel")).is_err());
     }
 
     #[test]

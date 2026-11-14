@@ -265,8 +265,12 @@ mod uninstall_fence_m03;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use uninstall_fence_m03::{
-    ACQUIRE_WAIT as UNINSTALL_FENCE_ACQUIRE_WAIT, FenceAcquired, FenceAdmission, as_fence_holder,
-    fenced as uninstall_fenced, uninstall_in_progress, unresolved_remote_steps,
+    ACQUIRE_WAIT as UNINSTALL_FENCE_ACQUIRE_WAIT, FenceAcquired, FenceAdmission, FenceLease,
+    RELEASE_STUCK_NEXT_COMMAND as UNINSTALL_FENCE_RELEASE_STUCK_NEXT_COMMAND,
+    RELEASE_STUCK_NEXT_STEP as UNINSTALL_FENCE_RELEASE_STUCK_NEXT_STEP,
+    RELEASE_WAIT as UNINSTALL_FENCE_RELEASE_WAIT, fenced as uninstall_fenced,
+    uninstall_fence_release_stuck, uninstall_in_progress, unresolved_remote_steps,
+    with_fence_lease,
 };
 // ⟨§17.31 item 2⟩ The deterministic reservation pause (debug builds only).
 #[cfg(debug_assertions)]
@@ -5595,7 +5599,9 @@ impl Operations {
     }
 
     /// Run `f` in one store transaction on the blocking pool; announce the events
-    /// it appended after the commit and wake bounded waiters.
+    /// it appended after the commit and wake bounded waiters. ⟨§17.33 item 1⟩ From
+    /// holder work, refused (`uninstall_in_progress`, nothing written) when its lease no
+    /// longer stands.
     async fn write<R, F>(&self, f: F) -> Result<R, OpError>
     where
         R: Send + 'static,
@@ -5624,12 +5630,23 @@ impl Operations {
         let publisher = self.inner.publisher.clone();
         let gates = self.inner.signing_gates.clone();
         let extension = self.inner.uninstall_fence.write_extension();
+        // ⟨ADR-0008 §17.33 item 1⟩ Holder work's commit re-checks its lease in the
+        // closure, before the transaction begins (fence lock before the store's, as an
+        // admission); the carried lease counts as holder work until the transaction has
+        // ended, so the fence cannot be released or reacquired in between.
+        let lease = uninstall_fence_m03::current_lease();
         #[cfg(debug_assertions)]
         let pause = admission
             .as_ref()
             .and_then(|_| self.inner.uninstall_fence.take_write_pause());
         let joined = tokio::task::spawn_blocking(move || {
             let admitted = (admission, extension);
+            if let Some(l) = &lease
+                && !l.valid()
+            {
+                drop(admitted);
+                return Err(LeaseLost);
+            }
             #[cfg(debug_assertions)]
             if let Some(p) = pause {
                 p.block();
@@ -5645,10 +5662,12 @@ impl Operations {
                 Ok((r, emit.events))
             });
             drop(admitted);
-            r
+            drop(lease);
+            Ok(r)
         })
         .await
-        .map_err(join_error)?;
+        .map_err(join_error)?
+        .map_err(|LeaseLost| self.inner.uninstall_fence.refusal())?;
         let (r, events) = joined?;
         for e in events {
             self.inner.publisher.announce(e);
@@ -5893,7 +5912,8 @@ impl Operations {
     ) -> Option<Result<(), OpError>> {
         let me = self.clone();
         let id = id.clone();
-        let task = tokio::spawn(async move { me.lead(&id, interactive).await });
+        let task =
+            uninstall_fence_m03::spawn_with_lease(async move { me.lead(&id, interactive).await });
         let wait = wait?;
         match tokio::time::timeout(wait, task).await {
             Ok(Ok(r)) => Some(r),
@@ -5919,7 +5939,9 @@ impl Operations {
                 let me = self.clone();
                 let id = id.clone();
                 let interactive = *interactive;
-                tokio::spawn(async move { me.lead(&id, interactive).await })
+                uninstall_fence_m03::spawn_with_lease(
+                    async move { me.lead(&id, interactive).await },
+                )
             })
             .collect();
         let deadline = tokio::time::Instant::now() + wait;
@@ -10725,9 +10747,17 @@ impl Operations {
         let interrupted = Arc::clone(&self.inner.interrupted_rounds);
         let claimed = self
             .write(move |tx, _| {
-                let claimed = claim_retry_round_in(tx, &r, &configured, now, max_attempts)?;
+                let mut claimed = claim_retry_round_in(tx, &r, &configured, now, max_attempts)?;
                 if matches!(claimed, RetryClaim::Claimed(..)) {
                     forget_interrupted(&interrupted, &r);
+                }
+                // ⟨ADR-0008 §17.33 item 3 (audit B1)⟩ A round that claims nothing answers
+                // the record exactly as this transaction leaves it stored, so its answer is
+                // byte for byte what the round committed (never a later re-read).
+                if let RetryClaim::Unchanged(_) = &claimed
+                    && let Some(stored) = tx.remote_revocation(&r)?
+                {
+                    claimed = RetryClaim::Unchanged(stored);
                 }
                 Ok(claimed)
             })
@@ -11826,7 +11856,7 @@ impl Operations {
             // ⟨§17.28 item 1; round-10 audit A1⟩ Publishing (and re-reserving) is CA
             // work: not under another connection's fence. Refused, nothing written;
             // the entry stays reserved and counted until its `valid_before`.
-            return Err(uninstall_fence_m03::uninstall_in_progress());
+            return Err(self.inner.uninstall_fence.refusal());
         };
         let fresh_id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
@@ -11963,6 +11993,10 @@ impl Operations {
         }
     }
 }
+
+/// ⟨ADR-0008 §17.33 item 1⟩ A holder-work commit whose lease no longer stood: nothing
+/// was written.
+struct LeaseLost;
 
 /// Time evidence for an issuance step, assessed by the gate inside the step's own
 /// transaction (code review A01): the accepted observation when `Safe`, the
@@ -12724,7 +12758,8 @@ impl Operations {
     ) -> Option<Result<(), OpError>> {
         let me = self.clone();
         let id = id.clone();
-        let task = tokio::spawn(async move { me.local_lead(&id, driver).await });
+        let task =
+            uninstall_fence_m03::spawn_with_lease(async move { me.local_lead(&id, driver).await });
         match tokio::time::timeout(wait, task).await {
             Ok(Ok(r)) => Some(r),
             Ok(Err(e)) => Some(Err(join_error(e))),

@@ -141,3 +141,18 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r10-worklog-G8.md` | G8: every reservation route and the publication re-reserve fenced (D02), admissions owned by their writes (D03), the managed pipeline admission (A1), A7 recorded safe |
 | `m03-wave5-r10-worklog-L5.md` | L5: single-flight verification (D04), the duplicate removal finalization, the cancelled-leader window and the result compare-and-swap (A8) |
 | `m03-wave5-r10-worklog-K4.md` | K4: the issuer supervision pass under the fence (A6), the gated child restart and the stuck `Loading`/`starting` states (L1) |
+
+## Round 11 (base `06990cc8`; implements ADR-0008 §17.33 items 1–5 and 7–14, the third re-check findings W5-E01..E06, and an independent audit's B1–B6)
+
+These were moved here from the worktree root at the end of round 11. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r11-brief.md` | The common round-11 brief, with the converge and item-6 residual rules |
+| `m03-wave5-r11-api.md` | Ownership, the worker sections and requests |
+| `m03-wave5-r11-questions.md` | Q-P8-R11-1 (`RESIDUALS`), the `<state>` candidate, Q-G8-R11-1 (the stuck release), audit B1–B6, the ancestor rule, Q-P8-R11-2 (Windows owners), the Linux test chain: all ANSWERED (§17.33 items 7–14) |
+| `m03-wave5-r11-worklog-I.md` | The integrator's worklog: the audit's findings, the rulings, validation |
+| `m03-wave5-r11-worklog-G8.md` | G8: the holder lease (E03, E05), the stuck-release reason and residual |
+| `m03-wave5-r11-worklog-K4.md` | K4: ending indeterminate issuer requests on the exact child (E02) |
+| `m03-wave5-r11-worklog-P8.md` | P8: the exact retry allowance (E01, B1), the anchored sweep and its secure-path rule (E04, B3, B4, items 12–14), mux paths (E06), `RESIDUALS` |

@@ -94,7 +94,10 @@ impl Operations {
                     let ops = self.clone();
                     let key = id.clone();
                     let extension = self.inner.uninstall_fence.write_extension();
-                    let leader = tokio::spawn(async move {
+                    // ⟨ADR-0008 §17.33 item 1 (W5-E03)⟩ The leader carries the
+                    // caller's holder lease, if it runs under one (the holder's own
+                    // verification); other callers' leaders carry none.
+                    let leader = super::super::uninstall_fence_m03::spawn_with_lease(async move {
                         let r = ops.verify_once(&key).await;
                         let _ = tx.send(Some(r.clone()));
                         ops.inner.flights.finish(&key);

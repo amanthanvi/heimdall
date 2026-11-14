@@ -1707,9 +1707,15 @@ async fn restart_backoff_bounded_and_jittered() {
 /// afterwards starts nothing, and only an explicit `start()` begins a new lifecycle.
 /// The child is this test binary run with a filter that matches no test, so it exits
 /// at once without speaking the protocol (a crash at `hello`); spawns are counted
-/// through the start-token callback, which the client calls once per spawned child.
+/// through the start-token callback, by distinct PID.
 #[tokio::test(start_paused = true)]
 async fn stop_during_restart_backoff_spawns_no_child_and_reloads_no_ca() {
+    struct SpawnCount(Arc<Mutex<BTreeSet<u32>>>);
+    impl SpawnCount {
+        fn load(&self, _: std::sync::atomic::Ordering) -> usize {
+            self.0.lock().unwrap().len()
+        }
+    }
     struct Recording(Mutex<Vec<Duration>>);
     impl Jitter for Recording {
         fn delay(&self, ceiling: Duration) -> Duration {
@@ -1717,8 +1723,11 @@ async fn stop_during_restart_backoff_spawns_no_child_and_reloads_no_ca() {
             ceiling
         }
     }
-    let spawns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counted = Arc::clone(&spawns);
+    // Spawns counted by distinct PID (the exact-child check reads the start token again
+    // before a signal, §17.33 item 2).
+    let pids = Arc::new(Mutex::new(BTreeSet::new()));
+    let counted = Arc::clone(&pids);
+    let spawns = SpawnCount(Arc::clone(&pids));
     let jitter = Arc::new(Recording(Mutex::new(Vec::new())));
     let mut config = ClientConfig::new(
         ChildCommand {
@@ -1734,8 +1743,8 @@ async fn stop_during_restart_backoff_spawns_no_child_and_reloads_no_ca() {
             .collect(),
             env: Vec::new(),
         },
-        Arc::new(move |_| {
-            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Arc::new(move |pid| {
+            counted.lock().unwrap().insert(pid);
             None
         }),
     );
@@ -1942,8 +1951,26 @@ mod process {
             _ = issuer.sign(grant_ref(&late), &k.openssh_line) => panic!("not dropped in time"),
             () = std::future::ready(()) => {}
         }
-        // The next request drains the late reply (zeroized, matched to nothing) and
-        // gets its own certificate, for its own entry.
+        // ⟨ADR-0008 §17.33 item 2⟩ The dropped sign was indeterminate: its exact child is
+        // ended (its exit confirmed) and the client is `crashed`; its late reply reaches
+        // no one. The next request is refused at once and restarts the child.
+        let old = issuer.identity();
+        assert_eq!(issuer.state(), IssuerState::Crashed);
+        assert!(old.is_none(), "the ended child's identity is cleared");
+        assert!(
+            issuer
+                .sign(grant_ref(&next), &k.openssh_line)
+                .await
+                .is_err()
+        );
+        for _ in 0..100 {
+            if issuer.state() == IssuerState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert_eq!(issuer.state(), IssuerState::Ready);
+        // The new child signs the next entry: its own certificate, for its own entry.
         let cert = issuer
             .sign(grant_ref(&next), &k.openssh_line)
             .await
@@ -1951,9 +1978,8 @@ mod process {
         let cert = ssh_key::Certificate::from_openssh(&cert).unwrap();
         assert_eq!(cert.serial(), next.bounds.serial);
         validate_installed(&cert, &next.bounds, &k.fingerprint, &w.ca).unwrap();
-        // The child did sign the late one: two signatures, one certificate returned.
         let (_, signed, _) = issuer.child_status().await.unwrap();
-        assert_eq!(signed, 2);
+        assert_eq!(signed, 1, "the new child signed only the next one");
         // Nothing was published: both entries are still `reserved` and counted.
         assert_eq!(w.entry(&late.id).state, IssuanceState::Reserved);
         assert_eq!(w.entry(&next.id).state, IssuanceState::Reserved);
@@ -2074,9 +2100,10 @@ mod process {
         issuer.stop().await;
     }
 
-    /// ⟨round 10 L1, the liveness aside⟩ A `load` cancelled after its frame was written
-    /// (`issuer unlock`'s future dropped by its bound) leaves no stuck `loading`: the next
-    /// demand retries the load, and the issuer is `ready` again without an explicit unlock.
+    /// ⟨round 10 L1, the liveness aside; §17.33 item 2⟩ A `load` cancelled after its frame
+    /// was written (`issuer unlock`'s future dropped by its bound) leaves no stuck
+    /// `loading`: its child is ended (`crashed`), the next demand restarts and loads, and
+    /// the issuer is `ready` again without an explicit unlock.
     #[tokio::test]
     async fn cancelled_load_recovers_without_an_explicit_unlock() {
         let w = World::new().await;
@@ -2092,7 +2119,8 @@ mod process {
             _ = issuer.reload() => panic!("not dropped in time"),
             () = std::future::ready(()) => {}
         }
-        assert_eq!(issuer.state(), IssuerState::Loading, "cancelled mid-load");
+        // ⟨§17.33 item 2⟩ The cancelled load was delivered: its exact child was ended.
+        assert_eq!(issuer.state(), IssuerState::Crashed, "cancelled mid-load");
         // A demand: refused at once, and it kicks the retry.
         assert!(
             issuer

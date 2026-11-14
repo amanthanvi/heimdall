@@ -61,6 +61,8 @@ const SCRATCH_STORE_DIR: &str = "scratch-secret-store";
 
 struct Running {
     store: Arc<Store>,
+    /// The runtime's operations (its uninstall fence included).
+    ops: heimdall_app::Operations,
     token: tokio_util::sync::CancellationToken,
     thread: std::thread::JoinHandle<()>,
     issuer: Option<heimdall_issuer::client::ChildIssuer>,
@@ -261,13 +263,18 @@ impl Rig {
                 )
                 .await
                 .unwrap();
-                let _ = tx.send((Arc::clone(service.store()), service.issuer()));
+                let _ = tx.send((
+                    Arc::clone(service.store()),
+                    service.issuer(),
+                    service.operations().clone(),
+                ));
                 let _ = service.run().await;
             });
         });
-        let (store, issuer) = rx.recv().expect("the service started");
+        let (store, issuer, ops) = rx.recv().expect("the service started");
         self.service = Some(Running {
             store,
+            ops,
             token,
             thread,
             issuer,
@@ -2727,6 +2734,266 @@ fn recheck_retire_after_new_item_restore_deletes_only_current_generation() {
     );
 }
 
+/// ⟨ADR-0008 §17.33 item 2 (W5-E02)⟩ The real `internal issuer` child of `rig`'s program,
+/// on a client wired exactly as the runtime wires its own
+/// (`heimdall_runtime::service::issuer_client_config`: the rig runtime's load gate, request
+/// hold and exact-child check), started (`ready`, the seeded CA loaded).
+#[cfg(unix)]
+async fn real_issuer(rig: &Rig) -> heimdall_issuer::client::ChildIssuer {
+    real_issuer_with(rig, |_| {}).await
+}
+
+/// [`real_issuer`] with the runtime's configuration adjusted by `adjust` first.
+#[cfg(unix)]
+async fn real_issuer_with(
+    rig: &Rig,
+    adjust: impl FnOnce(&mut heimdall_issuer::client::ClientConfig),
+) -> heimdall_issuer::client::ChildIssuer {
+    let ops = rig.service.as_ref().unwrap().ops.clone();
+    let command = heimdall_issuer::client::ChildCommand {
+        program: rig.program.clone(),
+        args: vec!["internal".into(), "issuer".into()],
+        env: vec![
+            ("HEIMDALL_HOME".into(), rig.home.clone().into()),
+            (
+                "HEIMDALL_TEST_SECRET_STORE".into(),
+                rig.store_value().into(),
+            ),
+        ],
+    };
+    let mut config = heimdall_runtime::service::issuer_client_config(
+        command,
+        Arc::new(heimdall_runtime::platform::process_start_time),
+        &ops,
+    );
+    adjust(&mut config);
+    let issuer = heimdall_issuer::client::ChildIssuer::new(config);
+    issuer.start().await.unwrap();
+    assert_eq!(
+        issuer.state(),
+        heimdall_contract::issuer::IssuerState::Ready
+    );
+    assert_eq!(issuer.loaded_cas().len(), 1, "the seeded CA is loaded");
+    issuer
+}
+
+/// Whether `pid` is a live process (`ps`; a zombie or a gone process reads as not).
+#[cfg(unix)]
+fn running(pid: u32) -> bool {
+    let out = Command::new("/bin/ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stat = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    !stat.is_empty() && !stat.starts_with('Z')
+}
+
+/// `kill -<signal> <pid>` for the exact child this test started (its PID from the client).
+#[cfg(unix)]
+fn signal_pid(signal: &str, pid: u32) {
+    let ok = Command::new("/bin/kill")
+        .args([signal, &pid.to_string()])
+        .stdin(Stdio::null())
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "kill {signal} {pid}");
+}
+
+/// The fence holder in these tests (no dispatcher hands this out).
+#[cfg(unix)]
+const FENCE_HOLDER: u64 = u64::MAX - 11;
+
+/// ⟨ADR-0008 §17.33 item 2 (W5-E02)⟩ `recheck3_real_issuer_late_sign_cannot_cross_fence`:
+/// with the real child stopped (`SIGSTOP`, the exact PID), a `sign` under an admission
+/// (the managed pipeline's, held by this task) is delivered and its waiter times out.
+/// The child must be ended and its exit confirmed **before** the admission is released:
+/// a fence acquisition that follows completes only once the child is gone, so no late
+/// signature can cross it. Afterwards the client is `crashed`, and under the held fence a
+/// demand restarts nothing.
+#[cfg(unix)]
+#[test]
+fn recheck3_real_issuer_late_sign_cannot_cross_fence() {
+    use heimdall_app::ports::IssuerPort as _;
+    let mut rig = Rig::new();
+    rig.seed_ca();
+    let ops = rig.service.as_ref().unwrap().ops.clone();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let issuer = real_issuer(&rig).await;
+        let pid = issuer.identity().unwrap().pid;
+        signal_pid("-STOP", pid);
+        // The managed pipeline's shape: a task holding its fence admission signs under
+        // an outer bound (`managed::driver::sign`), then drops the admission.
+        let (o, i) = (ops.clone(), issuer.clone());
+        tokio::spawn(async move {
+            let _pipeline = o.uninstall_fence_admit().unwrap();
+            let sign = i.sign(
+                heimdall_issuer::protocol::IssuanceRef {
+                    table: heimdall_issuer::protocol::IssuanceTable::Grant,
+                    id: heimdall_contract::ids::IssuanceId::from_random_bytes([5; 16]),
+                },
+                "ssh-ed25519 AAAA",
+            );
+            let r = tokio::time::timeout(Duration::from_millis(300), sign).await;
+            assert!(r.is_err(), "the waiter timed out: {r:?}");
+        })
+        .await
+        .unwrap();
+        let acquired = ops.uninstall_fence_acquire(FENCE_HOLDER).await;
+        let alive_at_acquire = running(pid);
+        if alive_at_acquire {
+            // Before the fix: the stopped child still owns the delivered request.
+            signal_pid("-CONT", pid);
+            issuer.stop().await;
+        }
+        assert!(acquired.is_ok(), "{acquired:?}");
+        assert!(
+            !alive_at_acquire,
+            "the fence was taken while the child that owns the delivered sign was alive"
+        );
+        assert_eq!(
+            issuer.state(),
+            heimdall_contract::issuer::IssuerState::Crashed
+        );
+        // Under the held fence a demand restarts nothing (no load, no new child).
+        let _ = issuer
+            .sign(
+                heimdall_issuer::protocol::IssuanceRef {
+                    table: heimdall_issuer::protocol::IssuanceTable::Grant,
+                    id: heimdall_contract::ids::IssuanceId::from_random_bytes([6; 16]),
+                },
+                "ssh-ed25519 AAAA",
+            )
+            .await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(
+            issuer.identity().is_none(),
+            "no child started under the fence"
+        );
+        assert!(issuer.loaded_cas().is_empty());
+        assert!(!ops.uninstall_fence_release(FENCE_HOLDER));
+        issuer.stop().await;
+    });
+}
+
+/// ⟨ADR-0008 §17.33 item 2 (W5-E02), the bounded stop⟩ When the exact-child check cannot
+/// verify the child (here its image is unreadable), it is never signalled: it gets only EOF,
+/// and the delivered `sign`'s admission stays held until its exit is observed. A fence
+/// acquisition meanwhile waits out its bound and reports it (`SERVICE_UNAVAILABLE`,
+/// `uninstall_in_progress`, "work being admitted did not settle in time"), nothing taken;
+/// once the child is resumed, finishes and exits at EOF, the hold is released and the next
+/// acquisition succeeds with the child gone.
+#[cfg(unix)]
+#[test]
+fn recheck3_real_issuer_unconfirmed_stop_keeps_the_admission_held() {
+    use heimdall_app::ports::IssuerPort as _;
+    let mut rig = Rig::new();
+    rig.seed_ca();
+    let ops = rig.service.as_ref().unwrap().ops.clone();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let issuer = real_issuer_with(&rig, |c| c.child_image = Some(Arc::new(|_| None))).await;
+        let pid = issuer.identity().unwrap().pid;
+        signal_pid("-STOP", pid);
+        let (o, i) = (ops.clone(), issuer.clone());
+        tokio::spawn(async move {
+            let _pipeline = o.uninstall_fence_admit().unwrap();
+            let sign = i.sign(
+                heimdall_issuer::protocol::IssuanceRef {
+                    table: heimdall_issuer::protocol::IssuanceTable::Grant,
+                    id: heimdall_contract::ids::IssuanceId::from_random_bytes([8; 16]),
+                },
+                "ssh-ed25519 AAAA",
+            );
+            let r = tokio::time::timeout(Duration::from_millis(300), sign).await;
+            assert!(r.is_err(), "the waiter timed out: {r:?}");
+        })
+        .await
+        .unwrap();
+        let refused = ops.uninstall_fence_acquire(FENCE_HOLDER).await;
+        let alive = running(pid);
+        signal_pid("-CONT", pid);
+        let e = refused.expect_err("the held admission keeps the fence from being taken");
+        assert!(alive, "the unverified child was never signalled");
+        assert_eq!(e.reason.as_deref(), Some("uninstall_in_progress"), "{e:?}");
+        assert!(e.message.contains("did not settle"), "{e:?}");
+        // Resumed, the child finishes and exits at EOF: the hold is released.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while running(pid) {
+            assert!(Instant::now() < deadline, "the child exited at EOF");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        ops.uninstall_fence_acquire(FENCE_HOLDER).await.unwrap();
+        assert!(!ops.uninstall_fence_release(FENCE_HOLDER));
+        issuer.stop().await;
+    });
+}
+
+/// ⟨ADR-0008 §17.33 item 2 (W5-E02)⟩ `recheck3_real_issuer_cancelled_load_cannot_cross_fence`:
+/// with the real child stopped, an `issuer unlock`-style reload (the load gate's admission)
+/// delivers `load` and its waiter is cancelled. The child is ended and its exit confirmed
+/// before that admission is released, so a fence acquisition completes only once the child
+/// is gone: no late K_ca load crosses it; the client is `crashed` and loads nothing under
+/// the fence.
+#[cfg(unix)]
+#[test]
+fn recheck3_real_issuer_cancelled_load_cannot_cross_fence() {
+    let mut rig = Rig::new();
+    rig.seed_ca();
+    let ops = rig.service.as_ref().unwrap().ops.clone();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let issuer = real_issuer(&rig).await;
+        let pid = issuer.identity().unwrap().pid;
+        signal_pid("-STOP", pid);
+        let r = tokio::time::timeout(Duration::from_millis(300), issuer.reload()).await;
+        assert!(r.is_err(), "the waiter was cancelled: {r:?}");
+        let acquired = ops.uninstall_fence_acquire(FENCE_HOLDER).await;
+        let alive_at_acquire = running(pid);
+        if alive_at_acquire {
+            signal_pid("-CONT", pid);
+            issuer.stop().await;
+        }
+        assert!(acquired.is_ok(), "{acquired:?}");
+        assert!(
+            !alive_at_acquire,
+            "the fence was taken while the child that owns the delivered load was alive"
+        );
+        assert_eq!(
+            issuer.state(),
+            heimdall_contract::issuer::IssuerState::Crashed
+        );
+        assert!(issuer.loaded_cas().is_empty(), "no CA loaded");
+        let _ = heimdall_app::ports::IssuerPort::sign(
+            &issuer,
+            heimdall_issuer::protocol::IssuanceRef {
+                table: heimdall_issuer::protocol::IssuanceTable::Grant,
+                id: heimdall_contract::ids::IssuanceId::from_random_bytes([7; 16]),
+            },
+            "ssh-ed25519 AAAA",
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(
+            issuer.identity().is_none(),
+            "no child started under the fence"
+        );
+        assert!(!ops.uninstall_fence_release(FENCE_HOLDER));
+        issuer.stop().await;
+    });
+}
+
 /// ⟨M03 wave 5, round 3; the round's `issuer_store_locked` flake⟩
 /// `issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony`, macOS on the
 /// product-file test store: the CLI runs from its own copy of the binary; while it waits at
@@ -2801,4 +3068,74 @@ fn issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony() {
             .unwrap()
             .is_none()
     );
+}
+
+/// ⟨ADR-0008 §17.33 item 11 (audit B2), recorded residual
+/// `issuer_request_hold_absent_for_leader_and_lease_work`⟩
+/// `residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission` (after the audit's
+/// `rvprobe_leader_shaped_sign_unconfirmed_stop_keeps_admission`): a `sign` sent from a
+/// task that holds no admission of its own (the verification leader's shape: the
+/// admission is another task's) to a child that cannot be verified (never signalled)
+/// and stopped. When its waiter times out, nothing extends the admission, so once the
+/// other task drops it a fence acquisition is taken **while the stuck child is still
+/// alive**: the residual. It has no lasting effect: the child never writes the state
+/// database, and the late signature reaches no reader, so no certificate is published
+/// (the database is byte-identical afterwards).
+#[cfg(unix)]
+#[test]
+fn residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission() {
+    use heimdall_app::ports::IssuerPort as _;
+    let mut rig = Rig::new();
+    rig.seed_ca();
+    let ops = rig.service.as_ref().unwrap().ops.clone();
+    let db = rig.state_dir().join("state.db");
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let issuer = real_issuer_with(&rig, |c| c.child_image = Some(Arc::new(|_| None))).await;
+        let pid = issuer.identity().unwrap().pid;
+        signal_pid("-STOP", pid);
+        let before = std::fs::read(&db).unwrap();
+        // The admission is this task's; the sign runs in a task of its own.
+        let admission = ops.uninstall_fence_admit().unwrap();
+        let i = issuer.clone();
+        tokio::spawn(async move {
+            let sign = i.sign(
+                heimdall_issuer::protocol::IssuanceRef {
+                    table: heimdall_issuer::protocol::IssuanceTable::Grant,
+                    id: heimdall_contract::ids::IssuanceId::from_random_bytes([9; 16]),
+                },
+                "ssh-ed25519 AAAA",
+            );
+            let r = tokio::time::timeout(Duration::from_millis(300), sign).await;
+            assert!(r.is_err(), "the waiter timed out: {r:?}");
+        })
+        .await
+        .unwrap();
+        drop(admission);
+        let acquired = ops.uninstall_fence_acquire(FENCE_HOLDER).await;
+        let alive = running(pid);
+        signal_pid("-CONT", pid);
+        assert!(acquired.is_ok(), "{acquired:?}");
+        assert!(
+            alive,
+            "the residual: the stuck child outlived the admission"
+        );
+        // Resumed, it finishes and exits at EOF; nothing lasting follows.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while running(pid) {
+            assert!(Instant::now() < deadline, "the child exited at EOF");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            std::fs::read(&db).unwrap(),
+            before,
+            "no store write and no published certificate followed"
+        );
+        assert!(!ops.uninstall_fence_release(FENCE_HOLDER));
+        issuer.stop().await;
+    });
 }

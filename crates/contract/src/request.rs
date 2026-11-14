@@ -1003,7 +1003,11 @@ pub enum UninstallFenceRequest {
     /// holds the fence; none when nobody does), nothing attempted, unless this
     /// connection holds it. Answer: `OK {"remote_revocations": [{"root_grant",
     /// "outcome": "completed" | "attempted_still_pending" | "not_attempted" |
-    /// "failed", "attempts_before", "attempts_after", "stopped", "pending"}]}`.
+    /// "failed", "attempts_before", "attempts_after", "stopped", "pending", "record"}]}`.
+    /// ⟨§17.33 item 3⟩ `record` is the complete record as stored right after the round
+    /// (the store's `PendingRemoteRevocation` form, its obligations, sequences, re-arm
+    /// history and cap included), `null` once it is gone; uninstall's final check
+    /// admits exactly it.
     RetryRemoteRevocations,
 }
 

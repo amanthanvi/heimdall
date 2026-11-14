@@ -19,6 +19,8 @@ mod launch_flow;
 mod m03_cmd;
 mod output;
 mod prompt;
+// ⟨ADR-0008 §17.33 items 4-5⟩ The purge's anchored deletion.
+mod purge_sweep;
 mod run_cmd;
 mod service_cmd;
 mod setup_cmd;

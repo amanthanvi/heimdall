@@ -160,8 +160,24 @@ fn value_envelope<T: serde::Serialize>(env: Envelope<T>) -> Envelope<serde_json:
 }
 
 fn error_value(e: OpError) -> Envelope<serde_json::Value> {
-    e.into_envelope()
-        .map(|d: ErrorData| serde_json::to_value(d).unwrap_or_default())
+    let stuck = e.reason.as_deref()
+        == Some(heimdall_contract::envelope::reason::UNINSTALL_FENCE_RELEASE_STUCK);
+    let mut env = e
+        .into_envelope()
+        .map(|d: ErrorData| serde_json::to_value(d).unwrap_or_default());
+    // ⟨ADR-0008 §17.33 item 9⟩ A fence stuck releasing names the way out in the error
+    // data too: the command, and the two-step restart.
+    if stuck && let serde_json::Value::Object(map) = &mut env.data {
+        map.insert(
+            "next_command".to_owned(),
+            heimdall_app::operations::UNINSTALL_FENCE_RELEASE_STUCK_NEXT_COMMAND.into(),
+        );
+        map.insert(
+            "next_step".to_owned(),
+            heimdall_app::operations::UNINSTALL_FENCE_RELEASE_STUCK_NEXT_STEP.into(),
+        );
+    }
+    env
 }
 
 /// Render an application result as the wire envelope.
@@ -348,9 +364,12 @@ impl OperationsDispatcher {
         // fenced request from any other connection holds the admission from its check
         // until it has been handled, and is refused while another connection holds the
         // fence or is acquiring it. The application routes check again themselves.
-        let holder = self.operations.uninstall_fence_holder();
-        if holder == Some(self.scope.id) {
-            return heimdall_app::operations::as_fence_holder(self.route(caller, request)).await;
+        // ⟨§17.33 item 1⟩ The holder's request runs under its lease (this connection, the
+        // fence's current generation), which it carries into the work it spawns and
+        // re-checks at each step; a releasing or released fence grants none.
+        if let Some(lease) = self.operations.uninstall_fence_lease(self.scope.id) {
+            return heimdall_app::operations::with_fence_lease(lease, self.route(caller, request))
+                .await;
         }
         if fenced(&request) {
             // ⟨§17.31 item 2⟩ The application's one admission (refused while the fence
@@ -484,17 +503,24 @@ impl OperationsDispatcher {
                     Err(e) => return error_value(e.with_effect(EffectStatus::None)),
                 }
             }
+            // ⟨§17.33 item 1⟩ Waits (bounded) for the holder's in-flight work.
             UninstallFenceRequest::Release => {
-                self.operations.uninstall_fence_release(self.scope.id)
+                match self
+                    .operations
+                    .uninstall_fence_release_waiting(self.scope.id)
+                    .await
+                {
+                    Ok(held) => held,
+                    Err(e) => return error_value(e),
+                }
             }
-            // ⟨ADR-0008 §17.32 item 7⟩ Holder only (the application checks it); the
-            // rounds run in the holder's scope.
+            // ⟨ADR-0008 §17.32 item 7⟩ Holder only: the application takes this
+            // connection's lease and runs each round under it (§17.33 item 1).
             UninstallFenceRequest::RetryRemoteRevocations => {
-                let retried = heimdall_app::operations::as_fence_holder(
-                    self.operations
-                        .uninstall_fence_retry_remote_revocations(self.scope.id),
-                )
-                .await;
+                let retried = self
+                    .operations
+                    .uninstall_fence_retry_remote_revocations(self.scope.id)
+                    .await;
                 return match retried {
                     Ok(r) => value_envelope(Envelope::ok(serde_json::json!({
                         "remote_revocations": r,
@@ -919,6 +945,55 @@ mod tests {
                 request.kind()
             );
         }
+    }
+
+    /// `fence_release_stuck_refusal_names_the_restart` (ADR-0008 §17.33 item 9): while the
+    /// holder's work never ends, its `release` waits out its bound and reports
+    /// `uninstall_fence_release_stuck`; another connection's fenced request then gets that
+    /// reason too, with `data.next_command` `heimdall service stop` and `data.next_step`
+    /// naming the restart. Before the release, the same request gets
+    /// `uninstall_in_progress` with no next command.
+    #[tokio::test(start_paused = true)]
+    async fn fence_release_stuck_refusal_names_the_restart() {
+        let listener = dispatcher().await;
+        let holder = listener.clone();
+        let other = listener.clone();
+        let acquired = holder
+            .handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+            .await;
+        assert_eq!(acquired.data["fence"], "held", "{acquired:?}");
+        let env = other
+            .handle_as(&attended(), example("enrollment.step"))
+            .await;
+        assert_eq!(
+            env.data["error"]["reason"], "uninstall_in_progress",
+            "{env:?}"
+        );
+        assert!(env.data.get("next_command").is_none());
+        let never_ends = holder
+            .operations
+            .uninstall_fence_lease(holder.scope.id)
+            .unwrap();
+        let released = holder
+            .handle_as(&owner(), fence(UninstallFenceRequest::Release))
+            .await;
+        assert_eq!(released.code, Code::ServiceUnavailable, "{released:?}");
+        assert_eq!(
+            released.data["error"]["reason"],
+            "uninstall_fence_release_stuck"
+        );
+        let env = other
+            .handle_as(&attended(), example("enrollment.step"))
+            .await;
+        assert_eq!(env.code, Code::ServiceUnavailable, "{env:?}");
+        assert_eq!(env.data["error"]["reason"], "uninstall_fence_release_stuck");
+        assert_eq!(env.data["next_command"], "heimdall service stop");
+        assert_eq!(
+            env.data["next_step"],
+            "stop the runtime (`heimdall service stop`), then start it again (`heimdall service run --detach`)"
+        );
+        drop(never_ends);
+        assert!(!holder.operations.uninstall_fence_held());
     }
 
     /// Only the owner may take or lift the fence.

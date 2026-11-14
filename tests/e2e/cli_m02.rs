@@ -652,6 +652,13 @@ mod world {
                     self.home.root.clone().into_os_string(),
                 ),
                 ("HEIMDALL_TEST_SSH_HOME".into(), g.clone().into_os_string()),
+                // ⟨ADR-0008 §17.33 item 14⟩ The purge's secure-path check starts at this
+                // owner-only scratch root (a strict ancestor of `state/` and `run/`), so Linux
+                // hosts' sticky `/tmp` above it is not checked; macOS takes the same path.
+                (
+                    "HEIMDALL_TEST_PURGE_TRUSTED_TOP".into(),
+                    self.home.root.clone().into_os_string(),
+                ),
                 ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
                 (
                     "GIT_CONFIG_GLOBAL".into(),

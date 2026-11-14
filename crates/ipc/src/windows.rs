@@ -70,7 +70,7 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
-    SDDL_REVISION_1, SE_KERNEL_OBJECT,
+    SDDL_REVISION_1, SE_FILE_OBJECT, SE_KERNEL_OBJECT, SE_OBJECT_TYPE,
 };
 use windows_sys::Win32::Security::{
     GetTokenInformation, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, RevertToSelf,
@@ -661,6 +661,22 @@ fn handle_file_type(handle: RawHandle) -> u32 {
 /// with `OWNER_SECURITY_INFORMATION` (needs `READ_CONTROL`, which the client's
 /// `GENERIC_READ` open includes), then `ConvertSidToStringSidW`.
 fn handle_owner_sid(handle: RawHandle) -> io::Result<String> {
+    owner_sid_of(handle, SE_KERNEL_OBJECT)
+}
+
+/// ⟨ADR-0008 §17.33 item 13⟩ Owner SID (string form) of the file or directory behind
+/// `file` (opened with read access, which includes `READ_CONTROL`): the uninstall
+/// purge's owner check of each component of its roots' paths. A safe wrapper over the
+/// same `GetSecurityInfo` call as the endpoint owner check, with `SE_FILE_OBJECT`.
+///
+/// # Errors
+/// The security information cannot be read.
+pub fn file_owner_sid(file: &std::fs::File) -> io::Result<String> {
+    owner_sid_of(file.as_raw_handle(), SE_FILE_OBJECT)
+}
+
+/// [`handle_owner_sid`] for an object of `object_type`.
+fn owner_sid_of(handle: RawHandle, object_type: SE_OBJECT_TYPE) -> io::Result<String> {
     let mut owner: PSID = ptr::null_mut();
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
     // SAFETY: the caller's object owns `handle` and keeps it open for the call; the
@@ -669,7 +685,7 @@ fn handle_owner_sid(handle: RawHandle) -> io::Result<String> {
     let rc = unsafe {
         GetSecurityInfo(
             handle as HANDLE,
-            SE_KERNEL_OBJECT,
+            object_type,
             OWNER_SECURITY_INFORMATION,
             &mut owner,
             ptr::null_mut(),

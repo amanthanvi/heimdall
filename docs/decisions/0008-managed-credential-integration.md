@@ -4549,6 +4549,30 @@ No review has run yet. These rulings complete the wave before its reviews.
      - a finding that needs a hostile same-user program, which spec P03 explicitly does not claim to isolate.
 
      Each is recorded as a named residual in ADR-0008 and the claims table, with its probe, and carried to U13.
+7. **Q-P8-R11-1: a `RESIDUALS` list records accepted limits** (`crates/domain/src/claims.rs`; additive).
+   - Each entry names the residual, its platform, the claim it limits, its test or code citation, and its item-6 category.
+   - The claims-table validator refuses an entry that carries a claim's fields, collides with a claim ID, or names a missing test. A residual is never presented as a verified claim.
+8. **Swapping `<state>` before the final read** needs a hostile same-user program (P03). It is recorded in `RESIDUALS`, narrowed by item 10 to what actually remains: a swap away and back that falls entirely between the two identity checks.
+9. **Q-G8-R11-1: a holder step that never ends keeps the fence releasing.**
+   - Fenced requests stay refused until that step ends or the runtime restarts. This fails closed and leaves no lasting effect, so it is recorded in `RESIDUALS`.
+   - Past the 20 s release bound, other requests get an additive reason, `uninstall_fence_release_stuck` (exit 5), with the next step `heimdall service stop` then `heimdall service run --detach`. Read-only commands do not start the runtime on demand, so the step names both commands.
+10. **Precedence between item 6's two buckets: for destructive deletion, a lasting effect on the owner's data wins.** Such a finding is fixed, whoever triggers it (spec §14.3).
+    - **The audit's B3 and B4, fixed:** the sweep opens `<state>` and `<run>` once, without following links, from a trusted ancestor chain.
+    - **One handle throughout:** `service.lock`, the final read, the bundle check and the deletion all go through those handles, with device and inode checked around each step.
+    - **No partial deletion:** an all-roots check pass and a re-verification come before the first unlink. A replaced parent, a swapped root, or a link appearing between the passes refuses with nothing deleted.
+11. **The audit's B2, B5 and B6 are recorded as residuals:**
+    - **B2:** a stuck, unverifiable issuer child can outlive an admission. It has no lasting effect: the child never writes the store and a late signature is never published.
+    - **B5:** it needs a hostile owner program holding the fence.
+    - **B6:** a runtime that ran with another `XDG_RUNTIME_DIR` leaves only local leftovers. The uninstall report names the roots it swept.
+12. **The secure-path rule is OpenSSH's StrictModes rule.**
+    - `<state>` and `<run>` are owner-only and owned by this user.
+    - Each ancestor is owned by this user or by root and is not writable by group or others. A sticky, shared parent refuses. A link is followed only when root owns it, as with macOS `/var`.
+    - Every platform's default layout passes, and a test proves it.
+13. **On Windows, each ancestor's owner must be this user, SYSTEM or Administrators,** and reparse points still refuse. The owner lookup is a safe wrapper (`file_owner_sid`) in `crates/ipc/src/windows.rs`, a module overview §9 already allows `unsafe` in, so no dependency or lock change was needed. Native evidence is carried to U13.
+14. **A debug-only `HEIMDALL_TEST_PURGE_TRUSTED_TOP` gives test scratch homes a passing chain.**
+    - It is read through `testcfg`, refused in release builds, and probed by the release gate.
+    - It must be an owner-only, strict ancestor of the roots, and the full rule still applies below it.
+    - A test still proves the full chain from `/` without the hook.
 
 ## 18. Consequences
 

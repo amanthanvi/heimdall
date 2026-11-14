@@ -26,7 +26,19 @@
 //! across their store write, so a reservation past its check is never overtaken by an
 //! acquisition: the acquisition waits for it, or the reservation is refused.
 //!
-//! The holder's own work runs inside [`as_fence_holder`] and is never refused.
+//! **The holder lease** (⟨§17.33 item 1⟩). The holder's exemption is a [`FenceLease`]:
+//! a value scoped to the holding connection and the fence's **generation** (each
+//! acquisition is a new one), never a flag. The dispatcher takes it for each of the
+//! holder's requests ([`Operations::uninstall_fence_lease`]) and runs the request in
+//! its scope ([`with_fence_lease`]); work spawned on the holder's behalf carries it
+//! explicitly ([`spawn_with_lease`]); work the holder did not start never gains it.
+//! Every exempt step re-checks it: at its start (the admissions), before each retry
+//! round, and before each commit (the write closure, before the transaction, under the
+//! same lock order as an admission). A released or reacquired fence refuses the step
+//! (`uninstall_in_progress`). Every live lease counts as holder work: a release while
+//! some is in flight only marks the fence **releasing** (leases invalid, new work still
+//! refused) and the fence is lifted when the last lease ends; the release request
+//! waits for that, bounded by [`RELEASE_WAIT`], and reports when the bound is hit.
 //!
 //! **Serialization.** `acquire` first marks the fence as being acquired: from then on
 //! new work ([`Operations::uninstall_fence_admit`]) is refused. It then waits (bounded by
@@ -62,6 +74,31 @@ use crate::error::OpError;
 /// How long `acquire` waits for admitted work to end.
 pub const ACQUIRE_WAIT: Duration = Duration::from_secs(20);
 
+/// ⟨§17.33 item 1⟩ How long `release` waits for the holder's in-flight work to end.
+pub const RELEASE_WAIT: Duration = Duration::from_secs(20);
+
+/// ⟨§17.33 item 9⟩ The next command a `uninstall_fence_release_stuck` refusal names.
+pub const RELEASE_STUCK_NEXT_COMMAND: &str = "heimdall service stop";
+
+/// ⟨§17.33 item 9⟩ The next step a `uninstall_fence_release_stuck` refusal names (the
+/// fence is never stored, so a runtime started again has none).
+pub const RELEASE_STUCK_NEXT_STEP: &str = "stop the runtime (`heimdall service stop`), then start it again (`heimdall service run --detach`)";
+
+/// ⟨§17.33 item 9⟩ The refusal while the fence is releasing past [`RELEASE_WAIT`]
+/// (`SERVICE_UNAVAILABLE`, `uninstall_fence_release_stuck`, effect `none`), naming the
+/// way out ([`RELEASE_STUCK_NEXT_STEP`]).
+#[must_use]
+pub fn uninstall_fence_release_stuck() -> OpError {
+    OpError::new(
+        Code::ServiceUnavailable,
+        format!(
+            "an uninstall is releasing its fence, but work it started has not ended within the release's bound, so no enrollment, CA or issuance work is admitted until that work ends; to clear it, {RELEASE_STUCK_NEXT_STEP}"
+        ),
+    )
+    .with_reason(reason::UNINSTALL_FENCE_RELEASE_STUCK)
+    .with_effect(EffectStatus::None)
+}
+
 /// The fence's state (one per runtime, in `Operations`).
 #[derive(Debug, Default)]
 pub(crate) struct UninstallFence {
@@ -86,10 +123,25 @@ pub(crate) struct UninstallFence {
     sign_pause: Mutex<Option<ReservationPause>>,
 }
 
+/// The fence's holder: its connection, the acquisition's generation, and whether a
+/// release is waiting for the holder's in-flight work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Holder {
+    connection: u64,
+    generation: u64,
+    releasing: bool,
+}
+
 #[derive(Debug, Default)]
 struct FenceState {
-    /// The holding connection, if any.
-    holder: Option<u64>,
+    /// The holder, if any (also while it is releasing).
+    holder: Option<Holder>,
+    /// The last generation handed out (each acquisition takes the next).
+    generation: u64,
+    /// ⟨§17.33 item 1⟩ Live holder leases (holder work in flight).
+    holder_work: usize,
+    /// ⟨§17.33 item 9⟩ When the current holder started releasing (its work in flight).
+    release_started: Option<tokio::time::Instant>,
     /// Admissions held now (work past its check that has not ended).
     admitted: usize,
     /// Acquisitions waiting for the admissions to end.
@@ -101,18 +153,130 @@ struct FenceState {
 }
 
 tokio::task_local! {
-    /// Set while the holder's own request is handled ([`as_fence_holder`]).
-    static FENCE_HOLDER: ();
+    /// The lease the current task's work runs under ([`with_fence_lease`]).
+    static FENCE_LEASE: FenceLease;
 }
 
-/// Run `f` as the fence holder's request: the checks in this crate never refuse it.
-/// (Work it spawns runs outside this scope, as any background work.)
-pub async fn as_fence_holder<F: std::future::Future>(f: F) -> F::Output {
-    FENCE_HOLDER.scope((), f).await
+/// ⟨§17.33 item 1⟩ The fence holder's authority for one piece of work: the holding
+/// connection and the fence's generation when it was taken. While it lives it counts
+/// as holder work (a release waits for it); a clone counts too.
+#[derive(Debug)]
+pub struct FenceLease {
+    fence: Arc<UninstallFence>,
+    connection: u64,
+    generation: u64,
 }
 
-fn in_holder_scope() -> bool {
-    FENCE_HOLDER.try_with(|()| ()).is_ok()
+impl FenceLease {
+    /// The connection the lease was granted to.
+    #[must_use]
+    pub fn connection(&self) -> u64 {
+        self.connection
+    }
+
+    /// The fence generation it was granted under.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Whether it still stands: the same connection holds the fence, at the same
+    /// generation, and is not releasing.
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        self.fence.state().holder
+            == Some(Holder {
+                connection: self.connection,
+                generation: self.generation,
+                releasing: false,
+            })
+    }
+
+    /// [`Self::valid`] as a step's check.
+    ///
+    /// # Errors
+    /// `SERVICE_UNAVAILABLE` / `uninstall_in_progress` when the fence was released (or
+    /// is releasing) or reacquired since the lease was granted.
+    pub fn check(&self) -> Result<(), OpError> {
+        if self.valid() {
+            Ok(())
+        } else {
+            Err(self.fence.refusal())
+        }
+    }
+}
+
+impl Clone for FenceLease {
+    fn clone(&self) -> Self {
+        self.fence.state().holder_work += 1;
+        Self {
+            fence: Arc::clone(&self.fence),
+            connection: self.connection,
+            generation: self.generation,
+        }
+    }
+}
+
+impl Drop for FenceLease {
+    fn drop(&mut self) {
+        let lifted = {
+            let mut s = self.fence.state();
+            s.holder_work = s.holder_work.saturating_sub(1);
+            if s.holder_work == 0 && s.holder.is_some_and(|h| h.releasing) {
+                s.holder = None;
+                s.release_started = None;
+                true
+            } else {
+                false
+            }
+        };
+        if lifted {
+            self.fence.changed.notify_waiters();
+        }
+    }
+}
+
+/// Run `f` under `lease` (the holder's request, or work it started).
+pub async fn with_fence_lease<F: std::future::Future>(lease: FenceLease, f: F) -> F::Output {
+    FENCE_LEASE.scope(lease, f).await
+}
+
+/// The current task's lease, cloned (counted), if its work runs under one.
+pub(crate) fn current_lease() -> Option<FenceLease> {
+    FENCE_LEASE.try_with(Clone::clone).ok()
+}
+
+/// ⟨§17.33 item 1⟩ `tokio::spawn` for work started from the current task: if that runs
+/// under a holder lease, the spawned task carries a counted clone of it explicitly (so
+/// the holder's own spawned work keeps its exemption, and a release waits for it);
+/// otherwise it runs with none, as any background work.
+pub(crate) fn spawn_with_lease<F>(f: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    match current_lease() {
+        Some(lease) => tokio::spawn(with_fence_lease(lease, f)),
+        None => tokio::spawn(f),
+    }
+}
+
+/// The exemption of the current task: `None` when it runs under no lease; else
+/// whether its lease still stands.
+fn lease_scope() -> Option<Result<(), OpError>> {
+    FENCE_LEASE.try_with(FenceLease::check).ok()
+}
+
+/// [`UninstallFence::refusal`] on a state already locked.
+fn refusal_of(s: &FenceState) -> OpError {
+    let stuck = s.holder.is_some_and(|h| h.releasing)
+        && s.release_started
+            .is_some_and(|t| t.elapsed() >= RELEASE_WAIT);
+    if stuck {
+        uninstall_fence_release_stuck()
+    } else {
+        uninstall_in_progress()
+    }
 }
 
 /// The refusal of fenced work (`SERVICE_UNAVAILABLE`, `uninstall_in_progress`, effect
@@ -178,7 +342,13 @@ impl UninstallFence {
     }
 
     fn holder(&self) -> Option<u64> {
-        self.state().holder
+        self.state().holder.map(|h| h.connection)
+    }
+
+    /// The fence's refusal now: [`uninstall_fence_release_stuck`] while it is releasing
+    /// past [`RELEASE_WAIT`], else [`uninstall_in_progress`].
+    pub(crate) fn refusal(&self) -> OpError {
+        refusal_of(&self.state())
     }
 
     /// ⟨§17.32 item 3⟩ For a store write started by a task that holds an admission: a
@@ -188,7 +358,8 @@ impl UninstallFence {
     /// queued or running. `None` outside a task, for a task holding none, and in the
     /// holder's scope.
     pub(crate) fn write_extension(self: &Arc<Self>) -> Option<FenceAdmission> {
-        if in_holder_scope() {
+        if lease_scope().is_some() {
+            // The holder's work: its lease (carried into the write) covers it.
             return None;
         }
         let task = tokio::task::try_id()?;
@@ -305,13 +476,14 @@ enum Admit {
 
 impl Operations {
     fn fence_admit(&self, kind: Admit) -> Result<FenceAdmission, OpError> {
-        if in_holder_scope() {
-            return Ok(FenceAdmission::none());
+        if let Some(lease) = lease_scope() {
+            // ⟨§17.33 item 1⟩ The holder's work is exempt only while its lease stands.
+            return lease.map(|()| FenceAdmission::none());
         }
         let fence = &self.inner.uninstall_fence;
         let mut s = fence.state();
         if s.holder.is_some() || (kind == Admit::Work && s.acquiring > 0) {
-            return Err(uninstall_in_progress());
+            return Err(refusal_of(&s));
         }
         s.admitted += 1;
         let task = tokio::task::try_id();
@@ -407,8 +579,8 @@ impl Operations {
     /// # Errors
     /// As [`Self::uninstall_fence_admit`].
     pub(crate) fn fence_admit_pipeline(&self) -> Result<FenceAdmission, OpError> {
-        if in_holder_scope() {
-            return Ok(FenceAdmission::none());
+        if let Some(lease) = lease_scope() {
+            return lease.map(|()| FenceAdmission::none());
         }
         match self.inner.uninstall_fence.write_extension() {
             Some(extension) => Ok(extension),
@@ -548,7 +720,9 @@ impl Operations {
         {
             let mut s = fence.state();
             match s.holder {
-                Some(h) if h != connection => return Err(other_holds()),
+                Some(h) if h.connection != connection || h.releasing => {
+                    return Err(other_holds());
+                }
                 Some(_) => return Ok(FenceAcquired::Held),
                 None => s.acquiring += 1,
             }
@@ -561,10 +735,18 @@ impl Operations {
                 {
                     let mut s = fence.state();
                     match s.holder {
-                        Some(h) if h != connection => return Err(other_holds()),
+                        Some(h) if h.connection != connection || h.releasing => {
+                            return Err(other_holds());
+                        }
                         Some(_) => return Ok(FenceAcquired::Held),
                         None if s.admitted == 0 => {
-                            s.holder = Some(connection);
+                            // ⟨§17.33 item 1⟩ Each acquisition is a new generation.
+                            s.generation += 1;
+                            s.holder = Some(Holder {
+                                connection,
+                                generation: s.generation,
+                                releasing: false,
+                            });
                             drop(s);
                             fence.changed.notify_waiters();
                             return Ok(FenceAcquired::Held);
@@ -586,14 +768,88 @@ impl Operations {
     }
 
     /// `uninstall_fence.release` for `connection`, and the release when that
-    /// connection ends: lifts the fence if `connection` holds it, else does nothing.
-    /// Returns whether the fence is still held (by another connection).
+    /// connection ends: if `connection` holds the fence, lifts it at once when none of
+    /// its holder work is in flight; otherwise marks it **releasing** (every lease
+    /// invalid, new work still refused) and it is lifted when the last lease ends
+    /// (⟨§17.33 item 1⟩). Another connection's release does nothing. Returns whether the
+    /// fence is still held (releasing included).
     pub fn uninstall_fence_release(&self, connection: u64) -> bool {
-        let mut s = self.inner.uninstall_fence.state();
-        if s.holder == Some(connection) {
-            s.holder = None;
+        let fence = &self.inner.uninstall_fence;
+        let lifted = {
+            let mut s = fence.state();
+            match s.holder {
+                Some(h) if h.connection == connection && s.holder_work == 0 => {
+                    s.holder = None;
+                    true
+                }
+                Some(mut h) if h.connection == connection => {
+                    if !h.releasing {
+                        s.release_started = Some(tokio::time::Instant::now());
+                    }
+                    h.releasing = true;
+                    s.holder = Some(h);
+                    false
+                }
+                _ => false,
+            }
+        };
+        if lifted {
+            fence.changed.notify_waiters();
         }
-        s.holder.is_some()
+        self.uninstall_fence_held()
+    }
+
+    /// ⟨§17.33 item 1⟩ The `release` request: [`Self::uninstall_fence_release`], then a
+    /// wait (bounded by [`RELEASE_WAIT`]) until the holder's in-flight work has ended
+    /// and the fence is lifted. Returns whether the fence is still held by another
+    /// connection (`false`: released).
+    ///
+    /// # Errors
+    /// `SERVICE_UNAVAILABLE` / `uninstall_in_progress` when the holder's work did not
+    /// end in time: the fence stays releasing (refusing new work) and is lifted when
+    /// that work ends.
+    pub async fn uninstall_fence_release_waiting(&self, connection: u64) -> Result<bool, OpError> {
+        let fence = &self.inner.uninstall_fence;
+        let mine = |s: &FenceState| s.holder.is_some_and(|h| h.connection == connection);
+        if !mine(&fence.state()) {
+            return Ok(self.uninstall_fence_held());
+        }
+        self.uninstall_fence_release(connection);
+        let wait = async {
+            loop {
+                let mut changed = std::pin::pin!(fence.changed.notified());
+                changed.as_mut().enable();
+                if !mine(&fence.state()) {
+                    return;
+                }
+                changed.await;
+            }
+        };
+        match tokio::time::timeout(RELEASE_WAIT, wait).await {
+            Ok(()) => Ok(self.uninstall_fence_held()),
+            // ⟨§17.33 item 9⟩ The bound is hit: the fence stays releasing (it is
+            // lifted when that work ends), and the refusal names the way out.
+            Err(_) => Err(uninstall_fence_release_stuck()),
+        }
+    }
+
+    /// ⟨§17.33 item 1⟩ The holder lease for `connection`: `Some` only while
+    /// `connection` holds the fence and is not releasing; it carries the current
+    /// generation and counts as holder work while it lives.
+    #[must_use]
+    pub fn uninstall_fence_lease(&self, connection: u64) -> Option<FenceLease> {
+        let fence = &self.inner.uninstall_fence;
+        let mut s = fence.state();
+        let h = s.holder?;
+        if h.connection != connection || h.releasing {
+            return None;
+        }
+        s.holder_work += 1;
+        Some(FenceLease {
+            fence: Arc::clone(fence),
+            connection,
+            generation: h.generation,
+        })
     }
 
     /// ⟨ADR-0008 §17.32 item 7; Q-I-R10-1⟩ `uninstall_fence.retry_remote_revocations`
@@ -619,9 +875,18 @@ impl Operations {
         &self,
         connection: u64,
     ) -> Result<Vec<RemoteRetry>, OpError> {
-        match self.uninstall_fence_holder() {
-            Some(h) if h == connection => {}
-            other => {
+        // ⟨§17.33 item 1⟩ The holder's lease for this connection (the current task's,
+        // when it runs under one; it must be this connection's and still stand), held
+        // for the whole retry and re-checked before each round.
+        let lease = match FENCE_LEASE.try_with(Clone::clone).ok() {
+            Some(l) if l.connection == connection => l.check().map(|()| Some(l))?,
+            Some(_) => return Err(self.inner.uninstall_fence.refusal()),
+            None => self.uninstall_fence_lease(connection),
+        };
+        match lease.as_ref().map(FenceLease::connection) {
+            Some(_) => {}
+            None => {
+                let other = self.uninstall_fence_holder();
                 let e = OpError::new(
                     Code::ServiceUnavailable,
                     "only the connection holding the uninstall fence may retry the pending remote revocations; nothing was attempted",
@@ -639,9 +904,20 @@ impl Operations {
             .revocation_cap
             .load(std::sync::atomic::Ordering::SeqCst);
         let mut out = Vec::new();
+        let Some(lease) = lease else {
+            return Err(self.inner.uninstall_fence.refusal());
+        };
         for before in self.pending_remote_revocations().await? {
+            lease.check()?;
             let root = before.root.clone();
-            let retry = match self.retry_remote_revocation(&root, cap).await {
+            // The round runs under the lease, so each of its commits re-checks it.
+            let round = with_fence_lease(lease.clone(), self.retry_remote_revocation(&root, cap));
+            // ⟨§17.33 item 3 (W5-E01; audit B1)⟩ The allowance is the record the round
+            // itself committed, from the round's own transaction (never a re-read, so no
+            // unfenced write committed after it is ever admitted): `Some` as stored, `None`
+            // when the round removed it; a failed round admits nothing (`record: None`,
+            // outcome `failed`: the confirmed bytes and nothing else).
+            let retry = match round.await {
                 Ok(None) => RemoteRetry {
                     root_grant: root.to_string(),
                     outcome: RemoteRetryOutcome::Completed,
@@ -649,6 +925,7 @@ impl Operations {
                     attempts_after: before.attempts.saturating_add(1),
                     stopped: false,
                     pending: false,
+                    record: None,
                 },
                 Ok(Some(after)) => RemoteRetry {
                     root_grant: root.to_string(),
@@ -661,6 +938,7 @@ impl Operations {
                     attempts_after: after.attempts,
                     stopped: after.stopped,
                     pending: true,
+                    record: Some(after),
                 },
                 Err(_) => RemoteRetry {
                     root_grant: root.to_string(),
@@ -669,6 +947,7 @@ impl Operations {
                     attempts_after: before.attempts,
                     stopped: before.stopped,
                     pending: true,
+                    record: None,
                 },
             };
             out.push(retry);
@@ -693,6 +972,13 @@ pub struct RemoteRetry {
     pub stopped: bool,
     /// Whether the record is still pending.
     pub pending: bool,
+    /// ⟨ADR-0008 §17.33 item 3 (W5-E01; audit B1)⟩ The complete record exactly as the
+    /// round's own transaction committed it (its obligations with their attempts, stops
+    /// and kinds, the effect and claim sequences, the re-arm history and the cap);
+    /// `None` when the round removed it, or when the round failed (outcome `failed`:
+    /// then nothing is admitted). The uninstall's final check admits exactly this
+    /// record, byte for byte in the store's form, and nothing else.
+    pub record: Option<heimdall_domain::revocation::PendingRemoteRevocation>,
 }
 
 /// What the one round of [`Operations::uninstall_fence_retry_remote_revocations`] did.
@@ -766,6 +1052,12 @@ mod tests {
         store
             .transaction(|tx| tx.init_self_environment(&env))
             .unwrap();
+        ops_on(store).await
+    }
+
+    /// A runtime over `store` (a restart of [`ops`]'s, when it is the same store).
+    async fn ops_on(store: Arc<Store>) -> Operations {
+        let env = EnvironmentId::from_random_bytes([9; 16]);
         Operations::start(OperationsConfig {
             store,
             clock: VirtualClock::at(t0()),
@@ -843,7 +1135,12 @@ mod tests {
         assert!(is_fenced(
             &ops.reserve_issuance(issuance()).await.unwrap_err()
         ));
-        if let Err(e) = as_fence_holder(ops.reserve_issuance(issuance())).await {
+        if let Err(e) = with_fence_lease(
+            ops.uninstall_fence_lease(1).unwrap(),
+            ops.reserve_issuance(issuance()),
+        )
+        .await
+        {
             assert!(!is_fenced(&e), "the holder's own: {e:?}");
         }
         assert!(ops.reverify_pass().await.unwrap().is_empty());
@@ -913,8 +1210,8 @@ mod tests {
         assert_eq!(ops.uninstall_fence_holder(), Some(7));
         assert!(is_fenced(&ops.uninstall_fence_admit().unwrap_err()));
         assert!(is_fenced(&ops.fence_admit_reservation().await.unwrap_err()));
-        // The holder's scope is never refused, and counts nothing.
-        as_fence_holder(async {
+        // The holder's lease is never refused, and counts no admission.
+        with_fence_lease(ops.uninstall_fence_lease(7).unwrap(), async {
             let _a = ops.uninstall_fence_admit().unwrap();
             let _r = ops.fence_admit_reservation().await.unwrap();
         })
@@ -961,6 +1258,160 @@ mod tests {
         let o = ops.clone();
         let unadmitted = tokio::spawn(async move { o.inner.uninstall_fence.write_extension() });
         assert!(unadmitted.await.unwrap().is_none());
+    }
+
+    /// `holder_spawned_task_keeps_the_lease` (ADR-0008 §17.33 item 1): work spawned
+    /// from the holder's work with `spawn_with_lease` carries the lease (its
+    /// reservation is the holder's, admitted under the held fence) and counts as holder
+    /// work: a release while it runs only marks the fence releasing, and the fence is
+    /// lifted when it ends. A plain `tokio::spawn` from the same work gains nothing and
+    /// is refused.
+    #[tokio::test]
+    async fn holder_spawned_task_keeps_the_lease() {
+        let ops = ops().await;
+        ops.uninstall_fence_acquire(21).await.unwrap();
+        let (go, wait) = tokio::sync::oneshot::channel::<()>();
+        let o = ops.clone();
+        let (spawned, plain) = with_fence_lease(ops.uninstall_fence_lease(21).unwrap(), async {
+            let o2 = o.clone();
+            let spawned = spawn_with_lease(async move {
+                let admitted = o2.fence_admit_reservation().await.map(drop);
+                let _ = wait.await;
+                admitted
+            });
+            let o3 = o.clone();
+            let plain = tokio::spawn(async move { o3.fence_admit_reservation().await.map(drop) });
+            (spawned, plain.await.unwrap())
+        })
+        .await;
+        assert!(
+            is_fenced(&plain.unwrap_err()),
+            "a plain spawn gains no lease"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(
+            ops.uninstall_fence_release(21),
+            "releasing while the spawned work runs"
+        );
+        assert!(
+            ops.uninstall_fence_lease(21).is_none(),
+            "no lease while releasing"
+        );
+        go.send(()).unwrap();
+        spawned.await.unwrap().unwrap();
+        assert!(
+            !ops.uninstall_fence_held(),
+            "lifted when the holder's work ended"
+        );
+    }
+
+    /// `earlier_generation_lease_is_refused` (ADR-0008 §17.33 item 1): a lease is bound
+    /// to the connection **and** the fence generation it was granted under. One that
+    /// outlived its generation (the same connection holding a later acquisition) is
+    /// refused at each step: its check, an admission under it, and a commit under it,
+    /// with nothing written. A lease of the current generation is accepted.
+    #[tokio::test]
+    async fn earlier_generation_lease_is_refused() {
+        let ops = ops().await;
+        ops.uninstall_fence_acquire(22).await.unwrap();
+        let old = ops.uninstall_fence_lease(22).unwrap();
+        assert_eq!(old.generation(), 1);
+        // The fence was released and reacquired by the same connection while this
+        // lease lived (a lease that escaped the release's wait): generation 2.
+        {
+            let mut s = ops.inner.uninstall_fence.state();
+            let mut h = s.holder.unwrap();
+            h.generation += 1;
+            s.generation = h.generation;
+            s.holder = Some(h);
+        }
+        assert!(is_fenced(&old.check().unwrap_err()));
+        let o = ops.clone();
+        let (admitted, written) = with_fence_lease(old, async move {
+            let admitted = o.uninstall_fence_admit().map(drop);
+            let written = o.write(|_, _| Ok(())).await;
+            (admitted, written)
+        })
+        .await;
+        assert!(
+            is_fenced(&admitted.unwrap_err()),
+            "admission under a stale lease"
+        );
+        assert!(
+            is_fenced(&written.unwrap_err()),
+            "commit under a stale lease"
+        );
+        let current = ops.uninstall_fence_lease(22).unwrap();
+        assert_eq!(current.generation(), 2);
+        current.check().unwrap();
+        let o = ops.clone();
+        with_fence_lease(current, async move {
+            drop(o.uninstall_fence_admit().unwrap());
+            o.write(|_, _| Ok(())).await.unwrap();
+        })
+        .await;
+        assert!(!ops.uninstall_fence_release(22));
+        // A new acquisition is a new generation.
+        ops.uninstall_fence_acquire(23).await.unwrap();
+        assert_eq!(ops.uninstall_fence_lease(23).unwrap().generation(), 3);
+        assert!(ops.uninstall_fence_lease(22).is_none());
+    }
+
+    /// `fence_release_stuck_past_its_bound_refuses_with_the_restart` (ADR-0008 §17.33
+    /// items 1 and 9; the named residual `uninstall_fence_release_stuck_until_holder_work_ends`):
+    /// holder work that never ends keeps a released fence **releasing**. A held fence,
+    /// and a releasing one before [`RELEASE_WAIT`], refuse other work
+    /// `uninstall_in_progress`; the release request's bound is hit and reported; past
+    /// the bound every refusal is `uninstall_fence_release_stuck`, whose message names
+    /// the restart (`heimdall service stop`, then `heimdall service run --detach`). A
+    /// restarted runtime over the same store has no fence (it is never stored); the
+    /// work ending lifts it too.
+    #[tokio::test]
+    async fn fence_release_stuck_past_its_bound_refuses_with_the_restart() {
+        // Virtual time: the release's 20 s bound passes at once.
+        tokio::time::pause();
+        let stuck = |e: &OpError| {
+            e.code == Code::ServiceUnavailable
+                && e.reason.as_deref() == Some(reason::UNINSTALL_FENCE_RELEASE_STUCK)
+                && e.effect_status == EffectStatus::None
+                && e.message.contains(
+                    "stop the runtime (`heimdall service stop`), then start it again (`heimdall service run --detach`)",
+                )
+        };
+        let in_progress = |e: &OpError| e.reason.as_deref() == Some(reason::UNINSTALL_IN_PROGRESS);
+        assert_eq!(
+            RELEASE_STUCK_NEXT_STEP,
+            "stop the runtime (`heimdall service stop`), then start it again (`heimdall service run --detach`)"
+        );
+        assert_eq!(RELEASE_STUCK_NEXT_COMMAND, "heimdall service stop");
+        let ops = ops().await;
+        ops.uninstall_fence_acquire(31).await.unwrap();
+        assert!(
+            in_progress(&ops.uninstall_fence_admit().unwrap_err()),
+            "held"
+        );
+        let never_ends = ops.uninstall_fence_lease(31).unwrap();
+        assert!(ops.uninstall_fence_release(31), "releasing");
+        tokio::time::advance(RELEASE_WAIT - Duration::from_secs(1)).await;
+        assert!(
+            in_progress(&ops.uninstall_fence_admit().unwrap_err()),
+            "before the bound"
+        );
+        let e = ops.uninstall_fence_release_waiting(31).await.unwrap_err();
+        assert!(stuck(&e), "the release's bound is hit: {e:?}");
+        let e = ops.uninstall_fence_admit().unwrap_err();
+        assert!(stuck(&e), "past the bound: {e:?}");
+        assert!(stuck(&ops.fence_admit_reservation().await.unwrap_err()));
+        assert!(ops.uninstall_fence_held(), "still releasing");
+        // `heimdall service stop`, then `heimdall service run --detach`: a new runtime
+        // over the same store starts with no fence.
+        let restarted = ops_on(Arc::clone(&ops.inner.config.store)).await;
+        assert!(!restarted.uninstall_fence_held());
+        drop(restarted.uninstall_fence_admit().unwrap());
+        // The holder work ending lifts it in this runtime too.
+        drop(never_ends);
+        assert!(!ops.uninstall_fence_held());
+        drop(ops.uninstall_fence_admit().unwrap());
     }
 
     /// A dropped (cancelled) acquisition stops refusing new work.

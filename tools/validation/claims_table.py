@@ -34,12 +34,28 @@ For every entry (D12 item 3):
     (`product_store_kinds(os)`, read from the same file and checked against the mirror
     below; the two must agree). Test-store evidence never satisfies a product-store claim.
 
+⟨ADR-0008 §17.33 item 7⟩ It also parses `pub const RESIDUALS: &[Residual] = &[ ... ];`, the
+named residuals: each `Residual { id, description, platform: Platform { os, arch }, limits,
+probe: Probe { target, source, test }, reason: ResidualReason::FailClosedOnly |
+ResidualReason::NeedsHostileSameUserProgram, adr }`. A residual is never a verified claim: an
+entry carrying a claim's fields (`value`, `status`, `record`, `record_commit`, `verified`) is a
+violation, and so is one whose `id` is a CLAIMS `field`, a duplicate or malformed `id`, an
+unknown platform (`any` is allowed for residuals), or a probe whose `source` is missing,
+outside the repository, or does not define the named test (`fn <name>(` after a `#[test]` or
+`#[tokio::test]` attribute, with or without arguments). Where no test is feasible an entry cites
+code instead: an empty `test` and a `target` starting with `code:` (its `source` must exist).
+
 The empty table passes (the M03 baseline). Self-tests, each printed with PASS or FAIL,
 build fixture tables and records in a `tempfile.mkdtemp()` directory removed afterwards:
   claims_table_empty_validates
   claims_table_rejects_entry_for_blocked_record
   claims_table_rejects_debug_profile_or_test_store_for_custody_claim
   claims_table_positive_control (a valid fixture entry passes; a parse error fails)
+  claims_table_rejects_residual_marked_verified
+  claims_table_rejects_residual_presented_as_claim
+  claims_table_rejects_residual_without_its_test
+  claims_table_residual_positive_control
+  claims_table_residual_tokio_test_with_args_and_code_citation
 """
 import json
 import os
@@ -311,6 +327,158 @@ def parse_claims(source):
 
 
 # ---------------------------------------------------------------------------
+# Residuals (ADR-0008 §17.33 item 7)
+
+RESIDUAL_REASONS = {"FailClosedOnly", "NeedsHostileSameUserProgram"}
+# Fields that would make a residual look like a verified claim.
+CLAIM_LIKE_FIELDS = {"value", "status", "record", "record_commit", "verified", "field"}
+
+
+def _reason(cur):
+    cur.take("id", "ResidualReason")
+    cur.take("p", "::")
+    return cur.take("id")
+
+
+def _probe(cur):
+    return _struct(cur, "Probe", {"target": _str, "source": _str, "test": _str})
+
+
+def _any_value(cur):
+    """A claim-like field's value, whatever its literal (kept only to report it)."""
+    if cur.at("str"):
+        return cur.take("str")
+    if cur.at("id"):
+        v = cur.take("id")
+        while cur.at("p", "::"):
+            cur.take("p", "::")
+            v += "::" + cur.take("id")
+        return v
+    raise ParseError("unsupported value of a claim-like field in a Residual")
+
+
+RESIDUAL_SCHEMA = {
+    "id": _str,
+    "description": _str,
+    "platform": _platform,
+    "limits": _str,
+    "probe": _probe,
+    "reason": _reason,
+    "adr": _str,
+}
+
+
+def _residual(cur):
+    """`Residual { ... }`; claim-like fields are collected (and later refused), any other
+    unknown field is a parse error."""
+    cur.take("id", "Residual")
+    cur.take("p", "{")
+    out, claimish = {}, {}
+    while not cur.at("p", "}"):
+        field = cur.take("id")
+        cur.take("p", ":")
+        if field in CLAIM_LIKE_FIELDS:
+            claimish[field] = _any_value(cur)
+        elif field in RESIDUAL_SCHEMA:
+            if field in out:
+                raise ParseError("Residual: duplicate field `%s`" % field)
+            out[field] = RESIDUAL_SCHEMA[field](cur)
+        else:
+            raise ParseError("Residual: unknown field `%s`" % field)
+        if cur.at("p", ","):
+            cur.take("p", ",")
+        elif not cur.at("p", "}"):
+            raise ParseError("Residual: expected `,` or `}` after field `%s`" % field)
+    cur.take("p", "}")
+    missing = sorted(set(RESIDUAL_SCHEMA) - set(out))
+    if missing:
+        raise ParseError("Residual: missing field(s) %s" % ", ".join(missing))
+    out["claim_like"] = claimish
+    return out
+
+
+def parse_residuals(source):
+    """The RESIDUALS entries of claims.rs source (none when the list is absent)."""
+    text = strip_for_search(source)
+    matches = list(re.finditer(r"pub\s+const\s+RESIDUALS\s*:\s*&\s*\[\s*Residual\s*\]\s*=\s*&\s*\[", text))
+    if not matches:
+        return []
+    if len(matches) != 1:
+        raise ParseError("expected at most one `pub const RESIDUALS: &[Residual] = &[`")
+    start = matches[0].end() - 1
+    end = _matching(text, start, "[", "]")
+    if not re.match(r"\s*;", text[end + 1:]):
+        raise ParseError("RESIDUALS is not terminated by `;`")
+    cur = Cursor(tokenize(text[start + 1: end]))
+    out = []
+    while cur.peek()[0] != "eof":
+        out.append(_residual(cur))
+        if cur.at("p", ","):
+            cur.take("p", ",")
+        elif cur.peek()[0] != "eof":
+            raise ParseError("expected `,` between Residual entries, found %s" % cur.peek()[1])
+    return out
+
+
+def _defines_test(path, name):
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    for m in re.finditer(r"\bfn\s+%s\s*\(" % re.escape(name), src):
+        before = src[max(0, m.start() - 600): m.start()]
+        if re.search(r"#\[(tokio::)?test(\([^\]]*\))?\]", before):
+            return True
+    return False
+
+
+def check_residuals(residuals, claims, record_root):
+    bad = []
+    real_root = os.path.realpath(record_root)
+    seen = set()
+    claim_fields = {c["field"] for c in claims}
+    for n, r in enumerate(residuals):
+        rid = r["id"]
+        tag = "residual %d (%s)" % (n, rid)
+        if r["claim_like"]:
+            bad.append(
+                "%s: a residual is never a verified claim, but it carries %s"
+                % (tag, ", ".join("%s=%r" % kv for kv in sorted(r["claim_like"].items())))
+            )
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", rid or ""):
+            bad.append("%s: id must be lowercase letters, digits and `_`" % tag)
+        if rid in seen:
+            bad.append("%s: duplicate id" % tag)
+        seen.add(rid)
+        if rid in claim_fields:
+            bad.append("%s: its id is a CLAIMS field; a residual is never presented as a claim" % tag)
+        osn, arch = r["platform"]["os"], r["platform"]["arch"]
+        if osn not in OS_VALUES | {"any"}:
+            bad.append("%s: unknown platform.os %r" % (tag, osn))
+        if arch not in ARCH_VALUES | {"any"}:
+            bad.append("%s: unknown platform.arch %r" % (tag, arch))
+        if r["reason"] not in RESIDUAL_REASONS:
+            bad.append("%s: reason %r is not one of %s" % (tag, r["reason"], ", ".join(sorted(RESIDUAL_REASONS))))
+        for f in ("description", "limits", "adr"):
+            if not r[f]:
+                bad.append("%s: empty %s" % (tag, f))
+        probe = r["probe"]
+        src = probe["source"]
+        path = os.path.realpath(os.path.join(real_root, src))
+        name = probe["test"].rsplit("::", 1)[-1]
+        if not src or os.path.isabs(src) or not path.startswith(real_root + os.sep):
+            bad.append("%s: probe source %r is empty, absolute or outside the repository" % (tag, src))
+        elif not os.path.isfile(path):
+            bad.append("%s: probe source %s does not exist" % (tag, src))
+        elif not probe["test"]:
+            if not probe["target"].startswith("code:"):
+                bad.append("%s: no test is named and no code is cited (`code:` target)" % tag)
+        elif not name or not _defines_test(path, name):
+            bad.append("%s: probe source %s does not define the test %s" % (tag, src, probe["test"]))
+        if not probe["target"]:
+            bad.append("%s: empty probe target" % tag)
+    return bad
+
+
+# ---------------------------------------------------------------------------
 # Row matching
 
 def _norm_os(s):
@@ -442,7 +610,9 @@ def load_schema():
 
 def check_source(source, record_root, repo, schema):
     entries, custody, kinds = parse_claims(source)
-    return entries, check_entries(entries, custody, kinds, record_root, repo, schema)
+    residuals = parse_residuals(source)
+    bad = check_entries(entries, custody, kinds, record_root, repo, schema)
+    return entries, bad + check_residuals(residuals, entries, record_root)
 
 
 # ---------------------------------------------------------------------------
@@ -563,7 +733,84 @@ def _t_positive():
     return ok, bad_commit + bad_missing + bad_platform + bad_traversal
 
 
+def _residual_source(rid="uninstall_fixture_residual", extra="", source="crates/x/src/lib.rs",
+                     test="x::tests::the_probe"):
+    return (
+        "pub const RESIDUALS: &[Residual] = &[\n"
+        "    Residual {\n"
+        "        id: \"%s\",\n"
+        "        description: \"a fixture residual\",\n"
+        "        platform: Platform { os: \"any\", arch: \"any\" },\n"
+        "        limits: \"lock_continuity\",\n"
+        "        probe: Probe { target: \"-p x\", source: \"%s\", test: \"%s\" },\n"
+        "        reason: ResidualReason::NeedsHostileSameUserProgram,\n"
+        "        adr: \"ADR-0008 §17.33 item 7\",%s\n"
+        "    },\n"
+        "];\n" % (rid, source, test, extra)
+    )
+
+
+def _run_residual_fixture(residual, with_probe=True, probe_src=None):
+    tmp = tempfile.mkdtemp(prefix="claims-table-residual-")
+    try:
+        os.makedirs(os.path.join(tmp, "tests", "evidence"))
+        with open(os.path.join(tmp, "tests", "evidence", "rec.json"), "w", encoding="utf-8") as f:
+            json.dump(_record("verified"), f)
+        if with_probe:
+            os.makedirs(os.path.join(tmp, "crates", "x", "src"))
+            with open(os.path.join(tmp, "crates", "x", "src", "lib.rs"), "w", encoding="utf-8") as f:
+                f.write(probe_src or "#[cfg(test)]\nmod tests {\n    #[test]\n    fn the_probe() {}\n}\n")
+        return check_source(_entry_source() + residual, tmp, ROOT, load_schema())[1]
+    finally:
+        shutil.rmtree(tmp)
+
+
+def _t_residual_verified():
+    bad = _run_residual_fixture(_residual_source(extra='\n        status: "verified",'))
+    bad2 = _run_residual_fixture(_residual_source(extra='\n        value: "verified",'))
+    msg = "a residual is never a verified claim"
+    return _has(bad, msg, "status") and _has(bad2, msg, "value"), bad + bad2
+
+
+def _t_residual_as_claim():
+    bad = _run_residual_fixture(_residual_source(rid="lock_continuity"))
+    return _has(bad, "its id is a CLAIMS field"), bad
+
+
+def _t_residual_without_test():
+    bad = _run_residual_fixture(_residual_source(), with_probe=False)
+    bad2 = _run_residual_fixture(_residual_source(test="x::tests::no_such_test"))
+    return (
+        _has(bad, "probe source crates/x/src/lib.rs does not exist")
+        and _has(bad2, "does not define the test x::tests::no_such_test")
+    ), bad + bad2
+
+
+def _t_residual_positive():
+    ok = not _run_residual_fixture(_residual_source())
+    try:
+        _run_residual_fixture(_residual_source(extra='\n        colour: "blue",'))
+        parse_fails = False
+    except ParseError:
+        parse_fails = True
+    return ok and parse_fails, []
+
+
+def _t_residual_tokio_args_and_code():
+    tokio = "mod tests {\n    #[tokio::test(flavor = \"multi_thread\")]\n    async fn the_probe() {}\n}\n"
+    ok_tokio = not _run_residual_fixture(_residual_source(), probe_src=tokio)
+    code = _residual_source(test="").replace('target: \"-p x\"', 'target: \"code: lib.rs\"')
+    ok_code = not _run_residual_fixture(code)
+    bad = _run_residual_fixture(_residual_source(test=""))
+    return ok_tokio and ok_code and _has(bad, "no code is cited"), bad
+
+
 SELF_TESTS = [
+    ("claims_table_residual_tokio_test_with_args_and_code_citation", _t_residual_tokio_args_and_code),
+    ("claims_table_rejects_residual_marked_verified", _t_residual_verified),
+    ("claims_table_rejects_residual_presented_as_claim", _t_residual_as_claim),
+    ("claims_table_rejects_residual_without_its_test", _t_residual_without_test),
+    ("claims_table_residual_positive_control", _t_residual_positive),
     ("claims_table_empty_validates", _t_empty),
     ("claims_table_rejects_entry_for_blocked_record", _t_blocked),
     ("claims_table_rejects_debug_profile_or_test_store_for_custody_claim", _t_debug_or_test_store),
@@ -601,6 +848,7 @@ def main(argv):
             rc = 1
         else:
             print("claims table: %d entr%s" % (len(entries), "y" if len(entries) == 1 else "ies"))
+            print("residuals: %d" % len(parse_residuals(source)))
             for b in bad:
                 print("VIOLATION: " + b)
             if bad:

@@ -124,6 +124,7 @@ value_for() {
         HEIMDALL_TEST_KEY_SEED) printf '00' ;;
         HEIMDALL_TEST_SESSION_LOCK) printf '%s/session-lock-state' "${vals}" ;;
         HEIMDALL_TEST_SCRIPT_PAUSE_DIR) printf '%s/script-pause' "${vals}" ;;
+        HEIMDALL_TEST_PURGE_TRUSTED_TOP) printf '%s' "${vals}" ;;
         *) printf '1' ;;   # a variable this script does not know yet: any value must be refused
     esac
 }
@@ -220,6 +221,9 @@ done
 # The script pause directory is read CLI-side by `enroll` (U5's SshStepRunner), so a
 # release `enroll` must refuse it too (U0b row 16).
 probe HEIMDALL_TEST_SCRIPT_PAUSE_DIR "enroll x" enroll x
+# ⟨ADR-0008 §17.33 item 14⟩ The purge's debug-only trusted top is read CLI-side by
+# `uninstall`: a release `uninstall` refuses it before anything else.
+probe HEIMDALL_TEST_PURGE_TRUSTED_TOP "uninstall" uninstall
 # The product-file test store (a disposable product-kind store, debug builds only): a release
 # build refuses it like every test variable, before any store or runtime is touched.
 PROBE_VALUE="product-file:${vals}/test.keychain-db"

@@ -92,6 +92,138 @@ pub fn product_store_kinds(os: &str) -> &'static [&'static str] {
 /// The claim table. Empty in the M03 baseline (ADR-0008 D12 item 3).
 pub const CLAIMS: &[Claim] = &[];
 
+/// ⟨ADR-0008 §17.33 items 6-7⟩ Why a [`Residual`] is accepted rather than fixed (the
+/// §17.33 item 6 "record, and do not block the merge" categories).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResidualReason {
+    /// It only fails closed (a refusal or a delay), with no lasting effect.
+    FailClosedOnly,
+    /// It needs a hostile same-user program, which spec P03 does not claim to isolate.
+    NeedsHostileSameUserProgram,
+}
+
+/// The test that shows a [`Residual`]: its source file (relative to the repository
+/// root) and its exact test name (the `cargo test` path). Where no test is feasible the
+/// residual cites code instead: `test` is empty and `target` starts with `code:`, naming
+/// what in `source` shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Probe {
+    /// The Cargo invocation that runs it, e.g. `-p heimdall --bin heimdall`.
+    pub target: &'static str,
+    /// The source file that defines it, relative to the repository root.
+    pub source: &'static str,
+    /// The test's path, e.g. `uninstall_cmd::tests::some_test`.
+    pub test: &'static str,
+}
+
+/// ⟨ADR-0008 §17.33 item 7⟩ A named residual: a known, accepted limit of a claim or
+/// capability, carried to U13 with its probe. **Never a claim:** it has no value,
+/// status, record or commit; nothing reads it to report a field; its ID is never a
+/// [`CLAIMS`] field (`tools/validation/claims_table.py` refuses an entry marked
+/// verified or presented as a claim, and one whose named test does not exist).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Residual {
+    /// Stable ID (lowercase, `_`-separated).
+    pub id: &'static str,
+    /// What remains, precisely.
+    pub description: &'static str,
+    /// The platform row; `any` for every platform.
+    pub platform: Platform,
+    /// The claim field or the capability it limits.
+    pub limits: &'static str,
+    /// The test that shows it.
+    pub probe: Probe,
+    /// Why it is accepted.
+    pub reason: ResidualReason,
+    /// The ruling that accepted it.
+    pub adr: &'static str,
+}
+
+/// ⟨ADR-0008 §17.33 items 4, 7, 8⟩ The named residuals. Keep each entry one
+/// `Residual { … }` literal with every field written out, string literals only.
+pub const RESIDUALS: &[Residual] = &[
+    Residual {
+        id: "windows_purge_entry_replaced_between_check_and_delete",
+        description: "Windows purge sweep: a directory's handle is closed before its own RemoveDirectoryW, and a file is deleted by path after its check; in that window a same-user program can replace the entry in place, and the call removes that replacement entry (DeleteFileW and RemoveDirectoryW never follow a reparse point, so nothing outside the purge roots is reached). Not yet shown natively: the Windows chain's reparse-point refusal and owner-SID check (this user, SYSTEM or Administrators; ADR-0008 §17.33 item 13) are checked by cross-target clippy and unit tests of the pure classification only; native Windows evidence is carried to U13",
+        platform: Platform {
+            os: "windows",
+            arch: "x86_64",
+        },
+        limits: "uninstall.purge_anchored_deletion",
+        probe: Probe {
+            target: "-p heimdall --bin heimdall (x86_64-pc-windows-msvc, native Windows)",
+            source: "crates/heimdall/src/purge_sweep.rs",
+            test: "purge_sweep::tests::windows_purge_refuses_a_junction_and_names_its_residual",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0008 §17.33 items 4 and 7",
+    },
+    Residual {
+        id: "uninstall_state_swapped_and_restored_during_final_read",
+        description: "heimdall uninstall --purge-state anchors <state> once (no link on its chain, owner-only) and takes service.lock through that handle, but SQLite opens the database by path for the final inventory read and the bundle check; the path is verified by device and inode against the anchored directory immediately before and after them, so a swap that persists refuses with nothing deleted. A same-user program that swaps <state> away and back again entirely between those two checks makes the read see another database",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.purge_final_inventory_read",
+        probe: Probe {
+            target: "-p heimdall --bin heimdall",
+            source: "crates/heimdall/src/uninstall_cmd.rs",
+            test: "uninstall_cmd::tests::uninstall_purge_refuses_a_swapped_owner_only_state",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0008 §17.33 items 8 and 10",
+    },
+    Residual {
+        id: "issuer_request_hold_absent_for_leader_and_lease_work",
+        description: "an issuer sign sent from a task that holds no fence admission of its own (the verification leader, holder-lease work) is not held by request_hold: when its waiter times out against a child that cannot be verified, the admission ends before the child does, so a fence acquisition can be taken while that child is still alive. No lasting effect: the child never writes the state database and a late signature reaches no reader, so no certificate is published",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.fence_admission (ADR-0008 §17.33 item 2)",
+        probe: Probe {
+            target: "-p heimdall --test e2e_cli_m03",
+            source: "tests/e2e/cli_m03/issuer.rs",
+            test: "issuer::residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission",
+        },
+        reason: ResidualReason::FailClosedOnly,
+        adr: "ADR-0008 §17.33 item 11",
+    },
+    Residual {
+        id: "holder_approval_spawns_waiting_work_with_the_holder_lease",
+        description: "a decision approved by the fence holder resumes the operations waiting on it, including other connections' work, inside the holder's lease, so that work is not refused by the fence; only an owner program that itself holds the fence can approve, so it needs a hostile owner program holding the fence",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.fence_scope (ADR-0008 §17.33 item 1)",
+        probe: Probe {
+            target: "code: Operations::decide -> resume of the waiting operations under the caller's lease",
+            source: "crates/app/src/operations.rs",
+            test: "",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0008 §17.33 item 11",
+    },
+    Residual {
+        id: "uninstall_sweep_uses_cli_runtime_dir_not_recorded_locators",
+        description: "the purge sweeps this CLI's resolved <run> (and <state>), not the endpoint and slot locators the runtime recorded; a runtime that ran with another XDG_RUNTIME_DIR leaves its dead sockets and files there. Leftover local files only, never recovery records; the report names the swept roots (purge_roots) so the owner can find them",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.purge_cleanup_paths (ADR-0008 §17.32 item 7)",
+        probe: Probe {
+            target: "-p heimdall --bin heimdall",
+            source: "crates/heimdall/src/uninstall_cmd.rs",
+            test: "uninstall_cmd::tests::uninstall_report_names_the_swept_roots",
+        },
+        reason: ResidualReason::FailClosedOnly,
+        adr: "ADR-0008 §17.33 item 11",
+    },
+];
+
 /// The entries of [`CLAIMS`] for one field and platform.
 pub fn claims_for<'a>(
     field: &'a str,
@@ -116,5 +248,49 @@ mod tests {
         assert_eq!(claims_for("lock_continuity", &p).count(), 0);
         assert_eq!(product_store_kinds("windows"), ["windows_dpapi"]);
         assert!(product_store_kinds("plan9").is_empty());
+    }
+
+    /// `residuals_are_never_claims` (ADR-0008 §17.33 item 7): every residual has a
+    /// unique ID that is not a [`CLAIMS`] field, a known platform, the claim or
+    /// capability it limits, an accepted reason, and a probe whose source defines the
+    /// named test.
+    #[test]
+    fn residuals_are_never_claims() {
+        // The repository through `HM_REPO_ROOT` (testkit `repo`), never the compile-time root.
+        let root = heimdall_testkit::repo::repo_root();
+        let mut ids = std::collections::BTreeSet::new();
+        for r in RESIDUALS {
+            assert!(ids.insert(r.id), "{} is listed twice", r.id);
+            assert!(
+                !r.id.is_empty() && r.id.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+                "{}",
+                r.id
+            );
+            assert!(
+                CLAIMS.iter().all(|c| c.field != r.id),
+                "{} is a claim",
+                r.id
+            );
+            assert!(["macos", "linux", "windows", "any"].contains(&r.platform.os));
+            assert!(["aarch64", "x86_64", "any"].contains(&r.platform.arch));
+            assert!(!r.limits.is_empty() && !r.description.is_empty() && !r.adr.is_empty());
+            let src = std::fs::read_to_string(root.join(r.probe.source))
+                .unwrap_or_else(|e| panic!("{}: {e}", r.probe.source));
+            if r.probe.test.is_empty() {
+                assert!(
+                    r.probe.target.starts_with("code:"),
+                    "{}: no test, no code cited",
+                    r.id
+                );
+                continue;
+            }
+            let name = r.probe.test.rsplit("::").next().unwrap_or_default();
+            assert!(
+                src.contains(&format!("fn {name}(")),
+                "{}: {} does not define {name}",
+                r.id,
+                r.probe.source
+            );
+        }
     }
 }
