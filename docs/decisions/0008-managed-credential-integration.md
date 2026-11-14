@@ -4514,6 +4514,41 @@ No review has run yet. These rulings complete the wave before its reviews.
    - gated issuer-child spawns and loads, whose cancelled loads and starts now recover.
 
    **A7 is accepted as is:** the time-anchor write is not recovery-relevant and only moves forward.
+### 17.33 Orchestrator rulings on wave 5's third re-check, and when wave 5's review stops (2026-11-13)
+
+**Source:** the third independent re-check, of `ccf23db5..142fe3fa` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck3.md`. Verdict: fix first, with W5-E01 to W5-E05 (medium) and W5-E06 (low).
+- The original W5-D01–D05 probes pass, and eight semantic reverts fail their regressions.
+- The new findings are deeper edges of the same two designs: the fence holder's scope and the purge's handoff.
+
+1. **W5-E03 and W5-E05: the holder's exemption is a lease, not a flag.**
+   - **The lease:** fence-holder authority is a value scoped to the holding connection and the fence's **generation**, replacing a task-local boolean. Work started on the holder's behalf carries that lease explicitly, including the spawned verification leader. Work the holder did not start never gains it.
+   - **Re-checking:** every holder-exempt step re-checks the lease, at its start, before each retry round and before each commit. If the fence was released or reacquired, the step is refused (`uninstall_in_progress`).
+   - **Release waits:** a fence is not released while holder work it accepted is still in flight. Reacquisition gets a new generation.
+   - **The regressions:**
+     - the re-check's two probes (`recheck3_fence_holder_can_finish_own_verification`, `recheck3_released_holder_must_not_continue_retry_under_new_fence`);
+     - a holder-spawned task keeps the lease;
+     - a lease from an earlier generation is refused.
+2. **W5-E02: an indeterminate issuer request ends its child before the admission is released.**
+   - **When it applies:** a request to the real issuer child (load or sign) may already be delivered when its waiter is cancelled or times out. In that case the parent stops that exact child (verified by PID, start time and image) and awaits its exit before the admission is released.
+   - **Afterwards:** the client is then `crashed`, and the child restarts on demand under the fence gate. No late load or signature can cross a fence acquisition. A bound on the stop keeps acquisition from waiting forever; if the stop cannot be confirmed, the admission is held and the fence acquisition reports it.
+   - **The regressions:** the re-check's two real-child probes (`recheck3_real_issuer_late_sign_cannot_cross_fence`, `recheck3_real_issuer_cancelled_load_cannot_cross_fence`).
+3. **W5-E01: the retry allowance is the exact record the retry produced.**
+   - The holder's retry route returns the complete post-retry `PendingRemoteRevocation` for each record: obligations with their attempts, stops and kinds, the effect and claim sequence, the re-arm history and the cap.
+   - The final locked comparison allows exactly that record, byte for byte in its canonical form. Anything else, such as a new obligation added in the handoff, refuses with `uninstall_inventory_changed`.
+   - **The regression:** the re-check's probe (`recheck3_retry_allowance_rejects_new_remote_obligation`).
+4. **W5-E04: the destructive sweep never follows a replaced ancestor** (spec §14.3, symlink and TOCTOU replacement).
+   - **On Unix:** the purge opens each root (`<run>`, `<state>`) through its trusted parent without following links (`O_NOFOLLOW`/`O_DIRECTORY`), checks that it is owner-only and owned by this user, and deletes **relative to those handles** (`openat` and `unlinkat` through rustix). A replaced root, or a link anywhere in the walk, refuses the purge with nothing outside the roots touched.
+   - **On Windows:** the purge opens the roots without following reparse points (`FILE_FLAG_OPEN_REPARSE_POINT`) and refuses on any reparse point it meets. Deletion goes through the opened handles where the API allows. Any residual window that remains is named in the code and in the claims table.
+   - **The regressions:** the re-check's probe (`recheck3_purge_never_follows_runtime_root_replacement`) and the nested-link case.
+5. **W5-E06: the sweep covers every local path a cleanup intent can name.** That includes the stable mux paths `<run>/mux/<destination>` (`finish_slot`, `clear_slot_path`), cleared under the same anchored handles.
+   - **The regressions:** the re-check's probe (`recheck3_purge_removes_cleanup_mux_path`); and the path-coverage test now enumerates `finish_slot`'s paths as well as the key, certificate and binding paths.
+6. **When wave 5's review stops.** Four review passes have found progressively narrower edges of the same two designs. A fourth re-check covers round 11's diff, re-runs every earlier re-check's probes, and tries a revert for each round-11 fix. After it:
+   - **Fix before the merge:** any finding with a lasting effect on remote trust, recovery records or the owner's data, or a consent bypass, at any severity.
+   - **Record, and do not block the merge:**
+     - a finding that only fails closed (a refusal or a delay) with no lasting effect;
+     - a finding that needs a hostile same-user program, which spec P03 explicitly does not claim to isolate.
+
+     Each is recorded as a named residual in ADR-0008 and the claims table, with its probe, and carried to U13.
 
 ## 18. Consequences
 
