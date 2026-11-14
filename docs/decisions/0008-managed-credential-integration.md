@@ -4646,6 +4646,32 @@ No review has run yet. These rulings complete the wave before its reviews.
    - D3: one read, then the census, then the checkpoint, so nothing unvalidated is ever checkpointed;
    - D4: the report states only what remains on disk;
    - D5: on Windows, files the purge created are never restored or listed as renamed back.
+### 17.36 Orchestrator rulings on wave 5's scoped re-check of round 13 (2026-11-14)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-recheck6.md`. This is a scoped review of the database family, reconstructed from the reviewer's logs after its provider's content filter stopped the run.
+- Every round-13 revert failed its regression.
+- A normal start-up with live `-wal`/`-shm` files passes the guard.
+- Two probes failed: W5-H01 and W5-H02.
+
+**1. W5-H02 and W5-H01: SQLite never writes to the owner's original database family.**
+- **The cause:** both findings come from SQLite touching the original files before, or outside, validation.
+  - A read-write open replays a hot rollback journal into the owner's pages (H02).
+  - Restoring the family takes several renames, and a database swapped in between them gets the old WAL attached to it (H01).
+- **The rule:** the purge never opens the original family read-write.
+- **Before any open:**
+  - a family that contains a `-journal` is refused and kept. Heimdall's store runs in WAL mode, so a hot rollback journal is never legitimate;
+  - the check is repeated immediately before the open;
+  - the read and the descriptor census use a **read-only** connection, which cannot roll back a journal.
+- **The recovery copy:** from that validated read-only connection, the purge writes one self-contained copy of the database with `VACUUM INTO`. The copy goes to a fresh, exclusively created name inside the owner-only quarantine directory, and is fsynced. Item 2 of §17.35 (the in-place checkpoint with `Checkpointer`) is replaced by this copy. `Checkpointer` is removed, unless something else still needs it.
+- **Restore (on a refusal):** the purge restores **the recovery copy alone**, as `state.db`, with one no-replace rename: one atomic step with no WAL to attach. The original family stays in its quarantine directory and is reported. A later `heimdall uninstall` deletes it once the restored database is confirmed.
+- **Deletion (on success):** the original family's companions are deleted first, then the original database, then the recovery copy, then the directory. A failure at any step leaves at least the complete recovery copy, which is reported with its exact path.
+- **Crash recovery and start-up:** recovery (§17.35 item 7) treats a unit that holds a recovery copy the same way. Start-up still refuses while any quarantine exists.
+- **The regressions:**
+  - the re-check's two probes (`r13_review_restore_race_preserves_replacement_record`, `r13_review_checkpoint_probe_never_replays_unvalidated_journal`);
+  - a crash at each new step leaves a complete database, either restored or in quarantine;
+  - a planted `-journal` refuses the purge and leaves every byte of the original family unchanged.
+
+**2. Who reviews next.** The provider's content filter has stopped two Codex reviews of this purge code. The next review of the database family runs on a different model family, chosen from what `orchestrator_capabilities` offers, and stays independent of the integrator's model.
 
 ## 18. Consequences
 
