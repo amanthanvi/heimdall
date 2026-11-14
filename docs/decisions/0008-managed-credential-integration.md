@@ -4573,6 +4573,35 @@ No review has run yet. These rulings complete the wave before its reviews.
     - It is read through `testcfg`, refused in release builds, and probed by the release gate.
     - It must be an owner-only, strict ancestor of the roots, and the full rule still applies below it.
     - A test still proves the full chain from `/` without the hook.
+### 17.34 Orchestrator rulings on wave 5's fourth re-check (2026-11-14)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-recheck4.md`. The fourth re-check, of `06990cc8..e068e049` (Codex), was stopped by its provider's content filter before it wrote a report. The orchestrator reconstructed the record from its command ledger.
+- Every round-11 revert failed its regression.
+- Four new probes failed: W5-F01 to F04.
+- §17.33 item 10's precedence applies: the `RESIDUALS` entry for a swap during the final read was inaccurate, and it is replaced by item 1.
+
+1. **W5-F01 and W5-F02: the bytes validated are the bytes deleted.**
+   - **Quarantine first:** under the lock, through the anchored handles, each entry the purge will remove (the database, each backup, each binding directory, each mux path) is first renamed atomically (`renameat`, `MoveFileEx` on Windows) to a fresh random quarantine name inside the same anchored directory.
+   - **Then validate:** the final read, the snapshot comparison and the bundle check run against the **quarantined** database. Each other entry's identity (device and inode, or Windows file ID) is checked against what was inspected.
+   - **Then delete:** only after every entry validates are the quarantine names unlinked.
+   - **On any mismatch,** every entry is renamed back and the purge refuses with nothing deleted. If a rename-back fails, the entry stays in quarantine, its exact path is reported, and the purge refuses.
+   - **The result:** an actor that swaps an entry can, at most, cause the deletion of an entry it placed at a random quarantine name itself. Data the purge did not validate is never removed.
+   - **The regressions:** the re-check's two probes (`recheck4_transient_state_swap_must_keep_unconfirmed_recovery`, `recheck4_leaf_replacement_must_keep_unconfirmed_owner_data`). The `RESIDUALS` entry for the final-read swap is removed or rewritten to name only what remains, if anything.
+2. **W5-F03: a user-private-group home passes the secure-path rule.**
+   - Under the user-private-group scheme (Debian and Ubuntu with umask 002), an ancestor may be group-writable when:
+     - its group is the user's own primary group;
+     - that group's name is the user's name;
+     - the group has no other members.
+
+     This is OpenSSH's Debian `user-group-modes` rule.
+   - **Mechanism:** the group lookup goes through a module that overview §9 already allows `unsafe` in; no new crate. If the lookup is unavailable, the rule refuses, naming the directory and the fix (`chmod g-w <dir>`).
+   - The roots stay owner-only.
+   - **The regression:** the re-check's probe (`recheck4_default_unix_home_with_private_group_must_pass`), plus a shared-group case that still refuses.
+3. **W5-F04, recorded in `RESIDUALS`:**
+   - **The case:** cancelling issuer cleanup during its 5 s wait signals the child through `kill_on_drop`.
+   - **Why it is safe:** the child is unreaped, so the handle cannot reach a reused PID, and there is no lasting effect.
+   - **The entry:** it names the probe (`recheck4_cancelling_stop_must_not_signal_unverified_child`).
+4. **Carried to round 12's re-check:** the questions the cut-off run did not finish (its own analysis of the lease, exact-child-stop and Windows paths, and a review of every `RESIDUALS` entry).
 
 ## 18. Consequences
 
