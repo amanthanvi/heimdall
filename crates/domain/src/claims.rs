@@ -238,6 +238,22 @@ pub const RESIDUALS: &[Residual] = &[
         reason: ResidualReason::FailClosedOnly,
         adr: "ADR-0008 §17.34 item 3",
     },
+    Residual {
+        id: "uninstall_fence_release_stuck_until_holder_work_ends",
+        description: "holder work that never ends (a step admitted under the uninstall fence's lease that does not finish) keeps a released fence releasing: every other fenced request stays refused until that work ends or the runtime restarts. Past the 20 s release bound the refusal is uninstall_fence_release_stuck (SERVICE_UNAVAILABLE, exit 5, effect none), naming the restart: heimdall service stop, then heimdall service run --detach. The fence is never stored, so a restarted runtime has none. It only refuses; nothing lasts",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.fence_release (ADR-0008 §17.33 items 1 and 9)",
+        probe: Probe {
+            target: "-p heimdall-app --lib",
+            source: "crates/app/src/operations/uninstall_fence_m03.rs",
+            test: "operations::uninstall_fence_m03::tests::fence_release_stuck_past_its_bound_refuses_with_the_restart",
+        },
+        reason: ResidualReason::FailClosedOnly,
+        adr: "ADR-0008 §17.33 item 9; §17.35 item 3",
+    },
 ];
 
 /// The entries of [`CLAIMS`] for one field and platform.
@@ -264,6 +280,82 @@ mod tests {
         assert_eq!(claims_for("lock_continuity", &p).count(), 0);
         assert_eq!(product_store_kinds("windows"), ["windows_dpapi"]);
         assert!(product_store_kinds("plan9").is_empty());
+    }
+
+    /// The residual IDs an ADR text names. **Recognition rule** (ADR-0008 §17.35 item 3):
+    /// a backticked snake_case token (lowercase ASCII letters and digits, at least one
+    /// `_`) whose opening backtick is preceded, after one space, by the word `residual`
+    /// (any case, as in "the named residual `x`") or by `` `RESIDUALS` gains `` or
+    /// `` `RESIDUALS` entry ``.
+    fn adr_residual_ids(text: &str) -> Vec<String> {
+        let snake = |t: &str| {
+            t.contains('_')
+                && t.starts_with(|c: char| c.is_ascii_lowercase())
+                && t.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        };
+        let mut out = Vec::new();
+        let mut rest = text;
+        let mut before_len = 0;
+        while let Some(open) = rest.find('`') {
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('`') else { break };
+            let token = &after[..close];
+            let before = &text[..before_len + open];
+            let lower = before.to_ascii_lowercase();
+            let named = lower.ends_with(" residual ")
+                || lower.ends_with("\nresidual ")
+                || lower == "residual "
+                || before.ends_with("`RESIDUALS` gains ")
+                || before.ends_with("`RESIDUALS` entry ");
+            if named && snake(token) {
+                out.push(token.to_owned());
+            }
+            before_len += open + 1 + close + 1;
+            rest = &after[close + 1..];
+        }
+        out
+    }
+
+    #[test]
+    fn adr_residual_recognition_rule() {
+        let t = "The named residual `a_b` and `RESIDUALS` gains `c_d` (and `RESIDUALS` entry `e_f`); \
+                 not `g_h`, not residual `Not_Snake`, not a residual: `i_j`.";
+        assert_eq!(adr_residual_ids(t), ["a_b", "c_d", "e_f"]);
+    }
+
+    /// `every_adr_named_residual_is_listed` (ADR-0008 §17.35 item 3, W5-G03): every
+    /// residual ID an ADR names ([`adr_residual_ids`] over `docs/decisions/*.md`) is a
+    /// [`RESIDUALS`] entry.
+    #[test]
+    fn every_adr_named_residual_is_listed() {
+        let root = heimdall_testkit::repo::repo_root();
+        let dir = root.join("docs/decisions");
+        let mut named = Vec::new();
+        for e in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+            let p = e.unwrap_or_else(|e| panic!("{e}")).path();
+            if p.extension().is_some_and(|x| x == "md") {
+                let text = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{e}"));
+                named.extend(
+                    adr_residual_ids(&text)
+                        .into_iter()
+                        .map(|id| (p.clone(), id)),
+                );
+            }
+        }
+        assert!(
+            named
+                .iter()
+                .any(|(_, id)| id == "uninstall_fence_release_stuck_until_holder_work_ends"),
+            "the rule finds ADR-0008 §17.35 item 3's residual"
+        );
+        for (p, id) in &named {
+            assert!(
+                RESIDUALS.iter().any(|r| r.id == id),
+                "{} names the residual {id}, which RESIDUALS does not list",
+                p.display()
+            );
+        }
     }
 
     /// `residuals_are_never_claims` (ADR-0008 §17.33 item 7): every residual has a

@@ -1483,7 +1483,10 @@ async fn retry_remote_revocations<S: crate::cli::Session>(
 }
 
 /// ⟨§17.32 item 7⟩ The inventory's pending remote revocations as the retry left them:
-/// the completed ones leave the listing, the others carry their counts now.
+/// the ones the retry returned carry their counts now; ⟨ADR-0008 §17.35 item 4
+/// (W5-G04)⟩ a record leaves the listing only for a `completed` answer that is no longer
+/// pending. A `failed` answer, or any still-pending one without a replacement record,
+/// keeps the confirmed record listed.
 fn apply_retries(inv: &mut Inventory, retries: &[RemoteRetry]) {
     inv.remote_revocations.retain_mut(|r| {
         match retries.iter().find(|t| t.root_grant == r.root.as_str()) {
@@ -1492,7 +1495,7 @@ fn apply_retries(inv: &mut Inventory, retries: &[RemoteRetry]) {
                     *r = record.clone();
                     true
                 }
-                None => false,
+                None => !(t.outcome == "completed" && !t.pending),
             },
             None => true,
         }
@@ -1983,7 +1986,216 @@ async fn confirm_purge<P: Prompter>(
     }
 }
 
+/// ⟨ADR-0008 §17.35 item 7 (audit D1, D2)⟩ `heimdall uninstall`: an interrupted purge's
+/// quarantine is handled **first** ([`recover_quarantine`]), never as foreign; then the
+/// uninstall as before, its report naming what was renamed back.
 async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P) -> Outcome {
+    let trusted_top = match crate::testcfg::purge_trusted_top(&|n| std::env::var_os(n)) {
+        Ok(t) => t,
+        Err(m) => return crate::setup_cmd::usage(&m),
+    };
+    let paths = match ctx.paths() {
+        Ok(p) => p,
+        Err(e) => return Outcome::of(output::error_value(*e)),
+    };
+    let recovered = match recover_quarantine(&paths, trusted_top.as_deref()).await {
+        Ok(r) => r,
+        Err(refused) => return refused,
+    };
+    let mut out = uninstall_after_recovery(ctx, args, prompt).await;
+    if !recovered.is_empty() {
+        let home = home();
+        let shown: Vec<String> = recovered
+            .iter()
+            .map(|p| heimdall_localenv::paths::display_path(&home, p))
+            .collect();
+        if let serde_json::Value::Object(map) = &mut out.env.data {
+            map.insert(
+                "recovered_from_quarantine".to_owned(),
+                serde_json::json!(shown),
+            );
+        }
+        out.human.insert_str(
+            0,
+            &format!(
+                "Restored first, from an interrupted purge's quarantine (renamed back to their names):\n{}",
+                shown.iter().map(|p| format!("    {p}\n")).collect::<String>()
+            ),
+        );
+    }
+    out
+}
+
+/// ⟨ADR-0008 §17.35 item 7 (audit D1, D2)⟩ An interrupted purge's quarantine (a crash
+/// between its moves, or during a restore), handled before anything else under the
+/// instance lock: each quarantined database family is **restored** (rejoined by its
+/// record under §17.35 item 1's rule: none of its original names occupied by anything
+/// but its own members, the database first), and each quarantined tree renamed back to
+/// its free name. A restore deletes nothing and loses nothing, so nothing is asked: the
+/// report lists what was renamed back. `Err` (`SERVICE_UNAVAILABLE`,
+/// `uninstall_quarantine_present`) naming exactly what is left, as it is on disk, when
+/// anything cannot be restored.
+async fn recover_quarantine(
+    paths: &heimdall_runtime::paths::Paths,
+    top: Option<&Path>,
+) -> Result<Vec<PathBuf>, Outcome> {
+    use heimdall_runtime::service::STATE_DB_FILE;
+    if !crate::purge_sweep::leftovers_present(&paths.state_dir, &paths.runtime_dir, STATE_DB_FILE) {
+        return Ok(Vec::new());
+    }
+    let refuse = |why: String| {
+        Outcome::of(output::error_value(
+            heimdall_app::OpError::new(Code::ServiceUnavailable, why)
+                .with_reason(heimdall_contract::envelope::reason::UNINSTALL_QUARANTINE_PRESENT)
+                .with_effect(EffectStatus::None)
+                .into_envelope(),
+        ))
+    };
+    let Ok(anchors) = crate::purge_sweep::Anchors::open(&paths.state_dir, &paths.runtime_dir, top)
+    else {
+        return Err(refuse(format!(
+            "{QUARANTINE_FOUND} could not be restored: {}",
+            ROOTS_REFUSED.trim_start_matches("--purge-state refused: ")
+        )));
+    };
+    let _lock = match anchored_lock(&anchors, LOCK_WAIT).await {
+        Ok(lock) => lock,
+        Err(why) => {
+            return Err(refuse(format!(
+                "{QUARANTINE_FOUND} could not be restored: {}",
+                why.trim_start_matches("--purge-state refused: ")
+            )));
+        }
+    };
+    let rec = anchors.recover(STATE_DB_FILE);
+    if rec.left.is_empty() {
+        return Ok(rec.restored);
+    }
+    let home = home();
+    let lines = |ps: &[PathBuf], describe: bool| {
+        ps.iter()
+            .filter(|p| std::fs::symlink_metadata(p).is_ok())
+            .map(|p| {
+                let shown = heimdall_localenv::paths::display_path(&home, p);
+                if describe {
+                    format!("{shown} ({})", describe_left(p))
+                } else {
+                    shown
+                }
+            })
+            .collect::<Vec<String>>()
+    };
+    let mut why = format!(
+        "{QUARANTINE_FOUND} could not all be restored (a name it would take back is occupied, or an entry is not one the purge put there), so nothing else was done; left as they are on disk: {}",
+        lines(&rec.left, true).join("; ")
+    );
+    let back = lines(&rec.restored, false);
+    if !back.is_empty() {
+        why.push_str(&format!("; renamed back: {}", back.join(", ")));
+    }
+    why.push_str(". Move each quarantine directory's files back to the state directory together (the database first) once their names are free, or remove them, then run `heimdall uninstall` again");
+    Err(refuse(why))
+}
+
+/// ⟨§17.34 item 1; audit C1; §17.35 item 8 (audit D4)⟩ The refusal for entries left at
+/// quarantine names (a refusal whose rename-back failed, or a deletion that failed
+/// part-way): only what is on disk now, each described as it is.
+fn quarantine_report(
+    out: Outcome,
+    message: &'static str,
+    paths: &[PathBuf],
+    renamed_back: &[PathBuf],
+) -> Outcome {
+    // ⟨§17.34 item 1; audit C1⟩ These are left at quarantine names (a refusal whose
+    // rename-back failed, or a deletion that failed part-way).
+    let home = home();
+    // ⟨§17.35 item 8 (audit D4)⟩ Only what is on disk now, each as it is.
+    let on_disk = |ps: &[PathBuf]| -> Vec<PathBuf> {
+        ps.iter()
+            .filter(|p| std::fs::symlink_metadata(p).is_ok())
+            .cloned()
+            .collect()
+    };
+    let (paths, renamed_back) = (on_disk(paths), on_disk(renamed_back));
+    let shown: Vec<String> = paths
+        .iter()
+        .map(|p| heimdall_localenv::paths::display_path(&home, p))
+        .collect();
+    let described: Vec<String> = paths
+        .iter()
+        .zip(&shown)
+        .map(|(p, s)| format!("{s} ({})", describe_left(p)))
+        .collect();
+    let back: Vec<String> = renamed_back
+        .iter()
+        .map(|p| heimdall_localenv::paths::display_path(&home, p))
+        .collect();
+    let mut refused = not_purged(out, message);
+    if let serde_json::Value::Object(map) = &mut refused.env.data {
+        map.insert("left_in_quarantine".to_owned(), serde_json::json!(shown));
+        map.insert("renamed_back".to_owned(), serde_json::json!(back));
+    }
+    if !back.is_empty() {
+        refused.human.push_str(&format!(
+            "Renamed back to their names:\n{}",
+            back.iter()
+                .map(|p| format!("    {p}\n"))
+                .collect::<String>()
+        ));
+    }
+    if !described.is_empty() {
+        refused.human.push_str(&format!(
+                "Left in quarantine, as each is on disk now (move a quarantine directory's files back to the state directory together, the database first; rename any other entry back to the name after its `.hm-purge-<hex>-` prefix):\n{}",
+                described.iter().map(|p| format!("    {p}\n")).collect::<String>()
+            ));
+    }
+    refused
+}
+
+/// ⟨§17.35 item 7⟩ The opening of the refusal when a quarantine is found.
+const QUARANTINE_FOUND: &str = "an interrupted uninstall left the state database's files or other entries in quarantine, and they";
+
+/// ⟨ADR-0008 §17.35 item 8 (audit D4)⟩ What a path left in quarantine is, as it is on
+/// disk now (never what it was meant to hold).
+fn describe_left(p: &Path) -> String {
+    use heimdall_runtime::service::STATE_DB_FILE;
+    match std::fs::symlink_metadata(p) {
+        Ok(m) if m.is_dir() => {
+            let mut names: Vec<String> = std::fs::read_dir(p)
+                .map(|es| {
+                    es.flatten()
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            if names.iter().any(|n| n == STATE_DB_FILE) {
+                format!(
+                    "a quarantine directory holding the state database: {}",
+                    names.join(", ")
+                )
+            } else if names.is_empty() {
+                "an empty quarantine directory; the state database is not in it".to_owned()
+            } else {
+                format!(
+                    "a quarantine directory holding {}; the state database is not in it",
+                    names.join(", ")
+                )
+            }
+        }
+        Ok(_) if p.file_name() == Some(std::ffi::OsStr::new(STATE_DB_FILE)) => {
+            "the state database".to_owned()
+        }
+        Ok(_) => "a file".to_owned(),
+        Err(_) => "absent".to_owned(),
+    }
+}
+
+async fn uninstall_after_recovery<P: Prompter>(
+    ctx: &Ctx,
+    args: &UninstallArgs,
+    prompt: &mut P,
+) -> Outcome {
     // ⟨ADR-0008 §17.33 item 14⟩ The debug-only trusted top of the purge's secure-path
     // check; a release build refuses the variable (exit 2) before anything else.
     let trusted_top = match crate::testcfg::purge_trusted_top(&|n| std::env::var_os(n)) {
@@ -2163,6 +2375,7 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     let mut changed = None;
     let mut unavailable = None;
     let mut stuck: Option<(&'static str, Vec<PathBuf>)> = None;
+    let mut renamed_back: Vec<PathBuf> = Vec::new();
     let mut bundle_now = None;
     if purge && retried.is_err() {
         unavailable = Some(RETRY_NOT_MADE);
@@ -2184,7 +2397,10 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
                 purged = true;
                 left = remaining(ctx, &dirs, purged);
             }
-            PurgeEnd::Purged(Err(e)) => stuck = Some((QUARANTINE_PARTIAL, e.stuck)),
+            PurgeEnd::Purged(Err(e)) => {
+                stuck = Some((QUARANTINE_PARTIAL, e.stuck));
+                renamed_back = e.restored;
+            }
             PurgeEnd::Stuck(paths) => stuck = Some((QUARANTINE_STUCK, paths)),
             PurgeEnd::Incomplete => refused_purge = true,
             PurgeEnd::Changed(now) => changed = Some(now),
@@ -2214,21 +2430,7 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
         return inventory_changed(Some(out), &now, EffectStatus::Partial);
     }
     if let Some((message, paths)) = stuck {
-        // ⟨§17.34 item 1; audit C1⟩ These are left at quarantine names (a refusal whose
-        // rename-back failed, or a deletion that failed part-way).
-        let home = home();
-        let shown: Vec<String> = paths
-            .iter()
-            .map(|p| heimdall_localenv::paths::display_path(&home, p))
-            .collect();
-        let mut refused = not_purged(out, message);
-        if let serde_json::Value::Object(map) = &mut refused.env.data {
-            map.insert("left_in_quarantine".to_owned(), serde_json::json!(shown));
-        }
-        refused.human.push_str(&format!(
-            "Left in quarantine (rename each back to the name after its `.hm-purge-<hex>-` prefix):\n{}",
-            shown.iter().map(|p| format!("    {p}\n")).collect::<String>()
-        ));
+        let refused = quarantine_report(out, message, &paths, &renamed_back);
         return annotate(refused, &inv, bundle.as_deref());
     }
     if let Some(message) = unavailable {
@@ -2614,6 +2816,20 @@ async fn purge_locked(
     if anchors.verify(STATE_DB_FILE).is_err() || q.validate().is_err() {
         return back(q, PurgeEnd::Unavailable(ROOTS_REFUSED));
     }
+    // ⟨§17.35 item 2 (W5-G02)⟩ Every committed record into the main file before anything
+    // is deleted, on a read-write connection: the read-only validating store cannot
+    // write the main file, so it cannot checkpoint. That connection is opened in the
+    // quarantine directory and confirmed by the same census; the log must be empty after.
+    #[cfg(test)]
+    tests::before_checkpoint_hook();
+    let checkpointed = q.checkpoint(
+        heimdall_store::Checkpointer::open,
+        |c| c.as_ref().is_ok_and(|c| c.probe().is_ok()),
+        |c| c.as_ref().is_ok_and(|c| c.truncate().is_ok()),
+    );
+    if checkpointed.is_err() {
+        return back(q, PurgeEnd::Unavailable(CHECKPOINT_REFUSED));
+    }
     let deleted = q.delete();
     drop(lock);
     PurgeEnd::Purged(deleted)
@@ -2669,7 +2885,10 @@ const QUARANTINE_STUCK: &str = "--purge-state refused: an entry changed between 
 
 /// ⟨audit C1⟩ The deletion failed part-way: what was not yet deleted (the state database
 /// among it) was renamed back, and what could not be is listed.
-const QUARANTINE_PARTIAL: &str = "--purge-state stopped part-way: a deletion failed, so the entries not yet deleted (the state database among them, deleted last) were renamed back to their names; any entry listed below is left at its quarantine name. Rename each back, or remove it, then run `heimdall uninstall --purge-state` again";
+const QUARANTINE_PARTIAL: &str = "--purge-state stopped part-way: a deletion failed after some entries were deleted. The entries listed below as renamed back are at their names again; the entries listed as left in quarantine are there now, each described as it is on disk. Move what is left back, or remove it, then run `heimdall uninstall --purge-state` again";
+
+/// ⟨§17.35 item 2⟩ The checkpoint before the deletion did not complete, or left a log.
+const CHECKPOINT_REFUSED: &str = "--purge-state refused: the state database could not be checkpointed (every committed record copied into the database file, its log emptied) before the deletion; nothing was purged: the state database, the backups and every recovery record are kept. Run `heimdall uninstall --purge-state` again";
 
 /// ⟨ADR-0008 §17.33 item 10⟩ The anchored roots could not be established or changed.
 const ROOTS_REFUSED: &str = "--purge-state refused: the state or runtime directory, or one of its parent directories, is a link, is not this user's, or was replaced while uninstall was running; nothing was purged: the state database, the backups and every recovery record are kept. Run `heimdall uninstall --purge-state` again";
@@ -2798,6 +3017,20 @@ mod tests {
     thread_local! {
         static FINAL_READ_HOOK: std::cell::RefCell<FinalReadHook> =
             const { std::cell::RefCell::new(None) };
+    }
+
+    thread_local! {
+        static BEFORE_CHECKPOINT: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// Called just before the checkpoint's connection is opened (tests swap a log there).
+    pub(super) fn before_checkpoint_hook() {
+        BEFORE_CHECKPOINT.with(|h| {
+            if let Some(f) = h.borrow_mut().as_mut() {
+                f();
+            }
+        });
     }
 
     /// Called just before (`false`) and after (`true`) the purge's final read.
@@ -5273,6 +5506,44 @@ mod tests {
         assert!(s.sent.is_empty());
     }
 
+    /// `final_review_failed_retry_retains_pending_display_record` (ADR-0008 §17.35 item
+    /// 4, W5-G04): a `failed` retry answer (still pending, no replacement record) keeps
+    /// the confirmed record in the displayed inventory, and so does any still-pending
+    /// answer without one; only a completed answer that is no longer pending removes it.
+    #[test]
+    fn final_review_failed_retry_retains_pending_display_record() {
+        let answer = |outcome: &str, pending: bool| RemoteRetry {
+            root_grant: remote_revocation().root.as_str().to_owned(),
+            outcome: outcome.to_owned(),
+            attempts_before: 1,
+            attempts_after: 1,
+            stopped: false,
+            pending,
+            record: None,
+        };
+        let listed = |t: RemoteRetry| {
+            let mut inv = Inventory {
+                remote_revocations: vec![remote_revocation()],
+                ..Inventory::default()
+            };
+            apply_retries(&mut inv, &[t]);
+            inv.remote_revocations
+        };
+        assert_eq!(
+            listed(answer("failed", true)),
+            vec![remote_revocation()],
+            "failed retry hid the still-pending record"
+        );
+        assert_eq!(
+            listed(answer("attempted_still_pending", true)),
+            vec![remote_revocation()]
+        );
+        assert!(
+            listed(answer("completed", false)).is_empty(),
+            "completed: gone"
+        );
+    }
+
     /// `uninstall_purge_admits_exactly_its_own_retry` (ADR-0008 §17.32 item 7, §17.33
     /// item 3): the record exactly as this uninstall's one retry returned it is admitted
     /// by the final check; another record (another count), no record, or a "gone"
@@ -5808,21 +6079,21 @@ mod tests {
     }
 
     /// The quarantine path of the state database's file with suffix `sfx` (`""`, `-wal`):
-    /// the quarantined database's path with `sfx` appended (whether or not that exists).
+    /// that file's name in the database family's quarantine directory
+    /// (`.hm-purge-<tag>-database`), whether or not it exists.
     #[cfg(unix)]
     fn quarantined(state: &Path, sfx: &str) -> PathBuf {
-        let want = format!("-{}", heimdall_runtime::service::STATE_DB_FILE);
-        let db = std::fs::read_dir(state)
+        let dir = std::fs::read_dir(state)
             .unwrap_or_else(|e| panic!("{e}"))
             .flatten()
             .map(|e| e.path())
             .find(|p| {
                 p.file_name()
                     .map(|n| n.to_string_lossy().into_owned())
-                    .is_some_and(|n| n.starts_with(".hm-purge-") && n.ends_with(&want))
+                    .is_some_and(|n| n.starts_with(".hm-purge-") && n.ends_with("-database"))
             })
             .unwrap_or_else(|| panic!("no quarantined database"));
-        companion(&db, sfx)
+        companion(&dir.join(heimdall_runtime::service::STATE_DB_FILE), sfx)
     }
 
     /// `write` committed only to the state database's `-wal` (the database file itself
@@ -5962,11 +6233,340 @@ mod tests {
                 }
             }));
         });
+        let bytes = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
         let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
         FINAL_READ_HOOK.with(|h| *h.borrow_mut() = None);
         assert!(!matches!(end, PurgeEnd::Purged(_)), "purged");
-        assert!(db.exists(), "the database holding record 7 was deleted");
-        let after = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
-        assert!(!confirmed.unchanged_but_for(&after, &OwnChanges::default()));
+        // The planted log is not the purge's own file, so the unit is never restored
+        // beside it (§17.35 item 1): the database stays whole in its quarantine
+        // directory, reported, its bytes (record 7) intact.
+        let PurgeEnd::Stuck(left) = &end else {
+            panic!("the quarantined unit is not reported")
+        };
+        let kept = quarantined(&state, "");
+        assert!(left.contains(&kept), "{left:?}");
+        assert!(!db.exists(), "never restored beside the planted log");
+        assert_eq!(
+            std::fs::read(&kept).ok().as_deref(),
+            Some(&bytes[..]),
+            "the database holding record 7 was deleted"
+        );
+    }
+
+    // --- ADR-0008 §17.35 items 1-2 (W5-G01, W5-G02) --------------------------------------
+
+    /// `final_review_restore_does_not_attach_old_wal_to_new_owner_database` (ADR-0008
+    /// §17.35 item 1, the re-check's probe): the inspected database has a committed record
+    /// (7) only in its `-wal`; during the final read another database (record 9) is put
+    /// at the original `state.db`. The purge refuses, and the restore finds a name of
+    /// the unit occupied, so the whole unit (the database and its `-wal`) stays in its
+    /// quarantine directory: no old log is attached to the replacement, which keeps
+    /// record 9 after a normal reopen.
+    #[cfg(unix)]
+    #[test]
+    fn final_review_restore_does_not_attach_old_wal_to_new_owner_database() {
+        let (d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        let wal = wal_of(&state, |tx| tx.insert_foreign_removal(&foreign(7)));
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let other = d.path().join("other");
+        std::fs::create_dir(&other).unwrap_or_else(|e| panic!("{e}"));
+        let replacement = database(&other, |tx| tx.insert_foreign_removal(&foreign(9)));
+        let has = |p: &Path, n: u8| {
+            Inventory::read(p)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .foreign
+                .iter()
+                .any(|f| f.id == foreign(n).id)
+        };
+        assert!(has(&replacement, 9));
+        let (r, at) = (replacement.clone(), db.clone());
+        FINAL_READ_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |after| {
+                if after {
+                    std::fs::copy(&r, &at).unwrap_or_else(|e| panic!("{e}"));
+                }
+            }));
+        });
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        FINAL_READ_HOOK.with(|h| *h.borrow_mut() = None);
+        // A normal reopen (it checkpoints any log beside the database), then a read.
+        replacement_writes(&state, |_| Ok(()));
+        assert!(!companion(&db, "-wal").exists());
+        assert!(
+            has(&db, 9),
+            "rename-back attached another database's WAL and lost the unvalidated record"
+        );
+        let PurgeEnd::Stuck(left) = &end else {
+            panic!("the unit is not kept and reported")
+        };
+        assert!(left.contains(&quarantined(&state, "")), "{left:?}");
+        assert!(left.contains(&quarantined(&state, "-wal")), "{left:?}");
+        assert_eq!(
+            std::fs::read(quarantined(&state, "-wal")).ok().as_deref(),
+            Some(&wal[..]),
+            "the old log is kept whole with its database"
+        );
+    }
+
+    /// `final_review_checkpoint_puts_every_record_in_the_database_file` (ADR-0008 §17.35
+    /// item 2): the confirmed records are committed only to the `-wal`; the checkpoint
+    /// before the deletion copies them into the database file, so when the database's
+    /// own deletion then fails, the database file kept (in quarantine or at its name)
+    /// holds every record by itself.
+    #[cfg(unix)]
+    #[test]
+    fn final_review_checkpoint_puts_every_record_in_the_database_file() {
+        use heimdall_contract::enrollment::{EnrollmentForm, EnrollmentState as S};
+        use heimdall_domain::enrollment::EnrollmentEventKind as K;
+        use std::os::unix::fs::PermissionsExt as _;
+        let (d, state, _) = state_dir();
+        let db = db_of(&state);
+        let mut r = foreign(5);
+        r.target.form = EnrollmentForm::Account;
+        let wal = wal_of(&state, |tx| {
+            tx.insert_foreign_removal(&r)?;
+            for (from, kind) in [
+                (S::Planned, K::RemoveEnrollmentApproved),
+                (S::Removing, K::RemovalOutcomeLost),
+                (S::RemoveUnknown, K::ReconcileApplied),
+            ] {
+                r = tx
+                    .transition_foreign_removal(from, kind, &r)?
+                    .unwrap_or_else(|e| panic!("{e:?}"));
+            }
+            Ok(())
+        });
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert!(confirmed.clear());
+        let alone = |p: &Path| {
+            let scratch = d.path().join("alone");
+            let _ = std::fs::remove_dir_all(&scratch);
+            std::fs::create_dir(&scratch).unwrap_or_else(|e| panic!("{e}"));
+            std::fs::copy(p, scratch.join("state.db")).unwrap_or_else(|e| panic!("{e}"));
+            Inventory::read(&scratch.join("state.db")).unwrap_or_else(|e| panic!("{e}"))
+        };
+        assert!(
+            !confirmed.unchanged_but_for(&alone(&db), &OwnChanges::default()),
+            "before: the record is only in the log"
+        );
+        let st = state.clone();
+        let end = crate::purge_sweep::tests::with_unlink_hook(
+            move |name| {
+                if name == std::ffi::OsStr::new(heimdall_runtime::service::STATE_DB_FILE)
+                    && let Some(u) = crate::purge_sweep::tests::unit_dir(&st)
+                {
+                    let _ = std::fs::set_permissions(&u, std::fs::Permissions::from_mode(0o500));
+                }
+            },
+            || purge_now(&state, &confirmed, Duration::from_millis(300), || {}),
+        );
+        let unit = crate::purge_sweep::tests::unit_dir(&state);
+        if let Some(u) = &unit {
+            let _ = std::fs::set_permissions(u, std::fs::Permissions::from_mode(0o700));
+        }
+        assert!(
+            !matches!(end, PurgeEnd::Purged(Ok(()))),
+            "the deletion could not succeed"
+        );
+        let kept = if db.exists() {
+            db.clone()
+        } else {
+            unit.map(|u| u.join(heimdall_runtime::service::STATE_DB_FILE))
+                .unwrap_or_else(|| panic!("no database kept"))
+        };
+        assert!(
+            confirmed.unchanged_but_for(&alone(&kept), &OwnChanges::default()),
+            "the database file kept does not hold every confirmed record by itself"
+        );
+    }
+
+    // --- ADR-0008 §17.35 items 7-8 (audit D1-D4) ------------------------------------------
+
+    /// The paths of a test's state directory, for [`recover_quarantine`].
+    #[cfg(unix)]
+    fn paths_of(state: &Path) -> heimdall_runtime::paths::Paths {
+        let base = state.parent().unwrap_or(state);
+        heimdall_runtime::paths::Paths {
+            config_dir: base.join("config"),
+            state_dir: state.to_path_buf(),
+            runtime_dir: run_of(state),
+            log_dir: base.join("log"),
+        }
+    }
+
+    /// Whether the state database shows foreign removal `n`.
+    #[cfg(unix)]
+    fn shows(db: &Path, n: u8) -> bool {
+        Inventory::read(db)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .foreign
+            .iter()
+            .any(|f| f.id == foreign(n).id)
+    }
+
+    /// A crash (the process stops, no cleanup) leaves the state as it is; the start-up
+    /// check then refuses, and `heimdall uninstall`'s first step restores the unit.
+    #[cfg(unix)]
+    fn after_crash_start_refuses_and_uninstall_restores(state: &Path, wal: &[u8], at_name: bool) {
+        let db = db_of(state);
+        let left = heimdall_runtime::service::quarantine_leftovers(state)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            !left.is_empty(),
+            "the runtime would start over the crash's leftovers"
+        );
+        let log = if at_name {
+            companion(&db, "-wal")
+        } else {
+            quarantined(state, "-wal")
+        };
+        assert_eq!(
+            std::fs::read(&log).ok().as_deref(),
+            Some(wal),
+            "the -wal is kept byte for byte"
+        );
+        let top = state.parent().map(Path::to_path_buf);
+        let restored = block_on(recover_quarantine(&paths_of(state), top.as_deref()))
+            .unwrap_or_else(|out| panic!("not restored: {}", out.env.data));
+        assert!(!restored.is_empty(), "{restored:?}");
+        assert!(
+            heimdall_runtime::service::quarantine_leftovers(state)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty()
+        );
+        assert!(shows(&db, 7), "a commit that was only in the -wal is lost");
+    }
+
+    /// `final_review_crash_between_database_and_wal_moves_keeps_every_commit` (ADR-0008
+    /// §17.35 item 7, audit D1): the process stops after the database moved into its
+    /// quarantine directory and before its `-wal` did (record 7 is only in that log). The
+    /// runtime's start-up refuses (a quarantine is present) and the `-wal` is intact;
+    /// `heimdall uninstall` restores the unit with record 7.
+    #[cfg(unix)]
+    #[test]
+    fn final_review_crash_between_database_and_wal_moves_keeps_every_commit() {
+        let (_d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        let wal = wal_of(&state, |tx| tx.insert_foreign_removal(&foreign(7)));
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let crashed = crate::purge_sweep::tests::crashing_at("move", "state.db-wal", || {
+            let _ = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        });
+        assert!(crashed);
+        assert!(!db.exists(), "the database moved before the crash");
+        after_crash_start_refuses_and_uninstall_restores(&state, &wal, true);
+    }
+
+    /// `final_review_crash_during_restore_keeps_every_commit` (ADR-0008 §17.35 item 7,
+    /// audit D2): the purge refuses (record 7, only in the `-wal`, was never confirmed)
+    /// and its restore stops after the database moved back and before its `-wal` did.
+    /// The start-up refuses (the quarantine directory is present) and the `-wal` in it is
+    /// intact; `heimdall uninstall` rejoins it with the database, record 7 present.
+    #[cfg(unix)]
+    #[test]
+    fn final_review_crash_during_restore_keeps_every_commit() {
+        let (_d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        let wal = wal_of(&state, |tx| tx.insert_foreign_removal(&foreign(7)));
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let crashed = crate::purge_sweep::tests::crashing_at("rejoin", "state.db-wal", || {
+            let _ = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        });
+        assert!(crashed);
+        assert!(
+            db.exists() && !companion(&db, "-wal").exists(),
+            "the database alone moved back"
+        );
+        after_crash_start_refuses_and_uninstall_restores(&state, &wal, false);
+    }
+
+    /// `final_review_wal_swapped_before_checkpoint_is_refused_before_any_write` (ADR-0008
+    /// §17.35 item 8, audit D3): after the final checks, another log is put in the unit's
+    /// `-wal` before the checkpoint's connection opens. That connection reads once, the
+    /// census finds it is not the held log, and the purge refuses before any checkpoint
+    /// writes the database file: its bytes are unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn final_review_wal_swapped_before_checkpoint_is_refused_before_any_write() {
+        use heimdall_contract::enrollment::{EnrollmentForm, EnrollmentState as S};
+        use heimdall_domain::enrollment::EnrollmentEventKind as K;
+        let (_d, state, _) = state_dir();
+        let db = db_of(&state);
+        let other = wal_of(&state, |tx| tx.insert_foreign_removal(&foreign(8)));
+        let mut r = foreign(5);
+        r.target.form = EnrollmentForm::Account;
+        let wal = wal_of(&state, |tx| {
+            tx.insert_foreign_removal(&r)?;
+            for (from, kind) in [
+                (S::Planned, K::RemoveEnrollmentApproved),
+                (S::Removing, K::RemovalOutcomeLost),
+                (S::RemoveUnknown, K::ReconcileApplied),
+            ] {
+                r = tx
+                    .transition_foreign_removal(from, kind, &r)?
+                    .unwrap_or_else(|e| panic!("{e:?}"));
+            }
+            Ok(())
+        });
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert!(confirmed.clear());
+        let bytes = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        let st = state.clone();
+        BEFORE_CHECKPOINT.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                let tmp = st.join("other.tmp");
+                std::fs::write(&tmp, &other).unwrap_or_else(|e| panic!("{e}"));
+                std::fs::rename(&tmp, quarantined(&st, "-wal")).unwrap_or_else(|e| panic!("{e}"));
+            }));
+        });
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        BEFORE_CHECKPOINT.with(|h| *h.borrow_mut() = None);
+        assert!(!matches!(end, PurgeEnd::Purged(_)), "purged");
+        let main = if db.exists() {
+            db.clone()
+        } else {
+            quarantined(&state, "")
+        };
+        assert_eq!(
+            std::fs::read(&main).ok().as_deref(),
+            Some(&bytes[..]),
+            "an unconfirmed log was checkpointed into the database file"
+        );
+    }
+
+    /// `final_review_partial_report_states_only_what_is_on_disk` (ADR-0008 §17.35 item 8,
+    /// audit D4): a quarantine directory left after the database in it was deleted is
+    /// reported as it is (holding only what is there now), never as holding the
+    /// database.
+    #[cfg(unix)]
+    #[test]
+    fn final_review_partial_report_states_only_what_is_on_disk() {
+        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let unit = d
+            .path()
+            .join(".hm-purge-00000000000000000000000000000000-database");
+        std::fs::create_dir(&unit).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(unit.join("placed"), b"x").unwrap_or_else(|e| panic!("{e}"));
+        let gone = d.path().join("gone");
+        let out = report(true, true, false, None, Vec::new(), Vec::new());
+        let out = quarantine_report(out, QUARANTINE_PARTIAL, &[unit.clone(), gone], &[]);
+        assert!(
+            out.human.contains("the state database is not in it"),
+            "{}",
+            out.human
+        );
+        assert!(
+            !out.human.contains("holds the state database"),
+            "the report claims a database that is not there: {}",
+            out.human
+        );
+        assert_eq!(
+            out.env.data["left_in_quarantine"].as_array().map(Vec::len),
+            Some(1),
+            "only what exists"
+        );
     }
 }

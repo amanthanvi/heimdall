@@ -132,6 +132,85 @@ impl FaultHook for NoFaults {
     }
 }
 
+/// ⟨ADR-0008 §17.35 item 2 (W5-G02)⟩ A read-write connection on an existing database,
+/// for one `PRAGMA wal_checkpoint(TRUNCATE)`: the uninstall purge's, on the quarantined
+/// database family after its final checks pass and before anything is deleted. It never
+/// creates, migrates or otherwise writes the database.
+///
+/// ⟨ADR-0008 §17.35 item 6⟩ It exists only for that checkpoint, on the quarantined copy,
+/// confirmed by the purge's descriptor census. **It must never be used to open the live
+/// database**: the runtime opens that through [`Store::open`] under its instance lock.
+pub struct Checkpointer {
+    conn: rusqlite::Connection,
+}
+
+impl Checkpointer {
+    /// Open `path` read-write; a missing file is an error (never created).
+    ///
+    /// # Errors
+    /// SQLite.
+    pub fn open(path: &Path) -> Result<Self> {
+        let conn = rusqlite::Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(codec::classify)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(codec::classify)?;
+        conn.pragma_update(None, "trusted_schema", "OFF")
+            .map_err(codec::classify)?;
+        // ⟨ADR-0008 §17.35 item 8 (audit D3)⟩ No checkpoint when this connection closes:
+        // the only checkpoint is the explicit one, run after the caller confirmed which
+        // files SQLite opened, so an unconfirmed log is never copied into the database.
+        conn.set_db_config(
+            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+            true,
+        )
+        .map_err(codec::classify)?;
+        Ok(Self { conn })
+    }
+
+    /// ⟨ADR-0008 §17.35 item 8 (audit D3)⟩ One read (`SELECT count(*) FROM
+    /// sqlite_master`), so SQLite opens the database, its log and its index before
+    /// anything is written: the caller confirms which files those are, and only then
+    /// checkpoints.
+    ///
+    /// # Errors
+    /// SQLite.
+    pub fn probe(&self) -> Result<()> {
+        self.conn
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map_err(codec::classify)?;
+        Ok(())
+    }
+
+    /// `PRAGMA wal_checkpoint(TRUNCATE)`: every committed frame copied into the main
+    /// file, and the log truncated to zero bytes.
+    ///
+    /// # Errors
+    /// SQLite, or a checkpoint that did not complete (`SQLITE_BUSY`: blocked, or frames
+    /// left uncopied).
+    pub fn truncate(&self) -> Result<()> {
+        let (busy, log, done): (i64, i64, i64) = self
+            .conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .map_err(codec::classify)?;
+        if busy != 0 || log != done {
+            return Err(StoreError::Sqlite(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                Some(format!(
+                    "the checkpoint did not complete (busy {busy}, log {log}, checkpointed {done})"
+                )),
+            )));
+        }
+        Ok(())
+    }
+}
+
 /// The local state store.
 pub struct Store {
     conn: std::sync::Mutex<rusqlite::Connection>,

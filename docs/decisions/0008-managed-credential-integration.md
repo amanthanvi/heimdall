@@ -4634,6 +4634,18 @@ No review has run yet. These rulings complete the wave before its reviews.
 3. **W5-G03:** `RESIDUALS` gains `uninstall_fence_release_stuck_until_holder_work_ends` (§17.33 item 9), with its probe. A test asserts that every residual an ADR names is present in the manifest.
 4. **W5-G04:** a retry result that is still pending, whether `failed` or simply lacking a replacement record, keeps its record in the displayed inventory. Only a completed result that is no longer pending removes it. **The regression:** the re-check's probe (`final_review_failed_retry_retains_pending_display_record`).
 5. **What comes next:** a re-check of round 13's diff, limited to the database-family handling and item 4, with the §17.33 merge criteria.
+6. **Two additions are accepted:**
+   - `heimdall_store::Checkpointer`, an additive workspace API. It is read-write, never creates the file, is confirmed by the descriptor census, and has `wal_checkpoint` on close disabled. It is documented as existing only for item 2's checkpoint in quarantine, never to open the live database.
+   - `heimdall_ipc::windows::create_dir_owner_only`, in an overview §9 `unsafe`-allowed module.
+7. **The audit's D1 and D2: an interrupted purge blocks start-up until it is recovered.**
+   - **Why:** moving the database family file by file is not atomic. A crash between the database move and its `-wal` move, or the reverse during a restore, would otherwise let the next start-up create an empty `state.db` and discard the WAL with its commits. That is a lasting loss of recovery records with no hostile actor involved, so it is fixed (item 10 of §17.33).
+   - **The start-up check:** runtime start-up runs it after taking the instance lock and before opening the store; `Service::start_with` is the only production path that creates `state.db`. It refuses on any `.hm-purge-*` entry, or on a `-wal`, `-shm` or `-journal` without `state.db`, with the additive reason `uninstall_quarantine_present` (`SERVICE_UNAVAILABLE`, exit 5). The refusal names the exact paths and gives the next step `heimdall uninstall`.
+   - **The unit record:** a synced file in the quarantine directory lists each family member's name and inode.
+   - **Recovery:** uninstall first recovers a leftover unit under the lock by that record, with no prompt (a restore deletes nothing). It then either restores the unit under item 1's rule or completes the purge.
+8. **The audit's D3, D4 and D5 are fixed:**
+   - D3: one read, then the census, then the checkpoint, so nothing unvalidated is ever checkpointed;
+   - D4: the report states only what remains on disk;
+   - D5: on Windows, files the purge created are never restored or listed as renamed back.
 
 ## 18. Consequences
 

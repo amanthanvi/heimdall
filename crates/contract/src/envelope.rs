@@ -482,6 +482,14 @@ pub mod reason {
     /// ends or the runtime restarts (next: stop the runtime with `heimdall service
     /// stop`, then start it again with `heimdall service run --detach`).
     pub const UNINSTALL_FENCE_RELEASE_STUCK: &str = "uninstall_fence_release_stuck";
+    /// ⟨M03; ADR-0008 §17.35 item 7 (audit D1, D2)⟩ `SERVICE_UNAVAILABLE` (exit 5): the
+    /// runtime did not start (it opened no state store) because `<state>` holds an
+    /// interrupted uninstall's quarantine (a `.hm-purge-*` entry) or a `-wal`, `-shm` or
+    /// `-journal` without its database: opening the store would create a new database
+    /// and discard commits that exist only in that log. The message names the exact
+    /// paths. Next: `heimdall uninstall`, which restores the quarantined database family
+    /// (or reports what it cannot restore).
+    pub const UNINSTALL_QUARANTINE_PRESENT: &str = "uninstall_quarantine_present";
     /// ⟨M03; ADR-0008 §17.29 item 2⟩ `CONFIG_CONFLICT` (exit 6): an attended
     /// `enroll verify <enrollment> --absence` run after the `late_write` residual's
     /// not-after observed the enrollment's marker line present: the uncertain append
@@ -578,6 +586,7 @@ pub mod reason {
         ),
         (UNINSTALL_SHUTDOWN_UNCONFIRMED, Code::ServiceUnavailable),
         (UNINSTALL_FENCE_RELEASE_STUCK, Code::ServiceUnavailable),
+        (UNINSTALL_QUARANTINE_PRESENT, Code::ServiceUnavailable),
         (LATE_WRITE_PRESENT, Code::ConfigConflict),
     ];
 }

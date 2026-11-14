@@ -77,8 +77,8 @@ use windows_sys::Win32::Security::{
     SECURITY_ATTRIBUTES, TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    BY_HANDLE_FILE_INFORMATION, FILE_TYPE_PIPE, GetFileInformationByHandle, GetFileType,
-    GetFullPathNameW, MoveFileExW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
+    BY_HANDLE_FILE_INFORMATION, CreateDirectoryW, FILE_TYPE_PIPE, GetFileInformationByHandle,
+    GetFileType, GetFullPathNameW, MoveFileExW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
 };
 use windows_sys::Win32::System::Pipes::{
     GetNamedPipeClientComputerNameW, GetNamedPipeClientProcessId, ImpersonateNamedPipeClient,
@@ -711,6 +711,48 @@ pub fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
     // SAFETY: both strings are NUL-terminated and outlive the call; flags 0 asks for no
     // replacement.
     if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// ⟨ADR-0008 §17.35 item 1 (the purge's quarantine directory)⟩ Create the directory
+/// `path` **exclusively** (an existing entry fails with `ERROR_ALREADY_EXISTS`), owned by
+/// this user with a protected DACL granting this user only (the pipes' owner-only
+/// descriptor, [`owner_only_sddl`]).
+///
+/// # Errors
+/// The SID or descriptor could not be built, or the directory could not be created.
+pub fn create_dir_owner_only(path: &Path) -> io::Result<()> {
+    let owner = current_user_sid()?;
+    let sddl: Vec<u16> = OsStr::new(&owner_only_sddl(&owner, &owner))
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut descriptor: *mut c_void = ptr::null_mut();
+    // SAFETY: `sddl` is a NUL-terminated UTF-16 string that outlives the call;
+    // `descriptor` is a valid out-pointer; the size out-pointer may be null.
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let descriptor = LocalAllocation(descriptor);
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>()).unwrap_or(u32::MAX),
+        lpSecurityDescriptor: descriptor.0,
+        bInheritHandle: 0,
+    };
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: `wide` is NUL-terminated and `attributes` (with its descriptor, freed
+    // only when this function returns) outlives the call.
+    if unsafe { CreateDirectoryW(wide.as_ptr(), &attributes) } == 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())

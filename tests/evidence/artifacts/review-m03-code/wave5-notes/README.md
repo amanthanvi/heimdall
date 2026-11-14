@@ -170,3 +170,14 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r12-worklog-I.md` | The integrator's worklog: the item-1 audit (C0–C4), validation |
 | `m03-wave5-r12-worklog-P8.md` | P8: quarantine-then-validate deletion (F01, F02, C0–C4), user-private-group homes (F03), `RESIDUALS` |
 | `m03-wave5-r12-worklog-K4.md` | K4: the `kill_on_drop` residual and its probe (F04) |
+
+## Round 13 (base `ccd22853`; implements ADR-0008 §17.35 items 1–4 and 6–8, the final re-check findings W5-G01..G04, and an audit's D1–D5)
+
+These were moved here from the worktree root at the end of round 13. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r13-questions.md` | The `Checkpointer` and `create_dir_owner_only` confirmations (§17.35 item 6), audit D1/D2 (item 7) and D3–D5 (item 8): all ANSWERED |
+| `m03-wave5-r13-worklog-I.md` | The integrator's worklog: the dropped residual, the audit of items 1–2, validation |
+| `m03-wave5-r13-worklog-P8.md` | P8: the database family as one recovery unit (G01), checkpoint before deletion (G02), the residual and its ADR test (G03), the pending-retry display (G04), and D1–D5 (start-up refusal over an interrupted purge, census before checkpoint, the exact report, Windows created files) |

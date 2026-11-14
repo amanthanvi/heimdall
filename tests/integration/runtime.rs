@@ -1409,6 +1409,94 @@ mod u8b {
         assert_eq!(second.environment(), &id, "restart keeps the identity");
     }
 
+    /// `start_up_refuses_over_an_interrupted_purge_and_keeps_the_log` (ADR-0008 §17.35
+    /// item 7, audit D1, D2): before it creates or opens the state database, start-up
+    /// refuses (`SERVICE_UNAVAILABLE`, `uninstall_quarantine_present`, the paths named)
+    /// when a crash left the database family split: the database in its quarantine
+    /// directory with the `-wal` at its name; a `-wal` with no database; the database
+    /// back at its name with its `-wal` still in the quarantine directory. The `-wal` is
+    /// kept byte for byte and no database is created.
+    #[tokio::test]
+    async fn start_up_refuses_over_an_interrupted_purge_and_keeps_the_log() {
+        use heimdall_runtime::service::{STATE_DB_FILE, ServiceError};
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::under(&home(&tmp));
+        let clock = VirtualClock::at(t0());
+        let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
+        let start = || {
+            Service::start_with(
+                paths.clone(),
+                Config::default(),
+                test_options(clock.clone(), sync.clone()),
+                CancellationToken::new(),
+            )
+        };
+        drop(start().await.unwrap());
+        let state = paths.state_dir.clone();
+        let db = state.join(STATE_DB_FILE);
+        let wal = state.join(format!("{STATE_DB_FILE}-wal"));
+        let unit = state.join(".hm-purge-0123456789abcdef0123456789abcdef-database");
+        let log = b"frames that exist only in this log".to_vec();
+        let saved = tmp.path().join("saved.db");
+        std::fs::copy(&db, &saved).unwrap();
+        let cases: [(&str, &dyn Fn()); 3] = [
+            ("the database moved, its log at its name", &|| {
+                std::fs::create_dir(&unit).unwrap();
+                std::fs::rename(&db, unit.join(STATE_DB_FILE)).unwrap();
+                std::fs::write(&wal, &log).unwrap();
+            }),
+            ("a log without its database", &|| {
+                std::fs::remove_file(&db).unwrap();
+                std::fs::write(&wal, &log).unwrap();
+            }),
+            (
+                "the database back, its log in the quarantine directory",
+                &|| {
+                    std::fs::create_dir(&unit).unwrap();
+                    std::fs::write(unit.join(format!("{STATE_DB_FILE}-wal")), &log).unwrap();
+                },
+            ),
+        ];
+        for (what, layout) in cases {
+            let _ = std::fs::remove_dir_all(&unit);
+            let _ = std::fs::remove_file(&wal);
+            let _ = std::fs::remove_file(state.join(format!("{STATE_DB_FILE}-shm")));
+            std::fs::copy(&saved, &db).unwrap();
+            layout();
+            let had_db = db.exists();
+            let refused = start().await.unwrap_err();
+            let ServiceError::App(e) = &refused else {
+                panic!("{what}: {refused}");
+            };
+            assert_eq!(
+                e.reason.as_deref(),
+                Some(heimdall_contract::envelope::reason::UNINSTALL_QUARANTINE_PRESENT),
+                "{what}"
+            );
+            assert_eq!(
+                e.code,
+                heimdall_contract::Code::ServiceUnavailable,
+                "{what}"
+            );
+            assert!(
+                e.message.contains("heimdall uninstall"),
+                "{what}: {}",
+                e.message
+            );
+            let kept = if wal.exists() {
+                wal.clone()
+            } else {
+                unit.join(format!("{STATE_DB_FILE}-wal"))
+            };
+            assert_eq!(
+                std::fs::read(&kept).ok(),
+                Some(log.clone()),
+                "{what}: the log was not kept"
+            );
+            assert_eq!(db.exists(), had_db, "{what}: a database was created");
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Deadline scheduler under the virtual clock
     // -----------------------------------------------------------------------
