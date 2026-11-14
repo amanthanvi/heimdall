@@ -2996,6 +2996,19 @@
           "required": [
             "action"
           ]
+        },
+        {
+          "description": "⟨ADR-0008 §17.32 item 7 (Q-I-R10-1); additive⟩ **Holder only**, under the held\nfence and before the shutdown: exactly one ordinary revocation round per pending\nremote revocation record (the supervisor's round: one attempt under the\nrecord's caps, never a re-arm: no count reset, no lifted stop). Refused\n`SERVICE_UNAVAILABLE` (reason `uninstall_in_progress` while another connection\nholds the fence; none when nobody does), nothing attempted, unless this\nconnection holds it. Answer: `OK {\"remote_revocations\": [{\"root_grant\",\n\"outcome\": \"completed\" | \"attempted_still_pending\" | \"not_attempted\" |\n\"failed\", \"attempts_before\", \"attempts_after\", \"stopped\", \"pending\"}]}`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "retry_remote_revocations"
+            }
+          },
+          "required": [
+            "action"
+          ]
         }
       ]
     },

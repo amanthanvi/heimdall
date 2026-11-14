@@ -2053,6 +2053,50 @@ async fn issuer_supervision_starts_unstarted_child_never_a_stopped_one() {
     );
 }
 
+/// ⟨ADR-0008 §17.28 item 1, §17.32; round 10 A6⟩ Under an uninstall fence held by another
+/// connection the supervision pass loads nothing (the unstarted child is not started, so no
+/// K_ca is read into it) and advances no retirement (a `retiring` CA is not unloaded); after
+/// the lift the next pass does both.
+#[tokio::test]
+async fn issuer_supervision_pass_does_nothing_under_a_held_fence() {
+    const HOLDER: u64 = 7;
+    let w = World::new().await;
+    w.register_ca(2, CaState::Active);
+    w.tx(|tx| {
+        tx.set_issuer_state(&ca_fp(2), CaState::Active, CaEvent::RetireApproved, t0())
+            .map(|r| r.map(|_| ()).unwrap())
+    });
+    w.register_ca(1, CaState::Active);
+    w.ops.uninstall_fence_acquire(HOLDER).await.unwrap();
+    w.ops.issuer_supervision_pass().await.unwrap();
+    assert_eq!(
+        w.issuer.starts.load(Ordering::SeqCst),
+        0,
+        "no child started"
+    );
+    assert!(
+        w.issuer.unloads.lock().unwrap().is_empty(),
+        "no retirement advanced"
+    );
+    assert_eq!(
+        w.tx(|tx| tx.issuer(&ca_fp(2))).unwrap().state,
+        CaState::Retiring
+    );
+    assert!(!w.ops.uninstall_fence_release(HOLDER), "lifted");
+    w.ops.issuer_supervision_pass().await.unwrap();
+    assert_eq!(
+        w.issuer.starts.load(Ordering::SeqCst),
+        1,
+        "started after the lift"
+    );
+    assert_eq!(*w.issuer.unloads.lock().unwrap(), vec![ca_fp(2)]);
+    assert_eq!(
+        w.tx(|tx| tx.issuer(&ca_fp(2))).unwrap().state,
+        CaState::Unloaded,
+        "the retirement advanced after the lift"
+    );
+}
+
 // =================================================================================
 // INT-Q13: the verification signing gate (ADR-0008 §17.19 item 5)
 // =================================================================================

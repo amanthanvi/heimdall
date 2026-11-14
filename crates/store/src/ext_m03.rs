@@ -62,6 +62,263 @@ const META_LAST_BUNDLE_AT: &str = "issuer_last_bundle_at";
 /// `created_at`. Never the bundle's path.
 const META_BUNDLE_DIGEST_PREFIX: &str = "issuer_bundle_sha256:";
 
+/// ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ How the uninstall purge's final comparison (the
+/// recovery snapshot, `heimdall uninstall`) treats one table of the schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryClass {
+    /// Every row and every column (but the [`RECOVERY_IGNORED_COLUMNS`]) is in the
+    /// snapshot ([`Txn::recovery_rows`]), so a column a later migration adds is too.
+    Rows,
+    /// Only a part is recovery-relevant, read by the reader named here.
+    Part(&'static str),
+    /// Not recovery-relevant: why. The purge discards it with the database.
+    Discarded(&'static str),
+}
+
+/// ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ Every table of the schema, classified for the
+/// recovery snapshot. **A migration that adds a table adds it here**: the uninstall
+/// test `recovery_snapshot_classifies_every_table` compares this list with the
+/// schema of a freshly migrated database and fails on a table that is not listed, and
+/// it checks that each `Rows` and `Part` entry is covered by the snapshot.
+pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
+    ("issuers", RecoveryClass::Rows),
+    ("enrollments", RecoveryClass::Rows),
+    ("foreign_removals", RecoveryClass::Rows),
+    ("pair_preferences", RecoveryClass::Rows),
+    (
+        "operations",
+        RecoveryClass::Part(
+            "the enrollment operations open or unresolved (`outstanding_obligations`), each whole with a digest of its stage receipts (its journal) and its outstanding step token, and their unresolved remote steps (`heimdall_app::operations::unresolved_remote_steps`); the other kinds are classified by `heimdall uninstall`'s `OPERATION_RECOVERY`",
+        ),
+    ),
+    (
+        "meta",
+        RecoveryClass::Part(
+            "the keys [`META_RECOVERY`] includes ([`Txn::recovery_meta`]); every key is classified there",
+        ),
+    ),
+    (
+        "resources",
+        RecoveryClass::Part(
+            "every projection resource confirmed absent (desired and observed), the purge's own condition, re-read under the lock",
+        ),
+    ),
+    (
+        "idempotency",
+        RecoveryClass::Discarded("request replay records; local"),
+    ),
+    (
+        "idempotency_markers",
+        RecoveryClass::Discarded("request replay markers; local"),
+    ),
+    (
+        "decisions",
+        RecoveryClass::Part(
+            "the pending decisions of the kinds `heimdall uninstall`'s `DECISION_RECOVERY` includes (`RegisterIssuer`: its store locator can be the only record of a K_ca item), each whole (`pending_decisions`); settled ones changed what they approved in the records compared",
+        ),
+    ),
+    (
+        "policies",
+        RecoveryClass::Discarded("standing policies; local authority, listed in the purge prompt"),
+    ),
+    (
+        "profiles",
+        RecoveryClass::Discarded("catalog profiles; local, counted in the purge prompt"),
+    ),
+    (
+        "profile_snapshots",
+        RecoveryClass::Discarded("profile revisions; local"),
+    ),
+    (
+        "environments",
+        RecoveryClass::Discarded(
+            "environment records; the installation's own identity is in the snapshot through `meta`",
+        ),
+    ),
+    (
+        "grants",
+        RecoveryClass::Discarded(
+            "access grants; local, end with the runtime, counted in the purge prompt",
+        ),
+    ),
+    (
+        "grant_references",
+        RecoveryClass::Discarded("grant references; local"),
+    ),
+    (
+        "grant_anchors",
+        RecoveryClass::Discarded("grant time anchors; local"),
+    ),
+    (
+        "grant_prepared_facts",
+        RecoveryClass::Discarded("prepared grant facts; local"),
+    ),
+    (
+        "bindings",
+        RecoveryClass::Discarded("consumer bindings; local, end with the runtime"),
+    ),
+    (
+        "binding_holders",
+        RecoveryClass::Discarded("binding holders; local processes"),
+    ),
+    (
+        "tombstones",
+        RecoveryClass::Discarded("revocation tombstones; local"),
+    ),
+    (
+        "events",
+        RecoveryClass::Discarded("the event log; counted in the purge prompt"),
+    ),
+    (
+        "recovery_intents",
+        RecoveryClass::Discarded(
+            "local credential-operation intents (M01 adapters); no remote line or CA",
+        ),
+    ),
+    (
+        "stage_receipts",
+        RecoveryClass::Discarded("local pipeline receipts"),
+    ),
+    (
+        "issuance_log",
+        RecoveryClass::Discarded(
+            "grant certificates: bounded lifetimes that end on their own; no field of the recovery bundle",
+        ),
+    ),
+    (
+        "credential_instances",
+        RecoveryClass::Discarded("in-memory credential instances; end with the runtime"),
+    ),
+    (
+        "verification_issuance",
+        RecoveryClass::Discarded(
+            "verification certificates: bounded lifetimes that end on their own; no field of the recovery bundle",
+        ),
+    ),
+    (
+        "destinations",
+        RecoveryClass::Discarded("catalog destinations; local, counted in the purge prompt"),
+    ),
+    (
+        "identities",
+        RecoveryClass::Discarded("catalog identities; local, counted in the purge prompt"),
+    ),
+    (
+        "interaction_declarations",
+        RecoveryClass::Discarded("interaction declarations; local"),
+    ),
+    (
+        "projection_consent",
+        RecoveryClass::Discarded("projection consent; local, ends with the rollback"),
+    ),
+    (
+        "projection_records",
+        RecoveryClass::Discarded(
+            "the setup record; the rollback (this uninstall's own change) empties it, and its files are the `resources` checked",
+        ),
+    ),
+    (
+        "managed_slots",
+        RecoveryClass::Discarded("managed slots; local, end with the runtime"),
+    ),
+    (
+        "owned_connections",
+        RecoveryClass::Discarded("owned connection processes; end with the runtime"),
+    ),
+];
+
+/// ⟨ADR-0008 §17.32 item 1 (audit A4)⟩ Every `meta` key the store writes, by exact key
+/// or by prefix (ending in `:`), classified for the recovery snapshot: `None` when its
+/// rows are in the snapshot ([`Txn::recovery_meta`]), otherwise why not. **A new key
+/// is classified here**: the uninstall test `meta_keys_are_classified_for_the_snapshot`
+/// reads every `META_*` constant of this crate and fails on one that is not listed.
+pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
+    ("self_environment_id", None),
+    (
+        "authority_generation",
+        Some("the local authority generation"),
+    ),
+    (
+        "windows_environment_pipe_token",
+        Some("a local endpoint name"),
+    ),
+    ("event_tail:", Some("event-stream cursors; local")),
+    (
+        "lock_disclosure_acknowledged_at",
+        Some("a local acknowledgement"),
+    ),
+    (
+        "session_lock_acknowledged_epoch",
+        Some("the local session-lock epoch"),
+    ),
+    (
+        "managed_released_binding_cleanup:",
+        Some("local endpoint files of released bindings"),
+    ),
+    (
+        "issuer_last_bundle_at",
+        Some("bundle freshness; the bundle itself is re-checked under the lock"),
+    ),
+    (
+        "issuer_bundle_sha256:",
+        Some("the bundles this installation wrote; the bundle is re-checked under the lock"),
+    ),
+    ("high_water_mark", Some("the local time high-water mark")),
+    ("runtime_anchor", Some("the local time anchor")),
+    ("time_confirmation", Some("the local time confirmation")),
+    (
+        "grant_validation:",
+        Some("access grants (ADR-0008 §17.32 item 6: out)"),
+    ),
+    (
+        "withdrawal_reported:",
+        Some("access grants (ADR-0008 §17.32 item 6: out)"),
+    ),
+    (
+        "grant_degraded:",
+        Some("access grants (ADR-0008 §17.32 item 6: out)"),
+    ),
+    // ⟨ADR-0008 §17.32 item 7⟩ An unfinished security action on a remote system.
+    ("remote_revocation:", None),
+    ("remote_revocation_claim_seq", Some("a local counter")),
+    (
+        "cleanup_intent:",
+        Some("an access grant's local cleanup (ADR-0008 §17.32 item 6: out)"),
+    ),
+    ("cleanup_intent_version", Some("a local counter")),
+];
+
+/// ⟨ADR-0008 §17.32 item 1⟩ One row of a [`RecoveryClass::Rows`] table
+/// ([`Txn::recovery_rows`]): its `(column, value)` pairs in column order.
+pub type RecoveryRow = Vec<(String, String)>;
+
+/// ⟨ADR-0008 §17.32 item 1⟩ Columns of a [`RecoveryClass::Rows`] table that are not in
+/// the snapshot, with why: the pair's projection state, its preference and the time
+/// they changed belong to the projection, which this uninstall's own rollback changes;
+/// the pair's issuing set (`issuing_cas_json`) is compared.
+pub const RECOVERY_IGNORED_COLUMNS: &[(&str, &str, &str)] = &[
+    (
+        "pair_preferences",
+        "projection_state",
+        "the projection; the rollback changes it",
+    ),
+    (
+        "pair_preferences",
+        "projection_generation",
+        "the projection; the rollback changes it",
+    ),
+    (
+        "pair_preferences",
+        "mechanism",
+        "a preference, not a recovery record",
+    ),
+    (
+        "pair_preferences",
+        "updated_at",
+        "changes with the projection",
+    ),
+];
+
 /// A registered CA, one `issuers` row (ADR-0008 D4; m03-plan §5 item 18). Public
 /// metadata only: the CA's **public** key, digests and dates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2131,6 +2388,100 @@ impl Txn<'_> {
     pub fn bundle_digest_recorded_at(&mut self, sha256: &str) -> Result<Option<Timestamp>> {
         let key = bundle_digest_key(sha256)?;
         self.meta(&key)?.as_deref().map(codec::parse_ts).transpose()
+    }
+
+    // --- ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ the uninstall purge's recovery snapshot --------
+
+    /// ⟨audit A4⟩ Every `meta` row whose key [`META_RECOVERY`] includes (exactly, or by
+    /// its prefix), as `(key, value)`, sorted by key. Read-only.
+    pub fn recovery_meta(&mut self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .tx
+            .prepare("SELECT key, value FROM meta ORDER BY key")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .filter(|(k, _)| {
+                META_RECOVERY.iter().any(|(m, why)| {
+                    why.is_none()
+                        && if m.ends_with(':') {
+                            k.starts_with(m)
+                        } else {
+                            k == m
+                        }
+                })
+            })
+            .collect())
+    }
+
+    /// Every table of this database's schema, by name, sorted (the store's own
+    /// `sqlite_*` objects excluded). Read-only.
+    pub fn schema_tables(&mut self) -> Result<Vec<String>> {
+        let mut stmt = self.tx.prepare(
+            "SELECT name FROM sqlite_schema
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+             ORDER BY name",
+        )?;
+        let names = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(names)
+    }
+
+    /// Every row of `table`, a [`RecoveryClass::Rows`] table of [`TABLE_RECOVERY`], each
+    /// as its `(column, value)` pairs in column order without the
+    /// [`RECOVERY_IGNORED_COLUMNS`], the rows sorted. Every column a later migration
+    /// adds is read too. A value is its SQL text: `NULL`, an integer or real as
+    /// written, a text as is, a blob as lowercase hex. A table absent from the schema
+    /// has no rows. Any other table name is refused (a document error), so no caller
+    /// can address a table through it. Read-only.
+    pub fn recovery_rows(&mut self, table: &str) -> Result<Vec<RecoveryRow>> {
+        let Some(&(name, _)) = TABLE_RECOVERY
+            .iter()
+            .find(|(n, c)| *n == table && *c == RecoveryClass::Rows)
+        else {
+            return Err(codec::doc_error("not a recovery-snapshot table"));
+        };
+        let present: bool = self.tx.query_row(
+            "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+            [name],
+            |r| r.get(0),
+        )?;
+        if !present {
+            return Ok(Vec::new());
+        }
+        // `name` is one of the constant names above, never caller text.
+        let mut stmt = self.tx.prepare(&format!("SELECT * FROM {name}"))?;
+        let columns: Vec<String> = stmt.column_names().map(str::to_owned).collect();
+        let ignored = |c: &str| {
+            RECOVERY_IGNORED_COLUMNS
+                .iter()
+                .any(|(t, col, _)| *t == name && *col == c)
+        };
+        let mut rows = stmt
+            .query_map([], |r| {
+                let mut row = Vec::with_capacity(columns.len());
+                for (i, c) in columns.iter().enumerate() {
+                    if ignored(c) {
+                        continue;
+                    }
+                    use rusqlite::types::ValueRef;
+                    let v = match r.get_ref(i)? {
+                        ValueRef::Null => "NULL".to_owned(),
+                        ValueRef::Integer(n) => n.to_string(),
+                        ValueRef::Real(x) => x.to_string(),
+                        ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned(),
+                        ValueRef::Blob(b) => b.iter().map(|x| format!("{x:02x}")).collect(),
+                    };
+                    row.push((c.clone(), v));
+                }
+                Ok(row)
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows.sort();
+        Ok(rows)
     }
 
     // --- restart: credential instances (U0b row 8) ----------------------------------------

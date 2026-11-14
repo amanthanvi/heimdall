@@ -36,6 +36,17 @@
 //! [`ChildIssuer::start`] (or [`ChildIssuer::reload`] for `issuer unlock`) begins a new
 //! lifecycle.
 //!
+//! **The load gate** (⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩). Spawning a child
+//! and sending `load` read K_ca into it, which is CA work: with a [`LoadGate`]
+//! configured (the runtime wires the uninstall fence's admission), every start and every
+//! load takes it first and holds it across the load. Refused (a fence held or being
+//! acquired by another connection), nothing is spawned or loaded: a restart cycle waits
+//! for the lift without spending an attempt; an on-demand reload is left to the next
+//! demand. A start or load that is **cancelled** (its future dropped: an adapter bound,
+//! a caller that stopped waiting) never leaves the view stuck in `starting` or
+//! `loading`: a cancelled start is `crashed` (the next demand restarts it), a cancelled
+//! load is retried by the next demand.
+//!
 //! **Identity.** The child is the exact process this client spawned: its PID (from the
 //! spawn, confirmed by the `hello_ack`) and its start token, read through the
 //! injected [`StartToken`] (the runtime's `platform::process_start_time`; `heimdall-
@@ -116,6 +127,13 @@ impl Jitter for SystemJitter {
     }
 }
 
+/// How often a restart cycle deferred by the [`LoadGate`] asks again.
+pub const LOAD_DEFER_POLL: Duration = Duration::from_millis(500);
+
+/// ⟨round 10 L1⟩ The admission a start or load needs (module docs): `Some(permit)`, held
+/// across the start or load, when admitted; `None` when deferred.
+pub type LoadGate = Arc<dyn Fn() -> Option<Box<dyn Send>> + Send + Sync>;
+
 /// Reads a process's opaque start token by PID (`None`: not readable).
 pub type StartToken = Arc<dyn Fn(u32) -> Option<String> + Send + Sync>;
 
@@ -166,6 +184,9 @@ pub struct ClientConfig {
     pub request_timeout: Duration,
     /// The hello bound ([`HELLO_TIMEOUT`]).
     pub hello_timeout: Duration,
+    /// ⟨round 10 L1⟩ The admission every start and load takes first (`None`: always
+    /// admitted).
+    pub load_gate: Option<LoadGate>,
 }
 
 impl ClientConfig {
@@ -178,6 +199,7 @@ impl ClientConfig {
             start_token,
             request_timeout: REQUEST_TIMEOUT,
             hello_timeout: HELLO_TIMEOUT,
+            load_gate: None,
         }
     }
 }
@@ -202,6 +224,9 @@ struct View {
     /// ⟨§17.19 item 3⟩ [`ChildIssuer::stop`] ended the lifecycle and no explicit start
     /// has begun another: demands start nothing.
     stopped: bool,
+    /// ⟨round 10 L1⟩ A `load` is in flight (cleared when it ends, cancelled included):
+    /// a `loading` view without one is a cancelled load, which a demand retries.
+    load_in_flight: bool,
 }
 
 /// The live link to one child.
@@ -220,6 +245,40 @@ struct Link {
 /// A broken link (EOF, a malformed frame, a write that failed).
 #[derive(Debug)]
 struct Broken;
+
+/// ⟨round 10 L1⟩ The load gate refused: nothing was spawned or loaded.
+#[derive(Debug)]
+struct Deferred;
+
+/// The error a deferred start or load answers.
+fn deferred() -> IssuerError {
+    IssuerError::Unavailable(reason::UNINSTALL_IN_PROGRESS.into())
+}
+
+fn is_deferred(e: &IssuerError) -> bool {
+    matches!(e, IssuerError::Unavailable(r) if r == reason::UNINSTALL_IN_PROGRESS)
+}
+
+/// ⟨round 10 L1⟩ Restores a recoverable view when a start or load of `lifecycle` ends
+/// without finishing (its future dropped): `starting` becomes `crashed` (a demand restarts
+/// it); a load is no longer in flight (a demand retries a `loading` view).
+struct Unfinished {
+    inner: Arc<Inner>,
+    lifecycle: u64,
+}
+
+impl Drop for Unfinished {
+    fn drop(&mut self) {
+        let lifecycle = self.lifecycle;
+        self.inner.update(|v| {
+            v.load_in_flight = false;
+            if v.lifecycle == lifecycle && v.state == IssuerState::Starting {
+                v.state = IssuerState::Crashed;
+                v.reason = Some(reason::ISSUER_RESTARTING.into());
+            }
+        });
+    }
+}
 
 impl Link {
     /// The next frame's reply, reading into the persistent buffer (cancel-safe).
@@ -303,6 +362,14 @@ impl Inner {
             v.state = state;
             v.reason = reason;
         });
+    }
+
+    /// ⟨round 10 L1⟩ The load gate's admission (`Ok(None)`: no gate configured).
+    fn admit_load(&self) -> Result<Option<Box<dyn Send>>, Deferred> {
+        match &self.config.load_gate {
+            None => Ok(None),
+            Some(gate) => gate().map(Some).ok_or(Deferred),
+        }
     }
 
     /// Whether `lifecycle` is still the running one (not stopped, not superseded).
@@ -394,6 +461,14 @@ impl Inner {
         if !self.current(lifecycle) {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         }
+        // ⟨round 10 L1⟩ Admitted first, held through the load; deferred: nothing spawned.
+        let Ok(_permit) = self.admit_load() else {
+            return Err(deferred());
+        };
+        let _unfinished = Unfinished {
+            inner: Arc::clone(self),
+            lifecycle,
+        };
         if let Some(mut old) = slot.take() {
             let _ = old.child.start_kill();
             let _ = old.child.wait().await;
@@ -454,12 +529,26 @@ impl Inner {
             }
         }
         self.update(|v| v.identity = Some(identity));
-        self.load_locked(&mut slot, lifecycle).await
+        self.load_admitted(&mut slot, lifecycle).await
     }
 
     /// `load` over the held link (`loading → ready | store_unavailable`) for
     /// `lifecycle`; a stopped or superseded lifecycle loads nothing (§17.19 item 3).
+    /// ⟨round 10 L1⟩ Takes the load gate first; deferred, nothing is sent and the view
+    /// is unchanged.
     async fn load_locked(
+        self: &Arc<Self>,
+        slot: &mut Option<Link>,
+        lifecycle: u64,
+    ) -> Result<(), IssuerError> {
+        let Ok(_permit) = self.admit_load() else {
+            return Err(deferred());
+        };
+        self.load_admitted(slot, lifecycle).await
+    }
+
+    /// [`Self::load_locked`] once admitted.
+    async fn load_admitted(
         self: &Arc<Self>,
         slot: &mut Option<Link>,
         lifecycle: u64,
@@ -467,7 +556,15 @@ impl Inner {
         if !self.current(lifecycle) {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         }
-        self.set_state(IssuerState::Loading, None);
+        self.update(|v| {
+            v.state = IssuerState::Loading;
+            v.reason = None;
+            v.load_in_flight = true;
+        });
+        let _unfinished = Unfinished {
+            inner: Arc::clone(self),
+            lifecycle,
+        };
         let Some(link) = slot.as_mut() else {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         };
@@ -507,18 +604,31 @@ impl Inner {
 
     /// The bounded, jittered restart cycle after a crash (D3 item 7), for `lifecycle`.
     async fn restart_cycle(self: Arc<Self>, lifecycle: u64) {
-        for attempt in 1..=MAX_RESTART_ATTEMPTS {
+        let mut attempt = 1;
+        while attempt <= MAX_RESTART_ATTEMPTS {
             let delay = self.config.jitter.delay(backoff_ceiling(attempt));
             tokio::time::sleep(delay.min(backoff_ceiling(attempt))).await;
             if !self.current(lifecycle) {
                 return;
             }
-            match self.start_once(lifecycle).await {
+            let r = self.start_once(lifecycle).await;
+            // ⟨round 10 L1⟩ Deferred by the load gate: nothing spawned or loaded; wait for
+            // the lift, then try again without spending an attempt.
+            if let Err(e) = &r
+                && is_deferred(e)
+            {
+                while self.current(lifecycle) && self.admit_load().is_err() {
+                    tokio::time::sleep(LOAD_DEFER_POLL).await;
+                }
+                continue;
+            }
+            attempt += 1;
+            match r {
                 Ok(()) => break,
                 // The child is up without its key: the store reload follows its own
                 // backoff on demand.
                 Err(_) if self.view().state == IssuerState::StoreUnavailable => break,
-                Err(_) if attempt == MAX_RESTART_ATTEMPTS => {
+                Err(_) if attempt > MAX_RESTART_ATTEMPTS => {
                     self.set_state(
                         IssuerState::Unavailable,
                         Some(reason::ISSUER_UNAVAILABLE.into()),
@@ -550,6 +660,16 @@ impl Inner {
     fn not_ready(self: &Arc<Self>, view: &View) -> IssuerError {
         match view.state {
             IssuerState::Crashed | IssuerState::Unavailable => self.supervise(),
+            // ⟨round 10 L1⟩ A `loading` view with no load in flight: a cancelled load.
+            IssuerState::Loading if !view.load_in_flight => {
+                if let Some(lifecycle) = self.running() {
+                    let me = Arc::clone(self);
+                    self.spawn_task(async move {
+                        let mut slot = me.link.lock().await;
+                        let _ = me.load_locked(&mut slot, lifecycle).await;
+                    });
+                }
+            }
             IssuerState::StoreUnavailable if view.retry_at.is_none_or(|t| t <= Instant::now()) => {
                 if let Some(lifecycle) = self.running() {
                     let me = Arc::clone(self);
@@ -593,6 +713,7 @@ impl ChildIssuer {
                     reload_attempts: 0,
                     lifecycle: 0,
                     stopped: false,
+                    load_in_flight: false,
                 }),
                 link: tokio::sync::Mutex::new(None),
                 tasks: Mutex::new(Vec::new()),

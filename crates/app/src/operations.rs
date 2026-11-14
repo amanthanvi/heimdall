@@ -5601,11 +5601,40 @@ impl Operations {
         R: Send + 'static,
         F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<R> + Send + 'static,
     {
+        self.write_admitted(None, f).await
+    }
+
+    /// [`Self::write`], owning `admission` (⟨ADR-0008 §17.32 item 3⟩ the uninstall
+    /// fence's admission for this write): the blocking closure that runs the
+    /// transaction owns it and drops it only after the transaction has committed or
+    /// rolled back, so cancelling this future (a dropped connection) never releases it
+    /// while the write is queued or running. A write started by a task that holds an
+    /// admission (a fenced request or pass) carries a counted extension of it the same
+    /// way (`UninstallFence::write_extension`).
+    async fn write_admitted<R, F>(
+        &self,
+        admission: Option<uninstall_fence_m03::FenceAdmission>,
+        f: F,
+    ) -> Result<R, OpError>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<R> + Send + 'static,
+    {
         let store = Arc::clone(&self.inner.config.store);
         let publisher = self.inner.publisher.clone();
         let gates = self.inner.signing_gates.clone();
+        let extension = self.inner.uninstall_fence.write_extension();
+        #[cfg(debug_assertions)]
+        let pause = admission
+            .as_ref()
+            .and_then(|_| self.inner.uninstall_fence.take_write_pause());
         let joined = tokio::task::spawn_blocking(move || {
-            store.transaction(|tx| {
+            let admitted = (admission, extension);
+            #[cfg(debug_assertions)]
+            if let Some(p) = pause {
+                p.block();
+            }
+            let r = store.transaction(|tx| {
                 let mut emit = Emit {
                     publisher,
                     events: Vec::new(),
@@ -5614,7 +5643,9 @@ impl Operations {
                 };
                 let r = f(tx, &mut emit)?;
                 Ok((r, emit.events))
-            })
+            });
+            drop(admitted);
+            r
         })
         .await
         .map_err(join_error)?;
@@ -11641,9 +11672,10 @@ impl Operations {
     ) -> Result<IssuanceEntry, OpError> {
         // ⟨ADR-0008 §17.27 item 2, §17.28 item 1, §17.31 item 2⟩ no new certificate
         // while an uninstall holds the fence (unless the holder's own request reserves
-        // it). The admission is taken before the check and held across the store
-        // write below, so an acquisition waits for this reservation or refuses it.
-        let _admission = self.fence_admit_reservation().await?;
+        // it). The admission is taken before the check and moved into the store write
+        // below (⟨§17.32 item 3⟩ owned by its blocking transaction until it commits or
+        // rolls back), so an acquisition waits for this reservation or refuses it.
+        let admission = self.fence_admit_reservation().await?;
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();
@@ -11651,7 +11683,7 @@ impl Operations {
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
         let (r, ended) = self
-            .write(move |tx, emit| {
+            .write_admitted(Some(admission), move |tx, emit| {
                 let (safe, time, now) = issuance_time(&gate, tx)?;
                 // ⟨r2.7⟩ ADR-0006 §13.10 item 2 (before the use is judged).
                 if let Some(s) = &safe {
@@ -11787,6 +11819,15 @@ impl Operations {
             .with_resource("grant", None));
         };
         let last = attempt >= PUBLISH_ATTEMPTS;
+        // ⟨ADR-0008 §17.32 item 2 (W5-D02)⟩ A publication can create a reservation (the
+        // re-reserve branch below): it takes the reservation admission, moved into its
+        // store write (§17.32 item 3). While the fence is held there is none.
+        let Some(admission) = self.fence_admit_publication() else {
+            // ⟨§17.28 item 1; round-10 audit A1⟩ Publishing (and re-reserving) is CA
+            // work: not under another connection's fence. Refused, nothing written;
+            // the entry stays reserved and counted until its `valid_before`.
+            return Err(uninstall_fence_m03::uninstall_in_progress());
+        };
         let fresh_id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();
@@ -11797,7 +11838,7 @@ impl Operations {
         let retention = self.retention();
         let gid = grant.clone();
         let (outcome, ended) = self
-            .write(move |tx, emit| {
+            .write_admitted(Some(admission), move |tx, emit| {
                 let (safe, time, now) = issuance_time(&gate, tx)?;
                 let Some(entry) = tx
                     .issuance_entries(&gid)?

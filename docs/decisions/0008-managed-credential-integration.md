@@ -4494,6 +4494,26 @@ No review has run yet. These rulings complete the wave before its reviews.
    - A concurrent caller observes the same outcome; it never starts a second verifier.
    - **The regression:** the re-check's probe. Two concurrent resumes sign one verification pair (two certificates), not two pairs, and both callers see the same outcome.
 5. **W5-D05:** this is the same finding as §17.31 item 8, already built in round 9 together with item 9. **The regression:** `verification_fence_refusal_is_returned_and_changes_no_evidence`.
+6. **The snapshot's operation and certificate readings, confirmed:**
+   - **"Every open operation" means open enrollment operations.** Foreign removals are covered as records. Issuer operations have no remote effect, and their store items are covered by the CA, locator and orphan-item entries.
+   - **Issuance and verification certificate records stay out.** They are short-lived and create no new remote obligation.
+   - The classification tests name every excluded table, operation kind, decision kind and meta key with its reason. A new kind fails until it is classified.
+7. **Pending remote revocations count; local cleanup intents are swept.**
+   - **`remote_revocation:` is in the snapshot.** It records an access grant's revocation whose remote part is still pending. A purge would lose it with no retry.
+   - **One retry, never a re-arm:** under the held fence and before the shutdown, uninstall calls the holder-only `UninstallFenceRequest::RetryRemoteRevocations` (additive, authorized). It makes one ordinary attempt per pending record, without re-arming it (Q-I-R10-1).
+   - **Disclosure, not refusal:** whatever is still pending is listed in the purge confirmation and the report, and the owner's typed confirmation covers it. A refusal would block uninstall forever for a revocation that can never succeed.
+   - **`cleanup_intent:` is local and stays out of the snapshot.** The ruling's condition, that uninstall's local cleanup removes every path a cleanup intent can name, did not hold. So the purge now sweeps `<run>/b/*` and `<state>/managed/*` under the lock, and refuses to follow a link.
+8. **The audit of round 10.** Before reporting, the integrator commissioned an independent audit of the same gap classes. Its findings A1–A6, A8, L1 and L2 are fixed, each with a regression that fails when its fix is reverted:
+   - one admission across the whole managed pipeline;
+   - pending `RegisterIssuer` locators in the snapshot;
+   - observed-only own retirements;
+   - classification of decision kinds and meta keys;
+   - journal comparison of open operations;
+   - a fenced issuer supervision pass;
+   - a verification leader that owns its flight until its compare-and-swap result write;
+   - gated issuer-child spawns and loads, whose cancelled loads and starts now recover.
+
+   **A7 is accepted as is:** the time-anchor write is not recovery-relevant and only moves forward.
 
 ## 18. Consequences
 

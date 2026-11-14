@@ -995,15 +995,29 @@ pub enum UninstallFenceRequest {
     Acquire,
     /// Lift it (when this connection holds it).
     Release,
+    /// ⟨ADR-0008 §17.32 item 7 (Q-I-R10-1); additive⟩ **Holder only**, under the held
+    /// fence and before the shutdown: exactly one ordinary revocation round per pending
+    /// remote revocation record (the supervisor's round: one attempt under the
+    /// record's caps, never a re-arm: no count reset, no lifted stop). Refused
+    /// `SERVICE_UNAVAILABLE` (reason `uninstall_in_progress` while another connection
+    /// holds the fence; none when nobody does), nothing attempted, unless this
+    /// connection holds it. Answer: `OK {"remote_revocations": [{"root_grant",
+    /// "outcome": "completed" | "attempted_still_pending" | "not_attempted" |
+    /// "failed", "attempts_before", "attempts_after", "stopped", "pending"}]}`.
+    RetryRemoteRevocations,
 }
 
 impl UninstallFenceRequest {
-    /// `uninstall_fence.acquire` / `uninstall_fence.release`.
+    /// `uninstall_fence.acquire` / `uninstall_fence.release` /
+    /// `uninstall_fence.retry_remote_revocations`.
     #[must_use]
     pub fn kind(self) -> &'static str {
         match self {
             UninstallFenceRequest::Acquire => "uninstall_fence.acquire",
             UninstallFenceRequest::Release => "uninstall_fence.release",
+            UninstallFenceRequest::RetryRemoteRevocations => {
+                "uninstall_fence.retry_remote_revocations"
+            }
         }
     }
 }
@@ -1148,8 +1162,12 @@ impl Request {
                 ConnectionsRequest::Close { .. } | ConnectionsRequest::Register { .. },
             ) => Admission::Synchronous,
             // ⟨ADR-0008 §17.27 item 2⟩ runtime state only, no operation row.
+            // ⟨§17.32 item 7⟩ The retry runs the records' own rounds (each claimed and
+            // completed in its record), settled synchronously, no operation row.
             Request::UninstallFence(
-                UninstallFenceRequest::Acquire | UninstallFenceRequest::Release,
+                UninstallFenceRequest::Acquire
+                | UninstallFenceRequest::Release
+                | UninstallFenceRequest::RetryRemoteRevocations,
             ) => Admission::Synchronous,
         }
     }

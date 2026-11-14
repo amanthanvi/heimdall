@@ -15593,3 +15593,83 @@ async fn w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged(
         .unwrap();
     assert_eq!(stored.connection.existing, ExistingConnectionsMode::Strict);
 }
+
+/// `uninstall_fence_retry_is_one_ordinary_round` (ADR-0008 §17.32 item 7, Q-I-R10-1):
+/// `uninstall_fence.retry_remote_revocations` is holder-only (a connection that does
+/// not hold the fence is refused `SERVICE_UNAVAILABLE`, `uninstall_in_progress` while
+/// another holds it, and nothing is attempted) and makes **exactly one** ordinary round
+/// per pending record: one adapter call, `attempts + 1`, the stop state unchanged. At
+/// the record's cap it is stopped without a call; a stopped record is never re-armed:
+/// no count reset, no lifted stop, no call.
+#[tokio::test]
+async fn uninstall_fence_retry_is_one_ordinary_round() {
+    use heimdall_app::operations::as_fence_holder;
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "u-retry").await;
+    async fn record(w: &World) -> heimdall_domain::revocation::PendingRemoteRevocation {
+        let all = w.ops.pending_remote_revocations().await.unwrap();
+        assert_eq!(all.len(), 1, "{all:?}");
+        all[0].clone()
+    }
+    let before = record(&w).await;
+    assert_eq!(before.root, g.grant_id);
+    // Nobody holds the fence: refused, nothing attempted.
+    let e = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(7)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    assert_eq!(e.reason, None);
+    // Another connection holds it: refused `uninstall_in_progress`.
+    w.ops.uninstall_fence_acquire(7).await.unwrap();
+    let e = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(8)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    assert_eq!(e.reason.as_deref(), Some("uninstall_in_progress"));
+    assert_eq!(adapter.calls(), 1, "a refused retry calls nothing");
+    assert_eq!(record(&w).await, before, "and changes nothing");
+    // The holder: exactly one round.
+    let r = as_fence_holder(w.ops.uninstall_fence_retry_remote_revocations(7))
+        .await
+        .unwrap();
+    assert_eq!(adapter.calls(), 2, "exactly one adapter call");
+    let after = record(&w).await;
+    assert_eq!(after.attempts, before.attempts + 1, "one ordinary attempt");
+    assert_eq!(after.stopped, before.stopped);
+    let v = serde_json::to_value(&r).unwrap();
+    assert_eq!(v[0]["root_grant"], g.grant_id.as_str());
+    assert_eq!(v[0]["outcome"], "attempted_still_pending");
+    assert_eq!(v[0]["attempts_before"], before.attempts);
+    assert_eq!(v[0]["attempts_after"], after.attempts);
+    assert_eq!(v[0]["pending"], true);
+    // Up to the cap, one call per retry; then stopped with no call, and never re-armed.
+    let cap = after.round_cap(u32::MAX);
+    while record(&w).await.attempts < cap {
+        let calls = adapter.calls();
+        as_fence_holder(w.ops.uninstall_fence_retry_remote_revocations(7))
+            .await
+            .unwrap();
+        assert_eq!(adapter.calls(), calls + 1);
+    }
+    let calls = adapter.calls();
+    for _ in 0..2 {
+        let r = as_fence_holder(w.ops.uninstall_fence_retry_remote_revocations(7))
+            .await
+            .unwrap();
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v[0]["outcome"], "not_attempted", "{v}");
+        assert_eq!(v[0]["stopped"], true, "{v}");
+        let now = record(&w).await;
+        assert_eq!(now.attempts, cap, "no count reset");
+        assert!(now.stopped, "no lifted stop");
+    }
+    assert_eq!(
+        adapter.calls(),
+        calls,
+        "a capped or stopped record calls nothing"
+    );
+}

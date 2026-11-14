@@ -1106,12 +1106,19 @@ impl Operations {
     /// change) or a damaged line (`held`).
     async fn removal_without_step(&self, ctx: &Ctx, absent: bool) -> Result<(), OpError> {
         let oid = ctx.op.id.clone();
+        let expected = ctx.record.state;
         let retention = self.retention();
         let now = self.narrowing_now().await;
         self.write(move |tx, emit| {
             let Ok(mut ctx) = load_ctx(tx, &oid)? else {
                 return Ok(());
             };
+            // ⟨ADR-0008 §17.32 item 4; converge⟩ Once per operation: a concurrent caller
+            // that already finished it (the record moved on, or the operation settled)
+            // leaves nothing to do here; this caller answers its outcome.
+            if ctx.record.state != expected || ctx.op.state.is_settled() {
+                return Ok(());
+            }
             if absent {
                 removal_confirmed(tx, emit, &mut ctx, now, retention)
             } else {

@@ -165,6 +165,7 @@ fn one_of_every_request() -> Vec<Request> {
         // ⟨ADR-0008 §17.27 item 2⟩ the uninstall fence.
         request(json!({"op": "uninstall_fence", "action": "acquire"})),
         request(json!({"op": "uninstall_fence", "action": "release"})),
+        request(json!({"op": "uninstall_fence", "action": "retry_remote_revocations"})),
     ]);
     out
 }

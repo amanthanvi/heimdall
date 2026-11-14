@@ -236,8 +236,9 @@ impl Operations {
     ) -> Result<Result<VerificationEntry, VerificationRefusal>, OpError> {
         // ⟨ADR-0008 §17.31 item 2 (W5-C02)⟩ no verification certificate while an
         // uninstall holds the fence (unless the holder's own request reserves it): the
-        // admission is taken before the check and held across the store write below.
-        let _admission = self.fence_admit_reservation().await?;
+        // admission is taken before the check and moved into the store write below
+        // (⟨§17.32 item 3⟩ owned by its blocking transaction until it ends).
+        let admission = self.fence_admit_reservation().await?;
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let gate = self.inner.timegate.in_txn();
@@ -247,7 +248,7 @@ impl Operations {
             enrollment: req.enrollment.clone(),
         };
         let r = self
-            .write(move |tx, _| {
+            .write_admitted(Some(admission), move |tx, _| {
                 let (_, time, now) = issuance_time(&gate, tx)?;
                 let facts = match operation_facts(tx, &req.operation, &req.enrollment, true)? {
                     Ok(f) => f,

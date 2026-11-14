@@ -152,6 +152,31 @@ pub(super) struct EnrollmentProcessState {
     /// refused (a test that expects pauses never runs unpaused).
     #[cfg(debug_assertions)]
     script_pause: RwLock<Option<ScriptPause>>,
+    /// ⟨debug builds only; tests; ADR-0008 §17.32 item 4 (audit A8)⟩ The next
+    /// verification result write's pause
+    /// ([`Operations::debug_pause_next_verification_result_write`]).
+    #[cfg(debug_assertions)]
+    pub(super) result_write_pause: Mutex<Option<VerificationWritePause>>,
+}
+
+/// ⟨debug builds only⟩ A paused verification result write: `reached` is sent when the
+/// write has been handed off, `resume` releases it.
+#[cfg(debug_assertions)]
+pub(super) struct VerificationWritePause {
+    pub(super) reached: tokio::sync::oneshot::Sender<()>,
+    pub(super) resume: tokio::sync::oneshot::Receiver<()>,
+}
+
+/// ⟨debug builds only; tests⟩ The test's side of
+/// [`Operations::debug_pause_next_verification_result_write`].
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct VerificationWritePauseControl {
+    /// Resolves when the paused write has been handed off.
+    pub reached: tokio::sync::oneshot::Receiver<()>,
+    /// Send (or drop) to let the write run.
+    pub resume: tokio::sync::oneshot::Sender<()>,
 }
 
 /// The test form's pause directory, or why it is unusable (debug builds).

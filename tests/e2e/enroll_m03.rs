@@ -5460,6 +5460,54 @@ async fn withdrawn_without_late_write_refuses_remove() {
     assert_eq!(w.registry_text(), before, "nothing remote");
 }
 
+// --- ⟨ADR-0008 §17.32 item 4; converge⟩ a removal's follow-through runs once ---------------
+
+/// ⟨§17.32 item 4; converge⟩ An approved removal whose inspect finds the line already
+/// gone (the owner deleted it by hand) has nothing to remove: two concurrent `enroll
+/// step` requests finish it once (`removed`, the operation succeeded), and both callers
+/// observe the same outcome; neither applies the removal's finalization a second time.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn removal_finding_the_line_gone_is_finished_once_by_two_steps() {
+    let w = World::new().await;
+    let op = w.approved(&w.spec(), "req_l5_rg").await;
+    let res = w
+        .drive(&op)
+        .await
+        .unwrap_or_else(|e| panic!("enrollment: {e:?}"));
+    assert_eq!(res.state, EnrollmentState::Verified);
+    let id = w.records().pop().unwrap().id;
+    let e = w.remove(&id, "req_l5_rg_rm").await.unwrap_err();
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+    let rm = e.operation_id.clone().unwrap();
+    w.decide(&e, Verdict::Approve).await.unwrap();
+    // The owner deleted the line by hand (only that line).
+    let marker = w.record(&id).marker;
+    let kept: String = w
+        .registry_text()
+        .split_inclusive('\n')
+        .filter(|l| !l.contains(&marker))
+        .collect();
+    std::fs::write(&w.registry, kept).unwrap();
+    assert_eq!(w.marker_lines(), 0);
+    let StepAnswer::Step { step } = w.step_answer(&rm).await else {
+        panic!("inspect");
+    };
+    assert_eq!(step.stage, RemoteStage::Inspect);
+    w.run_and_report(&rm, &step).await;
+    let (a, b) = tokio::join!(w.step(&rm), w.step(&rm));
+    let a = a.map(|c| c.data).map_err(|e| (e.code, e.reason));
+    let b = b.map(|c| c.data).map_err(|e| (e.code, e.reason));
+    assert_eq!(a, b, "both callers observe the same outcome");
+    let answer: StepAnswer = serde_json::from_value(a.unwrap()).unwrap();
+    let StepAnswer::Done { result } = answer else {
+        panic!("the removal's outcome, not another step");
+    };
+    assert_eq!(result.state, EnrollmentState::Removed, "{result:?}");
+    assert_eq!(w.record(&id).state, EnrollmentState::Removed);
+    assert_eq!(w.op(&rm).state, OperationState::Succeeded);
+}
+
 // --- ⟨ADR-0008 §17.30 item 3⟩ an abandoned record's residual on removal -----------------
 
 /// ⟨§17.30 item 3⟩ An abandoned record whose uncertain append landed (its residual

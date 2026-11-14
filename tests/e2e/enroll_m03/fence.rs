@@ -442,3 +442,295 @@ async fn refused_reverification_is_resumed_once_after_the_fence_lifts() {
     let _ = w.ops.reverify_pass().await.unwrap();
     assert_eq!(entries(&w), reserved, "never run twice");
 }
+
+/// `recheck2_deferred_verification_is_not_duplicated_by_two_steps` (ADR-0008 §17.32 item
+/// 4; re-check W5-D04's probe): an append's result recorded under the fence defers its
+/// initial verification; once the fence is lifted, two concurrent `enroll step` requests
+/// for the operation run that verification once (one positive and one negative
+/// certificate, not two pairs), and both callers observe the same outcome.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn recheck2_deferred_verification_is_not_duplicated_by_two_steps() {
+    let w = World::new().await;
+    let (op, signed) = append_result_under_fence(&w, "req_l5_d04").await;
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+    let (a, b) = tokio::join!(w.step(&op), w.step(&op));
+    assert_eq!(
+        w.issuer.signed.load(Ordering::SeqCst),
+        signed + 2,
+        "one verification pair, not two"
+    );
+    let a = a.map(|c| c.data).map_err(|e| (e.code, e.reason));
+    let b = b.map(|c| c.data).map_err(|e| (e.code, e.reason));
+    assert_eq!(a, b, "both callers observe the same outcome");
+    let answer: StepAnswer = serde_json::from_value(a.unwrap()).unwrap();
+    let StepAnswer::Done { result } = answer else {
+        panic!("the verification's outcome, not another step");
+    };
+    assert_eq!(result.state, EnrollmentState::Verified, "{result:?}");
+    assert_eq!(w.records().pop().unwrap().state, EnrollmentState::Verified);
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    let starts = w
+        .receipts(&op)
+        .iter()
+        .filter(|r| r.stage == enrollment_stage::VERIFY_STARTED)
+        .count();
+    assert_eq!(starts, 1, "one verification attempt");
+}
+
+/// ⟨§17.32 item 4; converge⟩ The same deferred initial verification, continued at once
+/// by `enroll step` and `enroll reconcile`: one verification pair, one attempt, the
+/// enrollment `verified`, and neither caller fails.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn deferred_verification_is_not_duplicated_by_step_and_reconcile() {
+    let w = World::new().await;
+    let (op, signed) = append_result_under_fence(&w, "req_l5_d04r").await;
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+    let owner = attended();
+    let (a, b) = tokio::join!(w.step(&op), w.reconcile(&owner, &op, false));
+    assert!(a.is_ok(), "{a:?}");
+    assert!(b.is_ok(), "{b:?}");
+    assert_eq!(
+        w.issuer.signed.load(Ordering::SeqCst),
+        signed + 2,
+        "one verification pair, not two"
+    );
+    assert_eq!(w.records().pop().unwrap().state, EnrollmentState::Verified);
+    let starts = w
+        .receipts(&op)
+        .iter()
+        .filter(|r| r.stage == enrollment_stage::VERIFY_STARTED)
+        .count();
+    assert_eq!(starts, 1, "one verification attempt");
+}
+
+/// ⟨§17.32 item 4; converge⟩ `reverify_due`'s resume (§17.31 item 9) run by two
+/// concurrent passes: the refused re-verification is resumed once (one reservation per
+/// purpose, one pair of certificates), to a verdict.
+// Unix only: the system form (as `refused_reverification_is_resumed_once_after_the_fence_lifts`).
+#[cfg(unix)]
+#[tokio::test]
+async fn concurrent_reverification_resumes_run_one_verification() {
+    let w = World::with(WorldOptions {
+        form: EnrollmentForm::System,
+        limits: heimdall_app::operations::Limits {
+            reverify_after: std::time::Duration::from_secs(1),
+            ..heimdall_app::operations::Limits::default()
+        },
+        ..WorldOptions::default()
+    })
+    .await;
+    let (record, _) = w.system_verified().await;
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    w.ops.debug_refuse_next_reservation();
+    let done = w.ops.reverify_pass().await.unwrap();
+    assert!(!done.contains(&record.id), "refused, not done: {done:?}");
+    assert_eq!(w.record(&record.id).state, EnrollmentState::Reverifying);
+    let op = w
+        .tx(|tx| tx.open_operations())
+        .into_iter()
+        .find(|o| o.kind == heimdall_domain::operation::OperationKind::EnrollmentVerify)
+        .expect("the pass's operation stays open")
+        .id;
+    let signed = w.issuer.signed.load(Ordering::SeqCst);
+    let (a, b) = tokio::join!(w.ops.reverify_pass(), w.ops.reverify_pass());
+    let (a, b) = (a.unwrap(), b.unwrap());
+    assert!(
+        a.contains(&record.id) || b.contains(&record.id),
+        "resumed: {a:?} {b:?}"
+    );
+    assert_eq!(w.record(&record.id).state, EnrollmentState::Verified);
+    assert_eq!(
+        w.issuer.signed.load(Ordering::SeqCst),
+        signed + 2,
+        "one verification pair, not two"
+    );
+    let purposes: Vec<String> = w
+        .tx(|tx| tx.verification_entries(&op))
+        .iter()
+        .map(|e| format!("{:?}", e.purpose))
+        .collect();
+    let distinct: std::collections::BTreeSet<&String> = purposes.iter().collect();
+    assert!(!purposes.is_empty());
+    assert_eq!(distinct.len(), purposes.len(), "one run only: {purposes:?}");
+}
+
+// --- ⟨G8, round-10 audit A1⟩ the managed issuance pipeline under the fence ----------
+
+/// `acquisition_waits_for_in_flight_activation` (audit A1; §17.28 item 1, §17.31 item
+/// 2): a managed activation (the ensure's spawned lead) paused after its reservation,
+/// before it signs (the debug-only pause), holds its pipeline admission: an uninstall's
+/// acquisition does not complete until the activation has signed, published and
+/// installed, and the activation succeeds.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn acquisition_waits_for_in_flight_activation() {
+    let w = World::with(WorldOptions {
+        managed: true,
+        ..WorldOptions::default()
+    })
+    .await;
+    super::managed_verified(&w, "g8act").await;
+    let signed = w.issuer.grant_signed.load(Ordering::SeqCst);
+    let pause = w.ops.debug_pause_next_sign();
+    let ops = w.ops.clone();
+    let (ensured, acquired) = tokio::join!(w.ensure_managed("g8act"), async move {
+        pause.reached.await.unwrap();
+        let o = ops.clone();
+        let acquiring = tokio::spawn(async move { o.uninstall_fence_acquire(HOLDER).await });
+        for _ in 0..32 {
+            tokio::task::yield_now().await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let waited = !acquiring.is_finished() && !ops.uninstall_fence_held();
+        pause.resume.send(()).unwrap();
+        (waited, acquiring.await.unwrap())
+    });
+    let (waited, acquired) = acquired;
+    assert!(
+        waited,
+        "the acquisition must wait for the in-flight activation"
+    );
+    ensured.unwrap_or_else(|e| panic!("the activation completes: {e:?}"));
+    acquired.unwrap();
+    assert!(w.issuer.grant_signed.load(Ordering::SeqCst) > signed);
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+}
+
+/// `activation_refused_while_fence_is_being_acquired` (audit A1): once an acquisition
+/// has started (it waits for other admitted work), a new managed activation is
+/// refused before it generates a key, reserves or signs; nothing is signed, and the
+/// acquisition then completes.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn activation_refused_while_fence_is_being_acquired() {
+    let w = World::with(WorldOptions {
+        managed: true,
+        ..WorldOptions::default()
+    })
+    .await;
+    super::managed_verified(&w, "g8ref").await;
+    let signed = w.issuer.grant_signed.load(Ordering::SeqCst);
+    let blocker = w.ops.uninstall_fence_admit().unwrap();
+    let ops = w.ops.clone();
+    let acquiring = tokio::spawn(async move { ops.uninstall_fence_acquire(HOLDER).await });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!acquiring.is_finished());
+    let e = w
+        .ensure_managed("g8ref")
+        .await
+        .expect_err("refused while the fence is being acquired");
+    assert_eq!(
+        w.issuer.grant_signed.load(Ordering::SeqCst),
+        signed,
+        "nothing signed: {e:?}"
+    );
+    drop(blocker);
+    acquiring.await.unwrap().unwrap();
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+}
+
+/// The verdicts `op` has recorded (`enroll.verify.outcome` receipts).
+fn verdicts(w: &World, op: &OperationId) -> usize {
+    w.receipts(op)
+        .iter()
+        .filter(|r| r.stage == enrollment_stage::VERIFY_OUTCOME)
+        .count()
+}
+
+/// `enroll step` on `w.ops` as its own task (cancellable by `abort`).
+fn spawn_step(w: &World, op: &OperationId) -> tokio::task::JoinHandle<OpResult<serde_json::Value>> {
+    let ops = w.ops.clone();
+    let operation_id = op.clone();
+    tokio::spawn(async move {
+        ops.enrollment_request(&unattended(), EnrollmentRequest::Step { operation_id })
+            .await
+    })
+}
+
+/// ⟨ADR-0008 §17.32 item 4; audit A8⟩ A deterministic schedule: the deferred initial
+/// verification's leader (an `enroll step`) signs its pair and hands off its result
+/// write, which is paused; the leader's request is then cancelled. A second caller
+/// reaches the verification while that write is still pending (`debug_verify_operation`:
+/// a route past its state check, as a concurrent step, reconcile, decision or pass
+/// is): it follows the leader's verification, which still holds the flight, instead
+/// of starting another, and returns once the write commits. Exactly one verdict is
+/// recorded and no second certificate pair is signed.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn cancelled_verification_leader_with_a_pending_result_write_is_never_repeated() {
+    let w = World::new().await;
+    let (op, signed) = append_result_under_fence(&w, "req_l5_a8").await;
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+    let pause = w.ops.debug_pause_next_verification_result_write();
+    let leader = spawn_step(&w, &op);
+    pause.reached.await.unwrap();
+    assert_eq!(
+        w.issuer.signed.load(Ordering::SeqCst),
+        signed + 2,
+        "the leader signed its pair"
+    );
+    assert_eq!(verdicts(&w, &op), 0, "its result write is pending");
+    leader.abort();
+    assert!(leader.await.unwrap_err().is_cancelled());
+    let ops = w.ops.clone();
+    let o = op.clone();
+    let follower = tokio::spawn(async move { ops.debug_verify_operation(&o).await });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(
+        w.issuer.signed.load(Ordering::SeqCst),
+        signed + 2,
+        "no second certificate pair while the leader's write is pending"
+    );
+    assert!(
+        !follower.is_finished(),
+        "the follower waits for the pending verification"
+    );
+    pause.resume.send(()).unwrap();
+    follower
+        .await
+        .unwrap()
+        .unwrap_or_else(|e| panic!("the leader's outcome: {e:?}"));
+    assert_eq!(w.records().pop().unwrap().state, EnrollmentState::Verified);
+    assert_eq!(
+        w.issuer.signed.load(Ordering::SeqCst),
+        signed + 2,
+        "no second certificate pair"
+    );
+    assert_eq!(verdicts(&w, &op), 1, "exactly one verdict");
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+}
+
+/// ⟨ADR-0008 §17.32 item 4; audit A8⟩ The result write's compare-and-swap, with the
+/// flight bypassed (a debug-only entry, `debug_verify_without_flight`) so two runs of
+/// the same initial verification really overlap: the first run's result write is
+/// paused; the second run verifies and records its verdict; the first write then
+/// resumes and is discarded (no error, nothing written). Exactly one verdict.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn verification_result_write_records_only_the_run_it_started_from() {
+    let w = World::new().await;
+    let (op, _) = append_result_under_fence(&w, "req_l5_a8c").await;
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+    let pause = w.ops.debug_pause_next_verification_result_write();
+    let ops = w.ops.clone();
+    let o = op.clone();
+    let first = tokio::spawn(async move { ops.debug_verify_without_flight(&o).await });
+    pause.reached.await.unwrap();
+    w.ops
+        .debug_verify_without_flight(&op)
+        .await
+        .unwrap_or_else(|e| panic!("second run: {e:?}"));
+    assert_eq!(verdicts(&w, &op), 1);
+    assert_eq!(w.records().pop().unwrap().state, EnrollmentState::Verified);
+    pause.resume.send(()).unwrap();
+    let first = first.await.unwrap();
+    assert!(
+        first.is_ok(),
+        "the stale run's result is discarded: {first:?}"
+    );
+    assert_eq!(verdicts(&w, &op), 1, "exactly one verdict");
+    assert_eq!(w.records().pop().unwrap().state, EnrollmentState::Verified);
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+}

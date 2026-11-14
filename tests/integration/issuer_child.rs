@@ -1996,6 +1996,190 @@ mod process {
         issuer.stop().await;
     }
 
+    /// A jitter of 10 ms (the restart cases here run on real time).
+    struct Quick;
+    impl Jitter for Quick {
+        fn delay(&self, ceiling: Duration) -> Duration {
+            Duration::from_millis(10).min(ceiling)
+        }
+    }
+
+    /// ⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩ A broken link's restart under a held
+    /// fence loads no K_ca until the lift. The load gate stands in for the runtime's fence
+    /// admission (`Operations::issuer_load_gate`): while it refuses, the restart cycle
+    /// spawns no child and sends no `load` (spawns counted through the start-token
+    /// reader, loads through the gate's admissions); after the lift it restarts and loads.
+    #[tokio::test]
+    async fn broken_link_restart_under_a_held_fence_loads_nothing_until_the_lift() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let w = World::new().await;
+        let k = w.key();
+        let entry = w.reserve(&k).await;
+        let fenced = Arc::new(AtomicBool::new(false));
+        let admitted = Arc::new(AtomicUsize::new(0));
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let (f, a, n) = (fenced.clone(), admitted.clone(), spawns.clone());
+        let mut config = ClientConfig::new(
+            command(&w, false),
+            Arc::new(move |pid| {
+                n.fetch_add(1, Ordering::SeqCst);
+                start_token(pid)
+            }),
+        );
+        config.jitter = Arc::new(Quick);
+        config.load_gate = Some(Arc::new(move || {
+            if f.load(Ordering::SeqCst) {
+                None
+            } else {
+                a.fetch_add(1, Ordering::SeqCst);
+                Some(Box::new(()) as Box<dyn Send>)
+            }
+        }));
+        let issuer = ChildIssuer::new(config);
+        issuer.start().await.unwrap();
+        assert_eq!(issuer.state(), IssuerState::Ready);
+        let pid = issuer.identity().unwrap().pid;
+        let (spawned, loads) = (
+            spawns.load(Ordering::SeqCst),
+            admitted.load(Ordering::SeqCst),
+        );
+        // The fence is taken; then the link breaks (the child ends: exact PID).
+        fenced.store(true, Ordering::SeqCst);
+        kill_exact(pid);
+        let e = issuer
+            .sign(grant_ref(&entry), &k.openssh_line)
+            .await
+            .unwrap_err();
+        assert!(matches!(e, IssuerError::Unavailable(_)), "{e:?}");
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(spawns.load(Ordering::SeqCst), spawned, "no child spawned");
+        assert_eq!(admitted.load(Ordering::SeqCst), loads, "no load admitted");
+        assert!(
+            issuer.loaded_cas().is_empty(),
+            "no CA loaded under the fence"
+        );
+        assert_ne!(issuer.state(), IssuerState::Ready);
+        // The lift: the deferred restart proceeds.
+        fenced.store(false, Ordering::SeqCst);
+        for _ in 0..100 {
+            if issuer.state() == IssuerState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert_eq!(issuer.state(), IssuerState::Ready);
+        assert!(spawns.load(Ordering::SeqCst) > spawned);
+        assert_ne!(issuer.identity().unwrap().pid, pid);
+        assert_eq!(issuer.loaded_cas().len(), 1);
+        issuer.stop().await;
+    }
+
+    /// ⟨round 10 L1, the liveness aside⟩ A `load` cancelled after its frame was written
+    /// (`issuer unlock`'s future dropped by its bound) leaves no stuck `loading`: the next
+    /// demand retries the load, and the issuer is `ready` again without an explicit unlock.
+    #[tokio::test]
+    async fn cancelled_load_recovers_without_an_explicit_unlock() {
+        let w = World::new().await;
+        let k = w.key();
+        let entry = w.reserve(&k).await;
+        let issuer = client(&w, false);
+        issuer.start().await.unwrap();
+        assert_eq!(issuer.state(), IssuerState::Ready);
+        // `biased`: the reload is polled first (it writes `load` and waits for the reply),
+        // then the ready branch wins and the reload future is dropped.
+        tokio::select! {
+            biased;
+            _ = issuer.reload() => panic!("not dropped in time"),
+            () = std::future::ready(()) => {}
+        }
+        assert_eq!(issuer.state(), IssuerState::Loading, "cancelled mid-load");
+        // A demand: refused at once, and it kicks the retry.
+        assert!(
+            issuer
+                .sign(grant_ref(&entry), &k.openssh_line)
+                .await
+                .is_err()
+        );
+        for _ in 0..100 {
+            if issuer.state() == IssuerState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            issuer.state(),
+            IssuerState::Ready,
+            "recovered without unlock"
+        );
+        issuer
+            .sign(grant_ref(&entry), &k.openssh_line)
+            .await
+            .unwrap();
+        issuer.stop().await;
+    }
+
+    /// ⟨round 10 L1, converge⟩ A start cancelled at `hello` (its future dropped) leaves no
+    /// stuck `starting`: it is `crashed`, and the next demand restarts the child. The child
+    /// is this test binary with a filter that matches no test (it exits without speaking
+    /// the protocol); spawns are counted through the start-token reader.
+    #[tokio::test]
+    async fn cancelled_start_is_crashed_and_restarted_on_demand() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let n = spawns.clone();
+        let mut config = ClientConfig::new(
+            ChildCommand {
+                program: std::env::current_exe().unwrap(),
+                args: [
+                    "--exact",
+                    "hm_r10_no_such_test",
+                    "--quiet",
+                    "--test-threads=1",
+                ]
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect(),
+                env: Vec::new(),
+            },
+            Arc::new(move |_| {
+                n.fetch_add(1, Ordering::SeqCst);
+                None
+            }),
+        );
+        config.jitter = Arc::new(Quick);
+        let issuer = ChildIssuer::new(config);
+        tokio::select! {
+            biased;
+            _ = issuer.start() => panic!("not dropped in time"),
+            () = std::future::ready(()) => {}
+        }
+        assert_eq!(spawns.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            issuer.state(),
+            IssuerState::Crashed,
+            "never stuck in starting"
+        );
+        let e = issuer
+            .sign(
+                IssuanceRef {
+                    table: IssuanceTable::Grant,
+                    id: IssuanceId::from_random_bytes([4; 16]),
+                },
+                "ssh-ed25519 AAAA",
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(e, IssuerError::Unavailable(_)), "{e:?}");
+        for _ in 0..100 {
+            if spawns.load(Ordering::SeqCst) > 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(spawns.load(Ordering::SeqCst) > 1, "the demand restarted it");
+        issuer.stop().await;
+    }
+
     /// The runtime role: a process of this test binary that starts the issuer, writes
     /// the child's PID, and waits to be killed.
     #[test]

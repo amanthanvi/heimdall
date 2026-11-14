@@ -179,6 +179,14 @@ pub(crate) async fn run_stages(
     if grant.scope.pairs.is_empty() {
         return Err(AdapterError::CapabilityUnavailable);
     }
+    // ⟨ADR-0008 §17.28 item 1, §17.31 item 2; round-10 audit A1⟩ Signing is CA work:
+    // one fence admission covers the whole pipeline (key, reserve, sign, publish,
+    // install, materialize, and the abandonment on failure), so an uninstall's
+    // acquisition waits for in-flight issuance, and none of it starts while the fence
+    // is held or being acquired (refused before anything is generated or recorded).
+    let _pipeline = ops
+        .fence_admit_pipeline()
+        .map_err(|e| adapter_error_of(&e))?;
     // The binding minted at resolve (§17.21 item 1), from the operation's intent; a
     // re-issue (continuing work, no operation) restores the grant's live bindings
     // instead (§17.22 item 5).
@@ -312,6 +320,8 @@ async fn stages_after_key(
         // 3. sign, 4. publish (with the re-reservation round trips).
         let mut done = None;
         for _ in 0..PUBLISH_ROUNDS {
+            #[cfg(debug_assertions)]
+            ops.debug_sign_pause().await;
             let cert = sign(issuer, &entry, &key.public_key, limit_of(ops)).await?;
             receipt(stage::SIGN).await?;
             match ops

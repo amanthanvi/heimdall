@@ -2354,7 +2354,15 @@ impl ManagedParts {
         let start_token: heimdall_issuer::client::StartToken = m
             .issuer_start_token
             .unwrap_or_else(|| Arc::new(crate::platform::process_start_time));
-        let issuer = command.map(|c| ChildIssuer::new(ClientConfig::new(c, start_token)));
+        // ⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩ Every start and load of the child
+        // (K_ca read into it) takes the uninstall fence's admission first: a restart or
+        // reload outside the holder's scope waits for the lift.
+        let load_gate = ops.issuer_load_gate();
+        let issuer = command.map(|c| {
+            let mut config = ClientConfig::new(c, start_token);
+            config.load_gate = Some(load_gate);
+            ChildIssuer::new(config)
+        });
         teardown.issuer.clone_from(&issuer);
         if let Some(i) = &issuer {
             self.sources.set_issuer(Arc::new(i.clone()));

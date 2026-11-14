@@ -76,6 +76,14 @@ pub(crate) struct UninstallFence {
     /// ([`Operations::debug_refuse_next_reservation`]).
     #[cfg(debug_assertions)]
     refuse_next: std::sync::atomic::AtomicBool,
+    /// ⟨debug builds only⟩ The next reservation's pause inside its blocking store write
+    /// ([`Operations::debug_pause_next_reservation_write`]).
+    #[cfg(debug_assertions)]
+    write_pause: Mutex<Option<ReservationPause>>,
+    /// ⟨debug builds only⟩ The next managed pipeline's pause before it signs
+    /// ([`Operations::debug_pause_next_sign`]).
+    #[cfg(debug_assertions)]
+    sign_pause: Mutex<Option<ReservationPause>>,
 }
 
 #[derive(Debug, Default)]
@@ -86,6 +94,10 @@ struct FenceState {
     admitted: usize,
     /// Acquisitions waiting for the admissions to end.
     acquiring: usize,
+    /// ⟨§17.32 item 3⟩ The admissions held per task (the task that took them), so a
+    /// store write that task starts carries its own counted extension
+    /// ([`UninstallFence::write_extension`]).
+    tasks: std::collections::HashMap<tokio::task::Id, usize>,
 }
 
 tokio::task_local! {
@@ -168,6 +180,37 @@ impl UninstallFence {
     fn holder(&self) -> Option<u64> {
         self.state().holder
     }
+
+    /// ⟨§17.32 item 3⟩ For a store write started by a task that holds an admission: a
+    /// further counted admission, which the write's blocking closure owns until the
+    /// transaction has committed or rolled back. So cancelling the task's future (and
+    /// dropping its admission) never lets an acquisition complete while that write is
+    /// queued or running. `None` outside a task, for a task holding none, and in the
+    /// holder's scope.
+    pub(crate) fn write_extension(self: &Arc<Self>) -> Option<FenceAdmission> {
+        if in_holder_scope() {
+            return None;
+        }
+        let task = tokio::task::try_id()?;
+        let mut s = self.state();
+        if s.tasks.get(&task).copied().unwrap_or(0) == 0 {
+            return None;
+        }
+        s.admitted += 1;
+        Some(FenceAdmission {
+            fence: Some(Arc::clone(self)),
+            task: None,
+        })
+    }
+
+    /// ⟨debug builds only⟩ The pause the next admitted reservation write takes.
+    #[cfg(debug_assertions)]
+    pub(crate) fn take_write_pause(&self) -> Option<ReservationPause> {
+        self.write_pause
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
 }
 
 /// Held by admitted work from its check until it ends: an acquisition waits for every
@@ -176,6 +219,17 @@ impl UninstallFence {
 #[derive(Debug)]
 pub struct FenceAdmission {
     fence: Option<Arc<UninstallFence>>,
+    /// The task that took it (counted in `FenceState::tasks`), if any.
+    task: Option<tokio::task::Id>,
+}
+
+impl FenceAdmission {
+    fn none() -> Self {
+        Self {
+            fence: None,
+            task: None,
+        }
+    }
 }
 
 impl Drop for FenceAdmission {
@@ -184,6 +238,14 @@ impl Drop for FenceAdmission {
             let last = {
                 let mut s = fence.state();
                 s.admitted = s.admitted.saturating_sub(1);
+                if let Some(task) = self.task
+                    && let Some(n) = s.tasks.get_mut(&task)
+                {
+                    *n = n.saturating_sub(1);
+                    if *n == 0 {
+                        s.tasks.remove(&task);
+                    }
+                }
                 s.admitted == 0
             };
             if last {
@@ -213,6 +275,15 @@ pub struct ReservationPause {
     resume: tokio::sync::oneshot::Receiver<()>,
 }
 
+#[cfg(debug_assertions)]
+impl ReservationPause {
+    /// On the blocking pool: signal `reached`, then wait for `resume` (or its drop).
+    pub(crate) fn block(self) {
+        let _ = self.reached.send(());
+        let _ = self.resume.blocking_recv();
+    }
+}
+
 /// ⟨debug builds only⟩ The test's side of a [`ReservationPause`].
 #[cfg(debug_assertions)]
 #[derive(Debug)]
@@ -235,7 +306,7 @@ enum Admit {
 impl Operations {
     fn fence_admit(&self, kind: Admit) -> Result<FenceAdmission, OpError> {
         if in_holder_scope() {
-            return Ok(FenceAdmission { fence: None });
+            return Ok(FenceAdmission::none());
         }
         let fence = &self.inner.uninstall_fence;
         let mut s = fence.state();
@@ -243,8 +314,13 @@ impl Operations {
             return Err(uninstall_in_progress());
         }
         s.admitted += 1;
+        let task = tokio::task::try_id();
+        if let Some(t) = task {
+            *s.tasks.entry(t).or_insert(0) += 1;
+        }
         Ok(FenceAdmission {
             fence: Some(Arc::clone(fence)),
+            task,
         })
     }
 
@@ -270,7 +346,7 @@ impl Operations {
         if enrollment_fenced(req) {
             self.uninstall_fence_admit()
         } else {
-            Ok(FenceAdmission { fence: None })
+            Ok(FenceAdmission::none())
         }
     }
 
@@ -283,7 +359,7 @@ impl Operations {
         if issuer_fenced(req) {
             self.uninstall_fence_admit()
         } else {
-            Ok(FenceAdmission { fence: None })
+            Ok(FenceAdmission::none())
         }
     }
 
@@ -319,6 +395,90 @@ impl Operations {
             .uninstall_fence
             .refuse_next
             .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// ⟨§17.28 item 1, §17.31 item 2; round-10 audit A1⟩ The admission of one managed
+    /// issuance pipeline (`managed::driver::run_stages`: key, reserve, sign, publish,
+    /// install, materialize), held for the whole pipeline so an acquisition waits for
+    /// in-flight issuance and no step of it runs under a held fence. Inside admitted
+    /// work (the re-issue pass) it extends that admission; otherwise (the ensure's
+    /// spawned lead) it is new work, refused while the fence is held or being acquired.
+    ///
+    /// # Errors
+    /// As [`Self::uninstall_fence_admit`].
+    pub(crate) fn fence_admit_pipeline(&self) -> Result<FenceAdmission, OpError> {
+        if in_holder_scope() {
+            return Ok(FenceAdmission::none());
+        }
+        match self.inner.uninstall_fence.write_extension() {
+            Some(extension) => Ok(extension),
+            None => self.fence_admit(Admit::Work),
+        }
+    }
+
+    /// ⟨debug builds only; tests⟩ Pause the next managed pipeline after its
+    /// reservation, before it signs, until the returned control's `resume` is sent or
+    /// dropped. Release builds have no pause.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn debug_pause_next_sign(&self) -> ReservationPauseControl {
+        let (reached_tx, reached) = tokio::sync::oneshot::channel();
+        let (resume, resume_rx) = tokio::sync::oneshot::channel();
+        *self
+            .inner
+            .uninstall_fence
+            .sign_pause
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(ReservationPause {
+            reached: reached_tx,
+            resume: resume_rx,
+        });
+        ReservationPauseControl { reached, resume }
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) async fn debug_sign_pause(&self) {
+        let pause = self
+            .inner
+            .uninstall_fence
+            .sign_pause
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(p) = pause {
+            let _ = p.reached.send(());
+            let _ = p.resume.await;
+        }
+    }
+
+    /// ⟨§17.32 item 2; round-10 audit A1⟩ A publication's admission
+    /// (`Operations::publish_issuance`): the same as a reservation's, but never
+    /// refused. `None` while another connection holds the fence: then the publication
+    /// is refused before it writes anything (publishing advances CA work); otherwise
+    /// held through the publication's store write.
+    pub(crate) fn fence_admit_publication(&self) -> Option<FenceAdmission> {
+        self.fence_admit(Admit::Reservation).ok()
+    }
+
+    /// ⟨debug builds only; tests; §17.32 item 3⟩ Pause the next admitted reservation
+    /// (grant or verification) **inside** its blocking store write, before the
+    /// transaction begins, until the returned control's `resume` is sent or dropped
+    /// (the caller's future may be cancelled meanwhile). Release builds have no pause.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn debug_pause_next_reservation_write(&self) -> ReservationPauseControl {
+        let (reached_tx, reached) = tokio::sync::oneshot::channel();
+        let (resume, resume_rx) = tokio::sync::oneshot::channel();
+        *self
+            .inner
+            .uninstall_fence
+            .write_pause
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(ReservationPause {
+            reached: reached_tx,
+            resume: resume_rx,
+        });
+        ReservationPauseControl { reached, resume }
     }
 
     /// ⟨debug builds only; tests⟩ Pause the next certificate reservation (grant or
@@ -435,6 +595,120 @@ impl Operations {
         }
         s.holder.is_some()
     }
+
+    /// ⟨ADR-0008 §17.32 item 7; Q-I-R10-1⟩ `uninstall_fence.retry_remote_revocations`
+    /// for `connection`: **exactly one** [`Operations::retry_remote_revocation`] round
+    /// per pending remote revocation record, in root order, before uninstall stops the
+    /// runtime. Holder-only: refused unless `connection` holds the fence.
+    ///
+    /// The round is the supervisor's ordinary one, never a re-arm: it is claimed with
+    /// `attempts + 1` only when an adapter call is owed (`claim_retry_round_in`), a
+    /// `stopped` record is answered unchanged with no call, a record at its cap is
+    /// marked `stopped` with no call, and nothing resets a count or lifts a stop. The cap
+    /// is the one the supervisor configured ([`Operations::set_revocation_cap`]),
+    /// passed unchanged, so the round is judged by each record's
+    /// `PendingRemoteRevocation::round_cap` of it, as the supervisor's are.
+    ///
+    /// Returns, per record: what the round did and whether the record is still pending.
+    ///
+    /// # Errors
+    /// `SERVICE_UNAVAILABLE` when `connection` does not hold the fence (reason
+    /// `uninstall_in_progress` while another connection holds it; none when nobody
+    /// does), nothing attempted; a store failure reading the records.
+    pub async fn uninstall_fence_retry_remote_revocations(
+        &self,
+        connection: u64,
+    ) -> Result<Vec<RemoteRetry>, OpError> {
+        match self.uninstall_fence_holder() {
+            Some(h) if h == connection => {}
+            other => {
+                let e = OpError::new(
+                    Code::ServiceUnavailable,
+                    "only the connection holding the uninstall fence may retry the pending remote revocations; nothing was attempted",
+                )
+                .with_effect(EffectStatus::None);
+                return Err(if other.is_some() {
+                    e.with_reason(reason::UNINSTALL_IN_PROGRESS)
+                } else {
+                    e
+                });
+            }
+        }
+        let cap = self
+            .inner
+            .revocation_cap
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let mut out = Vec::new();
+        for before in self.pending_remote_revocations().await? {
+            let root = before.root.clone();
+            let retry = match self.retry_remote_revocation(&root, cap).await {
+                Ok(None) => RemoteRetry {
+                    root_grant: root.to_string(),
+                    outcome: RemoteRetryOutcome::Completed,
+                    attempts_before: before.attempts,
+                    attempts_after: before.attempts.saturating_add(1),
+                    stopped: false,
+                    pending: false,
+                },
+                Ok(Some(after)) => RemoteRetry {
+                    root_grant: root.to_string(),
+                    outcome: if after.attempts > before.attempts {
+                        RemoteRetryOutcome::AttemptedStillPending
+                    } else {
+                        RemoteRetryOutcome::NotAttempted
+                    },
+                    attempts_before: before.attempts,
+                    attempts_after: after.attempts,
+                    stopped: after.stopped,
+                    pending: true,
+                },
+                Err(_) => RemoteRetry {
+                    root_grant: root.to_string(),
+                    outcome: RemoteRetryOutcome::Failed,
+                    attempts_before: before.attempts,
+                    attempts_after: before.attempts,
+                    stopped: before.stopped,
+                    pending: true,
+                },
+            };
+            out.push(retry);
+        }
+        Ok(out)
+    }
+}
+
+/// ⟨ADR-0008 §17.32 item 7⟩ One record's answer to
+/// [`Operations::uninstall_fence_retry_remote_revocations`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RemoteRetry {
+    /// The revoked root grant the record is keyed by.
+    pub root_grant: String,
+    /// What the one round did.
+    pub outcome: RemoteRetryOutcome,
+    /// The record's rounds before it.
+    pub attempts_before: u32,
+    /// After it (`attempts_before + 1` when a round was claimed).
+    pub attempts_after: u32,
+    /// Whether its retries are stopped now.
+    pub stopped: bool,
+    /// Whether the record is still pending.
+    pub pending: bool,
+}
+
+/// What the one round of [`Operations::uninstall_fence_retry_remote_revocations`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteRetryOutcome {
+    /// Every obligation was confirmed: the record is gone.
+    Completed,
+    /// A round was claimed and called the adapters; something is still pending.
+    AttemptedStillPending,
+    /// No adapter call was owed or allowed (stopped, at its cap, or no responsible
+    /// adapter configured): nothing was attempted, no count reset, no stop lifted.
+    NotAttempted,
+    /// The round failed (a store failure); the record is as it was or counted one
+    /// attempt (a claimed round counts whatever fails).
+    Failed,
 }
 
 /// ⟨ADR-0008 §17.28 item 1⟩ The enrollment operations (open or `outcome_unknown`) whose
@@ -647,6 +921,46 @@ mod tests {
         .await;
         assert!(!ops.uninstall_fence_release(7));
         drop(ops.uninstall_fence_admit().unwrap());
+    }
+
+    /// `cancelled_admitted_work_keeps_admission_until_its_store_write_finishes`
+    /// (ADR-0008 §17.32 item 3, the converge class): admitted work (a fenced request or
+    /// pass, whose admission is a guard on its own future) is cancelled while one of its
+    /// store writes is running on the blocking pool. The write carries a counted
+    /// extension of the admission, so the acquisition completes only after that
+    /// transaction has ended; work that holds no admission adds none.
+    #[tokio::test]
+    async fn cancelled_admitted_work_keeps_admission_until_its_store_write_finishes() {
+        let ops = ops().await;
+        let (reached_tx, reached) = tokio::sync::oneshot::channel();
+        let (go, go_rx) = std::sync::mpsc::channel::<()>();
+        let o = ops.clone();
+        let work = tokio::spawn(async move {
+            let _admission = o.uninstall_fence_admit().unwrap();
+            o.write(move |_, _| {
+                let _ = reached_tx.send(());
+                let _ = go_rx.recv();
+                Ok(())
+            })
+            .await
+        });
+        reached.await.unwrap();
+        work.abort();
+        assert!(work.await.unwrap_err().is_cancelled());
+        let o2 = ops.clone();
+        let acquiring = tokio::spawn(async move { o2.uninstall_fence_acquire(11).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !acquiring.is_finished() && !ops.uninstall_fence_held(),
+            "the acquisition must wait for the cancelled work's running write"
+        );
+        go.send(()).unwrap();
+        assert_eq!(acquiring.await.unwrap().unwrap(), FenceAcquired::Held);
+        assert!(!ops.uninstall_fence_release(11));
+        // A write from a task holding no admission carries none.
+        let o = ops.clone();
+        let unadmitted = tokio::spawn(async move { o.inner.uninstall_fence.write_extension() });
+        assert!(unadmitted.await.unwrap().is_none());
     }
 
     /// A dropped (cancelled) acquisition stops refusing new work.

@@ -75,6 +75,8 @@
 //! **`status`** is the child's last observed state (no I/O) with the store's CA
 //! records filled in; **`bundle`** is `crate::issuer::bundle::export` over the store.
 
+use std::sync::Arc;
+
 use heimdall_contract::envelope::reason;
 use heimdall_contract::ids::{CaFingerprint, EnrollmentId, OperationId};
 use heimdall_contract::issuer::{
@@ -1006,10 +1008,21 @@ impl Operations {
     /// keep signing whatever the issuer's state: nothing here degrades a grant (the
     /// re-issue pass does that, for a lost K_env, `credential_reissue_pending`).
     ///
+    /// ⟨ADR-0008 §17.28 item 1, §17.32; round 10 A6⟩ Starting the child loads K_ca and
+    /// resuming a retirement advances CA records, so the pass takes the fence's admission
+    /// (as `reverify_pass` does) and holds it for its whole run: while a fence is held or
+    /// being acquired by another connection it does nothing, and the next round after the
+    /// lift runs it. The fence holder's own inline retire does not need this pass: its
+    /// `RetireIssuer` approval resumes the retirement inline, in the holder's scope
+    /// (`issuer_after_decision`), and an unload with no child running is already done.
+    ///
     /// # Errors
     /// [`OpError`] (the store).
     pub async fn issuer_supervision_pass(&self) -> Result<(), OpError> {
         let Some(wiring) = self.managed_wiring() else {
+            return Ok(());
+        };
+        let Ok(_admission) = self.uninstall_fence_admit() else {
             return Ok(());
         };
         let Some(issuer) = wiring.issuer.clone() else {
@@ -1041,6 +1054,26 @@ impl Operations {
             }
         }
         Ok(())
+    }
+
+    /// ⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩ The issuer client's load gate
+    /// (`heimdall_issuer::client::LoadGate`): before a child is spawned or a `load` sent
+    /// (K_ca read into the child), the client takes this fence admission and holds it
+    /// across the load; `None` while a fence is held or being acquired by another
+    /// connection (the holder's scope is admitted). `Some(permit)` is held across the
+    /// load. It holds the operations weakly, so the
+    /// client (which the wiring holds) never keeps them alive.
+    #[must_use]
+    pub fn issuer_load_gate(&self) -> Arc<dyn Fn() -> Option<Box<dyn Send>> + Send + Sync> {
+        let weak = Arc::downgrade(&self.inner);
+        Arc::new(move || {
+            let ops = Operations {
+                inner: weak.upgrade()?,
+            };
+            ops.uninstall_fence_admit()
+                .ok()
+                .map(|a| Box::new(a) as Box<dyn Send>)
+        })
     }
 
     /// After an issuer decision committed (see `decisions_m03`): a registration's

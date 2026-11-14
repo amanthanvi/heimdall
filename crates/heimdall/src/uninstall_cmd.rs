@@ -197,6 +197,484 @@ struct Inventory {
     cas: Vec<(CaFingerprint, CaState)>,
     /// Each registered CA's store item that may still exist.
     items: Vec<StoreItem>,
+    /// ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ Every recovery-relevant record, as read in the
+    /// same transaction ([`RecoverySnapshot`]): the confirmation's read and the purge's
+    /// final read under the lock both produce it.
+    snapshot: RecoverySnapshot,
+    /// ⟨ADR-0008 §17.32 item 7⟩ The access-grant revocations whose remote part is still
+    /// pending (`Txn::remote_revocations`): unfinished security actions on a remote
+    /// system, which a purge would lose with no retry.
+    remote_revocations: Vec<heimdall_domain::revocation::PendingRemoteRevocation>,
+}
+
+/// ⟨ADR-0008 §17.32 item 1 (W5-D01; audit A2, A4, A5)⟩ Every recovery-relevant record of
+/// the state database, as [`heimdall_store::ext_m03::TABLE_RECOVERY`] classifies its
+/// tables:
+/// * every row and column of each `Rows` table (`issuers`: every CA with its state,
+///   store locator and displaced items, the `orphan_store_items`; `enrollments`: every
+///   enrollment in every state, with its residual (`late_write` and its token), origin
+///   and hold; `foreign_removals`: every one in every state; `pair_preferences`: each
+///   pair's issuing set), so a column a later migration adds is compared too;
+/// * the `Part`s: each open or unresolved enrollment operation whole, with a digest of
+///   its journal (its stage receipts) and its outstanding step token, and their
+///   unresolved remote steps (`operations`, kinds by [`OPERATION_RECOVERY`]); the
+///   pending decisions of the kinds [`DECISION_RECOVERY`] includes, whole
+///   (`decisions`); the `meta` keys `META_RECOVERY` includes; and the projection
+///   resources not confirmed absent (`resources`).
+///
+/// The purge deletes only when its final snapshot, read under the instance lock, is the
+/// confirmed one but for this uninstall's own changes ([`Inventory::unchanged_but_for`]).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct RecoverySnapshot {
+    /// The `meta` rows `META_RECOVERY` includes (the installation's environment).
+    meta: Vec<(String, String)>,
+    /// Each `Rows` table's rows ([`heimdall_store::Txn::recovery_rows`]).
+    rows: Vec<(&'static str, Vec<heimdall_store::ext_m03::RecoveryRow>)>,
+    /// The open or unresolved enrollment operations, each whole with its journal.
+    operations: Vec<OperationSnapshot>,
+    /// Their unresolved remote steps.
+    unresolved_steps: Vec<heimdall_contract::ids::OperationId>,
+    /// The pending decisions of an included kind, each whole (its JSON), by ID.
+    decisions: Vec<String>,
+    /// The projection resources not confirmed absent (desired and observed), by ID.
+    projections_not_absent: Vec<String>,
+}
+
+/// ⟨audit A5⟩ One open or unresolved enrollment operation in the snapshot.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct OperationSnapshot {
+    /// The operation record, whole (its JSON).
+    record: String,
+    /// The SHA-256 of its stage receipts in order (its journal), as JSON.
+    journal_sha256: String,
+    /// The token of the step its current journal has outstanding, if any.
+    outstanding_token: Option<String>,
+}
+
+/// The stage of the enrollment journal's receipts (`heimdall_app`'s `JOURNAL_STAGE`);
+/// the digest covers every receipt whatever its stage, this only names the token.
+const JOURNAL_STAGE: &str = "enroll.journal";
+
+impl RecoverySnapshot {
+    /// Read it in the caller's transaction (read-only).
+    fn read(
+        tx: &mut heimdall_store::Txn<'_>,
+        operations: &[OpenEnrollmentOperation],
+        unresolved_steps: &[heimdall_contract::ids::OperationId],
+    ) -> heimdall_store::Result<RecoverySnapshot> {
+        use heimdall_domain::operation::EffectReceipt;
+        use heimdall_domain::resource::ResourceState;
+        use heimdall_store::ext_m03::{RecoveryClass, TABLE_RECOVERY};
+        let mut rows = Vec::new();
+        for (name, class) in TABLE_RECOVERY {
+            if *class == RecoveryClass::Rows {
+                rows.push((*name, tx.recovery_rows(name)?));
+            }
+        }
+        let mut ops = Vec::new();
+        for o in operations.iter().filter(|o| operation_in_snapshot(o.kind)) {
+            let record = tx.operation(&o.id)?;
+            let receipts = tx.stage_receipts(&o.id)?;
+            let outstanding_token = receipts
+                .iter()
+                .rev()
+                .find_map(|r| match &r.effect {
+                    EffectReceipt::Confirmed { credential_ref, .. } if r.stage == JOURNAL_STAGE => {
+                        serde_json::from_str::<heimdall_app::enrollment::Journal>(credential_ref)
+                            .ok()
+                    }
+                    _ => None,
+                })
+                .and_then(|j| j.outstanding.map(|s| s.token));
+            ops.push(OperationSnapshot {
+                record: serde_json::to_string(&record).unwrap_or_default(),
+                journal_sha256: heimdall_issuer::backup::sha256_hex(
+                    serde_json::to_string(&receipts)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                ),
+                outstanding_token,
+            });
+        }
+        let mut decisions: Vec<(String, String)> = tx
+            .pending_decisions()?
+            .into_iter()
+            .filter(|d| decision_in_snapshot(&d.kind))
+            .map(|d| {
+                (
+                    d.id.as_str().to_owned(),
+                    serde_json::to_string(&d).unwrap_or_default(),
+                )
+            })
+            .collect();
+        decisions.sort();
+        let projections_not_absent = match tx.self_environment()? {
+            Some(env) => tx
+                .projection_resources(&env)?
+                .into_iter()
+                .filter(|r| {
+                    !(r.desired == ResourceState::Absent && r.observed == ResourceState::Absent)
+                })
+                .map(|r| r.id.as_str().to_owned())
+                .collect(),
+            None => Vec::new(),
+        };
+        Ok(RecoverySnapshot {
+            meta: tx.recovery_meta()?,
+            rows,
+            operations: ops,
+            unresolved_steps: unresolved_steps.to_vec(),
+            decisions: decisions.into_iter().map(|(_, d)| d).collect(),
+            projections_not_absent,
+        })
+    }
+
+    /// The snapshot without the projection resources (they move with the rollback and
+    /// the cleaner; the purge requires them absent under the lock instead).
+    fn records(&self) -> RecoverySnapshot {
+        RecoverySnapshot {
+            projections_not_absent: Vec::new(),
+            ..self.clone()
+        }
+    }
+}
+
+/// ⟨audit A2, A4⟩ How the recovery snapshot treats a **pending** decision, by kind
+/// ([`decision_kind_name`]): `None` when it is in the snapshot, whole, otherwise why
+/// not. A settled decision is in none: what its approval did is in the records it
+/// wrote (the CAs, enrollments and operations compared). **A new `DecisionKind` is
+/// classified here**: [`decision_kind_name`] matches without a wildcard (a new kind
+/// does not compile until it is named), and `decision_kinds_are_classified_for_the_snapshot`
+/// fails on a named kind that is not listed.
+const DECISION_RECOVERY: &[(&str, Option<&str>)] = &[
+    // Its `store_locator` (and a restore's `expected_store_locator`) can be the only
+    // record of a K_ca store item already written.
+    ("register_issuer", None),
+    (
+        "retire_issuer",
+        Some("its approval's effect is the CA's state and store item, compared in `issuers`"),
+    ),
+    (
+        "enroll_account",
+        Some(
+            "it waits on an open enrollment operation, compared with its journal; its approval's effect is in the enrollment records",
+        ),
+    ),
+    (
+        "enroll_system_form",
+        Some(
+            "it waits on an open enrollment operation, compared with its journal; its approval's effect is in the enrollment records",
+        ),
+    ),
+    (
+        "remove_enrollment",
+        Some(
+            "it waits on an open enrollment operation, compared with its journal; its approval's effect is in the enrollment and foreign-removal records",
+        ),
+    ),
+    (
+        "approve_target_change",
+        Some(
+            "its held enrollment is compared whole; its approval's effect is in the enrollment record",
+        ),
+    ),
+    (
+        "approve_authority",
+        Some("access-grant authority (ADR-0008 §17.32 item 6: out)"),
+    ),
+    ("widen_policy", Some("a local standing-policy action")),
+    ("confirm_time", Some("the local time")),
+    (
+        "apply_projection",
+        Some(
+            "a local projection change; this uninstall's own rollback asks one, and the projection resources are checked absent under the lock",
+        ),
+    ),
+    ("declare_interaction", Some("a local catalog declaration")),
+];
+
+/// The name of a decision's kind in [`DECISION_RECOVERY`]. No wildcard: a new kind
+/// does not compile until it is named, and then fails the classification test until it
+/// is listed.
+fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'static str {
+    use heimdall_domain::decision::DecisionKind as D;
+    match kind {
+        D::ApproveAuthority { .. } => "approve_authority",
+        D::WidenPolicy { .. } => "widen_policy",
+        D::ConfirmTime { .. } => "confirm_time",
+        D::ApplyProjection { .. } => "apply_projection",
+        D::DeclareInteraction { .. } => "declare_interaction",
+        D::RegisterIssuer { .. } => "register_issuer",
+        D::RetireIssuer { .. } => "retire_issuer",
+        D::EnrollAccount { .. } => "enroll_account",
+        D::EnrollSystemForm { .. } => "enroll_system_form",
+        D::RemoveEnrollment { .. } => "remove_enrollment",
+        D::ApproveTargetChange { .. } => "approve_target_change",
+    }
+}
+
+/// Whether a pending decision of `kind` is in the recovery snapshot
+/// ([`DECISION_RECOVERY`]; an unlisted kind is, fail closed).
+fn decision_in_snapshot(kind: &heimdall_domain::decision::DecisionKind) -> bool {
+    let name = decision_kind_name(kind);
+    DECISION_RECOVERY
+        .iter()
+        .find(|(k, _)| *k == name)
+        .is_none_or(|(_, why)| why.is_none())
+}
+
+/// ⟨ADR-0008 §17.32 items 1, 6⟩ How the recovery snapshot treats an open operation, by
+/// kind: `None` when its open or unresolved operations are in the snapshot, otherwise
+/// why not. **A new [`OperationKind`](heimdall_domain::operation::OperationKind) is
+/// classified here**: `operation_kinds_are_classified_for_the_snapshot` fails on a kind
+/// of `OperationKind::ALL` that is not listed.
+const OPERATION_RECOVERY: &[(heimdall_domain::operation::OperationKind, Option<&str>)] = {
+    use heimdall_domain::operation::OperationKind as K;
+    const GRANT: &str = "access grants: their certificate issuance records are short-lived and create no new remote obligation; the lasting remote trust is the CA enrollment";
+    &[
+        (K::EnrollmentApply, None),
+        (K::EnrollmentVerify, None),
+        // A foreign removal runs as `enrollment.remove`, and is covered as its record too.
+        (K::EnrollmentRemove, None),
+        (K::Ensure, Some(GRANT)),
+        (K::Bind, Some(GRANT)),
+        (K::Delegate, Some(GRANT)),
+        (
+            K::Revoke,
+            Some("a local grant revocation; no remote obligation"),
+        ),
+        (K::Cancel, Some("declared, never journaled")),
+        (K::Release, Some("declared, never journaled")),
+        (
+            K::Policy,
+            Some("declared, never journaled; standing policies are local"),
+        ),
+        (K::Probe, Some("reserved, never journaled")),
+        (
+            K::SetupApply,
+            Some("local resources; the projection resources are checked absent under the lock"),
+        ),
+        (
+            K::SetupRollback,
+            Some("local resources; this uninstall's own rollback is one"),
+        ),
+        (
+            K::SetupRepair,
+            Some("local resources; the projection resources are checked absent under the lock"),
+        ),
+        (K::Catalog, Some("local catalog records")),
+        // Issuer work (registration, retirement, restore) has no operation kind: it has
+        // no remote effect, and its store items are covered by the CA, locator and
+        // orphan-item entries of `issuers`.
+    ]
+};
+
+/// Whether `kind`'s open operations are in the recovery snapshot ([`OPERATION_RECOVERY`];
+/// an unlisted kind is, fail closed).
+fn operation_in_snapshot(kind: heimdall_domain::operation::OperationKind) -> bool {
+    OPERATION_RECOVERY
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .is_none_or(|(_, why)| why.is_none())
+}
+
+/// ⟨audit A3⟩ A CA as this uninstall's session observed it (`issuer.status`): its
+/// state, recorded store locator and displaced store locators (sorted).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CaObserved {
+    /// Its state.
+    state: CaState,
+    /// Its recorded store locator.
+    locator: Option<String>,
+    /// Its displaced store locators, sorted.
+    displaced: Vec<String>,
+}
+
+/// ⟨audit A3⟩ A retirement this uninstall ran that changed its CA: the CA as its own
+/// session observed it just before and just after the run (under the uninstall fence,
+/// so no other connection could retire it or approve its decision meanwhile). Only a
+/// run with both observations and a difference between them is recorded; a declined
+/// or refused run that changed nothing admits no change at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnRetirement {
+    /// The CA.
+    ca: CaFingerprint,
+    /// Before the run.
+    before: CaObserved,
+    /// After it.
+    after: CaObserved,
+}
+
+/// What this uninstall itself changed between its confirmation and the purge: its
+/// retirement runs as observed, and its one retry of each pending remote revocation as
+/// the runtime answered it. The purge's final check admits exactly these.
+#[derive(Debug, Clone, Default)]
+struct OwnChanges {
+    /// The retirement runs that changed their CA.
+    retirements: Vec<OwnRetirement>,
+    /// The retry's answer per pending remote revocation.
+    retries: Vec<RemoteRetry>,
+}
+
+/// The `meta` key of a pending remote revocation (`heimdall_store`'s
+/// `remote_revocation:` prefix and the root grant).
+fn remote_revocation_key(root: &str) -> String {
+    format!("remote_revocation:{root}")
+}
+
+/// ⟨ADR-0008 §17.32 item 7⟩ The `meta` rows are the confirmed ones but for this
+/// uninstall's own retry: for each record it retried, the row is gone when the retry
+/// answered it no longer pending; otherwise it still exists for the same root with
+/// exactly the answered `attempts` and `stopped`, covering no grant it did not cover
+/// (a confirmed grant leaves the record). Every other row is unchanged.
+fn meta_unchanged_but_for(
+    before: &[(String, String)],
+    after: &[(String, String)],
+    retries: &[RemoteRetry],
+) -> bool {
+    use heimdall_domain::revocation::PendingRemoteRevocation;
+    let retried = |k: &str| {
+        retries
+            .iter()
+            .find(|r| remote_revocation_key(&r.root_grant) == k)
+    };
+    let others = |rows: &[(String, String)]| -> Vec<(String, String)> {
+        rows.iter()
+            .filter(|(k, _)| retried(k).is_none())
+            .cloned()
+            .collect()
+    };
+    if others(before) != others(after) {
+        return false;
+    }
+    retries.iter().all(|r| {
+        let key = remote_revocation_key(&r.root_grant);
+        let find = |rows: &[(String, String)]| {
+            rows.iter()
+                .find(|(k, _)| *k == key)
+                .and_then(|(_, v)| serde_json::from_str::<PendingRemoteRevocation>(v).ok())
+        };
+        let Some(was) = find(before) else {
+            return false;
+        };
+        match (r.pending, find(after)) {
+            (false, None) => true,
+            (true, Some(now)) => {
+                now.root == was.root
+                    && now.attempts == r.attempts_after
+                    && now.stopped == r.stopped
+                    && now.grants.iter().all(|g| was.grants.contains(g))
+            }
+            _ => false,
+        }
+    })
+}
+
+/// ⟨§17.32 item 7⟩ The retry's result in the report: `remote_revocation_retries` (each
+/// record's outcome and whether it is still pending), or the reason it was not made.
+fn with_retries(out: &mut Outcome, retried: &Result<Vec<RemoteRetry>, String>) {
+    let (json, human) = match retried {
+        Ok(r) if r.is_empty() => return,
+        Ok(r) => (
+            serde_json::to_value(r).unwrap_or(serde_json::Value::Null),
+            r.iter()
+                .map(|t| {
+                    format!(
+                        "    grant {}: {} ({} -> {} round(s)){}\n",
+                        t.root_grant,
+                        t.outcome,
+                        t.attempts_before,
+                        t.attempts_after,
+                        if t.pending {
+                            ", still pending"
+                        } else {
+                            ", done"
+                        }
+                    )
+                })
+                .collect::<String>(),
+        ),
+        Err(why) => (
+            serde_json::json!({ "attempted": false, "message": why }),
+            format!("    not made: {why}\n"),
+        ),
+    };
+    if let serde_json::Value::Object(map) = &mut out.env.data {
+        map.insert("remote_revocation_retries".to_owned(), json);
+    }
+    out.human.push_str(&format!(
+        "Remote revocation retries (one attempt each):\n{human}"
+    ));
+}
+
+/// The CA `ca` in an `issuer.status` answer, if readable.
+fn observe_ca(env: &Envelope<serde_json::Value>, ca: &CaFingerprint) -> Option<CaObserved> {
+    let st = crate::issuer_cmd::status_of(env)?;
+    let row = st.cas.iter().find(|c| c.fingerprint == *ca)?;
+    let mut displaced: Vec<String> = crate::issuer_cmd::displaced_of(&st, ca)
+        .filter_map(|o| o.locator.clone())
+        .collect();
+    displaced.sort();
+    Some(CaObserved {
+        state: row.state,
+        locator: row.store_locator.clone(),
+        displaced,
+    })
+}
+
+/// An `issuers` row taken apart: the row without its `state`, `retired_at` and
+/// `record_json`'s `state`, `retired_at` and `displaced_store_locators`; the CA as
+/// observed (state, recorded locator, sorted displaced locators); and whether
+/// `retired_at` is set. `None` when the row is not well formed.
+fn ca_parts(
+    row: &[(String, String)],
+) -> Option<(heimdall_store::ext_m03::RecoveryRow, CaObserved, bool)> {
+    let mut state = None;
+    let mut retired_at = false;
+    let mut locator = None;
+    let mut displaced = Vec::new();
+    let mut out = Vec::new();
+    for (c, v) in row {
+        match c.as_str() {
+            "state" => {
+                state =
+                    serde_json::from_value::<CaState>(serde_json::Value::String(v.clone())).ok();
+            }
+            "retired_at" => retired_at = v != "NULL",
+            "record_json" => {
+                let mut doc: serde_json::Value = serde_json::from_str(v).ok()?;
+                let map = doc.as_object_mut()?;
+                map.remove("state");
+                map.remove("retired_at");
+                if let Some(d) = map.remove("displaced_store_locators") {
+                    displaced = serde_json::from_value(d).ok()?;
+                }
+                locator = map
+                    .get("store_locator")
+                    .and_then(|l| l.as_str())
+                    .map(str::to_owned);
+                out.push((c.clone(), doc.to_string()));
+            }
+            _ => out.push((c.clone(), v.clone())),
+        }
+    }
+    displaced.sort();
+    Some((
+        out,
+        CaObserved {
+            state: state?,
+            locator,
+            displaced,
+        },
+        retired_at,
+    ))
+}
+
+/// The CA fingerprint of an `issuers` row.
+fn row_ca(row: &[(String, String)]) -> Option<&str> {
+    row.iter()
+        .find(|(c, _)| c == "ca_fingerprint")
+        .map(|(_, v)| v.as_str())
 }
 
 /// The view `uninstall_store_plan` reads (it uses the CA, marker and state only).
@@ -255,62 +733,77 @@ impl Inventory {
                     }
                     locators.push(tx.issuer_store_locator(&i.ca_fingerprint)?);
                 }
-                Ok((outstanding, unresolved, all, issuers, locators))
+                let snapshot = (
+                    RecoverySnapshot::read(tx, &outstanding.operations, &unresolved)?,
+                    tx.remote_revocations()?,
+                );
+                Ok((outstanding, unresolved, all, issuers, locators, snapshot))
             })
-            .map(|(outstanding, unresolved, all, issuers, locators)| {
-                let views: Vec<EnrollmentView> = all.iter().map(view).collect();
-                let cas = issuers
-                    .iter()
-                    .map(|i| (i.ca_fingerprint.clone(), i.state))
-                    .collect();
-                let ca_change = issuers
-                    .iter()
-                    .flat_map(|i| [Some(i.created_at), Some(i.backup_created_at), i.retired_at])
-                    .flatten()
-                    .max();
-                let items = issuers
-                    .into_iter()
-                    .zip(locators)
-                    .filter(|(i, _)| !matches!(i.state, CaState::Deleted | CaState::Retired))
-                    .map(|(i, locator)| {
-                        let item = StoreItemRef {
-                            kind: SecretStoreKind::Product(i.store_kind),
-                            fingerprint: i.ca_fingerprint.clone(),
-                            locator: locator.clone().unwrap_or_default(),
-                        };
-                        let fate = match uninstall_store_plan(&views, &item) {
-                            StoreFate::Keep(KeepReason::LiveEnrollments(markers)) => {
-                                Fate::KeptLive(markers)
-                            }
-                            _ if locator.is_none() => Fate::KeptUnrecorded,
-                            _ => Fate::DeletionOffered,
-                        };
-                        StoreItem {
-                            ca: i.ca_fingerprint,
-                            state: i.state,
-                            store_kind: i.store_kind,
-                            locator,
-                            backup_created_at: i.backup_created_at,
-                            fate,
-                            retire: None,
-                        }
-                    })
-                    .collect();
-                Inventory {
-                    last_change: all
+            .map(
+                |(
+                    outstanding,
+                    unresolved,
+                    all,
+                    issuers,
+                    locators,
+                    (snapshot, remote_revocations),
+                )| {
+                    let views: Vec<EnrollmentView> = all.iter().map(view).collect();
+                    let cas = issuers
                         .iter()
-                        .map(|r| r.updated_at)
-                        .chain(outstanding.foreign_removals.iter().map(|f| f.created_at))
-                        .chain(ca_change)
-                        .max(),
-                    cas,
-                    open: outstanding.enrollments,
-                    foreign: outstanding.foreign_removals,
-                    operations: outstanding.operations,
-                    unresolved_steps: unresolved,
-                    items,
-                }
-            })
+                        .map(|i| (i.ca_fingerprint.clone(), i.state))
+                        .collect();
+                    let ca_change = issuers
+                        .iter()
+                        .flat_map(|i| [Some(i.created_at), Some(i.backup_created_at), i.retired_at])
+                        .flatten()
+                        .max();
+                    let items = issuers
+                        .into_iter()
+                        .zip(locators)
+                        .filter(|(i, _)| !matches!(i.state, CaState::Deleted | CaState::Retired))
+                        .map(|(i, locator)| {
+                            let item = StoreItemRef {
+                                kind: SecretStoreKind::Product(i.store_kind),
+                                fingerprint: i.ca_fingerprint.clone(),
+                                locator: locator.clone().unwrap_or_default(),
+                            };
+                            let fate = match uninstall_store_plan(&views, &item) {
+                                StoreFate::Keep(KeepReason::LiveEnrollments(markers)) => {
+                                    Fate::KeptLive(markers)
+                                }
+                                _ if locator.is_none() => Fate::KeptUnrecorded,
+                                _ => Fate::DeletionOffered,
+                            };
+                            StoreItem {
+                                ca: i.ca_fingerprint,
+                                state: i.state,
+                                store_kind: i.store_kind,
+                                locator,
+                                backup_created_at: i.backup_created_at,
+                                fate,
+                                retire: None,
+                            }
+                        })
+                        .collect();
+                    Inventory {
+                        last_change: all
+                            .iter()
+                            .map(|r| r.updated_at)
+                            .chain(outstanding.foreign_removals.iter().map(|f| f.created_at))
+                            .chain(ca_change)
+                            .max(),
+                        cas,
+                        open: outstanding.enrollments,
+                        foreign: outstanding.foreign_removals,
+                        operations: outstanding.operations,
+                        unresolved_steps: unresolved,
+                        items,
+                        snapshot,
+                        remote_revocations,
+                    }
+                },
+            )
             .map_err(|_| "the enrollments could not be read")
     }
 
@@ -327,17 +820,78 @@ impl Inventory {
     /// ⟨§17.27 item 2⟩ Whether `now` is the inventory the owner confirmed: the same
     /// outstanding obligations in the same states, the same CAs in the same states,
     /// and the same last change.
+    /// ⟨§17.32 item 1⟩ And every recovery-relevant record ([`RecoverySnapshot`], but
+    /// the projection resources).
     fn same_as(&self, now: &Inventory) -> bool {
-        self.same_obligations(now) && self.cas == now.cas && self.last_change == now.last_change
-    }
-
-    /// ⟨§17.27 item 2⟩ The outstanding obligations alone (the last check before the
-    /// state is deleted, after this uninstall's own retirements changed the CAs).
-    fn same_obligations(&self, now: &Inventory) -> bool {
         self.open == now.open
             && self.foreign == now.foreign
             && self.operations == now.operations
             && self.unresolved_steps == now.unresolved_steps
+            && self.cas == now.cas
+            && self.last_change == now.last_change
+            && self.snapshot.records() == now.snapshot.records()
+    }
+
+    /// ⟨ADR-0008 §17.32 item 1 (W5-D01; audit A3)⟩ The purge's final check, under the
+    /// instance lock: `now` is this (confirmed) inventory but for this uninstall's own
+    /// changes, and every projection resource is confirmed absent. The only change
+    /// admitted is exactly what one of this uninstall's retirement runs (`own`) was
+    /// observed to do to its CA: the CA was as observed before the run, and is now as
+    /// observed after it (state, recorded locator, displaced locators; `retired_at`
+    /// set exactly when it is `retired`), every other field unchanged. Anything else (a
+    /// CA, store locator, enrollment, residual, foreign removal, issuing set, pending
+    /// registration, operation or its journal added, removed or replaced, by a runtime
+    /// that started and stopped meanwhile or otherwise) is a difference.
+    fn unchanged_but_for(&self, now: &Inventory, own: &OwnChanges) -> bool {
+        let (a, b) = (&self.snapshot, &now.snapshot);
+        if !b.projections_not_absent.is_empty()
+            || !meta_unchanged_but_for(&a.meta, &b.meta, &own.retries)
+            || a.operations != b.operations
+            || a.unresolved_steps != b.unresolved_steps
+            || a.decisions != b.decisions
+            || a.rows.len() != b.rows.len()
+        {
+            return false;
+        }
+        let run = |row: &[(String, String)]| {
+            row_ca(row).and_then(|ca| own.retirements.iter().find(|o| o.ca.as_str() == ca))
+        };
+        for ((ta, ra), (tb, rb)) in a.rows.iter().zip(&b.rows) {
+            if ta != tb || ra.len() != rb.len() {
+                return false;
+            }
+            if *ta != "issuers" {
+                if ra != rb {
+                    return false;
+                }
+                continue;
+            }
+            // Pair each confirmed CA with the one now, by fingerprint.
+            for before in ra {
+                let Some(after) = rb.iter().find(|r| row_ca(r) == row_ca(before)) else {
+                    return false;
+                };
+                let Some(o) = run(before) else {
+                    if before != after {
+                        return false;
+                    }
+                    continue;
+                };
+                let (Some((nb, ob, _)), Some((na, oa, retired_at))) =
+                    (ca_parts(before), ca_parts(after))
+                else {
+                    return false;
+                };
+                if nb != na
+                    || ob != o.before
+                    || oa != o.after
+                    || retired_at != (oa.state == CaState::Retired)
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// The `enrollments` listing (marker, destination, state, and the unresolved
@@ -412,6 +966,12 @@ impl Inventory {
         if !self.operations.is_empty() {
             map.insert("enrollment_operations".to_owned(), self.operations_json());
         }
+        if !self.remote_revocations.is_empty() {
+            map.insert(
+                "pending_remote_revocations".to_owned(),
+                self.remote_revocations_json(),
+            );
+        }
         if !self.unresolved_steps.is_empty() {
             map.insert(
                 "unresolved_steps".to_owned(),
@@ -423,6 +983,47 @@ impl Inventory {
                 ),
             );
         }
+    }
+
+    /// ⟨§17.32 item 7⟩ The `pending_remote_revocations` listing: each revoked root grant,
+    /// the grants it covers, the rounds attempted and whether the retries stopped.
+    fn remote_revocations_json(&self) -> serde_json::Value {
+        serde_json::Value::Array(
+            self.remote_revocations
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "root_grant": r.root.as_str(),
+                        "grants": r.grants.iter().map(|g| g.as_str()).collect::<Vec<_>>(),
+                        "attempts": r.attempts,
+                        "stopped": r.stopped,
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// ⟨§17.32 item 7⟩ The human lines for the pending remote revocations (empty when
+    /// none).
+    fn remote_revocations_text(&self) -> String {
+        if self.remote_revocations.is_empty() {
+            return String::new();
+        }
+        let mut out = format!("  {REMOTE_REVOCATIONS}:\n");
+        for r in &self.remote_revocations {
+            out.push_str(&format!(
+                "    grant {} (covering {}): {} round(s) attempted{}\n",
+                r.root.as_str(),
+                r.grants
+                    .iter()
+                    .map(|g| g.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                r.attempts,
+                if r.stopped { ", retries stopped" } else { "" }
+            ));
+        }
+        out
     }
 
     /// The `store_items` listing, each with its fate.
@@ -615,6 +1216,13 @@ fn annotate(mut out: Outcome, inv: &Inventory, bundle: Option<&str>) -> Outcome 
         if !inv.items.is_empty() {
             map.insert("store_items".to_owned(), inv.store_items_json());
         }
+        if !inv.remote_revocations.is_empty() && !map.contains_key("pending_remote_revocations") {
+            map.insert(
+                "pending_remote_revocations".to_owned(),
+                inv.remote_revocations_json(),
+            );
+            human.push_str(&inv.remote_revocations_text());
+        }
         if let Some(b) = bundle {
             map.insert(
                 "bundle".to_owned(),
@@ -797,6 +1405,79 @@ fn enrollment_refusal(
     ))
 }
 
+/// ⟨ADR-0008 §17.32 item 7⟩ The heading of the pending remote revocations.
+const REMOTE_REVOCATIONS: &str = "Access-grant revocations whose remote part is still pending (unfinished security actions on a remote system; before the runtime stops, uninstall makes one retry attempt for each; a purge then discards whatever is still pending with the state)";
+
+/// ⟨ADR-0008 §17.32 item 7 (Q-I-R10-1)⟩ One record's answer to
+/// `uninstall_fence.retry_remote_revocations` (the runtime's `RemoteRetry`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct RemoteRetry {
+    /// The revoked root grant.
+    root_grant: String,
+    /// `completed`, `attempted_still_pending`, `not_attempted` or `failed`.
+    outcome: String,
+    /// Rounds before the attempt.
+    attempts_before: u32,
+    /// After it.
+    attempts_after: u32,
+    /// Whether its retries are stopped now.
+    stopped: bool,
+    /// Whether it is still pending.
+    pending: bool,
+}
+
+/// ⟨ADR-0008 §17.32 item 7⟩ Make the one retry attempt per pending remote revocation on
+/// uninstall's own session, which holds the fence, before the stop
+/// (`uninstall_fence.retry_remote_revocations`). `Ok` with the runtime's answer per
+/// record (none sent when nothing is pending); `Err` with the refusal's message when the
+/// request failed (the attempt was not made).
+async fn retry_remote_revocations<S: crate::cli::Session>(
+    s: &mut S,
+    inv: &Inventory,
+) -> Result<Vec<RemoteRetry>, String> {
+    if inv.remote_revocations.is_empty() {
+        return Ok(Vec::new());
+    }
+    let env = s
+        .request(Request::UninstallFence(
+            UninstallFenceRequest::RetryRemoteRevocations,
+        ))
+        .await;
+    if !env.code.is_success() {
+        return Err(env
+            .data
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("the runtime refused the retry")
+            .to_owned());
+    }
+    env.data
+        .get("remote_revocations")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .ok_or_else(|| "the runtime's answer to the retry could not be read".to_owned())
+}
+
+/// ⟨§17.32 item 7⟩ The inventory's pending remote revocations as the retry left them:
+/// the completed ones leave the listing, the others carry their counts now.
+fn apply_retries(inv: &mut Inventory, retries: &[RemoteRetry]) {
+    inv.remote_revocations.retain_mut(|r| {
+        match retries.iter().find(|t| t.root_grant == r.root.as_str()) {
+            Some(t) if !t.pending => false,
+            Some(t) => {
+                r.attempts = t.attempts_after;
+                r.stopped = t.stopped;
+                true
+            }
+            None => true,
+        }
+    });
+}
+
+/// The purge's refusal when the one retry attempt could not be made.
+const RETRY_NOT_MADE: &str = "--purge-state refused: the one retry attempt of the pending remote revocations could not be made before the runtime stopped, so they would be discarded unretried; nothing was purged: the state database, the backups and every recovery record are kept. Run `heimdall uninstall --purge-state` again";
+
 /// The refusal when the state database cannot be read for a purge.
 fn unreadable(why: &str) -> Outcome {
     Outcome::of(output::error_value(
@@ -865,12 +1546,18 @@ async fn confirm_plain<P: Prompter>(
 /// retirement's own typed confirmation, so without a terminal or under
 /// `--non-interactive` nothing is sent (no decision is left pending) and the item stays
 /// offered with `heimdall issuer retire <fingerprint>`.
+///
+/// ⟨audit A3⟩ Returns what each run did to its CA ([`OwnRetirement`]): the CA as this
+/// session's `issuer.status` shows it just before and just after the run, recorded only
+/// when both are readable and differ.
 async fn retire_offered<S: crate::cli::Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
     ctx: &Ctx,
     inv: &mut Inventory,
-) {
+) -> Vec<OwnRetirement> {
+    use heimdall_contract::issuer::IssuerRequest;
+    let mut own = Vec::new();
     for item in inv
         .items
         .iter_mut()
@@ -884,7 +1571,24 @@ async fn retire_offered<S: crate::cli::Session, P: Prompter>(
         // terminal (stderr) before the retirement's own confirmation, whatever the
         // output mode.
         crate::output::prompt(&format!("{}\n", item_line(item)));
+        let before = observe_ca(
+            &s.request(Request::Issuer(IssuerRequest::Status)).await,
+            &item.ca,
+        );
         let out = crate::issuer_cmd::retire_to_retired(s, p, ctx, &item.ca).await;
+        let after = observe_ca(
+            &s.request(Request::Issuer(IssuerRequest::Status)).await,
+            &item.ca,
+        );
+        if let (Some(before), Some(after)) = (before, after)
+            && before != after
+        {
+            own.push(OwnRetirement {
+                ca: item.ca.clone(),
+                before,
+                after,
+            });
+        }
         if out.env.code.is_success() {
             item.fate = Fate::Retired;
             item.retire = None;
@@ -904,6 +1608,7 @@ async fn retire_offered<S: crate::cli::Session, P: Prompter>(
             });
         }
     }
+    own
 }
 
 /// The directories whose `*.hm-conflict-*` files and `.hm-quarantine` directories
@@ -1110,6 +1815,9 @@ struct Discard {
     kept_remote: Option<String>,
     /// ⟨M03⟩ The K_ca store items' fates (D4 item 6).
     store_items: String,
+    /// ⟨ADR-0008 §17.32 item 7⟩ The access-grant revocations whose remote part is still
+    /// pending: discarded with the state, so confirmed knowingly.
+    remote_revocations: String,
 }
 
 /// Count the rows of the database at `db`, table by table, whatever each row's state
@@ -1149,6 +1857,7 @@ impl Discard {
                 .collect(),
             kept_remote: None,
             store_items: String::new(),
+            remote_revocations: String::new(),
         }
     }
 
@@ -1207,6 +1916,7 @@ impl Discard {
             out.push_str(k);
         }
         out.push_str(&self.store_items);
+        out.push_str(&self.remote_revocations);
         out.push_str("Discard the state database and the backups?\n");
         out
     }
@@ -1297,6 +2007,7 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
                 )
             });
             d.store_items = inv.store_items_text();
+            d.remote_revocations = inv.remote_revocations_text();
             d
         })
         .await
@@ -1398,7 +2109,17 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     }
     // §17.25 item 9: the offered K_ca store items are retired inline, behind the
     // retirement's own typed confirmation, while the runtime still runs.
-    retire_offered(&mut client, prompt, ctx, &mut inv).await;
+    let retirements = retire_offered(&mut client, prompt, ctx, &mut inv).await;
+    // ⟨§17.32 item 7⟩ One retry attempt per pending remote revocation, on this session
+    // (the fence holder), before the stop.
+    let retried = retry_remote_revocations(&mut client, &inv).await;
+    let own = OwnChanges {
+        retirements,
+        retries: retried.clone().unwrap_or_default(),
+    };
+    if let Ok(r) = &retried {
+        apply_retries(&mut inv, r);
+    }
     // Stop the runtime gracefully (it removes its endpoints and advertisement); the
     // fence ends with it.
     let stopped = stop_runtime(ctx, client).await;
@@ -1412,12 +2133,16 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
     let mut changed = None;
     let mut unavailable = None;
     let mut bundle_now = None;
-    if purge {
+    if purge && retried.is_err() {
+        unavailable = Some(RETRY_NOT_MADE);
+    } else if purge {
+        // ⟨§17.32 item 1; audit A3⟩ What this uninstall's own retirement runs were
+        // observed to do: the only change it made to the records.
         match purge_after_stop(
             stopped,
             complete && absent,
-            &paths.state_dir,
-            &confirmed,
+            (&paths.state_dir, &paths.runtime_dir),
+            (&confirmed, &own),
             args,
             LOCK_WAIT,
             || {},
@@ -1448,6 +2173,7 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P)
         left,
         quarantine,
     );
+    with_retries(&mut out, &retried);
     if let Some(now) = changed {
         return inventory_changed(Some(out), &now, EffectStatus::Partial);
     }
@@ -1732,8 +2458,8 @@ const LOCK_WAIT: Duration = Duration::from_secs(10);
 async fn purge_after_stop(
     stopped: bool,
     ready: bool,
-    state_dir: &Path,
-    confirmed: &Inventory,
+    dirs: (&Path, &Path),
+    (confirmed, own): (&Inventory, &OwnChanges),
     args: &UninstallArgs,
     wait: Duration,
     paused: impl FnOnce(),
@@ -1744,13 +2470,15 @@ async fn purge_after_stop(
     if !stopped {
         return PurgeEnd::Unavailable(NOT_STOPPED);
     }
-    purge_locked(state_dir, confirmed, args, wait, paused).await
+    purge_locked(dirs, confirmed, own, args, wait, paused).await
 }
 
 /// ⟨ADR-0008 §17.31 item 1 (W5-C01)⟩ Under the runtime's own exclusive instance lock
 /// (`<state>/service.lock`, [`heimdall_runtime::InstanceLock`], the lock runtime
-/// start-up takes before it opens the store): the final inventory read and the
-/// bundle's re-check, then the deletion, then the release. While it is held no
+/// start-up takes before it opens the store): the final inventory read, compared in
+/// full with the confirmed one but for this uninstall's `own` retirements
+/// ([`Inventory::unchanged_but_for`], §17.32 item 1), and the bundle's re-check, then
+/// the deletion, then the release. While it is held no
 /// runtime can start (start-up fails `AlreadyRunning` before it touches the state
 /// database), so nothing can be written between the final read and the deletion; a
 /// replacement runtime already holding it refuses the purge, deleting nothing.
@@ -1768,8 +2496,9 @@ async fn purge_after_stop(
 /// schedule a competing start-up there; the command passes a no-op (no test variable
 /// reaches it).
 async fn purge_locked(
-    state_dir: &Path,
+    (state_dir, runtime_dir): (&Path, &Path),
     confirmed: &Inventory,
+    own: &OwnChanges,
     args: &UninstallArgs,
     wait: Duration,
     paused: impl FnOnce(),
@@ -1780,7 +2509,7 @@ async fn purge_locked(
     };
     let db = state_dir.join(heimdall_runtime::service::STATE_DB_FILE);
     match Inventory::read(&db) {
-        Ok(now) if confirmed.same_obligations(&now) => {}
+        Ok(now) if confirmed.unchanged_but_for(&now, own) => {}
         Ok(now) => return PurgeEnd::Changed(now),
         Err(_) => return PurgeEnd::Changed(Inventory::default()),
     }
@@ -1788,7 +2517,7 @@ async fn purge_locked(
         return PurgeEnd::Bundle(refused);
     }
     paused();
-    let deleted = purge_state(state_dir);
+    let deleted = purge_state(state_dir, runtime_dir);
     drop(lock);
     PurgeEnd::Purged(deleted)
 }
@@ -1872,9 +2601,44 @@ fn after_stop(out: Outcome, mut refused: Outcome) -> Outcome {
     refused.with_human(format!("{}{human}", out.human))
 }
 
-/// Delete the state store and the snapshots (only after every check passed, under the
-/// instance lock: [`purge_locked`]).
-fn purge_state(state_dir: &Path) -> std::io::Result<()> {
+/// ⟨ADR-0008 §17.32 item 7⟩ The directory of the environment's pair slots under the
+/// state directory (`heimdall_localenv::projection::content::managed_slot_paths`:
+/// `<state>/managed/<destination>/{key.pub,cert.pub}`).
+const SLOT_DIR: &str = "managed";
+
+/// ⟨ADR-0008 §17.32 item 7⟩ The binding endpoints' directory under the runtime
+/// directory (`heimdall_credential::endpoints::BINDING_DIR`:
+/// `<run>/b/<tag>/{agent.sock,key.pub,cert-*.pub,.generation}`).
+const BINDING_DIR: &str = "b";
+
+/// ⟨ADR-0008 §17.32 item 7⟩ Remove every path a cleanup intent's effects can leave
+/// (the binding directories with their endpoint sockets and files, and the pair slot
+/// files), whose intents the purge discards with the database: `<state>/managed` and
+/// `<run>/b`, whole. Each must be a real directory: a link or another file there is
+/// refused (never followed) and the purge stops before deleting anything else.
+/// `remove_dir_all` does not follow links inside it.
+fn sweep_managed(state_dir: &Path, runtime_dir: &Path) -> std::io::Result<()> {
+    for dir in [state_dir.join(SLOT_DIR), runtime_dir.join(BINDING_DIR)] {
+        match std::fs::symlink_metadata(&dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+            Ok(m) if m.file_type().is_dir() => std::fs::remove_dir_all(&dir)?,
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "a managed directory is not a directory",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Delete the managed artifacts ([`sweep_managed`]) first, then the state store and
+/// the snapshots (only after every check passed, under the instance lock:
+/// [`purge_locked`]).
+fn purge_state(state_dir: &Path, runtime_dir: &Path) -> std::io::Result<()> {
+    sweep_managed(state_dir, runtime_dir)?;
     let db = state_dir.join(heimdall_runtime::service::STATE_DB_FILE);
     for suffix in ["", "-wal", "-shm", "-journal"] {
         let mut name = db.clone().into_os_string();
@@ -1948,6 +2712,7 @@ mod tests {
             kept: vec!["~/.ssh/config.hm-conflict-1".to_owned()],
             kept_remote: None,
             store_items: String::new(),
+            remote_revocations: String::new(),
         }
     }
 
@@ -2545,8 +3310,19 @@ mod tests {
             shown: Vec::new(),
         };
         let mut inv = inv();
-        block_on(retire_offered(&mut s, &mut p, &ctx(true, false), &mut inv));
-        assert_eq!(s.sent, vec!["attend".to_owned()], "the entry ran inline");
+        let own = block_on(retire_offered(&mut s, &mut p, &ctx(true, false), &mut inv));
+        // ⟨audit A3⟩ The run is observed before and after (`issuer.status`); both
+        // unreadable here, so no own change is recorded.
+        assert_eq!(
+            s.sent,
+            vec![
+                "issuer.status".to_owned(),
+                "attend".to_owned(),
+                "issuer.status".to_owned()
+            ],
+            "the entry ran inline, observed before and after"
+        );
+        assert!(own.is_empty());
         let Some(RetireRun::Stopped { code, message, .. }) = &inv.items[0].retire else {
             panic!("{:?}", inv.items[0]);
         };
@@ -2927,6 +3703,11 @@ mod tests {
         state.join(heimdall_runtime::service::STATE_DB_FILE)
     }
 
+    /// The runtime directory beside a test's state directory.
+    fn run_of(state: &Path) -> PathBuf {
+        state.parent().unwrap_or(state).join("run")
+    }
+
     /// The purge's last step after a confirmed stop, with a bounded lock wait.
     fn purge_now(
         state: &Path,
@@ -2937,8 +3718,8 @@ mod tests {
         block_on(purge_after_stop(
             true,
             true,
-            state,
-            confirmed,
+            (state, &run_of(state)),
+            (confirmed, &OwnChanges::default()),
             &plain_purge(),
             wait,
             paused,
@@ -2998,8 +3779,8 @@ mod tests {
             let end = block_on(purge_after_stop(
                 stopped,
                 true,
-                &state,
-                &confirmed,
+                (&state, &run_of(&state)),
+                (&confirmed, &OwnChanges::default()),
                 &plain_purge(),
                 Duration::from_millis(200),
                 || panic!("nothing is read or deleted after an unconfirmed stop"),
@@ -3234,5 +4015,1218 @@ mod tests {
             "a replacement took the lock between the final read and the deletion"
         );
         assert!(matches!(end, PurgeEnd::Purged(Ok(()))));
+    }
+
+    // --- ADR-0008 §17.32 item 1 (W5-D01): the final comparison covers every recovery record
+
+    /// A second CA fingerprint (the replacement's).
+    fn other_ca() -> CaFingerprint {
+        CaFingerprint::parse(&format!("SHA256:{}", "B".repeat(43)))
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    fn other_issuer() -> heimdall_store::IssuerRecord {
+        heimdall_store::IssuerRecord {
+            ca_fingerprint: other_ca(),
+            public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIreplacement".into(),
+            ..issuer()
+        }
+    }
+
+    /// A replacement runtime's write between the stop and the purge's lock: it takes
+    /// the real instance lock, writes through a fresh `Store`, and releases the lock
+    /// (it stopped).
+    fn replacement_writes(
+        state: &Path,
+        write: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()>,
+    ) {
+        let lock =
+            heimdall_runtime::InstanceLock::try_acquire(state).unwrap_or_else(|e| panic!("{e}"));
+        let store =
+            Store::open(&db_of(state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store.transaction(write).unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        drop(lock);
+    }
+
+    /// The final read now, compared with `confirmed` but for the `retired` CAs.
+    fn unchanged(state: &Path, confirmed: &Inventory, own: &[OwnRetirement]) -> bool {
+        let now = Inventory::read(&db_of(state)).unwrap_or_else(|e| panic!("{e}"));
+        confirmed.unchanged_but_for(
+            &now,
+            &OwnChanges {
+                retirements: own.to_vec(),
+                retries: Vec::new(),
+            },
+        )
+    }
+
+    /// `recheck2_purge_refuses_new_ca_from_replacement_that_already_stopped` (the second
+    /// re-check's probe, W5-D01; ADR-0008 §17.32 item 1): after the confirmed stop, a
+    /// replacement takes the instance lock, records a new active CA (once without, once
+    /// with its exact store locator) and releases the lock; the purge then takes the
+    /// lock, finds the CA it was not shown and refuses `uninstall_inventory_changed`,
+    /// deleting nothing: the new CA's record is kept.
+    #[test]
+    fn recheck2_purge_refuses_new_ca_from_replacement_that_already_stopped() {
+        for with_locator in [false, true] {
+            let (_d, state, confirmed) = state_dir();
+            replacement_writes(&state, |tx| {
+                tx.insert_issuer(&other_issuer())?;
+                if with_locator {
+                    tx.set_issuer_store_locator(&other_ca(), "replacement-item")?;
+                }
+                Ok(())
+            });
+            let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+                panic!("the purge reached its deletion over a CA it was not shown")
+            });
+            let PurgeEnd::Changed(now) = end else {
+                panic!("a new CA ({with_locator}) was purged");
+            };
+            let out = inventory_changed(None, &now, EffectStatus::Partial);
+            assert_eq!(out.exit, ExitCode::Denied);
+            assert_eq!(
+                out.env.data["error"]["reason"],
+                reason::UNINSTALL_INVENTORY_CHANGED
+            );
+            assert!(db_of(&state).exists(), "nothing was deleted");
+            assert!(state.join("backups").exists());
+            let now = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+            assert!(
+                now.cas.iter().any(|(c, _)| *c == other_ca()),
+                "the new CA is kept"
+            );
+        }
+    }
+
+    /// `operation_kinds_are_classified_for_the_snapshot` (ADR-0008 §17.32 items 1, 6):
+    /// every `OperationKind::ALL` kind is classified exactly once in
+    /// [`OPERATION_RECOVERY`], every excluded one with its reason; the included ones are
+    /// exactly the enrollment kinds, the store's open-operation read
+    /// (`outstanding_obligations` keeps `is_enrollment`).
+    #[test]
+    fn operation_kinds_are_classified_for_the_snapshot() {
+        use heimdall_domain::operation::OperationKind;
+        for kind in OperationKind::ALL {
+            let entries: Vec<_> = OPERATION_RECOVERY
+                .iter()
+                .filter(|(k, _)| *k == kind)
+                .collect();
+            assert_eq!(
+                entries.len(),
+                1,
+                "operation kind `{}` is classified {} times in OPERATION_RECOVERY (exactly once: included, or excluded with its reason)",
+                kind.as_str(),
+                entries.len()
+            );
+            let (_, why) = entries[0];
+            assert_eq!(
+                why.is_none(),
+                kind.is_enrollment(),
+                "operation kind `{}`: the snapshot includes exactly the enrollment kinds",
+                kind.as_str()
+            );
+            assert!(
+                why.is_none_or(|w| !w.is_empty()),
+                "a reason for `{}`",
+                kind.as_str()
+            );
+            assert_eq!(operation_in_snapshot(kind), kind.is_enrollment());
+        }
+        assert_eq!(
+            OPERATION_RECOVERY.len(),
+            OperationKind::ALL.len(),
+            "no stray entry"
+        );
+    }
+
+    /// `recovery_snapshot_classifies_every_table` (ADR-0008 §17.32 item 1, the rule for
+    /// later): every table of a freshly migrated database is classified exactly once in
+    /// `heimdall_store::ext_m03::TABLE_RECOVERY` (a migration adding a table fails here
+    /// until it is classified), every ignored column exists, and every table classified
+    /// `Rows` or `Part` has a case below proving a change to it refuses the purge (a new
+    /// `Rows`/`Part` entry without a case fails here too).
+    #[test]
+    fn recovery_snapshot_classifies_every_table() {
+        use heimdall_store::ext_m03::{RECOVERY_IGNORED_COLUMNS, RecoveryClass, TABLE_RECOVERY};
+        let (_d, state, _) = state_dir();
+        let schema = Store::open_read_only(&db_of(&state), Arc::new(NoFaults))
+            .unwrap_or_else(|e| panic!("{e}"))
+            .transaction(|tx| tx.schema_tables())
+            .unwrap_or_else(|e| panic!("{e}"));
+        let mut classified: Vec<String> = TABLE_RECOVERY
+            .iter()
+            .map(|(n, _)| (*n).to_owned())
+            .collect();
+        classified.sort();
+        let before = classified.len();
+        classified.dedup();
+        assert_eq!(before, classified.len(), "a table is classified twice");
+        assert_eq!(
+            schema, classified,
+            "every schema table is classified in TABLE_RECOVERY, and only those"
+        );
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| {
+                tx.set_pair_preference(&pair_pref(), t0())?;
+                Ok(())
+            })
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let rows = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        for (table, column, _) in RECOVERY_IGNORED_COLUMNS {
+            let (_, r) = rows
+                .snapshot
+                .rows
+                .iter()
+                .find(|(t, _)| t == table)
+                .unwrap_or_else(|| panic!("{table} is not a Rows table"));
+            assert!(!r.is_empty(), "{table} seeded");
+            assert!(
+                !r[0].iter().any(|(c, _)| c == column),
+                "{table}.{column} is ignored"
+            );
+        }
+        for (table, class) in TABLE_RECOVERY {
+            if matches!(class, RecoveryClass::Discarded(_)) {
+                continue;
+            }
+            let cases = cases(table);
+            assert!(!cases.is_empty(), "`{table}` has no case");
+            for case in cases {
+                assert!(
+                    case_refuses(case.seed, case.change),
+                    "`{table}`: {} did not refuse the purge",
+                    case.what
+                );
+            }
+        }
+    }
+
+    fn pair_pref() -> heimdall_domain::enrollment::PairPreference {
+        use heimdall_contract::ids::{AccountName, DestinationId};
+        heimdall_domain::enrollment::PairPreference {
+            destination: DestinationId::parse("dst-lab1").unwrap_or_else(|e| panic!("{e}")),
+            account: AccountName::parse("deploy").unwrap_or_else(|e| panic!("{e}")),
+            mechanism: heimdall_contract::managed::PreferredMechanism::ManagedCertificate,
+            projection: heimdall_domain::enrollment::ProjectionStatus::Pending,
+            issuing_cas: std::iter::once(ca()).collect(),
+        }
+    }
+
+    /// A write to the disposable database.
+    type Write = Box<dyn FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()>>;
+
+    /// One change to a recovery-relevant record kind: `seed` before the confirmation,
+    /// `change` by a replacement between the stop and the purge's lock.
+    struct Case {
+        what: &'static str,
+        seed: Write,
+        change: Write,
+    }
+
+    fn case(
+        what: &'static str,
+        seed: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> + 'static,
+        change: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> + 'static,
+    ) -> Case {
+        Case {
+            what,
+            seed: Box::new(seed),
+            change: Box::new(change),
+        }
+    }
+
+    fn nothing(_: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        Ok(())
+    }
+
+    /// In a fresh disposable database: `seed`, the confirmation's read, `change` by a
+    /// replacement holding the instance lock, then the final check. `true`: refused.
+    fn case_refuses(seed: Write, change: Write) -> bool {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store.transaction(seed).unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        replacement_writes(&state, change);
+        !unchanged(&state, &confirmed, &[])
+    }
+
+    /// A pending `RegisterIssuer` decision `n` for [`other_ca`], without a store locator.
+    fn registration(n: u8, generation: u64) -> heimdall_domain::decision::DecisionRecord {
+        use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+        DecisionRecord {
+            id: heimdall_contract::ids::DecisionId::from_random_bytes([n; 16]),
+            kind: DecisionKind::RegisterIssuer {
+                ca_fingerprint: other_ca(),
+                store: StoreKind::LinuxSecretService,
+                backup_sha256: "11".repeat(32),
+                rotation_of: None,
+                restored_without_log: false,
+                disclosures: Vec::new(),
+                ca_public_key: Some(other_issuer().public_key),
+                backup_created_at: Some(t0()),
+                store_locator: None,
+                expected_store_locator: None,
+            },
+            generation: heimdall_domain::policy::AuthorityGeneration(generation),
+            created_at: t0(),
+            expires_at: Timestamp::now()
+                .checked_add(Duration::from_secs(3600))
+                .unwrap_or_else(|_| panic!("time")),
+            state: DecisionState::Pending,
+            decided_at: None,
+        }
+    }
+
+    /// The report a ceremony attaches to [`registration`]: the same facts with a locator.
+    fn registration_report(locator: &str) -> heimdall_domain::decision::DecisionKind {
+        let mut kind = registration(1, 0).kind;
+        if let heimdall_domain::decision::DecisionKind::RegisterIssuer { store_locator, .. } =
+            &mut kind
+        {
+            *store_locator = Some(locator.to_owned());
+        }
+        kind
+    }
+
+    /// A running `enrollment.apply` operation `n`.
+    fn enrollment_op(n: u8) -> heimdall_domain::operation::OperationRecord {
+        use heimdall_domain::operation::{
+            EffectClass, OperationKind, OperationRecord, RecoveryMetadata,
+        };
+        OperationRecord {
+            id: heimdall_contract::ids::OperationId::from_random_bytes([n; 16]),
+            kind: OperationKind::EnrollmentApply,
+            environment: heimdall_contract::ids::EnvironmentId::from_random_bytes([7; 16]),
+            key: op_key(n),
+            request_hash: heimdall_contract::canonical::RequestHash([n; 32]),
+            effect_class: EffectClass::RemoteMutation,
+            state: heimdall_contract::OperationState::Running,
+            code: None,
+            effect_status: EffectStatus::Unknown,
+            result: None,
+            created_at: t0(),
+            updated_at: t0(),
+            cancellation: None,
+            recovery: RecoveryMetadata::default(),
+        }
+    }
+
+    fn op_key(n: u8) -> heimdall_domain::idempotency::IdempotencyKey {
+        use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+        heimdall_domain::idempotency::IdempotencyKey {
+            caller: CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 501 },
+                role: ClientRole::Owner,
+            },
+            kind: heimdall_domain::operation::OperationKind::EnrollmentApply,
+            request_id: heimdall_contract::ids::RequestId::parse(&format!("p8-seed-{n}"))
+                .unwrap_or_else(|e| panic!("{e}")),
+        }
+    }
+
+    fn insert_op(tx: &mut heimdall_store::Txn<'_>, n: u8) -> heimdall_store::Result<()> {
+        let op = enrollment_op(n);
+        tx.insert_operation(
+            &op,
+            &heimdall_domain::idempotency::IdempotencyRecord {
+                key: op.key.clone(),
+                request_hash: op.request_hash,
+                operation_id: op.id.clone(),
+                created_at: t0(),
+                expires_at: None,
+            },
+        )
+    }
+
+    fn receipt(stage: &str) -> heimdall_domain::operation::StageReceipt {
+        heimdall_domain::operation::StageReceipt {
+            stage: stage.to_owned(),
+            recorded_at: t0(),
+            effect: heimdall_domain::operation::EffectReceipt::NotAttempted,
+            local: None,
+        }
+    }
+
+    /// A projection resource of `env`, `desired`/`observed`.
+    fn projection(
+        env: &heimdall_contract::ids::EnvironmentId,
+        desired: heimdall_domain::resource::ResourceState,
+        observed: heimdall_domain::resource::ResourceState,
+        generation: u64,
+    ) -> heimdall_domain::resource::ManagedResource {
+        use heimdall_domain::resource::{
+            ManagedResource, OwnerRef, ResourceGeneration, ResourceKind,
+        };
+        ManagedResource {
+            id: heimdall_contract::ids::ResourceId::from_random_bytes([5; 16]),
+            kind: ResourceKind::ConfigProjection,
+            owner: OwnerRef::Projection {
+                environment: env.clone(),
+            },
+            generation: ResourceGeneration(generation),
+            desired,
+            observed,
+            last_operation: None,
+            locator: "fixture".to_owned(),
+            updated_at: t0(),
+        }
+    }
+
+    fn env7() -> heimdall_contract::ids::EnvironmentId {
+        heimdall_contract::ids::EnvironmentId::from_random_bytes([7; 16])
+    }
+
+    /// The insert, modify and delete cases of each `Rows` or `Part` table, through the
+    /// database (audit A4). A delete case exists where the store can delete or settle
+    /// the record; it has no delete for a CA, an enrollment, a foreign removal, a pair
+    /// preference or the environment (none is ever deleted by Heimdall: a replacement
+    /// can only insert or modify them). Panics for a table without cases.
+    fn cases(table: &str) -> Vec<Case> {
+        use heimdall_contract::enrollment::EnrollmentState as S;
+        use heimdall_domain::enrollment::EnrollmentEventKind as K;
+        use heimdall_domain::issuance::CaEvent;
+        use heimdall_domain::resource::ResourceState as R;
+        match table {
+            "issuers" => vec![
+                case("insert a CA", nothing, |tx| {
+                    tx.insert_issuer(&other_issuer())
+                }),
+                case("record a store locator", nothing, |tx| {
+                    tx.set_issuer_store_locator(&ca(), "replacement-item")
+                }),
+                case("move the CA", nothing, |tx| {
+                    tx.set_issuer_state(&ca(), CaState::Active, CaEvent::RetireApproved, t0())
+                        .map(drop)
+                }),
+            ],
+            "enrollments" => vec![
+                case("insert a final enrollment", nothing, |tx| {
+                    tx.seed_enrollment(&record(9, S::Withdrawn))
+                }),
+                case(
+                    "move an enrollment",
+                    |tx| tx.seed_enrollment(&record(8, S::Planned)),
+                    |tx| {
+                        tx.transition_enrollment(
+                            S::Planned,
+                            K::DecisionWithdrawn,
+                            &record(8, S::Planned),
+                        )
+                        .map(drop)
+                    },
+                ),
+            ],
+            "foreign_removals" => vec![
+                case("insert a foreign removal", nothing, |tx| {
+                    tx.insert_foreign_removal(&foreign(9))
+                }),
+                case(
+                    "move a foreign removal",
+                    |tx| tx.insert_foreign_removal(&foreign(8)),
+                    |tx| {
+                        tx.transition_foreign_removal(
+                            S::Planned,
+                            K::ManualRemovalConfirmed,
+                            &foreign(8),
+                        )
+                        .map(drop)
+                    },
+                ),
+            ],
+            "pair_preferences" => vec![
+                case("insert a pair", nothing, |tx| {
+                    tx.set_pair_preference(&pair_pref(), t0())
+                }),
+                case(
+                    "add to an issuing set",
+                    |tx| tx.set_pair_preference(&pair_pref(), t0()),
+                    |tx| {
+                        let mut p = pair_pref();
+                        p.issuing_cas.insert(other_ca());
+                        tx.set_pair_preference(&p, t0())
+                    },
+                ),
+            ],
+            "decisions" => vec![
+                case("insert a pending registration", nothing, |tx| {
+                    let g = tx.authority_generation()?.0;
+                    tx.insert_decision(&registration(1, g))
+                }),
+                case(
+                    "attach a store locator to a pending registration",
+                    |tx| {
+                        let g = tx.authority_generation()?.0;
+                        tx.insert_decision(&registration(1, g))
+                    },
+                    |tx| {
+                        tx.attach_register_issuer_store_locator(
+                            &registration(1, 0).id,
+                            &registration_report("replacement-item"),
+                        )
+                        .map(drop)
+                    },
+                ),
+                case(
+                    "settle a pending registration",
+                    |tx| {
+                        let g = tx.authority_generation()?.0;
+                        tx.insert_decision(&registration(1, g))
+                    },
+                    |tx| {
+                        tx.complete_decision(
+                            &registration(1, 0).id,
+                            heimdall_contract::request::Verdict::Deny,
+                            t0(),
+                        )
+                        .map(drop)
+                    },
+                ),
+            ],
+            "operations" => vec![
+                case("insert an open enrollment operation", nothing, |tx| {
+                    insert_op(tx, 6)
+                }),
+                case(
+                    "change its journal, its state unchanged",
+                    |tx| insert_op(tx, 6),
+                    |tx| tx.append_stage_receipt(&enrollment_op(6).id, &receipt("enroll.journal")),
+                ),
+                case(
+                    "change its state",
+                    |tx| insert_op(tx, 6),
+                    |tx| {
+                        let mut op = enrollment_op(6);
+                        op.state = heimdall_contract::OperationState::OutcomeUnknown;
+                        tx.update_operation(&op)
+                    },
+                ),
+                case(
+                    "settle it (it leaves the open set)",
+                    |tx| insert_op(tx, 6),
+                    |tx| {
+                        let mut op = enrollment_op(6);
+                        op.state = heimdall_contract::OperationState::Failed;
+                        tx.update_operation(&op)
+                    },
+                ),
+            ],
+            "meta" => vec![
+                case("record the environment", nothing, |tx| {
+                    tx.init_self_environment(&env7())
+                }),
+                case("insert a pending remote revocation", nothing, seed_remote),
+                case("modify a pending remote revocation", seed_remote, |tx| {
+                    let mut r = remote_revocation();
+                    r.attempts = 3;
+                    tx.set_remote_revocation(&r)
+                }),
+                case("remove a pending remote revocation", seed_remote, |tx| {
+                    tx.clear_remote_revocation(&remote_revocation().root)
+                }),
+            ],
+            "resources" => vec![
+                case(
+                    "insert a present projection resource",
+                    |tx| tx.init_self_environment(&env7()),
+                    |tx| tx.upsert_resource(&projection(&env7(), R::Present, R::Present, 1), None),
+                ),
+                case(
+                    "an absent projection resource observed present again",
+                    |tx| {
+                        tx.init_self_environment(&env7())?;
+                        tx.upsert_resource(&projection(&env7(), R::Absent, R::Absent, 1), None)
+                    },
+                    |tx| {
+                        tx.upsert_resource(
+                            &projection(&env7(), R::Absent, R::Present, 2),
+                            Some(heimdall_domain::resource::ResourceGeneration(1)),
+                        )
+                    },
+                ),
+            ],
+            other => panic!(
+                "`{other}` is classified Rows or Part but has no case here: add its insert, modify and delete cases"
+            ),
+        }
+    }
+
+    /// `decision_kinds_are_classified_for_the_snapshot` (audit A4): every
+    /// `DecisionKind` variant (read from the domain source, so a new one is seen) is
+    /// named by [`decision_kind_name`] and classified exactly once in
+    /// [`DECISION_RECOVERY`], each excluded one with its reason; `RegisterIssuer` is
+    /// included.
+    #[test]
+    fn decision_kinds_are_classified_for_the_snapshot() {
+        let src = include_str!("../../domain/src/decision.rs");
+        let body = &src[src
+            .find("pub enum DecisionKind")
+            .unwrap_or_else(|| panic!("no enum"))..];
+        let body = &body[..body.find("\n}\n").unwrap_or_else(|| panic!("no end"))];
+        let variants: Vec<String> = body
+            .lines()
+            .filter_map(|l| {
+                let t = l.strip_prefix("    ")?;
+                let first = t.chars().next()?;
+                (first.is_ascii_uppercase() && !t.starts_with("///")).then(|| {
+                    t.split([' ', '{', ',', '('])
+                        .next()
+                        .unwrap_or_default()
+                        .to_owned()
+                })
+            })
+            .collect();
+        assert_eq!(variants.len(), 11, "{variants:?}");
+        let snake = |v: &str| {
+            let mut out = String::new();
+            for (i, c) in v.chars().enumerate() {
+                if c.is_ascii_uppercase() {
+                    if i > 0 {
+                        out.push('_');
+                    }
+                    out.push(c.to_ascii_lowercase());
+                } else {
+                    out.push(c);
+                }
+            }
+            out
+        };
+        for v in &variants {
+            let name = snake(v);
+            let entries: Vec<_> = DECISION_RECOVERY
+                .iter()
+                .filter(|(k, _)| *k == name)
+                .collect();
+            assert_eq!(
+                entries.len(),
+                1,
+                "decision kind `{name}` is classified {} times in DECISION_RECOVERY (exactly once: included, or excluded with its reason)",
+                entries.len()
+            );
+            assert!(entries[0].1.is_none_or(|w| !w.is_empty()));
+        }
+        assert_eq!(DECISION_RECOVERY.len(), variants.len(), "no stray entry");
+        assert!(decision_in_snapshot(&registration(1, 0).kind));
+        assert_eq!(
+            decision_kind_name(&registration(1, 0).kind),
+            "register_issuer"
+        );
+    }
+
+    /// `meta_keys_are_classified_for_the_snapshot` (audit A4): every `META_*` key
+    /// constant of the store's sources is classified in `META_RECOVERY` (exactly, or by
+    /// its prefix), and no store source writes a literal key past them.
+    #[test]
+    fn meta_keys_are_classified_for_the_snapshot() {
+        use heimdall_store::ext_m03::META_RECOVERY;
+        let sources = [
+            include_str!("../../store/src/lib.rs"),
+            include_str!("../../store/src/ext.rs"),
+            include_str!("../../store/src/ext_m03.rs"),
+        ];
+        let mut keys = Vec::new();
+        for src in sources {
+            // Production code only: the test modules seed literal rows of their own.
+            let code = src.split("#[cfg(test)]").next().unwrap_or_default();
+            for line in code.lines() {
+                let t = line.trim_start();
+                if let Some(rest) = t
+                    .strip_prefix("const META_")
+                    .or_else(|| t.strip_prefix("pub const META_"))
+                    && let Some(v) = rest.split('"').nth(1)
+                    && rest.contains(": &str")
+                {
+                    keys.push(v.to_owned());
+                }
+                assert!(
+                    !t.contains("set_meta(\"") && !t.contains(".meta(\""),
+                    "a literal meta key: {t}"
+                );
+            }
+        }
+        assert!(keys.len() >= 19, "{keys:?}");
+        for k in &keys {
+            let classified = META_RECOVERY.iter().filter(|(m, _)| m == k).count();
+            assert_eq!(
+                classified, 1,
+                "meta key `{k}` is classified {classified} times in META_RECOVERY"
+            );
+        }
+        assert_eq!(META_RECOVERY.len(), keys.len(), "no stray entry");
+    }
+
+    /// `uninstall_purge_refuses_pending_registration_locator` (the audit's
+    /// `revp_probe_pending_registration_locator_is_accepted`, A2): a replacement's init
+    /// writes a K_ca store item, records its locator on a pending `RegisterIssuer`
+    /// decision (the only record of the item) and stops; the purge then refuses
+    /// `uninstall_inventory_changed`, deleting nothing.
+    #[test]
+    fn uninstall_purge_refuses_pending_registration_locator() {
+        for attach_to_existing in [false, true] {
+            let (_d, state, _) = state_dir();
+            if attach_to_existing {
+                let store = Store::open(&db_of(&state), Arc::new(NoFaults))
+                    .unwrap_or_else(|e| panic!("{e}"));
+                store
+                    .transaction(|tx| {
+                        let g = tx.authority_generation()?.0;
+                        tx.insert_decision(&registration(1, g))
+                    })
+                    .unwrap_or_else(|e| panic!("{e}"));
+            }
+            let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+            replacement_writes(&state, move |tx| {
+                if !attach_to_existing {
+                    let g = tx.authority_generation()?.0;
+                    tx.insert_decision(&registration(1, g))?;
+                }
+                tx.attach_register_issuer_store_locator(
+                    &registration(1, 0).id,
+                    &registration_report("replacement-item"),
+                )
+                .map(drop)
+            });
+            let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+                panic!("the purge reached its deletion over a pending registration's store item")
+            });
+            let PurgeEnd::Changed(now) = end else {
+                panic!("a pending registration's store locator was purged ({attach_to_existing})");
+            };
+            let out = inventory_changed(None, &now, EffectStatus::Partial);
+            assert_eq!(
+                out.env.data["error"]["reason"],
+                reason::UNINSTALL_INVENTORY_CHANGED
+            );
+            assert!(db_of(&state).exists(), "nothing was deleted");
+        }
+    }
+
+    /// ⟨Converge⟩ `uninstall_purge_refuses_replaced_store_locator`: a replacement's
+    /// restore replaces the recorded store locator (the old one displaced): refused,
+    /// even for a CA whose retirement this uninstall ran (its displaced locators may
+    /// only shrink, its recorded locator never changes).
+    #[test]
+    fn uninstall_purge_refuses_replaced_store_locator() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| tx.set_issuer_store_locator(&ca(), "item-1"))
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        replacement_writes(&state, |tx| {
+            tx.replace_issuer_store_locator(&ca(), Some("item-1"), "item-2")
+        });
+        assert!(!unchanged(&state, &confirmed, &[]));
+    }
+
+    /// ⟨Converge⟩ `uninstall_purge_refuses_new_final_enrollment`: an enrollment record
+    /// in a final state (no remote obligation, so the earlier obligation-only check let
+    /// it through) added by a replacement is a difference.
+    #[test]
+    fn uninstall_purge_refuses_new_final_enrollment() {
+        use heimdall_contract::enrollment::EnrollmentState as S;
+        let (_d, state, confirmed) = state_dir();
+        replacement_writes(&state, |tx| tx.seed_enrollment(&record(3, S::Withdrawn)));
+        let now = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            now.clear(),
+            "no obligation: only the full comparison sees it"
+        );
+        assert!(!confirmed.unchanged_but_for(&now, &OwnChanges::default()));
+    }
+
+    /// ⟨Converge⟩ `uninstall_purge_refuses_changed_issuing_set`: a pair's issuing set
+    /// gaining a CA is a difference; its projection state (which the rollback changes)
+    /// and its preference are not.
+    #[test]
+    fn uninstall_purge_refuses_changed_issuing_set() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| tx.set_pair_preference(&pair_pref(), t0()))
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        replacement_writes(&state, |tx| {
+            let mut p = pair_pref();
+            p.projection = heimdall_domain::enrollment::ProjectionStatus::Applied { generation: 4 };
+            p.mechanism = heimdall_contract::managed::PreferredMechanism::Existing;
+            tx.set_pair_preference(
+                &p,
+                t0().checked_add(Duration::from_secs(9))
+                    .unwrap_or_else(|_| panic!("time")),
+            )
+        });
+        assert!(
+            unchanged(&state, &confirmed, &[]),
+            "projection and preference ignored"
+        );
+        replacement_writes(&state, |tx| {
+            let mut p = pair_pref();
+            p.issuing_cas.insert(other_ca());
+            tx.set_pair_preference(&p, t0())
+        });
+        assert!(!unchanged(&state, &confirmed, &[]));
+    }
+
+    fn observed(state: CaState, locator: Option<&str>, displaced: &[&str]) -> CaObserved {
+        CaObserved {
+            state,
+            locator: locator.map(str::to_owned),
+            displaced: displaced.iter().map(|d| (*d).to_owned()).collect(),
+        }
+    }
+
+    /// Move [`ca`] along the retirement steps from `active` to `to`.
+    fn retire_to(tx: &mut heimdall_store::Txn<'_>, to: CaState) -> heimdall_store::Result<()> {
+        use heimdall_domain::issuance::CaEvent as E;
+        let mut from = CaState::Active;
+        for event in [
+            E::RetireApproved,
+            E::UnloadConfirmed,
+            E::StoreItemDeleted,
+            E::RetirementRecorded,
+        ] {
+            if from == to {
+                break;
+            }
+            from = tx
+                .set_issuer_state(&ca(), from, event, t0())?
+                .unwrap_or_else(|e| panic!("{e:?}"))
+                .state;
+        }
+        Ok(())
+    }
+
+    /// ⟨§17.32 item 1; audit A3⟩ `uninstall_purge_admits_only_its_own_retirement`: the
+    /// change one of this uninstall's retirement runs was observed to make (`active` with
+    /// a displaced item → `retired` with it confirmed deleted) is admitted, exactly: the
+    /// same end state without the run, a run observed to end elsewhere, or a run of
+    /// another CA is a difference.
+    #[test]
+    fn uninstall_purge_admits_only_its_own_retirement() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| {
+                tx.set_issuer_store_locator(&ca(), "item-1")?;
+                tx.replace_issuer_store_locator(&ca(), Some("item-1"), "item-2")
+            })
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        replacement_writes(&state, |tx| {
+            retire_to(tx, CaState::Retired)?;
+            assert!(tx.resolve_displaced_store_locator(&ca(), "item-1")?);
+            Ok(())
+        });
+        let run = |ca: CaFingerprint, to: CaState, displaced: &[&str]| OwnRetirement {
+            ca,
+            before: observed(CaState::Active, Some("item-2"), &["item-1"]),
+            after: observed(to, Some("item-2"), displaced),
+        };
+        assert!(
+            unchanged(&state, &confirmed, &[run(ca(), CaState::Retired, &[])]),
+            "its own retirement is admitted"
+        );
+        assert!(!unchanged(&state, &confirmed, &[]), "anyone else's is not");
+        assert!(!unchanged(
+            &state,
+            &confirmed,
+            &[run(other_ca(), CaState::Retired, &[])]
+        ));
+        assert!(
+            !unchanged(&state, &confirmed, &[run(ca(), CaState::Unloaded, &[])]),
+            "a run observed to end at unloaded admits no later step"
+        );
+        assert!(
+            !unchanged(
+                &state,
+                &confirmed,
+                &[run(ca(), CaState::Retired, &["item-1"])]
+            ),
+            "a run observed to keep its displaced item admits no deletion"
+        );
+    }
+
+    /// `uninstall_purge_refuses_foreign_change_after_declined_retire` (audit A3): a
+    /// declined retirement run changes nothing and records no own change (its CA as
+    /// observed before and after is the same); a later foreign change to that CA (the
+    /// leftover decision approved elsewhere: `active` → `unloaded`) refuses the purge.
+    #[test]
+    fn uninstall_purge_refuses_foreign_change_after_declined_retire() {
+        use heimdall_contract::issuer::{CaStatus, IssuerState, IssuerStatus};
+        let (_d, state, confirmed) = state_dir();
+        // The declined run, on a session whose status shows the CA active throughout.
+        struct Declined {
+            status: Envelope<serde_json::Value>,
+        }
+        impl crate::cli::Session for Declined {
+            async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+                match request {
+                    Request::Issuer(heimdall_contract::issuer::IssuerRequest::Status) => {
+                        self.status.clone()
+                    }
+                    _ => crate::setup_cmd::failure(
+                        Code::InteractionRequired,
+                        "fixture: declined",
+                        None,
+                    ),
+                }
+            }
+            async fn attend(&mut self) -> Envelope<serde_json::Value> {
+                Envelope::ok(serde_json::json!({}))
+            }
+        }
+        let st = IssuerStatus {
+            state: IssuerState::NotInitialized,
+            reason: None,
+            cas: vec![CaStatus {
+                fingerprint: ca(),
+                state: CaState::Active,
+                store: StoreKind::LinuxSecretService,
+                backup_sha256: "00".repeat(32),
+                backup_created_at: t0(),
+                restored_without_log: false,
+                enrollments: heimdall_contract::issuer::EnrollmentCounts::default(),
+                store_locator: Some("item-1".to_owned()),
+            }],
+            orphan_store_items: Vec::new(),
+            issuer_isolation: heimdall_contract::managed::IssuerIsolation::SameUserProcess,
+            bundle_stale: false,
+        };
+        let mut s = Declined {
+            status: Envelope::ok(serde_json::to_value(&st).unwrap_or_else(|e| panic!("{e}"))),
+        };
+        let mut inv = confirmed.clone();
+        inv.items = vec![StoreItem {
+            ca: ca(),
+            state: CaState::Active,
+            store_kind: StoreKind::LinuxSecretService,
+            locator: Some("item-1".to_owned()),
+            backup_created_at: t0(),
+            fate: Fate::DeletionOffered,
+            retire: None,
+        }];
+        let mut p = Script {
+            answers: vec![Answer::No],
+            shown: Vec::new(),
+        };
+        let own = block_on(retire_offered(&mut s, &mut p, &ctx(true, false), &mut inv));
+        assert!(
+            own.is_empty(),
+            "a declined run records no own change: {own:?}"
+        );
+        assert!(matches!(
+            inv.items[0].retire,
+            Some(RetireRun::Stopped { .. })
+        ));
+        replacement_writes(&state, |tx| retire_to(tx, CaState::Unloaded));
+        assert!(
+            !unchanged(&state, &confirmed, &own),
+            "the foreign change refuses"
+        );
+    }
+
+    /// `uninstall_purge_refuses_journal_change_on_unchanged_state` (audit A5): an open
+    /// enrollment operation whose journal changes (a receipt appended) while its state
+    /// and its enrollment stay as they were refuses the purge.
+    #[test]
+    fn uninstall_purge_refuses_journal_change_on_unchanged_state() {
+        assert!(case_refuses(
+            Box::new(|tx| insert_op(tx, 6)),
+            Box::new(|tx| tx.append_stage_receipt(&enrollment_op(6).id, &receipt("enroll.journal"))),
+        ));
+    }
+
+    // --- ADR-0008 §17.32 item 7: pending remote revocations; the cleanup-intent paths
+
+    /// A pending remote revocation of a revoked root grant (one attempt made).
+    fn remote_revocation() -> heimdall_domain::revocation::PendingRemoteRevocation {
+        let root = heimdall_contract::ids::GrantId::from_random_bytes([3; 16]);
+        heimdall_domain::revocation::PendingRemoteRevocation {
+            root: root.clone(),
+            grants: vec![root],
+            attempts: 1,
+            last_attempt_at: t0(),
+            stopped: false,
+            obligations: Vec::new(),
+            claimed_at: None,
+            rearmed_effects: Vec::new(),
+            cap: None,
+            claim_seq: None,
+        }
+    }
+
+    /// The root's tombstone and its pending remote revocation.
+    fn seed_remote(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        let r = remote_revocation();
+        tx.insert_tombstone(&heimdall_domain::revocation::Tombstone {
+            grant: r.root.clone(),
+            cascade: Vec::new(),
+            generation: heimdall_domain::policy::AuthorityGeneration(0),
+            revoked_at: t0(),
+            remote_pending: Vec::new(),
+            cause: heimdall_domain::revocation::RevocationCause::Revoke,
+        })?;
+        tx.set_remote_revocation(&r)
+    }
+
+    /// A session answering the fence's retry with `answer` (and recording each kind).
+    struct Retry {
+        answer: Envelope<serde_json::Value>,
+        sent: Vec<String>,
+    }
+
+    impl crate::cli::Session for Retry {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.sent.push(request.kind().to_owned());
+            self.answer.clone()
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            Envelope::ok(serde_json::json!({}))
+        }
+    }
+
+    /// The runtime's answer to the retry for [`remote_revocation`]: one round, still
+    /// pending.
+    fn retried_once() -> RemoteRetry {
+        RemoteRetry {
+            root_grant: remote_revocation().root.as_str().to_owned(),
+            outcome: "attempted_still_pending".to_owned(),
+            attempts_before: 1,
+            attempts_after: 2,
+            stopped: false,
+            pending: true,
+        }
+    }
+
+    /// `uninstall_lists_and_confirms_pending_remote_revocations` (ADR-0008 §17.32 item
+    /// 7): a pending remote revocation is read by the inventory and shown, with the one
+    /// retry it gets, in the purge confirmation's typed prompt; the retry is sent on
+    /// uninstall's own session (`uninstall_fence.retry_remote_revocations`); what is
+    /// still pending afterwards is listed in the report (human and JSON) with the
+    /// attempt's outcome; nothing refuses the purge for it (a permanently gone remote
+    /// never blocks uninstall).
+    #[test]
+    fn uninstall_lists_and_confirms_pending_remote_revocations() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(seed_remote)
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let mut inv = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        let root = remote_revocation().root;
+        assert_eq!(inv.remote_revocations, vec![remote_revocation()]);
+        // The typed confirmation shows it.
+        let mut yes = Script {
+            answers: vec![Answer::Yes],
+            shown: Vec::new(),
+        };
+        let inv2 = inv.clone();
+        assert!(
+            block_on(confirm_purge(&ctx(true, false), &mut yes, || {
+                let mut d = discard();
+                d.remote_revocations = inv2.remote_revocations_text();
+                d
+            }))
+            .is_ok()
+        );
+        let shown = &yes.shown[0];
+        assert!(shown.contains(REMOTE_REVOCATIONS), "{shown}");
+        assert!(shown.contains(root.as_str()), "{shown}");
+        assert!(shown.contains("one retry attempt"), "{shown}");
+        // The one retry, on this session.
+        let mut s = Retry {
+            answer: Envelope::ok(serde_json::json!({ "remote_revocations": [retried_once()] })),
+            sent: Vec::new(),
+        };
+        let retried = block_on(retry_remote_revocations(&mut s, &inv));
+        assert_eq!(
+            s.sent,
+            vec!["uninstall_fence.retry_remote_revocations".to_owned()]
+        );
+        assert_eq!(retried, Ok(vec![retried_once()]));
+        if let Ok(r) = &retried {
+            apply_retries(&mut inv, r);
+        }
+        // The report lists what is still pending, with the attempt's outcome.
+        let mut out = report(true, true, true, None, Vec::new(), Vec::new());
+        with_retries(&mut out, &retried);
+        let out = annotate(out, &inv, None);
+        assert!(out.env.code.is_success(), "not refused for it");
+        let listed = &out.env.data["pending_remote_revocations"][0];
+        assert_eq!(listed["root_grant"], root.as_str());
+        assert_eq!(listed["attempts"], 2, "the count after the retry");
+        let r = &out.env.data["remote_revocation_retries"][0];
+        assert_eq!(r["outcome"], "attempted_still_pending");
+        assert_eq!(r["pending"], true);
+        assert!(out.human.contains(REMOTE_REVOCATIONS), "{}", out.human);
+        assert!(out.human.contains("still pending"), "{}", out.human);
+        // Nothing pending: no retry is sent.
+        let mut s = Retry {
+            answer: Envelope::ok(serde_json::json!({})),
+            sent: Vec::new(),
+        };
+        assert_eq!(
+            block_on(retry_remote_revocations(&mut s, &Inventory::default())),
+            Ok(Vec::new())
+        );
+        assert!(s.sent.is_empty());
+    }
+
+    /// `uninstall_purge_admits_exactly_its_own_retry` (ADR-0008 §17.32 item 7): the
+    /// record as this uninstall's one retry left it (one more round) is admitted by the
+    /// final check; a record changed otherwise (another count) is a difference, and so
+    /// is the same change without the retry.
+    #[test]
+    fn uninstall_purge_admits_exactly_its_own_retry() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(seed_remote)
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let confirmed = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        replacement_writes(&state, |tx| {
+            let mut r = remote_revocation();
+            r.attempts = 2;
+            tx.set_remote_revocation(&r)
+        });
+        let now = Inventory::read(&db_of(&state)).unwrap_or_else(|e| panic!("{e}"));
+        let own = |retries: Vec<RemoteRetry>| OwnChanges {
+            retirements: Vec::new(),
+            retries,
+        };
+        assert!(confirmed.unchanged_but_for(&now, &own(vec![retried_once()])));
+        assert!(!confirmed.unchanged_but_for(&now, &own(Vec::new())));
+        let mut three = retried_once();
+        three.attempts_after = 3;
+        assert!(!confirmed.unchanged_but_for(&now, &own(vec![three])));
+        let mut done = retried_once();
+        done.pending = false;
+        assert!(
+            !confirmed.unchanged_but_for(&now, &own(vec![done])),
+            "answered done, still there"
+        );
+    }
+
+    /// `uninstall_purge_refuses_remote_revocation_added_in_window` (ADR-0008 §17.32 item
+    /// 7): a replacement that leaves a pending remote revocation between the stop and
+    /// the purge's lock makes the purge refuse `uninstall_inventory_changed`, deleting
+    /// nothing.
+    #[test]
+    fn uninstall_purge_refuses_remote_revocation_added_in_window() {
+        let (_d, state, confirmed) = state_dir();
+        replacement_writes(&state, seed_remote);
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {
+            panic!("the purge reached its deletion over a pending remote revocation")
+        });
+        let PurgeEnd::Changed(now) = end else {
+            panic!("a pending remote revocation was purged");
+        };
+        assert_eq!(now.remote_revocations, vec![remote_revocation()]);
+        assert!(db_of(&state).exists());
+    }
+
+    /// `uninstall_purge_removes_every_cleanup_intent_path` (ADR-0008 §17.32 item 7, the
+    /// condition for leaving `cleanup_intent:` out): with a cleanup intent recorded for
+    /// a managed grant, every path its effects can leave (the binding directory with its
+    /// endpoint socket, key, certificate and generation marker; the pair slot's key and
+    /// certificate), each built by the product's own path functions, is gone after the
+    /// purge, and nothing else in the runtime directory is touched.
+    #[test]
+    fn uninstall_purge_removes_every_cleanup_intent_path() {
+        use heimdall_adapters::managed::files::{
+            BINDING_KEY_FILE, GENERATION_FILE, binding_cert_name,
+        };
+        use heimdall_credential::endpoints::{EndpointTag, binding_dir, binding_socket};
+        assert_eq!(BINDING_DIR, heimdall_credential::endpoints::BINDING_DIR);
+        let (_d, state, confirmed) = state_dir();
+        let run = run_of(&state);
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        store
+            .transaction(|tx| {
+                tx.record_cleanup_intent(&heimdall_domain::revocation::CleanupIntent {
+                    grant: heimdall_contract::ids::GrantId::from_random_bytes([4; 16]),
+                    operation: heimdall_contract::ids::OperationId::from_random_bytes([4; 16]),
+                    adapter: None,
+                    effect_token: String::new(),
+                    confirmed: false,
+                    in_flight: false,
+                    version: 0,
+                    recorded_at: t0(),
+                })
+                .map(drop)
+            })
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(store);
+        let confirmed = Inventory {
+            snapshot: Inventory::read(&db_of(&state))
+                .unwrap_or_else(|e| panic!("{e}"))
+                .snapshot,
+            ..confirmed
+        };
+        let dest = heimdall_contract::ids::DestinationId::parse("dst-lab1")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let tag = EndpointTag::parse("0123456789abcdef").unwrap_or_else(|| panic!("tag"));
+        let bdir = binding_dir(&run, &tag);
+        let slot = heimdall_localenv::projection::content::managed_slot_paths(&state, &dest)
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let paths = [
+            binding_socket(&run, &tag),
+            bdir.join(BINDING_KEY_FILE),
+            bdir.join(binding_cert_name(&dest).unwrap_or_else(|e| panic!("{e:?}"))),
+            bdir.join(GENERATION_FILE),
+            slot.key_pub.clone(),
+            slot.cert_pub.clone(),
+        ];
+        for p in &paths {
+            std::fs::create_dir_all(p.parent().unwrap_or(&run)).unwrap_or_else(|e| panic!("{e}"));
+            std::fs::write(p, b"fixture\n").unwrap_or_else(|e| panic!("{e}"));
+        }
+        let keep = run.join("unrelated.txt");
+        std::fs::write(&keep, b"x").unwrap_or_else(|e| panic!("{e}"));
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        assert!(matches!(end, PurgeEnd::Purged(Ok(()))), "the purge ran");
+        for p in &paths {
+            assert!(!p.exists(), "{} survived the purge", p.display());
+        }
+        assert!(!bdir.exists() && !state.join(SLOT_DIR).exists());
+        assert!(
+            keep.exists(),
+            "nothing else in the runtime directory is touched"
+        );
+    }
+
+    /// A managed directory that is a link is refused, never followed: the purge stops
+    /// before deleting anything (the database stays).
+    #[cfg(unix)]
+    #[test]
+    fn uninstall_purge_refuses_a_linked_managed_dir() {
+        let (d, state, confirmed) = state_dir();
+        let elsewhere = d.path().join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(elsewhere.join("keep"), b"x").unwrap_or_else(|e| panic!("{e}"));
+        std::os::unix::fs::symlink(&elsewhere, state.join(SLOT_DIR))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+        assert!(matches!(end, PurgeEnd::Purged(Err(_))), "refused");
+        assert!(elsewhere.join("keep").exists(), "the link was not followed");
+        assert!(db_of(&state).exists(), "nothing else was deleted");
     }
 }

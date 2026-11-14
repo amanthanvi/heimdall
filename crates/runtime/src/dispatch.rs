@@ -487,6 +487,21 @@ impl OperationsDispatcher {
             UninstallFenceRequest::Release => {
                 self.operations.uninstall_fence_release(self.scope.id)
             }
+            // ⟨ADR-0008 §17.32 item 7⟩ Holder only (the application checks it); the
+            // rounds run in the holder's scope.
+            UninstallFenceRequest::RetryRemoteRevocations => {
+                let retried = heimdall_app::operations::as_fence_holder(
+                    self.operations
+                        .uninstall_fence_retry_remote_revocations(self.scope.id),
+                )
+                .await;
+                return match retried {
+                    Ok(r) => value_envelope(Envelope::ok(serde_json::json!({
+                        "remote_revocations": r,
+                    }))),
+                    Err(e) => error_value(e),
+                };
+            }
             _ => {
                 return error_value(OpError::new(
                     Code::UsageError,
@@ -738,6 +753,31 @@ mod tests {
         env.code == Code::ServiceUnavailable
             && env.data["error"]["reason"]
                 == heimdall_contract::envelope::reason::UNINSTALL_IN_PROGRESS
+    }
+
+    /// `uninstall_fence_retry_is_holder_only` (ADR-0008 §17.32 item 7): through the
+    /// dispatcher, `retry_remote_revocations` is refused `SERVICE_UNAVAILABLE` on a
+    /// connection that does not hold the fence (`uninstall_in_progress` while another
+    /// holds it; no reason when none does) and answers the holder with its records.
+    #[tokio::test]
+    async fn uninstall_fence_retry_is_holder_only() {
+        let listener = dispatcher().await;
+        let a = listener.clone();
+        let b = listener.clone();
+        let retry = || fence(UninstallFenceRequest::RetryRemoteRevocations);
+        let none = a.handle_as(&owner(), retry()).await;
+        assert_eq!(none.code, Code::ServiceUnavailable, "{none:?}");
+        assert!(none.data["error"]["reason"].is_null(), "{none:?}");
+        assert_eq!(
+            a.handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+                .await
+                .code,
+            Code::Ok
+        );
+        assert!(fenced_envelope(&b.handle_as(&owner(), retry()).await));
+        let held = a.handle_as(&owner(), retry()).await;
+        assert_eq!(held.code, Code::Ok, "{held:?}");
+        assert_eq!(held.data["remote_revocations"], serde_json::json!([]));
     }
 
     /// `uninstall_fence_is_held_by_its_connection` (ADR-0008 §17.27 item 2): each

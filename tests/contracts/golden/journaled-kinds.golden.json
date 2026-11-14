@@ -17,7 +17,8 @@
                   "issuer.register", "issuer.unlock", "issuer.retire", "issuer.bundle_written",
                   "enrollment.reconcile", "enrollment.abandon", "enrollment.step", "enrollment.step_result",
                   "connections.close", "connections.register",
-                  "uninstall_fence.acquire", "uninstall_fence.release"],
+                  "uninstall_fence.acquire", "uninstall_fence.release",
+                  "uninstall_fence.retry_remote_revocations"],
   "read_only": ["inspect", "observe", "shutdown", "setup.preview",
                 "issuer.status", "issuer.bundle", "enrollment.preview"],
   "declared_never_constructed": {

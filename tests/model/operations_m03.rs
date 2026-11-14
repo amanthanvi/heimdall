@@ -2332,3 +2332,184 @@ async fn fence_acquisition_waits_for_verification_reservation_past_its_check() {
     assert_eq!(w.tx(|tx| tx.verification_entries(&op)).len(), stored.len());
     assert!(!w.ops.uninstall_fence_release(802));
 }
+
+// =================================================================================
+// ⟨ADR-0008 §17.32 items 2–3 (W5-D02, W5-D03)⟩ Every reservation route, and the
+// admission's lifetime
+// =================================================================================
+
+/// Move the authority generation without invalidating the grant: the same standing
+/// policy at the next revision.
+fn bump_generation(w: &World) {
+    w.tx(|tx| {
+        let id = PolicyId::parse("pol").unwrap();
+        let mut p = tx.policy(&id)?.expect("the seeded policy");
+        p.revision = PolicyRevision(p.revision.0 + 1);
+        tx.upsert_policy(&p, false)
+    });
+}
+
+/// `recheck2_publication_must_not_rereserve_under_held_fence` (§17.32 item 2; re-check
+/// W5-D02): a reservation made before the fence, published after the authority
+/// generation moved while another connection holds the fence, is refused
+/// `uninstall_in_progress`: no fresh reservation, and the original entry unchanged. The
+/// control: the same publication without the fence re-reserves.
+#[tokio::test]
+async fn recheck2_publication_must_not_rereserve_under_held_fence() {
+    let w = World::managed().await;
+    let g = w.active_grant("d02-pub").await.grant_id;
+    w.register_ca(1, CaState::Active);
+    w.seed_enrollment(&enrollment(1, 1, &h1(), EnrollmentState::Verified));
+    let entry = w.ops.reserve_issuance(issuance(&g)).await.unwrap();
+    let before = w.tx(|tx| tx.issuance_entries(&g));
+    w.ops.uninstall_fence_acquire(901).await.unwrap();
+    bump_generation(&w);
+    let e = w
+        .ops
+        .publish_issuance(&entry.id, &facts())
+        .await
+        .unwrap_err();
+    assert!(fence_refusal(&e), "{e:?}");
+    let after = w.tx(|tx| tx.issuance_entries(&g));
+    assert_eq!(after, before, "nothing persisted under the fence");
+    assert!(!w.ops.uninstall_fence_release(901));
+    // The control: without the fence the same branch re-reserves.
+    let again = w.ops.reserve_issuance(issuance(&g)).await.unwrap();
+    bump_generation(&w);
+    match w.ops.publish_issuance(&again.id, &facts()).await.unwrap() {
+        Publication::Rereserved { reservation } => {
+            assert_eq!(reservation.state, IssuanceState::Reserved);
+        }
+        other => panic!("expected a re-reservation, got {other:?}"),
+    }
+}
+
+/// `recheck2_cancelled_reservation_keeps_admission_until_store_write_finishes`
+/// (§17.32 item 3; re-check W5-D03): a grant reservation paused inside its blocking
+/// store write (the debug-only pause) whose caller is then cancelled keeps its
+/// admission: the fence acquisition does not complete until that transaction has
+/// committed, and the committed entry is in the store when it does.
+#[tokio::test]
+async fn recheck2_cancelled_reservation_keeps_admission_until_store_write_finishes() {
+    let w = World::managed().await;
+    let g = w.active_grant("d03-grant").await.grant_id;
+    w.register_ca(1, CaState::Active);
+    w.seed_enrollment(&enrollment(1, 1, &h1(), EnrollmentState::Verified));
+    let pause = w.ops.debug_pause_next_reservation_write();
+    let ops = w.ops.clone();
+    let req = issuance(&g);
+    let reserving = tokio::spawn(async move { ops.reserve_issuance(req).await });
+    pause.reached.await.unwrap();
+    reserving.abort();
+    assert!(reserving.await.unwrap_err().is_cancelled());
+    let ops = w.ops.clone();
+    let acquiring = tokio::spawn(async move { ops.uninstall_fence_acquire(902).await });
+    settle().await;
+    assert!(
+        !acquiring.is_finished() && !w.ops.uninstall_fence_held(),
+        "the acquisition must wait for the cancelled reservation's write"
+    );
+    pause.resume.send(()).unwrap();
+    acquiring.await.unwrap().unwrap();
+    assert_eq!(
+        w.tx(|tx| tx.issuance_entries(&g)).len(),
+        1,
+        "the detached write committed before the fence was taken"
+    );
+    assert!(!w.ops.uninstall_fence_release(902));
+}
+
+/// The same for the verification reservation table (§17.32 item 3).
+#[tokio::test]
+async fn cancelled_verification_reservation_keeps_admission_until_store_write_finishes() {
+    let w = World::new().await;
+    let op = seed_verify_operation(&w, 48, VerifyMode::Presence, 1);
+    let pause = w.ops.debug_pause_next_reservation_write();
+    let ops = w.ops.clone();
+    let req = verification(&w, &op, 48);
+    let reserving = tokio::spawn(async move { ops.reserve_verification(req).await });
+    pause.reached.await.unwrap();
+    reserving.abort();
+    assert!(reserving.await.unwrap_err().is_cancelled());
+    let ops = w.ops.clone();
+    let acquiring = tokio::spawn(async move { ops.uninstall_fence_acquire(903).await });
+    settle().await;
+    assert!(
+        !acquiring.is_finished() && !w.ops.uninstall_fence_held(),
+        "the acquisition must wait for the cancelled reservation's write"
+    );
+    pause.resume.send(()).unwrap();
+    acquiring.await.unwrap().unwrap();
+    assert_eq!(w.tx(|tx| tx.verification_entries(&op)).len(), 1);
+    assert!(!w.ops.uninstall_fence_release(903));
+}
+
+// =================================================================================
+// ⟨round-10 audit A1; ADR-0008 §17.28 item 1, §17.31 item 2⟩ No publication under a
+// held fence
+// =================================================================================
+
+/// `reva_probe_pre_fence_reservation_publishes_under_held_fence` (audit A1's probe,
+/// now a regression): a reservation made before the fence is not published while
+/// another connection holds it: refused `uninstall_in_progress`, the entry still
+/// `reserved`, nothing written; after the lift it publishes.
+#[tokio::test]
+async fn reva_probe_pre_fence_reservation_publishes_under_held_fence() {
+    let w = World::managed().await;
+    let g = w.active_grant("a1-pub").await.grant_id;
+    w.register_ca(1, CaState::Active);
+    w.seed_enrollment(&enrollment(1, 1, &h1(), EnrollmentState::Verified));
+    let entry = w.ops.reserve_issuance(issuance(&g)).await.unwrap();
+    let before = w.tx(|tx| tx.issuance_entries(&g));
+    w.ops.uninstall_fence_acquire(911).await.unwrap();
+    let e = w
+        .ops
+        .publish_issuance(&entry.id, &facts())
+        .await
+        .unwrap_err();
+    assert!(fence_refusal(&e), "{e:?}");
+    assert_eq!(e.effect_status, EffectStatus::None);
+    assert_eq!(
+        w.tx(|tx| tx.issuance_entries(&g)),
+        before,
+        "nothing written"
+    );
+    assert!(!w.ops.uninstall_fence_release(911));
+    match w.ops.publish_issuance(&entry.id, &facts()).await.unwrap() {
+        Publication::Published(p) => assert_eq!(p.state, IssuanceState::Published),
+        other => panic!("expected publication after the lift, got {other:?}"),
+    }
+}
+
+/// `reservation_joined_during_acquisition_cannot_publish_after` (audit A1): a
+/// reservation that joins while the fence is being acquired is written, and the
+/// acquisition waits for that write; once the fence is held it cannot be published.
+#[tokio::test]
+async fn reservation_joined_during_acquisition_cannot_publish_after() {
+    let w = World::managed().await;
+    let g = w.active_grant("a1-join").await.grant_id;
+    w.register_ca(1, CaState::Active);
+    w.seed_enrollment(&enrollment(1, 1, &h1(), EnrollmentState::Verified));
+    let blocker = w.ops.uninstall_fence_admit().unwrap();
+    let ops = w.ops.clone();
+    let acquiring = tokio::spawn(async move { ops.uninstall_fence_acquire(912).await });
+    settle().await;
+    assert!(fence_refusal(&w.ops.uninstall_fence_admit().unwrap_err()));
+    let joined = w.ops.reserve_issuance(issuance(&g)).await.unwrap();
+    drop(blocker);
+    acquiring.await.unwrap().unwrap();
+    let e = w
+        .ops
+        .publish_issuance(&joined.id, &facts())
+        .await
+        .unwrap_err();
+    assert!(fence_refusal(&e), "{e:?}");
+    let stored = w.tx(|tx| tx.issuance_entries(&g));
+    let it = stored.iter().find(|x| x.id == joined.id).unwrap();
+    assert_eq!(
+        it.state,
+        IssuanceState::Reserved,
+        "never published under the fence"
+    );
+    assert!(!w.ops.uninstall_fence_release(912));
+}

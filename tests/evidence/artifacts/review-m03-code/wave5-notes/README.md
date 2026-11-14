@@ -125,3 +125,19 @@ paths, user names, canaries and keys, and none were found.
 | File | What it is |
 |---|---|
 | `m03-wave5-r9-worklog-I.md` | One page: the fence refusal returned by `verify_operation` (item 8), the pass resuming its own verdict-less operation (item 9, Q-I-R9-1 ANSWERED), both regressions and revert proofs, and validation, including the `clippy-windows` stall |
+
+## Round 10 (base `faf10bba`; implements ADR-0008 §17.32 items 1–7, the second re-check findings W5-D01..D04 and an independent audit's A1–A8, L1)
+
+These were moved here from the worktree root at the end of round 10. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r10-brief.md` | The common round-10 brief, with the "converge" rule |
+| `m03-wave5-r10-api.md` | Ownership, the worker sections and requests |
+| `m03-wave5-r10-questions.md` | P8's readings (ANSWERED, §17.32 item 6), the meta keys (ANSWERED, item 7), the retry route (Q-I-R10-1, ANSWERED) |
+| `m03-wave5-r10-worklog-I.md` | The integrator's worklog: the independent audit's findings and their assignment, validation |
+| `m03-wave5-r10-worklog-P8.md` | P8: the recovery snapshot and its classification tests (D01, A2–A5), the remote-revocation retry route and listing, the managed-directory sweep |
+| `m03-wave5-r10-worklog-G8.md` | G8: every reservation route and the publication re-reserve fenced (D02), admissions owned by their writes (D03), the managed pipeline admission (A1), A7 recorded safe |
+| `m03-wave5-r10-worklog-L5.md` | L5: single-flight verification (D04), the duplicate removal finalization, the cancelled-leader window and the result compare-and-swap (A8) |
+| `m03-wave5-r10-worklog-K4.md` | K4: the issuer supervision pass under the fence (A6), the gated child restart and the stuck `Loading`/`starting` states (L1) |
