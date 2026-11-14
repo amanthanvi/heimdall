@@ -4612,6 +4612,28 @@ No review has run yet. These rulings complete the wave before its reviews.
      - C2: the Windows tree deletion keeps each directory pinned and checks each entry's file ID;
      - C3: renames never replace an existing name;
      - C4: one residual remains on every platform: an entry an actor itself placed inside a quarantined directory can be deleted.
+### 17.35 Orchestrator rulings on wave 5's final re-check (2026-11-14)
+
+**Source:** the final re-check, of `06990cc8..94d6076d` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck5.md`. Verdict: fix first, with W5-G01 and W5-G02 (BLOCKING) and W5-G03 and W5-G04 (NON-BLOCKING).
+- **Its passing evidence:**
+  - 1054 debug-profile and 24 release-profile test results passed;
+  - all 27 release-gate probes passed;
+  - six semantic reverts each failed their regression.
+- **Its open question:** both blocking findings are in how the purge handles the SQLite database family.
+
+1. **W5-G01: the database family is one recovery unit, never split.**
+   - **One quarantine directory:** the database and its `-wal`, `-shm` and `-journal` files are moved together into one fresh, owner-only quarantine directory created exclusively inside the anchored `<state>` (renames that never replace). Inside it they keep their family names, so SQLite always sees them as one unit.
+   - **Restoring:** a restore moves the unit back only when **none** of its original names is occupied. It moves the database first and its companions after.
+   - **Otherwise it stays put:** if any original name is occupied, the whole unit stays in its quarantine directory, reported with its exact path, and no companion is ever restored alone. A later normal open can therefore never combine old logs with a replacement database.
+   - **The regression:** the re-check's probe (`final_review_restore_does_not_attach_old_wal_to_new_owner_database`). The replacement database keeps its record after a normal reopen.
+2. **W5-G02: deletion never runs ahead of the last complete copy.**
+   - **Checkpoint first:** after validation succeeds, and before anything is deleted, the validating connection checkpoints the quarantined database with `PRAGMA wal_checkpoint(TRUNCATE)`. Every committed record is then in the main file. The purge confirms the WAL is empty (zero bytes, or absent), and refuses otherwise.
+   - **Then delete,** in this order: the companions (`-wal`, `-shm`, `-journal`), the main database, and finally the quarantine directory.
+   - **On a companion deletion failure,** the complete main database is still in quarantine. It is restored under item 1's rule, or kept and reported. The report names exactly the files retained, never claiming that the database was renamed back if it was not.
+   - **The regression:** the re-check's probe (`final_review_companion_failure_preserves_database`). After an injected companion failure, a complete database remains, under its normal name or in quarantine.
+3. **W5-G03:** `RESIDUALS` gains `uninstall_fence_release_stuck_until_holder_work_ends` (§17.33 item 9), with its probe. A test asserts that every residual an ADR names is present in the manifest.
+4. **W5-G04:** a retry result that is still pending, whether `failed` or simply lacking a replacement record, keeps its record in the displayed inventory. Only a completed result that is no longer pending removes it. **The regression:** the re-check's probe (`final_review_failed_retry_retains_pending_display_record`).
+5. **What comes next:** a re-check of round 13's diff, limited to the database-family handling and item 4, with the §17.33 merge criteria.
 
 ## 18. Consequences
 
