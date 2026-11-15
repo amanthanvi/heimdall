@@ -4692,6 +4692,63 @@ No review has run yet. These rulings complete the wave before its reviews.
 7. **Q-P8-R14-2, an accepted consequence.** After a refused purge that restored the recovery copy, the runtime refuses to start (`uninstall_quarantine_present`) until `heimdall uninstall` runs again. A refused purge has already rolled back setup and stopped the runtime, so the owner was uninstalling. That next run confirms the restored database, deletes the originals and keeps the state.
 8. **What comes next.** A final review of wave 5 runs on a third model family, Grok, independent of Codex, Claude and Gemini, with §17.33 item 6's merge criteria. Its must-fix findings and F2 make up round 15. Native runs (the devbox in two batches, and Windows) run on the round-14 commit.
 
+### 17.38 Orchestrator rulings on wave 5's final review (2026-11-15)
+
+**Source:** the final review of wave 5 at `40a8d1d4`, on Grok (`grok-4.7`), a third model family independent of Codex, Claude and Gemini: `tests/evidence/artifacts/review-m03-code/wave5-final.md`. Verdict: fix first, with W5-I01.
+- **What held:**
+  - the 41 purge and uninstall regressions pass;
+  - four reverted fixes (E1, E2, E3 and the `VACUUM INTO` copy) each failed their regression;
+  - no path was found that writes to, replays into or attaches a log to the original family, or that attaches an old WAL to a different database.
+- **Native development checks at `40a8d1d4`:**
+  - **Windows:** 86 of 86 binaries pass, with 2588 passed, 0 failed and canary count 0;
+  - **the devbox:** in two batches, 26 of 27 binaries pass. `e2e_cli_m03` failed 3 tests, all on Linux only (item 4).
+
+1. **W5-I01 (must fix under §17.33 item 10): recovery never deletes an original on the marker alone.**
+   - **The cause:** round 14's deleting marker (§17.37 item 1) was an empty file. Recovery that found it unlinked the recorded family before checking that a complete copy existed. A planted marker therefore made the next `heimdall uninstall` delete the only database, or replace it with any regular file at the copy's name.
+   - **The binding:** the marker records the copy's device, inode (the file ID on Windows), size and SHA-256.
+   - **On the normal path, before the marker is written,** the copy must:
+     - match its identity;
+     - open read-only on its own;
+     - pass `PRAGMA integrity_check` and the schema check;
+     - have a recovery snapshot that reads;
+     - and then match its identity again.
+
+     Only then is the marker created exclusively and fsynced. It is removed after the originals and before the copy, so it never outlives the copy.
+   - **On the marker branch of recovery, before any unlink:**
+     - the marker parses;
+     - the copy matches the binding before and after its read-only check;
+     - every original still present has its recorded inode.
+
+     Any failure keeps the whole unit, and start-up keeps refusing.
+   - **One exception, confirmed:** an empty companion that the unit record does not list (the purge's own `-wal` or `-shm`, created by the hold) may be removed. It never covers the database file, and never a file with any content. Removing an empty file loses nothing, and E1 depends on it.
+   - **The regressions,** each failing with its fix reverted:
+     - `w5_i01_planted_marker_without_copy_keeps_database`;
+     - `w5_i01_planted_marker_with_garbage_copy_keeps_database`;
+     - `w5_i01_marker_binding_mismatch_keeps_the_database`;
+     - `w5_i01_original_not_the_recorded_inode_keeps_the_unit`;
+     - `w5_i01_failed_copy_check_unlinks_nothing`.
+2. **Where item 10 stops.** Item 10 makes destructive deletion must-fix, whoever triggers it. Heimdall cannot stop a same-user program that can write the owner's files from deleting them itself.
+   - **The rule:** the purge never deletes the owner's data on evidence that one planted or altered file can produce.
+   - **What that leaves:** evidence forged coherently, meaning a valid database at the copy's name plus a marker binding its exact identity and digest. That gives a hostile program nothing it does not already have. `RESIDUALS` gains `purge_recovery_copy_and_marker_forged_together` (§17.33 item 6).
+   - **A correction:** the entry for `purge_entry_placed_in_quarantine_is_deleted` no longer says that owner data at an inspected path is never deleted.
+3. **F2 (§17.37 item 6) is fixed.** The in-place read is used only when both `-wal` and `-shm` exist; otherwise the copy is read. The fix showed that the earlier rule was wrong, not just fail-closed: with a `-shm` but no `-wal`, the in-place open created an empty `state.db-wal`, which wrote a family file. **The regression:** `f2_shm_without_wal_reads_by_copy`.
+4. **The devbox findings at `40a8d1d4`:**
+   - **A product bug, fixed: the issuer child could never be ended on Linux.**
+     - **The cause:** the child turns off `PR_SET_DUMPABLE` before it holds any key, so its `/proc/<pid>/exe` is unreadable to the parent. `signal_exact` required that image both at spawn and at signal time, so it never signalled the child. A hung child was then never ended on any path (a crash, the stop fallback, or cancelled-request cleanup), and its admission stayed held.
+     - **Its class:** fail-closed only (§17.33 item 6): a delay and a refused fence, with no write and no certificate. It was fixed anyway, as a product bug.
+     - **The new identity rule:** the image is part of the identity only if it was readable at spawn, and then it must still match. Otherwise the identity is the PID, the start token and the client's own unreaped handle, which rules out PID reuse.
+     - **Unchanged:** the child stays non-dumpable, which protects K_ca.
+     - **The regression:** `exact_child_signalled_when_its_image_was_never_readable`, with `exact_child_refused_when_a_read_identity_no_longer_matches` as its companion. The devbox's `e2e_cli_m03` now passes 56 of 56.
+   - **A test defect, fixed:** `issuer_init_prints_passphrase_only_to_tty` scanned the rig's own staged copy of the executable, which contains the prompt text. It now skips `Rig::program` and keeps scanning everything the CLI writes.
+5. **Windows coverage.** Every database-family regression from rounds 13–15 is un-gated for Windows. Where a directory permission cannot be removed on Windows, the test uses the injected unlink failure instead. A native Windows run of them is part of the next native runs.
+6. **The copy check's place, accepted as built.** On the normal path, the copy check runs inside `Unit::delete`, after the validated trees (backups, managed, `b`, `mux`) have been deleted.
+   - **If it fails:** the database family is kept, the purge refuses, and the report states what was deleted and what remains (§17.35 item 8, D4).
+   - **Why that is acceptable:** the trees were confirmed for deletion by the owner's typed `yes`, and no recovery record is lost. Moving the check ahead of the trees would need a separate path that renames the trees back while leaving the family whole. That is not needed for the merge.
+7. **What comes next:**
+   - a scoped re-check of round 15 on Grok;
+   - the devbox batches and a Windows run at round 15;
+   - then the merge, with §17.33 item 6's criteria.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

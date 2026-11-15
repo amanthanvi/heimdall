@@ -2084,6 +2084,7 @@ async fn recover_quarantine(
         open: &open,
         copy: &copy,
         confirm: &restored_is_original,
+        check: &copy_reads,
     };
     let rec = anchors.recover(STATE_DB_FILE, &ops);
     if rec.left.is_empty() {
@@ -2207,8 +2208,8 @@ fn with_kept(mut out: Outcome, kept: &[PathBuf]) -> Outcome {
 
 /// ⟨ADR-0008 §17.36 item 1 (audit E3)⟩ Open the database family at `db` for a
 /// validating read that writes **none** of its files, and run `read` on that store.
-/// With its `-shm` present: in place, `mode=ro&readonly_shm=1`
-/// ([`Store::open_read_only_no_write`]). With no `-shm` (a runtime stopped cleanly leaves
+/// With its `-wal` and `-shm` both present: in place, `mode=ro&readonly_shm=1`
+/// ([`Store::open_read_only_no_write`]). Otherwise (a runtime stopped cleanly leaves
 /// none; nothing is live then): a copy of the database and its `-wal` in a fresh
 /// owner-only scratch directory is read and removed, so no file is created beside the
 /// owner's database.
@@ -2218,7 +2219,10 @@ fn read_family_no_write<T>(db: &Path, read: impl FnOnce(Result<Store, StoreError
         p.push(sfx);
         PathBuf::from(p)
     };
-    if std::fs::symlink_metadata(with("-shm")).is_ok() {
+    // ⟨§17.37 item 6 (F2)⟩ In place only with both companions; otherwise a copy.
+    if std::fs::symlink_metadata(with("-shm")).is_ok()
+        && std::fs::symlink_metadata(with("-wal")).is_ok()
+    {
         return read(Store::open_read_only_no_write(db, Arc::new(NoFaults)));
     }
     let scratch = scratch_dir();
@@ -2255,6 +2259,15 @@ fn scratch_dir() -> std::io::Result<PathBuf> {
     #[cfg(not(unix))]
     std::fs::create_dir(&dir)?;
     Ok(dir)
+}
+
+/// ⟨W5-I01 (§17.38)⟩ The database at `path` opens read-only on its own (no file written
+/// beside it), passes `PRAGMA integrity_check` and the schema check, and its recovery
+/// snapshot reads.
+fn copy_reads(path: &Path) -> bool {
+    Store::open_read_only_no_write(path, Arc::new(NoFaults))
+        .ok()
+        .is_some_and(|store| Inventory::read_store(&store).is_ok())
 }
 
 /// ⟨ADR-0008 §17.36 item 1⟩ "Confirmed": the restored database (`restored`) opens
@@ -2974,7 +2987,9 @@ async fn purge_locked(
     if anchors.verify(STATE_DB_FILE).is_err() || q.validate().is_err() {
         return back(q, PurgeEnd::Unavailable(ROOTS_REFUSED));
     }
-    let deleted = q.delete();
+    // ⟨W5-I01 (§17.38)⟩ The recovery copy opens read-only on its own and reads before
+    // any original is deleted.
+    let deleted = q.delete(&copy_reads);
     drop(lock);
     PurgeEnd::Purged(deleted)
 }
@@ -6223,7 +6238,6 @@ mod tests {
     // --- the audit of the quarantine (C0) --------------------------------------------------
 
     /// `<db>-wal` (or another companion) of a state database path.
-    #[cfg(unix)]
     fn companion(db: &Path, sfx: &str) -> PathBuf {
         let mut p = db.as_os_str().to_owned();
         p.push(sfx);
@@ -6233,7 +6247,6 @@ mod tests {
     /// The quarantine path of the state database's file with suffix `sfx` (`""`, `-wal`):
     /// that file's name in the database family's quarantine directory
     /// (`.hm-purge-<tag>-database`), whether or not it exists.
-    #[cfg(unix)]
     fn quarantined(state: &Path, sfx: &str) -> PathBuf {
         let dir = std::fs::read_dir(state)
             .unwrap_or_else(|e| panic!("{e}"))
@@ -6252,7 +6265,6 @@ mod tests {
     /// left without it, as a crash before a checkpoint leaves it): the `-wal`'s bytes.
     /// The database file is restored to its bytes before the write; no `-wal` or `-shm`
     /// is left in `state`.
-    #[cfg(unix)]
     fn wal_of(
         state: &Path,
         write: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()>,
@@ -6275,6 +6287,7 @@ mod tests {
     }
 
     /// The inventory a database file shows with `wal` as its `-wal`, read from a copy.
+    /// (Its users are the Unix-only swap-during-open census probes.)
     #[cfg(unix)]
     fn read_with_wal(db: &Path, wal: &[u8]) -> Inventory {
         let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
@@ -6417,7 +6430,6 @@ mod tests {
     /// the unit occupied, so the whole unit (the database and its `-wal`) stays in its
     /// quarantine directory: no old log is attached to the replacement, which keeps
     /// record 9 after a normal reopen.
-    #[cfg(unix)]
     #[test]
     fn final_review_restore_does_not_attach_old_wal_to_new_owner_database() {
         let (d, state, confirmed) = state_dir();
@@ -6470,10 +6482,8 @@ mod tests {
     /// them by itself, so when the original database's deletion fails (its quarantine
     /// directory made read-only), the copy kept (restored, or in quarantine) holds every
     /// confirmed record with no log beside it.
-    #[cfg(unix)]
     #[test]
     fn final_review_recovery_copy_holds_every_record_by_itself() {
-        use std::os::unix::fs::PermissionsExt as _;
         let (d, state, _) = state_dir();
         let db = db_of(&state);
         let wal = wal_of(&state, |tx| completed_removal(tx, 5));
@@ -6491,19 +6501,37 @@ mod tests {
             !confirmed.unchanged_but_for(&alone(&db), &OwnChanges::default()),
             "before: the record is only in the log"
         );
-        let st = state.clone();
-        let end = crate::purge_sweep::tests::with_unlink_hook(
-            move |name| {
-                if name == std::ffi::OsStr::new(heimdall_runtime::service::STATE_DB_FILE)
-                    && let Some(u) = crate::purge_sweep::tests::unit_dir(&st)
-                {
-                    let _ = std::fs::set_permissions(&u, std::fs::Permissions::from_mode(0o500));
-                }
-            },
-            || purge_now(&state, &confirmed, Duration::from_millis(300), || {}),
-        );
+        // Unix: the directory made read-only just before the original database's unlink
+        // (a real OS error); Windows (no directory write bit): that deletion fails injected.
+        #[cfg(unix)]
+        let end = {
+            use std::os::unix::fs::PermissionsExt as _;
+            let st = state.clone();
+            crate::purge_sweep::tests::with_unlink_hook(
+                move |name| {
+                    if name == std::ffi::OsStr::new(heimdall_runtime::service::STATE_DB_FILE)
+                        && let Some(u) = crate::purge_sweep::tests::unit_dir(&st)
+                    {
+                        let _ =
+                            std::fs::set_permissions(&u, std::fs::Permissions::from_mode(0o500));
+                    }
+                },
+                || purge_now(&state, &confirmed, Duration::from_millis(300), || {}),
+            )
+        };
+        #[cfg(windows)]
+        let end = {
+            crate::purge_sweep::FAIL_UNLINK.with(|f| {
+                *f.borrow_mut() = Some(heimdall_runtime::service::STATE_DB_FILE.into());
+            });
+            let end = purge_now(&state, &confirmed, Duration::from_millis(300), || {});
+            crate::purge_sweep::FAIL_UNLINK.with(|f| *f.borrow_mut() = None);
+            end
+        };
         let unit = crate::purge_sweep::tests::unit_dir(&state);
+        #[cfg(unix)]
         if let Some(u) = &unit {
+            use std::os::unix::fs::PermissionsExt as _;
             let _ = std::fs::set_permissions(u, std::fs::Permissions::from_mode(0o700));
         }
         let PurgeEnd::Purged(Err(e)) = &end else {
@@ -6528,7 +6556,6 @@ mod tests {
     // --- ADR-0008 §17.35 items 7-8 (audit D1-D4) ------------------------------------------
 
     /// The paths of a test's state directory, for [`recover_quarantine`].
-    #[cfg(unix)]
     fn paths_of(state: &Path) -> heimdall_runtime::paths::Paths {
         let base = state.parent().unwrap_or(state);
         heimdall_runtime::paths::Paths {
@@ -6540,7 +6567,6 @@ mod tests {
     }
 
     /// Whether the state database shows foreign removal `n`.
-    #[cfg(unix)]
     fn shows(db: &Path, n: u8) -> bool {
         Inventory::read(db)
             .unwrap_or_else(|e| panic!("{e}"))
@@ -6551,7 +6577,6 @@ mod tests {
 
     /// A crash (the process stops, no cleanup) leaves the state as it is; the start-up
     /// check then refuses, and `heimdall uninstall`'s first step restores the unit.
-    #[cfg(unix)]
     fn after_crash_start_refuses_and_uninstall_restores(state: &Path, wal: &[u8], at_name: bool) {
         after_crash(state, Some((wal, at_name)), &|db| shows(db, 7));
     }
@@ -6559,7 +6584,6 @@ mod tests {
     /// A crash leaves the state as it is: the start-up check refuses (and any `-wal` it
     /// names is kept byte for byte); `heimdall uninstall`'s first step then restores a
     /// complete database, showing foreign removal `record`.
-    #[cfg(unix)]
     fn after_crash(state: &Path, wal: Option<(&[u8], bool)>, complete: &dyn Fn(&Path) -> bool) {
         let db = db_of(state);
         let left = heimdall_runtime::service::quarantine_leftovers(state)
@@ -6597,7 +6621,6 @@ mod tests {
     /// quarantine directory and before its `-wal` did (record 7 is only in that log). The
     /// runtime's start-up refuses (a quarantine is present) and the `-wal` is intact;
     /// `heimdall uninstall` restores the unit with record 7.
-    #[cfg(unix)]
     #[test]
     fn final_review_crash_between_database_and_wal_moves_keeps_every_commit() {
         let (_d, state, confirmed) = state_dir();
@@ -6619,7 +6642,6 @@ mod tests {
     /// `state.db`. Each time the start-up refuses, the `-wal` in the quarantine
     /// directory is intact, and `heimdall uninstall` restores a complete database with
     /// record 7.
-    #[cfg(unix)]
     #[test]
     fn final_review_crash_at_each_copy_step_keeps_a_complete_database() {
         for step in ["copy-written", "restore"] {
@@ -6643,7 +6665,6 @@ mod tests {
     /// (ADR-0008 §17.36 item 1): a purge that passed every check stops after the original
     /// family was deleted and before its recovery copy was: the start-up refuses, and
     /// `heimdall uninstall` restores the copy, complete (record 5 in it).
-    #[cfg(unix)]
     #[test]
     fn final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database() {
         let (_d, state, _) = state_dir();
@@ -6664,7 +6685,6 @@ mod tests {
 
     /// An account-form foreign removal `n` taken to `removed` (final: the inventory
     /// stays clear, the record stays in the snapshot).
-    #[cfg(unix)]
     fn completed_removal(tx: &mut heimdall_store::Txn<'_>, n: u8) -> heimdall_store::Result<()> {
         use heimdall_contract::enrollment::{EnrollmentForm, EnrollmentState as S};
         use heimdall_domain::enrollment::EnrollmentEventKind as K;
@@ -6687,7 +6707,6 @@ mod tests {
     /// audit D4): a quarantine directory left after the database in it was deleted is
     /// reported as it is (holding only what is there now), never as holding the
     /// database.
-    #[cfg(unix)]
     #[test]
     fn final_review_partial_report_states_only_what_is_on_disk() {
         let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
@@ -6724,7 +6743,6 @@ mod tests {
     /// (record 9) appears at `state.db` just before that one rename: the no-replace
     /// rename refuses, the replacement is untouched, no old log is attached to it, and it
     /// keeps record 9 after a normal reopen.
-    #[cfg(unix)]
     #[test]
     fn r13_review_restore_race_preserves_replacement_record() {
         let (d, state, confirmed) = state_dir();
@@ -6769,7 +6787,6 @@ mod tests {
     /// itself: every page of `was` as a journal record (page number, page, checksum)
     /// after a header (magic, record count, nonce, original size in pages, sector size,
     /// page size) padded to its 512-byte sector.
-    #[cfg(unix)]
     fn hot_journal_back_to(was: &[u8]) -> Vec<u8> {
         let page = usize::from(u16::from_be_bytes([was[16], was[17]]));
         let pages = u32::try_from(was.len() / page).unwrap_or(0);
@@ -6801,7 +6818,6 @@ mod tests {
     /// would turn the database back to before record 9). The purge refuses before any
     /// connection opens (a `-journal` is never legitimate for the WAL-mode store), and the
     /// database keeps every byte and record 9.
-    #[cfg(unix)]
     #[test]
     fn r13_review_checkpoint_probe_never_replays_unvalidated_journal() {
         let (_d, state, _) = state_dir();
@@ -6854,7 +6870,6 @@ mod tests {
     /// original family in quarantine (reported; the runtime does not start); the next
     /// `heimdall uninstall` confirms the restored database against it (it opens, its
     /// snapshot equal) and only then deletes the original family.
-    #[cfg(unix)]
     #[test]
     fn refused_purge_keeps_the_original_until_uninstall_confirms() {
         let (_d, state, confirmed) = state_dir();
@@ -6901,7 +6916,6 @@ mod tests {
     /// or the process stops. `heimdall uninstall`'s recovery then completes (it finishes
     /// deleting the originals, never comparing the copy with what is left of them), the
     /// start-up check passes, and the database holds every confirmed record.
-    #[cfg(unix)]
     #[test]
     fn final_review_original_unlink_failure_or_crash_recovers_complete() {
         for name in ["state.db-wal", "state.db-shm", "state.db"] {
@@ -6949,7 +6963,6 @@ mod tests {
     /// incomplete copy and the rollback journal SQLite writes beside it during
     /// `VACUUM INTO` (`.part`, `.part-journal`) is recovered: both are removed as the
     /// purge's own, and the database is restored complete.
-    #[cfg(unix)]
     #[test]
     fn final_review_crash_while_vacuum_writes_recovers() {
         let (_d, state, confirmed) = state_dir();
@@ -6979,7 +6992,6 @@ mod tests {
     }
 
     /// A file's size and full bytes (compared whole: stronger than a hash).
-    #[cfg(unix)]
     fn bytes_of(p: &Path) -> Option<(u64, Vec<u8>)> {
         let b = std::fs::read(p).ok()?;
         Some((b.len() as u64, b))
@@ -6991,7 +7003,6 @@ mod tests {
     /// `-shm` absent, empty, or stale leaves `state.db`, `-wal` and `-shm` byte for byte
     /// (an absent `-shm` stays absent), and still sees a commit that is only in the
     /// `-wal`.
-    #[cfg(unix)]
     #[test]
     fn final_review_validating_read_writes_no_family_file() {
         for shm in ["absent", "empty", "stale"] {
@@ -7016,6 +7027,173 @@ mod tests {
             for ((p, b), a) in files.iter().zip(&before).zip(&after) {
                 assert_eq!(b, a, "{shm}: {} was written", p.display());
             }
+        }
+    }
+
+    // --- W5-I01 (ADR-0008 §17.38) and F2 (§17.37 item 6) ----------------------------------
+
+    /// A refused purge that stops just before the recovery copy is restored (record 7 only
+    /// in the `-wal`, never confirmed): the unit holds the original family, its record and
+    /// the checked copy. Returns the unit and the original database's and `-wal`'s bytes.
+    fn unit_with_copy(state: &Path, confirmed: &Inventory) -> (PathBuf, Vec<u8>, Vec<u8>) {
+        let db = db_of(state);
+        let wal = wal_of(state, |tx| tx.insert_foreign_removal(&foreign(7)));
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let bytes = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert!(crate::purge_sweep::tests::crashing_at(
+            "step",
+            "restore",
+            || {
+                let _ = purge_now(state, confirmed, Duration::from_millis(300), || {});
+            }
+        ));
+        let u = crate::purge_sweep::tests::unit_dir(state).unwrap_or_else(|| panic!("no unit"));
+        assert!(u.join(crate::purge_sweep::tests::COPY_NAME).exists());
+        (u, bytes, wal)
+    }
+
+    /// After a forged mark: `heimdall uninstall`'s recovery refuses, naming what is left;
+    /// the original database and `-wal` are in the unit byte for byte; the start-up check
+    /// still refuses.
+    fn forged_mark_keeps(state: &Path, u: &Path, bytes: &[u8], wal: &[u8], what: &str) {
+        let top = state.parent().map(Path::to_path_buf);
+        let rec = block_on(recover_quarantine(&paths_of(state), top.as_deref()));
+        assert!(rec.is_err(), "{what}: recovery went ahead on the mark");
+        assert_eq!(
+            std::fs::read(u.join(heimdall_runtime::service::STATE_DB_FILE))
+                .ok()
+                .as_deref(),
+            Some(bytes),
+            "{what}: the owner's database was deleted or changed"
+        );
+        assert_eq!(
+            std::fs::read(u.join("state.db-wal")).ok().as_deref(),
+            Some(wal),
+            "{what}: the owner's -wal was deleted or changed"
+        );
+        assert!(
+            !heimdall_runtime::service::quarantine_leftovers(state)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty(),
+            "{what}: start-up would run"
+        );
+    }
+
+    /// `w5_i01_planted_marker_without_copy_keeps_database` (the final review's probe): a
+    /// deletion mark planted in a unit whose recovery copy is gone unlinks nothing:
+    /// first the review's empty mark, then a well-formed mark binding nothing there.
+    #[test]
+    fn w5_i01_planted_marker_without_copy_keeps_database() {
+        let (_d, state, confirmed) = state_dir();
+        let (u, bytes, wal) = unit_with_copy(&state, &confirmed);
+        std::fs::remove_file(u.join(crate::purge_sweep::tests::COPY_NAME))
+            .unwrap_or_else(|e| panic!("{e}"));
+        for mark in [
+            String::new(),
+            format!("copy\t1\t2\t3\t{}\n", "0".repeat(64)),
+        ] {
+            std::fs::write(u.join(crate::purge_sweep::tests::MARKER), &mark)
+                .unwrap_or_else(|e| panic!("{e}"));
+            forged_mark_keeps(
+                &state,
+                &u,
+                &bytes,
+                &wal,
+                &format!("planted marker {mark:?} with no copy lost the database"),
+            );
+        }
+    }
+
+    /// `w5_i01_planted_marker_with_garbage_copy_keeps_database` (the final review's probe):
+    /// the copy replaced by the 14 bytes `not-a-database` and a mark binding exactly that
+    /// file (its identity, size and SHA-256): the copy does not open as a database, so
+    /// nothing is unlinked and nothing is restored.
+    #[test]
+    fn w5_i01_planted_marker_with_garbage_copy_keeps_database() {
+        let (_d, state, confirmed) = state_dir();
+        let (u, bytes, wal) = unit_with_copy(&state, &confirmed);
+        let copy = u.join(crate::purge_sweep::tests::COPY_NAME);
+        std::fs::remove_file(&copy).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(&copy, b"not-a-database").unwrap_or_else(|e| panic!("{e}"));
+        let mark = crate::purge_sweep::tests::marker_text_for(&copy);
+        std::fs::write(u.join(crate::purge_sweep::tests::MARKER), mark)
+            .unwrap_or_else(|e| panic!("{e}"));
+        forged_mark_keeps(
+            &state,
+            &u,
+            &bytes,
+            &wal,
+            "garbage copy under a planted marker",
+        );
+        assert!(
+            !db_of(&state).exists(),
+            "the garbage copy was restored as state.db"
+        );
+    }
+
+    /// `w5_i01_marker_binding_mismatch_keeps_the_database` (W5-I01): the unit's real,
+    /// readable copy, and a mark whose binding does not match it (another digest):
+    /// nothing is unlinked.
+    #[test]
+    fn w5_i01_marker_binding_mismatch_keeps_the_database() {
+        let (_d, state, confirmed) = state_dir();
+        let (u, bytes, wal) = unit_with_copy(&state, &confirmed);
+        let mark = crate::purge_sweep::tests::marker_text_for(
+            &u.join(crate::purge_sweep::tests::COPY_NAME),
+        );
+        let (head, _) = mark
+            .trim_end()
+            .rsplit_once('\t')
+            .unwrap_or_else(|| panic!("{mark}"));
+        std::fs::write(
+            u.join(crate::purge_sweep::tests::MARKER),
+            format!("{head}\t{}\n", "f".repeat(64)),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        forged_mark_keeps(&state, &u, &bytes, &wal, "a mismatched binding");
+    }
+
+    /// `w5_i01_original_not_the_recorded_inode_keeps_the_unit` (W5-I01): a coherent mark
+    /// binding the real copy, but the unit's `state.db` is another file than the record
+    /// lists (same bytes, a new inode): nothing is unlinked.
+    #[test]
+    fn w5_i01_original_not_the_recorded_inode_keeps_the_unit() {
+        let (_d, state, confirmed) = state_dir();
+        let (u, bytes, wal) = unit_with_copy(&state, &confirmed);
+        let original = u.join(heimdall_runtime::service::STATE_DB_FILE);
+        let other = u.join("other.tmp");
+        std::fs::copy(&original, &other).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::remove_file(&original).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::rename(&other, &original).unwrap_or_else(|e| panic!("{e}"));
+        let mark = crate::purge_sweep::tests::marker_text_for(
+            &u.join(crate::purge_sweep::tests::COPY_NAME),
+        );
+        std::fs::write(u.join(crate::purge_sweep::tests::MARKER), mark)
+            .unwrap_or_else(|e| panic!("{e}"));
+        forged_mark_keeps(
+            &state,
+            &u,
+            &bytes,
+            &wal,
+            "an original not the recorded inode",
+        );
+    }
+
+    /// `f2_shm_without_wal_reads_by_copy` (ADR-0008 §17.37 item 6): a `-shm` left without a
+    /// `-wal` reads (through a copy) and every family file is byte for byte as before (no
+    /// `-wal` appears).
+    #[test]
+    fn f2_shm_without_wal_reads_by_copy() {
+        let (_d, state, confirmed) = state_dir();
+        let db = db_of(&state);
+        std::fs::write(companion(&db, "-shm"), vec![7u8; 32768]).unwrap_or_else(|e| panic!("{e}"));
+        let files = ["", "-wal", "-shm"].map(|sfx| companion(&db, sfx));
+        let before = files.clone().map(|p| bytes_of(&p));
+        let now = Inventory::read(&db).unwrap_or_else(|e| panic!("a -shm without a -wal: {e}"));
+        assert!(confirmed.same_as(&now));
+        let after = files.clone().map(|p| bytes_of(&p));
+        for ((p, b), a) in files.iter().zip(&before).zip(&after) {
+            assert_eq!(b, a, "{} was written", p.display());
         }
     }
 }

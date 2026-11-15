@@ -1011,7 +1011,13 @@ fn issuer_init_prints_passphrase_only_to_tty() {
         assert!(!transcript.contains("Backup passphrase"), "{transcript}");
         assert!(!has_passphrase_shape(&transcript));
         assert!(!has_passphrase_shape(&out.stdout) && !has_passphrase_shape(&out.stderr));
+        // Every file of the installation and the scratch home; not this rig's own copy of
+        // the heimdall executable (`Rig::program`), whose read-only data holds the prompt's
+        // text as a string literal (round 15: the Linux branch scanned it).
         for f in files_under(rig.tmp.path()) {
+            if f == rig.program {
+                continue;
+            }
             let text = String::from_utf8_lossy(&std::fs::read(&f).unwrap_or_default()).into_owned();
             assert!(!text.contains("Backup passphrase"), "{}", f.display());
         }
@@ -2777,6 +2783,20 @@ async fn real_issuer_with(
     issuer
 }
 
+/// ⟨round 15⟩ An image reader for a child that can no longer be verified: its image reads
+/// at spawn (after `hello_ack`), and is unreadable from then on, so the exact-child check
+/// refuses to signal it. (A reader that never reads models the Linux issuer child, whose
+/// image is never readable, and is no longer "unverifiable": its identity is its PID and
+/// start token.)
+#[cfg(unix)]
+fn image_unreadable_after_start() -> heimdall_issuer::client::ImageReader {
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    Arc::new(move |_| {
+        (reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0)
+            .then(|| PathBuf::from("/heimdall-at-spawn"))
+    })
+}
+
 /// Whether `pid` is a live process (`ps`; a zombie or a gone process reads as not).
 #[cfg(unix)]
 fn running(pid: u32) -> bool {
@@ -2882,7 +2902,7 @@ fn recheck3_real_issuer_late_sign_cannot_cross_fence() {
 }
 
 /// ⟨ADR-0008 §17.33 item 2 (W5-E02), the bounded stop⟩ When the exact-child check cannot
-/// verify the child (here its image is unreadable), it is never signalled: it gets only EOF,
+/// verify the child (here its image, read at spawn, is unreadable afterwards), it is never signalled: it gets only EOF,
 /// and the delivered `sign`'s admission stays held until its exit is observed. A fence
 /// acquisition meanwhile waits out its bound and reports it (`SERVICE_UNAVAILABLE`,
 /// `uninstall_in_progress`, "work being admitted did not settle in time"), nothing taken;
@@ -2900,7 +2920,10 @@ fn recheck3_real_issuer_unconfirmed_stop_keeps_the_admission_held() {
         .build()
         .unwrap();
     rt.block_on(async {
-        let issuer = real_issuer_with(&rig, |c| c.child_image = Some(Arc::new(|_| None))).await;
+        let issuer = real_issuer_with(&rig, |c| {
+            c.child_image = Some(image_unreadable_after_start())
+        })
+        .await;
         let pid = issuer.identity().unwrap().pid;
         signal_pid("-STOP", pid);
         let (o, i) = (ops.clone(), issuer.clone());
@@ -3074,7 +3097,7 @@ fn issuer_init_refuses_when_its_executable_is_replaced_mid_ceremony() {
 /// `issuer_cleanup_cancelled_kill_on_drop_signals_unreaped_child`⟩
 /// `recheck4_cancelling_stop_must_not_signal_unverified_child` **documents** the residual
 /// (it passes while the residual holds). The real child is stopped and the exact-child check
-/// cannot verify it (its image is unreadable), so the indeterminate `load`'s cleanup does not
+/// cannot verify it (its image, read at spawn, is unreadable afterwards), so the indeterminate `load`'s cleanup does not
 /// signal it and waits (≤ 5 s) for its exit. Cancelling that wait drops the cleanup, and the
 /// child handle's `kill_on_drop` signals the child. What the test shows:
 /// * the signal reaches only that child: while the PID is present it is the same process
@@ -3094,7 +3117,7 @@ fn recheck4_cancelling_stop_must_not_signal_unverified_child() {
         .unwrap();
     rt.block_on(async {
         let issuer = real_issuer_with(&rig, |c| {
-            c.child_image = Some(Arc::new(|_| None));
+            c.child_image = Some(image_unreadable_after_start());
             c.request_timeout = Duration::from_secs(2);
         })
         .await;
@@ -3167,7 +3190,10 @@ fn residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission() {
         .build()
         .unwrap();
     rt.block_on(async {
-        let issuer = real_issuer_with(&rig, |c| c.child_image = Some(Arc::new(|_| None))).await;
+        let issuer = real_issuer_with(&rig, |c| {
+            c.child_image = Some(image_unreadable_after_start())
+        })
+        .await;
         let pid = issuer.identity().unwrap().pid;
         signal_pid("-STOP", pid);
         let before = std::fs::read(&db).unwrap();

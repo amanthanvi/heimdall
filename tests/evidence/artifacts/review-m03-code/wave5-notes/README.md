@@ -193,3 +193,18 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r14-worklog-I.md` | The integrator's worklog: the diff review, the Windows `testcfg` fix, the audit, validation |
 | `m03-wave5-r14-worklog-P8.md` | P8: read-only validation and the `VACUUM INTO` recovery copy (`Checkpointer` removed), the group oracle, E1–E3 |
 | `m03-wave5-r14-gemini-audit.md` | The independent audit on Gemini (§17.36 item 2): pass 1 (E1–E3), pass 2 (E1–E3 closed; F1, F2 low) |
+
+## Round 15 (base `40a8d1d4`; implements W5-I01 from the final review on Grok (archived as `../wave5-final.md`), F2 (ADR-0008 §17.37 item 6), Windows coverage of the database-family regressions, and two Linux-only `e2e_cli_m03` failures from devbox batch A)
+
+These were moved here from the worktree root at the end of round 15. They have been scanned for home
+paths, user names, canaries and keys, and none were found. P8 was stopped twice (a T3 restart and an API
+error); P9 finished its items from the partial edits, with P8's worklog continued.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r15-questions.md` | Round-15 questions (none open) |
+| `m03-wave5-r15-worklog-I.md` | The integrator's worklog: interruptions, reviews, validation |
+| `m03-wave5-r15-worklog-P8.md` | P8 and then P9: W5-I01 (a marker that binds the copy; recovery checks before any unlink), F2, Windows coverage, `RESIDUALS` |
+| `m03-wave5-r15-P8-DONE.md` | P9's final report: revert proofs and the list of tests for the native Windows run |
+| `m03-wave5-r15-worklog-K4.md` | K4: the Linux `signal_exact` diagnosis and fix, the passphrase-scan test fix, devbox runs |
+| `m03-wave5-r15-K4-DONE.md` | K4's final report |

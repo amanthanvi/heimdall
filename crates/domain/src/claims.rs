@@ -160,7 +160,7 @@ pub const RESIDUALS: &[Residual] = &[
     },
     Residual {
         id: "purge_entry_placed_in_quarantine_is_deleted",
-        description: "purge sweep, every platform (ADR-0008 §17.34 item 1: an actor can at most cause the deletion of an entry it placed): what the purge deletes was inspected and validated under random quarantine names, and the state database, its -wal and -shm are held and confirmed for the final read (a swap there refuses, nothing deleted); but a same-user program that finds a random quarantine name can, after the last check, add its own entry inside a quarantined directory or put its own entry at a quarantine name, and the deletion removes that entry it placed. Owner data at an inspected path is never deleted and nothing outside the purge roots is reached",
+        description: "purge sweep, every platform (ADR-0008 §17.34 item 1: an actor can at most cause the deletion of an entry it placed): what the purge deletes was inspected and validated under random quarantine names, and the state database, its -wal and -shm are held and confirmed for the final read (a swap there refuses, nothing deleted); but a same-user program that finds a random quarantine name can, after the last check, add its own entry inside a quarantined directory or put its own entry at a quarantine name, and the deletion removes that entry it placed. The owner's quarantined trees are deleted only after their last validation, and the owner's database family only after a recovery copy that opens and reads on its own is bound by the deletion mark; a crash recovery acting on a mark first checks that copy against the mark's binding and every original present against the unit record's identity, and otherwise deletes nothing (ADR-0008 §17.38, W5-I01). A copy and mark forged together is purge_recovery_copy_and_marker_forged_together. Nothing outside the purge roots is reached",
         platform: Platform {
             os: "any",
             arch: "any",
@@ -189,6 +189,22 @@ pub const RESIDUALS: &[Residual] = &[
         },
         reason: ResidualReason::NeedsHostileSameUserProgram,
         adr: "ADR-0008 §17.36 item 1",
+    },
+    Residual {
+        id: "purge_recovery_copy_and_marker_forged_together",
+        description: "purge crash recovery (ADR-0008 §17.38, W5-I01): a deletion mark makes recovery finish deleting the original database family only when the recovery copy it binds (identity, size, SHA-256) opens read-only on its own, passes the integrity and schema checks and reads, and every original present is the recorded file. A same-user program that forges all of that together (a valid database at the copy's name plus a mark binding its exact identity and digest) gets the originals deleted and its database restored as state.db. That gives it nothing it does not already have: it runs as the owner and can already delete the unit's files or write state.db directly. A planted mark alone, or one beside a missing, mismatched or unreadable copy, or beside an original that is not the recorded file, deletes nothing (probes: uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database, w5_i01_planted_marker_with_garbage_copy_keeps_database, w5_i01_marker_binding_mismatch_keeps_the_database, w5_i01_original_not_the_recorded_inode_keeps_the_unit; purge_sweep::tests::w5_i01_failed_copy_check_unlinks_nothing)",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.purge_anchored_deletion",
+        probe: Probe {
+            target: "-p heimdall --bin heimdall",
+            source: "crates/heimdall/src/uninstall_cmd.rs",
+            test: "uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0008 §17.38",
     },
     Residual {
         id: "issuer_request_hold_absent_for_leader_and_lease_work",

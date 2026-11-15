@@ -165,6 +165,11 @@ pub struct ChildIdentity {
     pub start_token: Option<String>,
     /// ⟨§17.33 item 2⟩ Its executable image, read after its `hello_ack` (`None` without
     /// a [`ClientConfig::child_image`] reader, or when it could not be read).
+    ///
+    /// ⟨round 15⟩ On Linux it is always `None` for the real issuer child: the child makes
+    /// itself non-dumpable before any key exists (`credential::sys::harden_process`,
+    /// `PR_SET_DUMPABLE` 0), so its `/proc/<pid>` is owned by root and `/proc/<pid>/exe`
+    /// cannot be read by this user.
     pub image: Option<PathBuf>,
 }
 
@@ -359,10 +364,14 @@ impl Drop for Indeterminate<'_> {
 }
 
 /// ⟨§17.33 item 2⟩ Signal the child only if it is still the exact child spawned: not yet
-/// exited, its PID unchanged, its start token read now equal to the one read at spawn
-/// (an unreadable one never matches), and, with an image reader, its image read now equal
-/// to the one read after its `hello_ack`. Never by name or pattern. Returns whether the
-/// signal was sent.
+/// exited (still unreaped, so its PID cannot have been reused and the signal goes through
+/// this client's own handle), its PID unchanged, its start token read now equal to the one
+/// read at spawn (an unreadable one never matches), and, when its image was read after its
+/// `hello_ack`, its image read now equal to it (unreadable now, or another image: refused).
+/// ⟨round 15⟩ An image that could not be read at spawn is not part of the identity: on
+/// Linux the non-dumpable issuer child's image is never readable ([`ChildIdentity::image`]),
+/// and requiring it made every exact-child signal on Linux impossible. Never by name or
+/// pattern. Returns whether the signal was sent.
 fn signal_exact(verifier: &Verifier, child: &mut Child, identity: &ChildIdentity) -> bool {
     if matches!(child.try_wait(), Ok(Some(_))) {
         return false;
@@ -374,9 +383,9 @@ fn signal_exact(verifier: &Verifier, child: &mut Child, identity: &ChildIdentity
     if token.is_none() || token != identity.start_token {
         return false;
     }
-    if let Some(read) = &verifier.image {
-        match (read(identity.pid), &identity.image) {
-            (Some(now), Some(then)) if now == *then => {}
+    if let (Some(read), Some(then)) = (&verifier.image, &identity.image) {
+        match read(identity.pid) {
+            Some(now) if now == *then => {}
             _ => return false,
         }
     }
@@ -1188,5 +1197,80 @@ impl heimdall_app::issuer::IssuerLifecycle for ChildIssuer {
 
     async fn stop(&self) {
         ChildIssuer::stop(self).await;
+    }
+}
+
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod exact_child_tests {
+    //! ⟨round 15⟩ The exact-child check over a real unreaped child (`/bin/sleep`).
+    use super::*;
+
+    fn verifier(image: Option<ImageReader>) -> Verifier {
+        Verifier {
+            start_token: Arc::new(|_| Some("t0".to_owned())),
+            image,
+        }
+    }
+
+    fn sleeper() -> (Child, u32) {
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        (child, pid)
+    }
+
+    /// The Linux issuer child's case: its image was unreadable at spawn (non-dumpable) and
+    /// is unreadable now; with its PID and start token re-verified it is signalled.
+    #[tokio::test]
+    async fn exact_child_signalled_when_its_image_was_never_readable() {
+        let (mut child, pid) = sleeper();
+        let identity = ChildIdentity {
+            pid,
+            start_token: Some("t0".to_owned()),
+            image: None,
+        };
+        assert!(signal_exact(
+            &verifier(Some(Arc::new(|_| None))),
+            &mut child,
+            &identity
+        ));
+        let status = tokio::time::timeout(STOP_TIMEOUT, child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!status.success(), "ended by the signal");
+    }
+
+    /// An image read at spawn must still read the same: unreadable now, or another
+    /// image, refuses; a start token that differs refuses.
+    #[tokio::test]
+    async fn exact_child_refused_when_a_read_identity_no_longer_matches() {
+        let (mut child, pid) = sleeper();
+        let read = ChildIdentity {
+            pid,
+            start_token: Some("t0".to_owned()),
+            image: Some(PathBuf::from("/x/heimdall")),
+        };
+        for now in [None, Some(PathBuf::from("/x/other"))] {
+            let reader: ImageReader = Arc::new(move |_| now.clone());
+            assert!(!signal_exact(&verifier(Some(reader)), &mut child, &read));
+        }
+        let other_token = ChildIdentity {
+            start_token: Some("t1".to_owned()),
+            image: None,
+            ..read.clone()
+        };
+        assert!(!signal_exact(&verifier(None), &mut child, &other_token));
+        assert!(matches!(child.try_wait(), Ok(None)), "never signalled");
+        let same: ImageReader = Arc::new(|_| Some(PathBuf::from("/x/heimdall")));
+        assert!(signal_exact(&verifier(Some(same)), &mut child, &read));
+        let _ = child.wait().await;
     }
 }
