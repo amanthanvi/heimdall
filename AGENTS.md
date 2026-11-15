@@ -24,6 +24,20 @@ See `progress.md` for task status.
   `tests/evidence/record.schema.json` (plan.md §6.6). Preserve real exit codes and
   redacted output under `tests/evidence/artifacts/`.
 
+## Delivery economy
+
+Before planning, reviewing, testing or recording a wave, read
+`docs/decisions/0009-delivery-economy.md`. In short:
+- **Reviews:** one independent review and one scoped re-check per wave. ADR-0009 §2.1 says which
+  findings block.
+- **Native runs:** Windows and the devbox run at each merge candidate, plus targeted runs for
+  platform-specific changes.
+- **Tests:** a new test covers behaviour that no existing test covers. Revert proofs are for fixes
+  that block a merge.
+- **Gates:** focused crate tests while iterating, and `tools/validation/check.sh` once per commit.
+- **Long commands:** the agent that starts one blocks on it in the same turn. Workers finish by
+  writing a `DONE` file.
+
 ## Boundaries
 
 - Tests and probes use disposable fixtures only: never use the owner's real
