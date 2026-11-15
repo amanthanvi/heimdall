@@ -181,3 +181,15 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r13-questions.md` | The `Checkpointer` and `create_dir_owner_only` confirmations (§17.35 item 6), audit D1/D2 (item 7) and D3–D5 (item 8): all ANSWERED |
 | `m03-wave5-r13-worklog-I.md` | The integrator's worklog: the dropped residual, the audit of items 1–2, validation |
 | `m03-wave5-r13-worklog-P8.md` | P8: the database family as one recovery unit (G01), checkpoint before deletion (G02), the residual and its ADR test (G03), the pending-retry display (G04), and D1–D5 (start-up refusal over an interrupted purge, census before checkpoint, the exact report, Windows created files) |
+
+## Round 14 (base `092a4671`; implements ADR-0008 §17.36 item 1 (W5-H01, H02), the Linux user-private-group test defects, the Windows `testcfg` test fix, and a Gemini audit's E1–E3)
+
+These were moved here from the worktree root at the end of round 14. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r14-questions.md` | Q-P8-R14-1 and Q-P8-R14-2, ANSWERED |
+| `m03-wave5-r14-worklog-I.md` | The integrator's worklog: the diff review, the Windows `testcfg` fix, the audit, validation |
+| `m03-wave5-r14-worklog-P8.md` | P8: read-only validation and the `VACUUM INTO` recovery copy (`Checkpointer` removed), the group oracle, E1–E3 |
+| `m03-wave5-r14-gemini-audit.md` | The independent audit on Gemini (§17.36 item 2): pass 1 (E1–E3), pass 2 (E1–E3 closed; F1, F2 low) |

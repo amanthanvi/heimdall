@@ -23,38 +23,40 @@
 //! and checks that `<state>`'s and `<run>`'s paths still name the anchored directories
 //! ([`Anchors::verify`], by device and inode); a swap refuses, nothing deleted.
 //!
-//! **Quarantine, validate, delete (ADR-0008 §17.34 item 1, §17.35 items 1-2; W5-F01, F02,
-//! G01, G02; the audit's C0-C4).** [`Anchors::quarantine`]: every entry the purge removes
-//! (the database and its `-wal`/`-shm`/`-journal`, `backups`, `managed`, `b`, `mux`) is
-//! inspected (each path below it with its kind and identity; any link or reparse point
-//! refuses), then moved atomically and **never over anything** (Linux `RENAME_NOREPLACE`,
-//! macOS `RENAME_EXCL`, Windows `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`): each
-//! tree to a fresh random quarantine name in its own anchored directory, and the
-//! **database family as one recovery unit** into one fresh owner-only quarantine
-//! directory (`.hm-purge-<tag>-database`, created exclusively in `<state>`), where the
-//! files keep their names, so SQLite always sees them as one unit. Then everything is
-//! checked again against what was inspected (every target absent at the inspection must
-//! still be absent, and the quarantine directory holds nothing else). The database, its
-//! `-wal` and its `-shm` are **held** there (a moved one opened and required to be the
-//! inspected inode; an absent one created empty by the purge with `O_EXCL`; Windows: all
-//! three pinned, no share-delete). The final read, the snapshot comparison and the bundle
-//! check run against that quarantined database ([`Quarantine::read_db`]), and before its
-//! store is dropped the read is confirmed: Unix, a census of this process's regular-file
-//! descriptors finds exactly one more descriptor of each held file (the ones SQLite
-//! opened, so it read those very inodes) and each name still names its held file;
-//! Windows, the three are still pinned and named. Then everything is checked again
-//! ([`Quarantine::validate`]), the quarantined database is **checkpointed**
-//! (`PRAGMA wal_checkpoint(TRUNCATE)` on a read-write connection confirmed the same way,
-//! [`Quarantine::checkpoint`]) and its `-wal` must be empty, and only then is anything
-//! deleted ([`Quarantine::delete`]): the trees, then the unit's companions, its database,
-//! its directory. A restore ([`Quarantine::restore`]) renames each tree back, and the unit
-//! only when **none** of its original names is occupied, the database first; otherwise the
-//! whole unit stays in its quarantine directory, reported, and no companion is ever
-//! restored alone. On a deletion failing part-way, the trees not yet started are renamed
-//! back and the unit (its complete, checkpointed database among it) is restored under that
-//! rule or kept, and the report lists exactly what was renamed back and what was kept. On
-//! any difference before the deletion everything is restored and the purge refuses with
-//! nothing deleted. **What remains (the `RESIDUALS` entry
+//! **Quarantine, validate, delete (ADR-0008 §17.34 item 1, §17.35 items 1 and 7,
+//! §17.36 item 1; W5-F01, F02, G01, H01, H02; the audits' C0-C4, D1-D5).** SQLite never
+//! opens the owner's original database family read-write. [`Anchors::quarantine`]: a
+//! family that contains a `-journal` is refused before anything moves (the store is
+//! WAL-mode: a hot rollback journal is never legitimate). Every entry the purge removes
+//! (the database and its `-wal`/`-shm`, `backups`, `managed`, `b`, `mux`) is inspected
+//! (each path below it with its kind and identity; any link or reparse point refuses),
+//! then moved atomically and **never over anything** (Linux `RENAME_NOREPLACE`, macOS
+//! `RENAME_EXCL`, Windows `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`): each tree to
+//! a fresh random quarantine name in its own anchored directory, and the **database
+//! family as one unit** into one fresh owner-only quarantine directory
+//! (`.hm-purge-<tag>-database`, created exclusively in `<state>`, its record of members
+//! written and synced first), where the files keep their names. Then everything is
+//! checked again against what was inspected. The database, its `-wal` and its `-shm` are
+//! **held** there (a moved one opened and required to be the inspected inode; an absent
+//! one created empty by the purge with `O_EXCL`; Windows: all three pinned). The final
+//! read, the snapshot comparison and the bundle check run on a **read-only** connection
+//! ([`Quarantine::read_db`]; the journal check repeated just before it opens), confirmed
+//! before its store is dropped (Unix: a census of this process's regular-file
+//! descriptors, one more descriptor of each held file; Windows: the pins), and from that
+//! confirmed connection the purge writes the **recovery copy** with `VACUUM INTO`
+//! (self-contained, no log) to an exclusively created file in the quarantine directory,
+//! checked, synced and renamed to [`UNIT_COPY`]. Then everything is checked again
+//! ([`Quarantine::validate`]) and only then is anything deleted ([`Quarantine::delete`]):
+//! the trees, then the original family's companions, the original database, the
+//! recovery copy, the directory; a failure at any step leaves at least the complete
+//! recovery copy (restored as `state.db`, or in quarantine), reported with its exact path.
+//! A restore ([`Quarantine::restore`]) renames each tree back and restores **the recovery
+//! copy alone** as `state.db` by one no-replace rename (one atomic step with no log to
+//! attach); the original family stays in its quarantine directory, reported, for a later
+//! `heimdall uninstall` to delete once the restored database is confirmed (it opens and
+//! its snapshot equals the original family's). Before the copy exists, the family stays
+//! whole in its quarantine directory. Start-up refuses while any quarantine exists, and
+//! `heimdall uninstall` recovers first ([`Anchors::recover`]). **What remains (the `RESIDUALS` entry
 //! `purge_entry_placed_in_quarantine_is_deleted`):** a same-user program that finds a
 //! random quarantine name can add its own entry inside a quarantined directory, or put its
 //! own entry at a quarantine name, after the last check, and the deletion removes that
@@ -102,6 +104,15 @@ const LOCK_FILE: &str = "service.lock";
 // The name the claims table and ADR-0008 cite; nothing reads it at run time.
 #[allow(dead_code)]
 pub(crate) const WINDOWS_RESIDUAL: &str = "windows_purge_entry_replaced_between_check_and_delete";
+
+/// ⟨ADR-0008 §17.36 item 1⟩ The refusal of a database family with a rollback journal
+/// (`InvalidData`, so the command names it).
+fn journal_refused() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "the purge refused: the state database has a rollback journal, which a WAL-mode store never leaves; it is kept",
+    )
+}
 
 /// Why the purge refused.
 fn refused(what: &str) -> std::io::Error {
@@ -267,6 +278,23 @@ impl Anchors {
         })
     }
 
+    /// [`Anchors::open`] with an injected private-group oracle (tests: a simulated
+    /// user-private-group host, or a shared-group one).
+    ///
+    /// # Errors
+    /// As [`Anchors::open`].
+    #[cfg(all(test, unix))]
+    pub(crate) fn open_with_group(
+        state_dir: &Path,
+        runtime_dir: &Path,
+        top: Option<&Path>,
+        group: &dyn Fn() -> std::io::Result<Option<u32>>,
+    ) -> std::io::Result<Anchors> {
+        Ok(Anchors {
+            inner: imp::Anchors::open_with_group(state_dir, runtime_dir, top, group)?,
+        })
+    }
+
     /// Take `service.lock` through the anchored `<state>`; `None` while another process
     /// (a runtime) holds it.
     ///
@@ -305,12 +333,14 @@ impl Anchors {
         })
     }
 
-    /// ⟨ADR-0008 §17.35 item 7 (audit D1, D2)⟩ Handle an interrupted uninstall's quarantine
-    /// (call with the lock held): each database family unit rejoined under §17.35 item
-    /// 1's rule by its record, each quarantined tree renamed back when its name is free;
-    /// whatever cannot be is reported as left.
-    pub(crate) fn recover(&self, db_file: &str) -> Recovered {
-        self.inner.recover(db_file)
+    /// ⟨ADR-0008 §17.35 item 7, §17.36 item 1⟩ Handle an interrupted uninstall's
+    /// quarantine (call with the lock held): each database family unit's database is
+    /// restored as its recovery copy alone (written first, from a read-only
+    /// census-confirmed connection, when there is none), the original family deleted
+    /// once `ops.confirm` finds the restored database equal to it; each quarantined
+    /// tree renamed back when its name is free; whatever cannot be is reported as left.
+    pub(crate) fn recover(&self, db_file: &str, ops: &RecoverOps<'_>) -> Recovered {
+        self.inner.recover(db_file, ops)
     }
 
     /// Quarantine, validate and delete in one go (the deletion without a database read).
@@ -319,9 +349,10 @@ impl Anchors {
     /// As [`Anchors::quarantine`] and [`Quarantine::delete`].
     #[cfg(test)]
     pub(crate) fn purge(&self, db_file: &str, between: impl FnOnce()) -> std::io::Result<()> {
-        let q = self
+        let mut q = self
             .quarantine(db_file, between)
             .map_err(QuarantineError::into_io)?;
+        q.fake_copy()?;
         q.delete().map_err(QuarantineError::into_io)
     }
 }
@@ -357,57 +388,51 @@ pub(crate) struct Quarantine<'a> {
 }
 
 impl Quarantine<'_> {
-    /// ⟨ADR-0008 §17.34 item 1; audit C0⟩ `open` the **quarantined** database by its
-    /// quarantine name in the anchored directory (Unix: resolved from the held handle,
-    /// wherever the directory is now), then `read` it; the database, its `-wal` and its
-    /// `-shm` are held at their quarantine names throughout (a moved one checked against
-    /// its inspected identity, an absent one created empty by the purge). Before what
-    /// `open` returned is dropped the read is **confirmed**: Unix, a census of this
-    /// process's regular-file descriptors finds exactly one more descriptor of each held
-    /// file than before the open (the ones SQLite opened), and each quarantine name still
-    /// names its held file; Windows, the three stay pinned (no share-delete) and still
-    /// named. `None` when there is no database; else `read`'s result and the
-    /// confirmation (`Err`: what was read is not what is deleted).
+    /// ⟨ADR-0008 §17.34 item 1, §17.36 item 1; audit C0⟩ The final read and the recovery
+    /// copy. `open` (a **read-only** connection: it can never roll a journal back, and a
+    /// `-journal` refuses before it, checked again just before the open) the quarantined
+    /// database by its name in its quarantine directory, then `read` it; the database,
+    /// its `-wal` and its `-shm` are held there throughout. Before what `open` returned
+    /// is dropped the read is **confirmed** (Unix: the descriptor census; Windows: the
+    /// pins), and only then `copy` writes the **recovery copy** from that connection
+    /// (`VACUUM INTO` an exclusively created file in the quarantine directory), which is
+    /// checked, synced and renamed into place. `None` when there is no database; else
+    /// `read`'s result and the confirmation (`Err`: what was read is not what is deleted,
+    /// or the copy could not be written).
     ///
     /// # Errors
-    /// The census could not be taken.
+    /// A rollback journal, or the census could not be taken.
     pub(crate) fn read_db<S, T>(
-        &self,
+        &mut self,
         open: impl FnOnce(&Path) -> S,
         read: impl FnOnce(&S) -> T,
+        copy: impl FnOnce(&S, &Path) -> bool,
     ) -> std::io::Result<Option<(T, std::io::Result<()>)>> {
-        self.inner.read_db(&self.anchors.inner, open, read, |_| ())
+        self.inner.read_db(&self.anchors.inner, open, read, copy)
     }
 
-    /// ⟨ADR-0008 §17.35 item 2 (W5-G02)⟩ After the final checks and the last
-    /// [`Quarantine::validate`], before anything is deleted: `open` a connection on the
-    /// quarantined database (in its quarantine directory, as [`Quarantine::read_db`],
-    /// confirmed by the same census) and `run` the checkpoint on it (`true` when it
-    /// completed); then the `-wal` must be empty (zero bytes) or absent.
-    ///
-    /// # Errors
-    /// A checkpoint that did not complete, an unconfirmed connection, or a log that is
-    /// not empty afterwards.
-    pub(crate) fn checkpoint<S>(
-        &self,
-        open: impl FnOnce(&Path) -> S,
-        probe: impl FnOnce(&S) -> bool,
-        run: impl FnOnce(&S) -> bool,
-    ) -> std::io::Result<()> {
-        // ⟨audit D3⟩ One read first (SQLite opens the database, its log and its index),
-        // then the census, and only on a confirmed connection the checkpoint.
-        match self.inner.read_db(&self.anchors.inner, open, probe, run)? {
-            None => {}
-            Some((false, _)) | Some((true, Ok(false))) => {
-                return Err(refused(
-                    "the checkpoint of the quarantined database did not complete",
-                ));
-            }
-            Some((true, confirmed)) => {
-                confirmed?;
-            }
+    /// ⟨tests only⟩ A byte copy of the quarantined database as its recovery copy (the
+    /// sweep's own tests use stand-in files, not SQLite).
+    #[cfg(test)]
+    pub(crate) fn fake_copy(&mut self) -> std::io::Result<()> {
+        match self.read_db(
+            |p| {
+                let mut opened = Vec::new();
+                for sfx in ["", "-wal", "-shm"] {
+                    let mut n = p.as_os_str().to_owned();
+                    n.push(sfx);
+                    if let Ok(f) = std::fs::File::open(&n) {
+                        opened.push(f);
+                    }
+                }
+                (p.to_path_buf(), opened)
+            },
+            |_| (),
+            |(db, _), out| std::fs::copy(db, out).is_ok(),
+        )? {
+            None => Ok(()),
+            Some(((), confirmed)) => confirmed,
         }
-        self.inner.wal_empty()
     }
 
     /// Check every quarantined entry against what was inspected, again.
@@ -419,13 +444,12 @@ impl Quarantine<'_> {
     }
 
     /// Delete the quarantined entries (by their quarantine names only), refused with
-    /// nothing deleted unless the quarantined `-wal` is empty (⟨§17.35 item 2⟩): the trees
-    /// first, then the database family (its companions, the database, its quarantine
-    /// directory). ⟨audit C1; §17.35 items 1-2⟩ When a deletion fails part-way, every tree
-    /// not yet started (and a failed single file) is renamed back, never over anything,
-    /// the database family is restored as a unit or kept whole in its quarantine
-    /// directory, and the error lists exactly the paths renamed back and the paths left
-    /// in quarantine.
+    /// nothing deleted unless the database's recovery copy is complete (⟨§17.36 item 1⟩):
+    /// the trees first, then the database family (its companions, the original
+    /// database, the recovery copy, its quarantine directory). ⟨audit C1⟩ When a deletion
+    /// fails part-way, every tree not yet started (and a failed single file) is renamed
+    /// back, never over anything, the recovery copy is restored (or kept), and the error
+    /// lists exactly the paths renamed back and the paths left in quarantine.
     ///
     /// # Errors
     /// An I/O failure, with the entries left in quarantine.
@@ -433,11 +457,12 @@ impl Quarantine<'_> {
         self.inner.delete(&self.anchors.inner)
     }
 
-    /// Rename every quarantined entry back (⟨§17.35 item 1⟩ the database family as one
-    /// unit: only when none of its names is occupied, the database first; otherwise it
-    /// stays whole in its quarantine directory). `Err` with the exact paths of the
-    /// entries that could not be restored (they stay at their quarantine names).
-    pub(crate) fn restore(self) -> Result<(), Vec<std::path::PathBuf>> {
+    /// Rename every quarantined tree back, and ⟨§17.36 item 1⟩ restore the database as its
+    /// recovery copy **alone** (one no-replace rename, when none of the family's names is
+    /// occupied); the original family stays in its quarantine directory, for a later
+    /// `heimdall uninstall` to delete once the restored database is confirmed. Returns
+    /// the paths renamed back and the paths left (each existing).
+    pub(crate) fn restore(self) -> (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>) {
         self.inner.restore(&self.anchors.inner)
     }
 }
@@ -456,6 +481,38 @@ fn quarantine_tag() -> String {
 /// ⟨ADR-0008 §17.35 item 7⟩ The record a database family's quarantine directory keeps
 /// of its members (each family file's name and inspected identity).
 const UNIT_RECORD: &str = "heimdall-purge-unit";
+
+/// ⟨ADR-0008 §17.36 item 1⟩ The database's complete recovery copy in its quarantine
+/// directory (`VACUUM INTO` output: self-contained, no log).
+pub(crate) const UNIT_COPY: &str = "heimdall-recovery-copy.db";
+
+/// The recovery copy while it is written.
+const UNIT_COPY_PART: &str = "heimdall-recovery-copy.db.part";
+
+/// ⟨audit E2⟩ The incomplete copy and every companion SQLite can create beside it while
+/// `VACUUM INTO` writes it (exact names; always the purge's own files in its own unit).
+const UNIT_COPY_PART_FILES: [&str; 4] = [
+    "heimdall-recovery-copy.db.part",
+    "heimdall-recovery-copy.db.part-journal",
+    "heimdall-recovery-copy.db.part-wal",
+    "heimdall-recovery-copy.db.part-shm",
+];
+
+/// ⟨audit E1⟩ The mark, in a database family's quarantine directory, that its recovery
+/// copy is confirmed and the deletion of the original family has begun.
+const UNIT_DELETING: &str = "heimdall-purge-deleting";
+
+/// ⟨§17.36 item 1⟩ What crash recovery needs from the store: `open` a read-only
+/// connection, `copy` from it (`VACUUM INTO`), and `confirm` a restored database (first
+/// path) against the original family's database (second path).
+pub(crate) struct RecoverOps<'a> {
+    /// A read-only connection on the database at the path.
+    pub(crate) open: &'a dyn Fn(&Path) -> Box<dyn std::any::Any>,
+    /// The recovery copy from that connection to the path; `true` when written.
+    pub(crate) copy: &'a dyn Fn(&dyn std::any::Any, &Path) -> bool,
+    /// The restored database opens and its snapshot equals the original family's.
+    pub(crate) confirm: &'a dyn Fn(&Path, &Path) -> bool,
+}
 
 /// ⟨§17.35 item 7⟩ `<rest>` of a quarantine name `.hm-purge-<32 hex>-<rest>`.
 #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
@@ -582,7 +639,16 @@ mod imp {
     /// component at a time relative to the previous one and never following a link that is
     /// not root's, then apply [`super::check_chain`] to what each descriptor shows; `None`
     /// when it does not exist.
-    fn open_chain(target: &Path, top: Option<&Path>) -> std::io::Result<Option<Root>> {
+    /// ⟨ADR-0008 §17.34 item 2; §17.36's Linux test fix⟩ This user's private group, as
+    /// the host reports it (`heimdall_runtime::platform::user_private_group`); tests
+    /// inject another oracle ([`Anchors::open_with_group`]).
+    pub(super) type GroupOracle<'a> = &'a dyn Fn() -> std::io::Result<Option<u32>>;
+
+    fn open_chain(
+        target: &Path,
+        top: Option<&Path>,
+        group: GroupOracle<'_>,
+    ) -> std::io::Result<Option<Root>> {
         use std::path::Component as C;
         if !target.is_absolute() {
             return Err(refused("a purge root is not an absolute path"));
@@ -671,7 +737,7 @@ mod imp {
         // ⟨§17.34 item 2⟩ The private group is looked up only when an ancestor is
         // group-writable.
         let private = if chain.iter().any(|c| c.mode & 0o020 != 0) {
-            match heimdall_runtime::platform::user_private_group() {
+            match group() {
                 Ok(Some(g)) => super::PrivateGroup::Gid(g),
                 Ok(None) => super::PrivateGroup::None,
                 Err(_) => super::PrivateGroup::Unavailable,
@@ -720,12 +786,26 @@ mod imp {
             runtime_dir: &Path,
             top: Option<&Path>,
         ) -> std::io::Result<Anchors> {
-            let Some(state) = open_chain(state_dir, top)? else {
+            Self::open_with_group(
+                state_dir,
+                runtime_dir,
+                top,
+                &heimdall_runtime::platform::user_private_group,
+            )
+        }
+
+        pub(super) fn open_with_group(
+            state_dir: &Path,
+            runtime_dir: &Path,
+            top: Option<&Path>,
+            group: GroupOracle<'_>,
+        ) -> std::io::Result<Anchors> {
+            let Some(state) = open_chain(state_dir, top, group)? else {
                 return Err(refused("the state directory does not exist"));
             };
             Ok(Anchors {
                 state,
-                run: open_chain(runtime_dir, top)?,
+                run: open_chain(runtime_dir, top, group)?,
             })
         }
 
@@ -817,6 +897,13 @@ mod imp {
                     Some(m) => trees.push((which, name, m)),
                     None => absent.push((which, name)),
                 }
+            }
+            // ⟨§17.36 item 1⟩ A rollback journal: refused and kept, before anything moves.
+            if family
+                .iter()
+                .any(|(n, _)| n.as_bytes().ends_with(b"-journal"))
+            {
+                return Err(err(super::journal_refused()));
             }
             between();
             // 2. Quarantine: each tree renamed, relative to its anchored directory; the
@@ -943,16 +1030,17 @@ mod imp {
     /// held by descriptor in the quarantine directory for the final read.
     struct Held {
         name: OsString,
-        fd: OwnedFd,
+        _fd: OwnedFd,
         id: (u64, u64),
         /// Created empty by the purge (absent at the inspection): never restored.
         created: bool,
     }
 
-    /// ⟨ADR-0008 §17.35 item 1 (W5-G01)⟩ The database family (the database, `-wal`,
-    /// `-shm`, `-journal`) as one recovery unit: moved together, keeping their names, into
-    /// one fresh owner-only quarantine directory created exclusively in `<state>`, held by
-    /// descriptor.
+    /// ⟨ADR-0008 §17.35 item 1, §17.36 item 1⟩ The database family (the database, `-wal`,
+    /// `-shm`) as one unit: moved together, keeping their names, into one fresh
+    /// owner-only quarantine directory created exclusively in `<state>`, held by
+    /// descriptor; with, once the final read is confirmed, the **recovery copy**
+    /// ([`COPY`]) written from it by `VACUUM INTO`.
     struct Unit {
         dir: OwnedFd,
         id: (u64, u64),
@@ -961,6 +1049,8 @@ mod imp {
         /// The ones moved into it (every family file inspected is in its record).
         members: Vec<(OsString, Manifest)>,
         held: Vec<Held>,
+        /// The complete recovery copy's identity.
+        copy: Option<(u64, u64)>,
     }
 
     pub(super) struct Quarantine {
@@ -1008,7 +1098,7 @@ mod imp {
         Ok(names)
     }
 
-    /// The family's names, the database first.
+    /// The family's names, the database first (then `-wal`, `-shm`, `-journal`).
     fn family(db_file: &OsStr) -> Vec<OsString> {
         DB_SUFFIXES
             .iter()
@@ -1020,68 +1110,15 @@ mod imp {
             .collect()
     }
 
-    impl Unit {
-        /// ⟨§17.35 items 1, 7⟩ [`rejoin`] this unit (the files the purge created
-        /// removed, never restored).
-        fn restore(&self, a: &Anchors, db_file: &OsStr) -> (Vec<PathBuf>, Vec<PathBuf>) {
-            let created: Vec<(OsString, (u64, u64))> = self
-                .held
-                .iter()
-                .filter(|h| h.created)
-                .map(|h| (h.name.clone(), h.id))
-                .collect();
-            rejoin(&a.state, &self.dir, &self.name, self.id, db_file, &created)
-        }
-
-        /// ⟨§17.35 item 2 (W5-G02)⟩ Delete the unit: its companions first, then the
-        /// database, then its record and its directory. On a failure the complete
-        /// database is still in the unit: it is restored under [`rejoin`]'s rule, or kept
-        /// and reported.
-        fn delete(&self, a: &Anchors, db_file: &OsStr) -> Result<(), super::QuarantineError> {
-            let names = family(db_file);
-            let fail = |cause: std::io::Error| {
-                let (restored, stuck) = self.restore(a, db_file);
-                super::QuarantineError {
-                    cause,
-                    stuck,
-                    restored,
-                }
-            };
-            for n in names.iter().skip(1).chain(names.first()) {
-                if matches!(kind(&self.dir, n), Ok(None)) {
-                    continue;
-                }
-                #[cfg(test)]
-                super::tests::unlink_hook(n);
-                if super::unlink_fails(n) {
-                    return Err(fail(std::io::Error::other("injected unlink failure")));
-                }
-                if let Err(e) = rustix::fs::unlinkat(&self.dir, n, AtFlags::empty()) {
-                    return Err(fail(e.into()));
-                }
-            }
-            let gone = rustix::fs::unlinkat(&self.dir, RECORD, AtFlags::empty())
-                .or_else(|e| {
-                    if e == rustix::io::Errno::NOENT {
-                        Ok(())
-                    } else {
-                        Err(e)
-                    }
-                })
-                .map_err(std::io::Error::from)
-                .and_then(|()| remove_unit_dir(&a.state, &self.name, self.id));
-            gone.map_err(|cause| super::QuarantineError {
-                cause,
-                stuck: vec![a.state.path.join(&self.name)],
-                restored: Vec::new(),
-            })
-        }
-    }
-
-    /// ⟨§17.35 item 7 (audit D1, D2)⟩ The unit's record of its members (each family
-    /// file's name and inspected identity), written and synced before the first move, so
-    /// that after a crash at any point the unit can be rejoined exactly.
+    /// The unit's record of its members (each family file's name and inspected identity).
     const RECORD: &str = super::UNIT_RECORD;
+    /// ⟨§17.36 item 1⟩ The complete recovery copy in the unit.
+    const COPY: &str = super::UNIT_COPY;
+    /// The recovery copy while it is written (renamed to [`COPY`] once complete and
+    /// synced, so a crash never leaves an incomplete copy under [`COPY`]).
+    const COPY_PART: &str = super::UNIT_COPY_PART;
+    /// ⟨audit E1⟩ The mark that the copy is confirmed and the originals' deletion began.
+    const DELETING: &str = super::UNIT_DELETING;
 
     fn write_record(
         dir: &OwnedFd,
@@ -1147,191 +1184,147 @@ mod imp {
         }
     }
 
-    /// ⟨ADR-0008 §17.35 items 1 and 7⟩ Rejoin a database family's quarantine unit `dir`
-    /// (`name` in `<state>`) to `<state>`, by its record: every file in it must be a
-    /// recorded member still the recorded inode, or one the purge created (an index, an
-    /// empty log: removed, never restored); every original family name must be free or
-    /// hold that member itself (one a crash or a failed move left at its name, still the
-    /// recorded inode). Then the members move back, the database first; a companion that
-    /// cannot follow moves the database back in, so no companion is ever restored alone.
-    /// Otherwise the whole unit stays. Returns the paths renamed back and the paths left
-    /// (the directory and each file in it).
-    fn rejoin(
+    /// The unit directory `here` and each entry in it, as they are now (sorted).
+    fn left_now(dir: &OwnedFd, here: &Path) -> Vec<PathBuf> {
+        let mut left = vec![here.to_path_buf()];
+        if let Ok(mut ns) = list(dir) {
+            ns.sort();
+            left.extend(ns.iter().map(|n| here.join(n)));
+        }
+        left
+    }
+
+    /// ⟨ADR-0008 §17.36 item 1⟩ Restore the unit's complete recovery copy (`copy`, its
+    /// identity) **alone** as `<state>/<db_file>`, by one no-replace rename, when none of
+    /// the family's names in `<state>` is occupied: one atomic step, with no log to
+    /// attach. The original family stays in the unit. (Paths renamed back, paths left.)
+    fn restore_copy(
         state: &Root,
         dir: &OwnedFd,
         name: &OsStr,
-        id: (u64, u64),
         db_file: &OsStr,
-        created: &[(OsString, (u64, u64))],
+        copy: Option<(u64, u64)>,
     ) -> (Vec<PathBuf>, Vec<PathBuf>) {
         let here = state.path.join(name);
-        let all_left = || {
-            let mut left = vec![here.clone()];
-            if let Ok(mut ns) = list(dir) {
-                ns.sort();
-                left.extend(ns.iter().map(|n| here.join(n)));
-            }
-            (Vec::new(), left)
-        };
+        let kept = |restored: Vec<PathBuf>| (restored, left_now(dir, &here));
         if super::restore_fails() {
-            return all_left();
+            return kept(Vec::new());
         }
-        let names = family(db_file);
-        let Ok(entries) = list(dir) else {
-            return all_left();
+        let Some(cid) = copy else {
+            return kept(Vec::new());
         };
-        if entries.iter().any(|e| e != RECORD && !names.contains(e)) {
-            return all_left();
+        match kind(dir, OsStr::new(COPY)) {
+            Ok(Some((FileType::RegularFile, d, i))) if (d, i) == cid => {}
+            _ => return kept(Vec::new()),
         }
-        let record = if entries.iter().any(|e| e == RECORD) {
-            match read_record(dir) {
-                Ok(r) => r,
-                Err(_) => return all_left(),
-            }
-        } else if entries.is_empty() {
-            Vec::new()
-        } else {
-            return all_left();
-        };
-        let recorded = |n: &OsStr| record.iter().find(|(k, _)| k == n).map(|e| e.1);
-        let mut present: Vec<OsString> = Vec::new();
-        for n in &names {
-            let Ok(found) = kind(dir, n) else {
-                return all_left();
-            };
-            let Some((ty, d, i)) = found else {
-                continue;
-            };
-            match recorded(n) {
-                Some(r) if r == (d, i) && ty == FileType::RegularFile => present.push(n.clone()),
-                Some(_) => return all_left(),
-                None => {
-                    let empty = rustix::fs::statat(dir, n, AtFlags::SYMLINK_NOFOLLOW)
-                        .is_ok_and(|st| st.st_size == 0);
-                    let ours = created.iter().any(|(c, cid)| c == n && *cid == (d, i))
-                        || (ty == FileType::RegularFile
-                            && (n.as_bytes().ends_with(b"-shm") || empty));
-                    if !(ours && rustix::fs::unlinkat(dir, n, AtFlags::empty()).is_ok()) {
-                        return all_left();
-                    }
-                }
-            }
-        }
-        for n in &names {
-            match kind(&state.fd, n) {
-                Ok(None) => {}
-                Ok(Some((_, d, i))) if !present.contains(n) && recorded(n) == Some((d, i)) => {}
-                _ => return all_left(),
-            }
-        }
-        let mut back: Vec<&OsString> = Vec::new();
-        for n in &present {
-            #[cfg(test)]
-            super::tests::rejoin_hook(n);
-            if rename_between(dir, n, &state.fd, n).is_err() {
-                let mut restored = Vec::new();
-                for b in back.iter().rev() {
-                    if rename_between(&state.fd, b, dir, b).is_err() {
-                        restored.push(state.path.join(b));
-                    }
-                }
-                let (_, left) = all_left();
-                return (restored, left);
-            }
-            back.push(n);
-        }
-        let restored = present.iter().map(|n| state.path.join(n)).collect();
-        let _ = rustix::fs::unlinkat(dir, RECORD, AtFlags::empty());
-        let left = if remove_unit_dir(state, name, id).is_ok() {
-            Vec::new()
-        } else {
-            vec![here.clone()]
-        };
-        (restored, left)
-    }
-
-    impl Anchors {
-        /// ⟨ADR-0008 §17.35 item 7 (audit D1, D2)⟩ An interrupted uninstall's quarantine,
-        /// under the lock: each database family unit in `<state>` rejoined by its record
-        /// ([`rejoin`]), each quarantined tree (`.hm-purge-<tag>-<tree>` in `<state>` or
-        /// `<run>`) renamed back when its name is free; anything else at a `.hm-purge-*`
-        /// name, or a database log left without its database, is reported as left.
-        pub(super) fn recover(&self, db_file: &str) -> super::Recovered {
-            let mut out = super::Recovered::default();
-            let db = OsStr::new(db_file);
-            for (which, root) in [(0, Some(&self.state)), (1, self.run.as_ref())] {
-                let Some(root) = root else {
-                    continue;
-                };
-                let Ok(mut names) = list(&root.fd) else {
-                    out.left.push(root.path.clone());
-                    continue;
-                };
-                names.sort();
-                for n in names {
-                    let Some(rest) = super::quarantine_rest(&n) else {
-                        continue;
-                    };
-                    let trees: &[&str] = if which == 0 { &STATE_TREES } else { &RUN_TREES };
-                    if which == 0 && rest == "database" {
-                        match open_unit(&root.fd, &n) {
-                            Ok((fd, id)) => {
-                                let (r, l) = rejoin(root, &fd, &n, id, db, &[]);
-                                out.restored.extend(r);
-                                out.left.extend(l);
-                            }
-                            Err(_) => out.left.push(root.path.join(&n)),
-                        }
-                    } else if trees.contains(&rest.as_str())
-                        && rename_no_replace(&root.fd, &n, OsStr::new(&rest)).is_ok()
-                    {
-                        out.restored.push(root.path.join(&rest));
-                    } else {
-                        out.left.push(root.path.join(&n));
-                    }
-                }
-            }
-            if matches!(kind(&self.state.fd, db), Ok(None)) {
-                for n in family(db).iter().skip(1) {
-                    if !matches!(kind(&self.state.fd, n), Ok(None)) {
-                        out.left.push(self.state.path.join(n));
-                    }
-                }
-            }
-            out
-        }
-    }
-
-    /// A unit directory found in `<state>`: this user's, owner-only, opened relative to
-    /// the anchored handle.
-    fn open_unit(state: &OwnedFd, name: &OsStr) -> std::io::Result<(OwnedFd, (u64, u64))> {
-        let dir = rustix::fs::openat(state, name, dir_flags(), Mode::empty())?;
-        let st = rustix::fs::fstat(&dir)?;
-        if FileType::from_raw_mode(st.st_mode) != FileType::Directory
-            || st.st_uid != euid()
-            || mode_bits(&st) & 0o077 != 0
+        if family(db_file)
+            .iter()
+            .any(|n| !matches!(kind(&state.fd, n), Ok(None)))
         {
-            return Err(refused(
-                "a quarantine directory is not this user's owner-only directory",
-            ));
+            return kept(Vec::new());
         }
-        Ok((dir, id(&st)))
+        #[cfg(test)]
+        super::tests::step_hook("restore");
+        if rename_between(dir, OsStr::new(COPY), &state.fd, db_file).is_err() {
+            return kept(Vec::new());
+        }
+        let _ = rustix::fs::fsync(&state.fd);
+        kept(vec![state.path.join(db_file)])
+    }
+
+    impl Unit {
+        fn restore(&self, a: &Anchors, db_file: &OsStr) -> (Vec<PathBuf>, Vec<PathBuf>) {
+            restore_copy(&a.state, &self.dir, &self.name, db_file, self.copy)
+        }
+
+        /// ⟨§17.36 item 1⟩ Delete the unit: the original family's companions first, then
+        /// the original database, then the recovery copy, then the record and the
+        /// directory. A failure before the copy is deleted restores the copy (or keeps
+        /// it), reported with its exact path; after it, what is left is reported.
+        fn delete(&self, a: &Anchors, db_file: &OsStr) -> Result<(), super::QuarantineError> {
+            let names = family(db_file);
+            let here = a.state.path.join(&self.name);
+            let fail = |cause: std::io::Error| {
+                let (restored, stuck) = self.restore(a, db_file);
+                super::QuarantineError {
+                    cause,
+                    stuck,
+                    restored,
+                }
+            };
+            // ⟨audit E1⟩ Before the first original is unlinked: the durable mark that the
+            // copy is confirmed (it was written from the validated read) and the
+            // originals' deletion has begun, so a recovery finishes deleting them and
+            // never compares the copy with an incomplete original.
+            if let Err(e) = write_marker(&self.dir) {
+                return Err(fail(e));
+            }
+            for n in names.iter().skip(1).chain(names.first()) {
+                if matches!(kind(&self.dir, n), Ok(None)) {
+                    continue;
+                }
+                #[cfg(test)]
+                super::tests::unlink_hook(n);
+                if super::unlink_fails(n) {
+                    return Err(fail(std::io::Error::other("injected unlink failure")));
+                }
+                if let Err(e) = rustix::fs::unlinkat(&self.dir, n, AtFlags::empty()) {
+                    return Err(fail(e.into()));
+                }
+            }
+            #[cfg(test)]
+            super::tests::step_hook("delete-copy");
+            let left = |cause: std::io::Error| super::QuarantineError {
+                cause,
+                stuck: left_now(&self.dir, &here),
+                restored: Vec::new(),
+            };
+            if super::unlink_fails(OsStr::new(COPY)) {
+                return Err(fail(std::io::Error::other("injected unlink failure")));
+            }
+            match rustix::fs::unlinkat(&self.dir, COPY, AtFlags::empty()) {
+                Ok(()) | Err(rustix::io::Errno::NOENT) => {}
+                Err(e) => return Err(fail(e.into())),
+            }
+            for n in [DELETING, RECORD] {
+                match rustix::fs::unlinkat(&self.dir, n, AtFlags::empty()) {
+                    Ok(()) | Err(rustix::io::Errno::NOENT) => {}
+                    Err(e) => return Err(left(e.into())),
+                }
+            }
+            remove_unit_dir(&a.state, &self.name, self.id).map_err(left)
+        }
+    }
+
+    /// ⟨audit E1⟩ The mark that the originals' deletion has begun ([`DELETING`]), written
+    /// and synced, the directory synced.
+    fn write_marker(dir: &OwnedFd) -> std::io::Result<()> {
+        let fd = rustix::fs::openat(
+            dir,
+            DELETING,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(0o600),
+        )?;
+        rustix::fs::fsync(&fd)?;
+        rustix::fs::fsync(dir)?;
+        Ok(())
     }
 
     impl Quarantine {
-        /// Rename everything back, then the refusal (with any entry left behind).
+        /// Rename everything back (the database as its recovery copy, if any), then the
+        /// refusal (with any entry left behind).
         fn refuse(self, a: &Anchors, cause: std::io::Error) -> super::QuarantineError {
-            let stuck = self.restore(a).err().unwrap_or_default();
+            let (restored, stuck) = self.restore(a);
             super::QuarantineError {
                 cause,
                 stuck,
-                restored: Vec::new(),
+                restored,
             }
         }
 
         /// ⟨§17.35 item 1⟩ Create the quarantine directory exclusively (`mkdirat`, then
-        /// opened relative to `<state>`: this user's, owner-only) and move the family into
-        /// it, each file keeping its name, never over anything.
+        /// opened relative to `<state>`: this user's, owner-only), write its record, and
+        /// move the family into it, each file keeping its name, never over anything.
         fn make_unit(
             &mut self,
             a: &Anchors,
@@ -1344,25 +1337,17 @@ mod imp {
                     e => e.into(),
                 },
             )?;
-            let dir = rustix::fs::openat(&a.state.fd, &name, dir_flags(), Mode::empty())?;
-            let st = rustix::fs::fstat(&dir)?;
-            if FileType::from_raw_mode(st.st_mode) != FileType::Directory
-                || st.st_uid != euid()
-                || mode_bits(&st) & 0o077 != 0
-            {
-                return Err(refused(
-                    "the quarantine directory is not an owner-only directory of this user",
-                ));
-            }
+            let (dir, id) = open_unit(&a.state.fd, &name)?;
             let unit = self.unit.insert(Unit {
                 dir,
-                id: id(&st),
+                id,
                 name,
                 members: Vec::new(),
                 held: Vec::new(),
+                copy: None,
             });
             // ⟨§17.35 item 7⟩ The record first, synced: a crash after any move below
-            // leaves the unit rejoinable.
+            // leaves the unit recoverable.
             write_record(&unit.dir, &a.state.fd, &family)?;
             for (n, m) in family {
                 #[cfg(test)]
@@ -1373,10 +1358,11 @@ mod imp {
             Ok(())
         }
 
-        /// ⟨audit C0⟩ Hold the quarantined database, `-wal` and `-shm` by descriptor in
-        /// the quarantine directory: a moved one opened there and required to be the
-        /// inspected inode; an absent one created empty there (`O_CREAT | O_EXCL`). A
-        /// `-journal` there must be the moved one.
+        /// ⟨audit C0; §17.36 item 1⟩ Hold the quarantined database, `-wal` and `-shm` by
+        /// descriptor in the quarantine directory: a moved one opened there and required
+        /// to be the inspected inode; an absent one created empty there (`O_CREAT |
+        /// O_EXCL`). A `-journal` there refuses (the store is WAL-mode: a hot rollback
+        /// journal is never legitimate).
         fn hold(&mut self) -> std::io::Result<()> {
             let db_file = self.db_file.clone();
             let Some(unit) = self.unit.as_mut() else {
@@ -1388,8 +1374,8 @@ mod imp {
             for (i, name) in family(&db_file).into_iter().enumerate() {
                 let moved = unit.members.iter().find(|(n, _)| *n == name);
                 if i == 3 {
-                    if moved.is_none() && kind(&unit.dir, &name)?.is_some() {
-                        return Err(refused("a file appeared in the quarantine directory"));
+                    if kind(&unit.dir, &name)?.is_some() {
+                        return Err(super::journal_refused());
                     }
                     continue;
                 }
@@ -1435,7 +1421,7 @@ mod imp {
                 let id = id(&rustix::fs::fstat(&fd)?);
                 unit.held.push(Held {
                     name,
-                    fd,
+                    _fd: fd,
                     id,
                     created,
                 });
@@ -1469,10 +1455,17 @@ mod imp {
                 }
                 for n in list(&u.dir)? {
                     let ours = n == RECORD
+                        || (n == COPY && u.copy.is_some())
                         || u.members.iter().any(|(k, _)| *k == n)
                         || u.held.iter().any(|h| h.created && h.name == n);
                     if !ours {
                         return Err(refused("an entry appeared in the quarantine directory"));
+                    }
+                }
+                if let Some(cid) = u.copy {
+                    match kind(&u.dir, OsStr::new(COPY))? {
+                        Some((FileType::RegularFile, d, i)) if (d, i) == cid => {}
+                        _ => return Err(refused("the recovery copy was replaced")),
                     }
                 }
             }
@@ -1500,33 +1493,89 @@ mod imp {
             Ok(())
         }
 
-        /// ⟨audit C0⟩ `open` the quarantined database by its name in the quarantine
-        /// directory (resolved from the held handle), `use` what it returned, and, before
-        /// that is dropped, take a census of this process's regular-file descriptors: each
-        /// held file (database, `-wal`, `-shm`) must be named by exactly one more
-        /// descriptor than before (the one SQLite opened: so SQLite used those very
-        /// inodes, and no file swapped in and back), and its name must still name it.
-        /// ⟨audit D3⟩ `then` runs on the same connection only after the census
-        /// confirmed it (the checkpoint: nothing unconfirmed is ever written).
-        pub(super) fn read_db<S, T, U>(
-            &self,
+        /// ⟨audit C0; ADR-0008 §17.36 item 1⟩ The final read, on a **read-only**
+        /// connection, and the recovery copy from it. Immediately before the open: no
+        /// `-journal` in the unit (a read-only connection never rolls one back, but a
+        /// journal is refused before anything opens). `open` the quarantined database by
+        /// its name in the quarantine directory (resolved from the held handle), `read`
+        /// it, and, before the store is dropped, take a census of this process's
+        /// regular-file descriptors (each held file named by exactly one more descriptor
+        /// than before, and its name still naming it). Only on a confirmed connection,
+        /// `copy` writes the recovery copy (`VACUUM INTO`) to [`COPY_PART`], created
+        /// exclusively first; it is then checked (the same inode, not empty), synced, and
+        /// renamed to [`COPY`] (no-replace), and the directory synced.
+        pub(super) fn read_db<S, T>(
+            &mut self,
             _a: &Anchors,
             open: impl FnOnce(&Path) -> S,
             read: impl FnOnce(&S) -> T,
-            then: impl FnOnce(&S) -> U,
-        ) -> std::io::Result<Option<(T, std::io::Result<U>)>> {
+            copy: impl FnOnce(&S, &Path) -> bool,
+        ) -> std::io::Result<Option<(T, std::io::Result<()>)>> {
+            let db_file = self.db_file.clone();
             let Some(u) = &self.unit else {
                 return Ok(None);
             };
             if u.held.is_empty() {
                 return Ok(None);
             }
+            if kind(&u.dir, &family(&db_file)[3])?.is_some() {
+                return Err(super::journal_refused());
+            }
+            let part = rustix::fs::openat(
+                &u.dir,
+                COPY_PART,
+                OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::from_raw_mode(0o600),
+            )
+            .map_err(|e| match e {
+                rustix::io::Errno::EXIST => refused("a file appeared in the quarantine directory"),
+                e => e.into(),
+            })?;
+            let part_id = id(&rustix::fs::fstat(&part)?);
             let before = heimdall_runtime::platform::regular_file_descriptors()?;
-            let path = current_path(&u.dir)?.join(&self.db_file);
-            let store = open(&path);
+            let here = current_path(&u.dir)?;
+            let store = open(&here.join(&db_file));
             let out = read(&store);
-            let confirmed = self.census(&before).map(|()| then(&store));
+            let mut confirmed = self.census(&before);
+            if confirmed.is_ok() {
+                // Where the quarantine directory is now (resolved from its handle again).
+                let written =
+                    current_path(&u.dir).is_ok_and(|now| copy(&store, &now.join(COPY_PART)));
+                if !written {
+                    confirmed = Err(refused("the recovery copy could not be written"));
+                }
+            }
             drop(store);
+            let confirmed = confirmed.and_then(|()| {
+                #[cfg(test)]
+                super::tests::step_hook("copy-written");
+                match kind(&u.dir, OsStr::new(COPY_PART))? {
+                    Some((FileType::RegularFile, d, i)) if (d, i) == part_id => {}
+                    _ => return Err(refused("the recovery copy was replaced")),
+                }
+                if rustix::fs::fstat(&part)?.st_size == 0 {
+                    return Err(refused("the recovery copy is empty"));
+                }
+                rustix::fs::fsync(&part)?;
+                rename_no_replace(&u.dir, OsStr::new(COPY_PART), OsStr::new(COPY))?;
+                rustix::fs::fsync(&u.dir)?;
+                Ok(())
+            });
+            match &confirmed {
+                Ok(()) => {
+                    if let Some(u) = self.unit.as_mut() {
+                        u.copy = Some(part_id);
+                    }
+                }
+                Err(_) => {
+                    if let Ok(Some((FileType::RegularFile, d, i))) =
+                        kind(&u.dir, OsStr::new(COPY_PART))
+                        && (d, i) == part_id
+                    {
+                        let _ = rustix::fs::unlinkat(&u.dir, COPY_PART, AtFlags::empty());
+                    }
+                }
+            }
             Ok(Some((out, confirmed)))
         }
 
@@ -1543,39 +1592,18 @@ mod imp {
             self.held_in_place()
         }
 
-        /// ⟨§17.35 item 2⟩ The quarantined `-wal` is empty (zero bytes) or absent, and so
-        /// is the held log file.
-        pub(super) fn wal_empty(&self) -> std::io::Result<()> {
-            let Some(u) = &self.unit else {
-                return Ok(());
-            };
-            let mut wal = self.db_file.clone();
-            wal.push("-wal");
-            match rustix::fs::statat(&u.dir, &wal, AtFlags::SYMLINK_NOFOLLOW) {
-                Err(rustix::io::Errno::NOENT) => {}
-                Ok(st)
-                    if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
-                        && st.st_size == 0 => {}
-                Ok(_) => return Err(refused("the write-ahead log is not empty")),
-                Err(e) => return Err(e.into()),
-            }
-            for h in u.held.iter().filter(|h| h.name == wal) {
-                if rustix::fs::fstat(&h.fd)?.st_size != 0 {
-                    return Err(refused("the write-ahead log is not empty"));
-                }
-            }
-            Ok(())
-        }
-
-        /// ⟨audit C1; §17.35 item 2⟩ Delete: refused, nothing deleted, unless the
-        /// quarantined `-wal` is empty; then the trees, then the database unit (its
-        /// companions, the database, its directory). When a tree's deletion fails, every
-        /// tree not yet started (and a failed single file) is renamed back and the unit is
-        /// restored under its rule; every path renamed back and every path left in
-        /// quarantine is reported.
+        /// ⟨audit C1; §17.36 item 1⟩ Delete: refused, nothing deleted, unless the unit
+        /// holds its complete recovery copy (when it holds a database); then the trees,
+        /// then the unit (its companions, the original database, the copy, the
+        /// directory). When a tree's deletion fails, every tree not yet started (and a
+        /// failed single file) is renamed back and the recovery copy restored; every path
+        /// renamed back and every path left in quarantine is reported.
         pub(super) fn delete(self, a: &Anchors) -> Result<(), super::QuarantineError> {
-            if let Err(cause) = self.wal_empty() {
-                return Err(self.refuse(a, cause));
+            if let Some(u) = &self.unit
+                && u.copy.is_none()
+                && u.members.iter().any(|(n, _)| *n == self.db_file)
+            {
+                return Err(self.refuse(a, refused("the recovery copy was not written")));
             }
             for (i, m) in self.moved.iter().enumerate() {
                 let Some(root) = a.root(m.which) else {
@@ -1618,8 +1646,11 @@ mod imp {
             }
         }
 
-        pub(super) fn restore(self, a: &Anchors) -> Result<(), Vec<PathBuf>> {
-            let mut stuck = Vec::new();
+        /// Rename every tree back; restore the database as its recovery copy alone
+        /// (§17.36 item 1), the original family kept in its quarantine directory. (Paths
+        /// renamed back; paths left: the unit directory and what is in it.)
+        pub(super) fn restore(self, a: &Anchors) -> (Vec<PathBuf>, Vec<PathBuf>) {
+            let (mut restored, mut left) = (Vec::new(), Vec::new());
             for m in self.moved.iter().rev() {
                 let Some(root) = a.root(m.which) else {
                     continue;
@@ -1628,14 +1659,295 @@ mod imp {
                 // reported.
                 if super::restore_fails() || rename_no_replace(&root.fd, &m.qname, &m.name).is_err()
                 {
-                    stuck.push(root.path.join(&m.qname));
+                    left.push(root.path.join(&m.qname));
+                } else {
+                    restored.push(root.path.join(&m.name));
                 }
             }
             if let Some(u) = &self.unit {
-                stuck.extend(u.restore(a, &self.db_file).1);
+                let (r, l) = u.restore(a, &self.db_file);
+                restored.extend(r);
+                left.extend(l);
             }
-            if stuck.is_empty() { Ok(()) } else { Err(stuck) }
+            (restored, left)
         }
+    }
+
+    impl Anchors {
+        /// ⟨ADR-0008 §17.35 item 7, §17.36 item 1⟩ An interrupted uninstall's quarantine,
+        /// under the lock. For each database family unit in `<state>`: an incomplete copy
+        /// is removed; a family file a crash left at its name (still the recorded inode)
+        /// is moved into the unit; then the database is restored as the unit's recovery
+        /// copy alone (written first by `make_copy` on a read-only, census-confirmed
+        /// connection when there is none), and once `confirm` finds the restored database
+        /// equal to the original family, the original family is deleted. Each quarantined
+        /// tree is renamed back when its name is free. Anything else is reported as left.
+        pub(super) fn recover(
+            &self,
+            db_file: &str,
+            ops: &super::RecoverOps<'_>,
+        ) -> super::Recovered {
+            let mut out = super::Recovered::default();
+            let db = OsStr::new(db_file);
+            for (which, root) in [(0, Some(&self.state)), (1, self.run.as_ref())] {
+                let Some(root) = root else {
+                    continue;
+                };
+                let Ok(mut names) = list(&root.fd) else {
+                    out.left.push(root.path.clone());
+                    continue;
+                };
+                names.sort();
+                for n in names {
+                    let Some(rest) = super::quarantine_rest(&n) else {
+                        continue;
+                    };
+                    let trees: &[&str] = if which == 0 { &STATE_TREES } else { &RUN_TREES };
+                    if which == 0 && rest == "database" {
+                        match open_unit(&root.fd, &n) {
+                            Ok((fd, id)) => {
+                                let (r, l) = self.recover_unit(fd, id, &n, db, ops);
+                                out.restored.extend(r);
+                                out.left.extend(l);
+                            }
+                            Err(_) => out.left.push(root.path.join(&n)),
+                        }
+                    } else if trees.contains(&rest.as_str())
+                        && rename_no_replace(&root.fd, &n, OsStr::new(&rest)).is_ok()
+                    {
+                        out.restored.push(root.path.join(&rest));
+                    } else {
+                        out.left.push(root.path.join(&n));
+                    }
+                }
+            }
+            if matches!(kind(&self.state.fd, db), Ok(None)) {
+                for n in family(db).iter().skip(1) {
+                    if !matches!(kind(&self.state.fd, n), Ok(None)) {
+                        out.left.push(self.state.path.join(n));
+                    }
+                }
+            }
+            out
+        }
+
+        fn recover_unit(
+            &self,
+            dir: OwnedFd,
+            id: (u64, u64),
+            name: &OsStr,
+            db: &OsStr,
+            ops: &super::RecoverOps<'_>,
+        ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+            let state = &self.state;
+            let here = state.path.join(name);
+            let all_left = |dir: &OwnedFd| (Vec::new(), left_now(dir, &here));
+            let names = family(db);
+            // An incomplete copy is never used.
+            // ⟨audit E2⟩ An incomplete copy is never used: it and the companions SQLite
+            // makes while writing it (exact names in the purge's own unit) are removed.
+            for part in super::UNIT_COPY_PART_FILES {
+                let _ = rustix::fs::unlinkat(&dir, part, AtFlags::empty());
+            }
+            let Ok(entries) = list(&dir) else {
+                return all_left(&dir);
+            };
+            if entries
+                .iter()
+                .any(|e| e != RECORD && e != COPY && e != DELETING && !names.contains(e))
+            {
+                return all_left(&dir);
+            }
+            let record = if entries.iter().any(|e| e == RECORD) {
+                match read_record(&dir) {
+                    Ok(r) => r,
+                    Err(_) => return all_left(&dir),
+                }
+            } else if entries.is_empty() {
+                Vec::new()
+            } else {
+                return all_left(&dir);
+            };
+            let recorded = |n: &OsStr| record.iter().find(|(k, _)| k == n).map(|e| e.1);
+            // A journal is never used (§17.36 item 1): the unit stays, reported.
+            if !matches!(kind(&dir, &names[3]), Ok(None)) {
+                return all_left(&dir);
+            }
+            // ⟨audit E1⟩ The originals' deletion had begun (the copy was confirmed):
+            // finish it, never comparing the copy with what is left of them; then the
+            // copy is restored when no database is live.
+            if entries.iter().any(|e| e == DELETING) {
+                for n in names.iter().skip(1).chain(names.first()) {
+                    if !matches!(kind(&dir, n), Ok(None))
+                        && rustix::fs::unlinkat(&dir, n, AtFlags::empty()).is_err()
+                    {
+                        return all_left(&dir);
+                    }
+                }
+                let mut restored = Vec::new();
+                let live = !matches!(kind(&state.fd, db), Ok(None));
+                let copy = match kind(&dir, OsStr::new(COPY)) {
+                    Ok(Some((FileType::RegularFile, d, i))) => Some((d, i)),
+                    _ => None,
+                };
+                if copy.is_some() {
+                    if live {
+                        return all_left(&dir);
+                    }
+                    let (r, _) = restore_copy(state, &dir, name, db, copy);
+                    if r.is_empty() {
+                        return all_left(&dir);
+                    }
+                    restored = r;
+                }
+                for n in [DELETING, RECORD] {
+                    let _ = rustix::fs::unlinkat(&dir, n, AtFlags::empty());
+                }
+                let left = if remove_unit_dir(state, name, id).is_ok() {
+                    Vec::new()
+                } else {
+                    left_now(&dir, &here)
+                };
+                return (restored, left);
+            }
+            // The members a crash left at their names (still the recorded inode) join the
+            // unit first, so the copy is made from the whole family.
+            for n in &names {
+                if let (Ok(None), Ok(Some((_, d, i)))) = (kind(&dir, n), kind(&state.fd, n))
+                    && recorded(n) == Some((d, i))
+                    && rename_between(&state.fd, n, &dir, n).is_err()
+                {
+                    return all_left(&dir);
+                }
+            }
+            // The purge's own files (an index, an empty log, never recorded) are removed:
+            // the copy is made from the recorded family alone.
+            for n in names.iter().skip(1) {
+                if recorded(n).is_none()
+                    && let Ok(st) = rustix::fs::statat(&dir, n, AtFlags::SYMLINK_NOFOLLOW)
+                    && (n.as_bytes().ends_with(b"-shm") || st.st_size == 0)
+                {
+                    let _ = rustix::fs::unlinkat(&dir, n, AtFlags::empty());
+                }
+            }
+            let has = |n: &str| !matches!(kind(&dir, OsStr::new(n)), Ok(None));
+            let db_in_unit = has(&db.to_string_lossy());
+            let live = !matches!(kind(&state.fd, db), Ok(None));
+            let mut restored = Vec::new();
+            if !live {
+                if !has(COPY) {
+                    if !db_in_unit {
+                        // Nothing to restore: the purge had deleted the database.
+                        let _ = rustix::fs::unlinkat(&dir, RECORD, AtFlags::empty());
+                        let left = if remove_unit_dir(state, name, id).is_ok() {
+                            Vec::new()
+                        } else {
+                            left_now(&dir, &here)
+                        };
+                        return (Vec::new(), left);
+                    }
+                    if self.copy_in_unit(&dir, id, name, db, &record, ops).is_err() {
+                        return all_left(&dir);
+                    }
+                }
+                let copy = match kind(&dir, OsStr::new(COPY)) {
+                    Ok(Some((FileType::RegularFile, d, i))) => Some((d, i)),
+                    _ => None,
+                };
+                let (r, _) = restore_copy(state, &dir, name, db, copy);
+                if r.is_empty() {
+                    return all_left(&dir);
+                }
+                restored = r;
+            } else if has(COPY) {
+                return all_left(&dir);
+            }
+            // The restored database confirmed against the original family, then the
+            // original family deleted.
+            let live_path = state.path.join(db);
+            if db_in_unit {
+                let original = here.join(db);
+                if !(ops.confirm)(&live_path, &original) {
+                    return (restored, left_now(&dir, &here));
+                }
+                for n in names.iter().skip(1).chain(names.first()) {
+                    if !matches!(kind(&dir, n), Ok(None))
+                        && rustix::fs::unlinkat(&dir, n, AtFlags::empty()).is_err()
+                    {
+                        return (restored, left_now(&dir, &here));
+                    }
+                }
+            }
+            let _ = rustix::fs::unlinkat(&dir, RECORD, AtFlags::empty());
+            let left = if remove_unit_dir(state, name, id).is_ok() {
+                Vec::new()
+            } else {
+                left_now(&dir, &here)
+            };
+            (restored, left)
+        }
+
+        /// Write the unit's recovery copy from its original family, through the purge's
+        /// own machinery: the family held (each member the recorded inode), a read-only
+        /// connection confirmed by the census, `VACUUM INTO`.
+        fn copy_in_unit(
+            &self,
+            dir: &OwnedFd,
+            id: (u64, u64),
+            name: &OsStr,
+            db: &OsStr,
+            record: &[(OsString, (u64, u64))],
+            ops: &super::RecoverOps<'_>,
+        ) -> std::io::Result<()> {
+            let unit_dir = rustix::io::dup(dir)?;
+            let members = record
+                .iter()
+                .filter(|(n, rid)| {
+                    matches!(kind(dir, n), Ok(Some((FileType::RegularFile, d, i))) if (d, i) == *rid)
+                })
+                .map(|(n, rid)| (n.clone(), vec![(PathBuf::new(), 2u8, *rid)]))
+                .collect();
+            let mut q = Quarantine {
+                moved: Vec::new(),
+                absent: Vec::new(),
+                unit: Some(Unit {
+                    dir: unit_dir,
+                    id,
+                    name: name.to_owned(),
+                    members,
+                    held: Vec::new(),
+                    copy: None,
+                }),
+                db_file: db.to_owned(),
+                tag: String::new(),
+            };
+            q.hold()?;
+            match q.read_db(
+                self,
+                |p| (ops.open)(p),
+                |_| (),
+                |s: &Box<dyn std::any::Any>, p| (ops.copy)(s.as_ref(), p),
+            )? {
+                Some(((), confirmed)) => confirmed,
+                None => Err(refused("no database to copy")),
+            }
+        }
+    }
+
+    /// A unit directory found in `<state>`: this user's, owner-only, opened relative to
+    /// the anchored handle.
+    fn open_unit(state: &OwnedFd, name: &OsStr) -> std::io::Result<(OwnedFd, (u64, u64))> {
+        let dir = rustix::fs::openat(state, name, dir_flags(), Mode::empty())?;
+        let st = rustix::fs::fstat(&dir)?;
+        if FileType::from_raw_mode(st.st_mode) != FileType::Directory
+            || st.st_uid != euid()
+            || mode_bits(&st) & 0o077 != 0
+        {
+            return Err(refused(
+                "a quarantine directory is not this user's owner-only directory",
+            ));
+        }
+        Ok((dir, id(&st)))
     }
 
     /// Where the anchored directory `dir` is now (wherever it was moved since it was
@@ -1866,6 +2178,10 @@ mod imp {
                     None => absent.push((which, name)),
                 }
             }
+            // ⟨§17.36 item 1⟩ A rollback journal: refused and kept, before anything moves.
+            if family.iter().any(|(n, _)| n.ends_with("-journal")) {
+                return Err(err(super::journal_refused()));
+            }
             between();
             let mut q = Quarantine {
                 moved: Vec::new(),
@@ -1966,17 +2282,17 @@ mod imp {
         created: bool,
     }
 
-    /// ⟨ADR-0008 §17.35 item 1⟩ The database family as one recovery unit, in one fresh
-    /// owner-only quarantine directory created exclusively in `<state>` and pinned.
+    /// ⟨ADR-0008 §17.35 item 1, §17.36 item 1⟩ The database family as one unit, in one
+    /// fresh owner-only quarantine directory created exclusively in `<state>` and pinned;
+    /// with its recovery copy once the final read is confirmed.
     struct Unit {
         path: PathBuf,
         pin: Option<std::fs::File>,
         id: (u64, u64),
         members: Vec<(String, Manifest)>,
         held: Vec<Held>,
-        /// ⟨audit D5⟩ The files the purge created (name, file ID), kept after their pins
-        /// are released.
-        created: Vec<(String, (u64, u64))>,
+        /// The complete recovery copy's file ID.
+        copy: Option<(u64, u64)>,
     }
 
     pub(super) struct Quarantine {
@@ -2001,66 +2317,6 @@ mod imp {
         match pin(path)? {
             None => Ok(None),
             Some((f, _)) => Ok(Some(heimdall_ipc::windows::file_id(&f)?)),
-        }
-    }
-
-    impl Unit {
-        /// ⟨§17.35 items 1, 7⟩ [`rejoin`] this unit. ⟨audit D5⟩ The identities of the
-        /// files the purge created are kept until the deletion ends, so none is ever
-        /// restored or listed as renamed back; the pins are released first (a pinned file
-        /// cannot be moved).
-        fn restore(&mut self, a: &Anchors, db_file: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
-            self.unpin_files();
-            drop(self.pin.take());
-            rejoin(&a.state, &self.path, self.id, db_file, &self.created)
-        }
-
-        /// Release the pins on the held files, keeping what the purge created.
-        fn unpin_files(&mut self) {
-            for h in std::mem::take(&mut self.held) {
-                if h.created {
-                    self.created.push((h.name, h.id));
-                }
-            }
-        }
-
-        /// ⟨§17.35 item 2⟩ Companions first, then the database, then its record and the
-        /// directory; on a failure the complete database stays, restored under
-        /// [`rejoin`]'s rule or kept and reported.
-        fn delete(&mut self, a: &Anchors, db_file: &str) -> Result<(), super::QuarantineError> {
-            let names = family(db_file);
-            self.unpin_files();
-            for n in names.iter().skip(1).chain(names.first()) {
-                let p = self.path.join(n);
-                if std::fs::symlink_metadata(&p).is_err() {
-                    continue;
-                }
-                let removed = if super::unlink_fails(std::ffi::OsStr::new(n)) {
-                    Err(std::io::Error::other("injected unlink failure"))
-                } else {
-                    std::fs::remove_file(&p)
-                };
-                if let Err(cause) = removed {
-                    let (restored, stuck) = self.restore(a, db_file);
-                    return Err(super::QuarantineError {
-                        cause,
-                        stuck,
-                        restored,
-                    });
-                }
-            }
-            drop(self.pin.take());
-            let record = self.path.join(super::UNIT_RECORD);
-            let gone = match std::fs::remove_file(&record) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-                _ => Ok(()),
-            }
-            .and_then(|()| remove_unit_dir(&self.path, self.id));
-            gone.map_err(|cause| super::QuarantineError {
-                cause,
-                stuck: vec![self.path.clone()],
-                restored: Vec::new(),
-            })
         }
     }
 
@@ -2116,113 +2372,160 @@ mod imp {
         }
     }
 
-    /// ⟨ADR-0008 §17.35 items 1 and 7⟩ As on Unix: rejoin the unit at `here` by its
-    /// record, or leave it whole. (Paths renamed back, paths left.)
-    fn rejoin(
+    /// The names in `dir`, sorted.
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut ns: Vec<String> = std::fs::read_dir(dir)
+            .map(|es| {
+                es.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        ns.sort();
+        ns
+    }
+
+    /// The unit directory and each entry in it, as they are now.
+    fn left_now(here: &Path) -> Vec<PathBuf> {
+        let mut left = vec![here.to_path_buf()];
+        left.extend(names_in(here).iter().map(|n| here.join(n)));
+        left
+    }
+
+    /// ⟨ADR-0008 §17.36 item 1⟩ As on Unix: the recovery copy alone becomes
+    /// `<state>/<db_file>` by one no-replace move, when none of the family's names is
+    /// occupied; the original family stays.
+    fn restore_copy(
         state: &Path,
         here: &Path,
-        id: (u64, u64),
         db_file: &str,
-        created: &[(String, (u64, u64))],
+        copy: Option<(u64, u64)>,
     ) -> (Vec<PathBuf>, Vec<PathBuf>) {
-        let entries = || -> Vec<String> {
-            let mut ns: Vec<String> = std::fs::read_dir(here)
-                .map(|es| {
-                    es.flatten()
-                        .map(|e| e.file_name().to_string_lossy().into_owned())
-                        .collect()
-                })
-                .unwrap_or_default();
-            ns.sort();
-            ns
-        };
-        let all_left = || {
-            let mut left = vec![here.to_path_buf()];
-            left.extend(entries().iter().map(|n| here.join(n)));
-            (Vec::new(), left)
-        };
+        let kept = |restored: Vec<PathBuf>| (restored, left_now(here));
         if super::restore_fails() {
-            return all_left();
+            return kept(Vec::new());
         }
-        let names = family(db_file);
-        let found = entries();
-        if found
+        let Some(cid) = copy else {
+            return kept(Vec::new());
+        };
+        let at = here.join(super::UNIT_COPY);
+        if !matches!(id_at(&at), Ok(Some(now)) if now == cid) {
+            return kept(Vec::new());
+        }
+        if family(db_file)
             .iter()
-            .any(|e| e != super::UNIT_RECORD && !names.contains(e))
+            .any(|n| std::fs::symlink_metadata(state.join(n)).is_ok())
         {
-            return all_left();
+            return kept(Vec::new());
         }
-        let record = if found.iter().any(|e| e == super::UNIT_RECORD) {
-            match read_record(here) {
-                Ok(r) => r,
-                Err(_) => return all_left(),
-            }
-        } else if found.is_empty() {
-            Vec::new()
-        } else {
-            return all_left();
-        };
-        let recorded = |n: &str| record.iter().find(|(k, _)| k == n).map(|e| e.1);
-        let mut present: Vec<String> = Vec::new();
-        for n in &names {
-            let p = here.join(n);
-            let Ok(now) = id_at(&p) else {
-                return all_left();
-            };
-            let Some(now) = now else {
-                continue;
-            };
-            match recorded(n) {
-                Some(r) if r == now => present.push(n.clone()),
-                Some(_) => return all_left(),
-                None => {
-                    let empty =
-                        std::fs::symlink_metadata(&p).is_ok_and(|m| m.is_file() && m.len() == 0);
-                    let ours = created.iter().any(|(c, cid)| c == n && *cid == now)
-                        || n.ends_with("-shm")
-                        || empty;
-                    if !(ours && std::fs::remove_file(&p).is_ok()) {
-                        return all_left();
+        if heimdall_ipc::windows::move_no_replace(&at, &state.join(db_file)).is_err() {
+            return kept(Vec::new());
+        }
+        kept(vec![state.join(db_file)])
+    }
+
+    impl Unit {
+        /// ⟨audit D5⟩ Release the pins; the files the purge created are removed (never
+        /// restored, never listed as renamed back).
+        fn unpin(&mut self) {
+            for h in std::mem::take(&mut self.held) {
+                let Held {
+                    name,
+                    file,
+                    id,
+                    created,
+                } = h;
+                drop(file);
+                if created {
+                    let p = self.path.join(&name);
+                    if matches!(id_at(&p), Ok(Some(now)) if now == id) {
+                        let _ = std::fs::remove_file(&p);
                     }
                 }
             }
+            drop(self.pin.take());
         }
-        for n in &names {
-            match id_at(&state.join(n)) {
-                Ok(None) => {}
-                Ok(Some(now)) if !present.contains(n) && recorded(n) == Some(now) => {}
-                _ => return all_left(),
+
+        fn restore(&mut self, a: &Anchors, db_file: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
+            self.unpin();
+            restore_copy(&a.state, &self.path, db_file, self.copy)
+        }
+
+        /// ⟨§17.36 item 1⟩ The original family's companions, then the original database,
+        /// then the recovery copy, then the record and the directory; a failure before the
+        /// copy is deleted restores the copy (or keeps it), reported.
+        fn delete(&mut self, a: &Anchors, db_file: &str) -> Result<(), super::QuarantineError> {
+            let names = family(db_file);
+            for h in std::mem::take(&mut self.held) {
+                drop(h.file);
             }
-        }
-        let mut back: Vec<&String> = Vec::new();
-        for n in &present {
-            if heimdall_ipc::windows::move_no_replace(&here.join(n), &state.join(n)).is_err() {
-                let mut restored = Vec::new();
-                for b in back.iter().rev() {
-                    if heimdall_ipc::windows::move_no_replace(&state.join(b), &here.join(b))
-                        .is_err()
-                    {
-                        restored.push(state.join(b));
-                    }
+            // ⟨audit E1⟩ The durable mark before the first original is deleted.
+            let marked = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(self.path.join(super::UNIT_DELETING))
+                .and_then(|f| f.sync_all());
+            if let Err(cause) = marked {
+                let (restored, stuck) = self.restore(a, db_file);
+                return Err(super::QuarantineError {
+                    cause,
+                    stuck,
+                    restored,
+                });
+            }
+            for n in names.iter().skip(1).chain(names.first()) {
+                let p = self.path.join(n);
+                if std::fs::symlink_metadata(&p).is_err() {
+                    continue;
                 }
-                let (_, left) = all_left();
-                return (restored, left);
+                let removed = if super::unlink_fails(std::ffi::OsStr::new(n)) {
+                    Err(std::io::Error::other("injected unlink failure"))
+                } else {
+                    std::fs::remove_file(&p)
+                };
+                if let Err(cause) = removed {
+                    let (restored, stuck) = self.restore(a, db_file);
+                    return Err(super::QuarantineError {
+                        cause,
+                        stuck,
+                        restored,
+                    });
+                }
             }
-            back.push(n);
+            drop(self.pin.take());
+            match std::fs::remove_file(self.path.join(super::UNIT_COPY)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    let (restored, stuck) = self.restore(a, db_file);
+                    return Err(super::QuarantineError {
+                        cause: e,
+                        stuck,
+                        restored,
+                    });
+                }
+                _ => {}
+            }
+            let remove = |n: &str| match std::fs::remove_file(self.path.join(n)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            };
+            let gone = remove(super::UNIT_DELETING)
+                .and_then(|()| remove(super::UNIT_RECORD))
+                .and_then(|()| remove_unit_dir(&self.path, self.id));
+            gone.map_err(|cause| super::QuarantineError {
+                cause,
+                stuck: left_now(&self.path),
+                restored: Vec::new(),
+            })
         }
-        let restored = present.iter().map(|n| state.join(n)).collect();
-        let _ = std::fs::remove_file(here.join(super::UNIT_RECORD));
-        let left = if remove_unit_dir(here, id).is_ok() {
-            Vec::new()
-        } else {
-            vec![here.to_path_buf()]
-        };
-        (restored, left)
     }
 
     impl Anchors {
-        /// ⟨§17.35 item 7⟩ As on Unix.
-        pub(super) fn recover(&self, db_file: &str) -> super::Recovered {
+        /// ⟨§17.35 item 7, §17.36 item 1⟩ As on Unix.
+        pub(super) fn recover(
+            &self,
+            db_file: &str,
+            ops: &super::RecoverOps<'_>,
+        ) -> super::Recovered {
             let mut out = super::Recovered::default();
             let me = heimdall_ipc::windows::current_user_sid().ok();
             for (which, root) in [(0, Some(&self.state)), (1, self.run.as_ref())] {
@@ -2254,7 +2557,7 @@ mod imp {
                         });
                         match ours {
                             Some(id) => {
-                                let (r, l) = rejoin(root, &at, id, db_file, &[]);
+                                let (r, l) = self.recover_unit(&at, id, db_file, ops);
                                 out.restored.extend(r);
                                 out.left.extend(l);
                             }
@@ -2279,21 +2582,199 @@ mod imp {
             }
             out
         }
+
+        fn recover_unit(
+            &self,
+            here: &Path,
+            id: (u64, u64),
+            db_file: &str,
+            ops: &super::RecoverOps<'_>,
+        ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+            let state = &self.state;
+            let all_left = || (Vec::new(), left_now(here));
+            let names = family(db_file);
+            for part in super::UNIT_COPY_PART_FILES {
+                let _ = std::fs::remove_file(here.join(part));
+            }
+            let entries = names_in(here);
+            if entries.iter().any(|e| {
+                e != super::UNIT_RECORD
+                    && e != super::UNIT_COPY
+                    && e != super::UNIT_DELETING
+                    && !names.contains(e)
+            }) {
+                return all_left();
+            }
+            let record = if entries.iter().any(|e| e == super::UNIT_RECORD) {
+                match read_record(here) {
+                    Ok(r) => r,
+                    Err(_) => return all_left(),
+                }
+            } else if entries.is_empty() {
+                Vec::new()
+            } else {
+                return all_left();
+            };
+            let recorded = |n: &str| record.iter().find(|(k, _)| k == n).map(|e| e.1);
+            if std::fs::symlink_metadata(here.join(&names[3])).is_ok() {
+                return all_left();
+            }
+            // ⟨audit E1⟩ As on Unix: finish deleting the originals, then restore the copy.
+            if entries.iter().any(|e| e == super::UNIT_DELETING) {
+                for n in names.iter().skip(1).chain(names.first()) {
+                    let p = here.join(n);
+                    if std::fs::symlink_metadata(&p).is_ok() && std::fs::remove_file(&p).is_err() {
+                        return all_left();
+                    }
+                }
+                let mut restored = Vec::new();
+                let live = std::fs::symlink_metadata(state.join(db_file)).is_ok();
+                let copy = id_at(&here.join(super::UNIT_COPY)).ok().flatten();
+                if copy.is_some() {
+                    if live {
+                        return all_left();
+                    }
+                    let (r, _) = restore_copy(state, here, db_file, copy);
+                    if r.is_empty() {
+                        return all_left();
+                    }
+                    restored = r;
+                }
+                for n in [super::UNIT_DELETING, super::UNIT_RECORD] {
+                    let _ = std::fs::remove_file(here.join(n));
+                }
+                let left = if remove_unit_dir(here, id).is_ok() {
+                    Vec::new()
+                } else {
+                    left_now(here)
+                };
+                return (restored, left);
+            }
+            for n in &names {
+                if std::fs::symlink_metadata(here.join(n)).is_err()
+                    && let Ok(Some(now)) = id_at(&state.join(n))
+                    && recorded(n) == Some(now)
+                    && heimdall_ipc::windows::move_no_replace(&state.join(n), &here.join(n))
+                        .is_err()
+                {
+                    return all_left();
+                }
+            }
+            // The purge's own files (an index, an empty log, never recorded) are removed.
+            for n in names.iter().skip(1) {
+                let p = here.join(n);
+                if recorded(n).is_none()
+                    && let Ok(m) = std::fs::symlink_metadata(&p)
+                    && (n.ends_with("-shm") || m.len() == 0)
+                {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+            let has = |n: &str| std::fs::symlink_metadata(here.join(n)).is_ok();
+            let db_in_unit = has(db_file);
+            let live = std::fs::symlink_metadata(state.join(db_file)).is_ok();
+            let mut restored = Vec::new();
+            if !live {
+                if !has(super::UNIT_COPY) {
+                    if !db_in_unit {
+                        let _ = std::fs::remove_file(here.join(super::UNIT_RECORD));
+                        let left = if remove_unit_dir(here, id).is_ok() {
+                            Vec::new()
+                        } else {
+                            left_now(here)
+                        };
+                        return (Vec::new(), left);
+                    }
+                    if self.copy_in_unit(here, id, db_file, &record, ops).is_err() {
+                        return all_left();
+                    }
+                }
+                let copy = id_at(&here.join(super::UNIT_COPY)).ok().flatten();
+                let (r, _) = restore_copy(state, here, db_file, copy);
+                if r.is_empty() {
+                    return all_left();
+                }
+                restored = r;
+            } else if has(super::UNIT_COPY) {
+                return all_left();
+            }
+            if db_in_unit {
+                if !(ops.confirm)(&state.join(db_file), &here.join(db_file)) {
+                    return (restored, left_now(here));
+                }
+                for n in names.iter().skip(1).chain(names.first()) {
+                    let p = here.join(n);
+                    if std::fs::symlink_metadata(&p).is_ok() && std::fs::remove_file(&p).is_err() {
+                        return (restored, left_now(here));
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(here.join(super::UNIT_RECORD));
+            let left = if remove_unit_dir(here, id).is_ok() {
+                Vec::new()
+            } else {
+                left_now(here)
+            };
+            (restored, left)
+        }
+
+        fn copy_in_unit(
+            &self,
+            here: &Path,
+            id: (u64, u64),
+            db_file: &str,
+            record: &[(String, (u64, u64))],
+            ops: &super::RecoverOps<'_>,
+        ) -> std::io::Result<()> {
+            let members = record
+                .iter()
+                .filter(|(n, rid)| matches!(id_at(&here.join(n)), Ok(Some(now)) if now == *rid))
+                .map(|(n, rid)| (n.clone(), vec![(PathBuf::new(), *rid)]))
+                .collect();
+            let mut q = Quarantine {
+                moved: Vec::new(),
+                absent: Vec::new(),
+                unit: Some(Unit {
+                    path: here.to_path_buf(),
+                    pin: None,
+                    id,
+                    members,
+                    held: Vec::new(),
+                    copy: None,
+                }),
+                db_file: db_file.to_owned(),
+                tag: String::new(),
+            };
+            q.hold()?;
+            let result = match q.read_db(
+                self,
+                |p| (ops.open)(p),
+                |_| (),
+                |s: &Box<dyn std::any::Any>, p| (ops.copy)(s.as_ref(), p),
+            )? {
+                Some(((), confirmed)) => confirmed,
+                None => Err(refused("no database to copy")),
+            };
+            if let Some(u) = q.unit.as_mut() {
+                u.unpin();
+            }
+            result
+        }
     }
 
     impl Quarantine {
         fn refuse(self, a: &Anchors, cause: std::io::Error) -> super::QuarantineError {
-            let stuck = self.restore(a).err().unwrap_or_default();
+            let (restored, stuck) = self.restore(a);
             super::QuarantineError {
                 cause,
                 stuck,
-                restored: Vec::new(),
+                restored,
             }
         }
 
         /// ⟨§17.35 item 1⟩ Create the quarantine directory exclusively, owner-only
-        /// (`CreateDirectoryW` with this user's protected DACL), pin it, and move the
-        /// family into it, each file keeping its name, never over anything.
+        /// (`CreateDirectoryW` with this user's protected DACL), pin it, write its record,
+        /// and move the family into it, each file keeping its name, never over anything.
         fn make_unit(
             &mut self,
             a: &Anchors,
@@ -2323,9 +2804,8 @@ mod imp {
                 pin: Some(dir),
                 members: Vec::new(),
                 held: Vec::new(),
-                created: Vec::new(),
+                copy: None,
             });
-            // ⟨§17.35 item 7⟩ The record first, flushed.
             write_record(&unit.path, &family)?;
             for (n, m) in family {
                 heimdall_ipc::windows::move_no_replace(&a.state.join(&n), &unit.path.join(&n))?;
@@ -2334,10 +2814,10 @@ mod imp {
             Ok(())
         }
 
-        /// ⟨audit C0⟩ Pin the quarantined database, `-wal` and `-shm` in the quarantine
-        /// directory for the whole read (a moved one checked against its inspected file ID;
-        /// an absent one created empty with `create_new`); a `-journal` there must be the
-        /// moved one.
+        /// ⟨audit C0; §17.36 item 1⟩ Pin the quarantined database, `-wal` and `-shm` in the
+        /// quarantine directory for the whole read (a moved one checked against its
+        /// inspected file ID; an absent one created empty with `create_new`); a
+        /// `-journal` there refuses.
         fn hold(&mut self) -> std::io::Result<()> {
             let db_file = self.db_file.clone();
             let Some(unit) = self.unit.as_mut() else {
@@ -2350,8 +2830,8 @@ mod imp {
                 let path = unit.path.join(&name);
                 let moved = unit.members.iter().find(|(n, _)| *n == name);
                 if i == 3 {
-                    if moved.is_none() && std::fs::symlink_metadata(&path).is_ok() {
-                        return Err(refused("a file appeared in the quarantine directory"));
+                    if std::fs::symlink_metadata(&path).is_ok() {
+                        return Err(super::journal_refused());
                     }
                     continue;
                 }
@@ -2421,14 +2901,19 @@ mod imp {
                         ));
                     }
                 }
-                for e in std::fs::read_dir(&u.path)? {
-                    let n = e?.file_name().to_string_lossy().into_owned();
+                for n in names_in(&u.path) {
                     let ours = n == super::UNIT_RECORD
+                        || (n == super::UNIT_COPY && u.copy.is_some())
                         || u.members.iter().any(|(k, _)| *k == n)
                         || u.held.iter().any(|h| h.created && h.name == n);
                     if !ours {
                         return Err(refused("an entry appeared in the quarantine directory"));
                     }
+                }
+                if let Some(cid) = u.copy
+                    && id_at(&u.path.join(super::UNIT_COPY))? != Some(cid)
+                {
+                    return Err(refused("the recovery copy was replaced"));
                 }
             }
             for (which, name) in &self.absent {
@@ -2461,53 +2946,80 @@ mod imp {
             Ok(())
         }
 
-        /// ⟨audit C0⟩ `open` the quarantined database in its quarantine directory and
-        /// `read` it, all three files pinned throughout; before the store is dropped, each
-        /// pinned file must still be the one its path names.
-        pub(super) fn read_db<S, T, U>(
-            &self,
+        /// ⟨audit C0; §17.36 item 1⟩ As on Unix: no `-journal` just before the open; the
+        /// final read on a read-only connection with all three files pinned; only on a
+        /// confirmed connection, the recovery copy (`VACUUM INTO` an exclusively created
+        /// file), checked, flushed and moved into place.
+        pub(super) fn read_db<S, T>(
+            &mut self,
             _a: &Anchors,
             open: impl FnOnce(&Path) -> S,
             read: impl FnOnce(&S) -> T,
-            then: impl FnOnce(&S) -> U,
-        ) -> std::io::Result<Option<(T, std::io::Result<U>)>> {
+            copy: impl FnOnce(&S, &Path) -> bool,
+        ) -> std::io::Result<Option<(T, std::io::Result<()>)>> {
+            let db_file = self.db_file.clone();
             let Some(u) = &self.unit else {
                 return Ok(None);
             };
             if u.held.is_empty() {
                 return Ok(None);
             }
-            let store = open(&u.path.join(&self.db_file));
+            if std::fs::symlink_metadata(u.path.join(&family(&db_file)[3])).is_ok() {
+                return Err(super::journal_refused());
+            }
+            let part_path = u.path.join(super::UNIT_COPY_PART);
+            let part = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&part_path)
+                .map_err(|e| match e.kind() {
+                    std::io::ErrorKind::AlreadyExists => {
+                        refused("a file appeared in the quarantine directory")
+                    }
+                    _ => e,
+                })?;
+            let part_id = heimdall_ipc::windows::file_id(&part)?;
+            let store = open(&u.path.join(&db_file));
             let out = read(&store);
-            let confirmed = self.held_in_place().map(|()| then(&store));
+            let mut confirmed = self.held_in_place();
+            if confirmed.is_ok() && !copy(&store, &part_path) {
+                confirmed = Err(refused("the recovery copy could not be written"));
+            }
             drop(store);
+            let confirmed = confirmed.and_then(|()| {
+                if id_at(&part_path)? != Some(part_id) {
+                    return Err(refused("the recovery copy was replaced"));
+                }
+                if part.metadata()?.len() == 0 {
+                    return Err(refused("the recovery copy is empty"));
+                }
+                part.sync_all()?;
+                drop(part);
+                heimdall_ipc::windows::move_no_replace(&part_path, &u.path.join(super::UNIT_COPY))
+            });
+            match &confirmed {
+                Ok(()) => {
+                    if let Some(u) = self.unit.as_mut() {
+                        u.copy = Some(part_id);
+                    }
+                }
+                Err(_) => {
+                    if matches!(id_at(&part_path), Ok(Some(now)) if now == part_id) {
+                        let _ = std::fs::remove_file(&part_path);
+                    }
+                }
+            }
             Ok(Some((out, confirmed)))
         }
 
-        /// ⟨§17.35 item 2⟩ The quarantined `-wal` is empty (zero bytes) or absent.
-        pub(super) fn wal_empty(&self) -> std::io::Result<()> {
-            let Some(u) = &self.unit else {
-                return Ok(());
-            };
-            let wal = format!("{}-wal", self.db_file);
-            match std::fs::symlink_metadata(u.path.join(&wal)) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Ok(m) if m.is_file() && m.len() == 0 => {}
-                Ok(_) => return Err(refused("the write-ahead log is not empty")),
-                Err(e) => return Err(e),
-            }
-            for h in u.held.iter().filter(|h| h.name == wal) {
-                if h.file.metadata()?.len() != 0 {
-                    return Err(refused("the write-ahead log is not empty"));
-                }
-            }
-            Ok(())
-        }
-
-        /// ⟨audit C1; §17.35 item 2⟩ As on Unix.
+        /// ⟨audit C1; §17.36 item 1⟩ As on Unix.
         pub(super) fn delete(mut self, a: &Anchors) -> Result<(), super::QuarantineError> {
-            if let Err(cause) = self.wal_empty() {
-                return Err(self.refuse(a, cause));
+            if let Some(u) = &self.unit
+                && u.copy.is_none()
+                && u.members.iter().any(|(n, _)| *n == self.db_file)
+            {
+                return Err(self.refuse(a, refused("the recovery copy was not written")));
             }
             for (i, m) in self.moved.iter().enumerate() {
                 let Some(root) = a.root(m.which) else {
@@ -2534,8 +3046,9 @@ mod imp {
                     if !single && std::fs::symlink_metadata(&at).is_ok() {
                         stuck.insert(0, at);
                     }
+                    let db_file = self.db_file.clone();
                     if let Some(u) = self.unit.as_mut() {
-                        let (r, s) = u.restore(a, &self.db_file);
+                        let (r, s) = u.restore(a, &db_file);
                         restored.extend(r);
                         stuck.extend(s);
                     }
@@ -2553,8 +3066,8 @@ mod imp {
             }
         }
 
-        pub(super) fn restore(mut self, a: &Anchors) -> Result<(), Vec<PathBuf>> {
-            let mut stuck = Vec::new();
+        pub(super) fn restore(mut self, a: &Anchors) -> (Vec<PathBuf>, Vec<PathBuf>) {
+            let (mut restored, mut left) = (Vec::new(), Vec::new());
             for m in self.moved.iter().rev() {
                 let Some(root) = a.root(m.which) else {
                     continue;
@@ -2565,14 +3078,18 @@ mod imp {
                 if super::restore_fails()
                     || heimdall_ipc::windows::move_no_replace(&from, &to).is_err()
                 {
-                    stuck.push(from);
+                    left.push(from);
+                } else {
+                    restored.push(to);
                 }
             }
             let db_file = self.db_file.clone();
             if let Some(u) = self.unit.as_mut() {
-                stuck.extend(u.restore(a, &db_file).1);
+                let (r, l) = u.restore(a, &db_file);
+                restored.extend(r);
+                left.extend(l);
             }
-            if stuck.is_empty() { Ok(()) } else { Err(stuck) }
+            (restored, left)
         }
     }
 
@@ -2660,7 +3177,6 @@ pub(crate) mod tests {
     }
 
     /// The database family's quarantine directory under `state`, if any.
-    #[cfg(unix)]
     pub(crate) fn unit_dir(state: &std::path::Path) -> Option<std::path::PathBuf> {
         std::fs::read_dir(state)
             .ok()?
@@ -2693,16 +3209,44 @@ pub(crate) mod tests {
         }
     }
 
+    type StepAction = Option<(&'static str, Box<dyn FnMut()>)>;
+
+    thread_local! {
+        static STEP_ACTION: std::cell::RefCell<StepAction> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// At a named step of the recovery copy's life (`"copy-written"`, `"restore"`,
+    /// `"delete-copy"`): a scheduled action, or a simulated crash.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub(super) fn step_hook(step: &str) {
+        STEP_ACTION.with(|a| {
+            if let Some((at, f)) = a.borrow_mut().as_mut()
+                && *at == step
+            {
+                f();
+            }
+        });
+        crash_hook("step", std::ffi::OsStr::new(step));
+    }
+
+    /// Run `body` with `action` run at step `step`.
+    #[cfg(unix)]
+    pub(crate) fn with_step<T>(
+        step: &'static str,
+        action: impl FnMut() + 'static,
+        body: impl FnOnce() -> T,
+    ) -> T {
+        STEP_ACTION.with(|a| *a.borrow_mut() = Some((step, Box::new(action))));
+        let out = body();
+        STEP_ACTION.with(|a| *a.borrow_mut() = None);
+        out
+    }
+
     /// Before each family file's move into the unit.
     #[cfg_attr(windows, allow(dead_code))]
     pub(super) fn move_hook(name: &std::ffi::OsStr) {
         crash_hook("move", name);
-    }
-
-    /// Before each member's move back out of the unit.
-    #[cfg_attr(windows, allow(dead_code))]
-    pub(super) fn rejoin_hook(name: &std::ffi::OsStr) {
-        crash_hook("rejoin", name);
     }
 
     /// Run `body`, which stops (a simulated crash) just before `name` is moved in
@@ -2718,6 +3262,7 @@ pub(crate) mod tests {
     /// Called before each file's `unlinkat` (tests schedule a replacement there).
     #[cfg(unix)]
     pub(super) fn unlink_hook(name: &std::ffi::OsStr) {
+        crash_hook("unlink", name);
         UNLINK_HOOK.with(|h| {
             if let Some(f) = h.borrow_mut().as_mut() {
                 f(name);
@@ -2778,11 +3323,14 @@ pub(crate) mod tests {
                 .unwrap_or_else(|e| panic!("{e}"));
         });
         assert!(end.is_err(), "refused");
+        // Refused before any recovery copy existed: the database stays whole in its
+        // quarantine directory (§17.36 item 1); the trees are renamed back.
+        let db = unit_dir(&state).map(|u| u.join("state.db"));
         for p in [
             run.join("b").join("t").join("f"),
             run.join("mux").join("f"),
             state.join("backups").join("f"),
-            state.join("state.db"),
+            db.unwrap_or_else(|| state.join("state.db")),
         ] {
             assert!(p.exists(), "{} was deleted", p.display());
         }
@@ -2919,54 +3467,66 @@ pub(crate) mod tests {
     #[cfg(unix)]
     #[test]
     fn secure_path_on_synthetic_trees() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let chmod = |p: &std::path::Path, m: u32| {
-            std::fs::set_permissions(p, std::fs::Permissions::from_mode(m))
-                .unwrap_or_else(|e| panic!("{e}"));
-        };
-        // Linux-style: home/.local/state/heimdall and run/user/<uid>/heimdall.
-        let home = d.path().join("home");
-        let state = home.join(".local").join("state").join("heimdall");
-        let run = d
-            .path()
-            .join("run")
-            .join("user")
-            .join("1000")
-            .join("heimdall");
-        for p in [&state, &run] {
-            std::fs::create_dir_all(p).unwrap_or_else(|e| panic!("{e}"));
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        // ⟨§17.36: the Linux-only failure⟩ Both simulated hosts: a shared primary group,
+        // and a user private group the synthetic directories carry.
+        for private in [false, true] {
+            let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+            let gid = std::fs::metadata(d.path())
+                .map(|m| m.gid())
+                .unwrap_or(u32::MAX);
+            let oracle = move || Ok(private.then_some(gid));
+            let open = |s: &std::path::Path, r: &std::path::Path, top: &std::path::Path| {
+                Anchors::open_with_group(s, r, Some(top), &oracle)
+            };
+            let chmod = |p: &std::path::Path, m: u32| {
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(m))
+                    .unwrap_or_else(|e| panic!("{e}"));
+            };
+            // Linux-style: home/.local/state/heimdall and run/user/<uid>/heimdall.
+            let home = d.path().join("home");
+            let state = home.join(".local").join("state").join("heimdall");
+            let run = d
+                .path()
+                .join("run")
+                .join("user")
+                .join("1000")
+                .join("heimdall");
+            for p in [&state, &run] {
+                std::fs::create_dir_all(p).unwrap_or_else(|e| panic!("{e}"));
+            }
+            // The scratch base is the trusted top: owner-only.
+            chmod(d.path(), 0o700);
+            for p in [
+                &home,
+                &home.join(".local"),
+                &home.join(".local").join("state"),
+                &d.path().join("run"),
+                &d.path().join("run").join("user"),
+            ] {
+                chmod(p, 0o755);
+            }
+            for p in [
+                &state,
+                &run,
+                &d.path().join("run").join("user").join("1000"),
+            ] {
+                chmod(p, 0o700);
+            }
+            assert!(open(&state, &run, d.path()).is_ok());
+            chmod(&home.join(".local"), 0o775);
+            assert_eq!(
+                open(&state, &run, d.path()).is_err(),
+                !private,
+                "a group-writable ancestor refuses (unless it is the user's private group)"
+            );
+            chmod(&home.join(".local"), 0o755);
+            chmod(&d.path().join("run").join("user"), 0o1777);
+            assert!(
+                open(&state, &run, d.path()).is_err(),
+                "a sticky parent refuses"
+            );
         }
-        // The scratch base is the trusted top: owner-only.
-        chmod(d.path(), 0o700);
-        for p in [
-            &home,
-            &home.join(".local"),
-            &home.join(".local").join("state"),
-            &d.path().join("run"),
-            &d.path().join("run").join("user"),
-        ] {
-            chmod(p, 0o755);
-        }
-        for p in [
-            &state,
-            &run,
-            &d.path().join("run").join("user").join("1000"),
-        ] {
-            chmod(p, 0o700);
-        }
-        assert!(Anchors::open(&state, &run, Some(d.path())).is_ok());
-        chmod(&home.join(".local"), 0o775);
-        assert!(
-            Anchors::open(&state, &run, Some(d.path())).is_err(),
-            "a group-writable ancestor refuses"
-        );
-        chmod(&home.join(".local"), 0o755);
-        chmod(&d.path().join("run").join("user"), 0o1777);
-        assert!(
-            Anchors::open(&state, &run, Some(d.path())).is_err(),
-            "a sticky parent refuses"
-        );
     }
 
     /// `secure_path_full_chain_from_root_without_the_hook` (ADR-0008 §17.33 item 14): with
@@ -2988,49 +3548,58 @@ pub(crate) mod tests {
     #[cfg(unix)]
     #[test]
     fn purge_trusted_top_conditions() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let (d, state, run) = roots();
-        let chmod = |p: &std::path::Path, m: u32| {
-            std::fs::set_permissions(p, std::fs::Permissions::from_mode(m))
-                .unwrap_or_else(|e| panic!("{e}"));
-        };
-        assert!(Anchors::open(&state, &run, Some(d.path())).is_ok());
-        assert!(
-            Anchors::open(&state, d.path(), Some(d.path())).is_err(),
-            "not a strict ancestor (the top is a root itself)"
-        );
-        let beside = d.path().join("beside");
-        std::fs::create_dir(&beside).unwrap_or_else(|e| panic!("{e}"));
-        chmod(&beside, 0o700);
-        assert!(
-            Anchors::open(&state, &run, Some(&beside)).is_err(),
-            "not an ancestor"
-        );
-        chmod(d.path(), 0o770);
-        assert!(
-            Anchors::open(&state, &run, Some(d.path())).is_err(),
-            "a group-writable top"
-        );
-        chmod(d.path(), 0o750);
-        assert!(
-            Anchors::open(&state, &run, Some(d.path())).is_err(),
-            "a top that is not owner-only"
-        );
-        chmod(d.path(), 0o700);
-        // Below the top: a group-writable component.
-        let deep = d.path().join("mid");
-        let (s2, r2) = (deep.join("state"), deep.join("run"));
-        for p in [&s2, &r2] {
-            std::fs::create_dir_all(p).unwrap_or_else(|e| panic!("{e}"));
-            chmod(p, 0o700);
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        // ⟨§17.36: the Linux-only failure⟩ Both simulated hosts: a shared primary group,
+        // and a user private group the synthetic directories carry.
+        for private in [false, true] {
+            let (d, state, run) = roots();
+            let gid = std::fs::metadata(d.path())
+                .map(|m| m.gid())
+                .unwrap_or(u32::MAX);
+            let oracle = move || Ok(private.then_some(gid));
+            let open = |s: &std::path::Path, r: &std::path::Path, top: &std::path::Path| {
+                Anchors::open_with_group(s, r, Some(top), &oracle)
+            };
+            let chmod = |p: &std::path::Path, m: u32| {
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(m))
+                    .unwrap_or_else(|e| panic!("{e}"));
+            };
+            assert!(open(&state, &run, d.path()).is_ok());
+            assert!(
+                open(&state, d.path(), d.path()).is_err(),
+                "not a strict ancestor (the top is a root itself)"
+            );
+            let beside = d.path().join("beside");
+            std::fs::create_dir(&beside).unwrap_or_else(|e| panic!("{e}"));
+            chmod(&beside, 0o700);
+            assert!(open(&state, &run, &beside).is_err(), "not an ancestor");
+            chmod(d.path(), 0o770);
+            assert!(
+                open(&state, &run, d.path()).is_err(),
+                "a group-writable top"
+            );
+            chmod(d.path(), 0o750);
+            assert!(
+                open(&state, &run, d.path()).is_err(),
+                "a top that is not owner-only"
+            );
+            chmod(d.path(), 0o700);
+            // Below the top: a group-writable component.
+            let deep = d.path().join("mid");
+            let (s2, r2) = (deep.join("state"), deep.join("run"));
+            for p in [&s2, &r2] {
+                std::fs::create_dir_all(p).unwrap_or_else(|e| panic!("{e}"));
+                chmod(p, 0o700);
+            }
+            chmod(&deep, 0o775);
+            assert_eq!(
+                open(&s2, &r2, d.path()).is_err(),
+                !private,
+                "a group-writable component below the top (refused unless the user's private group)"
+            );
+            chmod(&deep, 0o755);
+            assert!(open(&s2, &r2, d.path()).is_ok());
         }
-        chmod(&deep, 0o775);
-        assert!(
-            Anchors::open(&s2, &r2, Some(d.path())).is_err(),
-            "a group-writable component below the top"
-        );
-        chmod(&deep, 0o755);
-        assert!(Anchors::open(&s2, &r2, Some(d.path())).is_ok());
     }
 
     /// `windows_owner_classification` (ADR-0008 §17.33 item 13): this user's SID, SYSTEM
@@ -3117,23 +3686,38 @@ pub(crate) mod tests {
     #[cfg(unix)]
     #[test]
     fn a_group_writable_refusal_names_the_fix() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let (d, state, run) = roots();
-        let mid = d.path().join("mid");
-        let (s2, r2) = (mid.join("state"), mid.join("run"));
-        for p in [&s2, &r2] {
-            std::fs::create_dir_all(p).unwrap_or_else(|e| panic!("{e}"));
-            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o700))
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        // ⟨§17.36: the Linux-only failure⟩ Run against both simulated hosts: a shared
+        // primary group (refused, naming the fix) and a user private group that the
+        // directory carries (accepted, §17.34 item 2).
+        for private in [false, true] {
+            let (d, state, run) = roots();
+            let mid = d.path().join("mid");
+            let (s2, r2) = (mid.join("state"), mid.join("run"));
+            for p in [&s2, &r2] {
+                std::fs::create_dir_all(p).unwrap_or_else(|e| panic!("{e}"));
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o700))
+                    .unwrap_or_else(|e| panic!("{e}"));
+            }
+            std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o775))
                 .unwrap_or_else(|e| panic!("{e}"));
+            let gid = std::fs::metadata(&mid).map(|m| m.gid()).unwrap_or(u32::MAX);
+            let oracle = move || Ok(private.then_some(gid));
+            let opened = Anchors::open_with_group(&s2, &r2, Some(d.path()), &oracle);
+            if private {
+                assert!(
+                    opened.is_ok(),
+                    "a user private group's directory is refused"
+                );
+            } else {
+                let Err(e) = opened else {
+                    panic!("accepted");
+                };
+                assert!(e.to_string().contains("chmod g-w"), "{e}");
+                assert!(e.to_string().contains("mid"), "{e}");
+            }
+            let _ = (state, run);
         }
-        std::fs::set_permissions(&mid, std::fs::Permissions::from_mode(0o775))
-            .unwrap_or_else(|e| panic!("{e}"));
-        let Err(e) = Anchors::open(&s2, &r2, Some(d.path())) else {
-            panic!("accepted");
-        };
-        assert!(e.to_string().contains("chmod g-w"), "{e}");
-        assert!(e.to_string().contains("mid"), "{e}");
-        let _ = (state, run);
     }
 
     /// A linked ancestor of a root refuses the anchoring itself (audit B3).
@@ -3231,7 +3815,10 @@ pub(crate) mod tests {
         let Err(e) = end else {
             panic!("a replaced leaf was quarantined")
         };
-        assert!(e.stuck.is_empty(), "{:?}", e.stuck);
+        // Only the database family is left (whole, in its quarantine directory: no
+        // recovery copy existed yet); every tree is renamed back.
+        let u = unit_dir(&state).unwrap_or_else(|| panic!("the family is kept"));
+        assert!(e.stuck.iter().all(|p| p.starts_with(&u)), "{:?}", e.stuck);
         assert_eq!(
             std::fs::read(&victim).unwrap_or_default(),
             b"unique owner data"
@@ -3239,7 +3826,7 @@ pub(crate) mod tests {
         for p in [
             run.join("b").join("t").join("f"),
             run.join("mux").join("f"),
-            state.join("state.db"),
+            u.join("state.db"),
         ] {
             assert!(p.exists(), "{} was not restored", p.display());
         }
@@ -3290,9 +3877,10 @@ pub(crate) mod tests {
     fn swap_between_quarantine_and_unlink_spares_new_data() {
         let (d, state, run) = roots();
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
-        let q = anchors
+        let mut q = anchors
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
         std::fs::create_dir(state.join("backups")).unwrap_or_else(|e| panic!("{e}"));
         let new = state.join("backups").join("placed-after");
         std::fs::write(&new, b"new owner data").unwrap_or_else(|e| panic!("{e}"));
@@ -3361,9 +3949,10 @@ pub(crate) mod tests {
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500))
             .unwrap_or_else(|e| panic!("{e}"));
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
-        let q = anchors
+        let mut q = anchors
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
         let end = q.delete();
         // (Writable again, so the fixture can be removed.)
         for e in std::fs::read_dir(&state)
@@ -3404,13 +3993,16 @@ pub(crate) mod tests {
     fn restore_never_replaces_an_entry_at_the_original_name() {
         let (d, state, run) = roots();
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
-        let q = anchors
+        let mut q = anchors
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
         std::fs::write(state.join("state.db"), b"new").unwrap_or_else(|e| panic!("{e}"));
-        let Err(stuck) = q.restore() else {
-            panic!("the entry at the original name was replaced")
-        };
+        let (_, stuck) = q.restore();
+        assert!(
+            !stuck.is_empty(),
+            "the entry at the original name was replaced"
+        );
         assert_eq!(
             std::fs::read(state.join("state.db")).ok().as_deref(),
             Some(&b"new"[..])
@@ -3433,9 +4025,10 @@ pub(crate) mod tests {
     fn an_entry_placed_inside_a_quarantined_directory_is_deleted() {
         let (d, state, run) = roots();
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
-        let q = anchors
+        let mut q = anchors
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
         let qdir = std::fs::read_dir(&state)
             .unwrap_or_else(|e| panic!("{e}"))
             .flatten()
@@ -3474,9 +4067,10 @@ pub(crate) mod tests {
         let (d, state, run) = roots();
         std::fs::write(state.join("state.db-wal"), b"").unwrap_or_else(|e| panic!("{e}"));
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
-        let q = anchors
+        let mut q = anchors
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
         let st = state.clone();
         let end = with_unlink_hook(
             move |name| {
@@ -3517,12 +4111,13 @@ pub(crate) mod tests {
         );
     }
 
-    /// `delete_refuses_a_non_empty_wal` (ADR-0008 §17.35 item 2): a quarantined `-wal`
-    /// that is not empty (never checkpointed) refuses the deletion with nothing deleted:
-    /// every entry is renamed back, the database with its log.
+    /// `delete_refuses_without_a_recovery_copy` (ADR-0008 §17.36 item 1): with no complete
+    /// recovery copy, the deletion refuses with nothing deleted: the trees are renamed
+    /// back and the database family stays whole in its quarantine directory, every byte
+    /// as it was.
     #[cfg(unix)]
     #[test]
-    fn delete_refuses_a_non_empty_wal() {
+    fn delete_refuses_without_a_recovery_copy() {
         let (d, state, run) = roots();
         std::fs::write(state.join("state.db-wal"), b"frames").unwrap_or_else(|e| panic!("{e}"));
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
@@ -3530,22 +4125,56 @@ pub(crate) mod tests {
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
         let Err(e) = q.delete() else {
-            panic!("a database family with a non-empty log was deleted")
+            panic!("a database family without its recovery copy was deleted")
         };
-        assert!(e.stuck.is_empty(), "{:?}", e.stuck);
+        let u = unit_dir(&state).unwrap_or_else(|| panic!("the family is kept"));
+        assert!(e.stuck.contains(&u), "{:?}", e.stuck);
         assert_eq!(
-            std::fs::read(state.join("state.db")).ok().as_deref(),
+            std::fs::read(u.join("state.db")).ok().as_deref(),
             Some(&b"db"[..])
         );
         assert_eq!(
-            std::fs::read(state.join("state.db-wal")).ok().as_deref(),
+            std::fs::read(u.join("state.db-wal")).ok().as_deref(),
             Some(&b"frames"[..])
         );
         assert!(state.join("backups").join("f").exists() && run.join("b").exists());
-        assert!(
-            !state.join("state.db-shm").exists(),
-            "the purge's own -shm is removed"
-        );
+    }
+
+    /// `a_planted_journal_refuses_with_every_byte_unchanged` (ADR-0008 §17.36 item 1): a
+    /// family that contains a `-journal` is refused before anything moves or opens: every
+    /// file of the family is at its name, each byte for byte as before (compared whole and
+    /// by hash), and the trees are untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_journal_refuses_with_every_byte_unchanged() {
+        use std::hash::{BuildHasher as _, BuildHasherDefault, DefaultHasher};
+        let (d, state, run) = roots();
+        std::fs::write(state.join("state.db-wal"), b"frames").unwrap_or_else(|e| panic!("{e}"));
+        let mut journal = vec![0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7];
+        journal.resize(1024, 7);
+        std::fs::write(state.join("state.db-journal"), &journal).unwrap_or_else(|e| panic!("{e}"));
+        let names = ["state.db", "state.db-wal", "state.db-journal"];
+        let hash = |b: &[u8]| BuildHasherDefault::<DefaultHasher>::default().hash_one(b);
+        let before: Vec<(Vec<u8>, u64)> = names
+            .iter()
+            .map(|n| {
+                let b = std::fs::read(state.join(n)).unwrap_or_else(|e| panic!("{e}"));
+                let h = hash(&b);
+                (b, h)
+            })
+            .collect();
+        let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
+        let Err(e) = anchors.quarantine("state.db", || {}) else {
+            panic!("a family with a rollback journal was quarantined")
+        };
+        assert_eq!(e.cause.kind(), std::io::ErrorKind::InvalidData, "{e:?}");
+        assert!(unit_dir(&state).is_none(), "nothing moved");
+        for (n, (b, h)) in names.iter().zip(&before) {
+            let now = std::fs::read(state.join(n)).unwrap_or_else(|e| panic!("{n}: {e}"));
+            assert_eq!(&now, b, "{n} changed");
+            assert_eq!(hash(&now), *h, "{n}'s hash changed");
+        }
+        assert!(state.join("backups").join("f").exists() && run.join("b").join("t").exists());
     }
 
     /// `no_purge_created_file_is_restored_or_listed_as_renamed_back` (ADR-0008 §17.35
@@ -3574,17 +4203,21 @@ pub(crate) mod tests {
         }
         std::fs::write(state.join("state.db"), b"db").unwrap_or_else(|e| panic!("{e}"));
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
-        let q = anchors
+        let mut q = anchors
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
         FAIL_UNLINK.with(|f| *f.borrow_mut() = Some("state.db-shm".into()));
         let end = q.delete();
         FAIL_UNLINK.with(|f| *f.borrow_mut() = None);
         let Err(e) = end else {
             panic!("the injected failure was not reported")
         };
+        // The recovery copy alone is restored; the original family (with the files the
+        // purge created) stays in its quarantine directory, listed as left.
         assert_eq!(e.restored, vec![state.join("state.db")], "{e:?}");
-        assert!(e.stuck.is_empty(), "{e:?}");
+        let u = unit_dir(&state).unwrap_or_else(|| panic!("the original family is kept"));
+        assert!(e.stuck.iter().all(|p| p.starts_with(&u)), "{e:?}");
         assert_eq!(
             std::fs::read(state.join("state.db")).ok().as_deref(),
             Some(&b"db"[..])
@@ -3606,9 +4239,10 @@ pub(crate) mod tests {
     fn final_review_quarantine_dir_removal_failure_reports_what_is_on_disk() {
         let (d, state, run) = roots();
         let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
-        let q = anchors
+        let mut q = anchors
             .quarantine("state.db", || {})
             .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
         let st = state.clone();
         let end = with_unlink_hook(
             move |name| {
@@ -3624,7 +4258,11 @@ pub(crate) mod tests {
             panic!("the directory's removal could not have succeeded")
         };
         let u = unit_dir(&state).unwrap_or_else(|| panic!("the directory is left"));
-        assert_eq!(e.stuck, vec![u.clone()]);
+        assert_eq!(
+            e.stuck,
+            vec![u.clone(), u.join("placed")],
+            "only what is on disk"
+        );
         assert!(!u.join("state.db").exists(), "the database was deleted");
         assert!(e.restored.is_empty());
     }

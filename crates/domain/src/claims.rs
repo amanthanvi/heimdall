@@ -175,6 +175,22 @@ pub const RESIDUALS: &[Residual] = &[
         adr: "ADR-0008 §17.34 item 1",
     },
     Residual {
+        id: "purge_restore_copy_log_placed_between_check_and_rename",
+        description: "uninstall purge's restore of the recovery copy (ADR-0008 §17.36 item 1): the copy becomes state.db by one no-replace rename only after checking that state.db, -wal, -shm and -journal are all free; a same-user program that places a -wal at state.db-wal in the instant between that check and the rename attaches its own log to the restored database. A database it places at state.db makes the no-replace rename refuse, and the original family stays in quarantine either way",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.purge_anchored_deletion",
+        probe: Probe {
+            target: "-p heimdall --bin heimdall",
+            source: "crates/heimdall/src/uninstall_cmd.rs",
+            test: "uninstall_cmd::tests::r13_review_restore_race_preserves_replacement_record",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0008 §17.36 item 1",
+    },
+    Residual {
         id: "issuer_request_hold_absent_for_leader_and_lease_work",
         description: "an issuer sign sent from a task that holds no fence admission of its own (the verification leader, holder-lease work) is not held by request_hold: when its waiter times out against a child that cannot be verified, the admission ends before the child does, so a fence acquisition can be taken while that child is still alive. No lasting effect: the child never writes the state database and a late signature reaches no reader, so no certificate is published",
         platform: Platform {

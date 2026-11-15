@@ -1220,14 +1220,18 @@ mod tests {
         let top = |v: &'static str| {
             move |n: &str| (n == PURGE_TRUSTED_TOP_ENV).then(|| std::ffi::OsString::from(v))
         };
+        // A platform-absolute path: `/abs` has no drive or UNC prefix, so it is not
+        // absolute on Windows (the product's absolute-path refusal is unchanged).
+        const ABS: &str = if cfg!(windows) { r"C:\abs" } else { "/abs" };
+        assert!(std::path::Path::new(ABS).is_absolute());
         assert_eq!(
-            purge_trusted_top_in(false, &top("/abs")).err().as_deref(),
+            purge_trusted_top_in(false, &top(ABS)).err().as_deref(),
             refusal(false, true)
         );
         assert_eq!(purge_trusted_top_in(false, &|_| None), Ok(None));
         assert_eq!(
-            purge_trusted_top_in(true, &top("/abs")),
-            Ok(Some(std::path::PathBuf::from("/abs")))
+            purge_trusted_top_in(true, &top(ABS)),
+            Ok(Some(std::path::PathBuf::from(ABS)))
         );
         assert!(purge_trusted_top_in(true, &top("rel")).is_err());
     }

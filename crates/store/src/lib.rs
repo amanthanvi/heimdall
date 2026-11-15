@@ -132,83 +132,31 @@ impl FaultHook for NoFaults {
     }
 }
 
-/// ⟨ADR-0008 §17.35 item 2 (W5-G02)⟩ A read-write connection on an existing database,
-/// for one `PRAGMA wal_checkpoint(TRUNCATE)`: the uninstall purge's, on the quarantined
-/// database family after its final checks pass and before anything is deleted. It never
-/// creates, migrates or otherwise writes the database.
-///
-/// ⟨ADR-0008 §17.35 item 6⟩ It exists only for that checkpoint, on the quarantined copy,
-/// confirmed by the purge's descriptor census. **It must never be used to open the live
-/// database**: the runtime opens that through [`Store::open`] under its instance lock.
-pub struct Checkpointer {
-    conn: rusqlite::Connection,
-}
-
-impl Checkpointer {
-    /// Open `path` read-write; a missing file is an error (never created).
-    ///
-    /// # Errors
-    /// SQLite.
-    pub fn open(path: &Path) -> Result<Self> {
-        let conn = rusqlite::Connection::open_with_flags(
-            path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(codec::classify)?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(codec::classify)?;
-        conn.pragma_update(None, "trusted_schema", "OFF")
-            .map_err(codec::classify)?;
-        // ⟨ADR-0008 §17.35 item 8 (audit D3)⟩ No checkpoint when this connection closes:
-        // the only checkpoint is the explicit one, run after the caller confirmed which
-        // files SQLite opened, so an unconfirmed log is never copied into the database.
-        conn.set_db_config(
-            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
-            true,
-        )
-        .map_err(codec::classify)?;
-        Ok(Self { conn })
+/// A `file:` URI for `path` with `query` (every byte outside the unreserved set and `/`
+/// percent-encoded; Windows separators as `/`, a drive path behind `///`).
+fn file_uri(path: &Path, query: &str) -> Option<String> {
+    let text = path.to_str()?;
+    let text = if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.to_owned()
+    };
+    let mut out = String::from("file://");
+    if !text.starts_with('/') {
+        out.push('/');
     }
-
-    /// ⟨ADR-0008 §17.35 item 8 (audit D3)⟩ One read (`SELECT count(*) FROM
-    /// sqlite_master`), so SQLite opens the database, its log and its index before
-    /// anything is written: the caller confirms which files those are, and only then
-    /// checkpoints.
-    ///
-    /// # Errors
-    /// SQLite.
-    pub fn probe(&self) -> Result<()> {
-        self.conn
-            .query_row("SELECT count(*) FROM sqlite_master", [], |r| {
-                r.get::<_, i64>(0)
-            })
-            .map_err(codec::classify)?;
-        Ok(())
-    }
-
-    /// `PRAGMA wal_checkpoint(TRUNCATE)`: every committed frame copied into the main
-    /// file, and the log truncated to zero bytes.
-    ///
-    /// # Errors
-    /// SQLite, or a checkpoint that did not complete (`SQLITE_BUSY`: blocked, or frames
-    /// left uncopied).
-    pub fn truncate(&self) -> Result<()> {
-        let (busy, log, done): (i64, i64, i64) = self
-            .conn
-            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .map_err(codec::classify)?;
-        if busy != 0 || log != done {
-            return Err(StoreError::Sqlite(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
-                Some(format!(
-                    "the checkpoint did not complete (busy {busy}, log {log}, checkpointed {done})"
-                )),
-            )));
+    for (i, b) in text.bytes().enumerate() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                out.push(char::from(b));
+            }
+            b':' if cfg!(windows) && i == 1 => out.push(':'),
+            _ => out.push_str(&format!("%{b:02X}")),
         }
-        Ok(())
     }
+    out.push('?');
+    out.push_str(query);
+    Some(out)
 }
 
 /// The local state store.
@@ -382,6 +330,38 @@ impl Store {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .map_err(codec::classify)?;
+        Self::read_only_from(conn, faults)
+    }
+
+    /// ⟨ADR-0008 §17.36 item 1 (audit E3)⟩ [`Store::open_read_only`] that writes **no**
+    /// file of the database family: a URI open with `mode=ro&readonly_shm=1`. SQLite
+    /// then opens the `-shm` read-only and never creates, extends or writes it; when it is
+    /// empty or stale, SQLite builds the WAL index in heap memory from the `-wal` (result
+    /// `SQLITE_READONLY_CANTINIT`, handled inside SQLite's `walBeginShmUnreliable`), so a
+    /// WAL-only commit is still read. An **absent** `-shm` (or `-wal`) cannot be opened
+    /// read-only: that open fails (`SQLITE_CANTOPEN`), and the caller reads a copy
+    /// instead. For the uninstall purge's validating reads of the owner's family only;
+    /// every other caller keeps [`Store::open_read_only`].
+    ///
+    /// # Errors
+    /// As [`Store::open_read_only`]; a path that is not UTF-8.
+    pub fn open_read_only_no_write(path: &Path, faults: Arc<dyn FaultHook>) -> Result<Self> {
+        let Some(uri) = file_uri(path, "mode=ro&readonly_shm=1") else {
+            return Err(StoreError::Corrupt(
+                "the database path is not UTF-8".to_owned(),
+            ));
+        };
+        let conn = rusqlite::Connection::open_with_flags(
+            uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(codec::classify)?;
+        Self::read_only_from(conn, faults)
+    }
+
+    fn read_only_from(conn: rusqlite::Connection, faults: Arc<dyn FaultHook>) -> Result<Self> {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(codec::classify)?;
         let current = migrations::check_version(&conn, migrations::MIGRATIONS)?;
@@ -404,6 +384,41 @@ impl Store {
             faults,
             read_only: true,
         })
+    }
+
+    /// ⟨ADR-0008 §17.36 item 1⟩ Write one self-contained copy of this **read-only**
+    /// store's database (its log included) to `out` with `VACUUM INTO`: the uninstall
+    /// purge's recovery copy, from the connection its final read validated. `out` must be
+    /// an existing empty file (the caller creates it exclusively) or absent. The main
+    /// database is opened `SQLITE_OPEN_READONLY`, so nothing can write it; `query_only`
+    /// (which also forbids writing the `INTO` file) is lifted for this one statement
+    /// only. The copy is in rollback-journal mode, with no log of its own.
+    ///
+    /// # Errors
+    /// Not a read-only store, a path that is not UTF-8, or SQLite.
+    pub fn vacuum_into(&self, out: &Path) -> Result<()> {
+        if !self.read_only {
+            return Err(StoreError::Corrupt(
+                "vacuum_into is only for a read-only store".to_owned(),
+            ));
+        }
+        let Some(target) = out.to_str() else {
+            return Err(StoreError::Corrupt(
+                "the recovery copy's path is not UTF-8".to_owned(),
+            ));
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| StoreError::Corrupt("store connection poisoned".to_owned()))?;
+        conn.pragma_update(None, "query_only", "OFF")
+            .map_err(codec::classify)?;
+        let written = conn
+            .execute("VACUUM INTO ?1", [target])
+            .map_err(codec::classify);
+        conn.pragma_update(None, "query_only", "ON")
+            .map_err(codec::classify)?;
+        written.map(drop)
     }
 
     /// Test support (`tests/integration/store.rs`, migration coverage): open or
@@ -2722,6 +2737,81 @@ mod tests {
                 .unwrap()
                 .as_deref(),
             Some("abc123DEF")
+        );
+    }
+
+    /// `read_only_open_never_rolls_back_a_hot_journal` (ADR-0008 §17.36 item 1): with a hot
+    /// rollback journal beside a database, a read-only connection
+    /// (`SQLITE_OPEN_READONLY`, as [`Store::open_read_only`] opens) fails with
+    /// `SQLITE_READONLY_ROLLBACK` and leaves the database's bytes and the journal as they
+    /// are; a read-write connection (the control) rolls the journal back and loses the
+    /// later change. SQLite's documented behaviour (result code `SQLITE_READONLY_ROLLBACK`,
+    /// <https://www.sqlite.org/rescode.html#readonly_rollback>; `pager.c`,
+    /// `pagerSharedLock`: a hot journal on a read-only pager is refused rather than
+    /// played back).
+    #[test]
+    fn read_only_open_never_rolls_back_a_hot_journal() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("x.db");
+        let journal_of = |p: &Path| {
+            let mut j = p.as_os_str().to_owned();
+            j.push("-journal");
+            std::path::PathBuf::from(j)
+        };
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.pragma_update(None, "journal_mode", "DELETE").unwrap();
+        c.pragma_update(None, "cache_size", 1).unwrap();
+        c.execute_batch("CREATE TABLE t (x BLOB); CREATE TABLE marker (y INTEGER);")
+            .unwrap();
+        for _ in 0..20 {
+            c.execute("INSERT INTO t VALUES (zeroblob(8000))", [])
+                .unwrap();
+        }
+        c.execute_batch("BEGIN IMMEDIATE; UPDATE t SET x = randomblob(8000);")
+            .unwrap();
+        let hot = std::fs::read(journal_of(&db)).unwrap();
+        assert_eq!(&hot[..8], &[0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7]);
+        c.execute_batch("ROLLBACK;").unwrap();
+        c.execute("INSERT INTO marker VALUES (9)", []).unwrap();
+        c.execute("UPDATE t SET x = zeroblob(10)", []).unwrap();
+        drop(c);
+        std::fs::write(journal_of(&db), &hot).unwrap();
+        let bytes = std::fs::read(&db).unwrap();
+        // A read-only connection refuses, and changes nothing.
+        let ro =
+            rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .unwrap();
+        let err = ro
+            .query_row("SELECT count(*) FROM marker", [], |r| r.get::<_, i64>(0))
+            .unwrap_err();
+        assert_eq!(
+            err.sqlite_error().map(|e| e.extended_code),
+            Some(rusqlite::ffi::SQLITE_READONLY_ROLLBACK),
+            "{err}"
+        );
+        drop(ro);
+        assert!(Store::open_read_only(&db, Arc::new(NoFaults)).is_err());
+        assert_eq!(
+            std::fs::read(&db).unwrap(),
+            bytes,
+            "the database was written"
+        );
+        assert_eq!(
+            std::fs::read(journal_of(&db)).unwrap(),
+            hot,
+            "the journal was played"
+        );
+        // The control: a read-write connection rolls it back and loses the later row.
+        let ctl = d.path().join("control.db");
+        std::fs::copy(&db, &ctl).unwrap();
+        std::fs::copy(journal_of(&db), journal_of(&ctl)).unwrap();
+        let rw = rusqlite::Connection::open(&ctl).unwrap();
+        let len: i64 = rw
+            .query_row("SELECT max(length(x)) FROM t", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            len, 8000,
+            "the read-write control did not replay the journal"
         );
     }
 }
