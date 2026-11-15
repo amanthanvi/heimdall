@@ -57,7 +57,10 @@ use heimdall_contract::ids::{
     GrantId, IdentityId, IssuanceId, OperationId,
 };
 use heimdall_contract::issuer::IssuerStatus;
-use heimdall_contract::managed::{CloseReason, RemoteEffectReport};
+use heimdall_contract::managed::{
+    CloseReason, ConnectionPolicyReport, EvidenceEntry, LockContinuityReport, ReadinessCondition,
+    RefreshCondition, RemoteEffectReport, RevocationSemantics,
+};
 use heimdall_contract::provider::{
     CredentialAvailability, EndpointRef, ProviderKind, ProviderStatus,
 };
@@ -248,6 +251,33 @@ pub struct PrepareOutcome {
     /// history (`PreparedFacts`) and recomputes interaction and eligibility for every
     /// result (U0b row 5).
     pub integration: ConsumerIntegration,
+    /// ⟨M03; ADR-0008 §17.25 item 18, m03-plan §0.4 M2's amendment⟩ The managed
+    /// adapter's report for the result (`adapters::managed::report::compute`), on
+    /// preparation and re-issue. `None` for every M01/M02 adapter. In memory only:
+    /// it is not part of `PreparedFacts`, so after a restart it is absent and the
+    /// result's six managed fields stay absent (fail closed).
+    pub managed: Option<ManagedResultFacts>,
+}
+
+/// ⟨M03; ADR-0008 §17.25 item 18⟩ The six managed values a managed binding's
+/// `EnsureData` carries, as the managed adapter computed them: the runtime copies
+/// each into the `EnsureData` field of the same name (`lock_continuity`,
+/// `refresh_condition`, `revocation` and `connection_policy` as `Some`). Contract
+/// types only; the D8 wording is the runtime's (`connection_policy.wording`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedResultFacts {
+    /// `EnsureData.lock_continuity`.
+    pub lock_continuity: LockContinuityReport,
+    /// `EnsureData.conditions`.
+    pub conditions: Vec<ReadinessCondition>,
+    /// `EnsureData.refresh_condition`.
+    pub refresh_condition: RefreshCondition,
+    /// `EnsureData.revocation`.
+    pub revocation: RevocationSemantics,
+    /// `EnsureData.evidence`.
+    pub evidence: Vec<EvidenceEntry>,
+    /// `EnsureData.connection_policy`.
+    pub connection_policy: ConnectionPolicyReport,
 }
 
 /// What reconciliation established about an earlier `effect_token`.

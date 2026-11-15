@@ -111,6 +111,21 @@ pub const BINDING_GENERATION: u64 = 1;
 /// allowance).
 pub const VALID_AFTER_SKEW_SECS: i64 = 60;
 
+/// ⟨M03 wave 5, round 2 (A2-Q1)⟩ A certificate's `valid_after`: [`VALID_AFTER_SKEW_SECS`]
+/// before the later of `now` and the grant's start, on whole seconds (certificates carry
+/// seconds). The start is rounded **up**, so `valid_before − valid_after` never exceeds the
+/// issuer's ceiling `deadline − starts_at + 60 s` (`heimdall_issuer::check`): truncating
+/// `now` within the grant's first second used to overshoot it by the sub-second part,
+/// and the real issuer refused every first activation (`ceiling_exceeded`).
+#[must_use]
+pub fn validity_start(now: Timestamp, starts_at: Timestamp) -> Option<Timestamp> {
+    let start = starts_at
+        .as_second()
+        .checked_add(i64::from(starts_at.subsec_nanosecond() > 0))?;
+    let base = now.as_second().max(start);
+    Timestamp::from_second(base.checked_sub(VALID_AFTER_SKEW_SECS)?).ok()
+}
+
 /// Publication round trips for one entry (the original reservation counts as the
 /// first; `Operations::publish_issuance` refuses past `PUBLISH_ATTEMPTS`).
 const PUBLISH_ROUNDS: usize = 4;
@@ -164,6 +179,14 @@ pub(crate) async fn run_stages(
     if grant.scope.pairs.is_empty() {
         return Err(AdapterError::CapabilityUnavailable);
     }
+    // ⟨ADR-0008 §17.28 item 1, §17.31 item 2; round-10 audit A1⟩ Signing is CA work:
+    // one fence admission covers the whole pipeline (key, reserve, sign, publish,
+    // install, materialize, and the abandonment on failure), so an uninstall's
+    // acquisition waits for in-flight issuance, and none of it starts while the fence
+    // is held or being acquired (refused before anything is generated or recorded).
+    let _pipeline = ops
+        .fence_admit_pipeline()
+        .map_err(|e| adapter_error_of(&e))?;
     // The binding minted at resolve (§17.21 item 1), from the operation's intent; a
     // re-issue (continuing work, no operation) restores the grant's live bindings
     // instead (§17.22 item 5).
@@ -267,8 +290,8 @@ async fn stages_after_key(
         subject_registered: true,
         critical_option: false,
     };
-    let valid_after = Timestamp::from_second(now.as_second() - VALID_AFTER_SKEW_SECS)
-        .map_err(|_| AdapterError::Protocol("validity_start_out_of_range".to_owned()))?;
+    let valid_after = validity_start(now, grant.starts_at)
+        .ok_or_else(|| AdapterError::Protocol("validity_start_out_of_range".to_owned()))?;
     let env = ops.environment().clone();
     let mut published: Vec<(IssuanceEntry, String)> = Vec::new();
     for (n, pair) in grant.scope.pairs.iter().enumerate() {
@@ -297,6 +320,8 @@ async fn stages_after_key(
         // 3. sign, 4. publish (with the re-reservation round trips).
         let mut done = None;
         for _ in 0..PUBLISH_ROUNDS {
+            #[cfg(debug_assertions)]
+            ops.debug_sign_pause().await;
             let cert = sign(issuer, &entry, &key.public_key, limit_of(ops)).await?;
             receipt(stage::SIGN).await?;
             match ops
@@ -494,6 +519,8 @@ fn issuer_store_reason(why: &str) -> Option<&'static str> {
     [
         reason::ISSUER_STORE_LOCKED,
         reason::ISSUER_STORE_UNAVAILABLE,
+        // ⟨ADR-0008 §17.28 item 6⟩
+        reason::ISSUER_STORE_ACCESS_DENIED,
     ]
     .into_iter()
     .find(|r| *r == why)
@@ -517,4 +544,55 @@ pub fn issuer_sign_failure_reason(e: &AdapterError) -> Option<&'static str> {
         issuer_store_reason(store)
             .unwrap_or(heimdall_contract::envelope::reason::ISSUER_UNAVAILABLE),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use heimdall_contract::Timestamp;
+
+    /// A2-Q1: within the grant's first second, the span to any deadline stays within the
+    /// issuer's ceiling (`deadline - starts_at + 60 s`); later, the start follows `now`.
+    #[test]
+    fn validity_start_never_exceeds_the_issuers_ceiling() {
+        let starts_at: Timestamp = "2026-11-13T10:00:00.400Z".parse().unwrap();
+        let deadline: Timestamp = "2026-11-13T12:00:00Z".parse().unwrap();
+        for now in ["2026-11-13T10:00:00.400Z", "2026-11-13T10:00:00.999Z"] {
+            let now: Timestamp = now.parse().unwrap();
+            let after = super::validity_start(now, starts_at).unwrap();
+            let span = deadline.duration_since(after);
+            let ceiling = deadline.duration_since(starts_at)
+                + jiff::SignedDuration::from_secs(super::VALID_AFTER_SKEW_SECS);
+            assert!(span <= ceiling, "{now}: {span:?} > {ceiling:?}");
+        }
+        let later: Timestamp = "2026-11-13T11:00:30.7Z".parse().unwrap();
+        assert_eq!(
+            super::validity_start(later, starts_at).unwrap(),
+            "2026-11-13T10:59:30Z".parse::<Timestamp>().unwrap()
+        );
+    }
+}
+
+#[cfg(test)]
+mod store_reason_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    /// ⟨ADR-0008 §17.28 item 6⟩ A refused activation carries the issuer's access-list
+    /// denial as its own reason (never `issuer_store_locked`, never `issuer_unavailable`).
+    #[test]
+    fn sign_failure_carries_the_access_denial() {
+        use heimdall_contract::envelope::reason;
+        for r in [
+            reason::ISSUER_STORE_ACCESS_DENIED,
+            reason::ISSUER_STORE_LOCKED,
+            reason::ISSUER_STORE_UNAVAILABLE,
+        ] {
+            let e = AdapterError::Unavailable(format!(
+                "{ISSUER_SIGN_FAILED}{ISSUER_SIGN_FAILED_SEP}{}",
+                issuer_store_reason(r).unwrap()
+            ));
+            assert_eq!(issuer_sign_failure_reason(&e), Some(r));
+        }
+    }
 }

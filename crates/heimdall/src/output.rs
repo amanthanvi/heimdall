@@ -124,6 +124,11 @@ pub fn emit<T: serde::Serialize>(envelope: &Envelope<T>, json: bool) {
         if let Some(msg) = field(error, "message") {
             eprintln!("error: {}", sanitize_for_terminal(&msg));
         }
+        // ⟨M03⟩ The stable reason (`lock_signal_unavailable`, `pair_not_enrolled`, …)
+        // is part of what the owner acts on; `emit_rendered` prints it the same way.
+        if let Some(reason) = field(error, "reason") {
+            eprintln!("reason: {}", sanitize_for_terminal(&reason));
+        }
         if let Some(effect) = field(error, "effect_status") {
             eprintln!("effect: {}", sanitize_for_terminal(&effect));
         }
@@ -131,6 +136,9 @@ pub fn emit<T: serde::Serialize>(envelope: &Envelope<T>, json: bool) {
         && let Ok(text) = serde_json::to_string_pretty(&data)
     {
         println!("{}", sanitize_for_terminal(&text));
+        for line in m03_lines(&data) {
+            println!("{}", sanitize_for_terminal(&line));
+        }
     }
     if let Some(next) = value.get("next").filter(|n| !n.is_null()) {
         let mut line = format!("next: {}", field(next, "action").unwrap_or_default());
@@ -210,6 +218,11 @@ pub fn emit_rendered(envelope: &Envelope<serde_json::Value>, json: bool, human: 
     println!("{}", sanitize_for_terminal(&head));
     if !human.trim().is_empty() {
         println!("{}", sanitize_for_terminal(human.trim_end()));
+    }
+    // ⟨M03⟩ `destination show|list`: each managed pair's connection policy, in the
+    // runtime's own words (ADR-0008 §17.25 item 19; D9 item 1).
+    for line in destination_lines(&envelope.data) {
+        println!("{}", sanitize_for_terminal(&line));
     }
     let field =
         |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_owned);
@@ -569,7 +582,167 @@ pub fn render_doctor(report: &serde_json::Value) -> String {
     out
 }
 
+// ---- ⟨M03⟩ wave 5 (U12): the human rendering of the M03 access results. `--json`
+// prints the envelope only ([`emit`]); human mode adds these lines to the data it
+// already prints. Nothing here decides anything: every sentence the runtime wrote
+// (the deadline wording, a warning such as `signal_unverified`) is shown verbatim.
+
+/// The revoke note code `ordinary_connections_not_closed` (`RevokeNote`, F15).
+pub(crate) const ORDINARY_CONNECTIONS_NOT_CLOSED: &str = "ordinary_connections_not_closed";
+
+/// What the fixed revoke note `ordinary_connections_not_closed` says (ADR-0008 D7
+/// item 2 step 6): connections that ordinary `ssh` opened through the managed
+/// configuration, and any unmanaged connection, are not closed. The contract carries
+/// the code only, so this text is the CLI's (and the TUI's) one rendering of it.
+pub(crate) const ORDINARY_CONNECTIONS_NOTE: &str = "Connections that ordinary ssh opened through Heimdall's configuration, and connections Heimdall did not start, are not closed.";
+
+/// The text of a revoke note code; a code this build does not know is shown as is.
+#[must_use]
+pub(crate) fn revoke_note_text(code: &str) -> String {
+    if code == ORDINARY_CONNECTIONS_NOT_CLOSED {
+        ORDINARY_CONNECTIONS_NOTE.to_owned()
+    } else {
+        code.to_owned()
+    }
+}
+
+/// One owned connection of a revoke's cascade, for people (F15).
+fn owned_connection_line(c: &serde_json::Value) -> String {
+    let state = s(c, "state");
+    let meaning = match state {
+        "closed" => "",
+        "closing" => " (being closed)",
+        "unverified" => {
+            " (not signalled: its process could not be verified, so it is treated as unmanaged)"
+        }
+        _ => "",
+    };
+    format!("  {} ({}): {state}{meaning}", s(c, "id"), s(c, "kind"))
+}
+
+/// The mechanism name of a managed-certificate binding and preference (D1).
+const MANAGED_CERTIFICATE: &str = "managed_certificate";
+
+/// What a managed result or pair shows when the runtime reports no connection policy
+/// (after a restart, an attached binding; ADR-0008 §17.25 item 18): never a guess.
+pub(crate) const CONNECTION_POLICY_UNKNOWN: &str =
+    "Connection policy: unknown (the runtime reports none for this result).";
+
+/// The lines of a `ConnectionPolicyReport` (`{existing, multiplexing, wording}`): the
+/// policy, then the runtime's own D8 wording, verbatim.
+fn connection_policy_lines(cp: &serde_json::Value, head: &str) -> Vec<String> {
+    let mut out = vec![format!(
+        "{head}existing {}, multiplexing {}.",
+        s(cp, "existing"),
+        s(cp, "multiplexing")
+    )];
+    let wording = s(cp, "wording");
+    if !wording.is_empty() {
+        out.push(wording.to_owned());
+    }
+    out
+}
+
+/// ⟨§17.25 item 19⟩ The connection-policy lines of `destination show` (one destination
+/// object) or `destination list` / `inspect destinations` (the runtime's `items[]`,
+/// `Operations::destinations_view`; ⟨§17.27 item 9⟩ and the older `destinations[]`): for each
+/// destination whose `preference` names the managed mechanism, the policy and the
+/// runtime's wording (`preference.connection_policy`) verbatim, or that it is unknown.
+/// A destination without a managed preference (every M02 listing) gives no line.
+#[must_use]
+pub(crate) fn destination_lines(data: &serde_json::Value) -> Vec<String> {
+    let one = |d: &serde_json::Value| -> Vec<String> {
+        let Some(p) = d.get("preference").filter(|p| p.is_object()) else {
+            return Vec::new();
+        };
+        let name = match (s(d, "alias"), s(d, "destination_id")) {
+            ("", id) => id.to_owned(),
+            (alias, _) => alias.to_owned(),
+        };
+        match p.get("connection_policy").filter(|c| c.is_object()) {
+            Some(cp) => connection_policy_lines(cp, &format!("{name}: connection policy: ")),
+            None if s(p, "mechanism") == MANAGED_CERTIFICATE => vec![format!(
+                "{name}: connection policy unknown (the runtime reports none for this pair)."
+            )],
+            None => Vec::new(),
+        }
+    };
+    if let Some(items) = data
+        .get("items")
+        .or_else(|| data.get("destinations"))
+        .and_then(serde_json::Value::as_array)
+    {
+        return items.iter().flat_map(one).collect();
+    }
+    if data.get("destination_id").is_some() {
+        return one(data);
+    }
+    Vec::new()
+}
+
+/// The M03 lines of a success result's data, after the data itself (human mode):
+///
+/// * `connection_policy` (an `ensure` result): the policy in force and the runtime's
+///   own deadline wording, verbatim; a managed result without it says it is unknown;
+/// * `lock_behavior` and `connection` (the `access lock-behavior` and
+///   `connection-policy` results, §17.25 item 22): this policy's stored values;
+/// * a revoke result's `owned_connections` (how many closed, how many remain, each
+///   with its state), its `remote_effects` residuals and its fixed `notes`;
+/// * `inspect destinations`: [`destination_lines`].
+///
+/// Data without those keys (every M01 and M02 result) gives no lines.
+#[must_use]
+pub(crate) fn m03_lines(data: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(cp) = data.get("connection_policy").filter(|c| c.is_object()) {
+        out.extend(connection_policy_lines(cp, "Connection policy: "));
+    } else if s(data, "credential_mechanism") == MANAGED_CERTIFICATE {
+        out.push(CONNECTION_POLICY_UNKNOWN.to_owned());
+    }
+    if let Some(b) = data
+        .get("lock_behavior")
+        .and_then(serde_json::Value::as_str)
+    {
+        out.push(format!("Lock behaviour: {b}."));
+    }
+    if let Some(c) = data.get("connection").filter(|c| c.is_object()) {
+        out.push(format!(
+            "Connections: existing {}, multiplexing {}.",
+            s(c, "existing"),
+            s(c, "multiplexing")
+        ));
+    }
+    out.extend(destination_lines(data));
+    let connections = list(data, "owned_connections");
+    let notes = list(data, "notes");
+    if !connections.is_empty() || !notes.is_empty() {
+        let closed = connections
+            .iter()
+            .filter(|c| s(c, "state") == "closed")
+            .count();
+        let remaining = connections.len() - closed;
+        out.push(format!(
+            "Owned connections: {closed} closed, {remaining} remaining."
+        ));
+        out.extend(connections.iter().map(owned_connection_line));
+    }
+    for r in list(data, "remote_effects") {
+        out.push(format!(
+            "Remote residual: {}/{} until {} ({}).",
+            s(r, "destination"),
+            s(r, "account"),
+            s(r, "latest_valid_before"),
+            s(r, "status")
+        ));
+    }
+    for n in notes.iter().filter_map(serde_json::Value::as_str) {
+        out.push(format!("Note: {}", revoke_note_text(n)));
+    }
+    out
+}
+
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -694,5 +867,283 @@ mod tests {
     #[test]
     fn sanitizer_drops_escapes() {
         assert_eq!(sanitize_for_terminal("ok\u{1b}[31mred\u{7}"), "okred");
+    }
+
+    // ---- ⟨M03⟩ wave 5 (U12): the access renderings ---------------------------------------
+
+    use heimdall_contract::managed::{
+        ConnectionKind, ConnectionPolicyReport, ExistingConnectionsMode, MultiplexingMode,
+        OwnedConnectionReport, OwnedConnectionReportState, RevokeNote,
+    };
+    use heimdall_contract::provider::IdentitySelection;
+    use heimdall_contract::request::RevokeData;
+
+    fn conn(
+        id: &str,
+        kind: ConnectionKind,
+        state: OwnedConnectionReportState,
+    ) -> OwnedConnectionReport {
+        OwnedConnectionReport {
+            id: heimdall_contract::ids::ConnectionId::parse(id).unwrap(),
+            kind,
+            state,
+        }
+    }
+
+    /// `access ensure --strict`: the policy the runtime reports is shown with the D8
+    /// strict wording **as the runtime wrote it** (the `localenv` constants, never
+    /// retyped here), for each selection form; a graceful result shows the graceful
+    /// wording, never the strict one.
+    #[test]
+    fn access_ensure_strict_reports_strict_disconnect() {
+        use heimdall_localenv::projection::plan::{
+            DEADLINE_STRICT_EXCLUSIVE, DEADLINE_STRICT_NOT_EXCLUSIVE, deadline_wording,
+        };
+        for (selection, constant) in [
+            (IdentitySelection::Exclusive, DEADLINE_STRICT_EXCLUSIVE),
+            (
+                IdentitySelection::NotExclusive,
+                DEADLINE_STRICT_NOT_EXCLUSIVE,
+            ),
+            (
+                IdentitySelection::Undetermined,
+                DEADLINE_STRICT_NOT_EXCLUSIVE,
+            ),
+        ] {
+            let wording = deadline_wording(selection, ExistingConnectionsMode::Strict);
+            assert_eq!(wording, constant, "{selection:?}");
+            let report = ConnectionPolicyReport {
+                existing: ExistingConnectionsMode::Strict,
+                multiplexing: MultiplexingMode::Disabled,
+                wording: wording.to_owned(),
+            };
+            let data = serde_json::json!({ "connection_policy": report });
+            let lines = m03_lines(&data);
+            assert_eq!(
+                lines,
+                vec![
+                    "Connection policy: existing strict, multiplexing disabled.".to_owned(),
+                    constant.to_owned()
+                ],
+                "{selection:?}"
+            );
+        }
+        let graceful = ConnectionPolicyReport {
+            existing: ExistingConnectionsMode::Graceful,
+            multiplexing: MultiplexingMode::OwnedMasters,
+            wording: deadline_wording(
+                IdentitySelection::Exclusive,
+                ExistingConnectionsMode::Graceful,
+            )
+            .to_owned(),
+        };
+        let lines = m03_lines(&serde_json::json!({ "connection_policy": graceful }));
+        assert!(lines[0].contains("existing graceful"), "{lines:?}");
+        assert!(!lines.join("\n").contains(DEADLINE_STRICT_EXCLUSIVE));
+        // A result without the field (M01/M02, or a runtime that does not report it)
+        // says nothing about connections: never a claim.
+        assert!(m03_lines(&serde_json::json!({ "binding_id": "bind_x" })).is_empty());
+        assert!(m03_lines(&serde_json::json!({ "connection_policy": null })).is_empty());
+    }
+
+    /// F15: a revoke result lists each owned connection with its state, how many are
+    /// closed and how many remain, and always carries the ordinary-`ssh` note; an
+    /// unverified connection is said to be unsignalled.
+    #[test]
+    fn revoke_output_lists_owned_connections_and_ordinary_note() {
+        use OwnedConnectionReportState as S;
+        let revoke = RevokeData {
+            local_applied: true,
+            remote_pending: Vec::new(),
+            latest_possible_credential_expiry: None,
+            remote_effects: Vec::new(),
+            owned_connections: vec![
+                conn(
+                    "conn_00000000000000000000000000000001",
+                    ConnectionKind::Dedicated,
+                    S::Closed,
+                ),
+                conn(
+                    "conn_00000000000000000000000000000002",
+                    ConnectionKind::Master,
+                    S::Closing,
+                ),
+                conn(
+                    "conn_00000000000000000000000000000003",
+                    ConnectionKind::Dedicated,
+                    S::Unverified,
+                ),
+            ],
+            notes: vec![RevokeNote::OrdinaryConnectionsNotClosed],
+            requested_at: None,
+            committed_at: None,
+        };
+        let data = serde_json::to_value(&revoke).unwrap();
+        let lines = m03_lines(&data);
+        assert_eq!(lines[0], "Owned connections: 1 closed, 2 remaining.");
+        assert!(lines[1].contains("conn_00000000000000000000000000000001 (dedicated): closed"));
+        assert!(lines[2].contains("conn_00000000000000000000000000000002 (master): closing"));
+        assert!(
+            lines[3].contains("(dedicated): unverified") && lines[3].contains("not signalled"),
+            "{}",
+            lines[3]
+        );
+        assert_eq!(
+            lines.last().unwrap(),
+            &format!("Note: {ORDINARY_CONNECTIONS_NOTE}")
+        );
+        assert!(ORDINARY_CONNECTIONS_NOTE.contains("ordinary ssh"));
+        // The note code the text is keyed by is the contract's (never a typo).
+        assert_eq!(
+            serde_json::to_value(RevokeNote::OrdinaryConnectionsNotClosed).unwrap(),
+            serde_json::json!(ORDINARY_CONNECTIONS_NOT_CLOSED)
+        );
+        // No owned connection (a managed revoke before any connect) still carries the
+        // note; an existing-access revoke (no M03 keys) prints nothing extra.
+        let none = RevokeData {
+            owned_connections: Vec::new(),
+            ..revoke
+        };
+        let lines = m03_lines(&serde_json::to_value(&none).unwrap());
+        assert_eq!(lines[0], "Owned connections: 0 closed, 0 remaining.");
+        assert!(lines.iter().any(|l| l.starts_with("Note: ")));
+        let m02 = RevokeData {
+            notes: Vec::new(),
+            ..none
+        };
+        assert!(m03_lines(&serde_json::to_value(&m02).unwrap()).is_empty());
+        // An unknown future note is shown by its code, not dropped.
+        assert_eq!(revoke_note_text("future_note"), "future_note");
+    }
+
+    /// ⟨§17.25 item 22⟩ The `access lock-behavior` and `connection-policy` results carry
+    /// this policy's `lock_behavior` and `connection {existing, multiplexing}` (the keys
+    /// R2's `policy_view` emits); both are shown, from the contract's own serde forms. An
+    /// M01 policy result (the five keys) shows nothing extra.
+    #[test]
+    fn a_policy_result_shows_the_lock_behaviour_when_it_carries_one() {
+        use heimdall_contract::managed::{ConnectionPolicy, LockBehavior};
+        let data = serde_json::json!({
+            "policy_id": "pol",
+            "revision": 3,
+            "paused": false,
+            "cutoff_at": null,
+            "changed": true,
+            "lock_behavior": LockBehavior::RevokeOnLock,
+            "connection": ConnectionPolicy {
+                existing: ExistingConnectionsMode::Strict,
+                multiplexing: MultiplexingMode::OwnedMasters,
+            },
+        });
+        assert_eq!(
+            m03_lines(&data),
+            vec![
+                "Lock behaviour: revoke_on_lock.".to_owned(),
+                "Connections: existing strict, multiplexing owned_masters.".to_owned(),
+            ]
+        );
+        let m01 = serde_json::json!({
+            "policy_id": "pol", "revision": 3, "paused": true, "cutoff_at": null, "changed": true,
+        });
+        assert!(m03_lines(&m01).is_empty());
+    }
+
+    /// ⟨§17.25 items 18 and 19⟩ `destination show|list` shows a managed pair's
+    /// `preference.connection_policy` wording verbatim, and "unknown" for a managed
+    /// preference the runtime reports no policy for; an existing-access preference and
+    /// an M02 destination show nothing. A managed `ensure` result without
+    /// `connection_policy` (after a restart) says it is unknown, never a claim.
+    #[test]
+    fn destination_listing_shows_the_runtimes_connection_policy_wording() {
+        use heimdall_localenv::projection::plan::DEADLINE_STRICT_NOT_EXCLUSIVE;
+        let report = ConnectionPolicyReport {
+            existing: ExistingConnectionsMode::Strict,
+            multiplexing: MultiplexingMode::Disabled,
+            wording: DEADLINE_STRICT_NOT_EXCLUSIVE.to_owned(),
+        };
+        let managed = serde_json::json!({
+            "destination_id": "h2", "alias": "lab2",
+            "preference": {"mechanism": "managed_certificate", "projection": "pending",
+                           "connection_policy": report},
+        });
+        let unknown = serde_json::json!({
+            "destination_id": "h3", "alias": "lab3",
+            "preference": {"mechanism": "managed_certificate", "projection": "pending"},
+        });
+        let existing = serde_json::json!({
+            "destination_id": "h4", "alias": "lab4",
+            "preference": {"mechanism": "existing", "projection": "current"},
+        });
+        let m02 = serde_json::json!({"destination_id": "h5", "alias": "lab5"});
+        let shown = vec![
+            "lab2: connection policy: existing strict, multiplexing disabled.".to_owned(),
+            DEADLINE_STRICT_NOT_EXCLUSIVE.to_owned(),
+        ];
+        assert_eq!(destination_lines(&managed), shown);
+        let list = serde_json::json!({"destinations": [managed, unknown, existing, m02.clone()]});
+        let lines = destination_lines(&list);
+        assert_eq!(lines[..2], shown[..]);
+        assert_eq!(
+            lines[2],
+            "lab3: connection policy unknown (the runtime reports none for this pair)."
+        );
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(destination_lines(&m02).is_empty());
+        assert!(destination_lines(&serde_json::json!({"destinations": []})).is_empty());
+        // `inspect destinations` (through `emit`) shows the same lines.
+        assert_eq!(m03_lines(&list), lines);
+        // A managed ensure result without the field.
+        let restarted = serde_json::json!({
+            "binding_id": "bind_x", "credential_mechanism": "managed_certificate",
+        });
+        assert_eq!(
+            m03_lines(&restarted),
+            vec![CONNECTION_POLICY_UNKNOWN.to_owned()]
+        );
+    }
+
+    /// ⟨ADR-0008 §17.27 item 9; W5-R06⟩ `destination list` and `inspect destinations`
+    /// render the runtime's real list shape, `{"items": [...]}`
+    /// (`Operations::destinations_view`). The items below are a real `inspect
+    /// destinations` answer, captured from the CLI-started runtime of
+    /// `e2e_cli_m03 access::access_ensure_strict_reports_strict_disconnect` (lab2: a
+    /// managed pair in a saved policy, its policy computed) and of `access::
+    /// destination_prefer_resolves_alias_and_journals_the_preference` (lab1: a managed
+    /// preference in no saved policy, whose policy cannot be computed, so "unknown";
+    /// seen: observed); those tests assert the same lines from the live answer.
+    #[test]
+    fn destination_list_renders_the_runtimes_items_shape() {
+        let data: serde_json::Value = serde_json::from_str(
+            r#"{"items": [
+            {"account":"deploy","alias":"lab2","definition":"managed","destination_id":"h2",
+             "hostname":"127.0.0.1","identity_id":"idn_99524804984d960a168fe75318215824",
+             "label":null,"port":null,
+             "preference":{"connection_policy":{"existing":"graceful","multiplexing":"disabled",
+                 "wording":"New connections stop at the deadline; existing sessions may stay connected."},
+                 "mechanism":"managed_certificate","projection":{"generation":1,"state":"applied"}},
+             "revision":1,"updated_at":"2026-11-13T09:26:30.495429Z"},
+            {"account":"deploy","alias":"lab1","definition":"managed","destination_id":"dst-lab1",
+             "hostname":"lab1.example.invalid","identity_id":"idn_81549ea3ed849236f3ca5f6b607d3572",
+             "label":null,"port":null,
+             "preference":{"mechanism":"managed_certificate","projection":{"state":"pending"}},
+             "revision":1,"updated_at":"2026-11-13T09:26:30.495416Z"},
+            {"alias":"seen","definition":"observed","destination_id":"seen","label":null,
+             "revision":1,"updated_at":"2026-11-13T09:26:30.503668Z"}
+            ]}"#,
+        )
+        .unwrap();
+        let expected = vec![
+            "lab2: connection policy: existing graceful, multiplexing disabled.".to_owned(),
+            "New connections stop at the deadline; existing sessions may stay connected."
+                .to_owned(),
+            "lab1: connection policy unknown (the runtime reports none for this pair).".to_owned(),
+        ];
+        assert_eq!(destination_lines(&data), expected);
+        // `inspect destinations` (through `emit`) shows the same lines.
+        assert_eq!(m03_lines(&data), expected);
+        // The older `destinations` spelling still reads.
+        let older = serde_json::json!({ "destinations": data["items"].clone() });
+        assert_eq!(destination_lines(&older), expected);
+        assert!(destination_lines(&serde_json::json!({"items": []})).is_empty());
     }
 }

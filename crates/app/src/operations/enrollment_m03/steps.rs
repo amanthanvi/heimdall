@@ -30,7 +30,7 @@ use heimdall_store::Txn;
 use super::super::{Emit, Operations, internal, op_to};
 use super::{
     adapter, journal_of, move_record, new_step_token, next, pair_of, put_journal, receipt, refuse,
-    result_of, settle_ok, settle_open, store_conflict,
+    result_for, settle_ok, settle_open, store_conflict,
 };
 use crate::context::Caller;
 use crate::enrollment::{
@@ -316,6 +316,20 @@ fn next_of(
 ) -> Next {
     use EnrollmentState as S;
     let j = &ctx.journal;
+    // ⟨ADR-0008 §17.28 item 3⟩ The `late_write` absence check reads, once per step,
+    // until it settles (`verify::record_late_write_check`).
+    if super::verify::late_write_ctx(ctx) {
+        return if ctx.op.state.is_settled() {
+            Next::Nothing
+        } else {
+            Next::Issue {
+                stage: RemoteStage::Inspect,
+                purpose: StepPurpose::Reconcile,
+                terminate: false,
+                removal: None,
+            }
+        };
+    }
     if let Some(r) = &j.reconcile {
         // A fence the last classification asked for (`Fence`, or `Terminate` past the
         // holder's not-after), on the same unconsumed reading.
@@ -553,10 +567,17 @@ impl Operations {
                     terminate,
                     removal,
                 } => {
-                    return self
-                        .issue(&ctx, stage, purpose, terminate, removal)
-                        .await
-                        .map(|s| StepAnswer::Step { step: Box::new(s) });
+                    let issued = self.issue(&ctx, stage, purpose, terminate, removal).await;
+                    if let Err(e) = &issued
+                        && e.code != Code::RequestConflict
+                        && super::verify::late_write_ctx(&ctx)
+                    {
+                        // ⟨§17.28 item 3⟩ A check whose read cannot be issued (route or
+                        // endpoint changed, no client) ends with that refusal, keeping
+                        // the residual; the owner runs it again.
+                        self.settle_late_write_check(&ctx.op.id, e).await?;
+                    }
+                    return issued.map(|s| StepAnswer::Step { step: Box::new(s) });
                 }
                 Next::Verify => {
                     self.start_initial_verification(id).await?;
@@ -582,7 +603,7 @@ impl Operations {
                     .result
                     .clone()
                     .and_then(|v| serde_json::from_value(v).ok())
-                    .unwrap_or_else(|| result_of(&ctx.record, None));
+                    .unwrap_or_else(|| result_for(&ctx.record, Some(&ctx.alias), None));
                 Ok(StepAnswer::Done {
                     result: Box::new(result),
                 })
@@ -599,17 +620,18 @@ impl Operations {
             .with_next(next("reconcile", Some(&ctx.op.id)))
             .with_operation(ctx.op.id.clone())),
             OperationState::Running | OperationState::OutcomeUnknown => Ok(StepAnswer::Done {
-                result: Box::new(result_of(&ctx.record, None)),
+                result: Box::new(result_for(&ctx.record, Some(&ctx.alias), None)),
             }),
             _ => {
                 let caller = Caller::unattended(ctx.op.key.caller.clone());
                 match self.enrollment_respond(&ctx.op.id, &caller).await {
-                    Ok(c) => Ok(StepAnswer::Done {
-                        result: Box::new(
-                            serde_json::from_value(c.data)
-                                .unwrap_or_else(|_| result_of(&ctx.record, None)),
-                        ),
-                    }),
+                    Ok(c) => {
+                        Ok(StepAnswer::Done {
+                            result: Box::new(serde_json::from_value(c.data).unwrap_or_else(|_| {
+                                result_for(&ctx.record, Some(&ctx.alias), None)
+                            })),
+                        })
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -806,6 +828,22 @@ impl Operations {
             step::check_effective(&out, &remote.pins).map_err(|_| unpinnable())?;
             checked = Some(gss);
         }
+        // ⟨§17.25 item 3⟩ Test configuration, debug builds only: the test form's pause
+        // points, inserted into the release script the runtime just built (the pins,
+        // the command and the token are unchanged). Before anything is written, so an
+        // unusable directory or a failed insertion refuses the step, never runs it
+        // unpaused.
+        #[cfg(debug_assertions)]
+        if let Some(pause) = self.script_pause() {
+            let dir = pause.map_err(|()| {
+                OpError::driver_unavailable(
+                    "the test configuration's script pause directory is not usable",
+                )
+            })?;
+            remote.script =
+                heimdall_registry::script::test_form::insert_pause_points(&remote.script, &dir)
+                    .map_err(|_| internal("the test form's pause points cannot be inserted"))?;
+        }
         let issued = IssuedStep {
             stage,
             token: token.clone(),
@@ -984,9 +1022,25 @@ impl Operations {
                 record_result(tx, emit, &mut ctx, &rec).map(Ok)
             })
             .await??;
+        // ⟨ADR-0008 §17.28 item 1, §17.31 item 2 (W5-C02)⟩ The result above is recorded
+        // durably whatever the fence. Its effectful follow-through (the initial
+        // verification: certificates, the verifier's login) is new work: admitted only
+        // while no uninstall holds the fence or is acquiring it, and held to its end.
+        // Refused, it is deferred: the record stays `applied_unverified` with its apply
+        // operation running and no step outstanding (the existing state, nothing new
+        // stored), so a purge never runs it, and after the fence is lifted the next
+        // `enroll step` (its `Next::Verify`) or `enroll reconcile` runs it.
         if verify_after {
-            self.start_initial_verification(id).await?;
-            self.verify_operation(id).await?;
+            match self.uninstall_fence_admit() {
+                Ok(_admission) => {
+                    self.start_initial_verification(id).await?;
+                    self.verify_operation(id).await?;
+                }
+                Err(_) => tracing::info!(
+                    operation = %id,
+                    "step result recorded; the initial verification waits until the uninstall fence is lifted"
+                ),
+            }
         }
         let oid = id.clone();
         let ctx = self.write(move |tx, _| load_ctx(tx, &oid)).await??;
@@ -1006,7 +1060,7 @@ impl Operations {
                     .result
                     .clone()
                     .and_then(|v| serde_json::from_value(v).ok())
-                    .unwrap_or_else(|| result_of(&ctx.record, None)),
+                    .unwrap_or_else(|| result_for(&ctx.record, Some(&ctx.alias), None)),
             )
         });
         let error = (settled && !succeeded)
@@ -1052,12 +1106,19 @@ impl Operations {
     /// change) or a damaged line (`held`).
     async fn removal_without_step(&self, ctx: &Ctx, absent: bool) -> Result<(), OpError> {
         let oid = ctx.op.id.clone();
+        let expected = ctx.record.state;
         let retention = self.retention();
         let now = self.narrowing_now().await;
         self.write(move |tx, emit| {
             let Ok(mut ctx) = load_ctx(tx, &oid)? else {
                 return Ok(());
             };
+            // ⟨ADR-0008 §17.32 item 4; converge⟩ Once per operation: a concurrent caller
+            // that already finished it (the record moved on, or the operation settled)
+            // leaves nothing to do here; this caller answers its outcome.
+            if ctx.record.state != expected || ctx.op.state.is_settled() {
+                return Ok(());
+            }
             if absent {
                 removal_confirmed(tx, emit, &mut ctx, now, retention)
             } else {
@@ -1211,6 +1272,19 @@ fn record_result(
     let now = r.now;
     let eid = ctx.record.id.to_string();
     let marker = ctx.record.marker.clone();
+    if super::verify::late_write_ctx(ctx) {
+        super::verify::record_late_write_check(
+            tx,
+            emit,
+            ctx,
+            r.issued.stage,
+            r.class,
+            r.stdout,
+            now,
+            r.retention,
+        )?;
+        return Ok(false);
+    }
     if ctx.journal.reconcile.is_some() {
         return record_reconcile(tx, emit, ctx, r);
     }
@@ -1626,10 +1700,7 @@ fn removal_confirmed(
     let mut updated = ctx.record.clone();
     updated.updated_at = now;
     updated.hold = None;
-    move_ctx(tx, emit, ctx, event, &updated)?;
-    if ctx.foreign.is_none() {
-        tx.remove_issuing_ca(&pair_of(&ctx.record), &ctx.record.ca_fingerprint, now)?;
-    }
+    finish_removal(tx, emit, ctx, event, updated, now)?;
     if rollback {
         let err = OpError::new(
             Code::CapabilityUnavailable,
@@ -1639,10 +1710,60 @@ fn removal_confirmed(
         .with_effect(EffectStatus::Applied);
         settle_open(tx, emit, &mut ctx.op, &err, now, retention)
     } else {
-        let data = serde_json::to_value(result_of(&ctx.record, None))
+        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
             .map_err(|_| store_conflict("result"))?;
         settle_ok(tx, emit, &mut ctx.op, data, now, retention)
     }
+}
+
+/// ⟨ADR-0008 §17.31 item 3; W5-C03⟩ The one post-removal finalization every route to a
+/// confirmed removal of the line uses (the removal and rollback steps, a removal that
+/// found nothing to remove, reconcile's `applied`, and manual recovery's line absent),
+/// each with its own `event` and `updated` record, in the caller's transaction:
+/// * ⟨§17.29 item 2, §17.30 items 2-3⟩ a removal admitted from `withdrawn` or
+///   `abandoned` (its persisted removal origin, §17.30 item 5) clears the `late_write`
+///   residual in the same transaction as the record's move, when the removal's own
+///   reading settles it (D5 §6.7; `verify::removal_settles_late_write`); otherwise the
+///   residual is kept;
+/// * the record moves (`event`);
+/// * ⟨§17.29 items 9-10⟩ the CA leaves the pair's issuing set unless another enrollment
+///   of the pair under it is still `verified` or `reverifying`.
+fn finish_removal(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    ctx: &mut Ctx,
+    event: EnrollmentEventKind,
+    mut updated: EnrollmentRecord,
+    now: Timestamp,
+) -> heimdall_store::Result<()> {
+    if ctx.foreign.is_none()
+        && let Some(residual) = &ctx.record.late_write
+        && ctx.record.removal_origin.as_ref().is_some_and(|o| {
+            matches!(
+                o.state,
+                EnrollmentState::Withdrawn | EnrollmentState::Abandoned
+            )
+        })
+        && super::verify::removal_settles_late_write(&ctx.journal, residual)
+    {
+        updated.late_write = None;
+    }
+    move_ctx(tx, emit, ctx, event, &updated)?;
+    if ctx.foreign.is_none() {
+        let pair = pair_of(&ctx.record);
+        let still_trusted = tx.enrollments_for_pair(&pair)?.iter().any(|o| {
+            o.id != ctx.record.id
+                && o.ca_fingerprint == ctx.record.ca_fingerprint
+                && matches!(
+                    o.state,
+                    EnrollmentState::Verified | EnrollmentState::Reverifying
+                )
+        });
+        if !still_trusted {
+            tx.remove_issuing_ca(&pair, &ctx.record.ca_fingerprint, now)?;
+        }
+    }
+    Ok(())
 }
 
 /// The reconcile's purpose for the uncertain step.
@@ -1842,7 +1963,7 @@ fn record_reconcile(
                     )?;
                     if !r.approval_valid {
                         let data = serde_json::to_value({
-                            let mut res = result_of(&ctx.record, None);
+                            let mut res = result_for(&ctx.record, Some(&ctx.alias), None);
                             res.commands =
                                 vec![format!("heimdall enroll verify {}", ctx.record.id)];
                             res
@@ -1980,8 +2101,14 @@ fn record_reconcile(
                 updated.hold = None;
                 append_confirmed(tx, ctx, now)?;
             }
-            move_ctx(tx, emit, ctx, event, &updated)?;
-            let data = serde_json::to_value(result_of(&ctx.record, None))
+            if !present && purpose != RecoveryPurpose::Append {
+                // ⟨§17.31 item 3⟩ The line of a removal or rollback is absent: the
+                // shared post-removal finalization, with manual recovery's own event.
+                finish_removal(tx, emit, ctx, event, updated, now)?;
+            } else {
+                move_ctx(tx, emit, ctx, event, &updated)?;
+            }
+            let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
                 .map_err(|_| store_conflict("result"))?;
             if ctx.record.state.is_final() || ctx.record.state == EnrollmentState::AppliedUnverified
             {

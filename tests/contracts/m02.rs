@@ -122,6 +122,8 @@ fn one_of_every_request() -> Vec<Request> {
         "schemas/examples/request.issuer.unlock.json",
         "schemas/examples/request.issuer.retire.json",
         "schemas/examples/request.issuer.bundle.json",
+        // ⟨ADR-0008 §17.25 item 8⟩
+        "schemas/examples/request.issuer.bundle-written.json",
         "schemas/examples/request.enrollment.preview.json",
         "schemas/examples/request.enrollment.apply.json",
         "schemas/examples/request.enrollment.verify.json",
@@ -160,6 +162,10 @@ fn one_of_every_request() -> Vec<Request> {
             "op": "catalog", "action": "set_preference", "destination": "dest-lab",
             "account": "deploy", "mechanism": "managed_certificate", "request_id": "req-0209"
         })),
+        // ⟨ADR-0008 §17.27 item 2⟩ the uninstall fence.
+        request(json!({"op": "uninstall_fence", "action": "acquire"})),
+        request(json!({"op": "uninstall_fence", "action": "release"})),
+        request(json!({"op": "uninstall_fence", "action": "retry_remote_revocations"})),
     ]);
     out
 }
@@ -282,7 +288,8 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
                 let preview = matches!(r, Request::Setup(SetupRequest::Preview { .. }));
                 assert_eq!(r.is_effectful(), !preview, "{}", r.kind());
             }
-            "shutdown" => {
+            // ⟨ADR-0008 §17.27 item 2⟩ the uninstall fence is service control too.
+            "shutdown" | "uninstall_fence" => {
                 assert_eq!(
                     r.required_capability(),
                     Some(capability::SERVICE_CONTROL_V1)

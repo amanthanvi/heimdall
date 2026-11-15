@@ -1,0 +1,40 @@
+Heimdall  1 Overview  2 Destinations  3 Profiles [4 Activity] [!!] Needs attention
+Pending decisions
+> [!!] dec_enroll1  enroll_account  expires 09:15:00Z (in 14m)
+  [!!] dec_target1  approve_target_change  expires 09:15:00Z (in 14m)
+Operations
+  [!!] op_held1  setup.apply  outcome_unknown (held)
+  [..] op_run1  ensure  running
+Enrollments
+  [!!] enr_01010101010101010101010101010101  fixture@alpha  held (needs you)
+  [--] enr_02020202020202020202020202020202  fixture@alpha  withdrawn (final) · possible late write
+  [OK] enr_03030303030303030303030303030303  fixture@alpha  verified
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter review · ? help · q quit

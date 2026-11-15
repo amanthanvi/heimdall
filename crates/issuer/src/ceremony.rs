@@ -31,6 +31,24 @@
 //! passphrase is written only through [`Tty`], never to stdout, stderr, a log, an
 //! argument, the store or a request.
 //!
+//! ⟨ADR-0008 §17.27 items 6, 7⟩ **Every read is bounded and cancellable.** Each prompt
+//! ([`Tty::read_answer`]) ends in one of four outcomes: a typed line, end of input, a
+//! cancellation (Ctrl-C) or no answer within the bound the caller gave
+//! [`ControllingTerminal::open`] (the CLI's 120 s prompt timeout). Only a typed line other
+//! than the confirmation word is an ordinary wrong answer, which `written` may ask again;
+//! the other three end the ceremony at once, with no retry: the passphrase's screen region
+//! is cleared, the terminal's mode was already restored by the read, the key material
+//! drops (zeroized), nothing more is sent, and the result is
+//! [`CeremonyError::NotConfirmed`] (exit 3). A terminal whose read timed out answers no
+//! later read, so a late `yes` is never honoured.
+//!
+//! ⟨§17.26 item 6; §17.27 item 4⟩ **The lock disclosure.** A decision carrying
+//! `lock_continuity_once` shows the runtime's conditional text
+//! ([`RegisterDecision::lock_text`], from `inspect capabilities` `lock.disclosure`); without
+//! it nothing is asked and the ceremony ends [`CeremonyError::DisclosureUnavailable`]
+//! (exit 3), so the once-only acknowledgement is recorded only for a decision whose text
+//! was shown. A disclosure kind this build cannot show is refused the same way.
+//!
 //! **S3 (wave-1 escalation U4-Q1).** The public `StoreKind` has no test variant, so
 //! a test-configuration store cannot be put in `IssuerRequest::Register`.
 //! [`RegisterRequest`] carries the full [`SecretStoreKind`];
@@ -40,6 +58,7 @@
 
 use std::io;
 use std::path::Path;
+use std::time::Duration;
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::code::Code;
@@ -88,10 +107,70 @@ pub trait Tty {
     /// # Errors
     /// The terminal cannot be written.
     fn clear_lines(&mut self, lines: usize) -> io::Result<()>;
+
+    /// ⟨ADR-0008 §17.27 items 6, 7⟩ Read one answer (echo off when `hidden`), keeping
+    /// end of input, a cancellation and a timeout apart from a typed line. The
+    /// ceremonies read only through this. The default (a terminal with no cancellation
+    /// or bound of its own, such as a scripted one) is [`Tty::read_line`] or
+    /// [`Tty::read_hidden`], `None` being end of input.
+    ///
+    /// # Errors
+    /// The terminal cannot be read.
+    fn read_answer(&mut self, hidden: bool) -> io::Result<TtyRead> {
+        let line = if hidden {
+            self.read_hidden()?
+        } else {
+            self.read_line()?
+        };
+        Ok(line.map_or(TtyRead::Eof, TtyRead::Line))
+    }
+}
+
+/// ⟨ADR-0008 §17.27 items 6, 7⟩ The outcome of one terminal read ([`Tty::read_answer`]).
+/// Its `Debug` never shows a typed line.
+#[non_exhaustive]
+pub enum TtyRead {
+    /// A typed line, without its line ending.
+    Line(Zeroizing<String>),
+    /// End of input (Ctrl-D at the start of a line; the terminal closed).
+    Eof,
+    /// Ctrl-C.
+    Cancelled,
+    /// No answer within the bound.
+    TimedOut,
+}
+
+impl std::fmt::Debug for TtyRead {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TtyRead::Line(_) => "Line(<typed>)",
+            TtyRead::Eof => "Eof",
+            TtyRead::Cancelled => "Cancelled",
+            TtyRead::TimedOut => "TimedOut",
+        })
+    }
+}
+
+impl TtyRead {
+    /// The typed line; `None` for every other outcome.
+    #[must_use]
+    pub fn into_line(self) -> Option<Zeroizing<String>> {
+        match self {
+            TtyRead::Line(l) => Some(l),
+            _ => None,
+        }
+    }
 }
 
 /// The process's controlling terminal: `/dev/tty` on Unix, `CONIN$`/`CONOUT$` on
 /// Windows. Never stdin, stdout or stderr.
+///
+/// ⟨ADR-0008 §17.27 items 6, 7⟩ Each read is bounded by the `prompt_timeout` given to
+/// [`ControllingTerminal::open`]: the blocking read runs on a thread of its own, on a
+/// clone of the terminal's handle, and no line within the bound is
+/// [`TtyRead::TimedOut`]. The terminal is then **spent**: every later read answers
+/// `TimedOut` at once, and whatever the abandoned read still receives is dropped
+/// (zeroized), never returned.
 #[derive(Debug)]
 pub struct ControllingTerminal {
     #[cfg(unix)]
@@ -100,15 +179,20 @@ pub struct ControllingTerminal {
     input: std::fs::File,
     #[cfg(windows)]
     output: std::fs::File,
+    /// The bound on each read.
+    timeout: Duration,
+    /// A read timed out: nothing more is read.
+    spent: bool,
 }
 
 impl ControllingTerminal {
-    /// Open the controlling terminal.
+    /// Open the controlling terminal, each read bounded by `prompt_timeout` (the CLI
+    /// gives its prompt timeout, `prompt::PROMPT_TIMEOUT`, 120 s; a test a short one).
     ///
     /// # Errors
     /// [`CeremonyError::NotATerminal`] when the process has none (a daemon, a pipe,
     /// an agent's process without a terminal).
-    pub fn open() -> Result<Self, CeremonyError> {
+    pub fn open(prompt_timeout: Duration) -> Result<Self, CeremonyError> {
         use std::io::IsTerminal;
         #[cfg(unix)]
         {
@@ -120,7 +204,11 @@ impl ControllingTerminal {
             if !tty.is_terminal() {
                 return Err(CeremonyError::NotATerminal);
             }
-            Ok(Self { tty })
+            Ok(Self {
+                tty,
+                timeout: prompt_timeout,
+                spent: false,
+            })
         }
         #[cfg(windows)]
         {
@@ -145,10 +233,16 @@ impl ControllingTerminal {
                     mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING,
                 );
             }
-            Ok(Self { input, output })
+            Ok(Self {
+                input,
+                output,
+                timeout: prompt_timeout,
+                spent: false,
+            })
         }
         #[cfg(not(any(unix, windows)))]
         {
+            let _ = prompt_timeout;
             Err(CeremonyError::NotATerminal)
         }
     }
@@ -173,35 +267,104 @@ impl ControllingTerminal {
         &mut self.output
     }
 
+    /// One bounded read (type docs): the line is read on a thread of its own from a
+    /// clone of the terminal's handle; no answer within the bound spends the terminal.
     #[cfg(any(unix, windows))]
-    fn read_raw_line(&mut self) -> io::Result<Option<Zeroizing<String>>> {
-        use std::io::Read;
-        let mut bytes = Zeroizing::new(Vec::with_capacity(LINE_MAX));
-        let mut one = [0u8; 1];
-        loop {
-            match self.reader().read(&mut one) {
-                Ok(0) => {
-                    if bytes.is_empty() {
-                        return Ok(None);
-                    }
-                    break;
-                }
-                Ok(_) if one[0] == b'\n' => break,
-                Ok(_) => {
-                    if bytes.len() < LINE_MAX {
-                        bytes.push(one[0]);
-                    }
-                }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(e),
+    fn bounded_read(&mut self) -> io::Result<TtyRead> {
+        if self.spent {
+            return Ok(TtyRead::TimedOut);
+        }
+        let mut reader = self.reader().try_clone()?;
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("heimdall-ceremony-read".into())
+            .spawn(move || {
+                // A receiver that stopped waiting drops the line (zeroized).
+                let _ = tx.send(read_line_from(&mut reader));
+            })?;
+        match rx.recv_timeout(self.timeout) {
+            Ok(read) => read,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                self.spent = true;
+                Ok(TtyRead::TimedOut)
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(io::Error::other("the terminal read stopped"))
             }
         }
-        zeroize::Zeroize::zeroize(&mut one);
-        while bytes.last() == Some(&b'\r') {
-            bytes.pop();
+    }
+}
+
+/// Read one line from `reader` a byte at a time: up to `\n` (a trailing `\r` dropped);
+/// Ctrl-C ([`CTRL_C`]) is a cancellation, and nothing typed so far counts; end of input
+/// with nothing typed is [`TtyRead::Eof`].
+#[cfg(any(unix, windows))]
+fn read_line_from(reader: &mut impl io::Read) -> io::Result<TtyRead> {
+    let mut bytes = Zeroizing::new(Vec::with_capacity(LINE_MAX));
+    let mut one = Zeroizing::new([0u8; 1]);
+    loop {
+        match reader.read(&mut one[..]) {
+            Ok(0) => {
+                if bytes.is_empty() {
+                    return Ok(TtyRead::Eof);
+                }
+                break;
+            }
+            Ok(_) if one[0] == b'\n' => break,
+            Ok(_) if one[0] == CTRL_C => return Ok(TtyRead::Cancelled),
+            Ok(_) => {
+                if bytes.len() < LINE_MAX {
+                    bytes.push(one[0]);
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
         }
-        let text = Zeroizing::new(String::from_utf8_lossy(&bytes).into_owned());
-        Ok(Some(text))
+    }
+    while bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+    let text = Zeroizing::new(String::from_utf8_lossy(&bytes).into_owned());
+    Ok(TtyRead::Line(text))
+}
+
+/// Ctrl-C (ETX). ⟨M03 wave 5, round 2⟩ While a ceremony reads a line, Ctrl-C ends it as a
+/// cancellation instead of raising `SIGINT` (Unix: `ISIG` off and `VEOL` = ETX for the
+/// read, restored after it), so the typed confirmation's "Ctrl-C sends nothing" ends
+/// `NotConfirmed` (exit 3) like end of input, rather than killing the process.
+const CTRL_C: u8 = 0x03;
+
+#[cfg(unix)]
+impl ControllingTerminal {
+    /// Read one line with Ctrl-C as a cancelling line end ([`CTRL_C`]); `hidden` turns
+    /// echo off (a typed passphrase). The terminal's mode is restored after the read,
+    /// whatever its outcome (a timeout included).
+    fn read_in_mode(&mut self, hidden: bool) -> io::Result<TtyRead> {
+        use rustix::termios::{
+            LocalModes, OptionalActions, SpecialCodeIndex, tcgetattr, tcsetattr,
+        };
+        if self.spent {
+            return Ok(TtyRead::TimedOut);
+        }
+        let original = tcgetattr(&self.tty)?;
+        let mut mode = original.clone();
+        mode.local_modes.remove(LocalModes::ISIG);
+        mode.special_codes[SpecialCodeIndex::VEOL] = CTRL_C;
+        if hidden {
+            mode.local_modes.remove(LocalModes::ECHO);
+            mode.local_modes.insert(LocalModes::ECHONL);
+        }
+        let when = if hidden {
+            OptionalActions::Flush
+        } else {
+            OptionalActions::Now
+        };
+        tcsetattr(&self.tty, when, &mode)?;
+        let line = self.bounded_read();
+        let restored = tcsetattr(&self.tty, OptionalActions::Now, &original);
+        let line = line?;
+        restored?;
+        Ok(line)
     }
 }
 
@@ -215,30 +378,30 @@ impl Tty for ControllingTerminal {
     }
 
     fn read_line(&mut self) -> io::Result<Option<Zeroizing<String>>> {
-        self.read_raw_line()
+        Ok(self.read_answer(false)?.into_line())
     }
 
     fn read_hidden(&mut self) -> io::Result<Option<Zeroizing<String>>> {
+        Ok(self.read_answer(true)?.into_line())
+    }
+
+    fn read_answer(&mut self, hidden: bool) -> io::Result<TtyRead> {
         #[cfg(unix)]
         {
-            use rustix::termios::{LocalModes, OptionalActions, tcgetattr, tcsetattr};
-            let original = tcgetattr(&self.tty)?;
-            let mut hidden = original.clone();
-            hidden.local_modes.remove(LocalModes::ECHO);
-            hidden.local_modes.insert(LocalModes::ECHONL);
-            tcsetattr(&self.tty, OptionalActions::Flush, &hidden)?;
-            let line = self.read_raw_line();
-            let restored = tcsetattr(&self.tty, OptionalActions::Now, &original);
-            let line = line?;
-            restored?;
-            Ok(line)
+            self.read_in_mode(hidden)
         }
         #[cfg(windows)]
         {
+            if !hidden {
+                return self.bounded_read();
+            }
+            if self.spent {
+                return Ok(TtyRead::TimedOut);
+            }
             const ENABLE_ECHO_INPUT: u32 = 0x0004;
             let original = crate::sys::windows::console_mode(&self.input)?;
             crate::sys::windows::set_console_mode(&self.input, original & !ENABLE_ECHO_INPUT)?;
-            let line = self.read_raw_line();
+            let line = self.bounded_read();
             let restored = crate::sys::windows::set_console_mode(&self.input, original);
             let line = line?;
             restored?;
@@ -356,6 +519,12 @@ pub struct RegisterDecision {
     pub backup_sha256: String,
     /// The disclosures to show.
     pub disclosures: Vec<DisclosureKind>,
+    /// ⟨ADR-0008 §17.26 item 6, §17.27 item 4⟩ The runtime's conditional lock disclosure
+    /// (`inspect capabilities` `lock.disclosure`, ADR-0008 D9 item 1), the text of
+    /// `lock_continuity_once`. `None`: not obtained; a decision carrying
+    /// `lock_continuity_once` without it is never offered for approval
+    /// ([`CeremonyError::DisclosureUnavailable`]).
+    pub lock_text: Option<String>,
 }
 
 /// The owner's attended session with the runtime, as the ceremonies use it. U12's
@@ -438,9 +607,17 @@ pub enum CeremonyError {
     /// The terminal failed.
     #[error("the terminal could not be read or written")]
     Terminal,
-    /// The owner did not type the confirmation (`yes`, `written`, `delete`).
+    /// The owner did not type the confirmation (`yes`, `written`, `delete`): another
+    /// answer, end of input, Ctrl-C, or no answer within the prompt timeout.
     #[error("not confirmed: nothing more was sent")]
     NotConfirmed,
+    /// ⟨ADR-0008 §17.27 item 4⟩ A disclosure the decision carries cannot be shown (the
+    /// runtime's lock text was not obtained, or a kind this build does not know): nothing
+    /// was asked, approved or written.
+    #[error(
+        "a disclosure of this decision could not be shown (the runtime's lock disclosure was not obtained, or this version cannot show it): nothing was approved"
+    )]
+    DisclosureUnavailable,
     /// The store is not available; nothing was written (no plaintext fallback).
     #[error("the CA key store is unavailable ({})", .0.as_str())]
     StoreUnavailable(StoreAvailability),
@@ -505,7 +682,8 @@ impl CeremonyError {
         match self {
             CeremonyError::NonInteractive
             | CeremonyError::NotATerminal
-            | CeremonyError::NotConfirmed => Code::InteractionRequired,
+            | CeremonyError::NotConfirmed
+            | CeremonyError::DisclosureUnavailable => Code::InteractionRequired,
             CeremonyError::StoreUnavailable(_)
             | CeremonyError::NotInitialized
             | CeremonyError::TestStoreNotRegistrable => Code::CapabilityUnavailable,
@@ -523,7 +701,10 @@ impl CeremonyError {
             | CeremonyError::Store(StoreError::AlreadyExists) => Code::ConfigConflict,
             CeremonyError::NotAnOrphan => Code::NotFound,
             CeremonyError::Session(SessionError::Refused { code, .. }) => code.clone(),
-            CeremonyError::Session(SessionError::Unavailable) => Code::ServiceUnavailable,
+            CeremonyError::Session(SessionError::Unavailable)
+            // ⟨round 3, K3-Q2⟩ Retryable: the update that replaced the executable finishes,
+            // then the command is run again (nothing was stored).
+            | CeremonyError::Store(StoreError::ExecutableChanged) => Code::ServiceUnavailable,
             _ => Code::InternalError,
         }
     }
@@ -535,6 +716,10 @@ impl CeremonyError {
             CeremonyError::StoreUnavailable(a)
             | CeremonyError::Store(StoreError::Unavailable(a)) => {
                 a.refusal_reason().map(str::to_owned)
+            }
+            // ⟨§17.28 item 5⟩ `issuer_executable_changed`.
+            CeremonyError::Store(e @ StoreError::ExecutableChanged) => {
+                e.refusal_reason().map(str::to_owned)
             }
             CeremonyError::TestStoreNotRegistrable => {
                 Some(reason::ISSUER_STORE_UNAVAILABLE.to_owned())
@@ -645,12 +830,21 @@ fn write(tty: &mut dyn Tty, text: &str) -> Result<(), CeremonyError> {
     tty.write_text(text).map_err(|_| CeremonyError::Terminal)
 }
 
-/// Ask for the exact word `word` (case-insensitive, surrounding blanks ignored).
+/// Ask for the exact word `word` (case-insensitive, surrounding blanks ignored):
+/// `Ok(false)` is an ordinary wrong answer. ⟨ADR-0008 §17.27 items 6, 7⟩ End of input,
+/// Ctrl-C and no answer within the bound are [`CeremonyError::NotConfirmed`] at once (the
+/// cursor moved to a new line first), never a retry.
 fn confirm(tty: &mut dyn Tty, prompt: &str, word: &str) -> Result<bool, CeremonyError> {
     write(tty, prompt)?;
-    match tty.read_line().map_err(|_| CeremonyError::Terminal)? {
-        Some(line) => Ok(line.trim().eq_ignore_ascii_case(word)),
-        None => Ok(false),
+    match tty
+        .read_answer(false)
+        .map_err(|_| CeremonyError::Terminal)?
+    {
+        TtyRead::Line(line) => Ok(line.trim().eq_ignore_ascii_case(word)),
+        _ => {
+            let _ = tty.write_text("\n");
+            Err(CeremonyError::NotConfirmed)
+        }
     }
 }
 
@@ -691,32 +885,80 @@ pub fn orphans(
         .collect())
 }
 
-fn disclosure_text(kind: DisclosureKind) -> &'static str {
+/// ⟨ADR-0008 §17.25 item 10⟩ What a disclosure's text names where it depends on the
+/// decision. Every field is optional: an absent one is worded generally, never guessed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DisclosureContext<'a> {
+    /// The managed alias the decision names (the enrollment disclosures
+    /// `config_commands_run_as_ordinary_use` and `ordinary_ssh_needs_held_slot`).
+    pub alias: Option<&'a str>,
+    /// The runtime's own lock disclosure (`inspect capabilities` `lock.disclosure`, from
+    /// `Operations::lock_disclosure`), which is conditional on the policies, the floor and
+    /// the platform (ADR-0008 D9 item 1). When present it **is** the
+    /// `lock_continuity_once` text; absent, the general sentence is shown.
+    pub lock: Option<&'a str>,
+}
+
+/// The text shown for an unknown disclosure kind (a newer runtime's): never a
+/// substitute for a kind this build knows (`disclosure_text_covers_every_kind`).
+pub const UNKNOWN_DISCLOSURE: &str = "This decision carries a disclosure this version of Heimdall cannot show: update Heimdall before approving it.";
+
+/// ⟨ADR-0008 §17.25 item 10⟩ The one text of each disclosure kind, for every surface that
+/// shows a decision (the issuer ceremonies, `heimdall enroll`'s preview, the TUI), so no
+/// surface retypes one. Every [`DisclosureKind`] has its own text; only a kind this build
+/// does not know (the enum is `non_exhaustive`) gets [`UNKNOWN_DISCLOSURE`], and a surface
+/// that sees it must not offer approval.
+///
+/// The slot disclosure names the command that holds a slot,
+/// `heimdall_domain::managed::slot_free_command` (the preview's, `enroll status`'s and the
+/// doctor's own).
+#[must_use]
+pub fn disclosure_text(kind: DisclosureKind, context: &DisclosureContext<'_>) -> String {
+    let alias = context.alias;
     match kind {
-        DisclosureKind::SameUserIssuerBoundary => {
-            "The issuer runs as your own OS user: any program running as you can ask it to sign or read its key store. The boundary is your OS account."
+        DisclosureKind::SameUserIssuerBoundary => "The issuer runs as your own OS user: any program running as you can ask it to sign or read its key store. The boundary is your OS account.".to_owned(),
+        DisclosureKind::CaTrustBlastRadius => "Every account you enroll will trust this CA: whoever holds its key can reach all of them.".to_owned(),
+        DisclosureKind::LockContinuityOnce => match context.lock {
+            Some(text) => text.to_owned(),
+            None => "Managed signing continues while your desktop is locked, within each grant's deadline, unless a policy or your configuration ends work at a lock.".to_owned(),
+        },
+        DisclosureKind::BackupInstructions => "The backup file and its passphrase together restore this CA. Keep them apart, offline, and never in a synchronized folder.".to_owned(),
+        DisclosureKind::RestoredWithoutLogResidualsUnknown => "Key-only restore: the issuance log is lost, so every residual under this CA is unknown (unbounded). Rotate this CA soon.".to_owned(),
+        DisclosureKind::ConfigCommandsRunAsOrdinaryUse => match alias {
+            Some(a) => format!("Every step connects with your ssh configuration for `{a}` for everything that is not pinned, so its `Match exec` and similar entries run as in ordinary use."),
+            None => "Every step connects with your ssh configuration for the alias for everything that is not pinned, so its `Match exec` and similar entries run as in ordinary use.".to_owned(),
+        },
+        DisclosureKind::RemoveWindow => "The enrollment can be removed early (`heimdall enroll remove`); certificates already issued under this CA stay valid until they expire (the pair residual).".to_owned(),
+        DisclosureKind::ReconcileMayStopOwnStaleScript => "`heimdall enroll reconcile` may stop Heimdall's own stale script on the destination (TERM, then KILL, of the exact process group its lock recorded); nothing else is ever signalled.".to_owned(),
+        DisclosureKind::OrdinarySshNeedsHeldSlot => {
+            let a = alias.unwrap_or("<alias>");
+            format!(
+                "Ordinary `ssh {a}` works only while a binding holds this alias's managed slot; `{}` holds one while it runs.",
+                heimdall_domain::managed::slot_free_command(a)
+            )
         }
-        DisclosureKind::CaTrustBlastRadius => {
-            "Every account you enroll will trust this CA: whoever holds its key can reach all of them."
-        }
-        DisclosureKind::LockContinuityOnce => {
-            "Managed signing continues while your desktop is locked, within each grant's deadline."
-        }
-        DisclosureKind::BackupInstructions => {
-            "The backup file and its passphrase together restore this CA. Keep them apart, offline, and never in a synchronized folder."
-        }
-        DisclosureKind::RestoredWithoutLogResidualsUnknown => {
-            "Key-only restore: the issuance log is lost, so every residual under this CA is unknown (unbounded). Rotate this CA soon."
-        }
-        _ => "See the decision's disclosures.",
+        _ => UNKNOWN_DISCLOSURE.to_owned(),
     }
 }
 
+/// Show the decision and every disclosure's text (the whole text first, then the
+/// caller asks). ⟨ADR-0008 §17.27 item 4⟩ `lock_continuity_once` is the runtime's own
+/// conditional text ([`RegisterDecision::lock_text`]); without it, or with a kind this
+/// build cannot show, the decision is shown without that text and refused
+/// ([`CeremonyError::DisclosureUnavailable`]): nothing is asked. A terminal that strips
+/// control characters is the CLI's (`issuer_cmd`), so every string here reaches the
+/// screen sanitized.
 fn show_decision(
     tty: &mut dyn Tty,
     decision: &RegisterDecision,
     backup_out: Option<&Path>,
 ) -> Result<(), CeremonyError> {
+    let lock = decision
+        .lock_text
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    let context = DisclosureContext { alias: None, lock };
     let mut text = format!(
         "\nRegister CA {}\n  backup SHA-256 {}\n",
         decision.ca_fingerprint, decision.backup_sha256
@@ -724,12 +966,26 @@ fn show_decision(
     if let Some(path) = backup_out {
         text.push_str(&format!("  backup file    {}\n", path.display()));
     }
+    let mut unavailable = false;
     for kind in &decision.disclosures {
+        if *kind == DisclosureKind::LockContinuityOnce && lock.is_none() {
+            unavailable = true;
+            continue;
+        }
+        let shown = disclosure_text(*kind, &context);
+        unavailable |= shown == UNKNOWN_DISCLOSURE;
         text.push_str("  * ");
-        text.push_str(disclosure_text(*kind));
+        text.push_str(&shown);
         text.push('\n');
     }
-    write(tty, &text)
+    if unavailable {
+        text.push_str("  This decision cannot be approved here: one of its disclosures could not be shown. Nothing was approved; run the command again.\n");
+    }
+    write(tty, &text)?;
+    if unavailable {
+        return Err(CeremonyError::DisclosureUnavailable);
+    }
+    Ok(())
 }
 
 /// Show the passphrase once, wait for `written`, then clear its screen region.
@@ -747,14 +1003,24 @@ fn show_passphrase(tty: &mut dyn Tty, passphrase: &Passphrase) -> Result<(), Cer
     let mut lines = 6;
     for _ in 0..WRITTEN_ATTEMPTS {
         lines += 1;
-        if confirm(
+        match confirm(
             tty,
             "Type 'written' when you have written it down: ",
             "written",
-        )? {
-            tty.clear_lines(lines)
-                .map_err(|_| CeremonyError::Terminal)?;
-            return Ok(());
+        ) {
+            Ok(true) => {
+                tty.clear_lines(lines)
+                    .map_err(|_| CeremonyError::Terminal)?;
+                return Ok(());
+            }
+            // An ordinary wrong answer: asked again.
+            Ok(false) => {}
+            // ⟨§17.27 items 6, 7⟩ End of input, Ctrl-C, the timeout (or a terminal
+            // failure): the passphrase is cleared, and the ceremony ends at once.
+            Err(e) => {
+                let _ = tty.clear_lines(lines);
+                return Err(e);
+            }
         }
     }
     let _ = tty.clear_lines(lines);
@@ -792,6 +1058,82 @@ fn store_and_check(
         Err(e) => return Err(e.into()),
     };
     let back = store.get(fingerprint)?;
+    if !back.same_key(key) {
+        return Err(CeremonyError::KeyMismatch);
+    }
+    Ok(item)
+}
+
+/// The log-intact restore's store item (D4 item 4; §17.22 item 12; ⟨§17.28 item 7⟩).
+///
+/// * The **recorded** item (`recorded`, read by its locator and listed in this
+///   installation's store) already holds this key: adopted, nothing written.
+/// * It is unreadable with `issuer_store_access_denied` (on macOS, an ad-hoc-signed build
+///   after an update): [`new_item_after_denial`]. The old item is never deleted.
+/// * Otherwise the ordinary write and read-back ([`store_and_check`], adopting an item
+///   that already holds the key); a denial there is handled the same way.
+fn restore_item(
+    tty: &mut dyn Tty,
+    store: &dyn SecretStore,
+    fingerprint: &CaFingerprint,
+    key: &SecretCaKey,
+    recorded: Option<&str>,
+) -> Result<StoreItemRef, CeremonyError> {
+    if let Some(locator) = recorded {
+        let item = StoreItemRef {
+            kind: store.kind(),
+            fingerprint: fingerprint.clone(),
+            locator: locator.to_owned(),
+        };
+        match store.get_item(&item) {
+            Ok(back) => {
+                if !back.same_key(key) {
+                    return Err(CeremonyError::KeyMismatch);
+                }
+                if store.list()?.contains(&item) {
+                    return Ok(item);
+                }
+            }
+            Err(StoreError::Unavailable(StoreAvailability::AccessDenied)) => {
+                return new_item_after_denial(tty, store, fingerprint, key, Some(&item));
+            }
+            Err(_) => {}
+        }
+    }
+    match store_and_check(store, fingerprint, key, true) {
+        Err(CeremonyError::StoreUnavailable(StoreAvailability::AccessDenied)) => {
+            new_item_after_denial(tty, store, fingerprint, key, None)
+        }
+        other => other,
+    }
+}
+
+/// ⟨ADR-0008 §17.28 item 7⟩ The recorded item cannot be read by this executable: the key
+/// goes to a **new** item with a distinct locator ([`SecretStore::put_new_item`]; an item
+/// of this installation that already holds this key and that this executable can read is
+/// adopted instead, e.g. after a restore that was not confirmed), read back, and returned
+/// for the attended registration's compare-and-swap. Nothing is deleted.
+fn new_item_after_denial(
+    tty: &mut dyn Tty,
+    store: &dyn SecretStore,
+    fingerprint: &CaFingerprint,
+    key: &SecretCaKey,
+    unreadable: Option<&StoreItemRef>,
+) -> Result<StoreItemRef, CeremonyError> {
+    write(
+        tty,
+        "The CA key store item recorded for this CA can no longer be read by this Heimdall executable (issuer_store_access_denied; on macOS, an ad-hoc-signed build after an update). The CA is restored to a new store item; Heimdall never deletes the old one.\n",
+    )?;
+    for candidate in store.list()? {
+        if candidate.fingerprint != *fingerprint || Some(&candidate) == unreadable {
+            continue;
+        }
+        if store.get_item(&candidate).is_ok_and(|k| k.same_key(key)) {
+            return Ok(candidate);
+        }
+    }
+    let item = store.put_new_item(fingerprint, key)?;
+    let back = store.get_item(&item)?;
     if !back.same_key(key) {
         return Err(CeremonyError::KeyMismatch);
     }
@@ -972,10 +1314,15 @@ pub fn restore(
     preflight(false, store)?;
     let file = backup::read(options.backup)?;
     write(tty, "Backup passphrase: ")?;
-    let typed = tty
-        .read_hidden()
+    // ⟨§17.27 items 6, 7⟩ End of input, Ctrl-C or the timeout: nothing is decrypted.
+    let Some(typed) = tty
+        .read_answer(true)
         .map_err(|_| CeremonyError::Terminal)?
-        .ok_or(CeremonyError::NotConfirmed)?;
+        .into_line()
+    else {
+        let _ = tty.write_text("\n");
+        return Err(CeremonyError::NotConfirmed);
+    };
     let passphrase = Passphrase::new(typed);
     let key = file.decrypt(&passphrase)?;
     drop(passphrase);
@@ -986,7 +1333,7 @@ pub fn restore(
         if !matches!(ca.state, CaState::Active | CaState::Pending) {
             return Err(CeremonyError::CaRetired);
         }
-        let item = store_and_check(store, &fingerprint, &key, true)?;
+        let item = restore_item(tty, store, &fingerprint, &key, ca.store_locator.as_deref())?;
         client.attend()?;
         // ⟨§17.22 item 12⟩ A new store item (another locator than the recorded one):
         // registered again, compare-and-swap against the recorded locator; the
@@ -1044,7 +1391,10 @@ pub fn restore(
         tty,
         &format!(
             "  * {}\n",
-            disclosure_text(DisclosureKind::RestoredWithoutLogResidualsUnknown)
+            disclosure_text(
+                DisclosureKind::RestoredWithoutLogResidualsUnknown,
+                &DisclosureContext::default()
+            )
         ),
     )?;
     if !confirm(tty, "Type 'yes' to register this restored CA: ", "yes")? {
@@ -1180,4 +1530,239 @@ pub fn replace_orphan(
     }
     write(tty, "Deleted.\n")?;
     Ok(item)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// ⟨ADR-0008 §17.28 items 5, 6⟩ The ceremony's codes and reasons for a replaced
+    /// executable and an access-list denial; a locked store stays `issuer_store_locked`.
+    #[test]
+    fn executable_changed_and_access_denied_reasons() {
+        let changed = CeremonyError::from(StoreError::ExecutableChanged);
+        assert_eq!(changed.code(), Code::ServiceUnavailable);
+        assert_eq!(
+            changed.reason().as_deref(),
+            Some(reason::ISSUER_EXECUTABLE_CHANGED)
+        );
+        let denied = CeremonyError::from(StoreError::Unavailable(StoreAvailability::AccessDenied));
+        assert_eq!(denied.code(), Code::CapabilityUnavailable);
+        assert_eq!(
+            denied.reason().as_deref(),
+            Some(reason::ISSUER_STORE_ACCESS_DENIED)
+        );
+        let locked = CeremonyError::from(StoreError::Unavailable(
+            StoreAvailability::InteractionNotAllowed,
+        ));
+        assert_eq!(
+            locked.reason().as_deref(),
+            Some(reason::ISSUER_STORE_LOCKED)
+        );
+    }
+
+    /// Every `DisclosureKind` wire name in the exported public schema.
+    fn every_kind() -> Vec<DisclosureKind> {
+        let path =
+            heimdall_testkit::repo::repo_path("schemas/public-api/enrollment-plan.schema.json");
+        let schema: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let names = schema["$defs"]["DisclosureKind"]["oneOf"]
+            .as_array()
+            .map(|v| {
+                v.iter()
+                    .filter_map(|o| o["const"].as_str().map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                schema["$defs"]["DisclosureKind"]["enum"]
+                    .as_array()
+                    .map(|v| {
+                        v.iter()
+                            .filter_map(|o| o.as_str().map(str::to_owned))
+                            .collect()
+                    })
+            })
+            .expect("the schema lists DisclosureKind");
+        names
+            .iter()
+            .map(|n| serde_json::from_value(serde_json::Value::String(n.clone())).unwrap())
+            .collect()
+    }
+
+    /// ⟨ADR-0008 §17.25 item 10⟩ Every kind in the public schema has its own text, none
+    /// is the unknown-kind text, and each names what its context gives it.
+    #[test]
+    fn disclosure_text_covers_every_kind() {
+        let kinds = every_kind();
+        assert!(kinds.len() >= 9, "{kinds:?}");
+        let mut seen = std::collections::BTreeSet::new();
+        for kind in &kinds {
+            let general = disclosure_text(*kind, &DisclosureContext::default());
+            assert_ne!(general, UNKNOWN_DISCLOSURE, "{kind:?}");
+            assert!(!general.is_empty(), "{kind:?}");
+            assert!(seen.insert(general), "{kind:?} shares a text");
+        }
+        let ctx = DisclosureContext {
+            alias: Some("lab"),
+            lock: Some("RUNTIME LOCK TEXT"),
+        };
+        let slot = disclosure_text(DisclosureKind::OrdinarySshNeedsHeldSlot, &ctx);
+        assert!(slot.contains("`ssh lab`"), "{slot}");
+        assert!(
+            slot.contains(&heimdall_domain::managed::slot_free_command("lab")),
+            "{slot}"
+        );
+        assert!(
+            disclosure_text(DisclosureKind::ConfigCommandsRunAsOrdinaryUse, &ctx).contains("`lab`")
+        );
+        assert_eq!(
+            disclosure_text(DisclosureKind::LockContinuityOnce, &ctx),
+            "RUNTIME LOCK TEXT"
+        );
+    }
+
+    /// ⟨ADR-0008 §17.27 item 7⟩ The terminal line reader keeps Ctrl-C and end of input
+    /// apart from a typed line: Ctrl-C cancels whatever was typed before it, end of input
+    /// with nothing typed is `Eof`, and a line drops its `\r\n`.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn terminal_reads_keep_cancellation_and_end_of_input_apart() {
+        let read = |bytes: &[u8]| read_line_from(&mut &bytes[..]).unwrap();
+        assert!(matches!(read(b"yes\r\n"), TtyRead::Line(l) if l.as_str() == "yes"));
+        assert!(matches!(read(b"yes\x03"), TtyRead::Cancelled));
+        assert!(matches!(read(b"\x03yes\n"), TtyRead::Cancelled));
+        assert!(matches!(read(b""), TtyRead::Eof));
+        assert!(matches!(read(b"partial"), TtyRead::Line(l) if l.as_str() == "partial"));
+        assert_eq!(format!("{:?}", read(b"secret\n")), "Line(<typed>)");
+    }
+
+    /// A terminal answering from a script (`None`: end of input), recording what was shown.
+    struct Script {
+        answers: std::collections::VecDeque<TtyRead>,
+        shown: String,
+    }
+
+    impl Tty for Script {
+        fn write_text(&mut self, text: &str) -> io::Result<()> {
+            self.shown.push_str(text);
+            Ok(())
+        }
+        fn read_line(&mut self) -> io::Result<Option<Zeroizing<String>>> {
+            Ok(self.read_answer(false)?.into_line())
+        }
+        fn read_hidden(&mut self) -> io::Result<Option<Zeroizing<String>>> {
+            Ok(self.read_answer(true)?.into_line())
+        }
+        fn read_answer(&mut self, _hidden: bool) -> io::Result<TtyRead> {
+            Ok(self.answers.pop_front().unwrap_or(TtyRead::Eof))
+        }
+        fn clear_lines(&mut self, lines: usize) -> io::Result<()> {
+            self.shown.push_str(&format!("<clear {lines}>"));
+            Ok(())
+        }
+    }
+
+    fn decision(kinds: Vec<DisclosureKind>, lock_text: Option<&str>) -> RegisterDecision {
+        RegisterDecision {
+            decision_id: DecisionId::from_random_bytes([7; 16]),
+            ca_fingerprint: CaFingerprint::parse(&format!("SHA256:{}", "A".repeat(43))).unwrap(),
+            backup_sha256: "ab".repeat(32),
+            disclosures: kinds,
+            lock_text: lock_text.map(str::to_owned),
+        }
+    }
+
+    /// ⟨ADR-0008 §17.26 item 6, §17.27 item 4⟩ A decision carrying `lock_continuity_once`
+    /// shows the runtime's conditional text; without that text (absent or blank) it is shown
+    /// without the general sentence and refused before anything is asked.
+    #[test]
+    fn register_decision_needs_the_runtime_lock_text() {
+        let kinds = vec![
+            DisclosureKind::SameUserIssuerBoundary,
+            DisclosureKind::LockContinuityOnce,
+        ];
+        let general = disclosure_text(
+            DisclosureKind::LockContinuityOnce,
+            &DisclosureContext::default(),
+        );
+        let mut tty = Script {
+            answers: Default::default(),
+            shown: String::new(),
+        };
+        show_decision(
+            &mut tty,
+            &decision(kinds.clone(), Some("RUNTIME TEXT")),
+            None,
+        )
+        .unwrap();
+        assert!(tty.shown.contains("  * RUNTIME TEXT\n"), "{}", tty.shown);
+        assert!(!tty.shown.contains(&general));
+        for missing in [None, Some("  ")] {
+            let mut tty = Script {
+                answers: Default::default(),
+                shown: String::new(),
+            };
+            assert_eq!(
+                show_decision(&mut tty, &decision(kinds.clone(), missing), None),
+                Err(CeremonyError::DisclosureUnavailable)
+            );
+            assert!(!tty.shown.contains(&general), "{}", tty.shown);
+            assert!(
+                tty.shown.contains("cannot be approved here"),
+                "{}",
+                tty.shown
+            );
+            assert_eq!(
+                CeremonyError::DisclosureUnavailable.code(),
+                Code::InteractionRequired
+            );
+        }
+        // No lock disclosure on the decision: no text needed.
+        let mut tty = Script {
+            answers: Default::default(),
+            shown: String::new(),
+        };
+        show_decision(
+            &mut tty,
+            &decision(vec![DisclosureKind::BackupInstructions], None),
+            None,
+        )
+        .unwrap();
+    }
+
+    /// ⟨ADR-0008 §17.27 items 6, 7⟩ At `written`, only an ordinary wrong answer is asked
+    /// again; end of input, Ctrl-C and the timeout end at once with the region cleared.
+    #[test]
+    fn written_retries_only_a_wrong_answer() {
+        let line = |s: &str| TtyRead::Line(Zeroizing::new(s.to_owned()));
+        let passphrase = Passphrase::generate().unwrap();
+        for stop in [TtyRead::Eof, TtyRead::Cancelled, TtyRead::TimedOut] {
+            let label = format!("{stop:?}");
+            let mut tty = Script {
+                answers: [line("nope"), stop, line("written")].into_iter().collect(),
+                shown: String::new(),
+            };
+            assert_eq!(
+                show_passphrase(&mut tty, &passphrase),
+                Err(CeremonyError::NotConfirmed),
+                "{label}"
+            );
+            assert_eq!(tty.shown.matches("Type 'written'").count(), 2, "{label}");
+            assert!(tty.shown.ends_with("\n<clear 8>"), "{label}: {}", tty.shown);
+            assert_eq!(
+                tty.answers.len(),
+                1,
+                "{label}: the later `written` was never read"
+            );
+        }
+        let mut tty = Script {
+            answers: [line("nope"), line(" Written ")].into_iter().collect(),
+            shown: String::new(),
+        };
+        show_passphrase(&mut tty, &passphrase).unwrap();
+        assert!(tty.shown.ends_with("<clear 8>"));
+    }
 }

@@ -36,6 +36,33 @@
 //! [`ChildIssuer::start`] (or [`ChildIssuer::reload`] for `issuer unlock`) begins a new
 //! lifecycle.
 //!
+//! **The load gate** (⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩). Spawning a child
+//! and sending `load` read K_ca into it, which is CA work: with a [`LoadGate`]
+//! configured (the runtime wires the uninstall fence's admission), every start and every
+//! load takes it first and holds it across the load. Refused (a fence held or being
+//! acquired by another connection), nothing is spawned or loaded: a restart cycle waits
+//! for the lift without spending an attempt; an on-demand reload is left to the next
+//! demand. A start or load that is **cancelled** (its future dropped: an adapter bound,
+//! a caller that stopped waiting) never leaves the view stuck in `starting` or
+//! `loading`: a cancelled start is `crashed` (the next demand restarts it), a cancelled
+//! load is retried by the next demand.
+//!
+//! **Indeterminate requests** (⟨ADR-0008 §17.33 item 2 (W5-E02)⟩). A `load` or a `sign`
+//! may already be delivered when its waiter is cancelled or times out: the child would then
+//! still read K_ca or sign, after the caller's admission was released and possibly after a
+//! fence acquisition. So such an exchange owns its admissions (the load gate's permit; for
+//! a `sign`, a [`ClientConfig::request_hold`] extension of the caller's admission) until its
+//! reply is consumed. If it ends without its reply (cancelled, timed out, or the link
+//! broke), the parent ends **that exact child** first: it re-verifies the child's PID,
+//! start token and (with [`ClientConfig::child_image`]) image, signals only a verified
+//! child (never by name), closes its stdin, and awaits its exit for at most
+//! [`STOP_TIMEOUT`]; only then are the admissions released. An exit that cannot be
+//! confirmed in that bound keeps them held (a background wait releases them when the exit
+//! is observed), so a fence acquisition waits and then reports that admitted work did not
+//! settle. The client is then `crashed`, and the next demand restarts it under the load
+//! gate. `unload` (it only removes a key), `status` (read-only) and `hello` (nothing is
+//! loaded before `load`) need no such ending.
+//!
 //! **Identity.** The child is the exact process this client spawned: its PID (from the
 //! spawn, confirmed by the `hello_ack`) and its start token, read through the
 //! injected [`StartToken`] (the runtime's `platform::process_start_time`; `heimdall-
@@ -116,8 +143,18 @@ impl Jitter for SystemJitter {
     }
 }
 
+/// How often a restart cycle deferred by the [`LoadGate`] asks again.
+pub const LOAD_DEFER_POLL: Duration = Duration::from_millis(500);
+
+/// ⟨round 10 L1⟩ The admission a start or load needs (module docs): `Some(permit)`, held
+/// across the start or load, when admitted; `None` when deferred.
+pub type LoadGate = Arc<dyn Fn() -> Option<Box<dyn Send>> + Send + Sync>;
+
 /// Reads a process's opaque start token by PID (`None`: not readable).
 pub type StartToken = Arc<dyn Fn(u32) -> Option<String> + Send + Sync>;
+
+/// ⟨§17.33 item 2⟩ Reads a process's executable image by PID (`None`: not readable).
+pub type ImageReader = Arc<dyn Fn(u32) -> Option<PathBuf> + Send + Sync>;
 
 /// The exact identity of the running child.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +163,14 @@ pub struct ChildIdentity {
     pub pid: u32,
     /// Its start token (`None` when the platform reader could not read it).
     pub start_token: Option<String>,
+    /// ⟨§17.33 item 2⟩ Its executable image, read after its `hello_ack` (`None` without
+    /// a [`ClientConfig::child_image`] reader, or when it could not be read).
+    ///
+    /// ⟨round 15⟩ On Linux it is always `None` for the real issuer child: the child makes
+    /// itself non-dumpable before any key exists (`credential::sys::harden_process`,
+    /// `PR_SET_DUMPABLE` 0), so its `/proc/<pid>` is owned by root and `/proc/<pid>/exe`
+    /// cannot be read by this user.
+    pub image: Option<PathBuf>,
 }
 
 /// What to spawn as the child.
@@ -166,6 +211,16 @@ pub struct ClientConfig {
     pub request_timeout: Duration,
     /// The hello bound ([`HELLO_TIMEOUT`]).
     pub hello_timeout: Duration,
+    /// ⟨round 10 L1⟩ The admission every start and load takes first (`None`: always
+    /// admitted).
+    pub load_gate: Option<LoadGate>,
+    /// ⟨§17.33 item 2⟩ An extension of the calling task's admission, taken by every
+    /// `sign` and held until its reply is consumed or its child's exit is confirmed
+    /// (`None` reader, or `None` returned: nothing extra to hold).
+    pub request_hold: Option<LoadGate>,
+    /// ⟨§17.33 item 2⟩ The image reader the exact-child check uses before a signal
+    /// (`None`: the check is PID and start token only).
+    pub child_image: Option<ImageReader>,
 }
 
 impl ClientConfig {
@@ -178,6 +233,9 @@ impl ClientConfig {
             start_token,
             request_timeout: REQUEST_TIMEOUT,
             hello_timeout: HELLO_TIMEOUT,
+            load_gate: None,
+            request_hold: None,
+            child_image: None,
         }
     }
 }
@@ -202,6 +260,9 @@ struct View {
     /// ⟨§17.19 item 3⟩ [`ChildIssuer::stop`] ended the lifecycle and no explicit start
     /// has begun another: demands start nothing.
     stopped: bool,
+    /// ⟨round 10 L1⟩ A `load` is in flight (cleared when it ends, cancelled included):
+    /// a `loading` view without one is a cancelled load, which a demand retries.
+    load_in_flight: bool,
 }
 
 /// The live link to one child.
@@ -215,11 +276,158 @@ struct Link {
     outstanding: usize,
     /// A write did not finish: the stream is unusable.
     dirty: bool,
+    /// ⟨§17.33 item 2⟩ The child's identity, as spawned (image filled after `hello_ack`).
+    identity: ChildIdentity,
 }
 
 /// A broken link (EOF, a malformed frame, a write that failed).
 #[derive(Debug)]
 struct Broken;
+
+/// ⟨round 10 L1⟩ The load gate refused: nothing was spawned or loaded.
+#[derive(Debug)]
+struct Deferred;
+
+/// The error a deferred start or load answers.
+fn deferred() -> IssuerError {
+    IssuerError::Unavailable(reason::UNINSTALL_IN_PROGRESS.into())
+}
+
+fn is_deferred(e: &IssuerError) -> bool {
+    matches!(e, IssuerError::Unavailable(r) if r == reason::UNINSTALL_IN_PROGRESS)
+}
+
+/// ⟨round 10 L1⟩ Restores a recoverable view when a start or load of `lifecycle` ends
+/// without finishing (its future dropped): `starting` becomes `crashed` (a demand restarts
+/// it); a load is no longer in flight (a demand retries a `loading` view).
+struct Unfinished {
+    inner: Arc<Inner>,
+    lifecycle: u64,
+}
+
+impl Drop for Unfinished {
+    fn drop(&mut self) {
+        let lifecycle = self.lifecycle;
+        self.inner.update(|v| {
+            v.load_in_flight = false;
+            if v.lifecycle == lifecycle && v.state == IssuerState::Starting {
+                v.state = IssuerState::Crashed;
+                v.reason = Some(reason::ISSUER_RESTARTING.into());
+            }
+        });
+    }
+}
+
+/// ⟨§17.33 item 2⟩ The readers of the exact-child check ([`signal_exact`]).
+#[derive(Clone)]
+struct Verifier {
+    start_token: StartToken,
+    image: Option<ImageReader>,
+}
+
+/// ⟨§17.33 item 2⟩ A `load` or `sign` exchange in flight ([`Inner::exchange_ending`]):
+/// dropped while armed (its waiter cancelled), it ends the exact child in the background
+/// and releases `permits` only once that child's exit is confirmed.
+struct Indeterminate<'a> {
+    inner: Arc<Inner>,
+    slot: &'a mut Option<Link>,
+    permits: Vec<Box<dyn Send>>,
+    armed: bool,
+}
+
+impl Drop for Indeterminate<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let link = self.slot.take();
+        let permits = std::mem::take(&mut self.permits);
+        self.inner.mark_crashed();
+        let verifier = self.inner.verifier();
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                // Not one of the lifecycle's tasks: `stop` must not abort it (that would
+                // release the permits before the exit is confirmed).
+                drop(handle.spawn(end_child(verifier, link, permits)));
+            }
+            Err(_) => {
+                // No runtime to await the exit on: signal the verified child now and
+                // keep the admissions held (never released unconfirmed).
+                if let Some(mut link) = link {
+                    signal_exact(&verifier, &mut link.child, &link.identity);
+                    std::mem::forget(link);
+                }
+                std::mem::forget(permits);
+            }
+        }
+    }
+}
+
+/// ⟨§17.33 item 2⟩ Signal the child only if it is still the exact child spawned: not yet
+/// exited (still unreaped, so its PID cannot have been reused and the signal goes through
+/// this client's own handle), its PID unchanged, its start token read now equal to the one
+/// read at spawn (an unreadable one never matches), and, when its image was read after its
+/// `hello_ack`, its image read now equal to it (unreadable now, or another image: refused).
+/// ⟨round 15⟩ An image that could not be read at spawn is not part of the identity: on
+/// Linux the non-dumpable issuer child's image is never readable ([`ChildIdentity::image`]),
+/// and requiring it made every exact-child signal on Linux impossible. Never by name or
+/// pattern. Returns whether the signal was sent.
+fn signal_exact(verifier: &Verifier, child: &mut Child, identity: &ChildIdentity) -> bool {
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        return false;
+    }
+    if child.id() != Some(identity.pid) {
+        return false;
+    }
+    let token = (verifier.start_token)(identity.pid);
+    if token.is_none() || token != identity.start_token {
+        return false;
+    }
+    if let (Some(read), Some(then)) = (&verifier.image, &identity.image) {
+        match read(identity.pid) {
+            Some(now) if now == *then => {}
+            _ => return false,
+        }
+    }
+    child.start_kill().is_ok()
+}
+
+/// ⟨§17.33 item 2⟩ End `link`'s child: zeroize the buffer, signal the verified child
+/// ([`signal_exact`]), close its stdin (a child that was not signalled exits at EOF), and
+/// await its exit for at most [`STOP_TIMEOUT`]. `permits` are released only once the exit
+/// is confirmed; unconfirmed, a background wait keeps holding them until it is.
+async fn end_child(verifier: Verifier, link: Option<Link>, permits: Vec<Box<dyn Send>>) {
+    let Some(Link {
+        mut child,
+        stdin,
+        stdout,
+        mut buf,
+        identity,
+        ..
+    }) = link
+    else {
+        drop(permits);
+        return;
+    };
+    buf.zeroize();
+    signal_exact(&verifier, &mut child, &identity);
+    drop(stdin);
+    drop(stdout);
+    match tokio::time::timeout(STOP_TIMEOUT, child.wait()).await {
+        Ok(Ok(_)) => drop(permits),
+        _ => {
+            drop(tokio::spawn(async move {
+                loop {
+                    if child.wait().await.is_ok() {
+                        break;
+                    }
+                    tokio::time::sleep(STOP_TIMEOUT).await;
+                }
+                drop(permits);
+            }));
+        }
+    }
+}
 
 impl Link {
     /// The next frame's reply, reading into the persistent buffer (cancel-safe).
@@ -305,6 +513,14 @@ impl Inner {
         });
     }
 
+    /// ⟨round 10 L1⟩ The load gate's admission (`Ok(None)`: no gate configured).
+    fn admit_load(&self) -> Result<Option<Box<dyn Send>>, Deferred> {
+        match &self.config.load_gate {
+            None => Ok(None),
+            Some(gate) => gate().map(Some).ok_or(Deferred),
+        }
+    }
+
     /// Whether `lifecycle` is still the running one (not stopped, not superseded).
     fn current(&self, lifecycle: u64) -> bool {
         let v = self.view.lock().unwrap_or_else(PoisonError::into_inner);
@@ -371,19 +587,65 @@ impl Inner {
         }
     }
 
-    /// End the link's child (exact owned handle) and mark `crashed`.
+    /// End the link's child (the exact, re-verified child; [`end_child`]) and mark
+    /// `crashed`.
     async fn crash(self: &Arc<Self>, slot: &mut Option<Link>) {
-        if let Some(mut link) = slot.take() {
-            let _ = link.child.start_kill();
-            let _ = link.child.wait().await;
-            link.buf.zeroize();
-        }
+        self.mark_crashed();
+        end_child(self.verifier(), slot.take(), Vec::new()).await;
+    }
+
+    /// The view after a child was ended: `crashed` (the next demand restarts it).
+    fn mark_crashed(&self) {
         self.update(|v| {
             v.state = IssuerState::Crashed;
             v.reason = Some(reason::ISSUER_RESTARTING.into());
             v.cas.clear();
             v.identity = None;
         });
+    }
+
+    /// The exact-child check's readers.
+    fn verifier(&self) -> Verifier {
+        Verifier {
+            start_token: Arc::clone(&self.config.start_token),
+            image: self.config.child_image.clone(),
+        }
+    }
+
+    /// ⟨§17.33 item 2⟩ [`Self::exchange`] for a request whose late effect must not outlive
+    /// its admission (`load`, `sign`; module docs): `permits` are held until the reply is
+    /// consumed. Ending without it (cancelled, timed out, broken), the exact child is ended
+    /// first and the view is `crashed`; the permits are released only once its exit is
+    /// confirmed ([`end_child`]).
+    async fn exchange_ending(
+        self: &Arc<Self>,
+        slot: &mut Option<Link>,
+        request: &Request,
+        bound: Duration,
+        permits: Vec<Box<dyn Send>>,
+    ) -> Result<Response, IssuerError> {
+        let mut pending = Indeterminate {
+            inner: Arc::clone(self),
+            slot,
+            permits,
+            armed: true,
+        };
+        let Some(link) = pending.slot.as_mut() else {
+            pending.armed = false;
+            return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
+        };
+        let r = self.exchange(link, request, bound).await;
+        pending.armed = false;
+        match r {
+            Ok(reply) => Ok(reply),
+            Err(e) => {
+                let link = pending.slot.take();
+                let permits = std::mem::take(&mut pending.permits);
+                self.mark_crashed();
+                end_child(self.verifier(), link, permits).await;
+                Err(e)
+            }
+        }
     }
 
     /// Spawn, hello, load: one start attempt (`starting → loading → ready |
@@ -394,10 +656,15 @@ impl Inner {
         if !self.current(lifecycle) {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         }
-        if let Some(mut old) = slot.take() {
-            let _ = old.child.start_kill();
-            let _ = old.child.wait().await;
-        }
+        // ⟨round 10 L1⟩ Admitted first, held through the load; deferred: nothing spawned.
+        let Ok(permit) = self.admit_load() else {
+            return Err(deferred());
+        };
+        let _unfinished = Unfinished {
+            inner: Arc::clone(self),
+            lifecycle,
+        };
+        end_child(self.verifier(), slot.take(), Vec::new()).await;
         self.set_state(IssuerState::Starting, None);
         let c = &self.config.command;
         let mut cmd = Command::new(&c.program);
@@ -418,6 +685,8 @@ impl Inner {
         let (Some(stdin), Some(stdout), Some(pid)) =
             (child.stdin.take(), child.stdout.take(), child.id())
         else {
+            // The child spawned a moment ago, on its own unreaped handle (it has spoken no
+            // protocol and holds no key): nothing else can carry this handle.
             let _ = child.start_kill();
             let _ = child.wait().await;
             self.set_state(
@@ -426,9 +695,10 @@ impl Inner {
             );
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         };
-        let identity = ChildIdentity {
+        let mut identity = ChildIdentity {
             pid,
             start_token: (self.config.start_token)(pid),
+            image: None,
         };
         *slot = Some(Link {
             child,
@@ -437,6 +707,7 @@ impl Inner {
             buf: Vec::new(),
             outstanding: 0,
             dirty: false,
+            identity: identity.clone(),
         });
         let nonce = token()?;
         let hello = Request::Hello {
@@ -453,26 +724,55 @@ impl Inner {
                 return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
             }
         }
+        // The image, once the child speaks the protocol (after any `exec`).
+        identity.image = self.config.child_image.as_ref().and_then(|read| read(pid));
+        link.identity.image.clone_from(&identity.image);
         self.update(|v| v.identity = Some(identity));
-        self.load_locked(&mut slot, lifecycle).await
+        self.load_admitted(&mut slot, lifecycle, permit).await
     }
 
     /// `load` over the held link (`loading → ready | store_unavailable`) for
     /// `lifecycle`; a stopped or superseded lifecycle loads nothing (§17.19 item 3).
+    /// ⟨round 10 L1⟩ Takes the load gate first; deferred, nothing is sent and the view
+    /// is unchanged.
     async fn load_locked(
         self: &Arc<Self>,
         slot: &mut Option<Link>,
         lifecycle: u64,
     ) -> Result<(), IssuerError> {
+        let Ok(permit) = self.admit_load() else {
+            return Err(deferred());
+        };
+        self.load_admitted(slot, lifecycle, permit).await
+    }
+
+    /// [`Self::load_locked`] once admitted: `permit` is held until the `load`'s reply is
+    /// consumed or its child's exit is confirmed ([`Self::exchange_ending`]).
+    async fn load_admitted(
+        self: &Arc<Self>,
+        slot: &mut Option<Link>,
+        lifecycle: u64,
+        permit: Option<Box<dyn Send>>,
+    ) -> Result<(), IssuerError> {
         if !self.current(lifecycle) {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         }
-        self.set_state(IssuerState::Loading, None);
-        let Some(link) = slot.as_mut() else {
-            return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
+        self.update(|v| {
+            v.state = IssuerState::Loading;
+            v.reason = None;
+            v.load_in_flight = true;
+        });
+        let _unfinished = Unfinished {
+            inner: Arc::clone(self),
+            lifecycle,
         };
         match self
-            .exchange(link, &Request::Load {}, self.config.request_timeout)
+            .exchange_ending(
+                slot,
+                &Request::Load {},
+                self.config.request_timeout,
+                permit.into_iter().collect(),
+            )
             .await
         {
             Ok(Response::Loaded { cas }) => {
@@ -507,18 +807,31 @@ impl Inner {
 
     /// The bounded, jittered restart cycle after a crash (D3 item 7), for `lifecycle`.
     async fn restart_cycle(self: Arc<Self>, lifecycle: u64) {
-        for attempt in 1..=MAX_RESTART_ATTEMPTS {
+        let mut attempt = 1;
+        while attempt <= MAX_RESTART_ATTEMPTS {
             let delay = self.config.jitter.delay(backoff_ceiling(attempt));
             tokio::time::sleep(delay.min(backoff_ceiling(attempt))).await;
             if !self.current(lifecycle) {
                 return;
             }
-            match self.start_once(lifecycle).await {
+            let r = self.start_once(lifecycle).await;
+            // ⟨round 10 L1⟩ Deferred by the load gate: nothing spawned or loaded; wait for
+            // the lift, then try again without spending an attempt.
+            if let Err(e) = &r
+                && is_deferred(e)
+            {
+                while self.current(lifecycle) && self.admit_load().is_err() {
+                    tokio::time::sleep(LOAD_DEFER_POLL).await;
+                }
+                continue;
+            }
+            attempt += 1;
+            match r {
                 Ok(()) => break,
                 // The child is up without its key: the store reload follows its own
                 // backoff on demand.
                 Err(_) if self.view().state == IssuerState::StoreUnavailable => break,
-                Err(_) if attempt == MAX_RESTART_ATTEMPTS => {
+                Err(_) if attempt > MAX_RESTART_ATTEMPTS => {
                     self.set_state(
                         IssuerState::Unavailable,
                         Some(reason::ISSUER_UNAVAILABLE.into()),
@@ -550,6 +863,16 @@ impl Inner {
     fn not_ready(self: &Arc<Self>, view: &View) -> IssuerError {
         match view.state {
             IssuerState::Crashed | IssuerState::Unavailable => self.supervise(),
+            // ⟨round 10 L1⟩ A `loading` view with no load in flight: a cancelled load.
+            IssuerState::Loading if !view.load_in_flight => {
+                if let Some(lifecycle) = self.running() {
+                    let me = Arc::clone(self);
+                    self.spawn_task(async move {
+                        let mut slot = me.link.lock().await;
+                        let _ = me.load_locked(&mut slot, lifecycle).await;
+                    });
+                }
+            }
             IssuerState::StoreUnavailable if view.retry_at.is_none_or(|t| t <= Instant::now()) => {
                 if let Some(lifecycle) = self.running() {
                     let me = Arc::clone(self);
@@ -593,6 +916,7 @@ impl ChildIssuer {
                     reload_attempts: 0,
                     lifecycle: 0,
                     stopped: false,
+                    load_in_flight: false,
                 }),
                 link: tokio::sync::Mutex::new(None),
                 tasks: Mutex::new(Vec::new()),
@@ -669,7 +993,8 @@ impl ChildIssuer {
                 .await
                 .is_err()
             {
-                let _ = link.child.start_kill();
+                // ⟨§17.33 item 2⟩ Only the re-verified exact child is signalled.
+                signal_exact(&self.inner.verifier(), &mut link.child, &link.identity);
                 let _ = link.child.wait().await;
             }
             link.buf.zeroize();
@@ -769,13 +1094,23 @@ impl IssuerPort for ChildIssuer {
             reservation: entry,
             subject_public_key: subject.to_owned(),
         };
+        // ⟨§17.33 item 2⟩ The caller's admission, extended for this exchange: held until
+        // the reply is consumed or the exact child's exit is confirmed.
+        let hold: Vec<Box<dyn Send>> = self
+            .inner
+            .config
+            .request_hold
+            .as_ref()
+            .and_then(|h| h())
+            .into_iter()
+            .collect();
         let mut slot = self.inner.link.lock().await;
-        let Some(link) = slot.as_mut() else {
+        if slot.is_none() {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
-        };
+        }
         match self
             .inner
-            .exchange(link, &request, self.inner.config.request_timeout)
+            .exchange_ending(&mut slot, &request, self.inner.config.request_timeout, hold)
             .await
         {
             Ok(Response::Signed {
@@ -794,8 +1129,12 @@ impl IssuerPort for ChildIssuer {
                     "reply does not match the request".into(),
                 ))
             }
+            // The exact child was already ended (`crashed`); a broken link restarts at once
+            // (under the load gate), a timed-out one on the next demand.
             Err(e) => {
-                self.broken(&mut slot, &e).await;
+                if !matches!(e, IssuerError::Timeout) {
+                    self.inner.supervise();
+                }
                 Err(e)
             }
         }
@@ -858,5 +1197,80 @@ impl heimdall_app::issuer::IssuerLifecycle for ChildIssuer {
 
     async fn stop(&self) {
         ChildIssuer::stop(self).await;
+    }
+}
+
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod exact_child_tests {
+    //! ⟨round 15⟩ The exact-child check over a real unreaped child (`/bin/sleep`).
+    use super::*;
+
+    fn verifier(image: Option<ImageReader>) -> Verifier {
+        Verifier {
+            start_token: Arc::new(|_| Some("t0".to_owned())),
+            image,
+        }
+    }
+
+    fn sleeper() -> (Child, u32) {
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        (child, pid)
+    }
+
+    /// The Linux issuer child's case: its image was unreadable at spawn (non-dumpable) and
+    /// is unreadable now; with its PID and start token re-verified it is signalled.
+    #[tokio::test]
+    async fn exact_child_signalled_when_its_image_was_never_readable() {
+        let (mut child, pid) = sleeper();
+        let identity = ChildIdentity {
+            pid,
+            start_token: Some("t0".to_owned()),
+            image: None,
+        };
+        assert!(signal_exact(
+            &verifier(Some(Arc::new(|_| None))),
+            &mut child,
+            &identity
+        ));
+        let status = tokio::time::timeout(STOP_TIMEOUT, child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!status.success(), "ended by the signal");
+    }
+
+    /// An image read at spawn must still read the same: unreadable now, or another
+    /// image, refuses; a start token that differs refuses.
+    #[tokio::test]
+    async fn exact_child_refused_when_a_read_identity_no_longer_matches() {
+        let (mut child, pid) = sleeper();
+        let read = ChildIdentity {
+            pid,
+            start_token: Some("t0".to_owned()),
+            image: Some(PathBuf::from("/x/heimdall")),
+        };
+        for now in [None, Some(PathBuf::from("/x/other"))] {
+            let reader: ImageReader = Arc::new(move |_| now.clone());
+            assert!(!signal_exact(&verifier(Some(reader)), &mut child, &read));
+        }
+        let other_token = ChildIdentity {
+            start_token: Some("t1".to_owned()),
+            image: None,
+            ..read.clone()
+        };
+        assert!(!signal_exact(&verifier(None), &mut child, &other_token));
+        assert!(matches!(child.try_wait(), Ok(None)), "never signalled");
+        let same: ImageReader = Arc::new(|_| Some(PathBuf::from("/x/heimdall")));
+        assert!(signal_exact(&verifier(Some(same)), &mut child, &read));
+        let _ = child.wait().await;
     }
 }

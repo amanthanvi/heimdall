@@ -15,6 +15,9 @@
 #     `HEIMDALL_TEST_SESSION_LOCK=<abs scratch path>`, `HEIMDALL_TEST_SCRIPT_PAUSE_DIR=<abs
 #     scratch dir>`) run through `heimdall service run`, the command whose
 #     `testcfg::requested()` gate they join.
+#   * ⟨ADR-0008 section 17.25 item 7 (b)⟩ the product-file selector
+#     (`HEIMDALL_TEST_SECRET_STORE=product-file:<abs scratch path>`) through `service run`,
+#     `issuer status` and `issuer init --backup-out <scratch>` (the CLI's own store selection).
 # A probe passes only when ALL hold: exit code 2; the output carries the fixed refusal text
 # (a clap usage error is also exit 2 and must not count); the fresh scratch HEIMDALL_HOME is
 # still empty (nothing else happened); the process ended by itself.
@@ -121,6 +124,7 @@ value_for() {
         HEIMDALL_TEST_KEY_SEED) printf '00' ;;
         HEIMDALL_TEST_SESSION_LOCK) printf '%s/session-lock-state' "${vals}" ;;
         HEIMDALL_TEST_SCRIPT_PAUSE_DIR) printf '%s/script-pause' "${vals}" ;;
+        HEIMDALL_TEST_PURGE_TRUSTED_TOP) printf '%s' "${vals}" ;;
         *) printf '1' ;;   # a variable this script does not know yet: any value must be refused
     esac
 }
@@ -132,7 +136,7 @@ fail_count=0
 probe() {
     local var="$1" label="$2" val home out reason verdict
     shift 2
-    val="$(value_for "${var}")"
+    val="${PROBE_VALUE:-$(value_for "${var}")}"
     new_dir
     home="${new_dir_path}"
     out="$(mktemp)" || { echo "release-gate: cannot create a scratch file"; exit 2; }
@@ -217,6 +221,33 @@ done
 # The script pause directory is read CLI-side by `enroll` (U5's SshStepRunner), so a
 # release `enroll` must refuse it too (U0b row 16).
 probe HEIMDALL_TEST_SCRIPT_PAUSE_DIR "enroll x" enroll x
+# ⟨ADR-0008 §17.33 item 14⟩ The purge's debug-only trusted top is read CLI-side by
+# `uninstall`: a release `uninstall` refuses it before anything else.
+probe HEIMDALL_TEST_PURGE_TRUSTED_TOP "uninstall" uninstall
+# The product-file test store (a disposable product-kind store, debug builds only): a release
+# build refuses it like every test variable, before any store or runtime is touched.
+PROBE_VALUE="product-file:${vals}/test.keychain-db"
+probe HEIMDALL_TEST_SECRET_STORE "product-file service run" service run
+probe HEIMDALL_TEST_SECRET_STORE "product-file issuer status" issuer status
+probe HEIMDALL_TEST_SECRET_STORE "product-file issuer init" issuer init --backup-out "${vals}/b.key"
+unset PROBE_VALUE
+
+# ADR-0008 §17.29 item 6: the test-only localenv hooks of wave 5 round 4 (F1) are library
+# fields and functions, not `HEIMDALL_TEST_*` variables, so no binary probe can reach them.
+# They stay unreachable in a release build because no production source outside
+# `crates/localenv/src/` names them (the release binary keeps the defaults: `None` and
+# `LOCAL_QUERY_TIMEOUT`). This static probe fails the gate if one ever does.
+hook_hits=$(grep -rlE 'observe_global_within|observe_global_for_within|local_query_timeout|git_observed' \
+    --include='*.rs' crates | grep -v '^crates/localenv/src/' || true)
+probe_count=$((probe_count + 1))
+if [ -n "${hook_hits}" ]; then
+    fail_count=$((fail_count + 1))
+    status=1
+    echo "release-gate: localenv test-only hooks referenced by production sources: FAIL"
+    printf '    %s\n' ${hook_hits}
+else
+    echo "release-gate: localenv test-only hooks (observe_global_within, ProjectionTestConfig.local_query_timeout, ProjectionConfig.git_observed) unreferenced outside crates/localenv/src: PASS"
+fi
 
 echo "release-gate: ${probe_count} probes, ${fail_count} failed"
 if [ "${status}" -eq 0 ]; then

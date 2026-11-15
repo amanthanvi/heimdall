@@ -1,6 +1,6 @@
 //! Local queries: bounded runs of a local tool for a version or a lookup (m02-plan U3,
-//! Q4). Each is bounded at 2 s, runs with stdin null and no shell, and never modifies
-//! the environment. `--no-local-exec` turns them off (`LocalQueries::Disabled`).
+//! Q4). Each is bounded by [`LOCAL_QUERY_TIMEOUT`] (10 s), runs with stdin null and no
+//! shell, and never modifies the environment. `--no-local-exec` turns them off (`LocalQueries::Disabled`).
 //!
 //! The runner behind them, [`run_contained`], is also the probes' (ADR-0007 §6
 //! "Containment"): the child runs in its own process group (Unix, `process_group(0)`)
@@ -27,8 +27,12 @@ use heimdall_sshconf::eval::OpenSshVersion;
 
 use crate::env::Env;
 
-/// The bound on one local query.
-pub const LOCAL_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
+/// The bound on one local query: 10 s. It bounds a hung program, not normal latency.
+/// M03 wave 5 r4 (F1): at the earlier 2 s, a `git.exe` start-up under a native Windows
+/// test harness's process-spawn load (and antivirus scanning) overran it, so one of two
+/// back-to-back previews saw an incomplete Git observation (`git_config_unreadable`) and
+/// planned a different digest. A preview and the doctor are not latency-critical.
+pub const LOCAL_QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Bytes kept from each output stream of a local query.
 pub const LOCAL_QUERY_OUTPUT_BYTES: usize = 64 * 1024;

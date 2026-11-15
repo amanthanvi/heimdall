@@ -133,21 +133,48 @@ impl Operations {
         let client = ports.host.client_version();
         let now = self.clock().wall();
         let after = self.limits().reverify_after;
-        let candidates = self
+        let (candidates, resume) = self
             .write(move |tx, _| {
                 let mut out = Vec::new();
+                let mut resume = Vec::new();
                 for r in tx.open_enrollments()? {
-                    if r.state != EnrollmentState::Verified
-                        || super::open_operation_of(tx, &r.id)?.is_some()
+                    let open = super::open_operation_of(tx, &r.id)?;
+                    // ⟨ADR-0008 §17.31 items 8-9⟩ This pass's own re-verification left
+                    // without a verdict (its reservation was refused by the uninstall
+                    // fence, which records nothing): resumed once the fence is lifted,
+                    // the deferral rule of §17.31 item 2. "Its own": the supervisor's
+                    // principal and request namespace; "no verdict": still
+                    // `reverifying`, the operation open, no verification entry reserved
+                    // (so it runs at most once: a resumed run reserves, then settles).
+                    if r.state == EnrollmentState::Reverifying
+                        && let Some((op, _)) = &open
+                        && op.kind == heimdall_domain::operation::OperationKind::EnrollmentVerify
+                        && op.key.caller.principal == supervisor_principal()
+                        && op
+                            .key
+                            .request_id
+                            .as_str()
+                            .starts_with(REVERIFY_REQUEST_PREFIX)
+                        && tx.verification_entries(&op.id)?.is_empty()
                     {
+                        resume.push((r.id.clone(), op.id.clone()));
+                        continue;
+                    }
+                    if r.state != EnrollmentState::Verified || open.is_some() {
                         continue;
                     }
                     let alias = tx.destination(&r.destination)?.map(|d| d.alias);
                     out.push((r, alias));
                 }
-                Ok(out)
+                Ok((out, resume))
             })
             .await?;
+        let mut done = Vec::new();
+        for (enrollment, op) in resume {
+            if self.verify_operation(&op).await.is_ok() {
+                done.push(enrollment);
+            }
+        }
         let mut due = Vec::new();
         for (r, alias) in candidates {
             let key_changed = match (&alias, ports.wiring.target.as_ref()) {
@@ -171,14 +198,16 @@ impl Operations {
         // The supervisor's own idempotency namespace (no session: unattended,
         // non-interactive; a re-verification needs no decision).
         let caller = Caller::unattended(CallerContext {
-            principal: PrincipalRef::UnixUser { uid: u32::MAX },
+            principal: supervisor_principal(),
             role: ClientRole::Owner,
         });
-        let mut done = Vec::new();
         for id in due {
-            let request_id =
-                RequestId::parse(&format!("reverify_{}_{}", id.as_str(), now.as_second()))
-                    .map_err(|_| super::super::internal("request id"))?;
+            let request_id = RequestId::parse(&format!(
+                "{REVERIFY_REQUEST_PREFIX}{}_{}",
+                id.as_str(),
+                now.as_second()
+            ))
+            .map_err(|_| super::super::internal("request id"))?;
             let r = self
                 .enrollment_request(
                     &caller,
@@ -197,6 +226,15 @@ impl Operations {
         Ok(done)
     }
 }
+
+/// The re-verification pass's own principal (no session: unattended; a fixed
+/// supervisor identity, A-Q4).
+fn supervisor_principal() -> PrincipalRef {
+    PrincipalRef::UnixUser { uid: u32::MAX }
+}
+
+/// The request-ID namespace of the re-verification pass's own operations.
+const REVERIFY_REQUEST_PREFIX: &str = "reverify_";
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

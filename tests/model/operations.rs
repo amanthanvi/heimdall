@@ -149,6 +149,7 @@ fn outcome() -> PrepareOutcome {
         availability: Default::default(),
         provider: None,
         integration: Default::default(),
+        managed: None,
     }
 }
 
@@ -15429,4 +15430,432 @@ mod wave0_fail_closed {
         let _ = served.await;
         assert_eq!(rows(&w, &keys), before, "no row of any kind");
     }
+}
+
+// =================================================================================
+// ⟨M03 wave 5, round 2⟩ ADR-0008 §17.25 items 15 and 22 (worker R2)
+// =================================================================================
+
+fn time_reason(r: &Completed<serde_json::Value>) -> Option<Option<String>> {
+    r.warnings
+        .iter()
+        .find(|w| w.code == "TIME_UNCERTAIN")
+        .map(|w| w.reason.clone())
+}
+
+async fn inspect_operations(w: &World) -> Completed<serde_json::Value> {
+    ok(w.ops
+        .inspect(
+            &unattended(501),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Operations,
+                preview: None,
+            },
+        )
+        .await)
+}
+
+/// §17.25 item 15 (Q-T6 (a)): the passive-read `TIME_UNCERTAIN` warning carries the reason
+/// `time_confirmation_after_reboot` exactly when the gate's cause is no time reference for
+/// this boot (`Unsynchronized`), never for a rollback below the mark or a skew within a
+/// boot; a safe read carries no warning at all.
+#[tokio::test]
+async fn w5_time_uncertain_warning_reason_only_without_a_time_reference_for_this_boot() {
+    use heimdall_contract::envelope::m03_warning::TIME_CONFIRMATION_AFTER_REBOOT;
+    // Safe: no warning.
+    let w = World::new().await;
+    assert_eq!(time_reason(&inspect_operations(&w).await), None);
+    // An activation anchors this boot and raises the mark.
+    ok(w.ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-t1", "work-t1", &[("h1", "deploy")]),
+        )
+        .await);
+    // Skew within the boot (the wall clock jumps an hour, the continuous clock does
+    // not): uncertain, no reason.
+    w.clock.set_wall(shift(t0(), 3600));
+    assert_eq!(time_reason(&inspect_operations(&w).await), Some(None));
+    // A reboot with the wall clock behind the mark (a rollback): uncertain, no reason.
+    w.clock.reboot(shift(t0(), -600));
+    w.sync.set(SyncStatus::Unknown);
+    assert_eq!(time_reason(&inspect_operations(&w).await), Some(None));
+    // A reboot above the mark, unsynchronized, no confirmation for this boot: the
+    // reason.
+    w.clock.reboot(shift(t0(), 7200));
+    assert_eq!(
+        time_reason(&inspect_operations(&w).await),
+        Some(Some(TIME_CONFIRMATION_AFTER_REBOOT.to_owned()))
+    );
+    w.sync.set(SyncStatus::NotSynchronized);
+    let r = inspect_operations(&w).await;
+    assert_eq!(
+        time_reason(&r),
+        Some(Some(TIME_CONFIRMATION_AFTER_REBOOT.to_owned()))
+    );
+    // The wire form: `reason` beside the code and message.
+    let wire = serde_json::to_value(&r.warnings).unwrap();
+    assert_eq!(wire[0]["reason"], TIME_CONFIRMATION_AFTER_REBOOT, "{wire}");
+    // A synchronized clock after the reboot is safe again: no warning.
+    w.sync.set(SyncStatus::Synchronized);
+    assert_eq!(time_reason(&inspect_operations(&w).await), None);
+}
+
+/// §17.25 item 22 (Q-R2 (b); C-Q4 reading): the `SetLockBehavior` and
+/// `SetConnectionPolicy` results carry this policy's own stored `lock_behavior` and
+/// `connection {existing, multiplexing}` after the action (changed or not); every M01
+/// policy action's result stays exactly `{policy_id, revision, paused, cutoff_at,
+/// changed}`.
+#[tokio::test]
+async fn w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged() {
+    use heimdall_contract::managed::{ExistingConnectionsMode, LockBehavior};
+    let w = World::new().await;
+    let m01_keys = ["changed", "cutoff_at", "paused", "policy_id", "revision"];
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        k.sort();
+        k
+    };
+    let pause = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(keys(&pause.data), m01_keys, "{}", pause.data);
+    assert_eq!(
+        pause.data,
+        serde_json::json!({
+            "policy_id": policy_id(),
+            "revision": 2,
+            "paused": true,
+            "cutoff_at": null,
+            "changed": true,
+        })
+    );
+    let cutoff = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Cutoff {
+                policy_id: policy_id(),
+                at: shift(t0(), 600),
+            },
+        )
+        .await);
+    assert_eq!(keys(&cutoff.data), m01_keys, "{}", cutoff.data);
+    // Unchanged `continue`: this policy's values, `changed: false`.
+    let lock = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::SetLockBehavior {
+                policy_id: policy_id(),
+                behavior: LockBehavior::Continue,
+            },
+        )
+        .await);
+    assert_eq!(lock.data["changed"], false, "{}", lock.data);
+    assert_eq!(lock.data["lock_behavior"], "continue", "{}", lock.data);
+    assert_eq!(
+        lock.data["connection"],
+        serde_json::json!({"existing": "graceful", "multiplexing": "disabled"})
+    );
+    // Narrowing to `strict` applies at once and reports the stored values.
+    let conn = ok(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::SetConnectionPolicy {
+                policy_id: policy_id(),
+                existing: Some(ExistingConnectionsMode::Strict),
+                multiplexing: None,
+            },
+        )
+        .await);
+    assert_eq!(conn.data["changed"], true, "{}", conn.data);
+    assert_eq!(conn.data["lock_behavior"], "continue");
+    assert_eq!(
+        conn.data["connection"],
+        serde_json::json!({"existing": "strict", "multiplexing": "disabled"})
+    );
+    let mut m03_keys: Vec<&str> = m01_keys.to_vec();
+    m03_keys.extend(["connection", "lock_behavior"]);
+    m03_keys.sort_unstable();
+    assert_eq!(keys(&conn.data), m03_keys);
+    let stored = w
+        .store
+        .transaction(|tx| tx.policy(&policy_id()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.connection.existing, ExistingConnectionsMode::Strict);
+}
+
+/// `uninstall_fence_retry_is_one_ordinary_round` (ADR-0008 §17.32 item 7, Q-I-R10-1):
+/// `uninstall_fence.retry_remote_revocations` is holder-only (a connection that does
+/// not hold the fence is refused `SERVICE_UNAVAILABLE`, `uninstall_in_progress` while
+/// another holds it, and nothing is attempted) and makes **exactly one** ordinary round
+/// per pending record: one adapter call, `attempts + 1`, the stop state unchanged. At
+/// the record's cap it is stopped without a call; a stopped record is never re-armed:
+/// no count reset, no lifted stop, no call.
+#[tokio::test]
+async fn uninstall_fence_retry_is_one_ordinary_round() {
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "u-retry").await;
+    async fn record(w: &World) -> heimdall_domain::revocation::PendingRemoteRevocation {
+        let all = w.ops.pending_remote_revocations().await.unwrap();
+        assert_eq!(all.len(), 1, "{all:?}");
+        all[0].clone()
+    }
+    let before = record(&w).await;
+    assert_eq!(before.root, g.grant_id);
+    // Nobody holds the fence: refused, nothing attempted.
+    let e = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(7)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    assert_eq!(e.reason, None);
+    // Another connection holds it: refused `uninstall_in_progress`.
+    w.ops.uninstall_fence_acquire(7).await.unwrap();
+    let e = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(8)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    assert_eq!(e.reason.as_deref(), Some("uninstall_in_progress"));
+    assert_eq!(adapter.calls(), 1, "a refused retry calls nothing");
+    assert_eq!(record(&w).await, before, "and changes nothing");
+    // The holder: exactly one round.
+    let r = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(7)
+        .await
+        .unwrap();
+    assert_eq!(adapter.calls(), 2, "exactly one adapter call");
+    let after = record(&w).await;
+    assert_eq!(after.attempts, before.attempts + 1, "one ordinary attempt");
+    assert_eq!(after.stopped, before.stopped);
+    let v = serde_json::to_value(&r).unwrap();
+    assert_eq!(v[0]["root_grant"], g.grant_id.as_str());
+    assert_eq!(v[0]["outcome"], "attempted_still_pending");
+    assert_eq!(v[0]["attempts_before"], before.attempts);
+    assert_eq!(v[0]["attempts_after"], after.attempts);
+    assert_eq!(v[0]["pending"], true);
+    // Up to the cap, one call per retry; then stopped with no call, and never re-armed.
+    let cap = after.round_cap(u32::MAX);
+    while record(&w).await.attempts < cap {
+        let calls = adapter.calls();
+        w.ops
+            .uninstall_fence_retry_remote_revocations(7)
+            .await
+            .unwrap();
+        assert_eq!(adapter.calls(), calls + 1);
+    }
+    let calls = adapter.calls();
+    for _ in 0..2 {
+        let r = w
+            .ops
+            .uninstall_fence_retry_remote_revocations(7)
+            .await
+            .unwrap();
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v[0]["outcome"], "not_attempted", "{v}");
+        assert_eq!(v[0]["stopped"], true, "{v}");
+        let now = record(&w).await;
+        assert_eq!(now.attempts, cap, "no count reset");
+        assert!(now.stopped, "no lifted stop");
+    }
+    assert_eq!(
+        adapter.calls(),
+        calls,
+        "a capped or stopped record calls nothing"
+    );
+}
+
+/// `recheck3_released_holder_must_not_continue_retry_under_new_fence` (ADR-0008 §17.33
+/// item 1; re-check W5-E05): holder A (connection 7) retries two pending records and
+/// is paused inside the first round's adapter call. Another request on A's connection
+/// releases the fence: A's work is in flight, so the fence is only **releasing** (A's
+/// lease no longer stands) and B (connection 8) cannot acquire it. A's round result is
+/// not committed under the lost lease, the second round never starts, and the retry is
+/// refused `uninstall_in_progress`. Once A's work has ended the fence is lifted; B then
+/// acquires it, and no adapter call is ever made under B's fence.
+#[tokio::test]
+async fn recheck3_released_holder_must_not_continue_retry_under_new_fence() {
+    let (w, adapter) = r1310_pending_world().await;
+    let _a = r1310_withdrawn_pending(&w, &adapter, "e05-a").await;
+    r138_set_automatic_activation(&w, true);
+    let b = r136_ready(&w, "e05-b", "e05-b-work", "h2", "1h").await;
+    r138_set_automatic_activation(&w, false);
+    let e = err(r136_bind(&w, &b.binding_id, "e05-b-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+    assert_eq!(w.ops.pending_remote_revocations().await.unwrap().len(), 2);
+    w.ops.uninstall_fence_acquire(7).await.unwrap();
+    let calls = adapter.calls();
+    adapter.hold_revoke.store(true, Ordering::SeqCst);
+    let ops = w.ops.clone();
+    let retry = tokio::spawn(async move { ops.uninstall_fence_retry_remote_revocations(7).await });
+    adapter.revoke_entered.notified().await;
+    assert_eq!(
+        adapter.calls(),
+        calls + 1,
+        "A's first round is in its adapter call"
+    );
+    assert!(
+        w.ops.uninstall_fence_release(7),
+        "releasing: still held while A's work is in flight"
+    );
+    let e = w.ops.uninstall_fence_acquire(8).await.unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some("uninstall_in_progress"));
+    adapter.revoke_release.notify_one();
+    let e = retry.await.unwrap().unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some("uninstall_in_progress"), "{e:?}");
+    assert_eq!(adapter.calls(), calls + 1, "no second round");
+    assert!(!w.ops.uninstall_fence_held(), "lifted once A's work ended");
+    w.ops.uninstall_fence_acquire(8).await.unwrap();
+    assert_eq!(adapter.calls(), calls + 1, "nothing under B's fence");
+    assert!(!w.ops.uninstall_fence_release(8));
+}
+
+/// What [`RoundGapWrite`] does at the first transaction after a round's completion
+/// began (ADR-0008 §17.33 item 3, audit B1).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GapWrite {
+    /// An unfenced writer adds an obligation to the record after the round committed.
+    AddObligation,
+    /// An unfenced writer re-creates the record the round removed.
+    Recreate,
+    /// The round's completion transaction fails (the round answers `Err`).
+    FailCompletion,
+}
+
+/// A store hook that, once the adapter was called in a round, lets the round's own
+/// completion transaction run (or fails it, [`GapWrite::FailCompletion`]) and then, at
+/// the **next** transaction, commits an unfenced write of its own first: the gap the
+/// audit's probe `rvprobe_retry_reply_record_is_reread_after_its_round` scheduled.
+struct RoundGapWrite {
+    mode: GapWrite,
+    store: std::sync::OnceLock<Arc<Store>>,
+    adapter: std::sync::OnceLock<Arc<PendingCounter>>,
+    baseline: AtomicUsize,
+    seen: AtomicUsize,
+    record: std::sync::Mutex<Option<heimdall_domain::revocation::PendingRemoteRevocation>>,
+}
+
+impl FaultHook for RoundGapWrite {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        let Some(adapter) = self.adapter.get() else {
+            return FaultAction::Continue;
+        };
+        if point != FaultPoint::BeforeTransaction
+            || adapter.calls() <= self.baseline.load(Ordering::SeqCst)
+        {
+            return FaultAction::Continue;
+        }
+        match self.seen.fetch_add(1, Ordering::SeqCst) {
+            0 if self.mode == GapWrite::FailCompletion => FaultAction::Fail,
+            1 => {
+                let before = self.record.lock().unwrap().take();
+                if let (Some(store), Some(mut r)) = (self.store.get(), before) {
+                    let mode = self.mode;
+                    store
+                        .transaction(|tx| {
+                            if mode == GapWrite::AddObligation {
+                                r = tx.remote_revocation(&r.root)?.unwrap();
+                                let mut extra = r.obligations[0].clone();
+                                extra.adapter.instance = "gap-writer".into();
+                                r.obligations.push(extra);
+                            }
+                            tx.set_remote_revocation(&r)
+                        })
+                        .unwrap();
+                }
+                FaultAction::Continue
+            }
+            _ => FaultAction::Continue,
+        }
+    }
+}
+
+/// The world, one pending record, and a [`RoundGapWrite`] hook armed for the next round.
+async fn gap_world(mode: GapWrite) -> (World, Arc<PendingCounter>, Arc<RoundGapWrite>) {
+    let hook = Arc::new(RoundGapWrite {
+        mode,
+        store: std::sync::OnceLock::new(),
+        adapter: std::sync::OnceLock::new(),
+        baseline: AtomicUsize::new(usize::MAX),
+        seen: AtomicUsize::new(0),
+        record: std::sync::Mutex::new(None),
+    });
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        faults: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let _ = hook.store.set(w.store.clone());
+    let _ = hook.adapter.set(adapter.clone());
+    r1310_withdrawn_pending(&w, &adapter, "b1-gap").await;
+    let pending = w.ops.pending_remote_revocations().await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert!(!pending[0].obligations.is_empty(), "{pending:?}");
+    *hook.record.lock().unwrap() = Some(pending[0].clone());
+    hook.baseline.store(adapter.calls(), Ordering::SeqCst);
+    (w, adapter, hook)
+}
+
+async fn holder_retry(w: &World) -> serde_json::Value {
+    w.ops.uninstall_fence_acquire(7).await.unwrap();
+    let r = w
+        .ops
+        .uninstall_fence_retry_remote_revocations(7)
+        .await
+        .unwrap();
+    serde_json::to_value(&r).unwrap()
+}
+
+/// `retry_allowance_is_the_rounds_own_commit_not_a_reread` (ADR-0008 §17.33 item 3,
+/// audit B1, after its probe `rvprobe_retry_reply_record_is_reread_after_its_round`):
+/// the retry's reply carries exactly the record the round's own transaction committed.
+/// An unfenced write committed after it (another obligation; a record re-created after
+/// the round removed it) is never in the reply, so uninstall's final comparison sees it
+/// as a difference; a failed round's reply carries no record at all.
+#[tokio::test]
+async fn retry_allowance_is_the_rounds_own_commit_not_a_reread() {
+    // A write after the round's commit: the reply is the round's record, not the later one.
+    let (w, _adapter, _hook) = gap_world(GapWrite::AddObligation).await;
+    let v = holder_retry(&w).await;
+    let now = w.ops.pending_remote_revocations().await.unwrap();
+    let reply: heimdall_domain::revocation::PendingRemoteRevocation =
+        serde_json::from_value(v[0]["record"].clone()).unwrap();
+    assert_eq!(
+        now[0].obligations.len(),
+        reply.obligations.len() + 1,
+        "the gap write landed after the round"
+    );
+    assert_ne!(
+        reply, now[0],
+        "the reply is the round's own commit, not a re-read"
+    );
+    // The round removed the record; a writer re-creates it: the reply says removed.
+    let (w, adapter, _hook) = gap_world(GapWrite::Recreate).await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    let v = holder_retry(&w).await;
+    assert_eq!(v[0]["outcome"], "completed", "{v}");
+    assert!(v[0]["record"].is_null(), "{v}");
+    assert_eq!(
+        w.ops.pending_remote_revocations().await.unwrap().len(),
+        1,
+        "the re-created record exists"
+    );
+    // The round's completion fails: no record, so nothing is admitted.
+    let (w, _adapter, _hook) = gap_world(GapWrite::FailCompletion).await;
+    let v = holder_retry(&w).await;
+    assert_eq!(v[0]["outcome"], "failed", "{v}");
+    assert!(v[0]["record"].is_null(), "{v}");
 }

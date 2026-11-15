@@ -9,6 +9,18 @@ pub use heimdall_contract::managed::{ConnectionKind, SessionLockState};
 
 // --- pair slots (ADR-0008 D10 item 2) ------------------------------------------------
 
+/// ⟨M03⟩ The command that holds a managed alias's slot, as the `slot_free` disclosure
+/// names it (ADR-0008 D10 item 2: `heimdall run …`; `heimdall bind materialize` is
+/// U12's and is not offered until it exists). `<profile>` stays a placeholder: any
+/// profile that grants the pair holds the slot, and nothing here knows which one the
+/// owner uses. One wording for the projection preview, the doctor, `enroll status`,
+/// the TUI and the enrollment result's `ordinary_ssh_needs_held_slot` note (ADR-0008
+/// §17.25 item 5); `heimdall_localenv::projection::plan` re-exports it.
+#[must_use]
+pub fn slot_free_command(alias: &str) -> String {
+    format!("heimdall run --profile <profile> -- ssh {alias}")
+}
+
 /// One `(environment, destination, account)` slot's state. The generation survives
 /// every state, so a cleanup of generation `g` never touches `g + 1`'s files.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -1,0 +1,29 @@
+Choose what a session lock does to a policy's managed grants (M03; narrowing is immediate, widening needs an owner decision)
+
+Usage: heimdall access lock-behavior [OPTIONS] --policy <POLICY> <BEHAVIOR>
+
+Arguments:
+  <BEHAVIOR>
+          `continue` (a lock does not end managed grants) or `revoke-on-lock`
+
+          Possible values:
+          - continue:       A lock does not end managed grants
+          - revoke-on-lock: A lock revokes the grant
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --policy <POLICY>
+          Policy ID
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+  -h, --help
+          Print help (see a summary with '-h')

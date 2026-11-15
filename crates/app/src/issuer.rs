@@ -150,6 +150,16 @@ pub fn register_disclosures(
     out
 }
 
+/// ⟨ADR-0008 §17.28 item 6⟩ The next command for `issuer_store_access_denied`: the D5
+/// log-intact restore (the CA's backup is restored to a store item this build can read).
+pub const STORE_ACCESS_DENIED_NEXT: &str = "heimdall issuer restore --backup <file>";
+
+/// ⟨ADR-0008 §17.28 items 6, 7⟩ The guidance for `issuer_store_access_denied`: the restore
+/// writes the CA key to a **new** store item this build can read (recorded through the
+/// attended registration); the old item is kept and listed, for the owner to delete in
+/// Keychain Access. Heimdall never deletes it, and no deletion is needed first.
+pub const STORE_ACCESS_DENIED_GUIDANCE: &str = "the CA key store is unlocked, but its item no longer trusts this Heimdall executable (on macOS an ad-hoc-signed build loses access to the CA key after an update): unlocking cannot help. Run `heimdall issuer restore --backup <file>`: it restores the CA to a new store item this build can read; then delete the old item it lists under orphan store items (`heimdall issuer status`) in Keychain Access. Heimdall never deletes it";
+
 /// ⟨§17.17 item 10, U4-Q2(b)⟩ What `issuer unlock` tells the owner when the platform
 /// store is not available: Heimdall never shows a store prompt, so the owner unlocks
 /// the store in the desktop session and asks again. `None` for a reason that is not a
@@ -160,6 +170,8 @@ pub fn unlock_guidance(reason_code: &str) -> Option<&'static str> {
         reason::ISSUER_STORE_LOCKED => Some(
             "the platform secret store is locked or would need a prompt, which Heimdall never shows: unlock it in the desktop session (the login keychain on macOS, the login collection of the Secret Service on Linux, the user's logon session on Windows), then run `heimdall issuer unlock` again",
         ),
+        // ⟨ADR-0008 §17.28 item 6⟩ No unlock helps: the item no longer trusts this build.
+        reason::ISSUER_STORE_ACCESS_DENIED => Some(STORE_ACCESS_DENIED_GUIDANCE),
         reason::ISSUER_STORE_UNAVAILABLE => Some(
             "the platform secret store is unavailable or does not hold the registered CA: check that the desktop session's store is running and holds this installation's item (`heimdall issuer status` lists orphan items); restore the CA from its backup if the item was lost",
         ),
@@ -188,9 +200,10 @@ pub mod bundle {
     use heimdall_contract::enrollment::EnrollmentForm;
     use heimdall_contract::ids::CaFingerprint;
     use heimdall_contract::issuer::{
-        BundleCa, BundleEnrollment, BundleLateWrite, RECOVERY_BUNDLE_SCHEMA, RecoveryBundle,
+        BundleCa, BundleEnrollment, BundleForeignRemoval, BundleLateWrite, RECOVERY_BUNDLE_SCHEMA,
+        RecoveryBundle,
     };
-    use heimdall_domain::enrollment::EnrollmentRecord;
+    use heimdall_domain::enrollment::{EnrollmentRecord, ForeignRemovalRecord};
     use heimdall_store::IssuerRecord;
 
     /// What a bundle omits.
@@ -251,12 +264,28 @@ pub mod bundle {
         out
     }
 
-    /// Build the recovery bundle from `view`, redacting as `redact` says.
+    /// Build the recovery bundle from `view`, redacting as `redact` says, with no
+    /// foreign removal ([`export_with_foreign`] with none).
     ///
     /// # Errors
     /// [`BundleError::UnknownCa`] when an enrollment's CA is not in `view.cas` (the
     /// store's foreign key makes that impossible for a consistent view).
     pub fn export(view: &StoreView<'_>, redact: Redaction) -> Result<RecoveryBundle, BundleError> {
+        export_with_foreign(view, &[], redact)
+    }
+
+    /// ⟨ADR-0008 §17.27 item 1 (W5-R01)⟩ [`export`] plus the foreign removals that
+    /// are not final (`foreign`; a final one is skipped), each by its public removal
+    /// descriptor and state only, never foreign bytes (W4-S02); hostnames and ports
+    /// are omitted when redacted. Sorted by marker, then local alias.
+    ///
+    /// # Errors
+    /// As [`export`].
+    pub fn export_with_foreign(
+        view: &StoreView<'_>,
+        foreign: &[ForeignRemovalRecord],
+        redact: Redaction,
+    ) -> Result<RecoveryBundle, BundleError> {
         let redacted = redact == Redaction::Hostnames;
         let cas: Vec<BundleCa> = view
             .cas
@@ -297,10 +326,45 @@ pub mod bundle {
             });
         }
         enrollments.sort_by(|a, b| a.marker.cmp(&b.marker));
-        let has_system = enrollments.iter().any(|e| e.form == EnrollmentForm::System);
+        let mut foreign_removals: Vec<BundleForeignRemoval> = foreign
+            .iter()
+            .filter(|f| !f.state.is_final())
+            .map(|f| {
+                let t = &f.target;
+                BundleForeignRemoval {
+                    marker: t.marker.clone(),
+                    local_alias: t.local_alias.clone(),
+                    bundle_destination_id: t.bundle_destination_id.clone(),
+                    hostname: (!redacted).then(|| t.bundle_hostname.clone()),
+                    port: (!redacted).then_some(t.bundle_port),
+                    account: t.account.clone(),
+                    ca_public_key: t.ca_public_key.clone(),
+                    line_sha256: t.line_sha256.clone(),
+                    registry: t.registry.clone(),
+                    form: t.form,
+                    state: f.state,
+                }
+            })
+            .collect();
+        foreign_removals.sort_by(|a, b| {
+            (&a.marker, &a.local_alias, a.state.as_str()).cmp(&(
+                &b.marker,
+                &b.local_alias,
+                b.state.as_str(),
+            ))
+        });
+        let has_system = enrollments.iter().any(|e| e.form == EnrollmentForm::System)
+            || foreign_removals
+                .iter()
+                .any(|f| f.form == EnrollmentForm::System);
         let mut instructions = instructions(redacted);
         if !has_system {
             instructions.retain(|i| !i.starts_with("System-form"));
+        }
+        if !foreign_removals.is_empty() {
+            instructions.push(
+                "foreign_removals lists removals of another installation's enrollments that this installation began and has not finished (an abandoned one still trusts its CA: pending_until_line_removed). Finish an account-form one with heimdall enroll remove --from-bundle <that installation's bundle> --marker <marker> --alias <alias>; remove a system-form one by hand as the server's administrator.".to_owned(),
+            );
         }
         Ok(RecoveryBundle {
             schema: RECOVERY_BUNDLE_SCHEMA.to_owned(),
@@ -308,6 +372,7 @@ pub mod bundle {
             redacted,
             cas,
             enrollments,
+            foreign_removals,
             instructions,
         })
     }
@@ -354,5 +419,10 @@ mod tests {
         );
         assert!(unlock_guidance(reason::ISSUER_STORE_LOCKED).is_some());
         assert!(unlock_guidance(reason::ISSUER_UNAVAILABLE).is_none());
+        // ⟨§17.28 item 6⟩ The access denial names the restore, not an unlock.
+        let denied = unlock_guidance(reason::ISSUER_STORE_ACCESS_DENIED).unwrap();
+        assert!(denied.contains(STORE_ACCESS_DENIED_NEXT), "{denied}");
+        assert!(denied.contains("unlocking cannot help"), "{denied}");
+        assert!(denied.contains("new store item"), "{denied}");
     }
 }

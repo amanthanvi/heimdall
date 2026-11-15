@@ -65,6 +65,7 @@
     "interaction_not_allowed",
     "missing",
     "corrupt",
-    "unsupported"
+    "unsupported",
+    "access_denied"
   ]
 }

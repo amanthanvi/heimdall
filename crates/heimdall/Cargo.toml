@@ -134,3 +134,8 @@ path = "../../tests/e2e/managed_m03.rs"
 [[test]]
 name = "e2e_enroll_m03"
 path = "../../tests/e2e/enroll_m03.rs"
+
+# ⟨M03⟩ wave 5 (U12): the TUI's M03 views through the real binary (m03-plan U12 "Tests").
+[[test]]
+name = "e2e_tui_m03"
+path = "../../tests/e2e/tui_m03.rs"

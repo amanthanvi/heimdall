@@ -663,7 +663,7 @@ and only `uninstall --purge-state` deletes them.
 of the same `ApplyProjection` decision. It changes Git's SSH selection only where Git would
 otherwise use its bundled MSYS client, which cannot reach a named-pipe agent (F16).
 
-**Observation at preview** uses local queries (Q4): bounded at 2 s, with no shell, stdin
+**Observation at preview** uses local queries (Q4): bounded at 10 s (2 s before ADR-0008 §17.29 item 7), with no shell, stdin
 null, the Git executable from the client inventory, and the user's environment.
 
 * `git config --system --includes --show-origin --get-all core.sshCommand` and the same
@@ -2094,7 +2094,7 @@ Its path, version and SHA-256 are reported (R-SS-03).
 * **Resolution.** Before launch, when a `git` executable is resolvable, the CLI resolves
   Git's effective SSH selection **in the child's working directory, with the child's
   environment**: `git -C <cwd> config --show-scope --get core.sshCommand`. It is a local
-  query (2 s, no shell, stdin null), and the order is F22's: `GIT_SSH_COMMAND`, then
+  query (10 s since ADR-0008 §17.29 item 7; no shell, stdin null), and the order is F22's: `GIT_SSH_COMMAND`, then
   `core.sshCommand` at its winning scope, then `GIT_SSH`, then Git's default.
 * **Privacy.** The value is used in memory only, to classify the selection as
   `verified_client`, `bundled_msys`, `other` or `undetermined`. It is never recorded or

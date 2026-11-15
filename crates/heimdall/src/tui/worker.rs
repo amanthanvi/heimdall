@@ -215,6 +215,22 @@ struct State {
     op: Option<OpEvents>,
 }
 
+/// What one refresh reads, in order: only `inspect` subjects (read-only, passive;
+/// spec §10.2). ⟨M03⟩ U12 adds the enrollments, the owned connections and the
+/// capabilities. Never `issuer`: the TUI's listings never reach the issuer, and nothing
+/// here reaches a remote host.
+pub(crate) const REFRESH_SUBJECTS: [InspectSubject; 9] = [
+    InspectSubject::Destinations,
+    InspectSubject::Profiles,
+    InspectSubject::Identities,
+    InspectSubject::Operations,
+    InspectSubject::Decisions,
+    InspectSubject::Projections,
+    InspectSubject::Enrollments,
+    InspectSubject::Connections,
+    InspectSubject::Capabilities,
+];
+
 fn inspect(subject: InspectSubject) -> Request {
     Request::Inspect(InspectRequest {
         subject,
@@ -493,18 +509,14 @@ impl State {
 
     async fn refresh(&mut self, doctor: bool) {
         if self.session().await.is_some() {
-            let subjects = [
-                InspectSubject::Destinations,
-                InspectSubject::Profiles,
-                InspectSubject::Identities,
-                InspectSubject::Operations,
-                InspectSubject::Decisions,
-                InspectSubject::Projections,
-            ];
-            let mut answers = Vec::with_capacity(subjects.len());
-            for s in subjects {
+            let mut answers = Vec::with_capacity(REFRESH_SUBJECTS.len());
+            let mut warnings = Vec::new();
+            for s in REFRESH_SUBJECTS {
                 match self.request(inspect(s)).await {
-                    Some(env) if env.code.is_success() => answers.push(env.data),
+                    Some(env) if env.code.is_success() => {
+                        warnings.extend(env.warnings);
+                        answers.push(env.data);
+                    }
                     _ => answers.push(Value::Null),
                 }
             }
@@ -518,7 +530,25 @@ impl State {
                     &answers[5],
                     Timestamp::now(),
                 );
+                // ⟨M03⟩ U12: the enrollments, the owned connections, the capabilities'
+                // lock report, and the time warning any answer carried.
+                self.catalog.m03 =
+                    super::m03::Listings::of(&answers[6], &answers[7], &answers[8], &warnings);
                 self.send(Update::Catalog(Box::new(self.catalog.clone())));
+            }
+        } else {
+            // ⟨M03⟩ F14: with no runtime, the pending chores come from the store, read
+            // only (worker U's reader; the runtime is never started).
+            let ctx = self.config.ctx.clone();
+            if let Ok(lines) = tokio::task::spawn_blocking(move || {
+                crate::doctor_cmd::pending_chores(&ctx)
+                    .iter()
+                    .map(super::m03::chore_line)
+                    .collect::<Vec<_>>()
+            })
+            .await
+            {
+                self.send(Update::OfflineChores(lines));
             }
         }
         let aliases: BTreeSet<String> = self
@@ -559,7 +589,15 @@ impl State {
         let local = self.local_context();
         let tx = self.tx.clone();
         let running = Arc::clone(&self.doctor_running);
+        let ctx = self.config.ctx.clone();
         tokio::task::spawn_blocking(move || {
+            // ⟨M03⟩ U12: the managed facts (free slots, managed directories) worker U's
+            // doctor reads, so the passive pass reports `slot_free` and
+            // `managed_dir_unsafe` as `heimdall doctor` does.
+            let local = local.map(|mut l| {
+                l.managed = crate::doctor_cmd::managed_facts(&ctx);
+                l
+            });
             let taken_at = Timestamp::now();
             let report = local.map_or_else(unavailable_report, |l| {
                 heimdall_localenv::doctor::run(&l, &DoctorRequest::passive())

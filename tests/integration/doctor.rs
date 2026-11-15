@@ -87,9 +87,9 @@ impl Fx {
         let wrapper = root.join("bin").join("ssh");
         #[cfg(windows)]
         let wrapper = root.join("bin").join("ssh.cmd");
-        std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+        create_dir_owner_only(wrapper.parent().unwrap()).unwrap();
         #[cfg(unix)]
-        std::fs::write(
+        write_owner_only(
             &wrapper,
             format!(
                 "#!/bin/sh\ncase \"$1\" in -V) ;; *) echo run >> '{}' ;; esac\nexec '{}' \"$@\"\n",
@@ -99,12 +99,12 @@ impl Fx {
         )
         .unwrap();
         #[cfg(windows)]
-        std::fs::write(&wrapper, format!(
+        write_owner_only(&wrapper, format!(
             "@echo off\r\nif not \"%~1\"==\"-V\" echo run>>\"{}\"\r\n\"{}\" %*\r\nexit /b %errorlevel%\r\n",
             starts.display(), real_ssh.display())).unwrap();
         make_executable(&wrapper);
         #[cfg(windows)]
-        std::fs::create_dir_all(root.join("program-data")).unwrap();
+        create_dir_owner_only(root.join("program-data")).unwrap();
         Fx {
             home,
             hook,
@@ -139,7 +139,7 @@ impl Fx {
         let env = {
             let system = std::env::var_os("SystemRoot").expect("SystemRoot");
             let data = self.root.join("program-data");
-            std::fs::create_dir_all(&data).unwrap();
+            create_dir_owner_only(&data).unwrap();
             Env::from_vars([
                 ("PATH", std::env::var_os("PATH").expect("PATH")),
                 ("SystemRoot", system.clone()),
@@ -218,6 +218,45 @@ impl Fx {
             )
         }
     }
+}
+
+/// The fixtures' files are owner-only, whatever the process umask (the devbox's is 002):
+/// `ssh` refuses a configuration file, or an included one, that is group- or
+/// world-writable ("Bad owner or permissions"), so a plain `fs::write` under umask 002 made
+/// `ssh -G` fail and four tests fail with it (M03 wave 5, round 4, F1 follow-up).
+fn write_owner_only(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let path = path.as_ref();
+    std::fs::write(path, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
+/// `create_dir_all`, with every directory it creates made owner-only (see
+/// [`write_owner_only`]; `ssh` also checks the directories above an included file).
+fn create_dir_owner_only(path: impl AsRef<Path>) -> std::io::Result<()> {
+    let path = path.as_ref();
+    let mut created = Vec::new();
+    let mut p = Some(path);
+    while let Some(d) = p {
+        if d.exists() {
+            break;
+        }
+        created.push(d.to_path_buf());
+        p = d.parent();
+    }
+    std::fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    for d in &created {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(not(unix))]
+    let _ = created;
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -439,7 +478,7 @@ impl Canaries {
                 if ($p.Path -ne $args[2] -or $p.StartTime.ToUniversalTime() -lt $f.LastWriteTimeUtc.AddSeconds(-30)) { exit 20 };
                 if ($p.HasExited) { exit 0 }; $p.Kill(); $p.WaitForExit(); exit 10";
             let script_path = self.pidfile.with_extension("verify.ps1");
-            std::fs::write(&script_path, script).unwrap();
+            write_owner_only(&script_path, script).unwrap();
             let out = Command::new(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
                 .args(["-NoProfile", "-NonInteractive", "-File"])
                 .arg(&script_path)
@@ -643,8 +682,8 @@ fn evaluate_with_hook(
 fn a21_match_exec_inserted_after_static_pass_never_runs_unauthorized() {
     let fx = Fx::new();
     let inc = fx.path("conf.d/inc.conf");
-    std::fs::create_dir_all(inc.parent().unwrap()).unwrap();
-    std::fs::write(&inc, "# included, inert\n").unwrap();
+    create_dir_owner_only(inc.parent().unwrap()).unwrap();
+    write_owner_only(&inc, "# included, inert\n").unwrap();
     fx.config(&format!(
         "Include {}\n{}",
         qp(&inc),
@@ -706,8 +745,8 @@ fn a21_match_exec_inserted_after_static_pass_never_runs_unauthorized() {
 fn a21_new_glob_member_after_static_pass_is_reported_and_never_listed() {
     let fx = Fx::new();
     let dir = fx.path("conf.d");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("10-first.conf"), "# inert member\n").unwrap();
+    create_dir_owner_only(&dir).unwrap();
+    write_owner_only(dir.join("10-first.conf"), "# inert member\n").unwrap();
     fx.config(&format!(
         "Include {}/*.conf\n{}",
         shown_path(&dir),
@@ -733,7 +772,7 @@ fn a21_new_glob_member_after_static_pass_is_reported_and_never_listed() {
         ),
     ];
     let (r, _) = evaluate_with_hook(&fx, true, move || {
-        std::fs::write(&member, line).unwrap();
+        write_owner_only(&member, line).unwrap();
     });
     assert!(touched.exists(), "the new member's Match exec did not run");
     assert_eq!(r.config_tree_changed, Some(true));
@@ -760,11 +799,11 @@ fn a21_new_glob_member_after_static_pass_is_reported_and_never_listed() {
 fn a21_change_then_revert_is_undetected_and_inventory_never_complete() {
     let fx = Fx::new();
     let inc = fx.path("conf.d/inc.conf");
-    std::fs::create_dir_all(inc.parent().unwrap()).unwrap();
+    create_dir_owner_only(inc.parent().unwrap()).unwrap();
     let original_bytes = b"# included, inert\n".to_vec();
-    std::fs::write(&inc, &original_bytes).unwrap();
+    write_owner_only(&inc, &original_bytes).unwrap();
     let original = fx.path("inc.original");
-    std::fs::write(&original, &original_bytes).unwrap();
+    write_owner_only(&original, &original_bytes).unwrap();
     fx.config(&format!(
         "Include {}\n{}",
         qp(&inc),
@@ -796,7 +835,7 @@ fn a21_change_then_revert_is_undetected_and_inventory_never_complete() {
         let wrapper = std::fs::read_to_string(&fx.wrapper).unwrap().replace(
             "exit /b %errorlevel%",
             &format!("set \"ssh_exit=%errorlevel%\"\r\n{restore}\r\nif errorlevel 1 exit /b 1\r\nexit /b %ssh_exit%"));
-        std::fs::write(&fx.wrapper, wrapper).unwrap();
+        write_owner_only(&fx.wrapper, wrapper).unwrap();
         format!(
             "{}\n",
             fx.exec_line(&HookMode::Touch {
@@ -840,7 +879,7 @@ fn a21_unreadable_include_declines_even_with_authorization() {
     use std::os::unix::fs::PermissionsExt;
     let fx = Fx::new();
     let locked = fx.path("locked.conf");
-    std::fs::write(&locked, "Host x\n").unwrap();
+    write_owner_only(&locked, "Host x\n").unwrap();
     #[cfg(unix)]
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
     #[cfg(windows)]
@@ -869,10 +908,10 @@ fn a21_unreadable_include_declines_even_with_authorization() {
     denied.restore().unwrap();
     // An Include chain beyond the depth bound (a root is depth 0; 17 is refused).
     let mut prev = fx.path("deep-17.conf");
-    std::fs::write(&prev, "Host deep\n").unwrap();
+    write_owner_only(&prev, "Host deep\n").unwrap();
     for i in (1..17).rev() {
         let p = fx.path(&format!("deep-{i}.conf"));
-        std::fs::write(&p, format!("Include {}\n", qp(&prev))).unwrap();
+        write_owner_only(&p, format!("Include {}\n", qp(&prev))).unwrap();
         prev = p;
     }
     fx.config(&format!(
@@ -1402,10 +1441,10 @@ fn doctor_shows_a_file_outside_the_home_as_written() {
     FixtureKey::generate().write_public(&inherited).unwrap();
     let outside = tempfile::tempdir().unwrap();
     let real = outside.path().join("hm-fixture-real-dir");
-    std::fs::create_dir_all(&real).unwrap();
+    create_dir_owner_only(&real).unwrap();
     let link = outside.path().join("hm-fixture-link-dir");
     link_dir(&real, &link);
-    std::fs::write(
+    write_owner_only(
         real.join("extra.conf"),
         format!("Host {ALIAS}\n  IdentityFile {}\n", qp(&inherited)),
     )
@@ -1474,11 +1513,11 @@ fn doctor_lists_config_files_and_include_failures_as_written() {
     let fx = Fx::new();
     let outside = tempfile::tempdir().unwrap();
     let real = outside.path().join("hm-fixture-real-dir");
-    std::fs::create_dir_all(&real).unwrap();
+    create_dir_owner_only(&real).unwrap();
     let link = outside.path().join("hm-fixture-link-dir");
     link_dir(&real, &link);
     let unreadable = real.join("unreadable.conf");
-    std::fs::write(&unreadable, "Host z\n").unwrap();
+    write_owner_only(&unreadable, "Host z\n").unwrap();
     #[cfg(unix)]
     std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
     #[cfg(windows)]
@@ -1486,7 +1525,7 @@ fn doctor_lists_config_files_and_include_failures_as_written() {
     let readable = std::fs::read(&unreadable).is_ok();
     #[cfg(windows)]
     assert!(!readable, "the deny-read DACL did not deny the read");
-    std::fs::write(
+    write_owner_only(
         real.join("extra.conf"),
         format!(
             "Include ${{HM_FIXTURE_UNSET_VARIABLE}}/x.conf\nInclude {}\n",
@@ -1604,9 +1643,9 @@ fn a21_local_queries_listed_and_off_with_no_local_exec() {
         let p = fx.path(&format!("qbin/{name}"));
         #[cfg(windows)]
         let p = fx.path(&format!("qbin/{name}.cmd"));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        create_dir_owner_only(p.parent().unwrap()).unwrap();
         #[cfg(unix)]
-        std::fs::write(
+        write_owner_only(
             &p,
             format!(
                 "#!/bin/sh\necho {name} >> '{}'\nexec '{}' \"$@\"\n",
@@ -1616,7 +1655,7 @@ fn a21_local_queries_listed_and_off_with_no_local_exec() {
         )
         .unwrap();
         #[cfg(windows)]
-        std::fs::write(
+        write_owner_only(
             &p,
             format!(
                 "@echo off\r\necho {name}>>\"{}\"\r\n\"{}\" %*\r\nexit /b %errorlevel%\r\n",
@@ -1669,7 +1708,7 @@ fn a21_local_queries_listed_and_off_with_no_local_exec() {
 fn home_resolution_matches_ssh_g() {
     let fx = Fx::new();
     let probe_name = format!("hm-include-probe-{}.conf", std::process::id());
-    std::fs::write(
+    write_owner_only(
         fx.home.git_home.join(&probe_name),
         "Host hm-home-inc\n  Port 2999\n",
     )
@@ -1727,7 +1766,7 @@ fn home_resolution_matches_ssh_g() {
     );
     let mut ctx = fx.ctx();
     let other = fx.path("other-home");
-    std::fs::create_dir_all(&other).unwrap();
+    create_dir_owner_only(&other).unwrap();
     ctx.env = Env::from_vars(
         fx.env()
             .iter()
@@ -1753,7 +1792,7 @@ fn home_resolution_matches_ssh_g() {
 #[test]
 fn home_mismatch_makes_a_home_relative_include_not_fully_readable() {
     let fx = Fx::new();
-    std::fs::write(
+    write_owner_only(
         fx.home.git_home.join("hm-inc-home.conf"),
         "Host hm-other\n  Port 2981\n",
     )
@@ -1763,7 +1802,7 @@ fn home_mismatch_makes_a_home_relative_include_not_fully_readable() {
         alias_block(9, &fx.path("id.pub"))
     ));
     let other = fx.path("other-home");
-    std::fs::create_dir_all(&other).unwrap();
+    create_dir_owner_only(&other).unwrap();
     let with_home = |home: Option<OsString>| {
         let mut ctx = fx.ctx();
         ctx.env = Env::from_vars(

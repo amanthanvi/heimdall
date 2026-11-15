@@ -228,6 +228,7 @@ impl EnsurePrecheck {
                 message: "a managed projection is pending for a requested pair; the existing \
                           identity was used (run setup apply)"
                     .to_owned(),
+                reason: None,
             });
             let binding_id = done.next.take().and_then(|n| n.binding_id);
             done.next = Some(NextAction {

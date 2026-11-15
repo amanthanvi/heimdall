@@ -276,6 +276,27 @@ impl ManagedCertificateAdapter {
             .map(|v| v.valid_after)
     }
 
+    /// ⟨§17.25 item 19⟩ The `connection_policy` this adapter's report would carry for
+    /// the managed `alias` under `policy`: the alias's identity selection from its
+    /// current static observation (D10 item 6; [`prepare::alias_selection`],
+    /// `undetermined` when unobserved) and [`report::connection_wording`] on this
+    /// adapter's platform. The runtime wires it as `inspect destinations`' source
+    /// (`heimdall_app::operations::ConnectionWording`). Reads the observation only.
+    #[must_use]
+    pub fn connection_policy_report(
+        &self,
+        alias: &str,
+        policy: &heimdall_contract::managed::ConnectionPolicy,
+    ) -> heimdall_contract::managed::ConnectionPolicyReport {
+        let observations = self.sources.observations(&[alias.to_owned()]);
+        let selection = prepare::alias_selection(alias, &observations);
+        heimdall_contract::managed::ConnectionPolicyReport {
+            existing: policy.existing,
+            multiplexing: policy.multiplexing,
+            wording: report::connection_wording(selection, policy, &self.platform),
+        }
+    }
+
     /// D6 item 4's re-issue outcome: refused unless [`reissue::eligible`] holds for
     /// the **stored** grant and the request names exactly its pairs and deadline
     /// ([`reissue::same_grant`]); then the outcome is computed from `sources` (the

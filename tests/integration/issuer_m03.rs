@@ -1097,8 +1097,9 @@ fn owner_only_dir(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
 /// `ScratchSecretStore`s (`own`: this installation's, where `put` and `get` go;
 /// `other`: another installation's), labelled with the product kind the CA records
 /// register (`linux_secret_service`) so the owner-present CLI's deletion
-/// (`retire::delete_awaiting`, which refuses a test kind, S3) runs over real scratch
-/// files. Like a shared platform store, its `list` reports **both** installations'
+/// (`retire::delete_awaiting`, which matches a product kind exactly; a bare test kind is
+/// deleted by exact locator only in debug builds, §17.25 item 7 (d)) runs over real
+/// scratch files. Like a shared platform store, its `list` reports **both** installations'
 /// items and its `delete` deletes whichever item the exact locator names: only the
 /// exactness of the recorded locator keeps the other installation's item. No platform
 /// store is touched: no native store claim is closed here.
@@ -2049,6 +2050,50 @@ async fn issuer_supervision_starts_unstarted_child_never_a_stopped_one() {
         w.issuer.starts.load(Ordering::SeqCst),
         1,
         "a stopped child stays stopped"
+    );
+}
+
+/// ⟨ADR-0008 §17.28 item 1, §17.32; round 10 A6⟩ Under an uninstall fence held by another
+/// connection the supervision pass loads nothing (the unstarted child is not started, so no
+/// K_ca is read into it) and advances no retirement (a `retiring` CA is not unloaded); after
+/// the lift the next pass does both.
+#[tokio::test]
+async fn issuer_supervision_pass_does_nothing_under_a_held_fence() {
+    const HOLDER: u64 = 7;
+    let w = World::new().await;
+    w.register_ca(2, CaState::Active);
+    w.tx(|tx| {
+        tx.set_issuer_state(&ca_fp(2), CaState::Active, CaEvent::RetireApproved, t0())
+            .map(|r| r.map(|_| ()).unwrap())
+    });
+    w.register_ca(1, CaState::Active);
+    w.ops.uninstall_fence_acquire(HOLDER).await.unwrap();
+    w.ops.issuer_supervision_pass().await.unwrap();
+    assert_eq!(
+        w.issuer.starts.load(Ordering::SeqCst),
+        0,
+        "no child started"
+    );
+    assert!(
+        w.issuer.unloads.lock().unwrap().is_empty(),
+        "no retirement advanced"
+    );
+    assert_eq!(
+        w.tx(|tx| tx.issuer(&ca_fp(2))).unwrap().state,
+        CaState::Retiring
+    );
+    assert!(!w.ops.uninstall_fence_release(HOLDER), "lifted");
+    w.ops.issuer_supervision_pass().await.unwrap();
+    assert_eq!(
+        w.issuer.starts.load(Ordering::SeqCst),
+        1,
+        "started after the lift"
+    );
+    assert_eq!(*w.issuer.unloads.lock().unwrap(), vec![ca_fp(2)]);
+    assert_eq!(
+        w.tx(|tx| tx.issuer(&ca_fp(2))).unwrap().state,
+        CaState::Unloaded,
+        "the retirement advanced after the lift"
     );
 }
 

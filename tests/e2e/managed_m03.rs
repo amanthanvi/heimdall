@@ -466,6 +466,7 @@ fn outcome_for(req: &PrepareRequest<'_>) -> PrepareOutcome {
         availability: CredentialAvailability::ThroughDeadline,
         provider: None,
         integration: Default::default(),
+        managed: None,
     }
 }
 

@@ -70,14 +70,15 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
-    SDDL_REVISION_1, SE_KERNEL_OBJECT,
+    SDDL_REVISION_1, SE_FILE_OBJECT, SE_KERNEL_OBJECT, SE_OBJECT_TYPE,
 };
 use windows_sys::Win32::Security::{
     GetTokenInformation, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, RevertToSelf,
     SECURITY_ATTRIBUTES, TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_TYPE_PIPE, GetFileType, GetFullPathNameW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
+    BY_HANDLE_FILE_INFORMATION, CreateDirectoryW, FILE_TYPE_PIPE, GetFileInformationByHandle,
+    GetFileType, GetFullPathNameW, MoveFileExW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
 };
 use windows_sys::Win32::System::Pipes::{
     GetNamedPipeClientComputerNameW, GetNamedPipeClientProcessId, ImpersonateNamedPipeClient,
@@ -661,6 +662,182 @@ fn handle_file_type(handle: RawHandle) -> u32 {
 /// with `OWNER_SECURITY_INFORMATION` (needs `READ_CONTROL`, which the client's
 /// `GENERIC_READ` open includes), then `ConvertSidToStringSidW`.
 fn handle_owner_sid(handle: RawHandle) -> io::Result<String> {
+    owner_sid_of(handle, SE_KERNEL_OBJECT)
+}
+
+/// ⟨ADR-0008 §17.33 item 13⟩ Owner SID (string form) of the file or directory behind
+/// `file` (opened with read access, which includes `READ_CONTROL`): the uninstall
+/// purge's owner check of each component of its roots' paths. A safe wrapper over the
+/// same `GetSecurityInfo` call as the endpoint owner check, with `SE_FILE_OBJECT`.
+///
+/// # Errors
+/// The security information cannot be read.
+pub fn file_owner_sid(file: &std::fs::File) -> io::Result<String> {
+    owner_sid_of(file.as_raw_handle(), SE_FILE_OBJECT)
+}
+
+/// ⟨ADR-0008 §17.34 item 1⟩ The identity of the file or directory behind `file`: its
+/// volume serial number and its 64-bit file index (`GetFileInformationByHandle`), the
+/// Windows equivalent of a device and inode pair for the uninstall purge's identity
+/// checks.
+///
+/// # Errors
+/// The information cannot be read.
+pub fn file_id(file: &std::fs::File) -> io::Result<(u64, u64)> {
+    // SAFETY: an all-zero BY_HANDLE_FILE_INFORMATION is a valid out-value.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: `file` owns the handle and keeps it open for the call; `info` is a valid
+    // out-pointer.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut info) };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((
+        u64::from(info.dwVolumeSerialNumber),
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    ))
+}
+
+/// ⟨ADR-0008 §17.34 item 1 (the purge's quarantine)⟩ Rename `from` to `to` **without
+/// replacing** anything at `to` (`MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`: an
+/// existing `to` fails with `ERROR_ALREADY_EXISTS`); a reparse point at `from` is moved
+/// as the link itself, never followed.
+///
+/// # Errors
+/// The rename failed (an existing `to` included).
+pub fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
+    let (a, b) = (wide(from), wide(to));
+    // SAFETY: both strings are NUL-terminated and outlive the call; flags 0 asks for no
+    // replacement.
+    if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// ⟨ADR-0008 §17.35 item 1 (the purge's quarantine directory)⟩ Create the directory
+/// `path` **exclusively** (an existing entry fails with `ERROR_ALREADY_EXISTS`), owned by
+/// this user with a protected DACL granting this user only (the pipes' owner-only
+/// descriptor, [`owner_only_sddl`]).
+///
+/// # Errors
+/// The SID or descriptor could not be built, or the directory could not be created.
+pub fn create_dir_owner_only(path: &Path) -> io::Result<()> {
+    let owner = current_user_sid()?;
+    let sddl: Vec<u16> = OsStr::new(&owner_only_sddl(&owner, &owner))
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut descriptor: *mut c_void = ptr::null_mut();
+    // SAFETY: `sddl` is a NUL-terminated UTF-16 string that outlives the call;
+    // `descriptor` is a valid out-pointer; the size out-pointer may be null.
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let descriptor = LocalAllocation(descriptor);
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>()).unwrap_or(u32::MAX),
+        lpSecurityDescriptor: descriptor.0,
+        bInheritHandle: 0,
+    };
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: `wide` is NUL-terminated and `attributes` (with its descriptor, freed
+    // only when this function returns) outlives the call.
+    if unsafe { CreateDirectoryW(wide.as_ptr(), &attributes) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// ⟨ADR-0008 §17.39 item 3 (the purge's held recovery copy)⟩ Rename **the file `held`
+/// holds open** to `to`, without replacing anything at `to`, whatever name the file has
+/// now: a second handle to the same open file (`ReOpenFile`, with `DELETE` access and
+/// sharing read and delete only, so `held`'s read access and its refusal of writers
+/// stay), then `SetFileInformationByHandle(FileRenameInfo)` with `ReplaceIfExists`
+/// false and the full path of `to` (in the `\\?\` form). The second handle is closed
+/// before this returns; `held` stays open. A file put at `held`'s old name is never the
+/// one renamed.
+///
+/// # Errors
+/// The reopen failed (another handle does not share delete, or the file is being
+/// deleted), `to` exists, or the rename failed.
+pub fn rename_held_no_replace(held: &std::fs::File, to: &Path) -> io::Result<()> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FileRenameInfo, ReOpenFile,
+        SYNCHRONIZE, SetFileInformationByHandle,
+    };
+    let full = full_path_name(to.as_os_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the target path"))?;
+    let name: Vec<u16> = if full.starts_with(&[u16::from(b'\\'), u16::from(b'\\')]) {
+        full
+    } else {
+        OsStr::new(r"\\?\").encode_wide().chain(full).collect()
+    };
+    let name_bytes = name.len() * size_of::<u16>();
+    let offset = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
+    // The structure, the name and its terminator, in an 8-byte-aligned zeroed buffer.
+    let size = offset + name_bytes + size_of::<u16>();
+    let mut buffer = vec![0u64; size.div_ceil(size_of::<u64>())];
+    let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    let length = u32::try_from(name_bytes)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "the target path"))?;
+    let size = u32::try_from(size)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "the target path"))?;
+    // SAFETY: `buffer` is zeroed, 8-byte aligned and at least `offset + name_bytes + 2`
+    // bytes long, so `info` points to a valid `FILE_RENAME_INFO` (all-zero is valid:
+    // `ReplaceIfExists` false, no root directory) followed by room for `name` and a
+    // zero terminator; the writes stay inside it.
+    unsafe {
+        (*info).FileNameLength = length;
+        ptr::copy_nonoverlapping(
+            name.as_ptr(),
+            ptr::addr_of_mut!((*info).FileName).cast::<u16>(),
+            name.len(),
+        );
+    }
+    // SAFETY: `held` owns its handle and keeps it open for the call; the returned
+    // handle, when valid, is owned below and closed exactly once.
+    let raw = unsafe {
+        ReOpenFile(
+            held.as_raw_handle() as HANDLE,
+            DELETE | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_DELETE,
+            0,
+        )
+    };
+    if raw == INVALID_HANDLE_VALUE || raw.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `raw` is a valid handle this function exclusively owns from here.
+    let renamer = unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) };
+    // SAFETY: `renamer` is open for the call; `info` points to `size` initialized bytes
+    // (see above) that outlive the call.
+    let ok = unsafe {
+        SetFileInformationByHandle(
+            renamer.as_raw_handle() as HANDLE,
+            FileRenameInfo,
+            info.cast::<c_void>().cast_const(),
+            size,
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// [`handle_owner_sid`] for an object of `object_type`.
+fn owner_sid_of(handle: RawHandle, object_type: SE_OBJECT_TYPE) -> io::Result<String> {
     let mut owner: PSID = ptr::null_mut();
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
     // SAFETY: the caller's object owns `handle` and keeps it open for the call; the
@@ -669,7 +846,7 @@ fn handle_owner_sid(handle: RawHandle) -> io::Result<String> {
     let rc = unsafe {
         GetSecurityInfo(
             handle as HANDLE,
-            SE_KERNEL_OBJECT,
+            object_type,
             OWNER_SECURITY_INFORMATION,
             &mut owner,
             ptr::null_mut(),

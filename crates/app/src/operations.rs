@@ -238,6 +238,7 @@ mod connections;
 mod lock;
 pub mod narrowing;
 pub use lock::LockRevocation;
+pub use lock_connection_m03::ConnectionWording;
 pub use restart_m03::{
     AWAITING_OWNER_DELETION, BoundedReport, IntentOutcome, OWNER_RECONCILE, RetirementResume,
     only_bounded,
@@ -259,8 +260,21 @@ mod decisions_m03;
 mod enrollment_m03;
 mod issuer_m03;
 mod managed_driver_m03;
+// ⟨M03⟩ wave 5, round 3 (ADR-0008 §17.27 item 2, W5-S01): the uninstall fence.
+mod uninstall_fence_m03;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
+pub use uninstall_fence_m03::{
+    ACQUIRE_WAIT as UNINSTALL_FENCE_ACQUIRE_WAIT, FenceAcquired, FenceAdmission, FenceLease,
+    RELEASE_STUCK_NEXT_COMMAND as UNINSTALL_FENCE_RELEASE_STUCK_NEXT_COMMAND,
+    RELEASE_STUCK_NEXT_STEP as UNINSTALL_FENCE_RELEASE_STUCK_NEXT_STEP,
+    RELEASE_WAIT as UNINSTALL_FENCE_RELEASE_WAIT, fenced as uninstall_fenced,
+    uninstall_fence_release_stuck, uninstall_in_progress, unresolved_remote_steps,
+    with_fence_lease,
+};
+// ⟨§17.31 item 2⟩ The deterministic reservation pause (debug builds only).
+#[cfg(debug_assertions)]
+pub use uninstall_fence_m03::ReservationPauseControl;
 // ⟨W4-C02⟩ The scope evidence selection a fresh preparation and a follower share.
 pub use managed_driver_m03::pair_evidence_under_ca;
 pub use pair_mechanism_m03::unattended_refusal;
@@ -686,6 +700,8 @@ struct Inner {
     narrowing: narrowing::NarrowingState,
     /// ⟨M03⟩ U0b row 4 (O): the verification entries this runtime instance reserved.
     managed_ops: managed_state_m03::ManagedOpsState,
+    /// ⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence (`uninstall_fence_m03`).
+    uninstall_fence: Arc<uninstall_fence_m03::UninstallFence>,
 }
 
 /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: marks one operation's preparation as running in
@@ -4830,6 +4846,11 @@ struct Facts {
     provider: Option<ProviderStatus>,
     integration: ConsumerIntegration,
     availability: CredentialAvailability,
+    /// ⟨M03; ADR-0008 §17.25 item 18⟩ The managed adapter's report
+    /// (`PrepareOutcome.managed`), carried from the outcome only: absent from stored
+    /// facts, so `from_data` and `conservative` leave it `None` (fail closed), and
+    /// `ensure_data` copies it for a managed binding.
+    managed: Option<crate::ports::ManagedResultFacts>,
 }
 
 impl Facts {
@@ -4842,6 +4863,7 @@ impl Facts {
             provider: o.provider.clone(),
             integration: history_only(&o.integration),
             availability: CredentialAvailability::Unknown,
+            managed: o.managed.clone(),
         }
     }
 
@@ -4854,6 +4876,7 @@ impl Facts {
             provider: d.provider.clone(),
             integration: history_only(&d.consumer),
             availability: CredentialAvailability::Unknown,
+            managed: None,
         }
     }
 
@@ -4874,6 +4897,7 @@ impl Facts {
             provider: prepared.and_then(|p| p.provider.clone()),
             integration: prepared.map(integration_of).unwrap_or_default(),
             availability: CredentialAvailability::Unknown,
+            managed: None,
         }
     }
 
@@ -5137,6 +5161,12 @@ fn ensure_data(
     bound: Timestamp,
 ) -> EnsureData {
     let end = grant.deadline.effective.min(bound);
+    // ⟨M03; ADR-0008 §17.25 item 18⟩ The managed adapter's six report fields, for a
+    // managed binding whose facts came from this process's outcome. After a restart
+    // (`Facts::conservative`) or for any other mechanism they stay absent (fail
+    // closed; M01/M02 results unchanged).
+    let is_managed = binding.mechanism.as_str() == ca_issuance_m03::MANAGED_CERTIFICATE;
+    let managed = facts.managed.as_ref().filter(|_| is_managed);
     EnsureData {
         binding_id: binding.id.clone(),
         environment_id: binding.environment.clone(),
@@ -5151,13 +5181,28 @@ fn ensure_data(
         consumer: facts.integration.clone(),
         credential_availability: facts.availability,
         provider: facts.provider.clone(),
-        // M03 wave 0 (A1): fail closed until U0b
-        lock_continuity: None,
-        conditions: Vec::new(),
-        refresh_condition: None,
-        revocation: None,
-        evidence: Vec::new(),
-        connection_policy: None,
+        lock_continuity: managed.map(|m| m.lock_continuity),
+        conditions: managed.map(|m| m.conditions.clone()).unwrap_or_default(),
+        refresh_condition: managed.map(|m| m.refresh_condition),
+        revocation: managed.map(|m| m.revocation.clone()),
+        evidence: managed.map(|m| m.evidence.clone()).unwrap_or_default(),
+        connection_policy: managed.map(|m| m.connection_policy.clone()),
+    }
+}
+
+/// ⟨M03; ADR-0008 §17.25 item 15⟩ The `TIME_UNCERTAIN` warning's additive reason:
+/// `time_confirmation_after_reboot` exactly when the gate's cause is no time reference
+/// for this boot (`Unsynchronized`: no same-boot runtime anchor or attended confirmation,
+/// and the clock not reported synchronized), the cause `heimdall time confirm` clears.
+/// None for a rollback (`BelowHighWater`), skew or a backwards continuous clock.
+fn time_warning_reason(u: &dtime::TimeUncertainty) -> Option<&'static str> {
+    match u {
+        dtime::TimeUncertainty::Unsynchronized { .. } => {
+            Some(heimdall_contract::envelope::m03_warning::TIME_CONFIRMATION_AFTER_REBOOT)
+        }
+        dtime::TimeUncertainty::BelowHighWater { .. }
+        | dtime::TimeUncertainty::Skew { .. }
+        | dtime::TimeUncertainty::ContinuousWentBackwards => None,
     }
 }
 
@@ -5420,6 +5465,7 @@ impl Operations {
             signing_gates: crate::managed::SigningGates::new(),
             narrowing: narrowing::NarrowingState::default(),
             managed_ops: managed_state_m03::ManagedOpsState::default(),
+            uninstall_fence: Arc::default(),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -5553,8 +5599,29 @@ impl Operations {
     }
 
     /// Run `f` in one store transaction on the blocking pool; announce the events
-    /// it appended after the commit and wake bounded waiters.
+    /// it appended after the commit and wake bounded waiters. ⟨§17.33 item 1⟩ From
+    /// holder work, refused (`uninstall_in_progress`, nothing written) when its lease no
+    /// longer stands.
     async fn write<R, F>(&self, f: F) -> Result<R, OpError>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<R> + Send + 'static,
+    {
+        self.write_admitted(None, f).await
+    }
+
+    /// [`Self::write`], owning `admission` (⟨ADR-0008 §17.32 item 3⟩ the uninstall
+    /// fence's admission for this write): the blocking closure that runs the
+    /// transaction owns it and drops it only after the transaction has committed or
+    /// rolled back, so cancelling this future (a dropped connection) never releases it
+    /// while the write is queued or running. A write started by a task that holds an
+    /// admission (a fenced request or pass) carries a counted extension of it the same
+    /// way (`UninstallFence::write_extension`).
+    async fn write_admitted<R, F>(
+        &self,
+        admission: Option<uninstall_fence_m03::FenceAdmission>,
+        f: F,
+    ) -> Result<R, OpError>
     where
         R: Send + 'static,
         F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<R> + Send + 'static,
@@ -5562,8 +5629,29 @@ impl Operations {
         let store = Arc::clone(&self.inner.config.store);
         let publisher = self.inner.publisher.clone();
         let gates = self.inner.signing_gates.clone();
+        let extension = self.inner.uninstall_fence.write_extension();
+        // ⟨ADR-0008 §17.33 item 1⟩ Holder work's commit re-checks its lease in the
+        // closure, before the transaction begins (fence lock before the store's, as an
+        // admission); the carried lease counts as holder work until the transaction has
+        // ended, so the fence cannot be released or reacquired in between.
+        let lease = uninstall_fence_m03::current_lease();
+        #[cfg(debug_assertions)]
+        let pause = admission
+            .as_ref()
+            .and_then(|_| self.inner.uninstall_fence.take_write_pause());
         let joined = tokio::task::spawn_blocking(move || {
-            store.transaction(|tx| {
+            let admitted = (admission, extension);
+            if let Some(l) = &lease
+                && !l.valid()
+            {
+                drop(admitted);
+                return Err(LeaseLost);
+            }
+            #[cfg(debug_assertions)]
+            if let Some(p) = pause {
+                p.block();
+            }
+            let r = store.transaction(|tx| {
                 let mut emit = Emit {
                     publisher,
                     events: Vec::new(),
@@ -5572,10 +5660,14 @@ impl Operations {
                 };
                 let r = f(tx, &mut emit)?;
                 Ok((r, emit.events))
-            })
+            });
+            drop(admitted);
+            drop(lease);
+            Ok(r)
         })
         .await
-        .map_err(join_error)?;
+        .map_err(join_error)?
+        .map_err(|LeaseLost| self.inner.uninstall_fence.refusal())?;
         let (r, events) = joined?;
         for e in events {
             self.inner.publisher.announce(e);
@@ -5820,7 +5912,8 @@ impl Operations {
     ) -> Option<Result<(), OpError>> {
         let me = self.clone();
         let id = id.clone();
-        let task = tokio::spawn(async move { me.lead(&id, interactive).await });
+        let task =
+            uninstall_fence_m03::spawn_with_lease(async move { me.lead(&id, interactive).await });
         let wait = wait?;
         match tokio::time::timeout(wait, task).await {
             Ok(Ok(r)) => Some(r),
@@ -5846,7 +5939,9 @@ impl Operations {
                 let me = self.clone();
                 let id = id.clone();
                 let interactive = *interactive;
-                tokio::spawn(async move { me.lead(&id, interactive).await })
+                uninstall_fence_m03::spawn_with_lease(
+                    async move { me.lead(&id, interactive).await },
+                )
             })
             .collect();
         let deadline = tokio::time::Instant::now() + wait;
@@ -6507,6 +6602,7 @@ impl Operations {
                 availability: CredentialAvailability::Unknown,
                 provider: conservative.provider,
                 integration: conservative.integration,
+                managed: None,
             }))
         })
         .await
@@ -8631,10 +8727,11 @@ impl Operations {
         // Passive reads continue with a warning while time is uncertain (spec §6.4).
         let now = match self.inner.timegate.peek().await {
             Ok(dtime::TimeStatus::Safe) => self.inner.config.clock.wall(),
-            Ok(dtime::TimeStatus::Uncertain(_)) => {
+            Ok(dtime::TimeStatus::Uncertain(u)) => {
                 warnings.push(Warning {
                     code: "TIME_UNCERTAIN".to_owned(),
                     message: "safe time cannot be established; activation is stopped".to_owned(),
+                    reason: time_warning_reason(&u).map(str::to_owned),
                 });
                 self.inner.config.clock.wall()
             }
@@ -8642,6 +8739,7 @@ impl Operations {
         };
         let ctx = caller.context.clone();
         let environment = self.inner.config.environment.clone();
+        let capabilities = matches!(req.subject, InspectSubject::Capabilities);
         let mut data =
             match req.subject {
                 // ⟨M02⟩ U0b row 19, phase 2: the same set as
@@ -8687,23 +8785,7 @@ impl Operations {
                     if !ctx.is_owner() {
                         serde_json::json!({ "items": [] })
                     } else {
-                        self.write(move |tx, _| {
-                            let mut items: Vec<serde_json::Value> = Vec::new();
-                            for d in tx.destinations()? {
-                                // ⟨M03⟩ U8-Q6: the managed definition's pair preference.
-                                let preference = match &d.definition {
-                                    DestinationDefinition::Managed { account, .. } => tx
-                                        .pair_preference(&heimdall_domain::scope::AccessPair {
-                                            destination: d.id.clone(),
-                                            account: account.clone(),
-                                        })?,
-                                    DestinationDefinition::Observed => None,
-                                };
-                                items.push(destination_view(&d, preference.as_ref()));
-                            }
-                            Ok(serde_json::json!({ "items": items }))
-                        })
-                        .await?
+                        self.destinations_view(environment.clone()).await?
                     }
                 }
                 // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
@@ -9065,10 +9147,62 @@ impl Operations {
                 map.insert("preview".to_owned(), p);
             }
         }
-        Ok(Completed {
+        let mut done = Completed {
             warnings,
             ..Completed::ok(Code::Ok, data)
-        })
+        };
+        // ⟨M03 wave 5⟩ U9-Q3 (a): `inspect capabilities` carries the current lock
+        // behaviour's `signal_unverified` (ADR-0008 D9 items 1 and 3).
+        if capabilities {
+            self.add_capabilities_lock(&mut done.data).await;
+            self.label_capabilities_lock(&mut done).await;
+        }
+        Ok(done)
+    }
+
+    /// `inspect destinations` (owner role): every catalog destination
+    /// ([`destination_view`]), read in one transaction. ⟨M03; ADR-0008 §17.25 item 19⟩ A
+    /// `managed_certificate` preference covered by a standing policy also carries
+    /// `preference.connection_policy` from the runtime's wording source, computed after
+    /// the transaction (it reads the alias's static observation).
+    async fn destinations_view(&self, env: EnvironmentId) -> Result<serde_json::Value, OpError> {
+        type Pending = Vec<(usize, String, heimdall_contract::managed::ConnectionPolicy)>;
+        let (mut items, pending) = self
+            .write(move |tx, _| {
+                let mut items: Vec<serde_json::Value> = Vec::new();
+                let mut pending: Pending = Vec::new();
+                for d in tx.destinations()? {
+                    // ⟨M03⟩ U8-Q6: the managed definition's pair preference.
+                    let pair = match &d.definition {
+                        DestinationDefinition::Managed { account, .. } => {
+                            Some(heimdall_domain::scope::AccessPair {
+                                destination: d.id.clone(),
+                                account: account.clone(),
+                            })
+                        }
+                        DestinationDefinition::Observed => None,
+                    };
+                    let preference = match &pair {
+                        Some(p) => tx.pair_preference(p)?,
+                        None => None,
+                    };
+                    let managed = preference.as_ref().is_some_and(|p| {
+                        p.mechanism
+                            == heimdall_contract::managed::PreferredMechanism::ManagedCertificate
+                    });
+                    if let Some(p) = pair.as_ref().filter(|_| managed)
+                        && let Some(policy) =
+                            lock_connection_m03::pair_connection_policy(tx, &env, p)?
+                    {
+                        pending.push((items.len(), d.alias.clone(), policy));
+                    }
+                    items.push(destination_view(&d, preference.as_ref()));
+                }
+                Ok((items, pending))
+            })
+            .await?;
+        self.add_connection_policies(&mut items, pending).await;
+        Ok(serde_json::json!({ "items": items }))
     }
 
     /// `inspect --preview`: resolution without effects.
@@ -9180,7 +9314,14 @@ impl Operations {
                 wait,
             )
             .await;
-        precheck.decorate(r)
+        // ⟨M03 wave 5⟩ U9-Q3 (a): a `revoke_on_lock` grant over an unverified signal
+        // carries `signal_unverified` (ADR-0008 D9 item 3).
+        let mut r = precheck.decorate(r);
+        if let Ok(done) = &mut r {
+            let grant = done.data.grant_id.clone();
+            self.label_grant_lock(done, &grant).await;
+        }
+        r
     }
 
     /// `bind` (materialize only in M01; launch is the CLI's job after ensure).
@@ -9275,14 +9416,18 @@ impl Operations {
             self.claim_replayed_launch(&done.data.binding_id, holder, &id)
                 .await?;
         }
-        Ok(Completed {
+        let grant = done.data.grant_id.clone();
+        let mut done = Completed {
             next: Some(NextAction {
                 action: "use_binding".to_owned(),
                 binding_id: Some(done.data.binding_id.clone()),
                 ..NextAction::default()
             }),
             ..done
-        })
+        };
+        // ⟨M03 wave 5⟩ U9-Q3 (a), as for `ensure`.
+        self.label_grant_lock(&mut done, &grant).await;
+        Ok(done)
     }
 
     /// ⟨M02⟩ ADR-0007 §12.25 item 4 (T04): a settled launch `bind` names this
@@ -9604,15 +9749,22 @@ impl Operations {
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
         let request_id = req.request_id.clone();
-        self.run_work(
-            caller,
-            OperationKind::Delegate,
-            Request::Delegate(req),
-            hash,
-            request_id,
-            WaitMode::default(),
-        )
-        .await
+        let mut r = self
+            .run_work(
+                caller,
+                OperationKind::Delegate,
+                Request::Delegate(req),
+                hash,
+                request_id,
+                WaitMode::default(),
+            )
+            .await;
+        // ⟨M03 wave 5⟩ U9-Q3 (a), as for `ensure`.
+        if let Ok(done) = &mut r {
+            let grant = done.data.grant_id.clone();
+            self.label_grant_lock(done, &grant).await;
+        }
+        r
     }
 
     /// `observe` (spec §11.5; timeout ≠ cancel).
@@ -10595,9 +10747,17 @@ impl Operations {
         let interrupted = Arc::clone(&self.inner.interrupted_rounds);
         let claimed = self
             .write(move |tx, _| {
-                let claimed = claim_retry_round_in(tx, &r, &configured, now, max_attempts)?;
+                let mut claimed = claim_retry_round_in(tx, &r, &configured, now, max_attempts)?;
                 if matches!(claimed, RetryClaim::Claimed(..)) {
                     forget_interrupted(&interrupted, &r);
+                }
+                // ⟨ADR-0008 §17.33 item 3 (audit B1)⟩ A round that claims nothing answers
+                // the record exactly as this transaction leaves it stored, so its answer is
+                // byte for byte what the round committed (never a later re-read).
+                if let RetryClaim::Unchanged(_) = &claimed
+                    && let Some(stored) = tx.remote_revocation(&r)?
+                {
+                    claimed = RetryClaim::Unchanged(stored);
                 }
                 Ok(claimed)
             })
@@ -10769,7 +10929,18 @@ impl Operations {
             .await??;
         match r {
             PolicyOutcome::Applied(p, changed) => {
-                Ok(Completed::ok(Code::Ok, policy_view(&p, changed)))
+                let mut done = Completed::ok(Code::Ok, policy_view(&p, changed, &req));
+                // ⟨M03 wave 5⟩ U9-Q3 (a): a `SetLockBehavior` result is about the
+                // policy's behaviour now; `revoke_on_lock` over an unverified signal
+                // carries `signal_unverified` (ADR-0008 D9 item 3).
+                if matches!(req, PolicyAction::SetLockBehavior { .. }) {
+                    crate::lock::label_completed(
+                        &mut done,
+                        p.lock_behavior,
+                        self.session_lock_signal(),
+                    );
+                }
+                Ok(done)
             }
             PolicyOutcome::Decision(dec) => Err(approval_needed(
                 attended,
@@ -10820,6 +10991,13 @@ impl Operations {
                 "owner decisions need the owner role",
             ));
         }
+        // ⟨ADR-0008 §17.28 item 1, §17.31 item 2⟩ An approval is fenced work: refused
+        // while an uninstall holds the fence (or is acquiring it), and admitted until
+        // its follow-through has ended; a denial is not.
+        let _admission = match req.verdict {
+            Verdict::Deny => None,
+            _ => Some(self.uninstall_fence_admit()?),
+        };
         // A denial narrows and never waits for safe time.
         let deny_now = match req.verdict {
             Verdict::Approve => None,
@@ -11522,6 +11700,12 @@ impl Operations {
         req: IssuanceRequest,
         named_ca: Option<heimdall_contract::ids::CaFingerprint>,
     ) -> Result<IssuanceEntry, OpError> {
+        // ⟨ADR-0008 §17.27 item 2, §17.28 item 1, §17.31 item 2⟩ no new certificate
+        // while an uninstall holds the fence (unless the holder's own request reserves
+        // it). The admission is taken before the check and moved into the store write
+        // below (⟨§17.32 item 3⟩ owned by its blocking transaction until it commits or
+        // rolls back), so an acquisition waits for this reservation or refuses it.
+        let admission = self.fence_admit_reservation().await?;
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();
@@ -11529,7 +11713,7 @@ impl Operations {
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
         let (r, ended) = self
-            .write(move |tx, emit| {
+            .write_admitted(Some(admission), move |tx, emit| {
                 let (safe, time, now) = issuance_time(&gate, tx)?;
                 // ⟨r2.7⟩ ADR-0006 §13.10 item 2 (before the use is judged).
                 if let Some(s) = &safe {
@@ -11665,6 +11849,15 @@ impl Operations {
             .with_resource("grant", None));
         };
         let last = attempt >= PUBLISH_ATTEMPTS;
+        // ⟨ADR-0008 §17.32 item 2 (W5-D02)⟩ A publication can create a reservation (the
+        // re-reserve branch below): it takes the reservation admission, moved into its
+        // store write (§17.32 item 3). While the fence is held there is none.
+        let Some(admission) = self.fence_admit_publication() else {
+            // ⟨§17.28 item 1; round-10 audit A1⟩ Publishing (and re-reserving) is CA
+            // work: not under another connection's fence. Refused, nothing written;
+            // the entry stays reserved and counted until its `valid_before`.
+            return Err(self.inner.uninstall_fence.refusal());
+        };
         let fresh_id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();
@@ -11675,7 +11868,7 @@ impl Operations {
         let retention = self.retention();
         let gid = grant.clone();
         let (outcome, ended) = self
-            .write(move |tx, emit| {
+            .write_admitted(Some(admission), move |tx, emit| {
                 let (safe, time, now) = issuance_time(&gate, tx)?;
                 let Some(entry) = tx
                     .issuance_entries(&gid)?
@@ -11800,6 +11993,10 @@ impl Operations {
         }
     }
 }
+
+/// ⟨ADR-0008 §17.33 item 1⟩ A holder-work commit whose lease no longer stood: nothing
+/// was written.
+struct LeaseLost;
 
 /// Time evidence for an issuance step, assessed by the gate inside the step's own
 /// transaction (code review A01): the accepted observation when `Safe`, the
@@ -12200,14 +12397,28 @@ enum PolicyOutcome {
     Decision(heimdall_contract::ids::DecisionId),
 }
 
-fn policy_view(p: &StandingPolicy, changed: bool) -> serde_json::Value {
-    serde_json::json!({
+/// A policy action's result. ⟨M03; ADR-0008 §17.25 item 22 (Q-R2 (b))⟩ For the two M03
+/// actions (`SetLockBehavior`, `SetConnectionPolicy`) only, it also carries **this
+/// policy's** stored values after the action: `lock_behavior` and `connection`
+/// (`{existing, multiplexing}`). Every M01 action's result is unchanged.
+fn policy_view(p: &StandingPolicy, changed: bool, action: &PolicyAction) -> serde_json::Value {
+    let mut view = serde_json::json!({
         "policy_id": p.id,
         "revision": p.revision.0,
         "paused": matches!(p.pause, PauseState::Paused { .. }),
         "cutoff_at": p.cutoff_at,
         "changed": changed,
-    })
+    });
+    if lock_connection_m03::is_m03(action)
+        && let serde_json::Value::Object(map) = &mut view
+    {
+        map.insert(
+            "lock_behavior".to_owned(),
+            serde_json::json!(p.lock_behavior),
+        );
+        map.insert("connection".to_owned(), serde_json::json!(p.connection));
+    }
+    view
 }
 
 /// Apply exactly the recorded widening action after an attended approval.
@@ -12547,7 +12758,8 @@ impl Operations {
     ) -> Option<Result<(), OpError>> {
         let me = self.clone();
         let id = id.clone();
-        let task = tokio::spawn(async move { me.local_lead(&id, driver).await });
+        let task =
+            uninstall_fence_m03::spawn_with_lease(async move { me.local_lead(&id, driver).await });
         match tokio::time::timeout(wait, task).await {
             Ok(Ok(r)) => Some(r),
             Ok(Err(e)) => Some(Err(join_error(e))),
@@ -13788,5 +14000,125 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// ⟨M03; ADR-0008 §17.25 item 18⟩ `ensure_data` copies the managed adapter's six
+    /// report fields from this process's outcome (`Facts::from_outcome`) for a
+    /// `managed_certificate` binding only; after a restart (`Facts::conservative`, the
+    /// stored facts) and from a leader's result (`Facts::from_data`) they stay absent,
+    /// and any other mechanism's result is unchanged even if an outcome carried them.
+    #[test]
+    fn ensure_data_carries_managed_facts_only_from_this_process_outcome() {
+        use heimdall_contract::managed::{
+            ConnectionPolicyReport, ExistingConnectionsMode, LockContinuityReport, MultiplexingMode,
+        };
+        let now: Timestamp = "2026-10-02T00:10:00Z".parse().unwrap();
+        let deadline: Timestamp = "2026-10-02T02:10:00Z".parse().unwrap();
+        let grant = GrantSnapshot {
+            id: GrantId::from_random_bytes([0x18; 16]),
+            environment: EnvironmentId::from_random_bytes([0x17; 16]),
+            scope: Scope {
+                pairs: BTreeSet::new(),
+                capabilities: BTreeSet::new(),
+            },
+            starts_at: now,
+            deadline: heimdall_domain::time::Deadline {
+                intent: heimdall_contract::request::DeadlineIntent::Duration("2h".to_owned()),
+                resolved_at: now,
+                effective: deadline,
+            },
+            parent: None,
+            source: heimdall_domain::grant::AuthorizationSource::StandingPolicy {
+                revision: heimdall_domain::policy::PolicyRevision(1),
+            },
+            generation: heimdall_domain::policy::AuthorityGeneration(1),
+            state: GrantState::Active,
+            enforcement: EnforcementEvidence::unknown(),
+        };
+        let binding = |mechanism: &str| BindingRecord {
+            id: heimdall_contract::ids::BindingId::from_random_bytes([0x19; 16]),
+            environment: grant.environment.clone(),
+            grant: grant.id.clone(),
+            work_id: WorkId::parse("w-r2").unwrap(),
+            owner: CallerContext {
+                principal: heimdall_domain::principal::PrincipalRef::UnixUser { uid: 1 },
+                role: heimdall_domain::principal::ClientRole::Owner,
+            },
+            profile: heimdall_contract::ids::ProfileId::parse("dev").unwrap(),
+            profile_revision: 1,
+            scope: grant.scope.clone(),
+            mechanism: mechanism.to_owned(),
+            parent: None,
+            created_at: now,
+            released_at: None,
+            state: heimdall_domain::binding::BindingState::Active,
+        };
+        let policy = ConnectionPolicyReport {
+            existing: ExistingConnectionsMode::Strict,
+            multiplexing: MultiplexingMode::Disabled,
+            wording: "Connections Heimdall started are closed at the deadline.".to_owned(),
+        };
+        let outcome = PrepareOutcome {
+            usable_until: deadline,
+            offline_until: deadline,
+            refresh_dependency: RefreshDependency::LocalIssuer,
+            enforcement: EnforcementEvidence::unknown(),
+            credential_ref: "fixture".to_owned(),
+            availability: CredentialAvailability::ThroughDeadline,
+            provider: None,
+            integration: ConsumerIntegration::default(),
+            managed: Some(crate::ports::ManagedResultFacts {
+                lock_continuity: LockContinuityReport::Verified,
+                conditions: Vec::new(),
+                refresh_condition: heimdall_contract::managed::RefreshCondition {
+                    needed_only_after: heimdall_contract::managed::RefreshTrigger::SignerRestart,
+                    source: RefreshDependency::LocalIssuer,
+                },
+                revocation: serde_json::from_value(serde_json::json!({
+                    "local": "immediate",
+                    "remote": "unbounded_unknown",
+                    "destination_clock": "unmeasured",
+                }))
+                .unwrap(),
+                evidence: Vec::new(),
+                connection_policy: policy.clone(),
+            }),
+        };
+        let managed = binding(MANAGED_CERTIFICATE);
+        let fresh = ensure_data(&managed, &grant, &Facts::from_outcome(&outcome), deadline);
+        assert_eq!(fresh.connection_policy, Some(policy));
+        assert_eq!(fresh.lock_continuity, Some(LockContinuityReport::Verified));
+        assert!(fresh.refresh_condition.is_some() && fresh.revocation.is_some());
+        let absent = |d: &EnsureData| {
+            d.lock_continuity.is_none()
+                && d.conditions.is_empty()
+                && d.refresh_condition.is_none()
+                && d.revocation.is_none()
+                && d.evidence.is_empty()
+                && d.connection_policy.is_none()
+        };
+        // After a restart: the stored facts, conservative.
+        let restarted = ensure_data(
+            &managed,
+            &grant,
+            &Facts::conservative(&grant, None, now),
+            deadline,
+        );
+        assert!(absent(&restarted), "{restarted:?}");
+        // From a leader's result (an attached binding).
+        assert!(absent(&ensure_data(
+            &managed,
+            &grant,
+            &Facts::from_data(&fresh),
+            deadline
+        )));
+        // Another mechanism: never, so M01/M02 results stay byte-identical.
+        let other = ensure_data(
+            &binding("fake_agent"),
+            &grant,
+            &Facts::from_outcome(&outcome),
+            deadline,
+        );
+        assert!(absent(&other), "{other:?}");
     }
 }

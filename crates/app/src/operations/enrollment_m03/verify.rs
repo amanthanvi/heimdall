@@ -11,28 +11,34 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use heimdall_contract::enrollment::{EnrollmentForm, EnrollmentNext, EnrollmentState};
+use heimdall_contract::enrollment::{
+    EnrollmentForm, EnrollmentNext, EnrollmentState, RemoteStage, VerifyMode,
+};
 use heimdall_contract::envelope::{EffectStatus, reason};
 use heimdall_contract::ids::OperationId;
 use heimdall_contract::managed::ClockMeasurement;
 use heimdall_contract::{Code, Timestamp};
 use heimdall_domain::enrollment::{
-    EnrollmentEventKind, EnrollmentEvidence, EnrollmentHold, HoldReason, ReverifyFrom,
+    EnrollmentEventKind, EnrollmentEvidence, EnrollmentHold, EnrollmentRecord, HoldReason,
+    LateWrite, ReverifyFrom,
 };
 use heimdall_domain::issuance::principal_for;
-use heimdall_domain::operation::{EffectReceipt, enrollment_stage};
+use heimdall_domain::operation::{EffectReceipt, OperationKind, OperationRecord, enrollment_stage};
 use heimdall_domain::verification::{
     ClassifyContext, InconclusiveReason, KnownOffset, VerificationPhase, VerificationPurpose,
     VerificationRefusal, VerificationVerdict,
 };
+use heimdall_registry::classify::{Inspection, StepClass};
+use heimdall_registry::hm1;
+use heimdall_store::Txn;
 
-use super::super::{Operations, internal};
+use super::super::{Emit, Operations, internal};
 use super::steps::{Ctx, load_ctx};
 use super::{
-    adapter, move_record, pair_of, put_journal, receipt, record_preference, result_of, settle_ok,
-    settle_open, store_conflict,
+    adapter, emit_record, move_record, pair_of, put_journal, receipt, record_preference,
+    result_for, settle_ok, settle_open, store_conflict,
 };
-use crate::enrollment::plan_of_record;
+use crate::enrollment::{Journal, plan_of_record};
 use crate::error::OpError;
 use crate::operations::VerificationRequest;
 use crate::ports::{IssuanceRef, IssuanceTable, VerificationOutcome};
@@ -58,12 +64,77 @@ fn nonce() -> Result<String, OpError> {
 }
 
 impl Operations {
+    /// ⟨ADR-0008 §17.32 item 4; W5-D04⟩ [`Self::verify_once`], single-flight per
+    /// operation in this runtime: every route that runs an operation's verification
+    /// (a step result's follow-through, `enroll step`'s `Next::Verify`, `enroll
+    /// reconcile`, a verify or target-change decision, the re-verification pass and
+    /// `reverify_due`'s resume) joins the operation's one flight, the existing
+    /// per-operation `flights` of [`Operations`] (enrollment operations are never driven
+    /// by `lead`, so the key is free). A concurrent caller follows the leader and
+    /// returns its outcome; it never starts a second verifier. A caller that arrives
+    /// after the leader finished leads a new flight, which finds the record past the
+    /// verification's state and does nothing.
+    ///
+    /// ⟨audit A8⟩ The leader's work runs in its own task, which owns the flight (and a
+    /// counted extension of the caller's uninstall-fence admission, if it holds one):
+    /// cancelling the caller (a dropped request) never releases the flight while that
+    /// verification, its reservations or its result write are still pending, so a
+    /// follower that takes over only ever follows it and never starts a second verifier.
+    pub(super) async fn verify_operation(&self, id: &OperationId) -> Result<(), OpError> {
+        use crate::singleflight::{Flight, follow};
+        for _ in 0..3 {
+            match self.inner.flights.join_or_lead(id.clone()) {
+                Err(_) => {
+                    return Err(
+                        OpError::new(Code::Backpressure, "too many operations in flight")
+                            .with_retry_after(super::super::BACKPRESSURE_RETRY_MS),
+                    );
+                }
+                Ok(Flight::Lead(tx)) => {
+                    let ops = self.clone();
+                    let key = id.clone();
+                    let extension = self.inner.uninstall_fence.write_extension();
+                    // ⟨ADR-0008 §17.33 item 1 (W5-E03)⟩ The leader carries the
+                    // caller's holder lease, if it runs under one (the holder's own
+                    // verification); other callers' leaders carry none.
+                    let leader = super::super::uninstall_fence_m03::spawn_with_lease(async move {
+                        let r = ops.verify_once(&key).await;
+                        let _ = tx.send(Some(r.clone()));
+                        ops.inner.flights.finish(&key);
+                        drop(extension);
+                        r
+                    });
+                    return leader
+                        .await
+                        .unwrap_or_else(|_| Err(internal("the verification task ended")));
+                }
+                Ok(Flight::Follow(rx)) => match follow(rx).await {
+                    Ok(r) => return r,
+                    Err(_) => continue,
+                },
+            }
+        }
+        Err(internal("the verification's flight did not settle"))
+    }
+
     /// Run the verification `id`'s record is at (`verifying`, `reverifying`,
     /// `removal_verifying`) and record its outcome. Nothing happens for a record in
-    /// any other state.
-    pub(super) async fn verify_operation(&self, id: &OperationId) -> Result<(), OpError> {
+    /// any other state. Only [`Self::verify_operation`] calls it.
+    async fn verify_once(&self, id: &OperationId) -> Result<(), OpError> {
         let oid = id.clone();
-        let ctx = self.write(move |tx, _| load_ctx(tx, &oid)).await??;
+        let (ctx, started) = self
+            .write(move |tx, _| {
+                let ctx = match load_ctx(tx, &oid)? {
+                    Ok(c) => c,
+                    Err(e) => return Ok(Err(e)),
+                };
+                let started = Started {
+                    state: ctx.record.state,
+                    outcomes: verdicts_recorded(tx, &oid)?,
+                };
+                Ok(Ok((ctx, started)))
+            })
+            .await??;
         let phase = match ctx.record.state {
             EnrollmentState::Verifying => VerificationPhase::Initial,
             EnrollmentState::Reverifying => VerificationPhase::Reverify,
@@ -85,20 +156,47 @@ impl Operations {
                 clock: None,
             };
             return self
-                .record_verification(&ctx, phase, absence, &observed)
+                .record_verification(&ctx, started, phase, absence, &observed)
                 .await;
         }
         let observed = self.run_verification(&ctx, absence).await;
         let observed = match observed {
             Ok(o) => o,
             Err(e) if e.code == Code::InternalError => return Err(e),
+            // ⟨ADR-0008 §17.31 item 8 (Q-G8-2)⟩ a fence refusal says nothing about the
+            // remote: it is returned, and the enrollment's evidence and state stay as
+            // they are (never recorded as an inconclusive verification).
+            Err(e) if is_fence_refusal(&e) => return Err(e),
             Err(_) => Observed {
                 outcome: VerificationOutcome::default(),
                 clock: None,
             },
         };
-        self.record_verification(&ctx, phase, absence, &observed)
+        self.record_verification(&ctx, started, phase, absence, &observed)
             .await
+    }
+
+    /// ⟨ADR-0008 §17.28 item 3⟩ End a `late_write` absence check whose read could not
+    /// be issued with `err` (no step outstanding; the residual is kept).
+    pub(super) async fn settle_late_write_check(
+        &self,
+        id: &OperationId,
+        err: &OpError,
+    ) -> Result<(), OpError> {
+        let (oid, err) = (id.clone(), err.clone());
+        let retention = self.retention();
+        let now = self.narrowing_now().await;
+        self.write(move |tx, emit| {
+            let Ok(mut ctx) = load_ctx(tx, &oid)? else {
+                return Ok(());
+            };
+            if !late_write_ctx(&ctx) || ctx.journal.outstanding.is_some() {
+                return Ok(());
+            }
+            let err = err.with_effect(EffectStatus::None);
+            settle_open(tx, emit, &mut ctx.op, &err, now, retention)
+        })
+        .await
     }
 
     /// ⟨round 3⟩ Whether the runtime's target evaluator finds a host-key change of
@@ -283,6 +381,7 @@ impl Operations {
     async fn record_verification(
         &self,
         ctx: &Ctx,
+        started: Started,
         phase: VerificationPhase,
         absence: bool,
         observed: &Observed,
@@ -341,156 +440,173 @@ impl Operations {
             clock: observed.clock,
         };
         let oid = ctx.op.id.clone();
-        let degrade = self
-            .write(move |tx, emit| {
-                let Ok(mut ctx) = load_ctx(tx, &oid)? else {
-                    return Ok(false);
+        let write = move |tx: &mut Txn<'_>, emit: &mut Emit| {
+            let Ok(mut ctx) = load_ctx(tx, &oid)? else {
+                return Ok(false);
+            };
+            // ⟨ADR-0008 §17.32 item 4 (audit A8)⟩ Compare-and-swap on the start: the
+            // result is recorded only while the record is still in the state this
+            // verification started from, its operation open, and no verdict has been
+            // recorded for the operation since; otherwise another run's verdict
+            // stands and this one is discarded (nothing written).
+            if ctx.record.state != started.state
+                || ctx.op.state.is_settled()
+                || verdicts_recorded(tx, &oid)? != started.outcomes
+            {
+                return Ok(false);
+            }
+            tx.append_stage_receipt(
+                &oid,
+                &receipt(
+                    enrollment_stage::VERIFY_OUTCOME,
+                    now,
+                    EffectReceipt::Confirmed {
+                        adapter: adapter("verification"),
+                        credential_ref: serde_json::to_string(&verdict)
+                            .map_err(|_| store_conflict("verdict"))?,
+                    },
+                ),
+            )?;
+            let mut updated = ctx.record.clone();
+            updated.updated_at = now;
+            let from = ctx.record.state;
+            if absence {
+                let origin = ctx
+                    .record
+                    .removal_origin
+                    .as_ref()
+                    .map_or(EnrollmentState::Verified, |o| o.state);
+                let event = if absent {
+                    EnrollmentEventKind::AbsenceVerified { origin }
+                } else {
+                    EnrollmentEventKind::AbsenceNotVerified
                 };
-                tx.append_stage_receipt(
-                    &oid,
-                    &receipt(
-                        enrollment_stage::VERIFY_OUTCOME,
-                        now,
-                        EffectReceipt::Confirmed {
-                            adapter: adapter("verification"),
-                            credential_ref: serde_json::to_string(&verdict)
-                                .map_err(|_| store_conflict("verdict"))?,
-                        },
-                    ),
-                )?;
-                let mut updated = ctx.record.clone();
-                updated.updated_at = now;
-                let from = ctx.record.state;
-                if absence {
-                    let origin = ctx
-                        .record
-                        .removal_origin
-                        .as_ref()
-                        .map_or(EnrollmentState::Verified, |o| o.state);
-                    let event = if absent {
-                        EnrollmentEventKind::AbsenceVerified { origin }
-                    } else {
-                        EnrollmentEventKind::AbsenceNotVerified
-                    };
-                    if absent {
-                        updated.removal_origin = None;
-                        updated.evidence = None;
-                        updated.verified_at = None;
-                    }
-                    ctx.record = move_record(tx, emit, from, event, &updated, Some(&oid))?;
-                    if absent {
-                        tx.remove_issuing_ca(&pair_of(&ctx.record), &ctx.record.ca_fingerprint, now)?;
-                        let data = serde_json::to_value(result_of(&ctx.record, None))
+                if absent {
+                    updated.removal_origin = None;
+                    updated.evidence = None;
+                    updated.verified_at = None;
+                }
+                ctx.record = move_record(tx, emit, from, event, &updated, Some(&oid))?;
+                if absent {
+                    tx.remove_issuing_ca(&pair_of(&ctx.record), &ctx.record.ca_fingerprint, now)?;
+                    let data =
+                        serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
                             .map_err(|_| store_conflict("result"))?;
-                        settle_ok(tx, emit, &mut ctx.op, data.clone(), now, retention)?;
-                        // The manual removal's own operation settles with it.
-                        for mut open in super::open_removals_of(tx, &ctx.record.id)? {
-                            settle_ok(tx, emit, &mut open, data.clone(), now, retention)?;
-                        }
-                    } else {
-                        let err = OpError::new(
+                    settle_ok(tx, emit, &mut ctx.op, data.clone(), now, retention)?;
+                    // The manual removal's own operation settles with it.
+                    for mut open in super::open_removals_of(tx, &ctx.record.id)? {
+                        settle_ok(tx, emit, &mut open, data.clone(), now, retention)?;
+                    }
+                } else {
+                    let err = OpError::new(
                             Code::CapabilityUnavailable,
                             "the absence check did not verify that the trust is gone; the lines may still be installed",
                         )
                         .with_reason(reason::VERIFICATION_INCONCLUSIVE)
                         .with_effect(EffectStatus::None);
-                        settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
-                    }
-                    put_journal(tx, &oid, &ctx.journal, now)?;
-                    return Ok(false);
+                    settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
                 }
-                let mut degrade = false;
-                let event = match from {
-                    EnrollmentState::Verifying => EnrollmentEventKind::VerificationResult {
-                        verdict,
-                        approval_valid,
-                    },
-                    _ => EnrollmentEventKind::ReverificationResult {
-                        from: ctx.journal.reverify_from.unwrap_or(ReverifyFrom::Verified),
-                        verdict,
-                    },
-                };
-                match verdict {
-                    VerificationVerdict::Passed => {
-                        updated.evidence = Some(evidence.clone());
-                        updated.verified_at = Some(now);
-                        updated.hold = None;
-                        if let Some(p) = &ctx.journal.proposed_target {
-                            // §17.7 item 5: the proposed target replaces the approved
-                            // one only on a pass, with the move to `verified`.
-                            updated.target = p.clone();
-                        }
-                    }
-                    VerificationVerdict::HostKeyMismatch => {
-                        if ctx.journal.proposed_target.is_none() {
-                            updated.hold = Some(EnrollmentHold {
-                                reason: HoldReason::HostKeyChanged,
-                                evidence_based: false,
-                            });
-                        }
-                    }
-                    VerificationVerdict::PrincipalsNotEnforced | VerificationVerdict::PositiveRefused => {
-                        let to_hold = !(from == EnrollmentState::Verifying
-                            && ctx.record.form == EnrollmentForm::Account
-                            && approval_valid)
-                            && !(from == EnrollmentState::Verifying
-                                && ctx.record.form == EnrollmentForm::System
-                                && verdict == VerificationVerdict::PositiveRefused);
-                        if to_hold && ctx.journal.proposed_target.is_none() {
-                            updated.hold = Some(EnrollmentHold {
-                                reason: if verdict == VerificationVerdict::PositiveRefused {
-                                    HoldReason::PositiveRefused
-                                } else {
-                                    HoldReason::PrincipalsNotEnforced
-                                },
-                                evidence_based: true,
-                            });
-                        }
-                    }
-                    _ => {}
-                }
-                ctx.record = move_record(tx, emit, from, event, &updated, Some(&oid))?;
-                let to = ctx.record.state;
                 put_journal(tx, &oid, &ctx.journal, now)?;
-                match to {
-                    EnrollmentState::Verified if verdict == VerificationVerdict::Passed => {
-                        // E5: the CA joins the pair's issuing set; the preference moves
-                        // to `managed_certificate` + `projection: pending` only when the
-                        // pair is not already managed with an applied projection (F05).
-                        let pending =
-                            record_preference(tx, &pair_of(&ctx.record), &ctx.record.ca_fingerprint, now)?;
-                        let next = (pending && from == EnrollmentState::Verifying)
-                            .then_some(EnrollmentNext::SetupApply);
-                        let data = serde_json::to_value(result_of(&ctx.record, next))
-                            .map_err(|_| store_conflict("result"))?;
-                        settle_ok(tx, emit, &mut ctx.op, data, now, retention)?;
-                    }
-                    EnrollmentState::Verified => {
-                        // Re-verification inconclusive from `verified`: unchanged
-                        // freshness, a doctor finding (`reverification_inconclusive`).
-                        let err = verdict_error(verdict);
-                        settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
-                    }
-                    EnrollmentState::RollbackPending => {
-                        // The rollback runs through the operation's next steps.
-                    }
-                    EnrollmentState::AppliedUnverified if approval_valid => {
-                        // B R2-06: the retry runs through `enroll reconcile`, under the
-                        // still-open `enrollment.apply`.
-                    }
-                    EnrollmentState::Held => {
-                        degrade = from == EnrollmentState::Reverifying;
-                        let err = verdict_error(verdict);
-                        settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
-                    }
-                    _ => {
-                        let err = verdict_error(verdict);
-                        settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
+                return Ok(false);
+            }
+            let mut degrade = false;
+            let event = match from {
+                EnrollmentState::Verifying => EnrollmentEventKind::VerificationResult {
+                    verdict,
+                    approval_valid,
+                },
+                _ => EnrollmentEventKind::ReverificationResult {
+                    from: ctx.journal.reverify_from.unwrap_or(ReverifyFrom::Verified),
+                    verdict,
+                },
+            };
+            match verdict {
+                VerificationVerdict::Passed => {
+                    updated.evidence = Some(evidence.clone());
+                    updated.verified_at = Some(now);
+                    updated.hold = None;
+                    if let Some(p) = &ctx.journal.proposed_target {
+                        // §17.7 item 5: the proposed target replaces the approved
+                        // one only on a pass, with the move to `verified`.
+                        updated.target = p.clone();
                     }
                 }
-                Ok(degrade && ctx.journal.reverify_from == Some(ReverifyFrom::Verified))
-            })
-            .await?;
+                VerificationVerdict::HostKeyMismatch => {
+                    if ctx.journal.proposed_target.is_none() {
+                        updated.hold = Some(EnrollmentHold {
+                            reason: HoldReason::HostKeyChanged,
+                            evidence_based: false,
+                        });
+                    }
+                }
+                VerificationVerdict::PrincipalsNotEnforced
+                | VerificationVerdict::PositiveRefused => {
+                    let to_hold = !(from == EnrollmentState::Verifying
+                        && ctx.record.form == EnrollmentForm::Account
+                        && approval_valid)
+                        && !(from == EnrollmentState::Verifying
+                            && ctx.record.form == EnrollmentForm::System
+                            && verdict == VerificationVerdict::PositiveRefused);
+                    if to_hold && ctx.journal.proposed_target.is_none() {
+                        updated.hold = Some(EnrollmentHold {
+                            reason: if verdict == VerificationVerdict::PositiveRefused {
+                                HoldReason::PositiveRefused
+                            } else {
+                                HoldReason::PrincipalsNotEnforced
+                            },
+                            evidence_based: true,
+                        });
+                    }
+                }
+                _ => {}
+            }
+            ctx.record = move_record(tx, emit, from, event, &updated, Some(&oid))?;
+            let to = ctx.record.state;
+            put_journal(tx, &oid, &ctx.journal, now)?;
+            match to {
+                EnrollmentState::Verified if verdict == VerificationVerdict::Passed => {
+                    // E5: the CA joins the pair's issuing set; the preference moves
+                    // to `managed_certificate` + `projection: pending` only when the
+                    // pair is not already managed with an applied projection (F05).
+                    let pending = record_preference(
+                        tx,
+                        &pair_of(&ctx.record),
+                        &ctx.record.ca_fingerprint,
+                        now,
+                    )?;
+                    let next = (pending && from == EnrollmentState::Verifying)
+                        .then_some(EnrollmentNext::SetupApply);
+                    let data =
+                        serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), next))
+                            .map_err(|_| store_conflict("result"))?;
+                    settle_ok(tx, emit, &mut ctx.op, data, now, retention)?;
+                }
+                EnrollmentState::Verified => {
+                    // Re-verification inconclusive from `verified`: unchanged
+                    // freshness, a doctor finding (`reverification_inconclusive`).
+                    let err = verdict_error(verdict);
+                    settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
+                }
+                EnrollmentState::RollbackPending => {
+                    // The rollback runs through the operation's next steps.
+                }
+                EnrollmentState::AppliedUnverified if approval_valid => {
+                    // B R2-06: the retry runs through `enroll reconcile`, under the
+                    // still-open `enrollment.apply`.
+                }
+                EnrollmentState::Held => {
+                    degrade = from == EnrollmentState::Reverifying;
+                    let err = verdict_error(verdict);
+                    settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
+                }
+                _ => {
+                    let err = verdict_error(verdict);
+                    settle_open(tx, emit, &mut ctx.op, &err, now, retention)?;
+                }
+            }
+            Ok(degrade && ctx.journal.reverify_from == Some(ReverifyFrom::Verified))
+        };
+        let degrade = self.result_write(write).await?;
         if degrade {
             // §6.5: a re-verification failure degrades the grants under that CA for
             // that pair (`pair_unenrolled`), through the narrowing protocol.
@@ -499,6 +615,320 @@ impl Operations {
         }
         Ok(())
     }
+}
+
+/// ⟨ADR-0008 §17.32 item 4 (audit A8)⟩ Where a verification run started: the record's
+/// state and how many verdicts its operation had recorded then.
+#[derive(Debug, Clone, Copy)]
+struct Started {
+    state: EnrollmentState,
+    outcomes: usize,
+}
+
+/// The verdicts `op` has recorded (`enroll.verify.outcome` receipts).
+fn verdicts_recorded(tx: &mut Txn<'_>, op: &OperationId) -> heimdall_store::Result<usize> {
+    Ok(tx
+        .stage_receipts(op)?
+        .iter()
+        .filter(|r| r.stage == enrollment_stage::VERIFY_OUTCOME)
+        .count())
+}
+
+impl Operations {
+    /// The verification result's store write. ⟨debug builds⟩ With
+    /// [`Self::debug_pause_next_verification_result_write`] armed, the write is handed
+    /// off first and runs only when resumed, whether or not this caller is still
+    /// waiting: as a real write does once the blocking pool has it.
+    async fn result_write<F>(&self, write: F) -> Result<bool, OpError>
+    where
+        F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<bool> + Send + 'static,
+    {
+        #[cfg(debug_assertions)]
+        {
+            let pause = self
+                .enrollment_state()
+                .result_write_pause
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            if let Some(p) = pause {
+                let ops = self.clone();
+                let handed = tokio::spawn(async move {
+                    let _ = p.reached.send(());
+                    let _ = p.resume.await;
+                    ops.write(write).await
+                });
+                return handed
+                    .await
+                    .unwrap_or_else(|_| Err(internal("the verification result write ended")));
+            }
+        }
+        self.write(write).await
+    }
+
+    /// ⟨debug builds only; tests; ADR-0008 §17.32 item 4 (audit A8)⟩ Pause the next
+    /// verification result write after it is handed off, until the returned control's
+    /// `resume` is sent or dropped; the caller's future may be cancelled meanwhile.
+    /// Release builds have no pause.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn debug_pause_next_verification_result_write(
+        &self,
+    ) -> super::VerificationWritePauseControl {
+        let (reached_tx, reached) = tokio::sync::oneshot::channel();
+        let (resume, resume_rx) = tokio::sync::oneshot::channel();
+        *self
+            .enrollment_state()
+            .result_write_pause
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(super::VerificationWritePause {
+                reached: reached_tx,
+                resume: resume_rx,
+            });
+        super::VerificationWritePauseControl { reached, resume }
+    }
+
+    /// ⟨debug builds only; tests; audit A8⟩ [`Self::verify_operation`] (the flight) for
+    /// `id`, as a route that passed its state check before another caller started the
+    /// verification does (a concurrent `enroll step`, reconcile, decision or pass): a
+    /// test can place such a caller deterministically, after the leader started.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub async fn debug_verify_operation(&self, id: &OperationId) -> Result<(), OpError> {
+        self.verify_operation(id).await
+    }
+
+    /// ⟨debug builds only; tests; audit A8⟩ The initial verification of `id` without
+    /// the per-operation flight (its start, then one run), so a test can drive two runs
+    /// at once and check that the result write's compare-and-swap records only one.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub async fn debug_verify_without_flight(&self, id: &OperationId) -> Result<(), OpError> {
+        self.start_initial_verification(id).await?;
+        self.verify_once(id).await
+    }
+}
+
+// --- ⟨ADR-0008 §17.28 item 3⟩ the `late_write` residual's absence check -------------
+//
+// D5 §6.7: the residual clears only when an `inspect` whose **destination clock
+// reading** (the HM1 record's `remote_now`, epoch seconds on the destination) is
+// strictly past the residual's `not_after_remote` (also destination-clock seconds,
+// from `heimdall_registry::fence::not_after_remote`) shows no marker line and no lock
+// with the residual's token. That is exactly `heimdall_registry::fence::late_write_cleared`;
+// no local or safe wall time, and no drift allowance (`RESIDUAL_DRIFT_PPM` belongs to
+// the revocation residual), enters it. The runtime Verifier's certificate check sees
+// neither the lock nor the marker line, so it is not used here.
+//
+// `enroll verify <enrollment> --absence` on an account-form record carrying the
+// residual (whatever its state: `withdrawn`, `abandoned`, and an abandoned record's
+// later states) admits an `enrollment.verify` operation (attended callers only) that
+// issues one client-executed `inspect` and settles with its result; the record's state
+// never moves. Only an observed absence clears the residual, in the same transaction
+// as the operation's result; every other outcome keeps it.
+
+/// Whether `record` takes the `late_write` absence check (account form, carrying the
+/// residual; the system form's absence check is §6.9's, from `manual_removal_pending`).
+pub(super) fn late_write_checkable(record: &EnrollmentRecord) -> bool {
+    record.form == EnrollmentForm::Account && record.late_write.is_some()
+}
+
+/// Whether `op` (with its journal) is a `late_write` absence check of an own record.
+pub(super) fn is_late_write_check(op: &OperationRecord, j: &Journal) -> bool {
+    op.kind == OperationKind::EnrollmentVerify
+        && j.mode == Some(VerifyMode::Absence)
+        && j.foreign.is_none()
+}
+
+/// Whether `ctx` is a `late_write` absence check (an absence verification of an
+/// account-form record; the system form's never is).
+pub(super) fn late_write_ctx(ctx: &Ctx) -> bool {
+    ctx.foreign.is_none()
+        && ctx.record.form == EnrollmentForm::Account
+        && is_late_write_check(&ctx.op, &ctx.journal)
+}
+
+/// The answer of a check that kept the residual.
+fn kept(msg: String) -> OpError {
+    OpError::new(Code::CapabilityUnavailable, msg)
+        .with_reason(reason::VERIFICATION_INCONCLUSIVE)
+        .with_effect(EffectStatus::None)
+}
+
+/// ⟨ADR-0008 §17.29 item 2⟩ The definite answer of a check, after the residual's
+/// not-after, with no lock of the uncertain step and a readable registry, that observed
+/// the marker line **present**: the uncertain append landed and trust of ours remains.
+/// `CONFIG_CONFLICT` / `late_write_present`; the residual is kept, and the next step is
+/// the removal of exactly that line by marker.
+fn late_write_present(id: &str) -> OpError {
+    OpError::new(
+        Code::ConfigConflict,
+        format!(
+            "the registry holds this enrollment's marker line after the residual's not-after: the uncertain append landed and trust of ours remains; the late_write residual is kept. Next: `{}`",
+            late_write_present_next(id)
+        ),
+    )
+    .with_reason(reason::LATE_WRITE_PRESENT)
+    .with_effect(EffectStatus::None)
+}
+
+/// The next step a `late_write_present` result names.
+fn late_write_present_next(id: &str) -> String {
+    format!("heimdall enroll remove {id}")
+}
+
+/// Why `reading` does not clear `residual` (the first unmet condition of
+/// `late_write_cleared`, in its order).
+fn kept_because(reading: &Inspection, residual: &LateWrite, marker: &str, id: &str) -> OpError {
+    use heimdall_registry::classify::{FileKind, LockReading};
+    if reading.remote_now <= residual.not_after_remote {
+        return kept(format!(
+            "the residual's not-after (remote time {}) has not passed on the destination's clock (remote time {}); the late_write residual is kept: run `heimdall enroll verify {id} --absence` again after it",
+            residual.not_after_remote, reading.remote_now
+        ));
+    }
+    let lock_ours = match &reading.lock {
+        LockReading::None => false,
+        LockReading::Held(h) => h.token == residual.step_token,
+        _ => true,
+    };
+    if lock_ours {
+        return kept(
+            "the uncertain append's lock (or an unreadable lock record) is still present; the late_write residual is kept".to_owned(),
+        );
+    }
+    if !matches!(reading.file, FileKind::Regular | FileKind::Absent) {
+        return kept(
+            "the registry could not be read as a regular file; the late_write residual is kept"
+                .to_owned(),
+        );
+    }
+    let present = reading.marker_lines > 0
+        || reading
+            .preimage()
+            .is_none_or(|c| heimdall_registry::line::marker_lines(c, marker) > 0);
+    if present {
+        return late_write_present(id);
+    }
+    kept("the inspection did not establish absence; the late_write residual is kept".to_owned())
+}
+
+/// ⟨ADR-0008 §17.29 item 2; D5 §6.7⟩ Whether a confirmed removal of the marker line
+/// settles `residual`: the removal's own inspection (`journal.inspection`, the reading
+/// the removal or its reconcile ran on) is past the residual's not-after on the
+/// destination's clock, the registry was readable, and no lock of the uncertain step
+/// (nor an unreadable one) was present. After the not-after a script that had not taken
+/// its lock fails its own not-after check, and one that had would still hold it; with
+/// the line removed, nothing of the uncertain append remains. Otherwise the residual is
+/// kept (the absence check can clear it later).
+pub(super) fn removal_settles_late_write(journal: &Journal, residual: &LateWrite) -> bool {
+    use heimdall_registry::classify::{FileKind, LockReading};
+    let Some(reading) = journal
+        .inspection
+        .as_ref()
+        .and_then(crate::enrollment::InspectFact::inspection)
+    else {
+        return false;
+    };
+    let lock_clear = match &reading.lock {
+        LockReading::None => true,
+        LockReading::Held(h) => h.token != residual.step_token,
+        _ => false,
+    };
+    reading.remote_now > residual.not_after_remote
+        && lock_clear
+        && matches!(reading.file, FileKind::Regular | FileKind::Absent)
+}
+
+/// The answer of an inspection that did not complete.
+fn not_inspected(class: StepClass) -> OpError {
+    let (code, why) = match class {
+        StepClass::HostTrustChanged => {
+            (Code::HostTrustChanged, reason::ENROLLMENT_HOST_KEY_MISMATCH)
+        }
+        StepClass::ProviderLocked => (Code::ProviderLocked, "provider_locked"),
+        StepClass::InteractionRequired => (Code::InteractionRequired, "interaction_required"),
+        _ => (
+            Code::CapabilityUnavailable,
+            reason::VERIFICATION_INCONCLUSIVE,
+        ),
+    };
+    OpError::new(
+        code,
+        "the registry inspection did not complete; the late_write residual is kept",
+    )
+    .with_reason(why)
+    .with_effect(EffectStatus::None)
+}
+
+/// Record the check's step result (one transaction, the caller's): an absence observed
+/// after the not-after clears the residual and settles the operation succeeded; any
+/// other result keeps it and settles the operation failed. A settled operation (a
+/// superseded check) records nothing more.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn record_late_write_check(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    ctx: &mut Ctx,
+    stage: RemoteStage,
+    class: StepClass,
+    stdout: &str,
+    now: Timestamp,
+    retention: Duration,
+) -> heimdall_store::Result<()> {
+    if stage == RemoteStage::Inspect {
+        tx.append_stage_receipt(
+            &ctx.op.id,
+            &receipt(
+                enrollment_stage::INSPECT_OBSERVED,
+                now,
+                EffectReceipt::NotAttempted,
+            ),
+        )?;
+    }
+    put_journal(tx, &ctx.op.id, &ctx.journal, now)?;
+    if ctx.op.state.is_settled() {
+        return Ok(());
+    }
+    let marker = ctx.record.marker.clone();
+    let id = ctx.record.id.to_string();
+    let reading = (stage == RemoteStage::Inspect && class == StepClass::Confirmed)
+        .then(|| {
+            hm1::parse(stdout.as_bytes())
+                .ok()
+                .and_then(|rec| Inspection::from_record(&rec, &marker).ok())
+        })
+        .flatten();
+    let Some(reading) = reading else {
+        return settle_open(tx, emit, &mut ctx.op, &not_inspected(class), now, retention);
+    };
+    let Some(residual) = ctx.record.late_write.clone() else {
+        // Already cleared (by an earlier check): nothing more to observe.
+        let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
+            .map_err(|_| store_conflict("result"))?;
+        return settle_ok(tx, emit, &mut ctx.op, data, now, retention);
+    };
+    if !heimdall_registry::fence::late_write_cleared(&reading, &residual, &marker) {
+        let err = kept_because(&reading, &residual, &marker, &id);
+        return settle_open(tx, emit, &mut ctx.op, &err, now, retention);
+    }
+    let Some(cleared) =
+        tx.clear_late_write(&ctx.record.id, ctx.record.state, &residual.step_token, now)?
+    else {
+        let err = OpError::new(
+            Code::ConfigConflict,
+            "the enrollment changed during the check; the late_write residual is kept: run the check again",
+        )
+        .with_reason("enrollment_state")
+        .with_effect(EffectStatus::None);
+        return settle_open(tx, emit, &mut ctx.op, &err, now, retention);
+    };
+    emit_record(tx, emit, &cleared, Some(&ctx.op.id))?;
+    ctx.record = cleared;
+    let data = serde_json::to_value(result_for(&ctx.record, Some(&ctx.alias), None))
+        .map_err(|_| store_conflict("result"))?;
+    settle_ok(tx, emit, &mut ctx.op, data, now, retention)
 }
 
 /// ⟨round 3⟩ The outcome of a re-verification that never ran because the evaluation
@@ -561,4 +991,11 @@ pub(super) fn verdict_error(v: VerificationVerdict) -> OpError {
     OpError::new(code, msg)
         .with_reason(why)
         .with_effect(EffectStatus::None)
+}
+
+/// ⟨ADR-0008 §17.31 item 8⟩ Whether `e` is the uninstall fence's refusal
+/// (`SERVICE_UNAVAILABLE`, `uninstall_in_progress`).
+fn is_fence_refusal(e: &OpError) -> bool {
+    e.code == Code::ServiceUnavailable
+        && e.reason.as_deref() == Some(heimdall_contract::envelope::reason::UNINSTALL_IN_PROGRESS)
 }

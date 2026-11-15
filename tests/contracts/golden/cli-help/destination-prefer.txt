@@ -1,0 +1,29 @@
+Choose which mechanism serves an alias: the managed definition or the existing access (M03; takes effect with `setup apply`)
+
+Usage: heimdall destination prefer [OPTIONS] <ALIAS> <MECHANISM>
+
+Arguments:
+  <ALIAS>
+          The alias
+
+  <MECHANISM>
+          The mechanism that serves it
+
+          Possible values:
+          - managed:  The managed credential (a short-lived certificate)
+          - existing: The existing access (M02)
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+  -h, --help
+          Print help (see a summary with '-h')

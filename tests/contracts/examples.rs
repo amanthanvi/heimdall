@@ -229,6 +229,8 @@ const EXAMPLES: &[(&str, Kind)] = &[
     ("request.issuer.register-restore.json", Kind::Request),
     ("request.issuer.retire-confirm.json", Kind::Request),
     ("request.issuer.bundle.json", Kind::Request),
+    // ⟨ADR-0008 §17.25 item 8⟩ The CLI's written-bundle confirmation.
+    ("request.issuer.bundle-written.json", Kind::Request),
     ("request.enrollment.preview.json", Kind::Request),
     ("request.enrollment.apply.json", Kind::Request),
     ("request.enrollment.verify.json", Kind::Request),

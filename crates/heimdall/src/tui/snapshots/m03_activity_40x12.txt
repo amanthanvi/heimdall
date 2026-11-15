@@ -1,0 +1,12 @@
+ 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+Pending decisions
+> [!!] dec_enroll1  enroll_account  expi
+  [!!] dec_target1  approve_target_chang
+Operations
+  [!!] op_held1  setup.apply  outcome_un
+  [..] op_run1  ensure  running
+Enrollments
+  [!!] enr_01010101010101010101010101010
+  [--] enr_02020202020202020202020202020
+  [OK] enr_03030303030303030303030303030
+Enter review · ? help · q quit

@@ -300,23 +300,33 @@ pub fn selection_class(pairs: &[PreparePair], observations: &[AliasObservation])
         }
     }
     let of = |p: &PreparePair| -> SelectionClass {
-        let observed = p.alias.as_deref().and_then(|alias| {
-            observations
-                .iter()
-                .find(|o| o.alias == alias)
-                .and_then(|o| o.identity_selection.as_ref())
-        });
-        match observed.map(|r| r.selection) {
-            Some(IdentitySelection::Exclusive) => SelectionClass::Exclusive,
-            Some(IdentitySelection::NotExclusive) => SelectionClass::NotExclusive,
-            _ => SelectionClass::Undetermined,
-        }
+        p.alias
+            .as_deref()
+            .map_or(SelectionClass::Undetermined, |alias| {
+                alias_selection(alias, observations)
+            })
     };
     pairs
         .iter()
         .map(of)
         .min_by_key(|c| rank(*c))
         .unwrap_or(SelectionClass::Undetermined)
+}
+
+/// One managed alias's D10 item 6 class from `observations`: its observed identity
+/// selection, `undetermined` when it is not observed ([`selection_class`] per pair;
+/// ⟨§17.25 item 19⟩ the `inspect destinations` wording).
+#[must_use]
+pub fn alias_selection(alias: &str, observations: &[AliasObservation]) -> SelectionClass {
+    let observed = observations
+        .iter()
+        .find(|o| o.alias == alias)
+        .and_then(|o| o.identity_selection.as_ref());
+    match observed.map(|r| r.selection) {
+        Some(IdentitySelection::Exclusive) => SelectionClass::Exclusive,
+        Some(IdentitySelection::NotExclusive) => SelectionClass::NotExclusive,
+        _ => SelectionClass::Undetermined,
+    }
 }
 
 /// Sources that claim nothing.
@@ -601,6 +611,20 @@ pub fn pair_evidence<'a>(
         .collect()
 }
 
+/// ⟨§17.25 item 18⟩ The `EnsureData` fields of `report` (`PrepareOutcome.managed`):
+/// exactly the report's values, the D8 wording included.
+#[must_use]
+pub fn result_facts(report: &ManagedReport) -> heimdall_app::ports::ManagedResultFacts {
+    heimdall_app::ports::ManagedResultFacts {
+        lock_continuity: report.lock_continuity,
+        conditions: report.conditions.clone(),
+        refresh_condition: report.refresh_condition,
+        revocation: report.revocation.clone(),
+        evidence: report.evidence.clone(),
+        connection_policy: report.connection_policy.clone(),
+    }
+}
+
 /// `prepare_from` for `managed_certificate` (D6 item 0): computes the outcome from the
 /// snapshot and the driver's results; reads nothing, causes nothing.
 ///
@@ -672,6 +696,10 @@ pub fn outcome(
         availability: report.availability,
         provider: None,
         integration,
+        // ⟨§17.25 item 18⟩ The report's six result fields, carried to the commit
+        // (`ensure_data` copies them for the managed binding), on preparation and on
+        // re-issue alike (both compute the outcome here).
+        managed: Some(result_facts(&report)),
     };
     Ok((outcome, report))
 }

@@ -90,6 +90,12 @@ pub struct Warning {
     pub code: String,
     /// Human text; may change without breaking callers.
     pub message: String,
+    /// ⟨M03; ADR-0008 §17.25 item 15⟩ Stable `snake_case` sub-reason refining the
+    /// code (the values are in [`m03_warning::REASONS`], with the code each refines).
+    /// Readers tolerate unknown values. Additive: omitted when absent, so every
+    /// earlier warning is byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Machine next action (spec §11.2 `next`, §11.6 "machine-readable next action").
@@ -321,6 +327,12 @@ pub mod reason {
     /// installation recorded no store locator for its key item, so nothing is deleted
     /// (ADR-0008 §17.21 item 3, §17.17 item 3).
     pub const ISSUER_STORE_LOCATOR_UNRECORDED: &str = "issuer_store_locator_unrecorded";
+    /// ⟨M03; ADR-0008 §17.28 item 6⟩ `CAPABILITY_UNAVAILABLE` (exit 4): the store is
+    /// unlocked, but its access list denied this executable a read of the CA key (on
+    /// macOS `errSecAuthFailed` from an unlocked keychain: an ad-hoc-signed build's
+    /// identity changes with every update). Next: `heimdall issuer restore --backup
+    /// <file>` (the log-intact restore). Never reported as `issuer_store_locked`.
+    pub const ISSUER_STORE_ACCESS_DENIED: &str = "issuer_store_access_denied";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair has no `verified` enrollment.
     pub const PAIR_NOT_ENROLLED: &str = "pair_not_enrolled";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair is not in the catalog.
@@ -418,6 +430,9 @@ pub mod reason {
     pub const LOCK_HOLDER_UNRESOLVED: &str = "lock_holder_unresolved";
     /// ⟨M03⟩ `USAGE_ERROR`: An enrollment account that differs from the catalog's.
     pub const ACCOUNT_OVERRIDE_REFUSED: &str = "account_override_refused";
+    /// ⟨M03⟩ `USAGE_ERROR`: An invalid `--registry-path` (D5 §6.1; U5P-Q3, ruled by ADR-0008
+    /// §17.20 item 13 and registered by wave 5).
+    pub const REGISTRY_PATH_INVALID: &str = "registry_path_invalid";
     /// ⟨M03⟩ `LAUNCH_FAILED`: Windows: the contained `ssh.exe` could not be registered.
     pub const CONNECTION_REGISTRATION_FAILED: &str = "connection_registration_failed";
     /// ⟨M03⟩ `LAUNCH_FAILED`: Windows: the grant ended or is unsafe; the child never resumed.
@@ -436,10 +451,51 @@ pub mod reason {
     pub const ENROLLMENT_HOST_KEY_MISMATCH: &str = "enrollment_host_key_mismatch";
     /// ⟨M03⟩ `SERVICE_UNAVAILABLE`: The issuer child is restarting.
     pub const ISSUER_RESTARTING: &str = "issuer_restarting";
+    /// ⟨M03; ADR-0008 §17.28 item 5⟩ `SERVICE_UNAVAILABLE` (exit 5, retryable): the
+    /// running executable no longer matches the identity a new store item's access list
+    /// would trust (its file was replaced, an update or a rebuild), so nothing was
+    /// written. Next: finish installing or updating Heimdall, then run the command again.
+    pub const ISSUER_EXECUTABLE_CHANGED: &str = "issuer_executable_changed";
     /// ⟨M03⟩ `BACKPRESSURE`: The issuer's signature rate limit was reached.
     pub const ISSUER_RATE_LIMITED: &str = "issuer_rate_limited";
     /// ⟨M03⟩ `CREDENTIAL_EXPIRED`: Use after a lock revocation.
     pub const GRANT_ENDED_SESSION_LOCKED: &str = "grant_ended_session_locked";
+    /// ⟨M03; ADR-0008 §17.27 item 2⟩ `SERVICE_UNAVAILABLE`: an uninstall holds the
+    /// fence, so new enrollment, CA and issuance work is not admitted.
+    pub const UNINSTALL_IN_PROGRESS: &str = "uninstall_in_progress";
+    /// ⟨M03; ADR-0008 §17.27 item 2⟩ `CAPABILITY_UNAVAILABLE` (exit 4): the
+    /// outstanding-obligation inventory read under the fence differs from the one the
+    /// owner confirmed; nothing was deleted (next: `heimdall uninstall` again).
+    pub const UNINSTALL_INVENTORY_CHANGED: &str = "uninstall_inventory_changed";
+    /// ⟨M03; ADR-0008 §17.28 item 1⟩ `CAPABILITY_UNAVAILABLE` (exit 4): under the
+    /// fence, an enrollment operation still has a dispatched step without its result
+    /// (its remote effect is unknown), so the purge is refused; nothing was deleted.
+    pub const UNINSTALL_REMOTE_STEP_UNRESOLVED: &str = "uninstall_remote_step_unresolved";
+    /// ⟨M03; ADR-0008 §17.31 items 1 and 6⟩ `SERVICE_UNAVAILABLE` (exit 5, retryable): the
+    /// runtime's stop before a purge was not confirmed (the shutdown failed or its
+    /// connection was lost), so the purge read and deleted nothing (next: stop the runtime
+    /// with `heimdall service stop` or wait for it to stop, then `heimdall uninstall` again).
+    pub const UNINSTALL_SHUTDOWN_UNCONFIRMED: &str = "uninstall_shutdown_unconfirmed";
+    /// ⟨M03; ADR-0008 §17.33 items 1 and 9⟩ `SERVICE_UNAVAILABLE` (exit 5, retryable): an
+    /// uninstall's fence release has waited past its bound for work the uninstall
+    /// started, so the fence stays releasing and fenced work is refused until that work
+    /// ends or the runtime restarts (next: stop the runtime with `heimdall service
+    /// stop`, then start it again with `heimdall service run --detach`).
+    pub const UNINSTALL_FENCE_RELEASE_STUCK: &str = "uninstall_fence_release_stuck";
+    /// ⟨M03; ADR-0008 §17.35 item 7 (audit D1, D2)⟩ `SERVICE_UNAVAILABLE` (exit 5): the
+    /// runtime did not start (it opened no state store) because `<state>` holds an
+    /// interrupted uninstall's quarantine (a `.hm-purge-*` entry) or a `-wal`, `-shm` or
+    /// `-journal` without its database: opening the store would create a new database
+    /// and discard commits that exist only in that log. The message names the exact
+    /// paths. Next: `heimdall uninstall`, which restores the quarantined database family
+    /// (or reports what it cannot restore).
+    pub const UNINSTALL_QUARANTINE_PRESENT: &str = "uninstall_quarantine_present";
+    /// ⟨M03; ADR-0008 §17.29 item 2⟩ `CONFIG_CONFLICT` (exit 6): an attended
+    /// `enroll verify <enrollment> --absence` run after the `late_write` residual's
+    /// not-after observed the enrollment's marker line present: the uncertain append
+    /// landed and trust of ours remains, whatever the record's state says. The residual
+    /// is kept. Next: `heimdall enroll remove <enrollment>`.
+    pub const LATE_WRITE_PRESENT: &str = "late_write_present";
 
     /// ⟨M03⟩ Every new stable sub-reason of m03-plan §5 item 14, with the code it is
     /// used with, in the table's order. `driver_unavailable` (M02, in [`ALL`]) is
@@ -451,6 +507,7 @@ pub mod reason {
         (ISSUER_STORE_LOCKED, Code::CapabilityUnavailable),
         (ISSUER_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
         (ISSUER_STORE_LOCATOR_UNRECORDED, Code::CapabilityUnavailable),
+        (ISSUER_STORE_ACCESS_DENIED, Code::CapabilityUnavailable),
         (PAIR_NOT_ENROLLED, Code::CapabilityUnavailable),
         (PAIR_NOT_ADOPTED, Code::CapabilityUnavailable),
         (ENROLLMENT_UNVERIFIED, Code::CapabilityUnavailable),
@@ -508,6 +565,7 @@ pub mod reason {
         (OWNED_CONNECTION_OPTION_CONFLICT, Code::ConfigConflict),
         (LOCK_HOLDER_UNRESOLVED, Code::ConfigConflict),
         (ACCOUNT_OVERRIDE_REFUSED, Code::UsageError),
+        (REGISTRY_PATH_INVALID, Code::UsageError),
         (CONNECTION_REGISTRATION_FAILED, Code::LaunchFailed),
         (CONNECTION_REGISTRATION_REFUSED, Code::LaunchFailed),
         (STEP_TOKEN_MISMATCH, Code::RequestConflict),
@@ -517,8 +575,19 @@ pub mod reason {
         (APPROVAL_LAPSED, Code::DecisionStale),
         (ENROLLMENT_HOST_KEY_MISMATCH, Code::HostTrustChanged),
         (ISSUER_RESTARTING, Code::ServiceUnavailable),
+        (ISSUER_EXECUTABLE_CHANGED, Code::ServiceUnavailable),
         (ISSUER_RATE_LIMITED, Code::Backpressure),
         (GRANT_ENDED_SESSION_LOCKED, Code::CredentialExpired),
+        (UNINSTALL_IN_PROGRESS, Code::ServiceUnavailable),
+        (UNINSTALL_INVENTORY_CHANGED, Code::CapabilityUnavailable),
+        (
+            UNINSTALL_REMOTE_STEP_UNRESOLVED,
+            Code::CapabilityUnavailable,
+        ),
+        (UNINSTALL_SHUTDOWN_UNCONFIRMED, Code::ServiceUnavailable),
+        (UNINSTALL_FENCE_RELEASE_STUCK, Code::ServiceUnavailable),
+        (UNINSTALL_QUARANTINE_PRESENT, Code::ServiceUnavailable),
+        (LATE_WRITE_PRESENT, Code::ConfigConflict),
     ];
 }
 
@@ -540,6 +609,15 @@ pub mod m03_warning {
         ORDINARY_SSH_NEEDS_HELD_SLOT,
         POSSIBLE_LATE_WRITE,
     ];
+
+    /// ⟨ADR-0008 §17.25 item 15⟩ `Warning.reason` on `TIME_UNCERTAIN` when the cause
+    /// is no time reference for this boot: managed issuance waits for one attended
+    /// `heimdall time confirm`. The TUI keys on this reason, not on the code.
+    pub const TIME_CONFIRMATION_AFTER_REBOOT: &str = "time_confirmation_after_reboot";
+
+    /// ⟨ADR-0008 §17.25 item 15⟩ Every `Warning.reason` value, with the warning code
+    /// (`Warning.code`) it refines. The reason is a refinement, never a new code.
+    pub const REASONS: &[(&str, &str)] = &[(TIME_CONFIRMATION_AFTER_REBOOT, "TIME_UNCERTAIN")];
 }
 
 impl Envelope<ErrorData> {

@@ -135,8 +135,84 @@ use heimdall_issuer::client::{ChildCommand, ChildIssuer, ClientConfig};
 use heimdall_localenv::target::LocalTargetEvaluator;
 use std::path::PathBuf;
 
+/// The issuer client's configuration as the runtime wires it: `command`, `start_token`,
+/// and ⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩ the uninstall fence's load gate, and
+/// ⟨§17.33 item 2 (W5-E02)⟩ the request hold (a `sign` holds an extension of its caller's
+/// admission until its reply or its exact child's confirmed exit) and the image reader of
+/// the exact-child check (`localenv::sys::ProcessPin`). Public so tests drive the real
+/// `internal issuer` child through the same wiring.
+#[must_use]
+pub fn issuer_client_config(
+    command: ChildCommand,
+    start_token: heimdall_issuer::client::StartToken,
+    ops: &Operations,
+) -> ClientConfig {
+    let mut config = ClientConfig::new(command, start_token);
+    config.load_gate = Some(ops.issuer_load_gate());
+    config.request_hold = Some(ops.issuer_request_hold());
+    config.child_image = Some(Arc::new(|pid| {
+        heimdall_localenv::sys::ProcessPin::open(pid)
+            .ok()
+            .flatten()
+            .and_then(|p| p.image())
+    }));
+    config
+}
+
 /// File name of the state database inside `Paths::state_dir`.
 pub const STATE_DB_FILE: &str = "state.db";
+
+/// ⟨ADR-0008 §17.35 item 7 (audit D1, D2)⟩ What in `state_dir` keeps the runtime from
+/// creating or opening the state database: every `.hm-purge-*` entry (an interrupted
+/// uninstall's quarantine: the database family's directory, or a quarantined tree), and,
+/// when `state.db` is absent, its `-wal`, `-shm` and `-journal` (SQLite creating a new
+/// database there would discard a log holding the only copy of commits). Sorted; empty
+/// when start-up may open the store. Read after the instance lock is taken, so no
+/// uninstall is moving files meanwhile.
+///
+/// # Errors
+/// `state_dir` cannot be read.
+pub fn quarantine_leftovers(
+    state_dir: &std::path::Path,
+) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(state_dir)? {
+        let e = e?;
+        if e.file_name().to_string_lossy().starts_with(".hm-purge-") {
+            out.push(e.path());
+        }
+    }
+    let present = |p: &std::path::Path| std::fs::symlink_metadata(p).is_ok();
+    if !present(&state_dir.join(STATE_DB_FILE)) {
+        for sfx in ["-wal", "-shm", "-journal"] {
+            let p = state_dir.join(format!("{STATE_DB_FILE}{sfx}"));
+            if present(&p) {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// ⟨§17.35 item 7⟩ The start-up refusal for [`quarantine_leftovers`]
+/// (`SERVICE_UNAVAILABLE`, `uninstall_quarantine_present`, effect `none`).
+fn quarantine_present(paths: &[std::path::PathBuf]) -> heimdall_app::OpError {
+    let home = etcetera::home_dir().unwrap_or_default();
+    let shown: Vec<String> = paths
+        .iter()
+        .map(|p| heimdall_localenv::paths::display_path(&home, p))
+        .collect();
+    heimdall_app::OpError::new(
+        Code::ServiceUnavailable,
+        format!(
+            "the runtime did not start: the state directory holds an interrupted uninstall's quarantine or a database log without its database ({}), and opening the state store now could create a new database and discard commits that exist only in that log; nothing was opened or changed. Run `heimdall uninstall`, which restores the quarantined state database first",
+            shown.join(", ")
+        ),
+    )
+    .with_reason(heimdall_contract::envelope::reason::UNINSTALL_QUARANTINE_PRESENT)
+    .with_effect(heimdall_contract::EffectStatus::None)
+}
 
 /// Name the runtime reports in `ServerHello.server`.
 pub const SERVER_NAME: &str = "heimdall-runtime";
@@ -492,7 +568,18 @@ impl Service {
         // 1. Single instance (kernel-released on crash).
         let lock = InstanceLock::try_acquire(&paths.state_dir)?;
 
-        // 2. Store: open, integrity check, migrations (with backup).
+        // 2. ⟨ADR-0008 §17.35 item 7⟩ Before the store is created or opened: no
+        //    interrupted uninstall's quarantine and no log without its database.
+        let leftovers = quarantine_leftovers(&paths.state_dir).map_err(|e| {
+            ServiceError::App(heimdall_app::OpError::new(
+                Code::StateUnavailable,
+                format!("the state directory could not be read: {e}"),
+            ))
+        })?;
+        if !leftovers.is_empty() {
+            return Err(ServiceError::App(quarantine_present(&leftovers)));
+        }
+        //    Store: open, integrity check, migrations (with backup).
         let db = paths.state_dir.join(STATE_DB_FILE);
         let faults = options.store_faults.clone();
         let store = blocking(move || Store::open(&db, faults)).await??;
@@ -593,8 +680,11 @@ impl Service {
             ));
         }
         // ⟨M03⟩ U6's managed adapter, after M02's (their order is unchanged).
-        if let Some(parts) = &managed_parts {
-            adapters.push(parts.adapter(wired.as_ref().map(|w| Arc::clone(&w.writer))));
+        let managed_adapter = managed_parts
+            .as_ref()
+            .map(|parts| parts.adapter(wired.as_ref().map(|w| Arc::clone(&w.writer))));
+        if let Some(a) = &managed_adapter {
+            adapters.push(Arc::clone(a) as Arc<dyn CredentialAdapter>);
         }
         let operations = Operations::start(OperationsConfig {
             store: store.clone(),
@@ -612,6 +702,12 @@ impl Service {
         // ⟨M03⟩ U9 (R3): the `[session] lock_behavior` floor, in every runtime.
         let floor = crate::session_lock::lock_floor(&config.session);
         operations.set_session_lock_floor(floor);
+        // ⟨M03; ADR-0008 §17.25 item 19⟩ `inspect destinations`' D8 wording: the managed
+        // adapter's own (`connection_policy_report`), so the destination view and the
+        // ensure result say the same sentence. Without the managed wiring, none.
+        if let Some(a) = managed_adapter {
+            operations.set_connection_wording(Arc::new(AdapterWording(a)));
+        }
         let background = StopOnDrop(shutdown.child_token());
         let relay = EventRelay::spawn(&operations, background.0.clone());
 
@@ -1819,6 +1915,20 @@ pub fn store_pair_source(
     })
 }
 
+/// ⟨§17.25 item 19⟩ The runtime's [`heimdall_app::operations::ConnectionWording`]: the
+/// managed adapter's report for the alias (its observed selection, D8 wording).
+struct AdapterWording(Arc<ManagedCertificateAdapter>);
+
+impl heimdall_app::operations::ConnectionWording for AdapterWording {
+    fn report(
+        &self,
+        alias: &str,
+        policy: &heimdall_contract::managed::ConnectionPolicy,
+    ) -> Option<heimdall_contract::managed::ConnectionPolicyReport> {
+        Some(self.0.connection_policy_report(alias, policy))
+    }
+}
+
 /// What the managed adapter needs before `Operations::start`.
 struct ManagedParts {
     vault: Arc<KeyVault>,
@@ -2176,7 +2286,7 @@ impl ManagedParts {
     fn adapter(
         &self,
         writer: Option<Arc<dyn heimdall_app::ports::ProjectionWriter>>,
-    ) -> Arc<dyn CredentialAdapter> {
+    ) -> Arc<ManagedCertificateAdapter> {
         let cleanup: Arc<dyn heimdall_adapters::managed::EndCleanup> = self.cleanup.clone();
         Arc::new(
             ManagedCertificateAdapter::new(
@@ -2267,6 +2377,16 @@ impl ManagedParts {
         if let Some(s) = &lock_source {
             ops.set_session_lock_source(Arc::clone(s));
         }
+        // ⟨§17.25 item 23 (Q-R3)⟩ The platform source names its signal explicitly, so the
+        // `signal_unverified` label never relies on `LockSignal::of_platform`'s default.
+        // A source reading `unavailable` reports `LockSignal::None`, which is not stored:
+        // `Operations::session_lock_signal` already answers `None` while it reads so, and
+        // a stored `None` would drop the label if the source later read a state.
+        if let Some(p) = &platform_lock
+            && p.signal() != heimdall_app::lock::LockSignal::None
+        {
+            ops.set_session_lock_signal(p.signal());
+        }
         let state = lock_source
             .as_ref()
             .map_or(LockState::Unavailable, |s| s.state());
@@ -2321,11 +2441,18 @@ impl ManagedParts {
         let start_token: heimdall_issuer::client::StartToken = m
             .issuer_start_token
             .unwrap_or_else(|| Arc::new(crate::platform::process_start_time));
-        let issuer = command.map(|c| ChildIssuer::new(ClientConfig::new(c, start_token)));
+        // ⟨ADR-0008 §17.28 item 1, §17.32, §17.33 item 2⟩ The fence's load gate, the
+        // request hold and the exact-child check ([`issuer_client_config`]).
+        let issuer = command.map(|c| ChildIssuer::new(issuer_client_config(c, start_token, ops)));
         teardown.issuer.clone_from(&issuer);
         if let Some(i) = &issuer {
             self.sources.set_issuer(Arc::new(i.clone()));
         }
+        // ⟨ADR-0008 §17.25 item 3⟩ Test configuration, debug builds only: the same
+        // directory pauses the enrollment scripts, whose points the app inserts when it
+        // builds a step (the CLI only validates the variable).
+        #[cfg(debug_assertions)]
+        ops.set_script_pause_dir(m.script_pause_dir.as_deref());
         let verifier = match (ssh, ssh.and_then(|c| c.version)) {
             (Some(c), Some(v)) => {
                 let client = VerifierClient {

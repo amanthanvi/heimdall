@@ -16,9 +16,8 @@
 //!
 //! **Ceremony form** ([`ceremony`]): drives the real `heimdall issuer init` ceremony
 //! over a pty and returns the fingerprint and the passphrase captured from the pty
-//! transcript, for scanning (A33). It needs U12's CLI handler; until then it fails
-//! closed with [`ceremony::CeremonyError::Unavailable`] when the binary does not run
-//! the ceremony (see that module).
+//! transcript, for scanning (A33). A binary that ends without showing a passphrase
+//! fails closed with [`ceremony::CeremonyError::NoPassphrase`] (see that module).
 
 use std::fmt;
 use std::fs;
@@ -319,11 +318,18 @@ pub mod ceremony {
     //! `written`; the passphrase is never in any argv.
     //!
     //! The pty comes from the host's `script` (`script -q /dev/null <cmd>` on macOS and
-    //! the BSDs; `script -q -e -c <cmd> /dev/null` with util-linux). **Status:** written
-    //! against the CLI as ADR-0008 D4 specifies it; U12's handler does not exist yet, so a
-    //! binary that ends without showing a passphrase is
-    //! [`CeremonyError::NoPassphrase`] (never a pass). Its self-test
-    //! `test_ca_ceremony_captures_passphrase_only_from_pty` waits for U12.
+    //! the BSDs; `script -q -e -c <cmd> /dev/null` with util-linux). A binary that ends
+    //! without showing a passphrase is [`CeremonyError::NoPassphrase`] (never a pass).
+    //!
+    //! ⟨M03 wave 5, round 2; ADR-0008 §17.25 item 7⟩ The ceremony registers only on a
+    //! **product-kind** store: the caller's `env` selects one, which on a test host is the
+    //! debug build's product-file test store (`HEIMDALL_TEST_SECRET_STORE=product-file:
+    //! <path>`, a file keychain the test made in its scratch `HEIMDALL_HOME`, macOS; a DPAPI
+    //! directory, Windows), and a runtime must serve that home. The scratch store (a test
+    //! kind) stops at the registration (`NoPassphrase`). The self-test
+    //! `test_ca_ceremony_captures_passphrase_only_from_pty` is hosted by `e2e_cli_m03`
+    //! (`tests/e2e/cli_m03/issuer.rs`, macOS), which has the in-process runtime and the
+    //! `heimdall` binary.
 
     use std::ffi::OsString;
     use std::fmt;
@@ -406,8 +412,8 @@ pub mod ceremony {
         Unavailable(String),
         /// The run did not finish within the bound (killed by its exact handle).
         TimedOut,
-        /// The run ended without showing a passphrase (for example, a build without
-        /// U12's handler).
+        /// The run ended without showing a passphrase (for example, on a test-kind store,
+        /// which stops at the registration).
         NoPassphrase {
             /// The exit status.
             status: Option<i32>,

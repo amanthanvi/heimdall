@@ -248,6 +248,132 @@ pub fn close_inherited_descriptors() -> std::io::Result<()> {
     Ok(())
 }
 
+/// ⟨ADR-0008 §17.34 item 2 (W5-F03)⟩ Whether this process's effective user has a
+/// **user private group** (the Debian/Ubuntu scheme OpenSSH's `user-group-modes` accepts):
+/// its primary group's name is the user's name and the group lists no other member.
+/// `Ok(Some(gid))` with that group, `Ok(None)` when the primary group is not private,
+/// `Err` when the user or the group cannot be looked up (`getpwuid_r`, `getgrgid_r`).
+#[cfg(unix)]
+pub fn user_private_group() -> std::io::Result<Option<u32>> {
+    // SAFETY: `geteuid` has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    let (user, gid) = unix_names::user(uid)?;
+    let (group, members) = unix_names::group(gid)?;
+    Ok((group == user && members.iter().all(|m| *m == user)).then_some(gid))
+}
+
+/// ⟨ADR-0008 §17.34 item 1 (the purge's read census)⟩ The (device, inode) of every
+/// **regular file** this process has an open descriptor for, one entry per descriptor
+/// (so a file open twice appears twice). Each descriptor number listed in `/dev/fd`
+/// (Linux: `/proc/self/fd`) is examined with `fstat` on the number itself: nothing is
+/// opened or closed, so no POSIX lock another descriptor holds on the file is released.
+/// A number closed meanwhile is skipped.
+///
+/// # Errors
+/// The descriptor directory cannot be read.
+#[cfg(unix)]
+pub fn regular_file_descriptors() -> std::io::Result<Vec<(u64, u64)>> {
+    let dir = if cfg!(target_os = "linux") {
+        "/proc/self/fd"
+    } else {
+        "/dev/fd"
+    };
+    let numbers: Vec<libc::c_int> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .collect();
+    let mut out = Vec::new();
+    for fd in numbers {
+        // SAFETY: an all-zero `stat` is a valid out-value; `fstat` on any descriptor
+        // number only reads its metadata (a closed number fails with EBADF).
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `st` is a valid out-pointer for the call.
+        if unsafe { libc::fstat(fd, &mut st) } == 0 && st.st_mode & libc::S_IFMT == libc::S_IFREG {
+            #[allow(clippy::unnecessary_cast, clippy::cast_sign_loss)]
+            out.push((st.st_dev as u64, st.st_ino as u64));
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(unix)]
+mod unix_names {
+    use std::ffi::CStr;
+    use std::io;
+
+    /// A buffer large enough for one passwd or group entry, grown on `ERANGE`.
+    fn with_buffer<T>(
+        mut call: impl FnMut(&mut [libc::c_char]) -> io::Result<Option<T>>,
+    ) -> io::Result<T> {
+        let mut len = 1024usize;
+        loop {
+            let mut buf = vec![0 as libc::c_char; len];
+            match call(&mut buf) {
+                Ok(Some(v)) => return Ok(v),
+                Ok(None) => return Err(io::Error::new(io::ErrorKind::NotFound, "no such entry")),
+                Err(e) if e.raw_os_error() == Some(libc::ERANGE) && len < 1 << 20 => len *= 4,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// The name and primary group of `uid`.
+    pub(super) fn user(uid: libc::uid_t) -> io::Result<(String, libc::gid_t)> {
+        with_buffer(|buf| {
+            // SAFETY: an all-zero passwd is a valid out-value; `getpwuid_r` fills it.
+            let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
+            let mut out: *mut libc::passwd = std::ptr::null_mut();
+            // SAFETY: every pointer is valid for the call; `buf` outlives it and its
+            // length is passed; `out` is null or points at `pw`.
+            let rc =
+                unsafe { libc::getpwuid_r(uid, &mut pw, buf.as_mut_ptr(), buf.len(), &mut out) };
+            if rc != 0 {
+                return Err(io::Error::from_raw_os_error(rc));
+            }
+            if out.is_null() || pw.pw_name.is_null() {
+                return Ok(None);
+            }
+            // SAFETY: `pw_name` points into `buf`, NUL-terminated by `getpwuid_r`.
+            let name = unsafe { CStr::from_ptr(pw.pw_name) }
+                .to_string_lossy()
+                .into_owned();
+            Ok(Some((name, pw.pw_gid)))
+        })
+    }
+
+    /// The name and the listed members of `gid`.
+    pub(super) fn group(gid: libc::gid_t) -> io::Result<(String, Vec<String>)> {
+        with_buffer(|buf| {
+            // SAFETY: an all-zero group is a valid out-value; `getgrgid_r` fills it.
+            let mut gr: libc::group = unsafe { std::mem::zeroed() };
+            let mut out: *mut libc::group = std::ptr::null_mut();
+            // SAFETY: as in `user`.
+            let rc =
+                unsafe { libc::getgrgid_r(gid, &mut gr, buf.as_mut_ptr(), buf.len(), &mut out) };
+            if rc != 0 {
+                return Err(io::Error::from_raw_os_error(rc));
+            }
+            if out.is_null() || gr.gr_name.is_null() {
+                return Ok(None);
+            }
+            // SAFETY: `gr_name` points into `buf`, NUL-terminated.
+            let name = unsafe { CStr::from_ptr(gr.gr_name) }
+                .to_string_lossy()
+                .into_owned();
+            let mut members = Vec::new();
+            let mut p = gr.gr_mem;
+            // SAFETY: `gr_mem` is a NULL-terminated array of NUL-terminated strings in
+            // `buf`; it is read up to its terminator only.
+            unsafe {
+                while !p.is_null() && !(*p).is_null() {
+                    members.push(CStr::from_ptr(*p).to_string_lossy().into_owned());
+                    p = p.add(1);
+                }
+            }
+            Ok(Some((name, members)))
+        })
+    }
+}
+
 /// Opaque OS start time of process `pid`, or `None` when the process does not
 /// exist (or cannot be queried). Equal strings mean the same process instance;
 /// the format is platform-specific and only compared for equality.

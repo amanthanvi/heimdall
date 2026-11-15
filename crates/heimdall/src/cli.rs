@@ -16,10 +16,11 @@
 //! **M03 commands (m03-plan U0, §5 item 24).** `issuer`, `enroll`, `connections`, the
 //! hidden `internal`, `destination prefer`, `access lock-behavior|connection-policy`,
 //! `access ensure --strict` and the `uninstall` additions carry their full argument
-//! trees. Until its unit lands (U12) each is answered by its own handler in
-//! `issuer_cmd`, `enroll_cmd`, `connections_cmd` or `m03_cmd` with the wave-0
-//! envelope of `m03_cmd`, before any runtime contact. `uninstall --purge-state` is the
-//! exception: its refusal while enrollments remain is live (U0b row 18).
+//! trees (⟨wave 5, U12⟩ all are wired). Each is answered by its own handler in
+//! `issuer_cmd`, `enroll_cmd`, `connections_cmd`, `uninstall_cmd` or `m03_cmd`; a
+//! command refused before runtime contact (an invalid ID, `--non-interactive` where the
+//! owner is needed) answers its own usage or interaction error. None answers M01's
+//! wave-0 "not available" text (`tests/e2e/cli_m03.rs` guards the sources against it).
 //!
 //! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
 //! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007
@@ -80,7 +81,14 @@ use crate::{
 /// Heimdall: set up access once; your terminals, tools, and agents work across
 /// environments.
 #[derive(Debug, Parser)]
-#[command(name = "heimdall", version, disable_colored_help = true)]
+// `bin_name`: the usage text names `heimdall` on every platform, never the invoked file name
+// (`heimdall.exe` on Windows); the help goldens and the owner see the same command.
+#[command(
+    name = "heimdall",
+    bin_name = "heimdall",
+    version,
+    disable_colored_help = true
+)]
 pub struct Cli {
     /// Machine output: one JSON envelope on stdout (NDJSON for event streams).
     #[arg(long, global = true)]
@@ -128,7 +136,8 @@ pub enum Command {
     /// Remove the projection, restore your files, and report what remains (M02).
     Uninstall(UninstallArgs),
     /// The local issuer: its CA key, status, recovery bundle (M03; ADR-0008 D3, D4).
-    #[command(subcommand)]
+    // ⟨ADR-0008 §17.28 item 6⟩ The ad-hoc-signed macOS update caveat and its recovery.
+    #[command(subcommand, after_help = ISSUER_UPDATE_HELP)]
     Issuer(IssuerCommand),
     /// Enroll a destination for managed credentials and manage its enrollments (M03;
     /// ADR-0008 D5).
@@ -523,12 +532,19 @@ pub struct UninstallArgs {
     /// any remote enrollment is not final, unless `--keep-remote-enrollments` is given.
     #[arg(long)]
     pub purge_state: bool,
-    /// M03: purge the state while remote enrollments stay in place. Needs a fresh
-    /// recovery bundle (`--bundle`; ADR-0008 D4 item 6).
-    #[arg(long, requires = "purge_state")]
+    /// M03: leave the remote enrollments that are not final in place. Alone, it is the
+    /// explicit acknowledgement a plain uninstall needs while any remain (the state is
+    /// kept); with `--purge-state` it needs a fresh recovery bundle (`--bundle`;
+    /// ADR-0008 D4 item 6, §17.25 items 8 and 11).
+    #[arg(long)]
     pub keep_remote_enrollments: bool,
-    /// M03: the fresh recovery bundle that records what stays enrolled.
-    #[arg(long, value_name = "FILE", requires = "keep_remote_enrollments")]
+    /// M03: the fresh recovery bundle that records what stays enrolled when the state is
+    /// purged (written by this installation's `heimdall issuer bundle`).
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires_all = ["keep_remote_enrollments", "purge_state"]
+    )]
     pub bundle: Option<PathBuf>,
 }
 
@@ -724,8 +740,7 @@ pub struct EnsureArgs {
     #[arg(long, default_value_t = 30_000)]
     pub timeout_ms: u64,
     /// M03: close owned connections at the deadline (`EnsureRequest.connection`
-    /// strict). Wave 0 answers it with the M03 not-available envelope; the managed
-    /// path is U10's.
+    /// strict).
     #[arg(long)]
     pub strict: bool,
     /// Caller minimums.
@@ -752,6 +767,14 @@ pub struct DelegateArgs {
     #[arg(long)]
     pub request_id: String,
 }
+
+/// ⟨ADR-0008 §17.28 item 6⟩ `issuer --help`'s note: an ad-hoc-signed macOS build may lose
+/// access to its CA key after an update, and the recovery. No K_ca continuity across
+/// updates is claimed.
+const ISSUER_UPDATE_HELP: &str = "On macOS, a build without a Developer ID signature (ad-hoc-signed) may lose access to its CA key after an update: the key store item trusts the exact build that created it. The issuer then reports `issuer_store_access_denied`. Run `heimdall issuer restore --backup <file>`: it restores the CA to a new store item, then lists the old item under orphan store items; delete that one in Keychain Access (Heimdall never deletes it).";
+
+/// ⟨ADR-0008 §17.28 item 6⟩ `issuer restore --help`'s note on that recovery.
+const ISSUER_RESTORE_HELP: &str = "Also the recovery when the issuer reports `issuer_store_access_denied` (on macOS, an ad-hoc-signed build after an update): the CA is restored to a new store item, recorded after a typed `yes`; the old item is kept and listed under orphan store items, to be deleted in Keychain Access (Heimdall never deletes it).";
 
 /// `issuer` subcommands (m03-plan §5 item 24; ADR-0008 D3, D4).
 #[derive(Debug, Subcommand)]
@@ -789,6 +812,7 @@ pub enum IssuerCommand {
         fingerprint: String,
     },
     /// Restore the CA key from a backup (the passphrase is typed on the terminal).
+    #[command(after_help = ISSUER_RESTORE_HELP)]
     Restore {
         /// The encrypted backup file.
         #[arg(long, value_name = "FILE")]
@@ -1058,7 +1082,7 @@ pub(crate) struct Done {
 }
 
 impl Done {
-    fn of(env: Envelope<serde_json::Value>) -> Self {
+    pub(crate) fn of(env: Envelope<serde_json::Value>) -> Self {
         let exit = output::exit_code_for(env.code.clone(), false);
         Self { env, exit }
     }
@@ -1164,25 +1188,11 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Run(args)) => return run_cmd::run(&ctx, args),
         Some(Command::Doctor(args)) => return doctor_cmd::run(&ctx, args),
         Some(Command::Tui) => return tui::run(tui::TuiConfig::from_ctx(&ctx)),
-        // M03 commands (wave 0): each is answered by its own handler with the M03
-        // not-available envelope, before any runtime contact (`m03_cmd`).
+        // M03 commands (wave 5, U12): each group has its own handler module.
         Some(Command::Issuer(c)) => return issuer_cmd::run(&ctx, c),
         Some(Command::Enroll(a)) => return enroll_cmd::run(&ctx, a),
         Some(Command::Connections(a)) => return connections_cmd::run(&ctx, a),
         Some(Command::Internal(c)) => return m03_cmd::internal(&ctx, c),
-        Some(Command::Destination(DestinationCommand::Prefer(a))) => {
-            return m03_cmd::destination_prefer(&ctx, a);
-        }
-        Some(Command::Access(AccessCommand::LockBehavior(a))) => {
-            return m03_cmd::lock_behavior(&ctx, a);
-        }
-        Some(Command::Access(AccessCommand::ConnectionPolicy(a))) => {
-            return m03_cmd::connection_policy(&ctx, a);
-        }
-        // `--strict` is the managed path's (U10); every other `ensure` is M01's.
-        Some(Command::Access(AccessCommand::Ensure(a))) if a.strict => {
-            return m03_cmd::ensure_strict(&ctx);
-        }
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
@@ -1224,7 +1234,11 @@ pub fn dispatch(cli: Cli) -> ExitCode {
 }
 
 /// Parse a bounded token into a contract ID, or a usage error naming the flag.
-fn parse<T, E>(what: &str, f: impl FnOnce(&str) -> Result<T, E>, s: &str) -> Result<T, Done> {
+pub(crate) fn parse<T, E>(
+    what: &str,
+    f: impl FnOnce(&str) -> Result<T, E>,
+    s: &str,
+) -> Result<T, Done> {
     f(s).map_err(|_| Done::of(usage(&format!("invalid {what}"))))
 }
 
@@ -1281,7 +1295,12 @@ async fn one(ctx: &Ctx, allow_start: bool, request: Request) -> Result<Done, Don
 
 async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
     match command {
-        Command::Status => status(ctx).await,
+        // ⟨M03⟩ wave 5 (U12, F14; U-R1): pending chores (`time_confirmation_after_reboot`
+        // with `heimdall time confirm`) on the status answer, success or refusal.
+        Command::Status => status(ctx)
+            .await
+            .map(|d| crate::doctor_cmd::with_status_chores(ctx, d))
+            .map_err(|d| crate::doctor_cmd::with_status_chores(ctx, d)),
         Command::Inspect {
             subject,
             preview,
@@ -1378,10 +1397,11 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
 async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
     match command {
         AccessCommand::Ensure(a) => ensure(ctx, a).await,
-        // Answered in `dispatch` before the executor starts (M03 wave 0); the same
-        // envelope if one ever arrives here.
-        AccessCommand::LockBehavior(_) | AccessCommand::ConnectionPolicy(_) => {
-            Err(Done::of(m03_cmd::not_available_envelope()))
+        // ⟨M03⟩ wave 5 (U12): the policy flow; narrowing applies at once, widening
+        // needs the owner's typed `yes` (m03-plan §5 item 6).
+        AccessCommand::LockBehavior(a) => policy(ctx, m03_cmd::lock_behavior_action(&a)?).await,
+        AccessCommand::ConnectionPolicy(a) => {
+            policy(ctx, m03_cmd::connection_policy_action(&a)?).await
         }
         AccessCommand::Release { binding_id } => {
             let binding_id = parse("binding ID", BindingId::parse, &binding_id)?;
@@ -1474,8 +1494,9 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
                 timeout_ms: a.timeout_ms,
             }
         },
-        // M03 wave 0 (A1): fail closed until U0b
-        connection: None,
+        // ⟨M03⟩ wave 5 (U12): `--strict` asks for strict owned connections; absent,
+        // the request is M02's byte for byte (`connection` is skipped when `None`).
+        connection: a.strict.then(m03_cmd::strict_connection),
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
@@ -1582,13 +1603,21 @@ async fn policy(ctx: &Ctx, action: PolicyAction) -> Result<Done, Done> {
 /// cleared cutoff is widening, §13.6 item 6) are owner-present: `Attend` first
 /// when interactive, then the request, the prompt and `Decide` on `yes`. `pause`
 /// is narrowing and never attends.
-async fn policy_flow<S: Session, P: Prompter>(
+pub(crate) async fn policy_flow<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
     ctx: &Ctx,
     action: PolicyAction,
 ) -> Done {
-    let owner_present = !matches!(action, PolicyAction::Pause { .. });
+    // M01's actions keep M01's rule; the M03 actions attend only when widening
+    // (`PolicyAction::is_widening`), so a narrowing never sends `Attend`.
+    let owner_present = match &action {
+        PolicyAction::Pause { .. } => false,
+        PolicyAction::SetLockBehavior { .. } | PolicyAction::SetConnectionPolicy { .. } => {
+            action.is_widening()
+        }
+        _ => true,
+    };
     if owner_present && let Err(refused) = attend_first(s, ctx).await {
         return refused;
     }
@@ -1752,6 +1781,25 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
     let answer_line = answered.map_or_else(String::new, |code| {
         format!("The runtime answered {code} with this decision reference.\n")
     });
+    // ⟨ADR-0008 §17.27 items 3 and 4⟩ Generic completion has no preview of its own: the
+    // recorded request's human form and every disclosure in words are shown before the
+    // prompt, in every output mode (stderr). Approving one that discloses lock
+    // continuity needs the runtime's conditional lock text; without it the approval is
+    // refused (exit 3) and nothing is sent.
+    let recorded = record
+        .as_ref()
+        .and_then(|r| r.get("request"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let lock = if crate::enroll_cmd::carries_lock_disclosure(&recorded) {
+        let text = crate::m03_cmd::fetch_lock_disclosure_text(s).await;
+        if text.is_none() && verdict == Verdict::Approve {
+            return crate::m03_cmd::lock_text_unavailable(Some(decision), operation);
+        }
+        text
+    } else {
+        None
+    };
     let text = match &record {
         Some(r) => {
             let request =
@@ -1759,8 +1807,12 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
                     .unwrap_or_default();
             let field = |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("?").to_owned();
             let expired = r.get("expired").and_then(serde_json::Value::as_bool) == Some(true);
+            let human = crate::enroll_cmd::recorded_preview(&field("kind"), &recorded);
+            let disclosures =
+                crate::enroll_cmd::recorded_disclosure_prose(&recorded, lock.as_deref());
             format!(
-                "{answer_line}Owner decision {decision}\n  kind: {}\n  expires: {}{}\n  recorded request (exactly what {} applies to):\n{}\n\
+                "{answer_line}{human}Owner decision {decision}\n  kind: {}\n  expires: {}{}\n  recorded request (exactly what {} applies to):\n{}\n\
+                 {disclosures}\
                  Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.\n\
                  {verb} exactly this request?\n",
                 field("kind"),
@@ -1830,7 +1882,7 @@ fn decide_without_session(ctx: &Ctx, decision: &str) -> Done {
 /// `decision approve|deny` on a connected session: `Attend` first, the listing
 /// with the exact recorded request, the prompt, `Decide` on `yes`. Without a
 /// terminal (or with `--non-interactive`) nothing is sent.
-async fn decide_flow<S: Session, P: Prompter>(
+pub(crate) async fn decide_flow<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
     ctx: &Ctx,
@@ -2540,8 +2592,73 @@ mod tests {
             request_id: RequestId::parse("r").unwrap_or_else(|_| unreachable!()),
             interaction: heimdall_contract::request::InteractionMode::Interactive,
             wait: WaitMode::default(),
-            // M03 wave 0 (A1): fail closed until U0b
+            // not strict (M02's request)
             connection: None,
+        }
+    }
+
+    /// ⟨M03⟩ wave 5 (U12; m03-plan §5 item 6): the M03 policy actions attend only when
+    /// widening. A narrowing (`revoke-on-lock`, `--existing strict`, `--multiplexing
+    /// disabled`) sends the request alone, never `Attend`, never a prompt; a widening
+    /// (`continue`, `--existing graceful`, `--multiplexing owned`) attends first and sends
+    /// `decide` only on a typed `yes`.
+    #[test]
+    fn m03_policy_actions_attend_only_when_widening() {
+        use heimdall_contract::managed::{ExistingConnectionsMode, LockBehavior, MultiplexingMode};
+        let pol = || PolicyId::parse("pol").unwrap_or_else(|_| unreachable!());
+        let narrowing = [
+            PolicyAction::SetLockBehavior {
+                policy_id: pol(),
+                behavior: LockBehavior::RevokeOnLock,
+            },
+            PolicyAction::SetConnectionPolicy {
+                policy_id: pol(),
+                existing: Some(ExistingConnectionsMode::Strict),
+                multiplexing: Some(MultiplexingMode::Disabled),
+            },
+        ];
+        for action in narrowing {
+            let mut s = Recorder::new();
+            let mut p = script(&[]);
+            let done = block(policy_flow(&mut s, &mut p, &tty(), action.clone()));
+            assert_eq!(s.sent, ["policy"], "narrowing never attends: {action:?}");
+            assert_eq!(done.env.code, Code::Ok);
+        }
+        let widening = [
+            PolicyAction::SetLockBehavior {
+                policy_id: pol(),
+                behavior: LockBehavior::Continue,
+            },
+            PolicyAction::SetConnectionPolicy {
+                policy_id: pol(),
+                existing: Some(ExistingConnectionsMode::Graceful),
+                multiplexing: None,
+            },
+            PolicyAction::SetConnectionPolicy {
+                policy_id: pol(),
+                existing: None,
+                multiplexing: Some(MultiplexingMode::OwnedMasters),
+            },
+        ];
+        for action in widening {
+            let mut s = Recorder::new()
+                .answer("policy", approval_required())
+                .answer("inspect", listing());
+            let mut p = script(&[Answer::Yes]);
+            let done = block(policy_flow(&mut s, &mut p, &tty(), action.clone()));
+            assert_eq!(
+                s.sent,
+                ["attend", "policy", "inspect", "decide"],
+                "{action:?}"
+            );
+            assert_eq!(done.env.code, Code::Ok);
+            let mut s = Recorder::new()
+                .answer("policy", approval_required())
+                .answer("inspect", listing());
+            let mut p = script(&[Answer::Eof]);
+            let done = block(policy_flow(&mut s, &mut p, &tty(), action));
+            assert_eq!(s.sent, ["attend", "policy", "inspect"]);
+            assert_eq!(done.exit, ExitCode::InteractionRequired);
         }
     }
 

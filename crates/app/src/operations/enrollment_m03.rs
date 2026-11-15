@@ -145,7 +145,43 @@ pub(super) struct EnrollmentProcessState {
     /// lines (§17.21 item 4), and a removal's post-image needs the bytes. A restart
     /// forgets them, and the removal then inspects again.
     inspected: Mutex<VecDeque<(OperationId, Vec<u8>)>>,
+    /// **Test configuration only** (debug builds; ADR-0008 §17.25 item 3, D13 item 3):
+    /// the script pause directory the runtime was started with
+    /// (`ManagedOptions::script_pause_dir`). `Some(Err(()))`: set, but not a usable
+    /// [`PauseDir`](heimdall_registry::script::test_form::PauseDir), so every step is
+    /// refused (a test that expects pauses never runs unpaused).
+    #[cfg(debug_assertions)]
+    script_pause: RwLock<Option<ScriptPause>>,
+    /// ⟨debug builds only; tests; ADR-0008 §17.32 item 4 (audit A8)⟩ The next
+    /// verification result write's pause
+    /// ([`Operations::debug_pause_next_verification_result_write`]).
+    #[cfg(debug_assertions)]
+    pub(super) result_write_pause: Mutex<Option<VerificationWritePause>>,
 }
+
+/// ⟨debug builds only⟩ A paused verification result write: `reached` is sent when the
+/// write has been handed off, `resume` releases it.
+#[cfg(debug_assertions)]
+pub(super) struct VerificationWritePause {
+    pub(super) reached: tokio::sync::oneshot::Sender<()>,
+    pub(super) resume: tokio::sync::oneshot::Receiver<()>,
+}
+
+/// ⟨debug builds only; tests⟩ The test's side of
+/// [`Operations::debug_pause_next_verification_result_write`].
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct VerificationWritePauseControl {
+    /// Resolves when the paused write has been handed off.
+    pub reached: tokio::sync::oneshot::Receiver<()>,
+    /// Send (or drop) to let the write run.
+    pub resume: tokio::sync::oneshot::Sender<()>,
+}
+
+/// The test form's pause directory, or why it is unusable (debug builds).
+#[cfg(debug_assertions)]
+pub(super) type ScriptPause = Result<heimdall_registry::script::test_form::PauseDir, ()>;
 
 impl EnrollmentProcessState {
     fn remember(&self, digest: &PlanDigest, p: Previewed) {
@@ -259,6 +295,42 @@ impl Operations {
             .unwrap_or_else(PoisonError::into_inner) = Some(host);
     }
 
+    /// ⟨§17.25 item 3⟩ **Test configuration only, debug builds**: the directory in
+    /// which every remote step's script pauses at its test-form points
+    /// (`heimdall_registry::script::test_form`; `HEIMDALL_TEST_SCRIPT_PAUSE_DIR`, which
+    /// the runtime's test configuration validated). The runtime inserts the points when
+    /// it builds a step; the CLI runs the script it receives. `None` clears it. A
+    /// directory that is not a plain absolute UTF-8 path refuses every step
+    /// (`driver_unavailable`) rather than running it unpaused. A release build has no
+    /// such method, and its scripts are the release form.
+    #[cfg(debug_assertions)]
+    pub fn set_script_pause_dir(&self, dir: Option<&std::path::Path>) {
+        let setting = dir.map(|d| {
+            d.to_str()
+                .and_then(|s| heimdall_registry::script::test_form::PauseDir::parse(s).ok())
+                .ok_or(())
+        });
+        *self
+            .inner
+            .managed_ops
+            .enrollment
+            .script_pause
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = setting;
+    }
+
+    /// The test form's pause directory, if one is set (debug builds).
+    #[cfg(debug_assertions)]
+    pub(super) fn script_pause(&self) -> Option<ScriptPause> {
+        self.inner
+            .managed_ops
+            .enrollment
+            .script_pause
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     /// This instance's enrollment driver state.
     pub(super) fn enrollment_state(&self) -> &EnrollmentProcessState {
         &self.inner.managed_ops.enrollment
@@ -309,6 +381,9 @@ impl Operations {
         caller: &Caller,
         req: EnrollmentRequest,
     ) -> OpResult<serde_json::Value> {
+        // ⟨ADR-0008 §17.31 item 2 (W5-C02)⟩ the uninstall fence's admission for every
+        // route into enrollment work, not only the dispatcher (held for the request).
+        let _admission = self.enrollment_fence_admission(&req)?;
         let owner = caller.context.is_owner();
         match req {
             EnrollmentRequest::Preview { spec } => self.enroll_preview(spec).await,
@@ -578,6 +653,12 @@ impl Operations {
     /// # Errors
     /// [`OpError`] (a store failure is reported, never an empty success).
     pub async fn reverify_pass(&self) -> Result<Vec<EnrollmentId>, OpError> {
+        // ⟨ADR-0008 §17.27 item 2⟩ nothing new while an uninstall holds the fence (a
+        // re-verification admitted by a pass already running is in the CLI's last
+        // check before it deletes anything).
+        if self.uninstall_fence_held() {
+            return Ok(Vec::new());
+        }
         self.reverify_due().await
     }
 
@@ -913,9 +994,23 @@ pub(super) fn settle_ok(
     settle_succeeded(tx, emit, op, Code::Ok, data, now, retention)
 }
 
-/// The enrollment result of `record` (with `operation`'s evidence view).
+/// The enrollment result of `record` (with `operation`'s evidence view), from a path
+/// that does not know the record's alias (only ever a record that is not `verified`;
+/// a `verified` one's note then carries no command, never a guessed one).
 pub(super) fn result_of(
     record: &EnrollmentRecord,
+    next_action: Option<EnrollmentNext>,
+) -> EnrollmentResult {
+    result_for(record, None, next_action)
+}
+
+/// [`result_of`] with the record's alias (`Ctx.alias`; empty when the destination
+/// record is gone): a `verified` record's `ordinary_ssh_needs_held_slot` note carries
+/// `slot_free_command(alias)`, the command of the preview, `enroll status` and the
+/// doctor (ADR-0008 §17.25 item 5). An unknown alias gives the note without a command.
+pub(super) fn result_for(
+    record: &EnrollmentRecord,
+    alias: Option<&str>,
     next_action: Option<EnrollmentNext>,
 ) -> EnrollmentResult {
     let evidence = record.evidence.as_ref().map(|e| EnrollmentEvidenceView {
@@ -930,13 +1025,17 @@ pub(super) fn result_of(
         // holds the pair's slot (`slot_free`).
         notes.push(EnrollmentNote {
             kind: EnrollmentNoteKind::OrdinarySshNeedsHeldSlot,
-            command: Some("heimdall connect <alias>".to_owned()),
+            command: alias
+                .filter(|a| !a.is_empty())
+                .map(heimdall_domain::managed::slot_free_command),
         });
     }
     if record.late_write.is_some() {
         notes.push(EnrollmentNote {
             kind: EnrollmentNoteKind::PossibleLateWrite,
-            command: Some(format!("heimdall enroll remove {}", record.id)),
+            // ⟨ADR-0008 §17.28 item 3⟩ only an attended absence check after the not-after
+            // clears the residual.
+            command: Some(format!("heimdall enroll verify {} --absence", record.id)),
         });
     }
     EnrollmentResult {
@@ -1052,6 +1151,7 @@ pub(super) fn enrollments_view_in(tx: &mut Txn<'_>) -> heimdall_store::Result<En
         let live_grants = affected_grants(tx, &r.ca_fingerprint, &pair)?;
         let open = open_operation_of(tx, &r.id)?.map(|(o, _)| o.id);
         let residual = tx.pair_residual(&pair, Some(&r.ca_fingerprint))?;
+        let hold = hold_view(&r, open.as_ref());
         out.push(EnrollmentView {
             enrollment_id: r.id.clone(),
             destination_id: r.destination.clone(),
@@ -1076,9 +1176,61 @@ pub(super) fn enrollments_view_in(tx: &mut Txn<'_>) -> heimdall_store::Result<En
             live_grants,
             open_operation_id: open,
             possible_late_write: r.late_write.is_some(),
+            hold,
         });
     }
     Ok(EnrollmentsView { enrollments: out })
+}
+
+/// The manual step of a `lock_holder_unresolved` hold (ADR-0008 D5 §6.7: the owner
+/// checks the holder process and removes the lock link by hand, then reconciles).
+pub(super) const LOCK_HOLDER_MANUAL_STEP: &str = "on the destination, check that the registry lock's holder process is gone, then remove the lock link by hand";
+
+/// `EnrollmentView.hold` (ADR-0008 §17.25 item 4): a `held` record's reason and the
+/// owner's next step, from `record.hold`, so `enroll status` and the TUI show the same
+/// commands. Each command is one of the `held` row's exits (D5 §6.2):
+///
+/// * `host_key_changed`: `enroll verify <e> --approve-target-change` (the
+///   `ApproveTargetChange` decision), or `enroll remove <e>` (a `RemoveEnrollment` with
+///   the freshly evaluated target);
+/// * an evidence-based hold (`principals_not_enforced`, positive refused): `enroll
+///   verify <e>` (re-verification), or `enroll remove <e>`;
+/// * `lock_holder_unresolved`: the manual step, then `enroll reconcile <op>
+///   --after-manual-recovery` on the open operation (§6.7; never a redispatch). Without
+///   an open operation there is nothing to reconcile, so `enroll remove <e>` (whose
+///   reconcile may break the stale lock once its holder is proven gone);
+/// * any other hold: `enroll remove <e>` or `enroll abandon <e>`.
+///
+/// `None` for a record that is not `held`, or a `held` one without a `hold`.
+#[must_use]
+pub(super) fn hold_view(
+    record: &EnrollmentRecord,
+    open: Option<&OperationId>,
+) -> Option<heimdall_contract::enrollment::EnrollmentHoldView> {
+    use heimdall_domain::enrollment::HoldKind;
+    if record.state != EnrollmentState::Held {
+        return None;
+    }
+    let hold = record.hold?;
+    let reason = serde_json::to_value(hold.reason).ok()?.as_str()?.to_owned();
+    let id = &record.id;
+    let remove = format!("heimdall enroll remove {id}");
+    let next = match hold.kind() {
+        HoldKind::HostKeyChanged => vec![
+            format!("heimdall enroll verify {id} --approve-target-change"),
+            remove,
+        ],
+        HoldKind::EvidenceBased => vec![format!("heimdall enroll verify {id}"), remove],
+        HoldKind::LockHolderUnresolved => vec![
+            LOCK_HOLDER_MANUAL_STEP.to_owned(),
+            match open {
+                Some(op) => format!("heimdall enroll reconcile {op} --after-manual-recovery"),
+                None => remove,
+            },
+        ],
+        _ => vec![remove, format!("heimdall enroll abandon {id}")],
+    };
+    Some(heimdall_contract::enrollment::EnrollmentHoldView { reason, next })
 }
 
 /// `decisions_m03::precheck` for the enrollment kinds.
@@ -1102,7 +1254,27 @@ pub(super) fn decision_apply(
     now: Timestamp,
     retention: std::time::Duration,
 ) -> heimdall_store::Result<Result<Vec<OperationId>, OpError>> {
-    admit::decision_apply(tx, emit, record, verdict, waiting, now, retention)
+    let applied = admit::decision_apply(tx, emit, record, verdict, waiting, now, retention)?;
+    // ⟨M03; ADR-0008 §17.25 item 21, D9 item 1⟩ Approving an enrollment decision that
+    // displayed the lock disclosure records its acknowledgement, once (the store keeps
+    // the first time), in the same transaction, as `RegisterIssuer`'s approval does
+    // (`issuer_m03::decision_apply`). Worker R2's edit.
+    if applied.is_ok() && verdict == Verdict::Approve && displayed_lock_disclosure(&record.kind) {
+        tx.set_lock_disclosure_ack(now)?;
+    }
+    Ok(applied)
+}
+
+/// Whether an enrollment decision displayed the lock disclosure (`lock_continuity_once`
+/// among its plan's disclosures).
+fn displayed_lock_disclosure(kind: &DecisionKind) -> bool {
+    match kind {
+        DecisionKind::EnrollAccount { summary, .. }
+        | DecisionKind::EnrollSystemForm { summary, .. } => summary
+            .disclosures
+            .contains(&heimdall_contract::enrollment::DisclosureKind::LockContinuityOnce),
+        _ => false,
+    }
 }
 
 /// Which verification an operation's authority is (ADR-0008 §17.21 item 5): wave 0's
@@ -1324,4 +1496,208 @@ fn stored_verify_request(
             }) => Some((enrollment_id, mode)),
             _ => None,
         }))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use heimdall_contract::enrollment::{
+        ApprovedHostKey, ApprovedTarget, EnrollmentForm, EnrollmentNoteKind, EnrollmentState,
+        NoProxy, RegistryCanonical, RegistryRef, RegistryResolvedBy,
+    };
+    use heimdall_contract::ids::{
+        AccountName, CaFingerprint, DestinationId, EnrollmentId, IdentityId, OperationId,
+    };
+    use heimdall_domain::enrollment::{
+        EnrollmentHold, EnrollmentRecord, ExistingAccessRecord, HoldReason, marker_for,
+    };
+
+    use super::{LOCK_HOLDER_MANUAL_STEP, hold_view, result_for, result_of};
+
+    const ID: &str = "enr_00112233445566778899aabbccddeeff";
+
+    fn record(state: EnrollmentState, hold: Option<(HoldReason, bool)>) -> EnrollmentRecord {
+        let id = EnrollmentId::parse(ID).unwrap();
+        let now = heimdall_contract::Timestamp::from_second(1_800_000_000).unwrap();
+        EnrollmentRecord {
+            marker: marker_for(&id),
+            id,
+            destination: DestinationId::parse("dst_lab").unwrap(),
+            account: AccountName::parse("deploy").unwrap(),
+            ca_fingerprint: CaFingerprint::parse(&format!("SHA256:{}", "A".repeat(43))).unwrap(),
+            form: EnrollmentForm::Account,
+            registry: RegistryRef {
+                path_display: "$HOME/.ssh/authorized_keys".to_owned(),
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            registry_canonical: RegistryCanonical {
+                path: None,
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            line_sha256: "ab".repeat(32),
+            target: ApprovedTarget {
+                hostname: "lab.example.invalid".to_owned(),
+                port: 22,
+                user: AccountName::parse("deploy").unwrap(),
+                proxy: NoProxy::None,
+                host_key: ApprovedHostKey {
+                    algorithm: "ssh-ed25519".to_owned(),
+                    key: "AAAA".to_owned(),
+                    fingerprint: format!("SHA256:{}", "B".repeat(43)),
+                },
+            },
+            existing_access: ExistingAccessRecord {
+                identity: IdentityId::from_random_bytes([7; 16]),
+                endpoint: None,
+                public_key_file: None,
+            },
+            hold: hold.map(|(reason, evidence_based)| EnrollmentHold {
+                reason,
+                evidence_based,
+            }),
+            removal_origin: None,
+            late_write: None,
+            state,
+            verified_at: None,
+            evidence: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// ADR-0008 §17.25 item 4: `EnrollmentView.hold` carries the record's reason and the
+    /// `held` row's exits (D5 §6.2), each an existing `heimdall enroll` command.
+    #[test]
+    fn hold_view_names_the_held_rows_exits() {
+        let op = OperationId::parse("op_00112233445566778899aabbccddeeff").unwrap();
+        let view = |reason, evidence, open: Option<&OperationId>| {
+            hold_view(
+                &record(EnrollmentState::Held, Some((reason, evidence))),
+                open,
+            )
+            .unwrap()
+        };
+        let v = view(HoldReason::HostKeyChanged, false, None);
+        assert_eq!(v.reason, "host_key_changed");
+        assert_eq!(
+            v.next,
+            [
+                format!("heimdall enroll verify {ID} --approve-target-change"),
+                format!("heimdall enroll remove {ID}"),
+            ]
+        );
+        for reason in [
+            HoldReason::PrincipalsNotEnforced,
+            HoldReason::PositiveRefused,
+        ] {
+            let v = view(reason, true, None);
+            assert_eq!(
+                v.next,
+                [
+                    format!("heimdall enroll verify {ID}"),
+                    format!("heimdall enroll remove {ID}"),
+                ],
+                "{reason:?}"
+            );
+        }
+        let v = view(HoldReason::LockHolderUnresolved, false, Some(&op));
+        assert_eq!(v.reason, "lock_holder_unresolved");
+        assert_eq!(
+            v.next,
+            [
+                LOCK_HOLDER_MANUAL_STEP.to_owned(),
+                format!("heimdall enroll reconcile {op} --after-manual-recovery"),
+            ]
+        );
+        // No open operation: nothing to reconcile, so the removal.
+        let v = view(HoldReason::LockHolderUnresolved, false, None);
+        assert_eq!(v.next[1], format!("heimdall enroll remove {ID}"));
+        for reason in [
+            HoldReason::RegistryLineDamaged,
+            HoldReason::RegistryChanged,
+            HoldReason::RegistryNotRewritable,
+            HoldReason::PostWriteCheckFailed,
+            // Not evidence-based: no re-verification is offered.
+            HoldReason::PrincipalsNotEnforced,
+        ] {
+            let v = view(reason, false, None);
+            assert_eq!(
+                v.next,
+                [
+                    format!("heimdall enroll remove {ID}"),
+                    format!("heimdall enroll abandon {ID}"),
+                ],
+                "{reason:?}"
+            );
+            assert_eq!(
+                serde_json::to_value(reason).unwrap().as_str().unwrap(),
+                v.reason
+            );
+        }
+        // Only a `held` record with a hold has one.
+        assert!(hold_view(&record(EnrollmentState::Held, None), None).is_none());
+        assert!(
+            hold_view(
+                &record(
+                    EnrollmentState::Reverifying,
+                    Some((HoldReason::HostKeyChanged, false))
+                ),
+                None
+            )
+            .is_none()
+        );
+    }
+
+    /// ADR-0008 §17.25 item 5: a verified result's `ordinary_ssh_needs_held_slot` note
+    /// names `slot_free_command(alias)`, the preview's, `status`'s and the doctor's
+    /// command; with the alias unknown it names none (never a guess).
+    #[test]
+    fn verified_note_names_the_slot_free_command() {
+        let verified = record(EnrollmentState::Verified, None);
+        let note = |alias: Option<&str>| {
+            result_for(&verified, alias, None)
+                .notes
+                .into_iter()
+                .find(|n| n.kind == EnrollmentNoteKind::OrdinarySshNeedsHeldSlot)
+                .unwrap()
+                .command
+        };
+        assert_eq!(
+            note(Some("lab")).as_deref(),
+            Some("heimdall run --profile <profile> -- ssh lab")
+        );
+        assert_eq!(
+            note(Some("lab")),
+            Some(heimdall_domain::managed::slot_free_command("lab"))
+        );
+        assert_eq!(note(Some("")), None);
+        assert_eq!(note(None), None);
+        assert!(
+            result_of(&verified, None)
+                .notes
+                .iter()
+                .all(|n| n.command.as_deref() != Some("heimdall connect <alias>"))
+        );
+    }
+
+    /// ⟨ADR-0008 §17.28 item 3⟩ the `possible_late_write` note names the only command that
+    /// clears the residual: an attended absence check (never `enroll remove`, which a
+    /// `withdrawn` record cannot take).
+    #[test]
+    fn late_write_note_names_the_absence_check() {
+        let mut withdrawn = record(EnrollmentState::Withdrawn, None);
+        withdrawn.late_write = Some(heimdall_domain::enrollment::LateWrite {
+            step_token: "tok".to_owned(),
+            not_after_remote: 1_800_000_600,
+        });
+        let note = result_of(&withdrawn, None)
+            .notes
+            .into_iter()
+            .find(|n| n.kind == EnrollmentNoteKind::PossibleLateWrite)
+            .unwrap();
+        assert_eq!(
+            note.command.as_deref(),
+            Some(format!("heimdall enroll verify {ID} --absence").as_str())
+        );
+    }
 }

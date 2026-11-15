@@ -808,7 +808,7 @@ integrator flips the switch if the ruling differs.
   * `known_hosts::lookup(&SshPaths, host, port, LocalQueries) -> Vec<HostKeyObservation>`,
     through `ssh-keygen -F` or a plain-entry parse.
   * `local_query::{LocalQueries { Enabled, Disabled }, run_version(&Path) -> Result<OpenSshVersion, _>}`.
-    Bounded at 2 s; the environment is not modified; Q4.
+    Bounded at 10 s (2 s before ADR-0008 §17.29 item 7); the environment is not modified; Q4.
   * ⟨r2⟩ `git::{observe_global(&Env, &ClientInventory, LocalQueries) -> GitGlobalObservation {
     file: Option<GlobalFileResolution>, values: Vec<GitValueObservation>, env_overrides:
     Vec<&'static str>, default_ssh: DefaultGitSsh }, resolve_run_selection(cwd: &Path, child_env:

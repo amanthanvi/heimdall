@@ -293,6 +293,7 @@ mod tests {
             availability: Default::default(),
             provider: None,
             integration: Default::default(),
+            managed: None,
         }
     }
 

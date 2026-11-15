@@ -141,7 +141,135 @@ pub(super) fn with_lock_and_connection(
     Ok(origin)
 }
 
+/// ⟨M03; ADR-0008 §17.25 item 19 (Q-T2 (a))⟩ The runtime's D8 wording for a managed
+/// alias under a connection policy: the `ConnectionPolicyReport` the managed adapter's
+/// report would carry for that alias (its identity selection, observed by the runtime,
+/// and `heimdall_adapters::managed::report::connection_wording`). `app` cannot compute
+/// the wording itself (the texts live in `localenv` and `adapters`, which `app` may not
+/// depend on), so the runtime wires it ([`Operations::set_connection_wording`]). `None`:
+/// not computable here, and the caller reports nothing (fail closed).
+pub trait ConnectionWording: Send + Sync {
+    /// The report for `alias` under `policy`. May read the alias's static observation
+    /// (files): never called inside a store transaction, and called on the blocking pool.
+    fn report(
+        &self,
+        alias: &str,
+        policy: &ConnectionPolicy,
+    ) -> Option<heimdall_contract::managed::ConnectionPolicyReport>;
+}
+
+/// ⟨§17.25 item 19⟩ A pair's connection policy as `inspect destinations` reports it: the
+/// strictest (`effective_connection_policy`, D8 item 1's fail-closed merge) over every
+/// current standing policy covering the pair (its profile's, applicable in `env`, its
+/// scope naming the pair), as the runtime's pair-level mux rendering merges them. No
+/// covering policy: `None` (nothing to report).
+pub(super) fn pair_connection_policy(
+    tx: &mut Txn<'_>,
+    env: &EnvironmentId,
+    pair: &heimdall_domain::scope::AccessPair,
+) -> heimdall_store::Result<Option<ConnectionPolicy>> {
+    let mut applicable: Vec<ConnectionPolicy> = Vec::new();
+    for profile in tx.profiles()? {
+        for p in tx.policies_for(&profile.id, env)? {
+            if p.scope.pairs.contains(pair) {
+                applicable.push(p.connection);
+            }
+        }
+    }
+    let Some((first, rest)) = applicable.split_first() else {
+        return Ok(None);
+    };
+    Ok(Some(
+        heimdall_domain::connection::effective_connection_policy(Some(*first), rest, None),
+    ))
+}
+
 impl Operations {
+    /// ⟨M03; ADR-0008 §17.25 item 19⟩ Wire the runtime's D8 wording source
+    /// ([`ConnectionWording`]). Without it `inspect destinations` carries no
+    /// `preference.connection_policy`.
+    pub fn set_connection_wording(&self, wording: Arc<dyn ConnectionWording>) {
+        *self
+            .inner
+            .narrowing
+            .connection_wording
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(wording);
+    }
+
+    /// ⟨§17.25 item 19⟩ Insert `preference.connection_policy` into each `items[index]`
+    /// of `pending` (index, alias, the pair's policy) whose report the wired source
+    /// computes; any other item is left as it is (the key absent).
+    pub(super) async fn add_connection_policies(
+        &self,
+        items: &mut [serde_json::Value],
+        pending: Vec<(usize, String, ConnectionPolicy)>,
+    ) {
+        if pending.is_empty() {
+            return;
+        }
+        let Some(wording) = self
+            .inner
+            .narrowing
+            .connection_wording
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        else {
+            return;
+        };
+        let reports = tokio::task::spawn_blocking(move || {
+            pending
+                .into_iter()
+                .filter_map(|(i, alias, policy)| wording.report(&alias, &policy).map(|r| (i, r)))
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        for (i, report) in reports {
+            if let Some(serde_json::Value::Object(pref)) =
+                items.get_mut(i).and_then(|item| item.get_mut("preference"))
+            {
+                pref.insert("connection_policy".to_owned(), serde_json::json!(report));
+            }
+        }
+    }
+
+    /// ⟨M03; ADR-0008 §17.25 item 21 (Q-T5 (a)), D9 item 1⟩ Add the read-only
+    /// `lock: {behavior, disclosure, acknowledged_at?}` to an `inspect capabilities`
+    /// answer, from [`Operations::lock_disclosure`] with this runtime's signal and the
+    /// claim table's `lock_continuity` verdict (a wired managed adapter's descriptor;
+    /// none: not verified). A store failure leaves the key absent (the reader shows
+    /// "unknown").
+    pub(super) async fn add_capabilities_lock(&self, data: &mut serde_json::Value) {
+        let continuity_verified = self.inner.config.adapters.iter().any(|a| {
+            let d = a.descriptor();
+            d.identity.mechanism == super::MANAGED_CERTIFICATE
+                && d.lock_continuity == crate::ports::LockContinuity::Verified
+        });
+        let disclosure = match self
+            .lock_disclosure(continuity_verified, self.session_lock_signal())
+            .await
+        {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(code = %e.code, "the lock disclosure could not be read");
+                return;
+            }
+        };
+        let mut lock = serde_json::json!({
+            "behavior": disclosure.behavior,
+            "disclosure": disclosure.text,
+        });
+        if let (Some(at), serde_json::Value::Object(map)) = (disclosure.acknowledged_at, &mut lock)
+        {
+            map.insert("acknowledged_at".to_owned(), serde_json::json!(at));
+        }
+        if let serde_json::Value::Object(map) = data {
+            map.insert("lock".to_owned(), lock);
+        }
+    }
+
     /// ⟨M03⟩ U0b row 11: the refusal of an M03 policy action that is checked before
     /// any transaction (module docs), if any. The session-lock source is the one the
     /// lock revocation path holds (`Inner::narrowing.lock_source`, agent G's).

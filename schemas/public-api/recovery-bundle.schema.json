@@ -23,6 +23,13 @@
         "$ref": "#/$defs/BundleEnrollment"
       }
     },
+    "foreign_removals": {
+      "description": "⟨ADR-0008 §17.27 item 1; additive⟩ The foreign removals that are not final, by\ntheir public removal descriptors. Absent when there are none (an older bundle\ndecodes and re-encodes unchanged).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BundleForeignRemoval"
+      }
+    },
     "instructions": {
       "description": "Removal instructions.",
       "type": "array",
@@ -175,6 +182,76 @@
         "ca_fingerprint",
         "ca_public_key",
         "line_sha256"
+      ]
+    },
+    "BundleForeignRemoval": {
+      "description": "⟨ADR-0008 §17.27 item 1 (W5-R01)⟩ One foreign removal that is not final, in a\nrecovery bundle: its **public removal descriptor** only (the fields of\n[`crate::enrollment::ForeignRemovalTarget`], hostname and port omitted when\nredacted) and its state. Never foreign bytes (W4-S02): no remote line, no\njournal content; the line is identified by `line_sha256` alone.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "bundle_destination_id": {
+          "description": "The source bundle's destination ID: a label only.",
+          "type": "string"
+        },
+        "ca_public_key": {
+          "description": "The CA's OpenSSH public key.",
+          "type": "string"
+        },
+        "form": {
+          "description": "Form.",
+          "$ref": "#/$defs/EnrollmentForm"
+        },
+        "hostname": {
+          "description": "Hostname; absent in a redacted bundle.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line_sha256": {
+          "description": "The full line's SHA-256 (hex).",
+          "type": "string"
+        },
+        "local_alias": {
+          "description": "This device's managed alias for the host.",
+          "type": "string"
+        },
+        "marker": {
+          "description": "`heimdall:enr_…` (the writing installation's marker).",
+          "type": "string"
+        },
+        "port": {
+          "description": "Port; absent in a redacted bundle.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "registry": {
+          "description": "The canonical registry.",
+          "$ref": "#/$defs/RegistryCanonical"
+        },
+        "state": {
+          "description": "State (the foreign-removal subset; `abandoned` keeps\n`pending_until_line_removed`).",
+          "$ref": "#/$defs/EnrollmentState"
+        }
+      },
+      "required": [
+        "marker",
+        "local_alias",
+        "bundle_destination_id",
+        "account",
+        "ca_public_key",
+        "line_sha256",
+        "registry",
+        "form",
+        "state"
       ]
     },
     "BundleLateWrite": {

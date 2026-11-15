@@ -28,6 +28,13 @@
 //!   service token, which runs the same graceful drain as a signal. Repeated
 //!   requests are idempotent. This dispatcher serves the control endpoint only:
 //!   the signing endpoint speaks the agent protocol and has no such request.
+//! * ⟨M03; ADR-0008 §17.27 item 2⟩ **The uninstall fence**
+//!   (`Request::UninstallFence`, `service-control/1`, owner role only, any session):
+//!   held by **this connection**. Each clone of the dispatcher is one connection's
+//!   scope (the control listener clones it once per accepted connection and drops
+//!   that clone when the connection ends, whatever the reason), so the fence is
+//!   released by `release` on the holding connection, when that connection ends
+//!   (the scope's `Drop`), or with the runtime.
 //! * **Subscriptions.** The application's [`heimdall_app::events::SubscriptionStart`]
 //!   carries a live receiver of `SequencedEvent`s; the session wants
 //!   [`LiveEvent`]s. One runtime-wide [`EventRelay`] converts the application's
@@ -153,8 +160,24 @@ fn value_envelope<T: serde::Serialize>(env: Envelope<T>) -> Envelope<serde_json:
 }
 
 fn error_value(e: OpError) -> Envelope<serde_json::Value> {
-    e.into_envelope()
-        .map(|d: ErrorData| serde_json::to_value(d).unwrap_or_default())
+    let stuck = e.reason.as_deref()
+        == Some(heimdall_contract::envelope::reason::UNINSTALL_FENCE_RELEASE_STUCK);
+    let mut env = e
+        .into_envelope()
+        .map(|d: ErrorData| serde_json::to_value(d).unwrap_or_default());
+    // ⟨ADR-0008 §17.33 item 9⟩ A fence stuck releasing names the way out in the error
+    // data too: the command, and the two-step restart.
+    if stuck && let serde_json::Value::Object(map) = &mut env.data {
+        map.insert(
+            "next_command".to_owned(),
+            heimdall_app::operations::UNINSTALL_FENCE_RELEASE_STUCK_NEXT_COMMAND.into(),
+        );
+        map.insert(
+            "next_step".to_owned(),
+            heimdall_app::operations::UNINSTALL_FENCE_RELEASE_STUCK_NEXT_STEP.into(),
+        );
+    }
+    env
 }
 
 /// Render an application result as the wire envelope.
@@ -164,6 +187,15 @@ pub fn render<T: serde::Serialize>(result: OpResult<T>) -> Envelope<serde_json::
         Ok(done) => value_envelope(done.into_envelope()),
         Err(e) => error_value(e),
     }
+}
+
+/// ⟨ADR-0008 §17.27 item 2, §17.28 item 1⟩ Whether `request` can start or advance
+/// remote or CA work, so that the uninstall fence refuses it from any connection but
+/// the holder: the application's one classification
+/// ([`heimdall_app::operations::uninstall_fenced`], whose docs list it; the
+/// request-to-verdict table is in `.m03-wave5-r3-api.md` § U3).
+fn fenced(request: &Request) -> bool {
+    heimdall_app::operations::uninstall_fenced(request)
 }
 
 /// [`Dispatcher`] over the shared application operations.
@@ -182,6 +214,42 @@ pub struct OperationsDispatcher {
     /// ([`Self::with_binding_endpoints`]). `None`: no managed wiring, so no endpoint is
     /// named.
     binding_endpoints: Option<Arc<dyn crate::connections::BindingEndpoints>>,
+    /// ⟨ADR-0008 §17.27 item 2⟩ This dispatcher's connection identity, for the
+    /// uninstall fence ([`ConnectionScope`]).
+    scope: ConnectionScope,
+}
+
+/// ⟨ADR-0008 §17.27 item 2⟩ One connection's identity for the uninstall fence. A
+/// clone is a **new** identity (one per accepted connection, module docs); dropping
+/// a scope releases the fence if that scope holds it, so a connection that ends for
+/// any reason (the CLI finished, was refused, or died) never leaves it held.
+struct ConnectionScope {
+    id: u64,
+    operations: Operations,
+}
+
+/// The next connection identity (never reused within a runtime).
+static NEXT_CONNECTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+impl ConnectionScope {
+    fn new(operations: Operations) -> Self {
+        Self {
+            id: NEXT_CONNECTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            operations,
+        }
+    }
+}
+
+impl Clone for ConnectionScope {
+    fn clone(&self) -> Self {
+        Self::new(self.operations.clone())
+    }
+}
+
+impl Drop for ConnectionScope {
+    fn drop(&mut self) {
+        let _ = self.operations.uninstall_fence_release(self.id);
+    }
 }
 
 impl std::fmt::Debug for OperationsDispatcher {
@@ -196,6 +264,7 @@ impl OperationsDispatcher {
     #[must_use]
     pub fn new(operations: Operations, relay: EventRelay, clock: Arc<dyn Clock>) -> Self {
         Self {
+            scope: ConnectionScope::new(operations.clone()),
             operations,
             relay,
             clock,
@@ -287,6 +356,35 @@ impl OperationsDispatcher {
         if let Request::Shutdown(_) = request {
             return self.shutdown(&caller);
         }
+        if let Request::UninstallFence(r) = request {
+            return self.uninstall_fence(&caller, r).await;
+        }
+        // ⟨ADR-0008 §17.27 item 2, §17.28 item 1, §17.31 item 2⟩ The uninstall fence
+        // ([`fenced`]): the holder's requests run in its scope and are never refused; a
+        // fenced request from any other connection holds the admission from its check
+        // until it has been handled, and is refused while another connection holds the
+        // fence or is acquiring it. The application routes check again themselves.
+        // ⟨§17.33 item 1⟩ The holder's request runs under its lease (this connection, the
+        // fence's current generation), which it carries into the work it spawns and
+        // re-checks at each step; a releasing or released fence grants none.
+        if let Some(lease) = self.operations.uninstall_fence_lease(self.scope.id) {
+            return heimdall_app::operations::with_fence_lease(lease, self.route(caller, request))
+                .await;
+        }
+        if fenced(&request) {
+            // ⟨§17.31 item 2⟩ The application's one admission (refused while the fence
+            // is held or being acquired), held until the request has been handled.
+            let _admission = match self.operations.uninstall_fence_admit() {
+                Ok(a) => a,
+                Err(e) => return error_value(e.with_effect(EffectStatus::None)),
+            };
+            return self.route(caller, request).await;
+        }
+        self.route(caller, request).await
+    }
+
+    /// Route one request that passed the session checks and the uninstall fence.
+    async fn route(&self, caller: Caller, request: Request) -> Envelope<serde_json::Value> {
         let ops = &self.operations;
         match request {
             Request::Inspect(r) => render(ops.inspect(&caller, r).await),
@@ -376,6 +474,69 @@ impl OperationsDispatcher {
         value_envelope(Envelope::ok(serde_json::json!({
             "stopping": true,
             "already_stopping": already,
+        })))
+    }
+
+    /// ⟨ADR-0008 §17.27 item 2⟩ `UninstallFence` (module docs): owner role only;
+    /// `acquire` holds the fence for this connection (refused
+    /// `uninstall_in_progress` while another holds it), `release` lifts it when this
+    /// connection holds it. Answers `OK {"fence": "held" | "released"}`.
+    async fn uninstall_fence(
+        &self,
+        caller: &Caller,
+        request: heimdall_contract::request::UninstallFenceRequest,
+    ) -> Envelope<serde_json::Value> {
+        use heimdall_contract::request::UninstallFenceRequest;
+        if !caller.context.is_owner() {
+            return error_value(
+                OpError::new(
+                    Code::CapabilityUnavailable,
+                    "service control needs the owner principal on the control endpoint",
+                )
+                .with_effect(EffectStatus::None),
+            );
+        }
+        let held = match request {
+            UninstallFenceRequest::Acquire => {
+                match self.operations.uninstall_fence_acquire(self.scope.id).await {
+                    Ok(_) => true,
+                    Err(e) => return error_value(e.with_effect(EffectStatus::None)),
+                }
+            }
+            // ⟨§17.33 item 1⟩ Waits (bounded) for the holder's in-flight work.
+            UninstallFenceRequest::Release => {
+                match self
+                    .operations
+                    .uninstall_fence_release_waiting(self.scope.id)
+                    .await
+                {
+                    Ok(held) => held,
+                    Err(e) => return error_value(e),
+                }
+            }
+            // ⟨ADR-0008 §17.32 item 7⟩ Holder only: the application takes this
+            // connection's lease and runs each round under it (§17.33 item 1).
+            UninstallFenceRequest::RetryRemoteRevocations => {
+                let retried = self
+                    .operations
+                    .uninstall_fence_retry_remote_revocations(self.scope.id)
+                    .await;
+                return match retried {
+                    Ok(r) => value_envelope(Envelope::ok(serde_json::json!({
+                        "remote_revocations": r,
+                    }))),
+                    Err(e) => error_value(e),
+                };
+            }
+            _ => {
+                return error_value(OpError::new(
+                    Code::UsageError,
+                    "this uninstall fence action is not supported by this runtime",
+                ));
+            }
+        };
+        value_envelope(Envelope::ok(serde_json::json!({
+            "fence": if held { "held" } else { "released" },
         })))
     }
 
@@ -553,5 +714,300 @@ fn filler_event(environment: &EnvironmentId) -> LiveEvent {
             cursor: Cursor(String::new()),
             payload: serde_json::Value::Null,
         },
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use heimdall_app::operations::{Limits, OperationsConfig};
+    use heimdall_contract::Timestamp;
+    use heimdall_contract::request::UninstallFenceRequest;
+    use heimdall_domain::time::{SyncStatus, TimePolicy};
+    use heimdall_store::Store;
+    use heimdall_testkit::{ScriptedTimeSync, VirtualClock};
+
+    use super::*;
+
+    fn t0() -> Timestamp {
+        "2026-11-13T09:00:00Z".parse().unwrap()
+    }
+
+    async fn dispatcher() -> OperationsDispatcher {
+        let env = EnvironmentId::from_random_bytes([5; 16]);
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        store
+            .transaction(|tx| tx.init_self_environment(&env))
+            .unwrap();
+        let clock = VirtualClock::at(t0());
+        let ops = Operations::start(OperationsConfig {
+            store,
+            clock: clock.clone(),
+            time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+            time_policy: TimePolicy::default(),
+            environment: env,
+            adapters: Vec::new(),
+            stage_hook: Arc::new(heimdall_app::ensure::NoStageHook),
+            limits: Limits::default(),
+            default_window: std::time::Duration::from_secs(3600),
+            projection: None,
+        })
+        .await
+        .unwrap();
+        let relay = EventRelay::spawn(&ops, CancellationToken::new());
+        OperationsDispatcher::new(ops, relay, clock)
+    }
+
+    fn owner() -> Caller {
+        Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+        })
+    }
+
+    fn fence(action: UninstallFenceRequest) -> Request {
+        Request::UninstallFence(action)
+    }
+
+    fn apply() -> Request {
+        let path =
+            heimdall_testkit::repo::repo_path("schemas/examples/request.enrollment.apply.json");
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn fenced_envelope(env: &Envelope<serde_json::Value>) -> bool {
+        env.code == Code::ServiceUnavailable
+            && env.data["error"]["reason"]
+                == heimdall_contract::envelope::reason::UNINSTALL_IN_PROGRESS
+    }
+
+    /// `uninstall_fence_retry_is_holder_only` (ADR-0008 §17.32 item 7): through the
+    /// dispatcher, `retry_remote_revocations` is refused `SERVICE_UNAVAILABLE` on a
+    /// connection that does not hold the fence (`uninstall_in_progress` while another
+    /// holds it; no reason when none does) and answers the holder with its records.
+    #[tokio::test]
+    async fn uninstall_fence_retry_is_holder_only() {
+        let listener = dispatcher().await;
+        let a = listener.clone();
+        let b = listener.clone();
+        let retry = || fence(UninstallFenceRequest::RetryRemoteRevocations);
+        let none = a.handle_as(&owner(), retry()).await;
+        assert_eq!(none.code, Code::ServiceUnavailable, "{none:?}");
+        assert!(none.data["error"]["reason"].is_null(), "{none:?}");
+        assert_eq!(
+            a.handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+                .await
+                .code,
+            Code::Ok
+        );
+        assert!(fenced_envelope(&b.handle_as(&owner(), retry()).await));
+        let held = a.handle_as(&owner(), retry()).await;
+        assert_eq!(held.code, Code::Ok, "{held:?}");
+        assert_eq!(held.data["remote_revocations"], serde_json::json!([]));
+    }
+
+    /// `uninstall_fence_is_held_by_its_connection` (ADR-0008 §17.27 item 2): each
+    /// dispatcher clone is one connection. The holder's `acquire` answers `held`; another
+    /// connection's `acquire` and new enrollment work are refused
+    /// `uninstall_in_progress`; that connection's `release` does not lift it. The
+    /// holder's `release` lifts it, and so does the holder's connection ending (its
+    /// dispatcher dropped), whatever happened before.
+    #[tokio::test]
+    async fn uninstall_fence_is_held_by_its_connection() {
+        let listener = dispatcher().await;
+        let a = listener.clone();
+        let b = listener.clone();
+        let held = a
+            .handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+            .await;
+        assert_eq!(held.code, Code::Ok, "{held:?}");
+        assert_eq!(held.data["fence"], "held");
+        assert!(fenced_envelope(
+            &b.handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+                .await
+        ));
+        assert!(fenced_envelope(&b.handle_as(&owner(), apply()).await));
+        let other = b
+            .handle_as(&owner(), fence(UninstallFenceRequest::Release))
+            .await;
+        assert_eq!(
+            other.data["fence"], "held",
+            "another connection cannot lift it"
+        );
+        assert!(fenced_envelope(&b.handle_as(&owner(), apply()).await));
+        let lifted = a
+            .handle_as(&owner(), fence(UninstallFenceRequest::Release))
+            .await;
+        assert_eq!(lifted.data["fence"], "released");
+        assert!(!fenced_envelope(&b.handle_as(&owner(), apply()).await));
+        // Held again, then the holder's connection ends: lifted.
+        let c = listener.clone();
+        assert_eq!(
+            c.handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+                .await
+                .code,
+            Code::Ok
+        );
+        assert!(fenced_envelope(&b.handle_as(&owner(), apply()).await));
+        drop(c);
+        assert!(!fenced_envelope(&b.handle_as(&owner(), apply()).await));
+        let taken = b
+            .handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+            .await;
+        assert_eq!(taken.data["fence"], "held", "{taken:?}");
+    }
+
+    fn attended() -> Caller {
+        Caller {
+            context: CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 501 },
+                role: ClientRole::Owner,
+            },
+            attendance: Attendance::Attended { since: t0() },
+            interaction: heimdall_contract::request::InteractionMode::Interactive,
+        }
+    }
+
+    fn example(name: &str) -> Request {
+        let path =
+            heimdall_testkit::repo::repo_path(format!("schemas/examples/request.{name}.json"));
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn deny() -> Request {
+        let mut v: serde_json::Value = serde_json::to_value(example("decide")).unwrap();
+        v["verdict"] = "deny".into();
+        serde_json::from_value(v).unwrap()
+    }
+
+    /// `uninstall_fence_refuses_remote_and_ca_work_from_other_connections` (ADR-0008
+    /// §17.28 item 1): while one connection holds the fence, every other connection's
+    /// request that can start or advance remote or CA work is refused
+    /// `SERVICE_UNAVAILABLE` / `uninstall_in_progress` (`step`, `abandon`, `reconcile`,
+    /// `apply`, `verify`, `remove` own and foreign; issuer `register` incl. rotation and
+    /// restore, `unlock`, `retire` incl. its deletion confirmation; an approval), and
+    /// the rest is not (a denial, `step_result`, the previews and reads,
+    /// `bundle_written`). The holder's own requests, its retirement and approval
+    /// included, are never refused for the fence. After the fence is lifted nothing is.
+    #[tokio::test]
+    async fn uninstall_fence_refuses_remote_and_ca_work_from_other_connections() {
+        let listener = dispatcher().await;
+        let holder = listener.clone();
+        let other = listener.clone();
+        let table: Vec<(Request, bool)> = vec![
+            (example("enrollment.step"), true),
+            (example("enrollment.abandon"), true),
+            (example("enrollment.reconcile"), true),
+            (example("enrollment.apply"), true),
+            (example("enrollment.verify"), true),
+            (example("enrollment.remove"), true),
+            (example("enrollment.remove-foreign"), true),
+            (example("issuer.retire"), true),
+            (example("issuer.retire-confirm"), true),
+            (example("issuer.register"), true),
+            (example("issuer.register-rotation"), true),
+            (example("issuer.register-restore"), true),
+            (example("issuer.unlock"), true),
+            (example("decide"), true),
+            (deny(), false),
+            (example("enrollment.step-result"), false),
+            (example("enrollment.preview"), false),
+            (example("issuer.status"), false),
+            (example("issuer.bundle"), false),
+            (example("issuer.bundle-written"), false),
+            (example("ensure"), false),
+        ];
+        let acquired = holder
+            .handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+            .await;
+        assert_eq!(acquired.data["fence"], "held", "{acquired:?}");
+        for (request, refused) in &table {
+            let kind = request.kind();
+            assert_eq!(fenced(request), *refused, "{kind}: the table");
+            let env = other.handle_as(&attended(), request.clone()).await;
+            assert_eq!(
+                fenced_envelope(&env),
+                *refused,
+                "{kind} from another connection: {env:?}"
+            );
+            let env = holder.handle_as(&attended(), request.clone()).await;
+            assert!(!fenced_envelope(&env), "{kind} from the holder: {env:?}");
+        }
+        let lifted = holder
+            .handle_as(&owner(), fence(UninstallFenceRequest::Release))
+            .await;
+        assert_eq!(lifted.data["fence"], "released");
+        for (request, _) in &table {
+            let env = other.handle_as(&attended(), request.clone()).await;
+            assert!(
+                !fenced_envelope(&env),
+                "{} after the release: {env:?}",
+                request.kind()
+            );
+        }
+    }
+
+    /// `fence_release_stuck_refusal_names_the_restart` (ADR-0008 §17.33 item 9): while the
+    /// holder's work never ends, its `release` waits out its bound and reports
+    /// `uninstall_fence_release_stuck`; another connection's fenced request then gets that
+    /// reason too, with `data.next_command` `heimdall service stop` and `data.next_step`
+    /// naming the restart. Before the release, the same request gets
+    /// `uninstall_in_progress` with no next command.
+    #[tokio::test(start_paused = true)]
+    async fn fence_release_stuck_refusal_names_the_restart() {
+        let listener = dispatcher().await;
+        let holder = listener.clone();
+        let other = listener.clone();
+        let acquired = holder
+            .handle_as(&owner(), fence(UninstallFenceRequest::Acquire))
+            .await;
+        assert_eq!(acquired.data["fence"], "held", "{acquired:?}");
+        let env = other
+            .handle_as(&attended(), example("enrollment.step"))
+            .await;
+        assert_eq!(
+            env.data["error"]["reason"], "uninstall_in_progress",
+            "{env:?}"
+        );
+        assert!(env.data.get("next_command").is_none());
+        let never_ends = holder
+            .operations
+            .uninstall_fence_lease(holder.scope.id)
+            .unwrap();
+        let released = holder
+            .handle_as(&owner(), fence(UninstallFenceRequest::Release))
+            .await;
+        assert_eq!(released.code, Code::ServiceUnavailable, "{released:?}");
+        assert_eq!(
+            released.data["error"]["reason"],
+            "uninstall_fence_release_stuck"
+        );
+        let env = other
+            .handle_as(&attended(), example("enrollment.step"))
+            .await;
+        assert_eq!(env.code, Code::ServiceUnavailable, "{env:?}");
+        assert_eq!(env.data["error"]["reason"], "uninstall_fence_release_stuck");
+        assert_eq!(env.data["next_command"], "heimdall service stop");
+        assert_eq!(
+            env.data["next_step"],
+            "stop the runtime (`heimdall service stop`), then start it again (`heimdall service run --detach`)"
+        );
+        drop(never_ends);
+        assert!(!holder.operations.uninstall_fence_held());
+    }
+
+    /// Only the owner may take or lift the fence.
+    #[tokio::test]
+    async fn uninstall_fence_needs_the_owner() {
+        let d = dispatcher().await;
+        let consumer = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::LimitedConsumer,
+        });
+        let refused = d
+            .handle_as(&consumer, fence(UninstallFenceRequest::Acquire))
+            .await;
+        assert_eq!(refused.code, Code::CapabilityUnavailable, "{refused:?}");
+        assert!(!d.operations.uninstall_fence_held());
     }
 }

@@ -75,6 +75,8 @@
 //! **`status`** is the child's last observed state (no I/O) with the store's CA
 //! records filled in; **`bundle`** is `crate::issuer::bundle::export` over the store.
 
+use std::sync::Arc;
+
 use heimdall_contract::envelope::reason;
 use heimdall_contract::ids::{CaFingerprint, EnrollmentId, OperationId};
 use heimdall_contract::issuer::{
@@ -93,7 +95,7 @@ use heimdall_store::{IssuerRecord, StoreError, Txn};
 use super::{Emit, Operations, approval_needed, internal, plus};
 use crate::context::Caller;
 use crate::error::{Completed, OpError, OpResult};
-use crate::issuer::bundle::{EnrollmentEntry, Redaction, StoreView, export};
+use crate::issuer::bundle::{EnrollmentEntry, Redaction, StoreView, export_with_foreign};
 use crate::issuer::{
     IssuerLifecycle, ca_public_key_fingerprint, enrollment_counts, is_sha256_hex,
     register_disclosures, retire_admissible, unlock_guidance,
@@ -142,6 +144,11 @@ fn issuer_failure(e: &IssuerError) -> OpError {
                     Code::CapabilityUnavailable,
                     reason::ISSUER_STORE_UNAVAILABLE,
                 ),
+                // ⟨ADR-0008 §17.28 item 6⟩ An access-list denial: its own reason, never the lock.
+                reason::ISSUER_STORE_ACCESS_DENIED => (
+                    Code::CapabilityUnavailable,
+                    reason::ISSUER_STORE_ACCESS_DENIED,
+                ),
                 reason::ISSUER_NOT_INITIALIZED => {
                     (Code::CapabilityUnavailable, reason::ISSUER_NOT_INITIALIZED)
                 }
@@ -177,12 +184,13 @@ pub(crate) struct CaStoreItems {
 /// child says. Orphan store items: ⟨§17.22 item 12⟩ every item a restore displaced
 /// (with its locator) until its deletion is confirmed; items no registration names
 /// at all are the CLI's to find (the runtime holds no store handle).
-/// ⟨reading⟩ No record of a written bundle exists (the CLI writes the file), so the
-/// last bundle is reported stale whenever an enrollment exists.
+/// ⟨wave 5, U10B-Q3 (b)⟩ `bundle_stale`: [`bundle_stale`] over the recorded
+/// `last_bundle_at` (absent: stale whenever an enrollment exists, the wave-4 reading).
 pub(crate) fn status_view(
     snapshot: Option<&IssuerStatusSnapshot>,
     cas: &[(IssuerRecord, CaStoreItems)],
     enrollments: &[EnrollmentRecord],
+    last_bundle_at: Option<Timestamp>,
 ) -> IssuerStatus {
     let (state, reason_text) = if cas.is_empty() {
         (
@@ -225,8 +233,60 @@ pub(crate) fn status_view(
             })
             .collect(),
         issuer_isolation: IssuerIsolation::SameUserProcess,
-        bundle_stale: !enrollments.is_empty(),
+        bundle_stale: bundle_stale(cas, enrollments, last_bundle_at),
     }
+}
+
+/// ⟨wave 5, Q-IS2⟩ Whether a recovery bundle built at `last_bundle_at` predates an
+/// enrollment or CA change: no enrollment, never stale; no recorded bundle, stale;
+/// otherwise stale when any enrollment was updated, or any CA created or retired, at or
+/// after it (an equal instant counts as after: the fail-closed side).
+pub(crate) fn bundle_stale(
+    cas: &[(IssuerRecord, CaStoreItems)],
+    enrollments: &[EnrollmentRecord],
+    last_bundle_at: Option<Timestamp>,
+) -> bool {
+    if enrollments.is_empty() {
+        return false;
+    }
+    let Some(at) = last_bundle_at else {
+        return true;
+    };
+    enrollments.iter().any(|e| e.updated_at >= at)
+        || cas
+            .iter()
+            .any(|(c, _)| c.created_at >= at || c.retired_at.is_some_and(|r| r >= at))
+}
+
+/// ⟨ADR-0008 §17.25 item 8⟩ `issuer.bundle_written`'s record, in the caller's
+/// transaction: the CLI wrote and fsynced an unredacted bundle built at `created_at` whose
+/// exact bytes hash to `sha256`. Records the digest with its `created_at`
+/// (`Txn::record_bundle_digest`) and raises `last_bundle_at` to `created_at`; neither ever
+/// lowers. The path is never recorded. Refused, recording nothing: a digest that is not 64
+/// lowercase hex characters, or a `created_at` later than `now` (the runtime built the
+/// bundle with its own clock, so a later one is not a bundle it built).
+///
+/// Returns the recorded `last_bundle_at`.
+pub(crate) fn record_bundle_written(
+    tx: &mut Txn<'_>,
+    created_at: Timestamp,
+    sha256: &str,
+    now: Timestamp,
+) -> heimdall_store::Result<Result<Timestamp, OpError>> {
+    if !is_sha256_hex(sha256) {
+        return Ok(Err(OpError::new(
+            Code::UsageError,
+            "sha256 must be the lowercase hex SHA-256 of the written bundle's exact bytes",
+        )));
+    }
+    if created_at > now {
+        return Ok(Err(OpError::new(
+            Code::UsageError,
+            "created_at is later than this runtime's clock: it is not a bundle this runtime built",
+        )));
+    }
+    tx.record_bundle_digest(sha256, created_at)?;
+    Ok(Ok(tx.set_last_bundle_at(created_at)?))
 }
 
 /// Every registered CA with its recorded store items.
@@ -478,6 +538,9 @@ impl Operations {
         caller: &Caller,
         req: IssuerRequest,
     ) -> OpResult<serde_json::Value> {
+        // ⟨ADR-0008 §17.31 item 2 (W5-C02)⟩ the uninstall fence's admission for every
+        // route into issuer work, not only the dispatcher (held for the request).
+        let _admission = self.issuer_fence_admission(&req)?;
         if !caller.context.is_owner() {
             return Err(owner_only());
         }
@@ -532,6 +595,11 @@ impl Operations {
                 self.issuer_confirm_store_deletion(caller, issuer.as_ref(), ca_fingerprint, locator)
                     .await
             }
+            // ⟨ADR-0008 §17.25 item 8⟩ The CLI wrote and fsynced an unredacted bundle.
+            IssuerRequest::BundleWritten { created_at, sha256 } => {
+                self.issuer_bundle_written(issuer.as_ref(), created_at, sha256)
+                    .await
+            }
             _ => Err(OpError::new(
                 Code::UsageError,
                 "this issuer action is not supported by this runtime",
@@ -541,17 +609,39 @@ impl Operations {
 
     async fn issuer_status(&self, issuer: &dyn IssuerPort) -> OpResult<serde_json::Value> {
         let snapshot = issuer.status();
-        let (cas, enrollments) = self.write(|tx, _| read_cas_and_enrollments(tx)).await?;
-        let view = status_view(Some(&snapshot), &cas, &enrollments);
+        let (cas, enrollments, last_bundle_at) = self
+            .write(|tx, _| {
+                let (cas, enrollments) = read_cas_and_enrollments(tx)?;
+                Ok((cas, enrollments, tx.last_bundle_at()?))
+            })
+            .await?;
+        let view = status_view(Some(&snapshot), &cas, &enrollments, last_bundle_at);
         let data = serde_json::to_value(view).map_err(|_| internal("issuer status"))?;
         Ok(Completed::ok(Code::Ok, data))
     }
 
+    /// `issuer.bundle_written` ([`record_bundle_written`]), answered with the status
+    /// after it (its `bundle_stale` now measured from this bundle).
+    async fn issuer_bundle_written(
+        &self,
+        issuer: &dyn IssuerPort,
+        created_at: Timestamp,
+        sha256: String,
+    ) -> OpResult<serde_json::Value> {
+        let now = self.inner.config.clock.wall();
+        self.write(move |tx, _| record_bundle_written(tx, created_at, &sha256, now))
+            .await??;
+        self.issuer_status(issuer).await
+    }
+
     async fn issuer_bundle(&self, redact_hostnames: bool) -> OpResult<serde_json::Value> {
         let created_at = self.inner.config.clock.wall();
-        let (cas, enrollments, aliases) = self
-            .write(|tx, _| {
+        let (cas, enrollments, aliases, foreign) = self
+            .write(move |tx, _| {
                 let (cas, enrollments) = read_cas_and_enrollments(tx)?;
+                // ⟨ADR-0008 §17.27 item 1 (W5-R01)⟩ the foreign removals not yet final,
+                // read in the same transaction (only their descriptors are exported).
+                let foreign = tx.outstanding_obligations()?.foreign_removals;
                 let cas: Vec<IssuerRecord> = cas.into_iter().map(|(c, _)| c).collect();
                 let mut aliases = Vec::with_capacity(enrollments.len());
                 for e in &enrollments {
@@ -561,7 +651,7 @@ impl Operations {
                             .map_or_else(|| e.destination.as_str().to_owned(), |d| d.alias),
                     );
                 }
-                Ok((cas, enrollments, aliases))
+                Ok((cas, enrollments, aliases, foreign))
             })
             .await?;
         let entries: Vec<EnrollmentEntry<'_>> = enrollments
@@ -574,12 +664,13 @@ impl Operations {
         } else {
             Redaction::None
         };
-        let bundle = export(
+        let bundle = export_with_foreign(
             &StoreView {
                 created_at,
                 cas: &cas,
                 enrollments: &entries,
             },
+            &foreign,
             redact,
         )
         .map_err(|_| internal("the recovery bundle names an unregistered CA"))?;
@@ -917,10 +1008,21 @@ impl Operations {
     /// keep signing whatever the issuer's state: nothing here degrades a grant (the
     /// re-issue pass does that, for a lost K_env, `credential_reissue_pending`).
     ///
+    /// ⟨ADR-0008 §17.28 item 1, §17.32; round 10 A6⟩ Starting the child loads K_ca and
+    /// resuming a retirement advances CA records, so the pass takes the fence's admission
+    /// (as `reverify_pass` does) and holds it for its whole run: while a fence is held or
+    /// being acquired by another connection it does nothing, and the next round after the
+    /// lift runs it. The fence holder's own inline retire does not need this pass: its
+    /// `RetireIssuer` approval resumes the retirement inline, in the holder's scope
+    /// (`issuer_after_decision`), and an unload with no child running is already done.
+    ///
     /// # Errors
     /// [`OpError`] (the store).
     pub async fn issuer_supervision_pass(&self) -> Result<(), OpError> {
         let Some(wiring) = self.managed_wiring() else {
+            return Ok(());
+        };
+        let Ok(_admission) = self.uninstall_fence_admit() else {
             return Ok(());
         };
         let Some(issuer) = wiring.issuer.clone() else {
@@ -952,6 +1054,45 @@ impl Operations {
             }
         }
         Ok(())
+    }
+
+    /// ⟨ADR-0008 §17.28 item 1, §17.32; round 10 L1⟩ The issuer client's load gate
+    /// (`heimdall_issuer::client::LoadGate`): before a child is spawned or a `load` sent
+    /// (K_ca read into the child), the client takes this fence admission and holds it
+    /// across the load; `None` while a fence is held or being acquired by another
+    /// connection (the holder's scope is admitted). `Some(permit)` is held across the
+    /// load. It holds the operations weakly, so the
+    /// client (which the wiring holds) never keeps them alive.
+    #[must_use]
+    pub fn issuer_load_gate(&self) -> Arc<dyn Fn() -> Option<Box<dyn Send>> + Send + Sync> {
+        let weak = Arc::downgrade(&self.inner);
+        Arc::new(move || {
+            let ops = Operations {
+                inner: weak.upgrade()?,
+            };
+            ops.uninstall_fence_admit()
+                .ok()
+                .map(|a| Box::new(a) as Box<dyn Send>)
+        })
+    }
+
+    /// ⟨ADR-0008 §17.33 item 2 (W5-E02)⟩ The issuer client's request hold
+    /// (`heimdall_issuer::client::ClientConfig::request_hold`): an extra counted admission
+    /// extending the one the calling task holds (the managed pipeline's), taken by a `sign`
+    /// and held until its reply is consumed or its child's exit is confirmed, so a fence
+    /// acquisition waits for a delivered signature even after its waiter was cancelled.
+    /// `None` when the task holds no admission (the holder's own work, or none). Weak, as
+    /// [`Self::issuer_load_gate`].
+    #[must_use]
+    pub fn issuer_request_hold(&self) -> Arc<dyn Fn() -> Option<Box<dyn Send>> + Send + Sync> {
+        let weak = Arc::downgrade(&self.inner);
+        Arc::new(move || {
+            let inner = weak.upgrade()?;
+            inner
+                .uninstall_fence
+                .write_extension()
+                .map(|a| Box::new(a) as Box<dyn Send>)
+        })
     }
 
     /// After an issuer decision committed (see `decisions_m03`): a registration's
@@ -1208,5 +1349,224 @@ pub(super) fn decision_apply(
             }
         }
         _ => Ok(Ok(Vec::new())),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod last_bundle_tests {
+    //! ⟨wave 5, U10B-Q3 (b), Q-IS2⟩ The `last_bundle_at` refinement of `bundle_stale`.
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use heimdall_store::{NoFaults, Store};
+
+    use super::*;
+
+    fn at(s: u64) -> Timestamp {
+        "2026-11-01T00:00:00Z"
+            .parse::<Timestamp>()
+            .unwrap()
+            .checked_add(Duration::from_secs(s))
+            .unwrap()
+    }
+
+    fn ca(created: u64, retired: Option<u64>) -> (IssuerRecord, CaStoreItems) {
+        (
+            IssuerRecord {
+                ca_fingerprint: CaFingerprint::parse(&format!("SHA256:{}", "A".repeat(43)))
+                    .unwrap(),
+                public_key: "ssh-ed25519 AAAA".into(),
+                state: CaState::Active,
+                store_kind: StoreKind::LinuxSecretService,
+                backup_sha256: "ab".repeat(32),
+                backup_created_at: at(created),
+                restored_without_log: false,
+                created_at: at(created),
+                retired_at: retired.map(at),
+            },
+            CaStoreItems::default(),
+        )
+    }
+
+    fn enrollment_updated_at(t: Timestamp) -> EnrollmentRecord {
+        use heimdall_contract::ids::{AccountName, DestinationId, IdentityId};
+        use heimdall_domain::enrollment::{
+            ApprovedHostKey, ApprovedTarget, EnrollmentForm, EnrollmentState, ExistingAccessRecord,
+            NoProxy, RegistryCanonical, RegistryRef, RegistryResolvedBy, marker_for,
+        };
+        let id = EnrollmentId::from_random_bytes([1; 16]);
+        let account = AccountName::parse("deploy").unwrap();
+        EnrollmentRecord {
+            marker: marker_for(&id),
+            id,
+            destination: DestinationId::parse("dst-lab").unwrap(),
+            account: account.clone(),
+            ca_fingerprint: ca(0, None).0.ca_fingerprint,
+            form: EnrollmentForm::Account,
+            registry: RegistryRef {
+                path_display: "~/.ssh/authorized_keys".into(),
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            registry_canonical: RegistryCanonical {
+                path: None,
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            line_sha256: "ab".repeat(32),
+            target: ApprovedTarget {
+                hostname: "example.invalid".into(),
+                port: 22,
+                user: account,
+                proxy: NoProxy::None,
+                host_key: ApprovedHostKey {
+                    algorithm: "ssh-ed25519".into(),
+                    key: "AAAAC3NzaC1lZDI1NTE5AAAAIhostfixture".into(),
+                    fingerprint: "SHA256:hostfixture".into(),
+                },
+            },
+            existing_access: ExistingAccessRecord {
+                identity: IdentityId::from_random_bytes([1; 16]),
+                endpoint: None,
+                public_key_file: None,
+            },
+            hold: None,
+            removal_origin: None,
+            late_write: None,
+            state: EnrollmentState::Verified,
+            verified_at: None,
+            evidence: None,
+            created_at: t,
+            updated_at: t,
+        }
+    }
+
+    /// No enrollment: never stale. No recorded bundle: stale. A bundle after every
+    /// change: fresh; an enrollment or CA change at or after it: stale.
+    #[test]
+    fn bundle_stale_follows_the_last_recorded_bundle() {
+        let enrollment = enrollment_updated_at(at(10));
+        let cas = [ca(0, None)];
+        assert!(!bundle_stale(&cas, &[], None));
+        assert!(bundle_stale(&cas, std::slice::from_ref(&enrollment), None));
+        assert!(!bundle_stale(
+            &cas,
+            std::slice::from_ref(&enrollment),
+            Some(at(11))
+        ));
+        assert!(bundle_stale(
+            &cas,
+            std::slice::from_ref(&enrollment),
+            Some(at(10))
+        ));
+        assert!(bundle_stale(
+            &cas,
+            std::slice::from_ref(&enrollment),
+            Some(at(9))
+        ));
+        let retired = [ca(0, Some(20))];
+        assert!(bundle_stale(
+            &retired,
+            std::slice::from_ref(&enrollment),
+            Some(at(15))
+        ));
+        assert!(!bundle_stale(
+            &retired,
+            std::slice::from_ref(&enrollment),
+            Some(at(21))
+        ));
+    }
+
+    /// The meta key never lowers; it is absent until recorded.
+    #[test]
+    fn last_bundle_at_is_recorded_once_and_never_lowers() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        store
+            .transaction(|tx| {
+                assert_eq!(tx.last_bundle_at()?, None);
+                assert_eq!(tx.set_last_bundle_at(at(5))?, at(5));
+                assert_eq!(tx.set_last_bundle_at(at(3))?, at(5));
+                assert_eq!(tx.set_last_bundle_at(at(8))?, at(8));
+                assert_eq!(tx.last_bundle_at()?, Some(at(8)));
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// ⟨ADR-0008 §17.25 item 8⟩ `issuer.bundle_written` records the digest and raises
+    /// `last_bundle_at`, never lowering either; a malformed digest or a future
+    /// `created_at` records nothing.
+    #[test]
+    fn bundle_written_records_digest_and_last_bundle_at_never_lowered() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let (d1, d2) = ("ab".repeat(32), "cd".repeat(32));
+        store
+            .transaction(|tx| {
+                assert_eq!(
+                    record_bundle_written(tx, at(10), &d1, at(20))?.unwrap(),
+                    at(10)
+                );
+                assert_eq!(tx.last_bundle_at()?, Some(at(10)));
+                assert_eq!(tx.bundle_digest_recorded_at(&d1)?, Some(at(10)));
+                // An older bundle confirmed later: its digest is recorded, nothing lowers.
+                assert_eq!(
+                    record_bundle_written(tx, at(5), &d2, at(20))?.unwrap(),
+                    at(10)
+                );
+                assert_eq!(tx.bundle_digest_recorded_at(&d2)?, Some(at(5)));
+                assert_eq!(tx.last_bundle_at()?, Some(at(10)));
+                assert_eq!(
+                    record_bundle_written(tx, at(3), &d1, at(20))?.unwrap(),
+                    at(10)
+                );
+                assert_eq!(tx.bundle_digest_recorded_at(&d1)?, Some(at(10)));
+                // Refused, recording nothing.
+                let upper = "AB".repeat(32);
+                for (t, d) in [
+                    (at(12), upper.as_str()),
+                    (at(12), "ab"),
+                    (at(21), d1.as_str()),
+                ] {
+                    let e = record_bundle_written(tx, t, d, at(20))?.unwrap_err();
+                    assert_eq!(e.code, Code::UsageError);
+                }
+                assert_eq!(tx.last_bundle_at()?, Some(at(10)));
+                assert_eq!(tx.bundle_digest_recorded_at(&"ef".repeat(32))?, None);
+                Ok(())
+            })
+            .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod store_reason_tests {
+    //! ⟨ADR-0008 §17.28 item 6⟩ The issuer's store reasons as the request's error.
+    use super::*;
+
+    /// An access-list denial answers `issuer_store_access_denied` with the restore as its
+    /// next step; a locked store stays `issuer_store_locked`.
+    #[test]
+    fn access_denial_is_its_own_reason_with_the_restore_next() {
+        let e = issuer_failure(&IssuerError::Unavailable(
+            reason::ISSUER_STORE_ACCESS_DENIED.into(),
+        ));
+        assert_eq!(e.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            e.reason.as_deref(),
+            Some(reason::ISSUER_STORE_ACCESS_DENIED)
+        );
+        assert!(
+            e.message.contains(crate::issuer::STORE_ACCESS_DENIED_NEXT),
+            "{}",
+            e.message
+        );
+        let locked = issuer_failure(&IssuerError::Unavailable(
+            reason::ISSUER_STORE_LOCKED.into(),
+        ));
+        assert_eq!(locked.reason.as_deref(), Some(reason::ISSUER_STORE_LOCKED));
+        assert!(
+            !locked
+                .message
+                .contains(crate::issuer::STORE_ACCESS_DENIED_NEXT)
+        );
     }
 }

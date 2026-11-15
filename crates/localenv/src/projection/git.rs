@@ -145,7 +145,7 @@ pub fn lock_holder(generation: u64, nonce: [u8; 16]) -> Rendered {
 }
 
 /// ADR-0007 §5.6 step 3: whether B_git's staged bytes parse as Git configuration,
-/// `git config --file <staged> --no-includes --list`, a local query (bounded at 2 s,
+/// `git config --file <staged> --no-includes --list`, a local query (bounded at 10 s,
 /// no shell, stdin null, the environment snapshot `env` only, the filesystem root as
 /// working directory, so no repository's configuration is read). Only exit 0 within
 /// the bound is a pass: a failure, a timeout or a tool that cannot start is `false`

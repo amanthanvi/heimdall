@@ -61,9 +61,9 @@ pub const REMOTE_HOME_DISPLAY: &str = "$HOME/.ssh/authorized_keys";
 /// The verification certificates' validity ceiling (`verification_max_validity`).
 pub const VERIFICATION_MAX_VALIDITY_SECONDS: u64 = 300;
 
-/// ⟨U5⟩ The provisional `USAGE_ERROR` reason of an invalid `--registry-path` (no
-/// reason is registered for it in `contract::envelope::reason::M03`; U5P-Q3).
-pub const REGISTRY_PATH_INVALID: &str = "registry_path_invalid";
+/// ⟨U5⟩ The `USAGE_ERROR` reason of an invalid `--registry-path` (U5P-Q3; registered in
+/// `contract::envelope::reason::M03` by wave 5 per ADR-0008 §17.20 item 13).
+pub const REGISTRY_PATH_INVALID: &str = heimdall_contract::envelope::reason::REGISTRY_PATH_INVALID;
 
 /// One registered CA as the plan sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]

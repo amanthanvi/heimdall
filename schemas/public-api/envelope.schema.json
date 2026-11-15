@@ -398,6 +398,13 @@
         "message": {
           "description": "Human text; may change without breaking callers.",
           "type": "string"
+        },
+        "reason": {
+          "description": "⟨M03; ADR-0008 §17.25 item 15⟩ Stable `snake_case` sub-reason refining the\ncode (the values are in [`m03_warning::REASONS`], with the code each refines).\nReaders tolerate unknown values. Additive: omitted when absent, so every\nearlier warning is byte-identical.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

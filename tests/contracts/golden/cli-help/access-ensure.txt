@@ -1,0 +1,41 @@
+Idempotent access preparation (spec §11.3)
+
+Usage: heimdall access ensure [OPTIONS] --profile <PROFILE> --work-id <WORK_ID> --request-id <REQUEST_ID>
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --profile <PROFILE>
+          Profile
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --pair <DEST:ACCOUNT>
+          `destination:account` pairs (a subset of the profile; default all)
+      --environment <ENVIRONMENT>
+          Environment; default the caller's
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --work-id <WORK_ID>
+          Work ID
+      --until <UNTIL>
+          Absolute RFC 3339 deadline with offset
+      --for <FOR_DURATION>
+          Duration deadline (`2h`, `PT2H`)
+      --request-id <REQUEST_ID>
+          Idempotency request ID
+      --async
+          Return immediately with the operation to observe (`ACCEPTED`, exit 0)
+      --timeout-ms <TIMEOUT_MS>
+          Bounded synchronous wait in milliseconds (timeout is not cancel; a still-pending operation exits 5 with `next.observe`) [default: 30000]
+      --strict
+          M03: close owned connections at the deadline (`EnsureRequest.connection` strict)
+      --require-capability <CAPABILITY>
+          Required credential capability (repeatable): ssh-authentication, git-signing, agent-forwarding
+      --require-destination-scope <LEVEL>
+          Minimum destination-scope enforcement: unenforced_intent, client_routing, authenticated_agent_restriction, verified_server_principals, isolated_execution_boundary
+      --require-offline-until <INSTANT>
+          Credentials must stay usable offline until this RFC 3339 instant
+      --require-unattended
+          New authentications must need no human interaction until the deadline, including through desktop and vault lock (M02, §5 item 6). `unknown` never satisfies it
+  -h, --help
+          Print help

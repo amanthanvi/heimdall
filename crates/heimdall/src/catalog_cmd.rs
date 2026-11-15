@@ -142,9 +142,8 @@ pub(crate) fn destination(ctx: &Ctx, command: DestinationCommand) -> ExitCode {
 
 async fn destination_flow(ctx: &Ctx, command: DestinationCommand) -> Outcome {
     match command {
-        // M03 wave 0: `dispatch` answers `prefer` first; this arm keeps the match
-        // exhaustive and answers the same way (U12 fills the handler).
-        DestinationCommand::Prefer(_) => crate::m03_cmd::not_available_outcome(),
+        // ⟨M03⟩ wave 5 (U12): catalog `SetPreference` (`m03_cmd`).
+        DestinationCommand::Prefer(a) => crate::m03_cmd::destination_prefer(ctx, a).await,
         DestinationCommand::List => read(ctx, InspectSubject::Destinations, Ok).await,
         DestinationCommand::Show { destination } => {
             read(ctx, InspectSubject::Destinations, |data| {

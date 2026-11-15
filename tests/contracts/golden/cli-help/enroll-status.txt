@@ -1,0 +1,9 @@
+List enrollments (read-only)
+
+Usage: heimdall enroll status [OPTIONS]
+
+Options:
+      --json             Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+  -h, --help             Print help

@@ -819,6 +819,29 @@ pub struct EnrollmentView {
     /// The `late_write` residual exists.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub possible_late_write: bool,
+    /// ⟨ADR-0008 §17.25 item 4⟩ A `held` record's reason and next step, computed by
+    /// the app from the record's `hold`, so `enroll status` and the TUI show the
+    /// same commands. Additive: omitted when absent (every record that is not
+    /// `held`, and a runtime that predates it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold: Option<EnrollmentHoldView>,
+}
+
+/// ⟨ADR-0008 §17.25 item 4⟩ `EnrollmentView.hold`: why a record is `held`, and the
+/// owner's next step.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct EnrollmentHoldView {
+    /// The record's `hold.reason`: the `snake_case` wire name of
+    /// `heimdall_domain::enrollment::HoldReason` (`principals_not_enforced`,
+    /// `positive_refused`, `host_key_changed`, `lock_holder_unresolved`,
+    /// `registry_line_damaged`, `registry_changed`, `registry_not_rewritable`,
+    /// `post_write_check_failed`). A string, as `data.error.reason` is: readers
+    /// tolerate unknown values.
+    pub reason: String,
+    /// The owner's next step: the commands (or manual instruction) that leave the
+    /// hold, in the order shown. Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub next: Vec<String>,
 }
 
 /// `inspect enrollments` data.

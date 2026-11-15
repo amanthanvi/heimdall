@@ -1176,7 +1176,7 @@ row), and the rule that a target change replaces the approved target only on a p
 | `remove_unknown` | account | The explicit removal may or may not have applied. It keeps the **explicit removal** purpose | `removed` (reconcile: marker absent); `removing` (reconcile: present, ⟨r3⟩ the old holder proven gone); ⟨r3⟩ `held` (`lock_holder_unresolved`); ⟨r2⟩ `abandoned`; stays while unreachable |
 | ⟨r2⟩ `manual_removal_pending` | system | The owner is to remove the sshd lines; Heimdall shows them. ⟨r3⟩ `removal_origin` holds the state and evidence it began from | `removal_verifying` (owner confirms removed); ⟨r3⟩ **the origin state, with its evidence restored** (owner cancels: `verified`, `held`, `abandoned` or `manual_pending`, ⟨r4⟩ or `planned` for a foreign record). ⟨r5⟩ **For a foreign record** (§17.10 item 2): `abandoned` (the owner abandons; `pending_until_line_removed` is kept); and once a `ca_not_held` result exists, a cancel leaves it in `manual_removal_pending`, or returns it to `held` when a held foreign record began the removal. It never reaches `planned` or `withdrawn` |
 | ⟨r2⟩ `removal_verifying` | system | The absence check runs (§6.9) | `removed` (absence verified); ⟨r3⟩ `withdrawn` (absence verified, and the origin was `manual_pending`, so no verification ever passed); `manual_removal_pending` (still accepted, or inconclusive; origin kept). ⟨r4⟩ A foreign record's check always ends inconclusive, `ca_not_held` (D4 item 5; Q28) |
-| `verification_failed`, `removed`, `withdrawn`, `failed_unwritten` | — | Final; no trust of ours remains, as last observed. `removed` for the system form means **absence verified**, never "removed by Heimdall". ⟨r3⟩ A `withdrawn` record may still carry the `late_write` residual (§6.7), listed until an inspect after its not-after shows absence | none |
+| `verification_failed`, `removed`, `withdrawn`, `failed_unwritten` | — | Final; no trust of ours remains, as last observed. `removed` for the system form means **absence verified**, never "removed by Heimdall". ⟨r3⟩ A `withdrawn` record may still carry the `late_write` residual (§6.7), listed until an inspect after its not-after shows absence | none; ⟨§17.29 item 2⟩ **except** a `withdrawn` record carrying `late_write`: `removing` (account form; a new attended `RemoveEnrollment` of the exact line by marker, as from `abandoned`) |
 | `abandoned` | both | The owner gave the account up while unreachable, held or uncertain. Trust may remain. Reported `pending_until_line_removed`; listed by uninstall and the bundle. ⟨r3⟩ It is **outside** the uniqueness rule: a new enrollment of the pair uses a new marker, and this record stays listed (Q25) | `removing` (account: a new `RemoveEnrollment`, whose reconcile may break this enrollment's own stale lock once its holder is proven gone, §6.7); `manual_removal_pending` (system; origin `abandoned`) |
 
 A pair is usable for managed issuance only through a `verified` enrollment (`reverifying` counts as
@@ -4204,6 +4204,601 @@ No review has run yet. These rulings complete the wave before its reviews.
    - The re-check's adversarial probe ran the ended-binding cleanup pass concurrently with a paused re-issue, and resources were recreated after cleanup had acknowledged the obligation.
    - Production awaits those passes one after another in one supervisor loop, and the startup re-issue precedes that loop, so the probe's interleaving is not reachable. It is not a finding.
    - **The constraint:** they must not run concurrently unless a binding-lifecycle fence first orders a re-issue's restoration against the release cleanup of the same binding.
+
+### 17.25 Orchestrator rulings on wave 5, round 1: the U12 questions (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-questions.md` (round 1 of U12, the CLI and TUI surfaces).
+
+**The terminal and the enrollment loop:**
+1. **Q-I1 (U5IO-Q3), the terminal handoff: option (c), final for M03.**
+   - Interactive steps keep their own process group and fail closed at the step's bound. Before `Apply`, the CLI refuses an interactive enrollment whose existing-access identity is not agent-held (`INTERACTION_REQUIRED`), and it prints the handoff notice before the first interactive step.
+   - Every M03 plan pins an agent (`registry::step::access_pins`), so a valid plan never needs a terminal prompt for its key. The residual: a server that falls back to password or keyboard-interactive authentication still stalls until the bound. The handoff notice says so.
+   - Option (b), keeping ssh in the CLI's foreground group, is not scheduled. It needs its own ruling if passphrase-only keys must be enrolled directly.
+2. **Q-E2** is recorded as built.
+3. **Q-E1: option (b).** In debug builds, the runtime inserts the test pause points when it builds a step, from its own test configuration (`ManagedOptions::script_pause_dir`). The CLI only validates. No `heimdall → heimdall-registry` edge is added, and release builds are unchanged.
+4. **Q-E3 and Q-T1: option (a).** `EnrollmentView` gains an optional, additive `hold: {reason, next}` (authorized). The app computes `next` from `record.hold`, so `enroll status` and the TUI show the same command.
+5. **Q-E4:** the runtime's `ordinary_ssh_needs_held_slot` note uses `slot_free_command(alias)`, the same command as the preview, `status` and the doctor.
+6. **Q-I3:** accepted. The target-change and manual-recovery tests live in `e2e_cli_m03`. The TUI shows the same key diff in its decision modal.
+
+**The issuer:**
+7. **Q-IS1, the test store: options (b) and (d), both debug-only.**
+   - **(b):** a debug-build test selector chooses a disposable store of a **product** kind: on macOS a file keychain created by the test inside its scratch home and never added to the keychain search list; on Windows DPAPI under the scratch home. The CLI and `internal issuer` reach it through `m03_cmd::issuer_store`. It needs no contract change, and U10B-Q5's "no test store kind on the wire" stands.
+     - **The selector refuses** a relative path, a path outside the test's scratch home, any path under the user's `Library/Keychains`, and a path that existed before the test created it. A release build ignores it.
+     - Claims made through it stay disqualified by the debug profile (F03).
+   - **(d):** in debug builds, a scratch test-kind store's item may be deleted by its exact recorded locator. That proves the R2B order on Linux, which has no disposable Secret Service fixture.
+   - Together they unblock the passphrase-on-tty assertions, the `register_issuer` typed-yes test, the restore paths after registration, and `test_ca_ceremony_captures_passphrase_only_from_pty`.
+8. **Q-IS2 and Q-U1, a bundle's freshness: option (b) for both.**
+   - After the bundle file is completely written and fsynced, the CLI confirms it through an additive issuer request carrying the bundle's `created_at` and SHA-256 (authorized). The runtime records `last_bundle_at` and that digest, and never lowers them. `bundle_stale` then uses `last_bundle_at`, as U10B-Q3 (b) allowed.
+   - **Uninstall accepts a `--bundle`** only when the file passes the content check and its SHA-256 equals a digest this installation recorded. The content check: an unredacted `heimdall-recovery-bundle/1`, with `created_at` no earlier than the last enrollment or CA change, listing every non-final enrollment in its current state. A file that is hand-made, foreign, stale or partial is refused `bundle_required`.
+   - The record never stores the path.
+9. **Q-U3: option (b).** Worker I exposes one retire entry: the decision, the typed `yes`, the wait for `unloaded`, the exact-locator deletion and the `deleted_locator` confirmation. Uninstall runs it inline, behind its typed confirmation, before the runtime stops. Until that entry lands, uninstall offers `heimdall issuer retire <fingerprint>`.
+10. **Q-T4, the disclosure texts: option (a), with a limit on TUI approvals.**
+    - `heimdall_issuer::ceremony::disclosure_text` becomes public and covers every `DisclosureKind`. The CLI preview and the TUI use it, and nothing retypes a disclosure.
+    - **The TUI offers Approve only** for decision kinds whose follow-through needs no owner-present CLI step, and only when it can show every disclosure. Enrollment decisions (`enroll_*`, whose steps the CLI runs on the owner's terminal), issuer registration, rotation, restore (passphrase ceremony) and retirement (R2B deletion) are shown read-only, with their CLI command. So the TUI never approves an `enroll_account` without its exact registry line.
+
+**Uninstall, the doctor and chores:**
+11. **Q-U2: option (b).**
+    - A plain uninstall with live enrollments lists them and requires a typed `yes`. Without a terminal, or under `--non-interactive`, it exits 3 with nothing changed.
+    - `--keep-remote-enrollments` may also serve as the explicit acknowledgement for a plain uninstall, so scripted uninstalls stay possible. The state is kept, so nothing is lost.
+12. **Q-U4: the chore follows the time gate.** `time_confirmation_after_reboot` is pending exactly when the time gate would now refuse an issuance for lack of a time reference for this boot, and an issuer CA is registered. A never-confirmed store is therefore included when the gate needs a confirmation. A store with no CA shows no chore.
+13. **Q-U5: the doctor emits all three findings in U12.** `reverification_inconclusive` and `enrollment_evidence_stale` are read from the store, read-only. `client_trace_family_unrecorded` comes from the local client's version against `heimdall_enroll::trace::RECORDED`, naming the family and version.
+14. **Q-I2: option (a).** `doctor::finding::MANAGED_DIR_UNSAFE` is kept as an additive finding code (authorized).
+15. **Q-T6: option (a).** When the cause is no time reference for this boot, the runtime's `TIME_UNCERTAIN` warning carries an additive reason `time_confirmation_after_reboot` (authorized). The TUI keys on that reason, not on the code.
+
+**Connections, the managed report and the lock:**
+16. **Q-A1: option (a), the exit code follows the envelope code.**
+    - ADR-0006 §5 maps each code to one exit. A `connections close` that the runtime answers `OK` exits 0, whatever its `state`.
+    - The human output states plainly when the connection was not closed (`unverified`: identity not verified, nothing signalled; `closing`: still pending), and `--json` carries `state`. `INCOMPLETE_CLOSE_IS_NONZERO` is set `false`.
+17. **Q-A2:** the ordinary-ssh sentence stays one constant in the `heimdall` crate's output module, and the CLI and TUI share it. The adapters never print it, so it does not move.
+18. **Q-R1: option (a).**
+    - `PrepareOutcome` gains an additive `managed: Option<ManagedResultFacts>` (a frozen-port change, authorized here as row M2's amendment). `None` for every M01/M02 adapter.
+    - The managed adapter fills it from `report::compute`, on both preparation and re-issue. `Facts` carries it, and `ensure_data` copies the six fields for a managed binding.
+    - After a restart the commit uses `Facts::conservative`, the fields stay absent, and the CLI and TUI show "unknown" (fail closed).
+19. **Q-T2: option (a).** `inspect destinations` items gain `preference.connection_policy` (`ConnectionPolicyReport`, with the runtime's `connection_wording`), authorized as an additive field.
+20. **Q-T3: option (c).** The owned-masters sentence reaches the TUI only through the runtime's wording (items 18 and 19). Nothing moves, and nothing is retyped.
+21. **Q-T5: option (a), and the "shown once" reading corrected.**
+    - `inspect capabilities` gains a read-only `lock: {behavior, disclosure, acknowledged_at?}` from `Operations::lock_disclosure` (authorized).
+    - D9 item 1 shows the disclosure "in the `RegisterIssuer` and first `EnrollAccount` decisions… if not yet acknowledged". So approving **any** decision that displayed it, `RegisterIssuer` or `EnrollAccount`, records `lock_disclosure_acknowledged_at` once. Today only `RegisterIssuer` records it. This must be fixed, with a regression.
+22. **Q-R2: option (b).** The `SetLockBehavior` and connection-policy results gain `lock_behavior` and `connection {existing, multiplexing}`, recorded as an additive ADR-0006 row. M01 policy results are unchanged.
+23. **Q-R3:** the reading is confirmed. The runtime also calls `ops.set_session_lock_signal(p.signal())` explicitly in `service.rs`, so the label never relies on the default.
+
+### 17.26 Orchestrator rulings on wave 5, round 2 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r2-questions.md`.
+
+1. **Q-T2-1: Deny is allowed on every read-only decision view,** after the usual typed `yes`. Deny grants no authority and needs no owner-present follow-through. Approve stays CLI-only for the kinds §17.25 item 10 names.
+2. **Q-T2-2, confirmed:**
+   - `remove_enrollment` (own and foreign) is read-only in the TUI. Its follow-through is the CLI's step loop on the owner's terminal, so the TUI shows its `heimdall enroll remove …` command, with Deny allowed.
+   - `approve_target_change` keeps Approve and Deny. On approval the runtime runs the verification itself, the decision carries no disclosure, and the TUI shows the key diff.
+   - `register_issuer`'s command is inferred from the record, with placeholder paths.
+3. **Q-I-R2-1 (A2-Q1): the managed-activation validity fix is kept, option (a).**
+   - `valid_after` = the later of `now` and the grant's `starts_at` rounded up to the second, minus the 60 s skew allowance. The issuer's ceiling check (`deadline − starts_at + 60 s`) is unchanged and stays strict.
+   - The defect made the real issuer refuse every first managed activation (`ceiling_exceeded`). It went unseen because every managed test before round 2 used a fixture issuer.
+   - **The rule that follows:** U13's exit suite drives at least one managed activation, one re-issue and one revocation through the real `internal issuer` child on each platform, never only through fixture issuers.
+4. **Q-I-R2-2 and C-Q1 to C-Q5, confirmed as built:**
+   - `hold.next` is a list of commands in order, omitted when empty;
+   - `hold.reason` is a string carrying the `HoldReason` wire name;
+   - the shared struct literals gain `reason: None` and `hold: None`;
+   - the two M03 policy results report that policy's own stored values, while `inspect capabilities` shows the effective behaviour;
+   - `preference.connection_policy` appears only when the runtime can compute it.
+5. **E2-Q1 and E2-Q2, confirmed:**
+   - `hold` is filled only for `held` records;
+   - an unresolved lock holder with no open operation leads to the manual step, then `enroll remove`;
+   - a non-evidence-based hold never offers `enroll verify`;
+   - the note omits `command` when the alias is unknown;
+   - an unusable pause directory refuses every step in debug builds.
+6. **The issuer:**
+   - **Q-IS2-1, option (a):** the owner-only marker created before the store, with its birth order, ownership and content checks, proves that the test created the store. A home that is the account's home or one of its ancestors is refused.
+   - **Q-IS2-2, option (a):** Ctrl-C at a ceremony prompt cancels the read and sends nothing (`NotConfirmed`, exit 3). On Windows, the same rule is checked natively by U13 (item 8).
+   - **Q-IS2-3, option (a):** a store never confirms a deletion it did not perform. The displaced-item deletion for a genuinely new locator is a Linux-native row.
+   - **Q-IS2-4, option (a):** `issuer.bundle_written` records what the owner's CLI confirms, after refusing a malformed digest or a future `created_at`. Uninstall still needs both the file's content check and a recorded digest.
+   - **Q-IS2-5, option (b), in round 3:** the registration decision shows the runtime's conditional D9 lock disclosure (`RegisterDecision.lock_text`, filled from `inspect capabilities`), not the general sentence. The integrator may update the `tests/integration/issuer_store.rs` constructor.
+7. **Uninstall, doctor and runtime readings, confirmed:**
+   - **Q-U2-1, option (a):** `client_trace_family_unrecorded` is reported only while an issuer CA is registered.
+   - **Q-U2-2:** a fresh bundle also lists every registered CA in its current state, because CA state changes carry no timestamp.
+   - **Q-R2-1, option (a):** the strictest standing policy covering the pair.
+   - **Q-R2-2:** an attached managed binding's result omits the six fields ("unknown"). This fails closed, and it never shows another request's narrowed policy.
+   - **Q-R2-3:** `LockSignal::None` is not stored.
+8. **U12's Windows interactive tests belong to U13.**
+   - These tests need a ConPTY or console harness and the harness sshd: the `#[cfg(unix)]` pty tests of `e2e_cli_m03` and `e2e_tui_m03`, and the DPAPI variants of the issuer ceremony tests.
+   - U13 owns the native harnesses (m03-plan U13). It builds that harness and runs these tests on Windows, and U12's acceptance on Windows is closed there.
+   - Until then they are listed as **blocked: Windows interactive harness (U13)**, never as passed.
+
+### 17.27 Orchestrator rulings on wave 5's reviews (2026-11-13)
+
+**Sources:**
+- **The code review** (Codex, independent): `tests/evidence/artifacts/review-m03-code/wave5.md`. Verdict: fix first, with W5-R01 to W5-R06.
+- **The security review** (Codex, independent; plan §6.7): `wave5-security.md`. Verdict: fix first, with W5-S01 to W5-S06.
+- Every finding was reproduced by a disposable probe. W5-R04 duplicates W5-S04, and W5-R05 duplicates W5-S03.
+
+**Uninstall and the recovery inventory:**
+1. **W5-R01, W5-R02: the inventory holds every outstanding remote obligation, not only open enrollments.**
+   - **Outstanding means:** every non-final enrollment; every enrollment in any state whose `late_write` residual is unresolved (absence not yet observed after its not-after); and every foreign removal not yet final, including an abandoned system-form record that is still `pending_until_line_removed`.
+   - Uninstall lists all of them, and its purge guard, acknowledgement and bundle requirement count all of them.
+   - The recovery bundle exports them as additive fields (authorized). Foreign removals are exported only by their public removal descriptors, with no foreign bytes (W4-S02). The bundle's freshness and content check covers them as well.
+   - **The regressions:** an abandoned foreign system-form record, and a `withdrawn` record with an unresolved `late_write`, each block a purge that has no acknowledgement or bundle, end to end.
+2. **W5-S01: a destructive uninstall is fenced against admission and revalidated before anything is deleted.**
+   - After the owner's typed confirmation, and before any destructive step, the CLI asks the runtime to close admission of new enrollment, CA and issuance work for this uninstall.
+   - The fence is authorized as an additive runtime request. While it holds, new requests are refused with `SERVICE_UNAVAILABLE`, reason `uninstall_in_progress`.
+   - Under the fence, the CLI re-reads the inventory and repeats the bundle check against the state about to be destroyed. If the inventory differs from the one the owner confirmed, uninstall refuses (exit 4, reason `uninstall_inventory_changed`, next: run `heimdall uninstall` again), lifts the fence, and deletes nothing.
+   - An open enrollment operation is itself an outstanding obligation (item 1), so an enrollment in flight blocks the purge rather than racing it.
+   - **The regression:** the reviewer's two-CLI race. An enrollment approved while the purge waits at its confirmation must leave the state undeleted.
+
+**Consent and disclosures:**
+3. **W5-S02: `--json` never removes consent text from the terminal.**
+   - Whenever an interactive confirmation will be asked, the complete human preview and every disclosure's prose are written to the terminal (stderr) first, whatever the output mode. Stdout keeps exactly one envelope.
+   - This applies to every path that can approve: `enroll`, removal, reconcile and verify decisions, the issuer ceremonies, uninstall, and generic decision completion.
+   - **The regression:** `--json enroll` on a pty shows the disclosure prose before the prompt.
+4. **W5-R05 and W5-S03: both the issuer and the enrollment confirmation show the runtime's conditional lock text.** This widens §17.26 item 6, Q-IS2-5.
+   - The text comes from `inspect capabilities.lock.disclosure`, carried into `RegisterDecision.lock_text` and into the enrollment consent renderer.
+   - If a decision carries `lock_continuity_once` and that text cannot be obtained or rendered, the CLI refuses to approve (exit 3). The once-only acknowledgement is therefore recorded only for a decision whose conditional text was actually shown.
+   - **The regressions:** a continuing configuration and a revoke-on-lock configuration, each with saved limits, on both paths.
+
+**The issuer ceremonies:**
+5. **W5-R03: a ceremony requires an interactive invocation,** meaning stdin is a TTY and `--non-interactive` is absent. The CLI checks this before connecting, attending or opening the store. The controlling terminal is still used for the passphrase after that check.
+   - **The regressions:** stdin redirected while a controlling terminal stays attached exits 3 with nothing sent. The successful pty fixtures give a TTY stdin.
+6. **W5-R04 and W5-S04: every ceremony confirmation is bounded by the same 120 s prompt timeout** as ordinary decisions.
+   - On timeout the CLI restores the terminal modes, clears any secret display, zeroizes the ceremony material, sends nothing further and returns `NotConfirmed` (exit 3). A late `yes` is never honoured.
+   - **The regression:** the real terminal reader, tested with an injectable clock or deadline so the test does not wait 120 s, plus one real-time case if it is cheap.
+7. **W5-S05: Ctrl-C and EOF cancel at every ceremony prompt, the passphrase's `written` acknowledgement included.**
+   - Cancellation is a distinct read outcome. It is propagated at once, with no retry: the display is cleared, the terminal restored, and the result is `NotConfirmed`, exit 3.
+   - Only an ordinary wrong answer may be retried.
+8. **W5-S06: every untrusted string in ceremony text is sanitized** with the same sanitizer the ordinary renderers use: paths, aliases, labels and anything taken from arguments or files. The only control sequences that reach the terminal are those the ceremony itself emits to clear its secret display.
+   - **The regression:** a real pty with a backup filename that carries clear-screen and cursor-home controls.
+
+**Smaller fixes:**
+9. **W5-R06:** `destination_lines` reads the runtime's `items` (and the older `destinations`). Its test uses the runtime's real shape, including a managed preference whose policy cannot be computed.
+10. **The release-profile test build:** `retire::tests::test_store_item_deleted_by_exact_locator_in_debug_builds_only` does not compile under `--release` (`crates/issuer/src/retire.rs`, an inline `const` assertion). Gate or restructure it so that `cargo test --release -p heimdall-issuer --lib` compiles and passes. Keep the security reviewer's release-only deletion-gate probe as a permanent integration test.
+
+### 17.28 Orchestrator rulings on wave 5, round 3 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r3-questions.md`.
+
+1. **Q-U3-2, the uninstall fence's lifetime and scope:**
+   - **Lifetime, accepted as built:** the fence belongs to the acquiring connection and is released when that uninstall finishes, refuses or crashes. Acquisition waits up to 20 s for admissions already in progress, and a plain uninstall is revalidated too.
+   - **Scope, widened:** while the fence is held, every connection except the holder is refused (`SERVICE_UNAVAILABLE`, `uninstall_in_progress`) every request that can start or advance remote or CA work. That covers admissions, `Enrollment::Step`, `abandon`, `reconcile`, issuer `register`/`unlock`/`retire`, and approvals.
+   - **Still allowed:** read-only requests, denials, and a `StepResult` for a step dispatched before the fence. The holder's own requests, including its inline retire, are exempt.
+   - **Revalidation:** if any operation has a dispatched step without its result, the purge is refused (`uninstall_remote_step_unresolved`, exit 4) and nothing is deleted.
+2. **Q-U3-1 and Q-U3-3, accepted as built:**
+   - the fence is a top-level request under `service-control/1`;
+   - the two revalidation refusals use `CAPABILITY_UNAVAILABLE` (exit 4), with the next command in `data.next_command`.
+3. **Q-U3-4: a `late_write` residual is cleared only by observed absence.**
+   - D5 §6.7 keeps the residual until an inspection after its not-after establishes absence. Nothing cleared it before this ruling.
+   - An attended `enroll verify <enrollment> --absence` that runs after the residual's not-after, and observes the line absent, clears `late_write` in the same transaction as its result. Any other outcome keeps it.
+   - Until it is cleared, the record stays an outstanding obligation (§17.27 item 1).
+   - **The regressions:** a verify before the not-after keeps the residual; one after it that observes absence clears it; one that observes the line present keeps it.
+4. **K3-Q1:** on Windows, Ctrl-C at a ceremony prompt ends the process and sends nothing, which fails closed. U13's native interactive harness checks it, and decides whether a console control handler is needed to answer exit 3.
+5. **K3-Q2: an additive reason `issuer_executable_changed`** (authorized) is added for the refusal to write when the running executable no longer matches the identity the store's access list would trust. It stays `SERVICE_UNAVAILABLE` (exit 5, retryable), with next: "finish installing or updating Heimdall, then run the command again".
+6. **K3-Q3: the macOS store access list across updates.** This is the `issuer_store_locked` root cause, observed in round 3.
+   - **The fact:** the K_ca item's access list trusts the creating executable's code identity. An ad-hoc-signed build's identity is its exact code hash, so a rebuilt or updated ad-hoc binary can no longer read the item (`errSecAuthFailed`). A Developer ID signature gives a stable identity that survives updates. ADR-0005 §5.2 listed this behaviour as unknown; it is now observed with a disposable file keychain.
+   - **Developer ID signing and notarization stay an owner-blocked release input** (ADR-0004 Q-F; the owner's Apple Developer membership).
+   - **Until that input arrives, a release built with ad-hoc signatures:**
+     - does not claim K_ca continuity across updates on macOS;
+     - says in its release notes and `issuer` help that after an update the CA may need `heimdall issuer restore --backup <file>`, the D5 log-intact restore;
+     - has the runtime report an access-list denial reading K_ca as a distinct, additive reason `issuer_store_access_denied` (authorized), with that restore as its next step, rather than as `issuer_store_locked` or a generic unavailability. The doctor reports it too.
+   - **The regression:** a test reads a disposable product store's item with a different binary and sees `issuer_store_access_denied`, not `issuer_store_locked`.
+   - U13 records the claim's limit in the claims table.
+7. **K4-Q1: after an access-list denial, restore writes a new item; it never needs a manual delete first.**
+   - When the recorded K_ca item reads `issuer_store_access_denied`, `heimdall issuer restore --backup <file>` writes the restored key to a **new** item with a distinct locator. On macOS that is the same service, with a restore-generation suffix on the account (`<environment>#r<n>`).
+   - The new locator is recorded through the attended `RegisterIssuer` decision, compare-and-swapped against the expected old locator. This is the existing path for a restore that changes the locator (§17.22 item 12; §17.23 item 4), so it adds no new authority.
+   - The old item is listed in `orphan_store_items` with its exact service and account, for the owner to delete in Keychain Access. Heimdall never deletes it, because it cannot do so without a prompt.
+   - **The regression:** binary copy A writes the item and copy B restores it. B gets a new item under a new locator, the decision records it, the old item is listed as an orphan, and nothing is deleted.
+8. **Q-I-R4-1:** two default-implemented methods on `heimdall_issuer`'s `SecretStore` trait, `get_item` and `put_new_item`, are accepted. The change is additive, and no existing signature changes.
+
+### 17.29 Orchestrator rulings on wave 5, round 4 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r4-questions.md`.
+
+1. **Q-L4-1, confirmed:** the absence check that can clear `late_write` is the client-run, read-only inspect step on the owner's terminal, and it is attended. It is not the runtime's Verifier, which can see neither the marker line nor the step's lock.
+2. **Q-I-R4-2 and Q-L4-2: a late write found present is a definite result with a way out.** This amends D5 §6.2's `withdrawn` row, which listed no transition.
+   - When an absence check runs after the not-after and observes the marker line **present**, the late write landed. Trust of ours remains, although the record says `withdrawn`.
+   - The check reports that as a definite result, not as `verification_inconclusive`: an additive reason `late_write_present` (authorized), whose next step is `heimdall enroll remove <enrollment>`. The residual is kept.
+   - **The amendment:** a `withdrawn` record that carries `late_write` may move to `removing` through a new attended `RemoveEnrollment` of the exact line by marker, as `abandoned` already may. On success the record ends `removed`, with the residual cleared.
+   - Inconclusive and failed checks still use `verification_inconclusive`.
+   - **The regressions:** a line-present check reports `late_write_present` and keeps the residual. The following `enroll remove` removes exactly that line and clears the residual. A `withdrawn` record without a residual still refuses `enroll remove`.
+3. **K4-Q2, confirmed:** `issuer_store_access_denied` is `CAPABILITY_UNAVAILABLE` (exit 4). An unchanged retry cannot fix it; the restore can.
+4. **K4-Q3, confirmed:** the doctor reports the denial only from a running runtime's issuer status. The doctor never reads K_ca itself.
+5. **K4's limit (orphan listing):** a deleted orphan stays listed until a later restore sees it gone. That is kept as built. U13 tests on a disposable macOS account whether an attributes-only keychain query can confirm the deletion without a prompt; if it can, `issuer status` refreshes the listing.
+6. **Q-F1-2, accepted:** the test-only localenv hooks (`observe_global_within`, and the `ProjectionTestConfig` bound and callback). They must stay unreachable in release builds, like every other test hook. The release gate covers them, or gains a probe if it does not.
+7. **F1, the local query bound (Q-F1-1):**
+   - **The cause, confirmed:** a `git config` query slower than the 2 s bound made the git observation incomplete. That correctly changed the plan digest, but on Windows under load it also made two previews of an unchanged plan differ.
+   - **The ruling:** `LOCAL_QUERY_TIMEOUT` is 10 s for every local query. An incomplete observation still changes the digest and leaves the selection undetermined (fail closed), and the unreadable entry names the timed-out query.
+   - ADR-0007 and m02-plan §2 now state 10 s.
+8. **Q-L5-1, confirmed:** `late_write_present` maps to `CONFIG_CONFLICT` (exit 6). The recorded `withdrawn` state conflicts with the observed remote, and only a removal can resolve it; retrying the check cannot.
+9. **Q-L5-5: removing an enrollment drops its CA from the pair's issuing set only when no other enrollment of the pair still trusts that CA.** This applies to every origin.
+   - Before this, a confirmed removal took the CA out of the pair's issuing set unconditionally. That silently broke managed issuance for a newer verified enrollment of the same pair under the same CA (`withdrawn` and `abandoned` records sit outside the uniqueness rule).
+   - **The regressions:** an old abandoned enrollment, and separately a residual-carrying withdrawn one, are each removed beside a newer verified enrollment. The CA is kept, and the newer enrollment still issues and logs in. Removing the last enrollment under a CA drops it.
+10. **Q-L5-8, confirmed:** for item 9, an enrollment that is `verified` or `reverifying` still trusts its CA. A record being re-verified keeps its trust line until the check concludes, and a failed re-verification follows its own transition, after which the issuing set is recomputed.
+
+### 17.30 Orchestrator rulings on wave 5, round 5 (2026-11-13)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r5-questions.md` (the L5 heading).
+
+1. **Q-L5-2:** D5 §6.2's terminal-state row now records §17.29 item 2's exception for a `withdrawn` record carrying `late_write`. In the domain, the transition is the event `WithdrawnRemovalApproved { late_write }`, and only `late_write: true` leaves `withdrawn`.
+2. **Q-L5-3, accepted as built: a removal clears the residual only under D5 §6.7's own condition.** That condition: the removal's own reading is past `not_after_remote` on the destination clock, the registry was readable, no lock carries the residual's token (and no unreadable or foreign lock is present), and the line is removed. Otherwise the record ends `removed` with the residual kept, and the absence check (§17.28 item 3) can still clear it later.
+3. **Q-L5-4: the same rule applies to `abandoned`.** A removal admitted from `abandoned` clears a `late_write` residual under item 2's condition, and keeps it otherwise. A removed record therefore never stays an outstanding obligation once its removal has shown absence. **The regression:** an abandoned record with a residual, removed after the not-after with no lock present, ends `removed` with the residual cleared. Removed before the not-after, it keeps the residual.
+4. **Q-L5-6: the store checks event payloads against the stored record.**
+   - `transition_enrollment` refuses `WithdrawnRemovalApproved { late_write }` when `late_write` differs from the stored record's `late_write.is_some()`. It likewise refuses `OwnerReverify { hold }` when `hold` differs from the stored hold.
+   - The app derives both from the stored record anyway; the store check is defence in depth.
+   - **The regression:** a mismatched payload is refused, and nothing changes.
+5. **Q-L5-7: a held removal stays outside the uniqueness rule.**
+   - A record whose removal was admitted from `withdrawn` or `abandoned` keeps its removal origin through every later state of that removal, `held` included. The uniqueness index on `(pair, CA)` excludes records that carry a removal origin, as it already excludes `abandoned` (Q25).
+   - Reproduce the conflict first: a store-level test holds such a removal beside a live enrollment of the same pair and CA, and today the transition is rejected. Then fix it.
+   - **The regression:** with the fix the transition commits, and the live enrollment is unaffected. Reverted, the test fails.
+6. **Q-L5-9, confirmed:** the store compares `OwnerReverify { hold }` with the stored hold **by kind**, because the event carries only the kind. A mismatched kind is refused, and nothing changes.
+7. **Q-L5-11, confirmed:** the held-removal conflict came from a removal origin that was never recorded. The `(pair, CA)` index already exempted held records carrying an origin, and the account-form removal path did not record one. Recording it needed no migration. Q-L5-12: the recorded origin also covers a re-removal from `held` of the same removal.
+8. **Q-L5-10: the same payload check applies to every event that restates stored state.** `TargetChangeApproved { hold }` and the manual-recovery events are refused when what they restate differs from the stored record, as in item 4. **The regression:** each mismatch is refused, and nothing changes.
+### 17.31 Orchestrator rulings on wave 5's re-check (2026-11-13)
+
+**Source:** the independent re-check of `baf2c88f..7259203f` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck.md`. Verdict: fix first, with W5-C01 to W5-C05.
+- **What held:** the original twelve findings' scenarios pass, and all 17 semantic reverts failed their regressions.
+- **What did not:** W5-S01 is not fully closed, and the new findings are on paths the regressions did not cover.
+
+1. **W5-C01: the purge holds the runtime's own instance lock from its final read through the deletion.**
+   - **Shutdown first:** uninstall purges only after the runtime's shutdown is confirmed. A failed or dropped stop refuses the purge (exit 5, retryable), deleting nothing.
+   - **The lock:** after the confirmed stop, and before its final inventory and bundle read, the CLI acquires the same exclusive instance lock (`service.lock`, `InstanceLock`) that runtime start-up takes. It holds that lock through the deletion. If a replacement runtime holds the lock, the purge refuses and deletes nothing.
+   - **Other writers:** every other path that writes the state database must either take that lock or go through the runtime. The integrator lists every writer and confirms this.
+   - **The regressions:**
+     - a failed or dropped shutdown refuses the purge;
+     - a replacement runtime holding the lock refuses it;
+     - while the purge holds the lock, a runtime start-up waits or fails and writes nothing;
+     - the re-check's scheduled interleaving now refuses.
+2. **W5-C02: the fence is enforced where the reservations are made, not only in the dispatcher.**
+   - The grant reservation and the verification reservation check the fence under the admission guard, and that guard is held across their store write, so a fence acquisition cannot overtake a reservation that has passed its check. Supervisor passes and every application route go through the same boundary.
+   - **A `StepResult` for a step dispatched before the fence is recorded durably,** as §17.28 item 1 allows. Its effectful follow-through, such as initial verification, is deferred until admission reopens. If the uninstall purges, the follow-through never runs. If it refuses and lifts the fence, the normal pass or a reconcile picks it up. The result itself is never discarded.
+   - **The regressions:** the re-check's three probes (the step-result issuance, the direct verification reservation and the direct admission) are each refused or deferred under the fence. A deferred verification runs after the fence lifts.
+3. **W5-C03: every route to a confirmed removal finishes the same way.**
+   - Residual clearing under D5 §6.7's condition (§17.30 items 2–3) and the issuing-set rule (§17.29 item 9) are one shared post-removal finalization. The manual-recovery absence route (`--after-manual-recovery`) uses it too, keeping its own transition and receipt.
+   - **The regressions:** the re-check's two probes. A manually recovered withdrawn removal clears its residual, and a manually recovered last removal drops the issuing CA.
+4. **W5-C04: covered by round 7, which checks every hold-carrying event's hold by kind against the stored record.**
+   - A restated recovery purpose is compared too, if it is persisted where the same store transaction can read it.
+   - **The regressions:** the re-check's three mismatches are refused, and nothing changes.
+5. **W5-C05: retirement reports what it did.**
+   - After a new-item restore, retiring the CA deletes the current item and confirms its deletion, so the CA becomes `retired`. The displaced, access-denied old item is handled by the existing denied-displaced-item path: it stays in `orphan_store_items` with its Keychain Access instruction.
+   - The command then reports success (exit 0, effect applied), with the orphan as a note and its next step. It never reports effect `none`, and it never advises a restore after a completed retirement.
+   - **The regression:** the re-check's restore-then-retire test.
+6. **An unconfirmed shutdown has a named reason: `uninstall_shutdown_unconfirmed`** (additive, authorized; `SERVICE_UNAVAILABLE`, exit 5, retryable).
+   - **Which refusals:** a purge refused because the runtime did not confirm its shutdown carries it, and so does one refused because a replacement runtime holds `service.lock` (Q-I-R8-1). The owner's next step is the same for both: stop the runtime (`heimdall service stop`), then run `heimdall uninstall` again.
+   - **The messages say which case it was:** "the runtime did not confirm its shutdown", or "a runtime started again while uninstall was running".
+   - A lock I/O failure stays without a reason.
+7. **Q-L5-13, accepted:** a restated recovery `purpose` is not compared. It lives only in the operation's journal receipt, which the store transaction cannot decode. Persisting it on the record later, as an additive field, would make it checkable.
+8. **Q-G8-2: a fence refusal during verification is an error, never a verification result.** `verify_operation` returns the fence refusal from `run_verification` instead of recording it as an inconclusive verification. A refusal says nothing about the remote, so it must not change the enrollment's evidence. It is believed unreachable now that the boundary holds admissions, and is fixed anyway. **The regression:** a forced fence refusal leaves the enrollment's evidence and state unchanged, and returns the refusal.
+9. **Q-I-R9-1: a re-verification refused by the fence resumes after the fence lifts.**
+   - The refusal of item 8 leaves the record `reverifying`, with its operation open and no verdict. Once the fence lifts, the re-verification pass resumes that open operation; it never does so while the fence is held. This is item 2's deferral rule, with no domain change.
+   - **The regression:** after a forced refusal, nothing is resumed while the fence is held. After it lifts, the operation is resumed once and reaches a verdict, and a later pass reserves nothing more.
+
+### 17.32 Orchestrator rulings on wave 5's second re-check (2026-11-13)
+
+**Source:** the second independent re-check, of `0cd94961..ccf23db5` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck2.md`. Verdict: fix first, with W5-D01 to W5-D05.
+- W5-C03, W5-C04 and W5-C05 are verified, and all five semantic reverts failed their regressions.
+- W5-C01 and W5-C02 remain incomplete on further paths.
+- W5-D05 duplicates §17.31 item 8, which round 9 built after the reviewed commit.
+
+1. **W5-D01: the purge's final comparison covers every recovery-relevant record, not a hand-picked part.**
+   - **What is compared:** the final inventory, read while holding `service.lock`, is compared with the inventory the owner confirmed, adjusted for the changes this uninstall itself made (its own retirements, deletions and confirmations). The comparison covers:
+     - every issuer CA with its state and store locator, and `orphan_store_items`;
+     - every enrollment with its state, residual and origin;
+     - every foreign removal;
+     - every open operation.
+   - **On any other difference,** including a CA, locator or record added or replaced by a runtime that started and stopped in between, uninstall refuses with `uninstall_inventory_changed` and deletes nothing.
+   - **The rule for later:** a recovery-relevant record kind added in future joins this comparison, and a test enumerates the kinds so that a new one cannot be missed silently.
+   - **The regression:** the re-check's probe. A replacement takes the lock, records a new CA and locator, and releases the lock. The purge then refuses.
+2. **W5-D02: every route that creates a reservation goes through the fence boundary.**
+   - Both callers of `reserve_entry` count, including the publication branch (`publish_issuance` after an authority-generation change). The admission is held through the store commit. A route that cannot take the admission refuses.
+   - **The regression:** the re-check's probe. A publication that would re-reserve under a held fence is refused, and nothing is persisted.
+3. **W5-D03: an admission lives as long as the write it admitted.**
+   - The admission is owned by whatever owns the store transaction, so it is released only when the transaction commits or rolls back. Cancelling the caller's future must not release it while an accepted write is queued or running. This applies to both reservation tables.
+   - **The regression:** the re-check's probe. A cancelled reservation's pending transaction finishes before a fence acquisition completes.
+4. **W5-D04: each operation's verification runs at most once at a time.**
+   - Initial verification is single-flight per operation, across a step result's follow-through, a reconcile, the deferred resume of §17.31 items 2 and 9, and the re-verification pass. The existing single-flight pattern or an atomic claim in the store will do.
+   - A concurrent caller observes the same outcome; it never starts a second verifier.
+   - **The regression:** the re-check's probe. Two concurrent resumes sign one verification pair (two certificates), not two pairs, and both callers see the same outcome.
+5. **W5-D05:** this is the same finding as §17.31 item 8, already built in round 9 together with item 9. **The regression:** `verification_fence_refusal_is_returned_and_changes_no_evidence`.
+6. **The snapshot's operation and certificate readings, confirmed:**
+   - **"Every open operation" means open enrollment operations.** Foreign removals are covered as records. Issuer operations have no remote effect, and their store items are covered by the CA, locator and orphan-item entries.
+   - **Issuance and verification certificate records stay out.** They are short-lived and create no new remote obligation.
+   - The classification tests name every excluded table, operation kind, decision kind and meta key with its reason. A new kind fails until it is classified.
+7. **Pending remote revocations count; local cleanup intents are swept.**
+   - **`remote_revocation:` is in the snapshot.** It records an access grant's revocation whose remote part is still pending. A purge would lose it with no retry.
+   - **One retry, never a re-arm:** under the held fence and before the shutdown, uninstall calls the holder-only `UninstallFenceRequest::RetryRemoteRevocations` (additive, authorized). It makes one ordinary attempt per pending record, without re-arming it (Q-I-R10-1).
+   - **Disclosure, not refusal:** whatever is still pending is listed in the purge confirmation and the report, and the owner's typed confirmation covers it. A refusal would block uninstall forever for a revocation that can never succeed.
+   - **`cleanup_intent:` is local and stays out of the snapshot.** The ruling's condition, that uninstall's local cleanup removes every path a cleanup intent can name, did not hold. So the purge now sweeps `<run>/b/*` and `<state>/managed/*` under the lock, and refuses to follow a link.
+8. **The audit of round 10.** Before reporting, the integrator commissioned an independent audit of the same gap classes. Its findings A1–A6, A8, L1 and L2 are fixed, each with a regression that fails when its fix is reverted:
+   - one admission across the whole managed pipeline;
+   - pending `RegisterIssuer` locators in the snapshot;
+   - observed-only own retirements;
+   - classification of decision kinds and meta keys;
+   - journal comparison of open operations;
+   - a fenced issuer supervision pass;
+   - a verification leader that owns its flight until its compare-and-swap result write;
+   - gated issuer-child spawns and loads, whose cancelled loads and starts now recover.
+
+   **A7 is accepted as is:** the time-anchor write is not recovery-relevant and only moves forward.
+### 17.33 Orchestrator rulings on wave 5's third re-check, and when wave 5's review stops (2026-11-13)
+
+**Source:** the third independent re-check, of `ccf23db5..142fe3fa` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck3.md`. Verdict: fix first, with W5-E01 to W5-E05 (medium) and W5-E06 (low).
+- The original W5-D01–D05 probes pass, and eight semantic reverts fail their regressions.
+- The new findings are deeper edges of the same two designs: the fence holder's scope and the purge's handoff.
+
+1. **W5-E03 and W5-E05: the holder's exemption is a lease, not a flag.**
+   - **The lease:** fence-holder authority is a value scoped to the holding connection and the fence's **generation**, replacing a task-local boolean. Work started on the holder's behalf carries that lease explicitly, including the spawned verification leader. Work the holder did not start never gains it.
+   - **Re-checking:** every holder-exempt step re-checks the lease, at its start, before each retry round and before each commit. If the fence was released or reacquired, the step is refused (`uninstall_in_progress`).
+   - **Release waits:** a fence is not released while holder work it accepted is still in flight. Reacquisition gets a new generation.
+   - **The regressions:**
+     - the re-check's two probes (`recheck3_fence_holder_can_finish_own_verification`, `recheck3_released_holder_must_not_continue_retry_under_new_fence`);
+     - a holder-spawned task keeps the lease;
+     - a lease from an earlier generation is refused.
+2. **W5-E02: an indeterminate issuer request ends its child before the admission is released.**
+   - **When it applies:** a request to the real issuer child (load or sign) may already be delivered when its waiter is cancelled or times out. In that case the parent stops that exact child (verified by PID, start time and image) and awaits its exit before the admission is released.
+   - **Afterwards:** the client is then `crashed`, and the child restarts on demand under the fence gate. No late load or signature can cross a fence acquisition. A bound on the stop keeps acquisition from waiting forever; if the stop cannot be confirmed, the admission is held and the fence acquisition reports it.
+   - **The regressions:** the re-check's two real-child probes (`recheck3_real_issuer_late_sign_cannot_cross_fence`, `recheck3_real_issuer_cancelled_load_cannot_cross_fence`).
+3. **W5-E01: the retry allowance is the exact record the retry produced.**
+   - The holder's retry route returns the complete post-retry `PendingRemoteRevocation` for each record: obligations with their attempts, stops and kinds, the effect and claim sequence, the re-arm history and the cap.
+   - The final locked comparison allows exactly that record, byte for byte in its canonical form. Anything else, such as a new obligation added in the handoff, refuses with `uninstall_inventory_changed`.
+   - **The regression:** the re-check's probe (`recheck3_retry_allowance_rejects_new_remote_obligation`).
+4. **W5-E04: the destructive sweep never follows a replaced ancestor** (spec §14.3, symlink and TOCTOU replacement).
+   - **On Unix:** the purge opens each root (`<run>`, `<state>`) through its trusted parent without following links (`O_NOFOLLOW`/`O_DIRECTORY`), checks that it is owner-only and owned by this user, and deletes **relative to those handles** (`openat` and `unlinkat` through rustix). A replaced root, or a link anywhere in the walk, refuses the purge with nothing outside the roots touched.
+   - **On Windows:** the purge opens the roots without following reparse points (`FILE_FLAG_OPEN_REPARSE_POINT`) and refuses on any reparse point it meets. Deletion goes through the opened handles where the API allows. Any residual window that remains is named in the code and in the claims table.
+   - **The regressions:** the re-check's probe (`recheck3_purge_never_follows_runtime_root_replacement`) and the nested-link case.
+5. **W5-E06: the sweep covers every local path a cleanup intent can name.** That includes the stable mux paths `<run>/mux/<destination>` (`finish_slot`, `clear_slot_path`), cleared under the same anchored handles.
+   - **The regressions:** the re-check's probe (`recheck3_purge_removes_cleanup_mux_path`); and the path-coverage test now enumerates `finish_slot`'s paths as well as the key, certificate and binding paths.
+6. **When wave 5's review stops.** Four review passes have found progressively narrower edges of the same two designs. A fourth re-check covers round 11's diff, re-runs every earlier re-check's probes, and tries a revert for each round-11 fix. After it:
+   - **Fix before the merge:** any finding with a lasting effect on remote trust, recovery records or the owner's data, or a consent bypass, at any severity.
+   - **Record, and do not block the merge:**
+     - a finding that only fails closed (a refusal or a delay) with no lasting effect;
+     - a finding that needs a hostile same-user program, which spec P03 explicitly does not claim to isolate.
+
+     Each is recorded as a named residual in ADR-0008 and the claims table, with its probe, and carried to U13.
+7. **Q-P8-R11-1: a `RESIDUALS` list records accepted limits** (`crates/domain/src/claims.rs`; additive).
+   - Each entry names the residual, its platform, the claim it limits, its test or code citation, and its item-6 category.
+   - The claims-table validator refuses an entry that carries a claim's fields, collides with a claim ID, or names a missing test. A residual is never presented as a verified claim.
+8. **Swapping `<state>` before the final read** needs a hostile same-user program (P03). It is recorded in `RESIDUALS`, narrowed by item 10 to what actually remains: a swap away and back that falls entirely between the two identity checks.
+9. **Q-G8-R11-1: a holder step that never ends keeps the fence releasing.**
+   - Fenced requests stay refused until that step ends or the runtime restarts. This fails closed and leaves no lasting effect, so it is recorded in `RESIDUALS`.
+   - Past the 20 s release bound, other requests get an additive reason, `uninstall_fence_release_stuck` (exit 5), with the next step `heimdall service stop` then `heimdall service run --detach`. Read-only commands do not start the runtime on demand, so the step names both commands.
+10. **Precedence between item 6's two buckets: for destructive deletion, a lasting effect on the owner's data wins.** Such a finding is fixed, whoever triggers it (spec §14.3).
+    - **The audit's B3 and B4, fixed:** the sweep opens `<state>` and `<run>` once, without following links, from a trusted ancestor chain.
+    - **One handle throughout:** `service.lock`, the final read, the bundle check and the deletion all go through those handles, with device and inode checked around each step.
+    - **No partial deletion:** an all-roots check pass and a re-verification come before the first unlink. A replaced parent, a swapped root, or a link appearing between the passes refuses with nothing deleted.
+11. **The audit's B2, B5 and B6 are recorded as residuals:**
+    - **B2:** a stuck, unverifiable issuer child can outlive an admission. It has no lasting effect: the child never writes the store and a late signature is never published.
+    - **B5:** it needs a hostile owner program holding the fence.
+    - **B6:** a runtime that ran with another `XDG_RUNTIME_DIR` leaves only local leftovers. The uninstall report names the roots it swept.
+12. **The secure-path rule is OpenSSH's StrictModes rule.**
+    - `<state>` and `<run>` are owner-only and owned by this user.
+    - Each ancestor is owned by this user or by root and is not writable by group or others. A sticky, shared parent refuses. A link is followed only when root owns it, as with macOS `/var`.
+    - Every platform's default layout passes, and a test proves it.
+13. **On Windows, each ancestor's owner must be this user, SYSTEM or Administrators,** and reparse points still refuse. The owner lookup is a safe wrapper (`file_owner_sid`) in `crates/ipc/src/windows.rs`, a module overview §9 already allows `unsafe` in, so no dependency or lock change was needed. Native evidence is carried to U13.
+14. **A debug-only `HEIMDALL_TEST_PURGE_TRUSTED_TOP` gives test scratch homes a passing chain.**
+    - It is read through `testcfg`, refused in release builds, and probed by the release gate.
+    - It must be an owner-only, strict ancestor of the roots, and the full rule still applies below it.
+    - A test still proves the full chain from `/` without the hook.
+### 17.34 Orchestrator rulings on wave 5's fourth re-check (2026-11-14)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-recheck4.md`. The fourth re-check, of `06990cc8..e068e049` (Codex), was stopped by its provider's content filter before it wrote a report. The orchestrator reconstructed the record from its command ledger.
+- Every round-11 revert failed its regression.
+- Four new probes failed: W5-F01 to F04.
+- §17.33 item 10's precedence applies: the `RESIDUALS` entry for a swap during the final read was inaccurate, and it is replaced by item 1.
+
+1. **W5-F01 and W5-F02: the bytes validated are the bytes deleted.**
+   - **Quarantine first:** under the lock, through the anchored handles, each entry the purge will remove (the database, each backup, each binding directory, each mux path) is first renamed atomically (`renameat`, `MoveFileEx` on Windows) to a fresh random quarantine name inside the same anchored directory.
+   - **Then validate:** the final read, the snapshot comparison and the bundle check run against the **quarantined** database. Each other entry's identity (device and inode, or Windows file ID) is checked against what was inspected.
+   - **Then delete:** only after every entry validates are the quarantine names unlinked.
+   - **On any mismatch,** every entry is renamed back and the purge refuses with nothing deleted. If a rename-back fails, the entry stays in quarantine, its exact path is reported, and the purge refuses.
+   - **The result:** an actor that swaps an entry can, at most, cause the deletion of an entry it placed at a random quarantine name itself. Data the purge did not validate is never removed.
+   - **The regressions:** the re-check's two probes (`recheck4_transient_state_swap_must_keep_unconfirmed_recovery`, `recheck4_leaf_replacement_must_keep_unconfirmed_owner_data`). The `RESIDUALS` entry for the final-read swap is removed or rewritten to name only what remains, if anything.
+2. **W5-F03: a user-private-group home passes the secure-path rule.**
+   - Under the user-private-group scheme (Debian and Ubuntu with umask 002), an ancestor may be group-writable when:
+     - its group is the user's own primary group;
+     - that group's name is the user's name;
+     - the group has no other members.
+
+     This is OpenSSH's Debian `user-group-modes` rule.
+   - **Mechanism:** the group lookup goes through a module that overview §9 already allows `unsafe` in; no new crate. If the lookup is unavailable, the rule refuses, naming the directory and the fix (`chmod g-w <dir>`).
+   - The roots stay owner-only.
+   - **The regression:** the re-check's probe (`recheck4_default_unix_home_with_private_group_must_pass`), plus a shared-group case that still refuses.
+3. **W5-F04, recorded in `RESIDUALS`:**
+   - **The case:** cancelling issuer cleanup during its 5 s wait signals the child through `kill_on_drop`.
+   - **Why it is safe:** the child is unreaped, so the handle cannot reach a reused PID, and there is no lasting effect.
+   - **The entry:** it names the probe (`recheck4_cancelling_stop_must_not_signal_unverified_child`).
+4. **Carried to round 12's re-check:** the questions the cut-off run did not finish (its own analysis of the lease, exact-child-stop and Windows paths, and a review of every `RESIDUALS` entry).
+5. **Two safe wrappers are accepted:** `heimdall_ipc::windows::file_id` and `heimdall_runtime::platform::user_private_group`. Both sit in modules that overview §9 already allows `unsafe` in.
+6. **The descriptor census and two more wrappers:**
+   - **The census is per file:** each held file (the database, `-wal` and `-shm`) gains exactly one descriptor through SQLite's open. That replaces a process-wide "no other new descriptors" check, which would race with other threads. A swapped-in file still fails, because the held file then shows a missing descriptor.
+   - **Two more safe wrappers are accepted,** in the same §9 modules: `move_no_replace` and `regular_file_descriptors`.
+   - **The round-12 audit of item 1 found C0–C4, and all are fixed:**
+     - C0: the database and its logs are held at their quarantine names before the read, an absent log is created exclusively, a decoy is refused, and the census runs;
+     - C1: the database is deleted last, and a partial failure renames back everything not yet started;
+     - C2: the Windows tree deletion keeps each directory pinned and checks each entry's file ID;
+     - C3: renames never replace an existing name;
+     - C4: one residual remains on every platform: an entry an actor itself placed inside a quarantined directory can be deleted.
+### 17.35 Orchestrator rulings on wave 5's final re-check (2026-11-14)
+
+**Source:** the final re-check, of `06990cc8..94d6076d` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck5.md`. Verdict: fix first, with W5-G01 and W5-G02 (BLOCKING) and W5-G03 and W5-G04 (NON-BLOCKING).
+- **Its passing evidence:**
+  - 1054 debug-profile and 24 release-profile test results passed;
+  - all 27 release-gate probes passed;
+  - six semantic reverts each failed their regression.
+- **Its open question:** both blocking findings are in how the purge handles the SQLite database family.
+
+1. **W5-G01: the database family is one recovery unit, never split.**
+   - **One quarantine directory:** the database and its `-wal`, `-shm` and `-journal` files are moved together into one fresh, owner-only quarantine directory created exclusively inside the anchored `<state>` (renames that never replace). Inside it they keep their family names, so SQLite always sees them as one unit.
+   - **Restoring:** a restore moves the unit back only when **none** of its original names is occupied. It moves the database first and its companions after.
+   - **Otherwise it stays put:** if any original name is occupied, the whole unit stays in its quarantine directory, reported with its exact path, and no companion is ever restored alone. A later normal open can therefore never combine old logs with a replacement database.
+   - **The regression:** the re-check's probe (`final_review_restore_does_not_attach_old_wal_to_new_owner_database`). The replacement database keeps its record after a normal reopen.
+2. **W5-G02: deletion never runs ahead of the last complete copy.** ⟨Superseded by §17.36 item 1 and §17.37: the in-place checkpoint below is replaced by a `VACUUM INTO` recovery copy made from a read-only connection; the deletion order is §17.36's.⟩
+   - **Checkpoint first:** after validation succeeds, and before anything is deleted, the validating connection checkpoints the quarantined database with `PRAGMA wal_checkpoint(TRUNCATE)`. Every committed record is then in the main file. The purge confirms the WAL is empty (zero bytes, or absent), and refuses otherwise.
+   - **Then delete,** in this order: the companions (`-wal`, `-shm`, `-journal`), the main database, and finally the quarantine directory.
+   - **On a companion deletion failure,** the complete main database is still in quarantine. It is restored under item 1's rule, or kept and reported. The report names exactly the files retained, never claiming that the database was renamed back if it was not.
+   - **The regression:** the re-check's probe (`final_review_companion_failure_preserves_database`). After an injected companion failure, a complete database remains, under its normal name or in quarantine.
+3. **W5-G03:** `RESIDUALS` gains `uninstall_fence_release_stuck_until_holder_work_ends` (§17.33 item 9), with its probe. A test asserts that every residual an ADR names is present in the manifest.
+4. **W5-G04:** a retry result that is still pending, whether `failed` or simply lacking a replacement record, keeps its record in the displayed inventory. Only a completed result that is no longer pending removes it. **The regression:** the re-check's probe (`final_review_failed_retry_retains_pending_display_record`).
+5. **What comes next:** a re-check of round 13's diff, limited to the database-family handling and item 4, with the §17.33 merge criteria.
+6. **Two additions are accepted:**
+   - ⟨Superseded by §17.36 item 1: `Checkpointer` is removed, and the ADR-0006 §16.6 row records the removal.⟩ `heimdall_store::Checkpointer`, an additive workspace API. It is read-write, never creates the file, is confirmed by the descriptor census, and has `wal_checkpoint` on close disabled. It is documented as existing only for item 2's checkpoint in quarantine, never to open the live database.
+   - `heimdall_ipc::windows::create_dir_owner_only`, in an overview §9 `unsafe`-allowed module.
+7. **The audit's D1 and D2: an interrupted purge blocks start-up until it is recovered.**
+   - **Why:** moving the database family file by file is not atomic. A crash between the database move and its `-wal` move, or the reverse during a restore, would otherwise let the next start-up create an empty `state.db` and discard the WAL with its commits. That is a lasting loss of recovery records with no hostile actor involved, so it is fixed (item 10 of §17.33).
+   - **The start-up check:** runtime start-up runs it after taking the instance lock and before opening the store; `Service::start_with` is the only production path that creates `state.db`. It refuses on any `.hm-purge-*` entry, or on a `-wal`, `-shm` or `-journal` without `state.db`, with the additive reason `uninstall_quarantine_present` (`SERVICE_UNAVAILABLE`, exit 5). The refusal names the exact paths and gives the next step `heimdall uninstall`.
+   - **The unit record:** a synced file in the quarantine directory lists each family member's name and inode.
+   - **Recovery:** uninstall first recovers a leftover unit under the lock by that record, with no prompt (a restore deletes nothing). It then either restores the unit under item 1's rule or completes the purge.
+8. **The audit's D3, D4 and D5 are fixed:**
+   - D3: one read, then the census, then the checkpoint, so nothing unvalidated is ever checkpointed;
+   - D4: the report states only what remains on disk;
+   - D5: on Windows, files the purge created are never restored or listed as renamed back.
+### 17.36 Orchestrator rulings on wave 5's scoped re-check of round 13 (2026-11-14)
+
+**Source:** `tests/evidence/artifacts/review-m03-code/wave5-recheck6.md`. This is a scoped review of the database family, reconstructed from the reviewer's logs after its provider's content filter stopped the run.
+- Every round-13 revert failed its regression.
+- A normal start-up with live `-wal`/`-shm` files passes the guard.
+- Two probes failed: W5-H01 and W5-H02.
+
+**1. W5-H02 and W5-H01: SQLite never writes to the owner's original database family.**
+- **The cause:** both findings come from SQLite touching the original files before, or outside, validation.
+  - A read-write open replays a hot rollback journal into the owner's pages (H02).
+  - Restoring the family takes several renames, and a database swapped in between them gets the old WAL attached to it (H01).
+- **The rule:** the purge never opens the original family read-write.
+- **Before any open:**
+  - a family that contains a `-journal` is refused and kept. Heimdall's store runs in WAL mode, so a hot rollback journal is never legitimate;
+  - the check is repeated immediately before the open;
+  - the read and the descriptor census use a **read-only** connection, which cannot roll back a journal.
+- **The recovery copy:** from that validated read-only connection, the purge writes one self-contained copy of the database with `VACUUM INTO`. The copy goes to a fresh, exclusively created name inside the owner-only quarantine directory, and is fsynced. Item 2 of §17.35 (the in-place checkpoint with `Checkpointer`) is replaced by this copy. `Checkpointer` is removed, unless something else still needs it.
+- **Restore (on a refusal):** the purge restores **the recovery copy alone**, as `state.db`, with one no-replace rename: one atomic step with no WAL to attach. The original family stays in its quarantine directory and is reported. A later `heimdall uninstall` deletes it once the restored database is confirmed.
+- **Deletion (on success):** the original family's companions are deleted first, then the original database, then the recovery copy, then the directory. A failure at any step leaves at least the complete recovery copy, which is reported with its exact path.
+- **Crash recovery and start-up:** recovery (§17.35 item 7) treats a unit that holds a recovery copy the same way. Start-up still refuses while any quarantine exists.
+- **The regressions:**
+  - the re-check's two probes (`r13_review_restore_race_preserves_replacement_record`, `r13_review_checkpoint_probe_never_replays_unvalidated_journal`);
+  - a crash at each new step leaves a complete database, either restored or in quarantine;
+  - a planted `-journal` refuses the purge and leaves every byte of the original family unchanged.
+
+**2. Who reviews next.** The provider's content filter has stopped two Codex reviews of this purge code. The next review of the database family runs on a different model family, chosen from what `orchestrator_capabilities` offers, and stays independent of the integrator's model.
+
+### 17.37 Orchestrator rulings on round 14 and its independent audit (2026-11-15)
+
+**Source:** the independent audit of round 14's §17.36 item 1, on Gemini (`gemini-4-hydrogen-xhigh`), neither Codex nor Claude, as §17.36 item 2 requires. It ran in two passes, the second a scoped re-check of the fixes: `tests/evidence/artifacts/review-m03-code/wave5-notes/m03-wave5-r14-gemini-audit.md`.
+- **What it confirmed, from the bundled SQLite 3.54.1 source:** `VACUUM INTO` on a read-only main database opens only a read transaction on it, and a read-only pager facing a hot journal returns `SQLITE_READONLY_ROLLBACK` rather than replaying it.
+- **What it checked and found correct:** the `-journal` refusals, the read-only validation with its census, the copy's creation, fsync and no-replace rename, the deletion order and the start-up guard.
+
+1. **E1 (high; an ordinary crash or I/O error), fixed: the deletion of the originals is durably marked.** Deletion used to remove the original's `-wal` before its database. A failure or crash between those unlinks left an original without its log, and recovery then compared the complete restored copy against that incomplete original, failed, and kept the unit for ever, blocking start-up and uninstall. Now a fsynced `heimdall-purge-deleting` marker is written in the unit before the first original is unlinked. Recovery that finds the marker finishes deleting the originals and never compares the copy with a partial original. **The regression:** `final_review_original_unlink_failure_or_crash_recovers_complete`, a failure and a crash at each original unlink.
+2. **E2 (medium; a crash), fixed.** A crash while `VACUUM INTO` writes the copy can leave SQLite's own `.part` companions. Recovery removes `.part`, `.part-journal`, `.part-wal` and `.part-shm` by exact name inside the unit; they are the purge's files, never the owner's. **The regression:** `final_review_crash_while_vacuum_writes_recovers`.
+3. **E3 (medium; ordinary state), fixed: the validating reads write no file of the original family.** A plain read-only open still let SQLite create, extend or write the original's `-shm` (its WAL index) when that file was absent, empty or stale.
+   - **The open:** `Store::open_read_only_no_write`, a URI open with `mode=ro&readonly_shm=1`. SQLite opens the `-shm` read-only, never writes it, and builds the WAL index in memory when it is empty or stale, so a WAL-only commit is still read. Every other caller keeps `Store::open_read_only`.
+   - **With no `-shm`:** uninstall's validating reads read a copy of the database and its `-wal` in a fresh owner-only temporary directory, removed afterwards.
+   - **The purge's own `-shm`:** the empty `-wal` or `-shm` that the hold creates inside the quarantine unit belongs to the purge. Deletion removes it, and after a refusal it stays inside the kept unit until the next recovery removes it.
+   - **The regression:** `final_review_validating_read_writes_no_family_file`. With the `-shm` absent, empty and stale, `state.db`, `-wal` and `-shm` are byte-identical after the read, and the read still sees a WAL-only commit.
+4. **The restore's check-then-rename window is a residual.** A log placed at `state.db-wal` between the restore's check that the names are free and its rename needs a hostile same-user program (spec P03). A restore deletes nothing, and the original family stays in quarantine, so §17.33 item 10 does not apply. `RESIDUALS` gains `purge_restore_copy_log_placed_between_check_and_rename` (§17.33 item 6).
+5. **F1 (low), accepted as designed.** After a refusal, the purge-created empty `-shm` stays inside the kept quarantine unit until the next recovery removes it. It is the purge's file, inside a unit that is kept and reported anyway, and it limits no claim, so it is not a residual.
+6. **F2 (low; fails closed), fixed in the next round.** The no-write open is chosen whenever a `-shm` exists. A `-shm` left without a `-wal` makes that open fail, so the read refuses instead of reading the copy. The fix: read in place only when both companions exist, and otherwise read the copy, with its regression.
+7. **Q-P8-R14-2, an accepted consequence.** After a refused purge that restored the recovery copy, the runtime refuses to start (`uninstall_quarantine_present`) until `heimdall uninstall` runs again. A refused purge has already rolled back setup and stopped the runtime, so the owner was uninstalling. That next run confirms the restored database, deletes the originals and keeps the state.
+8. **What comes next.** A final review of wave 5 runs on a third model family, Grok, independent of Codex, Claude and Gemini, with §17.33 item 6's merge criteria. Its must-fix findings and F2 make up round 15. Native runs (the devbox in two batches, and Windows) run on the round-14 commit.
+
+### 17.38 Orchestrator rulings on wave 5's final review (2026-11-15)
+
+**Source:** the final review of wave 5 at `40a8d1d4`, on Grok (`grok-4.7`), a third model family independent of Codex, Claude and Gemini: `tests/evidence/artifacts/review-m03-code/wave5-final.md`. Verdict: fix first, with W5-I01.
+- **What held:**
+  - the 41 purge and uninstall regressions pass;
+  - four reverted fixes (E1, E2, E3 and the `VACUUM INTO` copy) each failed their regression;
+  - no path was found that writes to, replays into or attaches a log to the original family, or that attaches an old WAL to a different database.
+- **Native development checks at `40a8d1d4`:**
+  - **Windows:** 86 of 86 binaries pass, with 2588 passed, 0 failed and canary count 0;
+  - **the devbox:** in two batches, 26 of 27 binaries pass. `e2e_cli_m03` failed 3 tests, all on Linux only (item 4).
+
+1. **W5-I01 (must fix under §17.33 item 10): recovery never deletes an original on the marker alone.**
+   - **The cause:** round 14's deleting marker (§17.37 item 1) was an empty file. Recovery that found it unlinked the recorded family before checking that a complete copy existed. A planted marker therefore made the next `heimdall uninstall` delete the only database, or replace it with any regular file at the copy's name.
+   - **The binding:** the marker records the copy's device, inode (the file ID on Windows), size and SHA-256.
+   - **On the normal path, before the marker is written,** the copy must:
+     - match its identity;
+     - open read-only on its own;
+     - pass `PRAGMA integrity_check` and the schema check;
+     - have a recovery snapshot that reads;
+     - and then match its identity again.
+
+     Only then is the marker created exclusively and fsynced. It is removed after the originals and before the copy, so it never outlives the copy.
+   - **On the marker branch of recovery, before any unlink:**
+     - the marker parses;
+     - the copy matches the binding before and after its read-only check;
+     - every original still present has its recorded inode.
+
+     Any failure keeps the whole unit, and start-up keeps refusing.
+   - **One exception, confirmed:** an empty companion that the unit record does not list (the purge's own `-wal` or `-shm`, created by the hold) may be removed. It never covers the database file, and never a file with any content. Removing an empty file loses nothing, and E1 depends on it.
+   - **The regressions,** each failing with its fix reverted:
+     - `w5_i01_planted_marker_without_copy_keeps_database`;
+     - `w5_i01_planted_marker_with_garbage_copy_keeps_database`;
+     - `w5_i01_marker_binding_mismatch_keeps_the_database`;
+     - `w5_i01_original_not_the_recorded_inode_keeps_the_unit`;
+     - `w5_i01_failed_copy_check_unlinks_nothing`.
+2. **Where item 10 stops.** Item 10 makes destructive deletion must-fix, whoever triggers it. Heimdall cannot stop a same-user program that can write the owner's files from deleting them itself.
+   - **The rule:** the purge never deletes the owner's data on evidence that one planted or altered file can produce.
+   - **What that leaves:** evidence forged coherently, meaning a valid database at the copy's name plus a marker binding its exact identity and digest. That gives a hostile program nothing it does not already have. `RESIDUALS` gains `purge_recovery_copy_and_marker_forged_together` (§17.33 item 6).
+   - **A correction:** the entry for `purge_entry_placed_in_quarantine_is_deleted` no longer says that owner data at an inspected path is never deleted.
+3. **F2 (§17.37 item 6) is fixed.** The in-place read is used only when both `-wal` and `-shm` exist; otherwise the copy is read. The fix showed that the earlier rule was wrong, not just fail-closed: with a `-shm` but no `-wal`, the in-place open created an empty `state.db-wal`, which wrote a family file. **The regression:** `f2_shm_without_wal_reads_by_copy`.
+4. **The devbox findings at `40a8d1d4`:**
+   - **A product bug, fixed: the issuer child could never be ended on Linux.**
+     - **The cause:** the child turns off `PR_SET_DUMPABLE` before it holds any key, so its `/proc/<pid>/exe` is unreadable to the parent. `signal_exact` required that image both at spawn and at signal time, so it never signalled the child. A hung child was then never ended on any path (a crash, the stop fallback, or cancelled-request cleanup), and its admission stayed held.
+     - **Its class:** fail-closed only (§17.33 item 6): a delay and a refused fence, with no write and no certificate. It was fixed anyway, as a product bug.
+     - **The new identity rule:** the image is part of the identity only if it was readable at spawn, and then it must still match. Otherwise the identity is the PID, the start token and the client's own unreaped handle, which rules out PID reuse.
+     - **Unchanged:** the child stays non-dumpable, which protects K_ca.
+     - **The regression:** `exact_child_signalled_when_its_image_was_never_readable`, with `exact_child_refused_when_a_read_identity_no_longer_matches` as its companion. The devbox's `e2e_cli_m03` now passes 56 of 56.
+   - **A test defect, fixed:** `issuer_init_prints_passphrase_only_to_tty` scanned the rig's own staged copy of the executable, which contains the prompt text. It now skips `Rig::program` and keeps scanning everything the CLI writes.
+5. **Windows coverage.** Every database-family regression from rounds 13–15 is un-gated for Windows. Where a directory permission cannot be removed on Windows, the test uses the injected unlink failure instead. A native Windows run of them is part of the next native runs.
+6. **The copy check's place, accepted as built.** On the normal path, the copy check runs inside `Unit::delete`, after the validated trees (backups, managed, `b`, `mux`) have been deleted.
+   - **If it fails:** the database family is kept, the purge refuses, and the report states what was deleted and what remains (§17.35 item 8, D4).
+   - **Why that is acceptable:** the trees were confirmed for deletion by the owner's typed `yes`, and no recovery record is lost. Moving the check ahead of the trees would need a separate path that renames the trees back while leaving the family whole. That is not needed for the merge.
+7. **What comes next:**
+   - a scoped re-check of round 15 on Grok;
+   - the devbox batches and a Windows run at round 15;
+   - then the merge, with §17.33 item 6's criteria.
+
+### 17.39 Orchestrator rulings on wave 5's re-check of round 15 (2026-11-15)
+
+**Source:** the scoped re-check of round 15 (`40a8d1d4..20aa899c`) on Grok (`grok-4.7`): `tests/evidence/artifacts/review-m03-code/wave5-recheck7.md`. Verdict: fix first, with W5-J01.
+- **What held:**
+  - three reverted round-15 fixes each failed their regression;
+  - the 47 purge and uninstall regressions pass;
+  - F2 holds, and the empty-companion exception refuses safely;
+  - `signal_exact` never signalled a process other than the exact child.
+- **Native development checks at `20aa899c`:**
+  - **Windows:** 86 of 86 binaries pass (2610 passed, 0 failed), with all 35 database-family purge tests running natively for the first time;
+  - **the devbox:** 27 of 27 binaries pass (901 and 491 passed, 0 failed).
+
+**W5-J01: the copy can be overwritten after its last check.** A same-user writer overwrote `heimdall-recovery-copy.db` in place after the copy's last check. The normal path then unlinked the originals with no further check, and recovery unlinked them and restored the overwritten file as `state.db`.
+- **What it is:** a check-to-use race against a running purge. On Unix, no unprivileged mechanism stops a same-user writer from changing a file's bytes between a check and a later step, and such a program could unlink the originals itself.
+- **The rule:** close the window where the platform allows it, and order the steps so that recovery never deletes an original before a verified database stands at the live name.
+
+1. **Recovery restores first, then verifies, then deletes (both platforms).** Recovery restores the copy as `state.db` with one no-replace rename. It then verifies the file at the live name from a fresh read: the binding, a read-only open with its checks, and the binding again. Only then are the originals, the marker, the record and the directory removed.
+   - **If verification fails:** nothing is unlinked, the unit is kept, and the refusal names the unverified `state.db`. Start-up keeps refusing.
+   - **Out of scope:** a later overwrite of the live `state.db` is the same as corrupting any live database (spec P03).
+2. **The normal path checks again (both platforms).** Immediately before the first original is unlinked, the copy's binding is read again by name through a fresh descriptor. A mismatch refuses, unlinks nothing of the family, and keeps the unit and its marker.
+3. **Windows closes the window.** The copy is held open, sharing read and delete but never write: on the normal path from its check through the last original's deletion, and in recovery through the restore and its verification. The restore renames the held file through its handle, so a file renamed into the copy's place cannot be restored instead.
+   - **What the hold prevents:** any other open of the copy for writing.
+   - **What it does not prevent:** the copy's rename or deletion (the hold shares delete for its own rename). That removes the copy rather than altering it, which fails closed.
+   - **The new wrapper** is accepted: `heimdall_ipc::windows::rename_held_no_replace`, in a module overview §9 already allows `unsafe` in, as `file_id` was accepted (§17.34). It does not add the `\\?\UNC\` prefix to a network path. A rename that fails for that reason fails the restore, and the unit is kept.
+4. **The residual.** On Unix, the normal path keeps an instant between item 2's re-check and the first unlink. A same-user writer can alter the copy in that instant, and the deletion the owner confirmed with a typed `yes` then goes ahead. `RESIDUALS` gains `purge_recovery_copy_overwritten_between_check_and_unlink` (§17.33 item 6).
+   - **Its platform stays `any`.** The overwrite window is Unix-only, but renaming or deleting the copy is possible on both platforms, and the entry says which part is Unix.
+   - **Its probe:** item 2's regression.
+5. **The regressions,** each failing with its fix reverted:
+   - `w5_j01_copy_overwritten_after_check_keeps_originals` (item 2);
+   - `w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals` and `w5_j01_restored_copy_failing_verification_keeps_every_original` (item 1, both for the verification at the live name and for the restore-first order).
+
+   `w5_j01_windows_held_copy_denies_a_second_writer` (item 3) runs on Windows only. On Windows, both `uninstall_cmd` regressions expect the write to be refused with a sharing violation and the purge or recovery to complete.
+6. **What comes next:**
+   - a scoped re-check of round 16;
+   - a Windows run, since item 3's code has only passed Windows clippy;
+   - then the merge, with §17.33 item 6's criteria.
+
+### 17.40 Wave 5's merge (2026-11-15)
+
+**Source:** the scoped re-check of round 16 (`20aa899c..965b509e`) on Grok: `tests/evidence/artifacts/review-m03-code/wave5-recheck8.md`. Verdict: merge, with no new finding.
+- **Its evidence:** 50 purge regressions and 9 new probes pass, and two reverted round-16 fixes failed their regressions.
+- **What remains:** the only windows left are the two §17.39 already records:
+  - the normal path's instant between the re-check and the first unlink;
+  - an overwrite of the live `state.db` after recovery's verification, which spec P03 places out of scope.
+
+**Native development checks at `965b509e`:**
+- **Windows:** 86 of 86 binaries pass (2614 passed, 0 failed, canary count 0). All 37 database-family tests pass, including the Windows-only held-copy test, with no sharing violation or rename failure.
+- **The devbox:** batch A, 13 of 13 (904 passed, 0 failed). Batch B passed at `20aa899c`, and round 16 changed nothing it covers.
+
+Wave 5 merges under §17.33 item 6. From wave 6 on, delivery follows ADR-0009.
 
 ## 18. Consequences
 

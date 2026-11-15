@@ -537,6 +537,47 @@ impl Operations {
                         EnrollmentEventKind::StartVerification
                     }
                     (VerifyMode::Absence, S::ManualRemovalPending) => EnrollmentEventKind::OwnerConfirmsRemoved,
+                    (VerifyMode::Absence, _) if super::verify::late_write_checkable(&record) => {
+                        // ⟨ADR-0008 §17.28 item 3; D5 §6.7⟩ The `late_write` residual's
+                        // absence check: one client-executed `inspect` through the
+                        // attended CLI's existing access (`enroll step`); the record's
+                        // state never moves, and only an observed absence after the
+                        // residual's not-after clears it (`verify::record_late_write_check`).
+                        if !attended {
+                            return Ok(Err(OpError::new(
+                                Code::InteractionRequired,
+                                "the late_write absence check runs only on an attended session",
+                            )
+                            .with_effect(EffectStatus::None)));
+                        }
+                        if let Some((mut open, mut j)) = open_operation_of(tx, &record.id)? {
+                            if !super::verify::is_late_write_check(&open, &j) {
+                                return Ok(Err(refuse(
+                                    Code::ConfigConflict,
+                                    "enrollment_state",
+                                    "another operation of this enrollment is open; finish it first",
+                                )));
+                            }
+                            // An earlier check that never finished (its step lost or timed
+                            // out) is superseded: its step can no longer be reported.
+                            j.outstanding = None;
+                            put_journal(tx, &open.id, &j, now)?;
+                            let superseded = OpError::new(
+                                Code::OperationCancelled,
+                                "superseded by a newer late_write absence check",
+                            )
+                            .with_effect(EffectStatus::None);
+                            super::settle_open(tx, emit, &mut open, &superseded, now, retention)?;
+                        }
+                        let mut op = insert_op(tx, &key, hash, kind, &request, &environment, op_id, now)?;
+                        op_to(&mut op, OperationEvent::Start, now)?;
+                        tx.update_operation(&op)?;
+                        emit.op(tx, &op)?;
+                        put_journal(tx, &op.id, &journal, now)?;
+                        // The answer is `enrollment_respond`'s for a running operation:
+                        // `ACCEPTED`, next `step`.
+                        return Ok(Ok((op.id, false)));
+                    }
                     (VerifyMode::TargetChange, S::Held) if hold == Some(HoldKind::HostKeyChanged) => {
                         journal.reverify_from = Some(ReverifyFrom::Held);
                         journal.proposed_target = proposed.clone();
@@ -578,7 +619,6 @@ impl Operations {
             })
             .await??;
         let (id, run) = r;
-        let _ = attended;
         if run {
             self.verify_operation(&id).await?;
         }
@@ -656,6 +696,7 @@ impl Operations {
         let decision_id = crate::ids::new_decision_id().map_err(|_| internal("randomness"))?;
         let lifetime = self.limits().decision_lifetime;
         let retention = self.retention();
+        let attended = caller.is_attended();
         let r = self
             .write(move |tx, emit| {
                 match replay_in(tx, &key, hash, now)? {
@@ -741,15 +782,49 @@ impl Operations {
                     let _ = retention;
                     return Ok(Ok(op.id));
                 }
-                if !matches!(
-                    record.state,
-                    S::Verified | S::Held | S::AppliedUnverified | S::Abandoned
-                ) {
+                // ⟨ADR-0008 §17.29 item 2⟩ A `withdrawn` record is removable only while
+                // it carries the `late_write` residual (an uncertain append that may have
+                // landed), on an attended session; without it `withdrawn` stays final.
+                let late_write_removal = record.state == S::Withdrawn && record.late_write.is_some();
+                if !late_write_removal
+                    && !matches!(
+                        record.state,
+                        S::Verified | S::Held | S::AppliedUnverified | S::Abandoned
+                    )
+                {
                     return Ok(Err(refuse(
                         Code::ConfigConflict,
                         "enrollment_state",
                         "this enrollment cannot be removed in its current state",
                     )));
+                }
+                if late_write_removal {
+                    if !attended {
+                        return Ok(Err(OpError::new(
+                            Code::InteractionRequired,
+                            "the removal of a withdrawn enrollment's late write runs only on an attended session",
+                        )
+                        .with_effect(EffectStatus::None)));
+                    }
+                    if let Some((mut open, mut j)) = open_operation_of(tx, &record.id)? {
+                        if !super::verify::is_late_write_check(&open, &j) {
+                            return Ok(Err(refuse(
+                                Code::ConfigConflict,
+                                "enrollment_state",
+                                "another operation of this enrollment is open; finish it first",
+                            )));
+                        }
+                        // An unfinished late_write check (its step lost or timed out) is
+                        // superseded by the removal: its step can no longer be reported.
+                        j.outstanding = None;
+                        put_journal(tx, &open.id, &j, now)?;
+                        let superseded = OpError::new(
+                            Code::OperationCancelled,
+                            "superseded by the removal of the late write",
+                        )
+                        .with_effect(EffectStatus::None);
+                        super::settle_open(tx, emit, &mut open, &superseded, now, retention)?;
+                    }
                 }
                 let mut op = insert_op(tx, &key, hash, kind, &request, &environment, op_id, now)?;
                 let pair = pair_of(&record);
@@ -927,10 +1002,12 @@ pub(super) fn decision_precheck(
         DecisionKind::EnrollSystemForm { .. } => {
             record.state == S::Planned && record.form == EnrollmentForm::System
         }
-        DecisionKind::RemoveEnrollment { .. } => matches!(
-            record.state,
-            S::Verified | S::Held | S::AppliedUnverified | S::Abandoned
-        ),
+        DecisionKind::RemoveEnrollment { .. } => {
+            matches!(
+                record.state,
+                S::Verified | S::Held | S::AppliedUnverified | S::Abandoned
+            ) || (record.state == S::Withdrawn && record.late_write.is_some())
+        }
         DecisionKind::ApproveTargetChange { approved, .. } => {
             record.state == S::Held
                 && record.hold.map(|h| h.kind()) == Some(HoldKind::HostKeyChanged)
@@ -1081,14 +1158,20 @@ pub(super) fn decision_apply(
         }
         DecisionKind::RemoveEnrollment { fresh_target, .. } => {
             journal.fresh_target = fresh_target.clone();
-            move_record(
-                tx,
-                emit,
-                enrollment.state,
-                EnrollmentEventKind::RemoveEnrollmentApproved,
-                &updated,
-                Some(&op.id),
-            )?;
+            // ⟨ADR-0008 §17.29 item 2⟩ A withdrawn record leaves its final state only
+            // with the `late_write` residual (the table's guard; the store checks the
+            // payload against the stored record, §17.30 item 4).
+            let from_withdrawn = enrollment.state == EnrollmentState::Withdrawn;
+            let event = if from_withdrawn {
+                EnrollmentEventKind::WithdrawnRemovalApproved {
+                    late_write: enrollment.late_write.is_some(),
+                }
+            } else {
+                EnrollmentEventKind::RemoveEnrollmentApproved
+            };
+            // ⟨§17.30 item 5⟩ The store records the removal's origin for a removal
+            // admitted from `withdrawn` or `abandoned` (`Txn::transition_enrollment`).
+            move_record(tx, emit, enrollment.state, event, &updated, Some(&op.id))?;
             op_to(&mut op, OperationEvent::Approved, now)?;
             tx.update_operation(&op)?;
             emit.op(tx, &op)?;

@@ -136,6 +136,36 @@ fn contract_reason_golden() {
     assert_eq!(warnings, set("warnings"), "M03 warnings");
     let findings: BTreeSet<String> = finding::M03.iter().map(|s| (*s).to_owned()).collect();
     assert_eq!(findings, set("doctor_findings"), "M03 doctor findings");
+    // ⟨ADR-0008 §17.25 item 15⟩ `Warning.reason` values, both ways: each refines an
+    // existing code, is snake_case, and is no error reason.
+    let warning_reasons: BTreeSet<(String, String)> = golden["warning_reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["reason"].as_str().unwrap().to_owned(),
+                r["warning"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let in_code: BTreeSet<(String, String)> = m03_warning::REASONS
+        .iter()
+        .map(|(r, c)| ((*r).to_owned(), (*c).to_owned()))
+        .collect();
+    assert_eq!(in_code.len(), m03_warning::REASONS.len(), "duplicate rows");
+    assert_eq!(in_code, warning_reasons, "M03 warning reasons");
+    for (r, c) in &in_code {
+        code_named(c);
+        assert!(
+            r.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+            "{r} is not snake_case"
+        );
+        assert!(
+            !names.contains(r.as_str()) && !reason::ALL.contains(&r.as_str()),
+            "{r}"
+        );
+    }
 }
 
 /// m03-plan section 5 item 2 (F23): no test store kind in any public schema; the
@@ -408,6 +438,12 @@ fn m03_requests_need_their_capability_and_unlock_is_attended() {
             "issuer/1",
             false,
         ),
+        // ⟨ADR-0008 §17.25 item 8⟩ The written-bundle confirmation: not attended.
+        (
+            "schemas/examples/request.issuer.bundle-written.json",
+            "issuer/1",
+            false,
+        ),
         (
             "schemas/examples/request.enrollment.preview.json",
             "enrollment/1",
@@ -600,4 +636,69 @@ fn m03_wire_forms_and_m02_requests_unchanged() {
             serde_json::from_value(json!(v)).unwrap_or_else(|e| panic!("{v}: {e}"));
         assert_eq!(serde_json::to_value(e).unwrap(), json!(v));
     }
+}
+
+/// ⟨ADR-0008 §17.25 items 4, 8, 15⟩ The wave-5 round-2 additive fields: absent, each
+/// decodes from the earlier form and is omitted again (byte-identical); present, it
+/// round-trips under its documented key. `issuer.bundle_written` is synchronous,
+/// needs `issuer/1` and no attended session.
+#[test]
+fn wave5_round2_additive_fields_round_trip_and_omit_when_absent() {
+    use heimdall_contract::enrollment::{EnrollmentHoldView, EnrollmentsView};
+    use heimdall_contract::envelope::Warning;
+    use heimdall_contract::issuer::IssuerRequest;
+    use heimdall_contract::request::Admission;
+
+    // Item 4: `EnrollmentView.hold`.
+    let doc = load("schemas/examples/inspect.enrollments.json");
+    let mut view: EnrollmentsView = serde_json::from_value(doc.clone()).unwrap();
+    assert!(view.enrollments.iter().all(|e| e.hold.is_none()));
+    assert_eq!(
+        serde_json::to_value(&view).unwrap(),
+        doc,
+        "omitted when absent"
+    );
+    view.enrollments[0].hold = Some(EnrollmentHoldView {
+        reason: "host_key_changed".to_owned(),
+        next: vec!["heimdall enroll remove enr_00112233445566778899aabbccddeeff".to_owned()],
+    });
+    let v = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        v["enrollments"][0]["hold"],
+        json!({"reason": "host_key_changed",
+               "next": ["heimdall enroll remove enr_00112233445566778899aabbccddeeff"]})
+    );
+    assert_eq!(serde_json::from_value::<EnrollmentsView>(v).unwrap(), view);
+    let bare: EnrollmentHoldView = serde_json::from_value(json!({"reason": "x"})).unwrap();
+    assert!(bare.next.is_empty());
+    assert_eq!(serde_json::to_value(&bare).unwrap(), json!({"reason": "x"}));
+
+    // Item 15: `Warning.reason`.
+    let old = json!({"code": "TIME_UNCERTAIN", "message": "m"});
+    let mut w: Warning = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(w.reason, None);
+    assert_eq!(
+        serde_json::to_value(&w).unwrap(),
+        old,
+        "omitted when absent"
+    );
+    w.reason = Some(m03_warning::TIME_CONFIRMATION_AFTER_REBOOT.to_owned());
+    assert_eq!(
+        serde_json::to_value(&w).unwrap(),
+        json!({"code": "TIME_UNCERTAIN", "message": "m",
+               "reason": "time_confirmation_after_reboot"})
+    );
+
+    // Item 8: `issuer.bundle_written`.
+    let doc = load("schemas/examples/request.issuer.bundle-written.json");
+    let r: Request = serde_json::from_value(doc.clone()).unwrap();
+    assert!(matches!(
+        &r,
+        Request::Issuer(IssuerRequest::BundleWritten { sha256, .. }) if sha256.len() == 64
+    ));
+    assert_eq!(serde_json::to_value(&r).unwrap(), doc);
+    assert_eq!(r.kind(), "issuer.bundle_written");
+    assert_eq!(r.admission(), Admission::Synchronous);
+    assert_eq!(r.required_capability(), Some(capability::ISSUER_V1));
+    assert!(!r.requires_attended_session());
 }

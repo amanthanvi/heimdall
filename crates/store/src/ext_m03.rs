@@ -52,6 +52,272 @@ const META_LOCK_ACK_EPOCH: &str = "session_lock_acknowledged_epoch";
 /// (`Txn::record_released_binding_cleanup`). Key `<prefix><binding>`, value the
 /// binding ID.
 const META_RELEASED_BINDING_CLEANUP_PREFIX: &str = "managed_released_binding_cleanup:";
+/// `meta` (⟨wave 5, U10B-Q3 (b), ADR-0008 §17.21 item 10⟩; no schema): when the last
+/// recovery bundle was built (`Txn::set_last_bundle_at`). Who records it is escalated
+/// (`.m03-wave5-questions.md` Q-IS2); never lowers.
+const META_LAST_BUNDLE_AT: &str = "issuer_last_bundle_at";
+/// `meta` (⟨wave 5, round 2; ADR-0008 §17.25 item 8⟩; no schema, as
+/// `managed_released_binding_cleanup:`): one row per recovery bundle the CLI confirmed
+/// written. Key `<prefix><sha256>` (64 lowercase hex characters), value the bundle's
+/// `created_at`. Never the bundle's path.
+const META_BUNDLE_DIGEST_PREFIX: &str = "issuer_bundle_sha256:";
+
+/// ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ How the uninstall purge's final comparison (the
+/// recovery snapshot, `heimdall uninstall`) treats one table of the schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryClass {
+    /// Every row and every column (but the [`RECOVERY_IGNORED_COLUMNS`]) is in the
+    /// snapshot ([`Txn::recovery_rows`]), so a column a later migration adds is too.
+    Rows,
+    /// Only a part is recovery-relevant, read by the reader named here.
+    Part(&'static str),
+    /// Not recovery-relevant: why. The purge discards it with the database.
+    Discarded(&'static str),
+}
+
+/// ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ Every table of the schema, classified for the
+/// recovery snapshot. **A migration that adds a table adds it here**: the uninstall
+/// test `recovery_snapshot_classifies_every_table` compares this list with the
+/// schema of a freshly migrated database and fails on a table that is not listed, and
+/// it checks that each `Rows` and `Part` entry is covered by the snapshot.
+pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
+    ("issuers", RecoveryClass::Rows),
+    ("enrollments", RecoveryClass::Rows),
+    ("foreign_removals", RecoveryClass::Rows),
+    ("pair_preferences", RecoveryClass::Rows),
+    (
+        "operations",
+        RecoveryClass::Part(
+            "the enrollment operations open or unresolved (`outstanding_obligations`), each whole with a digest of its stage receipts (its journal) and its outstanding step token, and their unresolved remote steps (`heimdall_app::operations::unresolved_remote_steps`); the other kinds are classified by `heimdall uninstall`'s `OPERATION_RECOVERY`",
+        ),
+    ),
+    (
+        "meta",
+        RecoveryClass::Part(
+            "the keys [`META_RECOVERY`] includes ([`Txn::recovery_meta`]); every key is classified there",
+        ),
+    ),
+    (
+        "resources",
+        RecoveryClass::Part(
+            "every projection resource confirmed absent (desired and observed), the purge's own condition, re-read under the lock",
+        ),
+    ),
+    (
+        "idempotency",
+        RecoveryClass::Discarded("request replay records; local"),
+    ),
+    (
+        "idempotency_markers",
+        RecoveryClass::Discarded("request replay markers; local"),
+    ),
+    (
+        "decisions",
+        RecoveryClass::Part(
+            "the pending decisions of the kinds `heimdall uninstall`'s `DECISION_RECOVERY` includes (`RegisterIssuer`: its store locator can be the only record of a K_ca item), each whole (`pending_decisions`); settled ones changed what they approved in the records compared",
+        ),
+    ),
+    (
+        "policies",
+        RecoveryClass::Discarded("standing policies; local authority, listed in the purge prompt"),
+    ),
+    (
+        "profiles",
+        RecoveryClass::Discarded("catalog profiles; local, counted in the purge prompt"),
+    ),
+    (
+        "profile_snapshots",
+        RecoveryClass::Discarded("profile revisions; local"),
+    ),
+    (
+        "environments",
+        RecoveryClass::Discarded(
+            "environment records; the installation's own identity is in the snapshot through `meta`",
+        ),
+    ),
+    (
+        "grants",
+        RecoveryClass::Discarded(
+            "access grants; local, end with the runtime, counted in the purge prompt",
+        ),
+    ),
+    (
+        "grant_references",
+        RecoveryClass::Discarded("grant references; local"),
+    ),
+    (
+        "grant_anchors",
+        RecoveryClass::Discarded("grant time anchors; local"),
+    ),
+    (
+        "grant_prepared_facts",
+        RecoveryClass::Discarded("prepared grant facts; local"),
+    ),
+    (
+        "bindings",
+        RecoveryClass::Discarded("consumer bindings; local, end with the runtime"),
+    ),
+    (
+        "binding_holders",
+        RecoveryClass::Discarded("binding holders; local processes"),
+    ),
+    (
+        "tombstones",
+        RecoveryClass::Discarded("revocation tombstones; local"),
+    ),
+    (
+        "events",
+        RecoveryClass::Discarded("the event log; counted in the purge prompt"),
+    ),
+    (
+        "recovery_intents",
+        RecoveryClass::Discarded(
+            "local credential-operation intents (M01 adapters); no remote line or CA",
+        ),
+    ),
+    (
+        "stage_receipts",
+        RecoveryClass::Discarded("local pipeline receipts"),
+    ),
+    (
+        "issuance_log",
+        RecoveryClass::Discarded(
+            "grant certificates: bounded lifetimes that end on their own; no field of the recovery bundle",
+        ),
+    ),
+    (
+        "credential_instances",
+        RecoveryClass::Discarded("in-memory credential instances; end with the runtime"),
+    ),
+    (
+        "verification_issuance",
+        RecoveryClass::Discarded(
+            "verification certificates: bounded lifetimes that end on their own; no field of the recovery bundle",
+        ),
+    ),
+    (
+        "destinations",
+        RecoveryClass::Discarded("catalog destinations; local, counted in the purge prompt"),
+    ),
+    (
+        "identities",
+        RecoveryClass::Discarded("catalog identities; local, counted in the purge prompt"),
+    ),
+    (
+        "interaction_declarations",
+        RecoveryClass::Discarded("interaction declarations; local"),
+    ),
+    (
+        "projection_consent",
+        RecoveryClass::Discarded("projection consent; local, ends with the rollback"),
+    ),
+    (
+        "projection_records",
+        RecoveryClass::Discarded(
+            "the setup record; the rollback (this uninstall's own change) empties it, and its files are the `resources` checked",
+        ),
+    ),
+    (
+        "managed_slots",
+        RecoveryClass::Discarded("managed slots; local, end with the runtime"),
+    ),
+    (
+        "owned_connections",
+        RecoveryClass::Discarded("owned connection processes; end with the runtime"),
+    ),
+];
+
+/// ⟨ADR-0008 §17.32 item 1 (audit A4)⟩ Every `meta` key the store writes, by exact key
+/// or by prefix (ending in `:`), classified for the recovery snapshot: `None` when its
+/// rows are in the snapshot ([`Txn::recovery_meta`]), otherwise why not. **A new key
+/// is classified here**: the uninstall test `meta_keys_are_classified_for_the_snapshot`
+/// reads every `META_*` constant of this crate and fails on one that is not listed.
+pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
+    ("self_environment_id", None),
+    (
+        "authority_generation",
+        Some("the local authority generation"),
+    ),
+    (
+        "windows_environment_pipe_token",
+        Some("a local endpoint name"),
+    ),
+    ("event_tail:", Some("event-stream cursors; local")),
+    (
+        "lock_disclosure_acknowledged_at",
+        Some("a local acknowledgement"),
+    ),
+    (
+        "session_lock_acknowledged_epoch",
+        Some("the local session-lock epoch"),
+    ),
+    (
+        "managed_released_binding_cleanup:",
+        Some("local endpoint files of released bindings"),
+    ),
+    (
+        "issuer_last_bundle_at",
+        Some("bundle freshness; the bundle itself is re-checked under the lock"),
+    ),
+    (
+        "issuer_bundle_sha256:",
+        Some("the bundles this installation wrote; the bundle is re-checked under the lock"),
+    ),
+    ("high_water_mark", Some("the local time high-water mark")),
+    ("runtime_anchor", Some("the local time anchor")),
+    ("time_confirmation", Some("the local time confirmation")),
+    (
+        "grant_validation:",
+        Some("access grants (ADR-0008 §17.32 item 6: out)"),
+    ),
+    (
+        "withdrawal_reported:",
+        Some("access grants (ADR-0008 §17.32 item 6: out)"),
+    ),
+    (
+        "grant_degraded:",
+        Some("access grants (ADR-0008 §17.32 item 6: out)"),
+    ),
+    // ⟨ADR-0008 §17.32 item 7⟩ An unfinished security action on a remote system.
+    ("remote_revocation:", None),
+    ("remote_revocation_claim_seq", Some("a local counter")),
+    (
+        "cleanup_intent:",
+        Some("an access grant's local cleanup (ADR-0008 §17.32 item 6: out)"),
+    ),
+    ("cleanup_intent_version", Some("a local counter")),
+];
+
+/// ⟨ADR-0008 §17.32 item 1⟩ One row of a [`RecoveryClass::Rows`] table
+/// ([`Txn::recovery_rows`]): its `(column, value)` pairs in column order.
+pub type RecoveryRow = Vec<(String, String)>;
+
+/// ⟨ADR-0008 §17.32 item 1⟩ Columns of a [`RecoveryClass::Rows`] table that are not in
+/// the snapshot, with why: the pair's projection state, its preference and the time
+/// they changed belong to the projection, which this uninstall's own rollback changes;
+/// the pair's issuing set (`issuing_cas_json`) is compared.
+pub const RECOVERY_IGNORED_COLUMNS: &[(&str, &str, &str)] = &[
+    (
+        "pair_preferences",
+        "projection_state",
+        "the projection; the rollback changes it",
+    ),
+    (
+        "pair_preferences",
+        "projection_generation",
+        "the projection; the rollback changes it",
+    ),
+    (
+        "pair_preferences",
+        "mechanism",
+        "a preference, not a recovery record",
+    ),
+    (
+        "pair_preferences",
+        "updated_at",
+        "changes with the projection",
+    ),
+];
 
 /// A registered CA, one `issuers` row (ADR-0008 D4; m03-plan §5 item 18). Public
 /// metadata only: the CA's **public** key, digests and dates.
@@ -129,6 +395,29 @@ pub struct ManagedSlot {
     pub binding: Option<BindingId>,
     /// Last written at.
     pub updated_at: Timestamp,
+}
+
+/// ⟨ADR-0008 §17.27 item 1⟩ What [`Txn::outstanding_obligations`] reads: every
+/// outstanding remote obligation, the uninstall inventory's source.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OutstandingObligations {
+    /// Enrollments not final, or in any state with an unresolved `late_write`.
+    pub enrollments: Vec<EnrollmentRecord>,
+    /// Foreign removals not final.
+    pub foreign_removals: Vec<ForeignRemovalRecord>,
+    /// Enrollment operations open or `outcome_unknown`.
+    pub operations: Vec<OpenEnrollmentOperation>,
+}
+
+/// One enrollment operation that is open or unresolved ([`OutstandingObligations`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenEnrollmentOperation {
+    /// The operation.
+    pub id: OperationId,
+    /// Its kind (`enrollment.apply`, `.verify` or `.remove`).
+    pub kind: heimdall_domain::operation::OperationKind,
+    /// Its state.
+    pub state: heimdall_contract::OperationState,
 }
 
 /// Result of [`Txn::mark_lost_instances`] (U0b row 8): the instances it changed, as
@@ -281,6 +570,47 @@ fn removal_origin_kept(
         }
     }
     !(stored.is_some_and(|o| o.ca_not_held_seen) && updated != stored)
+}
+
+/// ⟨ADR-0008 §17.30 item 4⟩ Whether `kind`'s payload agrees with the stored record
+/// (the facts the app derives from it): `WithdrawnRemovalApproved { late_write }` with
+/// the stored residual's presence; ⟨§17.30 item 8⟩ `OwnerReverify { hold }`,
+/// `TargetChangeApproved { hold }` and `ManualRecoveryLine{Present,Absent} { hold, .. }`
+/// with the stored hold's kind (no stored hold never agrees). Every other event
+/// restates no stored field (outcomes, or facts the operation's journal holds), or is
+/// checked by `removal_origin_kept` (the cancel and absence origins).
+fn payload_agrees(stored: &EnrollmentRecord, kind: EnrollmentEventKind) -> bool {
+    match kind {
+        EnrollmentEventKind::WithdrawnRemovalApproved { late_write } => {
+            late_write == stored.late_write.is_some()
+        }
+        // ⟨§17.30 items 4, 6, 8⟩ Every event that restates the stored hold, by kind (the
+        // event carries only the kind). A manual-recovery event's `purpose` names the
+        // interrupted step, which the record does not store: nothing to compare.
+        EnrollmentEventKind::OwnerReverify { hold }
+        | EnrollmentEventKind::TargetChangeApproved { hold }
+        | EnrollmentEventKind::ManualRecoveryLinePresent { hold, .. }
+        | EnrollmentEventKind::ManualRecoveryLineAbsent { hold, .. } => {
+            stored.hold.map(|h| h.kind()) == Some(hold)
+        }
+        _ => true,
+    }
+}
+
+/// ⟨ADR-0008 §17.30 item 5⟩ The admissions of a removal from a state outside the
+/// `(pair, CA)` uniqueness index (`withdrawn` with its residual, `abandoned`): the
+/// removal records that state as its origin.
+fn removal_admission(expected: EnrollmentState, kind: EnrollmentEventKind) -> bool {
+    matches!(
+        (expected, kind),
+        (
+            EnrollmentState::Withdrawn,
+            EnrollmentEventKind::WithdrawnRemovalApproved { .. }
+        ) | (
+            EnrollmentState::Abandoned,
+            EnrollmentEventKind::RemoveEnrollmentApproved
+        )
+    )
 }
 
 fn slot_name(state: &SlotState) -> Result<&'static str> {
@@ -787,6 +1117,64 @@ impl Txn<'_> {
         }))
     }
 
+    /// ⟨ADR-0008 §17.27 item 1 (W5-R01, W5-R02)⟩ Every outstanding remote obligation,
+    /// in one read (it writes nothing, so it runs on a store opened read-only):
+    /// * every enrollment that is not final, and every enrollment in **any** state
+    ///   whose `late_write` residual is unresolved (the record still carries it: no
+    ///   inspect after its not-after has shown absence yet), oldest first;
+    /// * every foreign removal that is not final (an abandoned system-form record,
+    ///   still `pending_until_line_removed`, included), oldest first;
+    /// * every enrollment operation (`enrollment.*`) that is open or unresolved
+    ///   (queued, running, awaiting approval, `outcome_unknown`), oldest first: an
+    ///   enrollment in flight is itself an obligation.
+    ///
+    /// A database whose schema predates a table (an older file read without migrating)
+    /// has none of its rows.
+    pub fn outstanding_obligations(&mut self) -> Result<OutstandingObligations> {
+        let table = |tx: &mut Self, name: &str| -> Result<bool> {
+            Ok(tx.tx.query_row(
+                "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                [name],
+                |r| r.get(0),
+            )?)
+        };
+        let mut out = OutstandingObligations::default();
+        if table(self, "enrollments")? {
+            let all = self.enrollment_rows(
+                "SELECT record_json, removal_origin_set, state FROM enrollments",
+                [],
+            )?;
+            out.enrollments = by_created(
+                all.into_iter()
+                    .filter(|r| !r.state.is_final() || r.late_write.is_some())
+                    .collect(),
+                |r: &EnrollmentRecord| (r.created_at, r.id.as_str().to_owned()),
+            );
+        }
+        if table(self, "foreign_removals")? {
+            let all: Vec<ForeignRemovalRecord> =
+                self.docs("SELECT record_json FROM foreign_removals", [])?;
+            out.foreign_removals = by_created(
+                all.into_iter().filter(|r| !r.state.is_final()).collect(),
+                |r: &ForeignRemovalRecord| (r.created_at, r.id.as_str().to_owned()),
+            );
+        }
+        let mut ops = self.open_operations()?;
+        ops.extend(self.unresolved_operations()?);
+        ops.retain(|o| o.kind.is_enrollment());
+        ops.sort_by(|a, b| (a.created_at, a.id.as_str()).cmp(&(b.created_at, b.id.as_str())));
+        ops.dedup_by(|a, b| a.id == b.id);
+        out.operations = ops
+            .into_iter()
+            .map(|o| OpenEnrollmentOperation {
+                id: o.id,
+                kind: o.kind,
+                state: o.state,
+            })
+            .collect();
+        Ok(out)
+    }
+
     /// Apply one D5 §6.2 event to an enrollment: a compare-and-swap on `expected`
     /// that calls `heimdall_domain::enrollment::transition`.
     ///
@@ -800,6 +1188,18 @@ impl Txn<'_> {
     /// enrollment holds the same (pair, CA); an event the table refuses is the inner
     /// `Err`, as is a cancel or absence result whose `origin` is not the record's
     /// persisted `removal_origin` (§17.4 item 5).
+    ///
+    /// ⟨ADR-0008 §17.30 item 4⟩ An event whose payload restates a stored fact must
+    /// agree with the stored record, or it is the inner `Err` with nothing written:
+    /// `WithdrawnRemovalApproved { late_write }` with `stored.late_write.is_some()`, and
+    /// `OwnerReverify { hold }`, ⟨item 8⟩ `TargetChangeApproved { hold }` and the
+    /// manual-recovery events' `hold` with the stored hold's kind (`stored.hold.map(kind)`).
+    ///
+    /// ⟨§17.30 item 5⟩ An own account-form removal admitted from `withdrawn` or
+    /// `abandoned` records its removal origin (that state, its evidence and hold) when
+    /// the caller's record carries none, and an account-form record keeps its stored
+    /// origin through every later transition whose `updated` omits it. A `held`
+    /// removal residual therefore stays outside the `(pair, CA)` uniqueness index.
     pub fn transition_enrollment(
         &mut self,
         expected: EnrollmentState,
@@ -825,9 +1225,30 @@ impl Txn<'_> {
             record: stored.facts(),
             kind,
         };
+        if !payload_agrees(&stored, kind) {
+            return Ok(Err(InvalidTransition {
+                from: expected,
+                event,
+            }));
+        }
+        let mut record = updated.clone();
+        if stored.form == heimdall_contract::enrollment::EnrollmentForm::Account
+            && record.removal_origin.is_none()
+        {
+            record.removal_origin = if removal_admission(expected, kind) {
+                Some(RemovalOrigin {
+                    state: expected,
+                    evidence: stored.evidence.clone(),
+                    hold: stored.hold,
+                    ca_not_held_seen: false,
+                })
+            } else {
+                stored.removal_origin.clone()
+            };
+        }
         if !removal_origin_kept(
             stored.removal_origin.as_ref(),
-            updated.removal_origin.as_ref(),
+            record.removal_origin.as_ref(),
             kind,
         ) {
             return Ok(Err(InvalidTransition {
@@ -839,7 +1260,6 @@ impl Txn<'_> {
             Ok(next) => next,
             Err(refused) => return Ok(Err(refused)),
         };
-        let mut record = updated.clone();
         record.state = next;
         let n = self
             .tx
@@ -869,6 +1289,42 @@ impl Txn<'_> {
             )));
         }
         Ok(Ok(record))
+    }
+
+    /// ⟨ADR-0008 §17.28 item 3⟩ Clear an enrollment's `late_write` residual (D5 §6.7):
+    /// a compare-and-swap on the stored record's `expected` state **and** its
+    /// residual's `step_token`, which sets only `late_write = None` and `updated_at`.
+    /// It moves no state and changes nothing else. Returns the cleared record, or
+    /// `None` (nothing written) when the record is missing, in another state, or does
+    /// not carry that exact residual. It never sets a residual; the caller decides,
+    /// from an inspection, that absence was observed.
+    pub fn clear_late_write(
+        &mut self,
+        id: &EnrollmentId,
+        expected: EnrollmentState,
+        step_token: &str,
+        now: Timestamp,
+    ) -> Result<Option<EnrollmentRecord>> {
+        let Some(stored) = self.enrollment(id)? else {
+            return Ok(None);
+        };
+        if stored.state != expected
+            || stored.late_write.as_ref().map(|l| l.step_token.as_str()) != Some(step_token)
+        {
+            return Ok(None);
+        }
+        let mut record = stored;
+        record.late_write = None;
+        record.updated_at = now;
+        let n = self.tx.execute(
+            "UPDATE enrollments SET record_json = ?2 WHERE id = ?1 AND state = ?3",
+            rusqlite::params![
+                record.id.as_str(),
+                codec::doc(&record)?,
+                codec::enum_str(&expected)?,
+            ],
+        )?;
+        Ok((n == 1).then_some(record))
     }
 
     /// The CAs with a `verified` enrollment for the pair. A `reverifying` record is not
@@ -1879,6 +2335,155 @@ impl Txn<'_> {
             .transpose()
     }
 
+    // --- the last recovery bundle (U10B-Q3 (b); ADR-0008 §17.21 item 10) ------------------
+
+    /// Record that a recovery bundle was built at `at`. The stored time never lowers: an
+    /// earlier `at` keeps the stored one, which is returned.
+    pub fn set_last_bundle_at(&mut self, at: Timestamp) -> Result<Timestamp> {
+        if let Some(stored) = self.last_bundle_at()?
+            && stored >= at
+        {
+            return Ok(stored);
+        }
+        self.set_meta(META_LAST_BUNDLE_AT, &codec::ts(at))?;
+        Ok(at)
+    }
+
+    /// When the last recovery bundle was built, if one was recorded.
+    pub fn last_bundle_at(&mut self) -> Result<Option<Timestamp>> {
+        self.meta(META_LAST_BUNDLE_AT)?
+            .as_deref()
+            .map(codec::parse_ts)
+            .transpose()
+    }
+
+    /// ⟨ADR-0008 §17.25 item 8⟩ Record the SHA-256 (64 lowercase hex characters) of a
+    /// recovery bundle the CLI confirmed written, with its `created_at`. A digest
+    /// already recorded never lowers: an earlier `created_at` keeps the stored one,
+    /// which is returned. Any other digest form is refused and records nothing. The
+    /// path is never recorded. (When and from which request this is called is the
+    /// app's; the store only keeps the rows.)
+    pub fn record_bundle_digest(
+        &mut self,
+        sha256: &str,
+        created_at: Timestamp,
+    ) -> Result<Timestamp> {
+        let key = bundle_digest_key(sha256)?;
+        if let Some(stored) = self
+            .meta(&key)?
+            .as_deref()
+            .map(codec::parse_ts)
+            .transpose()?
+            && stored >= created_at
+        {
+            return Ok(stored);
+        }
+        self.set_meta(&key, &codec::ts(created_at))?;
+        Ok(created_at)
+    }
+
+    /// ⟨ADR-0008 §17.25 item 8⟩ The `created_at` recorded with a confirmed bundle's
+    /// SHA-256, or `None` when this installation recorded no such digest. A digest
+    /// that is not 64 lowercase hex characters is refused.
+    pub fn bundle_digest_recorded_at(&mut self, sha256: &str) -> Result<Option<Timestamp>> {
+        let key = bundle_digest_key(sha256)?;
+        self.meta(&key)?.as_deref().map(codec::parse_ts).transpose()
+    }
+
+    // --- ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ the uninstall purge's recovery snapshot --------
+
+    /// ⟨audit A4⟩ Every `meta` row whose key [`META_RECOVERY`] includes (exactly, or by
+    /// its prefix), as `(key, value)`, sorted by key. Read-only.
+    pub fn recovery_meta(&mut self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .tx
+            .prepare("SELECT key, value FROM meta ORDER BY key")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .filter(|(k, _)| {
+                META_RECOVERY.iter().any(|(m, why)| {
+                    why.is_none()
+                        && if m.ends_with(':') {
+                            k.starts_with(m)
+                        } else {
+                            k == m
+                        }
+                })
+            })
+            .collect())
+    }
+
+    /// Every table of this database's schema, by name, sorted (the store's own
+    /// `sqlite_*` objects excluded). Read-only.
+    pub fn schema_tables(&mut self) -> Result<Vec<String>> {
+        let mut stmt = self.tx.prepare(
+            "SELECT name FROM sqlite_schema
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+             ORDER BY name",
+        )?;
+        let names = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(names)
+    }
+
+    /// Every row of `table`, a [`RecoveryClass::Rows`] table of [`TABLE_RECOVERY`], each
+    /// as its `(column, value)` pairs in column order without the
+    /// [`RECOVERY_IGNORED_COLUMNS`], the rows sorted. Every column a later migration
+    /// adds is read too. A value is its SQL text: `NULL`, an integer or real as
+    /// written, a text as is, a blob as lowercase hex. A table absent from the schema
+    /// has no rows. Any other table name is refused (a document error), so no caller
+    /// can address a table through it. Read-only.
+    pub fn recovery_rows(&mut self, table: &str) -> Result<Vec<RecoveryRow>> {
+        let Some(&(name, _)) = TABLE_RECOVERY
+            .iter()
+            .find(|(n, c)| *n == table && *c == RecoveryClass::Rows)
+        else {
+            return Err(codec::doc_error("not a recovery-snapshot table"));
+        };
+        let present: bool = self.tx.query_row(
+            "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+            [name],
+            |r| r.get(0),
+        )?;
+        if !present {
+            return Ok(Vec::new());
+        }
+        // `name` is one of the constant names above, never caller text.
+        let mut stmt = self.tx.prepare(&format!("SELECT * FROM {name}"))?;
+        let columns: Vec<String> = stmt.column_names().map(str::to_owned).collect();
+        let ignored = |c: &str| {
+            RECOVERY_IGNORED_COLUMNS
+                .iter()
+                .any(|(t, col, _)| *t == name && *col == c)
+        };
+        let mut rows = stmt
+            .query_map([], |r| {
+                let mut row = Vec::with_capacity(columns.len());
+                for (i, c) in columns.iter().enumerate() {
+                    if ignored(c) {
+                        continue;
+                    }
+                    use rusqlite::types::ValueRef;
+                    let v = match r.get_ref(i)? {
+                        ValueRef::Null => "NULL".to_owned(),
+                        ValueRef::Integer(n) => n.to_string(),
+                        ValueRef::Real(x) => x.to_string(),
+                        ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned(),
+                        ValueRef::Blob(b) => b.iter().map(|x| format!("{x:02x}")).collect(),
+                    };
+                    row.push((c.clone(), v));
+                }
+                Ok(row)
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows.sort();
+        Ok(rows)
+    }
+
     // --- restart: credential instances (U0b row 8) ----------------------------------------
 
     /// Restart recovery (U0b row 8; ADR-0008 D2 table; F18), in the caller's one
@@ -1930,6 +2535,21 @@ impl Txn<'_> {
         }
         Ok(out)
     }
+}
+
+/// The `meta` key of a confirmed bundle's digest: only 64 lowercase hex characters,
+/// so no other key can be addressed through it.
+fn bundle_digest_key(sha256: &str) -> Result<String> {
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err(codec::doc_error(
+            "a bundle digest must be 64 lowercase hex characters",
+        ));
+    }
+    Ok(format!("{META_BUNDLE_DIGEST_PREFIX}{sha256}"))
 }
 
 #[cfg(test)]
@@ -1997,5 +2617,41 @@ mod tests {
         assert!(!close_allowed(S::Closing, S::Up));
         assert!(!close_allowed(S::Closed, S::Up));
         assert!(!close_allowed(S::Up, S::Up));
+    }
+
+    /// ⟨ADR-0008 §17.25 item 8⟩ A confirmed bundle's digest: recorded with its
+    /// `created_at`, never lowered, refused unless 64 lowercase hex characters (and a
+    /// refused digest records nothing).
+    #[test]
+    fn bundle_digest_records_never_lower_and_refuse_other_forms() {
+        let s = crate::Store::open_in_memory(std::sync::Arc::new(crate::NoFaults)).unwrap();
+        let t: Timestamp = "2026-11-13T10:00:00Z".parse().unwrap();
+        let earlier: Timestamp = "2026-11-13T09:00:00Z".parse().unwrap();
+        let later: Timestamp = "2026-11-13T11:00:00Z".parse().unwrap();
+        let d = "ab".repeat(32);
+        s.transaction(|tx| {
+            assert_eq!(tx.bundle_digest_recorded_at(&d)?, None);
+            assert_eq!(tx.record_bundle_digest(&d, t)?, t);
+            assert_eq!(tx.record_bundle_digest(&d, earlier)?, t, "never lowers");
+            assert_eq!(tx.bundle_digest_recorded_at(&d)?, Some(t));
+            assert_eq!(tx.record_bundle_digest(&d, later)?, later);
+            assert_eq!(tx.bundle_digest_recorded_at(&"cd".repeat(32))?, None);
+            for bad in [
+                "AB".repeat(32),
+                "ab".repeat(31),
+                format!("{}:x", "ab".repeat(31)),
+            ] {
+                assert!(tx.record_bundle_digest(&bad, t).is_err(), "{bad}");
+                assert!(tx.bundle_digest_recorded_at(&bad).is_err(), "{bad}");
+            }
+            assert_eq!(tx.meta_with_prefix(META_BUNDLE_DIGEST_PREFIX)?.len(), 1);
+            assert_eq!(
+                tx.last_bundle_at()?,
+                None,
+                "a digest does not move last_bundle_at"
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 }

@@ -1910,6 +1910,30 @@
           "required": [
             "action"
           ]
+        },
+        {
+          "description": "⟨ADR-0008 §17.25 item 8⟩ The CLI's confirmation that it wrote a recovery\nbundle completely and fsynced it. kind `issuer.bundle_written`; synchronous\n(it records `last_bundle_at` and the digest, which never lower). The record\nnever stores the file's path. Sent only after the write; a bundle the CLI\nfailed to write is never confirmed.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "bundle_written"
+            },
+            "created_at": {
+              "description": "The written bundle's `created_at` (`RecoveryBundle::created_at`).",
+              "type": "string",
+              "format": "date-time"
+            },
+            "sha256": {
+              "description": "Hex SHA-256 of the exact bytes written (lowercase, 64 characters; the\nform of `Register.backup_sha256`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "created_at",
+            "sha256"
+          ]
         }
       ]
     },
@@ -2743,6 +2767,20 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence ([`UninstallFenceRequest`];\nowner principal, needs `service-control/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "uninstall_fence"
+            }
+          },
+          "$ref": "#/$defs/UninstallFenceRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -2927,6 +2965,50 @@
           "description": "The Linux Secret Service.",
           "type": "string",
           "const": "linux_secret_service"
+        }
+      ]
+    },
+    "UninstallFenceRequest": {
+      "description": "⟨M03; ADR-0008 §17.27 item 2 (W5-S01)⟩ The uninstall fence (capability\n[`crate::ipc::capability::SERVICE_CONTROL_V1`]; owner principal only, any\nsession). Wire form `{\"op\":\"uninstall_fence\",\"action\":\"acquire\"|\"release\"}`.\n\nWhile a connection holds the fence, the runtime refuses the admission of new\nenrollment, CA and issuance work with `SERVICE_UNAVAILABLE`, reason\n`uninstall_in_progress`: enrollment apply, verify, removal (own and foreign) and\nreconcile; issuer registration (rotation and restore included) and unlock; every\ncertificate reservation; and the approval of an enrollment or CA-registration\ndecision. Work already admitted is not cut short (its results are recorded), and\nthe CLI revalidates its inventory under the fence instead.\n\n**Lifetime:** bound to the acquiring connection. It is released by `release`\non that connection, or when that connection closes for any reason (the CLI\nfinished, refused, or died), and with the runtime. At most one connection holds\nit; `acquire` from another connection while it is held is refused\n`SERVICE_UNAVAILABLE` / `uninstall_in_progress`; `acquire` on the holding\nconnection and `release` on a connection that does not hold it are no-ops\nanswering the fence's state. Not an operation: no operation ID, no idempotency\nrecord. Answer: `OK {\"fence\": \"held\" | \"released\"}`.",
+      "oneOf": [
+        {
+          "description": "Close admission for this connection's uninstall.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "acquire"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "Lift it (when this connection holds it).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "release"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "⟨ADR-0008 §17.32 item 7 (Q-I-R10-1); additive⟩ **Holder only**, under the held\nfence and before the shutdown: exactly one ordinary revocation round per pending\nremote revocation record (the supervisor's round: one attempt under the\nrecord's caps, never a re-arm: no count reset, no lifted stop). Refused\n`SERVICE_UNAVAILABLE` (reason `uninstall_in_progress` while another connection\nholds the fence; none when nobody does), nothing attempted, unless this\nconnection holds it. Answer: `OK {\"remote_revocations\": [{\"root_grant\",\n\"outcome\": \"completed\" | \"attempted_still_pending\" | \"not_attempted\" |\n\"failed\", \"attempts_before\", \"attempts_after\", \"stopped\", \"pending\", \"record\"}]}`.\n⟨§17.33 item 3⟩ `record` is the complete record as stored right after the round\n(the store's `PendingRemoteRevocation` form, its obligations, sequences, re-arm\nhistory and cap included), `null` once it is gone; uninstall's final check\nadmits exactly it.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "retry_remote_revocations"
+            }
+          },
+          "required": [
+            "action"
+          ]
         }
       ]
     },

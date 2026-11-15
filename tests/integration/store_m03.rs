@@ -790,6 +790,12 @@ fn second_live_enrollment_for_pair_and_ca_still_refused() {
             &removal,
         )?
         .unwrap();
+        // ⟨ADR-0008 §17.30 item 8⟩ held for `lock_holder_unresolved`, so the manual
+        // recovery's restated hold kind agrees with the stored one.
+        removal.hold = Some(heimdall_domain::enrollment::EnrollmentHold {
+            reason: heimdall_domain::enrollment::HoldReason::LockHolderUnresolved,
+            evidence_based: false,
+        });
         tx.transition_enrollment(
             EnrollmentState::Removing,
             EnrollmentEventKind::RemovalHeld,
@@ -878,6 +884,307 @@ fn removal_held_residual_outside_index_beside_live_enrollment() {
         assert_eq!(
             states,
             [EnrollmentState::Removing, EnrollmentState::Planned]
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// ⟨ADR-0008 §17.30 item 4⟩ `transition_enrollment` checks an event payload that
+/// restates a stored fact against the stored record: `WithdrawnRemovalApproved
+/// { late_write }` against `late_write.is_some()`, `OwnerReverify { hold }` against the
+/// stored hold's kind. A mismatch is the inner `Err` (`InvalidTransition`), even where
+/// the domain table alone would admit the event, and nothing changes: every
+/// `enrollments` column and the event log are byte-identical before and after. The
+/// matching payloads commit.
+#[test]
+fn transition_refuses_event_payload_that_differs_from_the_stored_record() {
+    use heimdall_domain::enrollment::{EnrollmentHold, HoldKind, HoldReason, LateWrite};
+    use heimdall_store::RawDocuments;
+    let s = mem();
+    let p = pair("dest1", "git");
+    s.transaction(|tx| {
+        tx.insert_issuer(&issuer(1, CaState::Active))?;
+        let residual = Some(LateWrite {
+            step_token: "e5".repeat(16),
+            not_after_remote: 1_700_000_000,
+        });
+        let mut with_residual = with_state(enrollment(1, &ca(1), &p), EnrollmentState::Withdrawn);
+        with_residual.late_write = residual.clone();
+        let without_residual = with_state(enrollment(2, &ca(1), &p), EnrollmentState::Withdrawn);
+        let mut held_other = with_state(enrollment(3, &ca(1), &p), EnrollmentState::Held);
+        held_other.hold = Some(EnrollmentHold {
+            reason: HoldReason::RegistryChanged,
+            evidence_based: false,
+        });
+        let mut held_evidence = with_state(enrollment(5, &ca(2), &p), EnrollmentState::Held);
+        held_evidence.hold = Some(EnrollmentHold {
+            reason: HoldReason::PositiveRefused,
+            evidence_based: true,
+        });
+        tx.insert_issuer(&issuer(2, CaState::Active))?;
+        for r in [
+            &with_residual,
+            &without_residual,
+            &held_other,
+            &held_evidence,
+        ] {
+            tx.seed_enrollment(r)?;
+        }
+        // `held` without any hold (seeded through a held state with `hold: None`).
+        tx.insert_issuer(&issuer(3, CaState::Active))?;
+        let mut held_bare = with_state(enrollment(6, &ca(3), &p), EnrollmentState::Held);
+        held_bare.hold = None;
+        held_bare.removal_origin = None;
+        tx.seed_enrollment(&held_bare)?;
+        let snapshot = |tx: &mut Txn<'_>| {
+            (
+                tx.raw_documents(RawDocuments::Enrollments).unwrap(),
+                tx.raw_documents(RawDocuments::Events).unwrap(),
+            )
+        };
+        let reverify = |hold| EnrollmentEventKind::OwnerReverify { hold };
+        let mismatched = [
+            // The domain table alone admits this one: only the store check refuses it.
+            (
+                &without_residual,
+                EnrollmentEventKind::WithdrawnRemovalApproved { late_write: true },
+            ),
+            (
+                &with_residual,
+                EnrollmentEventKind::WithdrawnRemovalApproved { late_write: false },
+            ),
+            // The domain table alone admits an evidence-based re-verification of `held`.
+            (&held_other, reverify(HoldKind::EvidenceBased)),
+            (&held_bare, reverify(HoldKind::EvidenceBased)),
+            (&held_evidence, reverify(HoldKind::HostKeyChanged)),
+        ];
+        for (r, kind) in mismatched {
+            let before = snapshot(tx);
+            let out = tx.transition_enrollment(r.state, kind, r)?;
+            no_canary(&out);
+            let e = out.expect_err("a payload that differs from the stored record");
+            assert_eq!(e.from, r.state, "{kind:?}");
+            assert_eq!(e.event.kind, kind);
+            assert_eq!(snapshot(tx), before, "nothing changes: {kind:?}");
+            assert_eq!(tx.enrollment(&r.id)?.as_ref(), Some(r), "{kind:?}");
+        }
+        // The matching payloads commit.
+        let removing = tx
+            .transition_enrollment(
+                EnrollmentState::Withdrawn,
+                EnrollmentEventKind::WithdrawnRemovalApproved { late_write: true },
+                &with_residual,
+            )?
+            .unwrap();
+        assert_eq!(removing.state, EnrollmentState::Removing);
+        let reverifying = tx
+            .transition_enrollment(
+                EnrollmentState::Held,
+                reverify(HoldKind::EvidenceBased),
+                &held_evidence,
+            )?
+            .unwrap();
+        assert_eq!(reverifying.state, EnrollmentState::Reverifying);
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// ⟨ADR-0008 §17.30 item 8⟩ The shared case of the hold-restating events: `held`
+/// records of one account-form pair, each under its own CA, whose stored holds have the
+/// kinds `host_key_changed`, `lock_holder_unresolved`, `other` and none. Every event
+/// `make(k)` whose `k` differs from a record's stored hold kind is refused with the
+/// inner `Err(InvalidTransition)` and changes nothing: every `enrollments` column and
+/// the event log stay byte-identical. That includes the events the domain table alone
+/// admits (`k == wanted` on a record of another kind). `make(wanted)` on the record whose
+/// stored hold kind is `wanted` commits, to `commits_to`.
+fn hold_payload_checked(
+    make: &dyn Fn(heimdall_domain::enrollment::HoldKind) -> EnrollmentEventKind,
+    wanted: heimdall_domain::enrollment::HoldKind,
+    commits_to: EnrollmentState,
+) {
+    use heimdall_domain::enrollment::{EnrollmentHold, HoldKind, HoldReason};
+    use heimdall_store::RawDocuments;
+    let s = mem();
+    let p = pair("dest1", "git");
+    s.transaction(|tx| {
+        let holds = [
+            Some(EnrollmentHold {
+                reason: HoldReason::HostKeyChanged,
+                evidence_based: false,
+            }),
+            Some(EnrollmentHold {
+                reason: HoldReason::LockHolderUnresolved,
+                evidence_based: false,
+            }),
+            Some(EnrollmentHold {
+                reason: HoldReason::RegistryChanged,
+                evidence_based: false,
+            }),
+            None,
+        ];
+        let mut records = Vec::new();
+        for (i, hold) in holds.into_iter().enumerate() {
+            let n = u8::try_from(i).unwrap() + 1;
+            tx.insert_issuer(&issuer(n, CaState::Active))?;
+            let mut r = with_state(enrollment(n, &ca(n), &p), EnrollmentState::Held);
+            r.hold = hold;
+            tx.seed_enrollment(&r)?;
+            records.push(r);
+        }
+        let snapshot = |tx: &mut Txn<'_>| {
+            (
+                tx.raw_documents(RawDocuments::Enrollments).unwrap(),
+                tx.raw_documents(RawDocuments::Events).unwrap(),
+            )
+        };
+        let mut refused = 0;
+        for r in &records {
+            let stored_kind = r.hold.map(|h| h.kind());
+            for k in HoldKind::ALL {
+                if stored_kind == Some(k) {
+                    continue;
+                }
+                let kind = make(k);
+                let before = snapshot(tx);
+                let out = tx.transition_enrollment(r.state, kind, r)?;
+                no_canary(&out);
+                let e = out.expect_err("a hold kind that differs from the stored hold");
+                assert_eq!(e.from, EnrollmentState::Held, "{kind:?}");
+                assert_eq!(e.event.kind, kind);
+                assert_eq!(
+                    snapshot(tx),
+                    before,
+                    "nothing changes: {kind:?} on {stored_kind:?}"
+                );
+                assert_eq!(tx.enrollment(&r.id)?.as_ref(), Some(r), "{kind:?}");
+                refused += 1;
+            }
+        }
+        assert!(refused >= 3 * HoldKind::ALL.len() - 3, "{refused}");
+        let matching = records
+            .iter()
+            .find(|r| r.hold.map(|h| h.kind()) == Some(wanted))
+            .unwrap();
+        let moved = tx
+            .transition_enrollment(EnrollmentState::Held, make(wanted), matching)?
+            .unwrap();
+        assert_eq!(moved.state, commits_to);
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// ⟨§17.30 item 8⟩ `TargetChangeApproved { hold }` restates the stored hold's kind:
+/// refused, nothing changed, when it differs; `host_key_changed` on a host-key hold
+/// commits (`held → reverifying`).
+#[test]
+fn transition_refuses_target_change_hold_that_differs_from_the_stored_record() {
+    use heimdall_domain::enrollment::HoldKind;
+    hold_payload_checked(
+        &|hold| EnrollmentEventKind::TargetChangeApproved { hold },
+        HoldKind::HostKeyChanged,
+        EnrollmentState::Reverifying,
+    );
+}
+
+/// ⟨§17.30 item 8⟩ `ManualRecoveryLinePresent { hold, purpose }` restates the stored
+/// hold's kind (for every purpose; the purpose names the interrupted step, which the
+/// record does not store): refused, nothing changed, when it differs;
+/// `lock_holder_unresolved` on such a hold commits (a removal's stays `held`).
+#[test]
+fn transition_refuses_manual_recovery_line_present_hold_that_differs_from_the_stored_record() {
+    use heimdall_domain::enrollment::{HoldKind, RecoveryPurpose};
+    for purpose in RecoveryPurpose::ALL {
+        hold_payload_checked(
+            &|hold| EnrollmentEventKind::ManualRecoveryLinePresent { hold, purpose },
+            HoldKind::LockHolderUnresolved,
+            match purpose {
+                RecoveryPurpose::Append => EnrollmentState::AppliedUnverified,
+                _ => EnrollmentState::Held,
+            },
+        );
+    }
+}
+
+/// ⟨§17.30 item 8⟩ `ManualRecoveryLineAbsent { hold, purpose }` likewise: refused,
+/// nothing changed, when the hold kind differs; `lock_holder_unresolved` on such a hold
+/// commits (append `withdrawn`, rollback `verification_failed`, removal `removed`).
+#[test]
+fn transition_refuses_manual_recovery_line_absent_hold_that_differs_from_the_stored_record() {
+    use heimdall_domain::enrollment::{HoldKind, RecoveryPurpose};
+    for purpose in RecoveryPurpose::ALL {
+        hold_payload_checked(
+            &|hold| EnrollmentEventKind::ManualRecoveryLineAbsent { hold, purpose },
+            HoldKind::LockHolderUnresolved,
+            match purpose {
+                RecoveryPurpose::Append => EnrollmentState::Withdrawn,
+                RecoveryPurpose::Rollback => EnrollmentState::VerificationFailed,
+                _ => EnrollmentState::Removed,
+            },
+        );
+    }
+}
+
+/// ⟨ADR-0008 §17.30 item 5⟩ A removal admitted from `withdrawn` (carrying `late_write`)
+/// and one admitted from `abandoned`, each driven as the app drives it (the caller's
+/// record carries no `removal_origin`), then held (`RemovalHeld`) beside a live
+/// `verified` enrollment of the same pair and CA: each keeps its removal origin, so the
+/// held residual stays outside the `(pair, CA)` uniqueness index; the transition commits
+/// and the live enrollment is unaffected.
+#[test]
+fn held_removal_with_origin_stays_outside_the_pair_ca_uniqueness_index() {
+    use heimdall_domain::enrollment::LateWrite;
+    let s = mem();
+    let p = pair("dest1", "git");
+    s.transaction(|tx| {
+        tx.insert_issuer(&issuer(1, CaState::Active))?;
+        let live = with_state(enrollment(2, &ca(1), &p), EnrollmentState::Verified);
+        tx.seed_enrollment(&live)?;
+        let mut withdrawn = with_state(enrollment(1, &ca(1), &p), EnrollmentState::Withdrawn);
+        withdrawn.late_write = Some(LateWrite {
+            step_token: "e5".repeat(16),
+            not_after_remote: 1_700_000_000,
+        });
+        tx.seed_enrollment(&withdrawn)?;
+        let abandoned = with_state(enrollment(3, &ca(1), &p), EnrollmentState::Abandoned);
+        tx.seed_enrollment(&abandoned)?;
+        for (old, admission) in [
+            (
+                &withdrawn,
+                EnrollmentEventKind::WithdrawnRemovalApproved { late_write: true },
+            ),
+            (&abandoned, EnrollmentEventKind::RemoveEnrollmentApproved),
+        ] {
+            let removing = tx
+                .transition_enrollment(old.state, admission, old)?
+                .unwrap();
+            assert_eq!(removing.state, EnrollmentState::Removing);
+            let held = tx.transition_enrollment(
+                EnrollmentState::Removing,
+                EnrollmentEventKind::RemovalHeld,
+                old,
+            );
+            no_canary(&held);
+            let held = held
+                .unwrap_or_else(|e| panic!("held beside the live enrollment: {e:?}"))
+                .unwrap();
+            assert_eq!(held.state, EnrollmentState::Held);
+            let stored = tx.enrollment(&old.id)?.unwrap();
+            assert_eq!(stored.state, EnrollmentState::Held);
+            assert_eq!(
+                stored.removal_origin.as_ref().map(|o| o.state),
+                Some(old.state),
+                "the removal keeps its origin"
+            );
+            assert_eq!(stored.late_write, old.late_write);
+        }
+        assert_eq!(tx.enrollment(&live.id)?, Some(live.clone()), "unaffected");
+        assert_eq!(
+            tx.verified_cas_for_pair(&p)?,
+            [ca(1)].into_iter().collect(),
+            "the live enrollment stays the pair's verified one"
         );
         Ok(())
     })
