@@ -2112,6 +2112,15 @@ async fn recover_quarantine(
     if !back.is_empty() {
         why.push_str(&format!("; renamed back: {}", back.join(", ")));
     }
+    // ⟨ADR-0008 §17.39 item 1⟩ A file at the state database's name that failed its check
+    // against the deletion mark (the original family above is kept).
+    let unverified = lines(&rec.unverified, false);
+    if !unverified.is_empty() {
+        why.push_str(&format!(
+            "; at the state database's name, a file that does not match the recovery copy the deletion mark binds (not verified; not the confirmed database): {}",
+            unverified.join(", ")
+        ));
+    }
     why.push_str(". Move each quarantine directory's files back to the state directory together (the database first) once their names are free, or remove them, then run `heimdall uninstall` again");
     Err(refuse(why))
 }
@@ -7194,6 +7203,216 @@ mod tests {
         let after = files.clone().map(|p| bytes_of(&p));
         for ((p, b), a) in files.iter().zip(&before).zip(&after) {
             assert_eq!(b, a, "{} was written", p.display());
+        }
+    }
+
+    // --- W5-J01 (ADR-0008 §17.39) -----------------------------------------------------------
+
+    /// The 14 bytes the re-check wrote over the recovery copy, in place (same file, same
+    /// identity): `Ok` when the write went through, the error when it was refused.
+    fn overwrite_in_place(p: &Path) -> std::io::Result<()> {
+        use std::io::Write as _;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(p)
+            .and_then(|mut f| f.write_all(b"not-a-database"))
+    }
+
+    /// ⟨ADR-0008 §17.39 item 3⟩ The refusal Windows gives a writer while the copy is held
+    /// (`ERROR_SHARING_VIOLATION`).
+    #[cfg(windows)]
+    fn refused_by_the_hold(wrote: Option<&std::io::Result<()>>) -> bool {
+        matches!(wrote, Some(Err(e)) if e.raw_os_error() == Some(32))
+    }
+
+    /// A purge whose confirmed records are in the `-wal` (record 5), stopped at the first
+    /// original's deletion: the mark is durable, the originals and the checked copy are
+    /// in the unit. Returns the unit, the confirmed inventory and the original database's
+    /// and `-wal`'s bytes.
+    fn unit_with_mark(state: &Path) -> (PathBuf, Inventory, Vec<u8>, Vec<u8>) {
+        let db = db_of(state);
+        let wal = wal_of(state, |tx| completed_removal(tx, 5));
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let bytes = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert!(confirmed.clear());
+        assert!(crate::purge_sweep::tests::crashing_at(
+            "unlink",
+            "state.db-wal",
+            || {
+                let _ = purge_now(state, &confirmed, Duration::from_millis(300), || {});
+            }
+        ));
+        let u = crate::purge_sweep::tests::unit_dir(state).unwrap_or_else(|| panic!("no unit"));
+        assert!(u.join(crate::purge_sweep::tests::MARKER).exists());
+        assert!(u.join(crate::purge_sweep::tests::COPY_NAME).exists());
+        (u, confirmed, bytes, wal)
+    }
+
+    /// The original database and `-wal` are in the unit byte for byte, and the start-up
+    /// check refuses (even with a file at `state.db`). Unix only: on Windows the held copy
+    /// refuses the overwrite, and the two tests assert completion instead.
+    #[cfg(unix)]
+    fn originals_kept(state: &Path, u: &Path, bytes: &[u8], wal: &[u8], what: &str) {
+        assert_eq!(
+            std::fs::read(u.join(heimdall_runtime::service::STATE_DB_FILE))
+                .ok()
+                .as_deref(),
+            Some(bytes),
+            "{what}: the owner's database was deleted or changed"
+        );
+        assert_eq!(
+            std::fs::read(u.join("state.db-wal")).ok().as_deref(),
+            Some(wal),
+            "{what}: the owner's -wal was deleted or changed"
+        );
+        assert!(
+            !heimdall_runtime::service::quarantine_leftovers(state)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty(),
+            "{what}: start-up would run"
+        );
+    }
+
+    /// `w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals` (the re-check's
+    /// probe, ADR-0008 §17.39 item 1): a purge stopped at the first original's deletion
+    /// (mark durable, originals and checked copy intact); recovery passes its checks of
+    /// the copy, and then a same-user writer overwrites the copy in place. On Unix the
+    /// write goes through: the copy is restored as `state.db` first, fails its
+    /// verification there, and every original stays in the unit (nothing unlinked); the
+    /// refusal names the unverified `state.db`; start-up keeps refusing with `state.db`
+    /// present, and a second recovery keeps everything too. On Windows (item 3) the held
+    /// copy refuses the writer (`ERROR_SHARING_VIOLATION`) and recovery completes with
+    /// every confirmed record.
+    #[test]
+    fn w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals() {
+        let (_d, state, _) = state_dir();
+        let db = db_of(&state);
+        let (u, confirmed, bytes, wal) = unit_with_mark(&state);
+        let copy = u.join(crate::purge_sweep::tests::COPY_NAME);
+        let wrote = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let w = wrote.clone();
+        let top = state.parent().map(Path::to_path_buf);
+        let rec = crate::purge_sweep::tests::with_step(
+            "recover-checked",
+            move || {
+                *w.borrow_mut() = Some(overwrite_in_place(&copy));
+            },
+            || block_on(recover_quarantine(&paths_of(&state), top.as_deref())),
+        );
+        #[cfg(unix)]
+        {
+            assert!(
+                matches!(wrote.borrow().as_ref(), Some(Ok(()))),
+                "the overwrite ran"
+            );
+            let Err(out) = rec else {
+                panic!("recovery deleted the originals behind an overwritten copy")
+            };
+            originals_kept(
+                &state,
+                &u,
+                &bytes,
+                &wal,
+                "copy overwritten after the re-check",
+            );
+            assert_eq!(
+                std::fs::read(&db).ok().as_deref(),
+                Some(&b"not-a-database"[..]),
+                "the unverified file is at state.db"
+            );
+            assert!(
+                out.env.data.to_string().contains("not verified"),
+                "{}",
+                out.env.data
+            );
+            let again = block_on(recover_quarantine(&paths_of(&state), top.as_deref()));
+            assert!(again.is_err(), "a second recovery went ahead");
+            originals_kept(&state, &u, &bytes, &wal, "second recovery");
+            let _ = &confirmed;
+        }
+        #[cfg(windows)]
+        {
+            assert!(
+                refused_by_the_hold(wrote.borrow().as_ref()),
+                "the held copy was opened for writing: {:?}",
+                wrote.borrow()
+            );
+            rec.unwrap_or_else(|out| panic!("not recovered: {}", out.env.data));
+            assert!(
+                heimdall_runtime::service::quarantine_leftovers(&state)
+                    .unwrap_or_else(|e| panic!("{e}"))
+                    .is_empty()
+            );
+            let now = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+            assert!(confirmed.same_as(&now), "a confirmed record is missing");
+            let _ = (&u, &bytes, &wal);
+        }
+    }
+
+    /// `w5_j01_copy_overwritten_after_check_keeps_originals` (the re-check's probe,
+    /// ADR-0008 §17.39 item 2): a confirmed purge; after the deletion mark is written and
+    /// just before the first original (`state.db-wal`) is unlinked, a same-user writer
+    /// overwrites the copy in place. On Unix the re-check of the copy's binding refuses:
+    /// nothing of the family is unlinked or restored, the unit (with its mark) stays,
+    /// start-up refuses, and recovery keeps the unit too. On Windows (item 3) the held
+    /// copy refuses the writer and the purge completes.
+    #[test]
+    fn w5_j01_copy_overwritten_after_check_keeps_originals() {
+        let (_d, state, _) = state_dir();
+        let db = db_of(&state);
+        let wal = wal_of(&state, |tx| completed_removal(tx, 5));
+        std::fs::write(companion(&db, "-wal"), &wal).unwrap_or_else(|e| panic!("{e}"));
+        let bytes = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert!(confirmed.clear());
+        let wrote = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let (w, st) = (wrote.clone(), state.clone());
+        let end = crate::purge_sweep::tests::with_unlink_hook(
+            move |n| {
+                if n == "state.db-wal" && w.borrow().is_none() {
+                    let u = crate::purge_sweep::tests::unit_dir(&st)
+                        .unwrap_or_else(|| panic!("no unit"));
+                    assert!(u.join(crate::purge_sweep::tests::MARKER).exists());
+                    *w.borrow_mut() = Some(overwrite_in_place(
+                        &u.join(crate::purge_sweep::tests::COPY_NAME),
+                    ));
+                }
+            },
+            || purge_now(&state, &confirmed, Duration::from_millis(300), || {}),
+        );
+        #[cfg(unix)]
+        {
+            assert!(
+                matches!(wrote.borrow().as_ref(), Some(Ok(()))),
+                "the overwrite ran"
+            );
+            let PurgeEnd::Purged(Err(e)) = end else {
+                panic!("the purge deleted the originals behind an overwritten copy")
+            };
+            let u =
+                crate::purge_sweep::tests::unit_dir(&state).unwrap_or_else(|| panic!("no unit"));
+            assert!(e.stuck.contains(&u), "{e:?}");
+            assert!(e.restored.is_empty(), "the overwritten copy was restored");
+            assert!(!db.exists(), "the overwritten copy was restored");
+            originals_kept(&state, &u, &bytes, &wal, "copy overwritten after the mark");
+            let top = state.parent().map(Path::to_path_buf);
+            let rec = block_on(recover_quarantine(&paths_of(&state), top.as_deref()));
+            assert!(rec.is_err(), "recovery went ahead on a mismatched copy");
+            originals_kept(&state, &u, &bytes, &wal, "recovery after the refusal");
+        }
+        #[cfg(windows)]
+        {
+            assert!(
+                refused_by_the_hold(wrote.borrow().as_ref()),
+                "the held copy was opened for writing: {:?}",
+                wrote.borrow()
+            );
+            assert!(matches!(end, PurgeEnd::Purged(Ok(()))));
+            assert!(!db.exists());
+            assert!(crate::purge_sweep::tests::unit_dir(&state).is_none());
+            let _ = &bytes;
         }
     }
 }

@@ -1,0 +1,10 @@
+# M03 wave 5 round 16 — integrator worklog
+
+Base `20aa899c`. Ruling for W5-J01 (to be ADR-0008 §17.39). No commits. Devbox: do NOT run until the orchestrator says batch B is done.
+- [x] Grok re-check archived verbatim: tests/evidence/artifacts/review-m03-code/wave5-recheck7.md.
+- [ ] Worker P10: items 1-5 (foreground only; DONE file).
+- [ ] Review; validation; archive; report.
+- Devbox batch B at 20aa899c done (27/27 binaries at round 15, incl. Linux signal_exact); devbox free (~9 GB). P10 launched (ran async despite foreground request) -> blocking on .m03-wave5-r16-P10-DONE.md.
+- P10 DONE: items 1-5 per ruling; reverts R1-R3 101->0; Windows hold test compiled only; new wrapper ipc::windows::rename_held_no_replace (Q-P10-R16-1); residual platform any (Q-P10-R16-2). Integrator checked against the ruling. Validation next.
+- Integrator review of P10's diff against items 1-5: matches. Recovery (both): pre-checks, `recover-checked` hook, no-replace restore, `bound_at` at the live name, then unlinks; failure keeps the unit and reports `unverified`. Normal path: binding re-check by fresh descriptor before the first unlink, `keep` on mismatch. Windows: `hold_copy` (read, share READ|DELETE, no reparse, file-ID check) from before the check through the last unlink / through restore and verification; restore via `rename_held_no_replace`. Notes: (a) on Windows item 2's re-check has no direct regression (the hold blocks the writer that would reach it); (b) `rename_held_no_replace` passes a `\\server\...` full path unprefixed (no `\\?\UNC\`), if that makes the rename fail, it fails closed (restore fails, unit kept); not run natively.
+- Validation (macOS, foreground chain): fmt 0; check.sh 0 (all 12 steps 0); linux-xcheck --workspace 0 (20m07s); umask 002: e2e_cli_m03 0 (69, 3 ignored), e2e_tui_m03 0 (5, 1 ignored), e2e_tui_m02 0 (17, 1 ignored), e2e_enroll_m03 0 (99), e2e_issuer_ceremony 0 (8, 2 ignored), e2e_managed_m03 0 (16), --bin heimdall 0 (254; the 3 non-Windows w5_j01 tests, E1 `final_review_original_unlink_failure_or_crash_recovers_complete`, and the 22 w5_i01/final_review/r13_review tests ok). Cargo.lock unchanged; no survivors.

@@ -208,3 +208,15 @@ error); P9 finished its items from the partial edits, with P8's worklog continue
 | `m03-wave5-r15-P8-DONE.md` | P9's final report: revert proofs and the list of tests for the native Windows run |
 | `m03-wave5-r15-worklog-K4.md` | K4: the Linux `signal_exact` diagnosis and fix, the passphrase-scan test fix, devbox runs |
 | `m03-wave5-r15-K4-DONE.md` | K4's final report |
+
+## Round 16 (base `20aa899c`; implements W5-J01 from the round-15 re-check on Grok (archived as `../wave5-recheck7.md`): restore the recovery copy first and verify it at the live name before any original is unlinked, re-check the copy before the first unlink on the normal path, hold the copy on Windows, and the residual `purge_recovery_copy_overwritten_between_check_and_unlink`)
+
+These were moved here from the worktree root at the end of round 16. They have been scanned for home
+paths, user names, canaries and keys, and none were found.
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r16-questions.md` | Round-16 questions: Q-P10-R16-1 (the new wrapper `rename_held_no_replace`) and Q-P10-R16-2 (the residual's platform), plus an integrator note |
+| `m03-wave5-r16-worklog-I.md` | The integrator's worklog: archive, review, validation |
+| `m03-wave5-r16-worklog-P10.md` | P10: W5-J01 items 1-5 and the revert proofs |
+| `m03-wave5-r16-P10-DONE.md` | P10's final report: revert proofs, what the Windows hold prevents and does not, and the list of tests for the native Windows run |

@@ -535,6 +535,10 @@ pub(crate) struct Recovered {
     pub(crate) restored: Vec<std::path::PathBuf>,
     /// Left where they are.
     pub(crate) left: Vec<std::path::PathBuf>,
+    /// ⟨ADR-0008 §17.39 item 1⟩ A file now at the state database's name that does not
+    /// pass its check against the deletion mark's binding (a recovery copy restored, or
+    /// found restored, that failed its verification): the original family is kept.
+    pub(crate) unverified: Vec<std::path::PathBuf>,
 }
 
 /// ⟨§17.35 item 7⟩ Whether `<state>` or `<run>` shows a `.hm-purge-*` entry, or a
@@ -1287,12 +1291,27 @@ mod imp {
             if let Err(e) = write_marker(&self.dir, &binding) {
                 return Err(fail(e));
             }
+            let mut first = true;
             for n in names.iter().skip(1).chain(names.first()) {
                 if matches!(kind(&self.dir, n), Ok(None)) {
                     continue;
                 }
                 #[cfg(test)]
                 super::tests::unlink_hook(n);
+                // ⟨ADR-0008 §17.39 item 2⟩ Immediately before the first original is
+                // unlinked, the copy is read again by its name through a fresh descriptor
+                // and must still be the bound one (identity, size, SHA-256). Otherwise
+                // nothing of the family is unlinked, nothing is restored, and the unit
+                // (with its mark) is kept: recovery then refuses on the mismatch too.
+                // What remains after this re-check is the residual
+                // `purge_recovery_copy_overwritten_between_check_and_unlink`.
+                if std::mem::take(&mut first)
+                    && copy_binding(&self.dir, OsStr::new(COPY)).ok().as_ref() != Some(&binding)
+                {
+                    return Err(keep(refused(
+                        "the recovery copy changed after its check; nothing was deleted",
+                    )));
+                }
                 if super::unlink_fails(n) {
                     return Err(fail(std::io::Error::other("injected unlink failure")));
                 }
@@ -1822,9 +1841,10 @@ mod imp {
                     if which == 0 && rest == "database" {
                         match open_unit(&root.fd, &n) {
                             Ok((fd, id)) => {
-                                let (r, l) = self.recover_unit(fd, id, &n, db, ops);
+                                let (r, l, u) = self.recover_unit(fd, id, &n, db, ops);
                                 out.restored.extend(r);
                                 out.left.extend(l);
+                                out.unverified.extend(u);
                             }
                             Err(_) => out.left.push(root.path.join(&n)),
                         }
@@ -1854,10 +1874,10 @@ mod imp {
             name: &OsStr,
             db: &OsStr,
             ops: &super::RecoverOps<'_>,
-        ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        ) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
             let state = &self.state;
             let here = state.path.join(name);
-            let all_left = |dir: &OwnedFd| (Vec::new(), left_now(dir, &here));
+            let all_left = |dir: &OwnedFd| (Vec::new(), left_now(dir, &here), Vec::new());
             let names = family(db);
             // An incomplete copy is never used.
             // ⟨audit E2⟩ An incomplete copy is never used: it and the companions SQLite
@@ -1893,8 +1913,8 @@ mod imp {
             // finish it, never comparing the copy with what is left of them; then the
             // copy is restored when no database is live.
             if entries.iter().any(|e| e == DELETING) {
-                // ⟨W5-I01 (§17.38)⟩ Never on the mark alone. Before any unlink: the copy
-                // (in the unit, or already restored as `state.db`) is the one the mark
+                // ⟨W5-I01 (§17.38)⟩ Never on the mark alone. Before anything moves: the
+                // copy (in the unit, or already restored as `state.db`) is the one the mark
                 // binds (identity, size, SHA-256), opens read-only on its own and reads
                 // (`ops.check`); every original still present is the inode the record
                 // lists (or an empty file the purge created). Otherwise nothing is
@@ -1902,17 +1922,22 @@ mod imp {
                 let Some(bound) = read_marker(&dir) else {
                     return all_left(&dir);
                 };
-                let in_unit = !matches!(kind(&dir, OsStr::new(COPY)), Ok(None));
-                let (copy_dir, copy_name, copy_path) = if in_unit {
-                    (&dir, OsStr::new(COPY), here.join(COPY))
-                } else {
-                    (&state.fd, db, state.path.join(db))
+                let live_path = state.path.join(db);
+                let bound_at = |d: &OwnedFd, n: &OsStr, p: &Path| {
+                    copy_binding(d, n).ok().as_ref() == Some(&bound)
+                        && (ops.check)(p)
+                        && copy_binding(d, n).ok().as_ref() == Some(&bound)
                 };
-                if copy_binding(copy_dir, copy_name).ok().as_ref() != Some(&bound)
-                    || !(ops.check)(&copy_path)
-                    || copy_binding(copy_dir, copy_name).ok().as_ref() != Some(&bound)
-                {
-                    return all_left(&dir);
+                let in_unit = !matches!(kind(&dir, OsStr::new(COPY)), Ok(None));
+                let checked = if in_unit {
+                    bound_at(&dir, OsStr::new(COPY), &here.join(COPY))
+                } else {
+                    bound_at(&state.fd, db, &live_path)
+                };
+                if !checked {
+                    let (r, l, _) = all_left(&dir);
+                    let found = !in_unit && !matches!(kind(&state.fd, db), Ok(None));
+                    return (r, l, found.then(|| live_path.clone()).into_iter().collect());
                 }
                 for n in &names {
                     match kind(&dir, n) {
@@ -1926,28 +1951,38 @@ mod imp {
                         _ => return all_left(&dir),
                     }
                 }
-                for n in names.iter().skip(1).chain(names.first()) {
-                    if !matches!(kind(&dir, n), Ok(None))
-                        && rustix::fs::unlinkat(&dir, n, AtFlags::empty()).is_err()
-                    {
-                        return all_left(&dir);
-                    }
-                }
+                #[cfg(test)]
+                super::tests::step_hook("recover-checked");
+                // ⟨ADR-0008 §17.39 item 1⟩ Restore first: the copy becomes `state.db` by
+                // one no-replace rename (a live database keeps the unit).
                 let mut restored = Vec::new();
-                let live = !matches!(kind(&state.fd, db), Ok(None));
-                let copy = match kind(&dir, OsStr::new(COPY)) {
-                    Ok(Some((FileType::RegularFile, d, i))) => Some((d, i)),
-                    _ => None,
-                };
-                if copy.is_some() {
-                    if live {
+                if in_unit {
+                    if !matches!(kind(&state.fd, db), Ok(None)) {
                         return all_left(&dir);
                     }
-                    let (r, _) = restore_copy(state, &dir, name, db, copy);
+                    let (r, _) = restore_copy(state, &dir, name, db, Some(bound.id));
                     if r.is_empty() {
                         return all_left(&dir);
                     }
                     restored = r;
+                }
+                // Then verify what is now at the live name, from a fresh read: the mark's
+                // binding (identity, size, SHA-256), a read-only open with the integrity
+                // and schema checks and a snapshot that reads, and the binding again.
+                // Only a verified database there lets an original be unlinked; otherwise
+                // every original stays in the unit and the file at `state.db` is
+                // reported as unverified.
+                if in_unit && !bound_at(&state.fd, db, &live_path) {
+                    let (_, l, _) = all_left(&dir);
+                    return (Vec::new(), l, vec![live_path]);
+                }
+                for n in names.iter().skip(1).chain(names.first()) {
+                    if !matches!(kind(&dir, n), Ok(None))
+                        && rustix::fs::unlinkat(&dir, n, AtFlags::empty()).is_err()
+                    {
+                        let (_, l, _) = all_left(&dir);
+                        return (restored, l, Vec::new());
+                    }
                 }
                 for n in [DELETING, RECORD] {
                     let _ = rustix::fs::unlinkat(&dir, n, AtFlags::empty());
@@ -1957,7 +1992,7 @@ mod imp {
                 } else {
                     left_now(&dir, &here)
                 };
-                return (restored, left);
+                return (restored, left, Vec::new());
             }
             // The members a crash left at their names (still the recorded inode) join the
             // unit first, so the copy is made from the whole family.
@@ -1993,7 +2028,7 @@ mod imp {
                         } else {
                             left_now(&dir, &here)
                         };
-                        return (Vec::new(), left);
+                        return (Vec::new(), left, Vec::new());
                     }
                     if self.copy_in_unit(&dir, id, name, db, &record, ops).is_err() {
                         return all_left(&dir);
@@ -2017,13 +2052,13 @@ mod imp {
             if db_in_unit {
                 let original = here.join(db);
                 if !(ops.confirm)(&live_path, &original) {
-                    return (restored, left_now(&dir, &here));
+                    return (restored, left_now(&dir, &here), Vec::new());
                 }
                 for n in names.iter().skip(1).chain(names.first()) {
                     if !matches!(kind(&dir, n), Ok(None))
                         && rustix::fs::unlinkat(&dir, n, AtFlags::empty()).is_err()
                     {
-                        return (restored, left_now(&dir, &here));
+                        return (restored, left_now(&dir, &here), Vec::new());
                     }
                 }
             }
@@ -2033,7 +2068,7 @@ mod imp {
             } else {
                 left_now(&dir, &here)
             };
-            (restored, left)
+            (restored, left, Vec::new())
         }
 
         /// Write the unit's recovery copy from its original family, through the purge's
@@ -2178,6 +2213,10 @@ mod imp {
     /// `FILE_SHARE_READ | FILE_SHARE_WRITE`, without `FILE_SHARE_DELETE`: while held,
     /// the entry cannot be renamed or deleted (so not replaced).
     const SHARE_NO_DELETE: u32 = 0x1 | 0x2;
+    /// ⟨ADR-0008 §17.39 item 3⟩ `FILE_SHARE_READ | FILE_SHARE_DELETE`, without
+    /// `FILE_SHARE_WRITE`: while the recovery copy is held, no other handle can open it
+    /// for writing (and the hold itself fails while one is open).
+    const SHARE_NO_WRITE: u32 = 0x1 | 0x4;
     /// `FILE_ATTRIBUTE_REPARSE_POINT`.
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
     /// `FILE_ATTRIBUTE_DIRECTORY`.
@@ -2198,6 +2237,27 @@ mod imp {
         };
         let attrs = f.metadata()?.file_attributes();
         Ok(Some((f, attrs)))
+    }
+
+    /// ⟨ADR-0008 §17.39 item 3⟩ Hold the recovery copy at `path` open for reading, never
+    /// following a reparse point, sharing read and delete but **not write**: while held,
+    /// every other open of it for writing (or truncation) fails with a sharing
+    /// violation, and the hold fails while such a handle is already open. Reads by path
+    /// (the binding, SQLite's read-only open) still open it; its own rename goes through
+    /// it ([`heimdall_ipc::windows::rename_held_no_replace`]). Returns the handle and its
+    /// file ID; a reparse point or a directory refuses.
+    fn hold_copy(path: &Path) -> std::io::Result<(std::fs::File, (u64, u64))> {
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(SHARE_NO_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let attrs = f.metadata()?.file_attributes();
+        if attrs & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY) != 0 {
+            return Err(refused("the recovery copy is not a regular file"));
+        }
+        let id = heimdall_ipc::windows::file_id(&f)?;
+        Ok((f, id))
     }
 
     /// Pin every component of `root`'s path from the volume down, refusing on any
@@ -2544,11 +2604,16 @@ mod imp {
     /// ⟨ADR-0008 §17.36 item 1⟩ As on Unix: the recovery copy alone becomes
     /// `<state>/<db_file>` by one no-replace move, when none of the family's names is
     /// occupied; the original family stays.
+    ///
+    /// ⟨ADR-0008 §17.39 item 3⟩ With `held` (the copy held by [`hold_copy`]), the file
+    /// renamed is the held one, through its handle, so a file put at the copy's name is
+    /// never restored instead.
     fn restore_copy(
         state: &Path,
         here: &Path,
         db_file: &str,
         copy: Option<(u64, u64)>,
+        held: Option<&std::fs::File>,
     ) -> (Vec<PathBuf>, Vec<PathBuf>) {
         let kept = |restored: Vec<PathBuf>| (restored, left_now(here));
         if super::restore_fails() {
@@ -2558,7 +2623,11 @@ mod imp {
             return kept(Vec::new());
         };
         let at = here.join(super::UNIT_COPY);
-        if !matches!(id_at(&at), Ok(Some(now)) if now == cid) {
+        let same = match held {
+            Some(f) => heimdall_ipc::windows::file_id(f).is_ok_and(|now| now == cid),
+            None => matches!(id_at(&at), Ok(Some(now)) if now == cid),
+        };
+        if !same {
             return kept(Vec::new());
         }
         if family(db_file)
@@ -2569,7 +2638,11 @@ mod imp {
         }
         #[cfg(test)]
         super::tests::step_hook("restore");
-        if heimdall_ipc::windows::move_no_replace(&at, &state.join(db_file)).is_err() {
+        let moved = match held {
+            Some(f) => heimdall_ipc::windows::rename_held_no_replace(f, &state.join(db_file)),
+            None => heimdall_ipc::windows::move_no_replace(&at, &state.join(db_file)),
+        };
+        if moved.is_err() {
             return kept(Vec::new());
         }
         kept(vec![state.join(db_file)])
@@ -2598,8 +2671,18 @@ mod imp {
         }
 
         fn restore(&mut self, a: &Anchors, db_file: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
+            self.restore_held(a, db_file, None)
+        }
+
+        /// [`Unit::restore`], the copy renamed through `held` when it is held.
+        fn restore_held(
+            &mut self,
+            a: &Anchors,
+            db_file: &str,
+            held: Option<&std::fs::File>,
+        ) -> (Vec<PathBuf>, Vec<PathBuf>) {
             self.unpin();
-            restore_copy(&a.state, &self.path, db_file, self.copy)
+            restore_copy(&a.state, &self.path, db_file, self.copy, held)
         }
 
         /// ⟨§17.36 item 1⟩ The original family's companions, then the original database,
@@ -2615,8 +2698,8 @@ mod imp {
             for h in std::mem::take(&mut self.held) {
                 drop(h.file);
             }
-            let fail = |u: &mut Unit, cause: std::io::Error| {
-                let (restored, stuck) = u.restore(a, db_file);
+            let fail = |u: &mut Unit, held: Option<&std::fs::File>, cause: std::io::Error| {
+                let (restored, stuck) = u.restore_held(a, db_file, held);
                 super::QuarantineError {
                     cause,
                     stuck,
@@ -2630,8 +2713,15 @@ mod imp {
             };
             // ⟨audit E1; W5-I01 (§17.38)⟩ As on Unix: the copy checked (its identity, it
             // opens and reads on its own), then the mark binding it, before any original
-            // is deleted.
+            // is deleted. ⟨ADR-0008 §17.39 item 3⟩ From before that check through the last
+            // original's deletion the copy is held with no write sharing, so no other
+            // handle can write it in between (the reads below open it for reading).
             let copy_path = self.path.join(super::UNIT_COPY);
+            let held = match hold_copy(&copy_path) {
+                Ok((f, id)) if Some(id) == self.copy => f,
+                Ok(_) => return Err(keep(self, refused("the recovery copy was replaced"))),
+                Err(e) => return Err(keep(self, e)),
+            };
             let binding = match copy_binding(&copy_path) {
                 Ok(b) if Some(b.id) == self.copy => b,
                 Ok(_) => return Err(keep(self, refused("the recovery copy was replaced"))),
@@ -2644,8 +2734,9 @@ mod imp {
                 ));
             }
             if let Err(cause) = write_marker(&self.path, &binding) {
-                return Err(fail(self, cause));
+                return Err(fail(self, Some(&held), cause));
             }
+            let mut first = true;
             for n in names.iter().skip(1).chain(names.first()) {
                 let p = self.path.join(n);
                 if std::fs::symlink_metadata(&p).is_err() {
@@ -2653,18 +2744,31 @@ mod imp {
                 }
                 #[cfg(test)]
                 super::tests::unlink_hook(std::ffi::OsStr::new(n));
+                // ⟨ADR-0008 §17.39 item 2⟩ As on Unix: the copy read again by its path,
+                // through a fresh handle, just before the first original's deletion.
+                if std::mem::take(&mut first)
+                    && copy_binding(&copy_path).ok().as_ref() != Some(&binding)
+                {
+                    return Err(keep(
+                        self,
+                        refused("the recovery copy changed after its check; nothing was deleted"),
+                    ));
+                }
                 let removed = if super::unlink_fails(std::ffi::OsStr::new(n)) {
                     Err(std::io::Error::other("injected unlink failure"))
                 } else {
                     std::fs::remove_file(&p)
                 };
                 if let Err(cause) = removed {
-                    return Err(fail(self, cause));
+                    return Err(fail(self, Some(&held), cause));
                 }
             }
+            drop(held);
             // The mark first, so a mark always has its copy beside it (or restored).
             match std::fs::remove_file(self.path.join(super::UNIT_DELETING)) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(fail(self, e)),
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(fail(self, None, e));
+                }
                 _ => {}
             }
             #[cfg(test)]
@@ -2679,7 +2783,7 @@ mod imp {
                 }
             };
             if let Err(e) = copy_gone {
-                return Err(fail(self, e));
+                return Err(fail(self, None, e));
             }
             let gone = match std::fs::remove_file(self.path.join(super::UNIT_RECORD)) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -2801,9 +2905,10 @@ mod imp {
                         });
                         match ours {
                             Some(id) => {
-                                let (r, l) = self.recover_unit(&at, id, db_file, ops);
+                                let (r, l, u) = self.recover_unit(&at, id, db_file, ops);
                                 out.restored.extend(r);
                                 out.left.extend(l);
+                                out.unverified.extend(u);
                             }
                             None => out.left.push(at),
                         }
@@ -2833,9 +2938,9 @@ mod imp {
             id: (u64, u64),
             db_file: &str,
             ops: &super::RecoverOps<'_>,
-        ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        ) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
             let state = &self.state;
-            let all_left = || (Vec::new(), left_now(here));
+            let all_left = || (Vec::new(), left_now(here), Vec::new());
             let names = family(db_file);
             for part in super::UNIT_COPY_PART_FILES {
                 let _ = std::fs::remove_file(here.join(part));
@@ -2871,17 +2976,29 @@ mod imp {
                 let Some(bound) = read_marker(here) else {
                     return all_left();
                 };
+                let live_path = state.join(db_file);
+                let bound_at = |p: &Path| {
+                    copy_binding(p).ok().as_ref() == Some(&bound)
+                        && (ops.check)(p)
+                        && copy_binding(p).ok().as_ref() == Some(&bound)
+                };
                 let in_unit = std::fs::symlink_metadata(here.join(super::UNIT_COPY)).is_ok();
                 let copy_path = if in_unit {
                     here.join(super::UNIT_COPY)
                 } else {
-                    state.join(db_file)
+                    live_path.clone()
                 };
-                if copy_binding(&copy_path).ok().as_ref() != Some(&bound)
-                    || !(ops.check)(&copy_path)
-                    || copy_binding(&copy_path).ok().as_ref() != Some(&bound)
-                {
-                    return all_left();
+                // ⟨ADR-0008 §17.39 item 3⟩ The copy is held with no write sharing from
+                // before its check through its restore and the restored file's
+                // verification; it must be the file the mark binds.
+                let held = match hold_copy(&copy_path) {
+                    Ok((f, now)) if now == bound.id => Some(f),
+                    _ => None,
+                };
+                if held.is_none() || !bound_at(&copy_path) {
+                    let (r, l, _) = all_left();
+                    let found = !in_unit && std::fs::symlink_metadata(&live_path).is_ok();
+                    return (r, l, found.then(|| live_path.clone()).into_iter().collect());
                 }
                 for (k, n) in names.iter().enumerate() {
                     let p = here.join(n);
@@ -2900,24 +3017,31 @@ mod imp {
                         return all_left();
                     }
                 }
-                for n in names.iter().skip(1).chain(names.first()) {
-                    let p = here.join(n);
-                    if std::fs::symlink_metadata(&p).is_ok() && std::fs::remove_file(&p).is_err() {
-                        return all_left();
-                    }
-                }
+                #[cfg(test)]
+                super::tests::step_hook("recover-checked");
+                // ⟨ADR-0008 §17.39 item 1⟩ As on Unix: restore first (through the held
+                // handle), then verify the file at the live name from a fresh read, and
+                // only then delete the originals.
                 let mut restored = Vec::new();
-                let live = std::fs::symlink_metadata(state.join(db_file)).is_ok();
-                let copy = id_at(&here.join(super::UNIT_COPY)).ok().flatten();
-                if copy.is_some() {
-                    if live {
+                if in_unit {
+                    if std::fs::symlink_metadata(&live_path).is_ok() {
                         return all_left();
                     }
-                    let (r, _) = restore_copy(state, here, db_file, copy);
+                    let (r, _) = restore_copy(state, here, db_file, Some(bound.id), held.as_ref());
                     if r.is_empty() {
                         return all_left();
                     }
                     restored = r;
+                    if !bound_at(&live_path) {
+                        return (Vec::new(), left_now(here), vec![live_path]);
+                    }
+                }
+                drop(held);
+                for n in names.iter().skip(1).chain(names.first()) {
+                    let p = here.join(n);
+                    if std::fs::symlink_metadata(&p).is_ok() && std::fs::remove_file(&p).is_err() {
+                        return (restored, left_now(here), Vec::new());
+                    }
                 }
                 for n in [super::UNIT_DELETING, super::UNIT_RECORD] {
                     let _ = std::fs::remove_file(here.join(n));
@@ -2927,7 +3051,7 @@ mod imp {
                 } else {
                     left_now(here)
                 };
-                return (restored, left);
+                return (restored, left, Vec::new());
             }
             for n in &names {
                 if std::fs::symlink_metadata(here.join(n)).is_err()
@@ -2962,14 +3086,14 @@ mod imp {
                         } else {
                             left_now(here)
                         };
-                        return (Vec::new(), left);
+                        return (Vec::new(), left, Vec::new());
                     }
                     if self.copy_in_unit(here, id, db_file, &record, ops).is_err() {
                         return all_left();
                     }
                 }
                 let copy = id_at(&here.join(super::UNIT_COPY)).ok().flatten();
-                let (r, _) = restore_copy(state, here, db_file, copy);
+                let (r, _) = restore_copy(state, here, db_file, copy, None);
                 if r.is_empty() {
                     return all_left();
                 }
@@ -2979,12 +3103,12 @@ mod imp {
             }
             if db_in_unit {
                 if !(ops.confirm)(&state.join(db_file), &here.join(db_file)) {
-                    return (restored, left_now(here));
+                    return (restored, left_now(here), Vec::new());
                 }
                 for n in names.iter().skip(1).chain(names.first()) {
                     let p = here.join(n);
                     if std::fs::symlink_metadata(&p).is_ok() && std::fs::remove_file(&p).is_err() {
-                        return (restored, left_now(here));
+                        return (restored, left_now(here), Vec::new());
                     }
                 }
             }
@@ -2994,7 +3118,7 @@ mod imp {
             } else {
                 left_now(here)
             };
-            (restored, left)
+            (restored, left, Vec::new())
         }
 
         fn copy_in_unit(
@@ -4595,5 +4719,147 @@ pub(crate) mod tests {
             Some(&b"frames"[..])
         );
         assert!(!u.join(MARKER).exists(), "no mark without a checked copy");
+    }
+
+    // --- W5-J01 (ADR-0008 §17.39) -----------------------------------------------------------
+
+    /// A unit stopped at the first original's deletion (`state.db-wal`): the mark is
+    /// durable, and the originals (`db`, `frames`) and the stand-in copy are in the unit.
+    fn unit_marked(d: &std::path::Path, state: &std::path::Path, run: &std::path::Path) {
+        std::fs::write(state.join("state.db-wal"), b"frames").unwrap_or_else(|e| panic!("{e}"));
+        let anchors = Anchors::open(state, run, Some(d)).unwrap_or_else(|e| panic!("{e}"));
+        let mut q = anchors
+            .quarantine("state.db", || {})
+            .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
+        assert!(crashing_at("unlink", "state.db-wal", || {
+            let _ = q.delete(&|_| true);
+        }));
+        let u = unit_dir(state).unwrap_or_else(|| panic!("no unit"));
+        assert!(u.join(MARKER).exists() && u.join(COPY_NAME).exists());
+    }
+
+    /// `w5_j01_restored_copy_failing_verification_keeps_every_original` (ADR-0008 §17.39
+    /// item 1): recovery acting on a mark restores the copy as `state.db` first; when the
+    /// file at `state.db` then fails its verification (here `check` refuses the live
+    /// name), every original stays in the unit with the mark and the record, nothing is
+    /// unlinked, the unverified `state.db` is reported as such, and the start-up check
+    /// refuses with `state.db` present.
+    #[test]
+    fn w5_j01_restored_copy_failing_verification_keeps_every_original() {
+        let (d, state, run) = roots();
+        unit_marked(d.path(), &state, &run);
+        let u = unit_dir(&state).unwrap_or_else(|| panic!("no unit"));
+        let live = state.join("state.db");
+        let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
+        let open = |_: &std::path::Path| -> Box<dyn std::any::Any> { Box::new(()) };
+        let copy = |_: &dyn std::any::Any, _: &std::path::Path| false;
+        let confirm = |_: &std::path::Path, _: &std::path::Path| false;
+        let check = |p: &std::path::Path| p != live.as_path();
+        let ops = RecoverOps {
+            open: &open,
+            copy: &copy,
+            confirm: &confirm,
+            check: &check,
+        };
+        let rec = anchors.recover("state.db", &ops);
+        assert_eq!(rec.unverified, vec![live.clone()], "{rec:?}");
+        assert!(rec.restored.is_empty(), "{rec:?}");
+        assert!(rec.left.contains(&u), "{rec:?}");
+        assert_eq!(std::fs::read(&live).ok().as_deref(), Some(&b"db"[..]));
+        assert_eq!(
+            std::fs::read(u.join("state.db")).ok().as_deref(),
+            Some(&b"db"[..]),
+            "the original database was unlinked"
+        );
+        assert_eq!(
+            std::fs::read(u.join("state.db-wal")).ok().as_deref(),
+            Some(&b"frames"[..]),
+            "the original -wal was unlinked"
+        );
+        assert!(u.join(MARKER).exists() && u.join(UNIT_RECORD).exists());
+        assert!(
+            !heimdall_runtime::service::quarantine_leftovers(&state)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty(),
+            "start-up would run"
+        );
+        // Again: the copy is now at `state.db`, still failing; still nothing unlinked.
+        let rec = anchors.recover("state.db", &ops);
+        assert_eq!(rec.unverified, vec![live], "{rec:?}");
+        assert_eq!(
+            std::fs::read(u.join("state.db-wal")).ok().as_deref(),
+            Some(&b"frames"[..])
+        );
+    }
+
+    /// `w5_j01_windows_held_copy_denies_a_second_writer` (ADR-0008 §17.39 item 3; Windows
+    /// only): while the recovery copy is held (on the normal path from its check through
+    /// the last original's deletion; in recovery through its restore and verification), a
+    /// second open of it for writing fails with `ERROR_SHARING_VIOLATION`, a read still
+    /// opens it, and the deletion and the recovery complete with the copy unchanged.
+    #[cfg(windows)]
+    #[test]
+    fn w5_j01_windows_held_copy_denies_a_second_writer() {
+        type Tried = std::rc::Rc<std::cell::RefCell<Vec<(bool, bool)>>>;
+        /// A write open (refused by the hold?) and a read (works?) of the copy at `p`.
+        fn try_both(p: &std::path::Path, tried: &Tried) {
+            let write = std::fs::OpenOptions::new().write(true).open(p);
+            let refused = matches!(&write, Err(e) if e.raw_os_error() == Some(32));
+            let read = std::fs::read(p).is_ok_and(|b| b == b"db");
+            tried.borrow_mut().push((refused, read));
+        }
+        // The normal path.
+        let (d, state, run) = roots();
+        std::fs::write(state.join("state.db-wal"), b"frames").unwrap_or_else(|e| panic!("{e}"));
+        let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
+        let mut q = anchors
+            .quarantine("state.db", || {})
+            .unwrap_or_else(|e| panic!("{:?}", e.cause));
+        q.fake_copy().unwrap_or_else(|e| panic!("{e}"));
+        let tried: Tried = std::rc::Rc::default();
+        let (t, st) = (tried.clone(), state.clone());
+        let end = with_unlink_hook(
+            move |n| {
+                if let Some(u) = unit_dir(&st)
+                    && (n == "state.db-wal" || n == "state.db")
+                {
+                    try_both(&u.join(COPY_NAME), &t);
+                }
+            },
+            || q.delete(&|_| true),
+        );
+        end.unwrap_or_else(|e| panic!("{:?}", e.cause));
+        assert_eq!(*tried.borrow(), vec![(true, true), (true, true)]);
+        // Recovery.
+        let (d, state, run) = roots();
+        unit_marked(d.path(), &state, &run);
+        let u = unit_dir(&state).unwrap_or_else(|| panic!("no unit"));
+        let anchors = Anchors::open(&state, &run, Some(d.path())).unwrap_or_else(|e| panic!("{e}"));
+        let open = |_: &std::path::Path| -> Box<dyn std::any::Any> { Box::new(()) };
+        let copy = |_: &dyn std::any::Any, _: &std::path::Path| false;
+        let confirm = |_: &std::path::Path, _: &std::path::Path| false;
+        let check = |_: &std::path::Path| true;
+        let ops = RecoverOps {
+            open: &open,
+            copy: &copy,
+            confirm: &confirm,
+            check: &check,
+        };
+        let tried: Tried = std::rc::Rc::default();
+        let t = tried.clone();
+        let at = u.join(COPY_NAME);
+        let rec = with_step(
+            "recover-checked",
+            move || try_both(&at, &t),
+            || anchors.recover("state.db", &ops),
+        );
+        assert_eq!(*tried.borrow(), vec![(true, true)]);
+        assert!(rec.left.is_empty() && rec.unverified.is_empty(), "{rec:?}");
+        assert_eq!(
+            std::fs::read(state.join("state.db")).ok().as_deref(),
+            Some(&b"db"[..])
+        );
+        assert!(unit_dir(&state).is_none());
     }
 }

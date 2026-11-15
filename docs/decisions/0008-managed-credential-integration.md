@@ -4749,6 +4749,42 @@ No review has run yet. These rulings complete the wave before its reviews.
    - the devbox batches and a Windows run at round 15;
    - then the merge, with §17.33 item 6's criteria.
 
+### 17.39 Orchestrator rulings on wave 5's re-check of round 15 (2026-11-15)
+
+**Source:** the scoped re-check of round 15 (`40a8d1d4..20aa899c`) on Grok (`grok-4.7`): `tests/evidence/artifacts/review-m03-code/wave5-recheck7.md`. Verdict: fix first, with W5-J01.
+- **What held:**
+  - three reverted round-15 fixes each failed their regression;
+  - the 47 purge and uninstall regressions pass;
+  - F2 holds, and the empty-companion exception refuses safely;
+  - `signal_exact` never signalled a process other than the exact child.
+- **Native development checks at `20aa899c`:**
+  - **Windows:** 86 of 86 binaries pass (2610 passed, 0 failed), with all 35 database-family purge tests running natively for the first time;
+  - **the devbox:** 27 of 27 binaries pass (901 and 491 passed, 0 failed).
+
+1. **W5-J01: the copy can be overwritten after its last check.** A same-user writer overwrote `heimdall-recovery-copy.db` in place after the copy's last check. The normal path then unlinked the originals with no further check, and recovery unlinked them and restored the overwritten file as `state.db`.
+   - **What it is:** a check-to-use race against a running purge. On Unix, no unprivileged mechanism stops a same-user writer from changing a file's bytes between a check and a later step, and such a program could unlink the originals itself.
+   - **The rule:** close the window where the platform allows it, and order the steps so that recovery never deletes an original before a verified database stands at the live name.
+2. **Recovery restores first, then verifies, then deletes (both platforms).** Recovery restores the copy as `state.db` with one no-replace rename. It then verifies the file at the live name from a fresh read: the binding, a read-only open with its checks, and the binding again. Only then are the originals, the marker, the record and the directory removed.
+   - **If verification fails:** nothing is unlinked, the unit is kept, and the refusal names the unverified `state.db`. Start-up keeps refusing.
+   - **Out of scope:** a later overwrite of the live `state.db` is the same as corrupting any live database (spec P03).
+3. **The normal path checks again (both platforms).** Immediately before the first original is unlinked, the copy's binding is read again by name through a fresh descriptor. A mismatch refuses, unlinks nothing of the family, and keeps the unit and its marker.
+4. **Windows closes the window.** The copy is held open, sharing read and delete but never write: on the normal path from its check through the last original's deletion, and in recovery through the restore and its verification. The restore renames the held file through its handle, so a file renamed into the copy's place cannot be restored instead.
+   - **What the hold prevents:** any other open of the copy for writing.
+   - **What it does not prevent:** the copy's rename or deletion (the hold shares delete for its own rename). That removes the copy rather than altering it, which fails closed.
+   - **The new wrapper** is accepted: `heimdall_ipc::windows::rename_held_no_replace`, in a module overview §9 already allows `unsafe` in, as `file_id` was accepted (§17.34). It does not add the `\\?\UNC\` prefix to a network path. A rename that fails for that reason fails the restore, and the unit is kept.
+5. **The residual.** On Unix, the normal path keeps an instant between item 3's re-check and the first unlink. A same-user writer can alter the copy in that instant, and the deletion the owner confirmed with a typed `yes` then goes ahead. `RESIDUALS` gains `purge_recovery_copy_overwritten_between_check_and_unlink` (§17.33 item 6).
+   - **Its platform stays `any`.** The overwrite window is Unix-only, but renaming or deleting the copy is possible on both platforms, and the entry says which part is Unix.
+   - **Its probe:** item 3's regression.
+6. **The regressions,** each failing with its fix reverted:
+   - `w5_j01_copy_overwritten_after_check_keeps_originals` (item 3);
+   - `w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals` and `w5_j01_restored_copy_failing_verification_keeps_every_original` (item 2, both for the verification at the live name and for the restore-first order).
+
+   `w5_j01_windows_held_copy_denies_a_second_writer` (item 4) runs on Windows only. On Windows, both `uninstall_cmd` regressions expect the write to be refused with a sharing violation and the purge or recovery to complete.
+7. **What comes next:**
+   - a scoped re-check of round 16;
+   - a Windows run, since item 4's code has only passed Windows clippy;
+   - then the merge, with §17.33 item 6's criteria.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

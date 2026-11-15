@@ -758,6 +758,84 @@ pub fn create_dir_owner_only(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// ⟨ADR-0008 §17.39 item 3 (the purge's held recovery copy)⟩ Rename **the file `held`
+/// holds open** to `to`, without replacing anything at `to`, whatever name the file has
+/// now: a second handle to the same open file (`ReOpenFile`, with `DELETE` access and
+/// sharing read and delete only, so `held`'s read access and its refusal of writers
+/// stay), then `SetFileInformationByHandle(FileRenameInfo)` with `ReplaceIfExists`
+/// false and the full path of `to` (in the `\\?\` form). The second handle is closed
+/// before this returns; `held` stays open. A file put at `held`'s old name is never the
+/// one renamed.
+///
+/// # Errors
+/// The reopen failed (another handle does not share delete, or the file is being
+/// deleted), `to` exists, or the rename failed.
+pub fn rename_held_no_replace(held: &std::fs::File, to: &Path) -> io::Result<()> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FileRenameInfo, ReOpenFile,
+        SYNCHRONIZE, SetFileInformationByHandle,
+    };
+    let full = full_path_name(to.as_os_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the target path"))?;
+    let name: Vec<u16> = if full.starts_with(&[u16::from(b'\\'), u16::from(b'\\')]) {
+        full
+    } else {
+        OsStr::new(r"\\?\").encode_wide().chain(full).collect()
+    };
+    let name_bytes = name.len() * size_of::<u16>();
+    let offset = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
+    // The structure, the name and its terminator, in an 8-byte-aligned zeroed buffer.
+    let size = offset + name_bytes + size_of::<u16>();
+    let mut buffer = vec![0u64; size.div_ceil(size_of::<u64>())];
+    let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    let length = u32::try_from(name_bytes)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "the target path"))?;
+    let size = u32::try_from(size)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "the target path"))?;
+    // SAFETY: `buffer` is zeroed, 8-byte aligned and at least `offset + name_bytes + 2`
+    // bytes long, so `info` points to a valid `FILE_RENAME_INFO` (all-zero is valid:
+    // `ReplaceIfExists` false, no root directory) followed by room for `name` and a
+    // zero terminator; the writes stay inside it.
+    unsafe {
+        (*info).FileNameLength = length;
+        ptr::copy_nonoverlapping(
+            name.as_ptr(),
+            ptr::addr_of_mut!((*info).FileName).cast::<u16>(),
+            name.len(),
+        );
+    }
+    // SAFETY: `held` owns its handle and keeps it open for the call; the returned
+    // handle, when valid, is owned below and closed exactly once.
+    let raw = unsafe {
+        ReOpenFile(
+            held.as_raw_handle() as HANDLE,
+            DELETE | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_DELETE,
+            0,
+        )
+    };
+    if raw == INVALID_HANDLE_VALUE || raw.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `raw` is a valid handle this function exclusively owns from here.
+    let renamer = unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) };
+    // SAFETY: `renamer` is open for the call; `info` points to `size` initialized bytes
+    // (see above) that outlive the call.
+    let ok = unsafe {
+        SetFileInformationByHandle(
+            renamer.as_raw_handle() as HANDLE,
+            FileRenameInfo,
+            info.cast::<c_void>().cast_const(),
+            size,
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// [`handle_owner_sid`] for an object of `object_type`.
 fn owner_sid_of(handle: RawHandle, object_type: SE_OBJECT_TYPE) -> io::Result<String> {
     let mut owner: PSID = ptr::null_mut();

@@ -207,6 +207,22 @@ pub const RESIDUALS: &[Residual] = &[
         adr: "ADR-0008 §17.38",
     },
     Residual {
+        id: "purge_recovery_copy_overwritten_between_check_and_unlink",
+        description: "uninstall purge's deletion of the original database family, Unix (ADR-0008 §17.39, W5-J01): immediately before the first original is unlinked, the recovery copy is read again by its name through a fresh descriptor and must still match the deletion mark's binding (identity, size, SHA-256), or nothing of the family is unlinked and the unit is kept. A same-user program that overwrites the copy in place in the instant between that re-check and the unlinks gets the original family deleted behind a copy that is no longer the checked one. That deletion is the one the owner confirmed with a typed yes, and such a program could delete the originals itself. Crash recovery acting on a mark is not exposed: it restores the copy as state.db first, verifies the file at the live name from a fresh read, and only then unlinks an original; a copy overwritten before the restore fails that verification and every original is kept. On Windows the copy is held open with no write sharing from its check through the last original's deletion (and through recovery's restore and verification), so no other handle can open it for writing in that window; the hold shares delete (the restore renames the held file through it), so it does not stop the copy's rename or deletion, which on either platform removes the copy rather than altering it, a deletion the program could make of the originals itself. A later overwrite of the live state.db is outside the purge (spec P03)",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "uninstall.purge_anchored_deletion",
+        probe: Probe {
+            target: "-p heimdall --bin heimdall",
+            source: "crates/heimdall/src/uninstall_cmd.rs",
+            test: "uninstall_cmd::tests::w5_j01_copy_overwritten_after_check_keeps_originals",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0008 §17.39",
+    },
+    Residual {
         id: "issuer_request_hold_absent_for_leader_and_lease_work",
         description: "an issuer sign sent from a task that holds no fence admission of its own (the verification leader, holder-lease work) is not held by request_hold: when its waiter times out against a child that cannot be verified, the admission ends before the child does, so a fence acquisition can be taken while that child is still alive. No lasting effect: the child never writes the state database and a late signature reaches no reader, so no certificate is published",
         platform: Platform {
