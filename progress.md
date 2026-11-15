@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M03 (managed credentials), waves 0–4 merged (wave 4 at fef2aecc, 2026-11-13); next wave 5 (U12). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
+**Current milestone:** M03 (managed credentials), waves 0–5 merged (wave 5 at f6ed0cee, 2026-11-15); next wave 6 (U13, the exit suite), in parallel with the M04 and M05 tracks (ADR-0009). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -1057,4 +1057,54 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - the terminal handoff (U5IO-Q3);
     - the doctor items `slot_free` and `managed_dir_unsafe`;
     - `descriptor_mismatch`'s surface (m03-plan §5 item 14).
-- **Next: M03 wave 5,** U12: the CLI and TUI surfaces.
+- **M03 wave 5 merged** (`f6ed0cee`, 2026-11-15): U12 (the CLI and TUI surfaces), including the owner-present half of issuer deletion, the terminal handoff, the doctor items, `descriptor_mismatch`'s surface, and the hardening of `heimdall uninstall --purge-state`.
+  - **How it was built:** one integrator agent (Opus 5.5) with worker subagents, in 16 rounds on `m03/wave5`:
+    - rounds 1–10, `dd08b282` to `142fe3fa`: U12, then the code, security and re-check fixes;
+    - round 11, `e068e049`: holder leases and the `RESIDUALS` manifest;
+    - round 12, `94d6076d`: quarantine-then-validate;
+    - round 13, `b5f0a715`: the database family as one recovery unit;
+    - round 14, `40a8d1d4`: read-only validation and a `VACUUM INTO` recovery copy;
+    - round 15, `20aa899c`: a marker that binds a checked copy, Windows coverage, and the Linux issuer identity fix;
+    - round 16, `965b509e`: restore, verify, then delete, and a Windows write-denying hold.
+  - **Reviews** (all archived under `review-m03-code/`):
+    - **Codex** (`codex-cpamc`):
+      - the code review, W5-R01 to R06;
+      - the security review, W5-S01 to S06;
+      - re-checks 1 to 6: W5-C01 to C05, D01 to D05, E01 to E06, F01 to F04, G01 to G04 and H01 to H02. The provider's content filter stopped re-checks 4 and 6, which were reconstructed from their logs.
+    - **Audits inside the integrator** (Claude subagents): A1 to A8, L1 to L2, B1 to B6, C0 to C4 and D1 to D5.
+    - **Gemini** (`gemini-4-hydrogen-xhigh`): the round-14 audit, E1 to E3 fixed, plus F1 and F2.
+    - **Grok** (`grok-4.7`):
+      - the final review, W5-I01: a planted marker made recovery delete the only database;
+      - re-check 7, W5-J01: the copy overwritten after its last check;
+      - re-check 8: **merge**, with no new finding.
+  - **Rulings:** ADR-0008 §17.25 to §17.40.
+    - **The stopping rule** (§17.33 item 6, sharpened by item 10, §17.38 item 2 and §17.39) fixes any lasting effect on remote trust, recovery records or the owner's data, and any consent bypass. It records anything that is fail-closed only, or that needs a hostile same-user program, except for destructive deletion.
+    - **`RESIDUALS`** lists 10 accepted limits, each with its probe. They are carried to U13 and the claims table.
+  - **Native development checks** (not exit evidence):
+    - **Windows, 9.5p2:**
+      - at `40a8d1d4`: 86 of 86 binaries, 2588 passed;
+      - at `20aa899c`: 86 of 86, 2610 passed, with all 35 database-family purge tests natively for the first time;
+      - at `965b509e`: 86 of 86, 2614 passed, with all 37 database-family tests, including the held-copy test.
+    - **The devbox, 9.6p1, in two batches** (the disk has about 9 GB free):
+      - at `40a8d1d4`: 26 of 27. `e2e_cli_m03` failed 3 tests, all on Linux only;
+      - at `20aa899c`: 27 of 27 (901 + 491 passed);
+      - at `965b509e`: batch A, 13 of 13 (904 passed).
+    - **One product bug found natively:** on Linux, the non-dumpable issuer child's `/proc/<pid>/exe` is unreadable, so `signal_exact` could never end a hung child. Now the image is part of the identity only when it was readable at spawn; otherwise the identity is the PID, the start token and the owned, unreaped handle.
+  - **check.sh at `965b509e`:** every step 0. Round 15 had 3104 passed, 0 failed, 192 ignored. `linux-xcheck --workspace` and the umask-002 runs also exited 0.
+  - **Left for wave 6 (U13):**
+    - the Windows interactive harness for U12's `#[cfg(unix)]` pty tests (§17.26 item 8);
+    - real issuer-child activation, re-issue and revocation on each platform (§17.26 item 3);
+    - the `RESIDUALS` limits in the claims table;
+    - optionally, moving the copy check ahead of the tree deletion (§17.38 item 6).
+- **ADR-0009 (delivery economy), 2026-11-15:** the owner asked for faster delivery and only meaningful work. The new rules:
+  - one review cycle per wave;
+  - hostile same-user findings go to `RESIDUALS` unless they gain the program something it could not do itself;
+  - native runs at merge candidates;
+  - a new test only for behaviour no existing test covers;
+  - `check.sh` once per commit;
+  - parallel milestone tracks;
+  - workers block on their own long commands.
+- **Next: three parallel tracks:**
+  - M03 wave 6 (U13: the exit suite, native harnesses, evidence, the matrix and the claims update, then the M03 exit);
+  - the M04 design and build;
+  - the M05 design and build.
