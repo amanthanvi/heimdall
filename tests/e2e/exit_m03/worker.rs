@@ -120,7 +120,7 @@ pub fn run(path: &Path) {
                 }
                 let out = run_bounded(&mut cmd, Duration::from_secs(60));
                 let marker = task["marker"].as_str().unwrap();
-                let tail: Vec<&str> = out.stderr.lines().rev().take(8).collect();
+                let tail: Vec<&str> = out.stderr.lines().rev().take(40).collect();
                 json!({
                     "exit": out.code,
                     "marker_seen": out.stdout.lines().any(|l| l.trim() == marker),

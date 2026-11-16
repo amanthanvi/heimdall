@@ -703,6 +703,28 @@ impl World {
         for (k, v) in &self.extra_env {
             put(k, OsStr::new(v));
         }
+        // ⟨windiag, development only⟩ The runtime (and every process this world starts)
+        // also gets this test process's whole environment, agent, Git and Heimdall
+        // variables removed, to tell an environment cause from another.
+        if cfg!(windows) && std::env::var_os("HM_EXIT_DIAG_FULL_ENV").is_some() {
+            let have: Vec<String> = e
+                .iter()
+                .map(|(k, _)| k.to_string_lossy().to_ascii_uppercase())
+                .collect();
+            for (k, v) in std::env::vars_os() {
+                let u = k.to_string_lossy().to_ascii_uppercase();
+                if have.contains(&u)
+                    || u.starts_with("HEIMDALL_")
+                    || u.starts_with("GIT_")
+                    || u.starts_with("HM_")
+                    || u == "SSH_AUTH_SOCK"
+                    || u == "HOME"
+                {
+                    continue;
+                }
+                e.push((k, v));
+            }
+        }
         e
     }
 
@@ -1021,6 +1043,98 @@ impl World {
         self.record_bytes("projection login (stdout)", out.stdout.as_bytes());
         self.record_bytes("projection login (stderr)", out.stderr.as_bytes());
         out
+    }
+
+    /// ⟨windiag, development only⟩ Why a login through `pair`'s projection fails: the same
+    /// command at `-vvv` with the worker's minimal environment and again with this test
+    /// process's whole environment (agent, Git and Heimdall variables removed), each with
+    /// its exit and stderr tail; the server log of each attempt; the alias's `ssh -G`
+    /// identity lines and both configuration files. Redacted ([`World::redact`]).
+    pub fn diagnose_login(&self, pair: usize) -> String {
+        let mut out = String::new();
+        let (program, args, env) = self.login_command(pair, "windiag-marker");
+        let mut vargs: Vec<OsString> = vec!["-vvv".into()];
+        vargs.extend(args.iter().cloned());
+        let full: Vec<(OsString, OsString)> = std::env::vars_os()
+            .filter(|(k, _)| {
+                let k = k.to_string_lossy().to_ascii_uppercase();
+                !(k.starts_with("HEIMDALL_")
+                    || k.starts_with("GIT_")
+                    || k == "SSH_AUTH_SOCK"
+                    || k == "HOME")
+            })
+            .chain(
+                env.iter()
+                    .filter(|(k, _)| k == "SSH_AUTH_SOCK" || k == "HOME")
+                    .cloned(),
+            )
+            .collect();
+        for (label, e) in [("minimal env", env.clone()), ("full env", full)] {
+            let mark = self.pairs[pair].sshd.log_mark();
+            let o = run_bounded(
+                Command::new(&program)
+                    .args(&vargs)
+                    .env_clear()
+                    .envs(e.clone())
+                    .current_dir(&self.home.root),
+                Duration::from_secs(60),
+            );
+            let tail: Vec<&str> = o
+                .stderr
+                .lines()
+                .rev()
+                .take(80)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            out.push_str(&format!(
+                "\n--- windiag login ({label}): exit {} marker_seen {} env_keys {:?}\n{}\n--- server log since this attempt:\n{}\n",
+                o.code,
+                o.stdout.lines().any(|l| l.trim() == "windiag-marker"),
+                e.iter().map(|(k, _)| k.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+                tail.join("\n"),
+                self.pairs[pair].sshd.log_lines_since(mark, "").join("\n")
+            ));
+        }
+        let g = run_bounded(
+            Command::new(&program)
+                .args(["-G"])
+                .args(&args[..args.len() - 1])
+                .env_clear()
+                .envs(env)
+                .current_dir(&self.home.root),
+            Duration::from_secs(30),
+        );
+        let keep = [
+            "user ",
+            "hostname ",
+            "port ",
+            "identityagent ",
+            "identityfile ",
+            "certificatefile ",
+            "identitiesonly ",
+            "batchmode ",
+            "proxy",
+            "include",
+            "loglevel ",
+        ];
+        out.push_str(&format!(
+            "--- ssh -G {} (exit {}):\n{}\n",
+            self.pairs[pair].alias,
+            g.code,
+            g.stdout
+                .lines()
+                .filter(|l| keep.iter().any(|k| l.starts_with(k)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+        out.push_str(&format!(
+            "--- user config:\n{}\n--- managed config:\n{}\n",
+            std::fs::read_to_string(&self.home.user_config).unwrap_or_default(),
+            std::fs::read_to_string(self.hh.join("config").join("ssh_config")).unwrap_or_default()
+        ));
+        self.redact(&out)
     }
 
     /// The certificates `pair`'s server accepted after `mark` (its log position).

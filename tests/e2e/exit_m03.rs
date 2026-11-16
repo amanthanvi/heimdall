@@ -91,11 +91,15 @@ fn one_cert_of(w: &World, accepted: &[AcceptedCert], grant: &str, what: &str) ->
 /// A worker's login result, asserted successful (the remote command's marker came back).
 fn assert_login_ok(w: &World, results: &[serde_json::Value], label: &str) {
     let r = worker::result(results, "login", Some(label));
-    assert!(
-        r["exit"] == 0 && r["marker_seen"] == true,
-        "{label}: {}",
-        w.redact(&r.to_string())
-    );
+    let ok = r["exit"] == 0 && r["marker_seen"] == true;
+    // ⟨windiag, development only⟩ On Windows, why it failed (the worker still holds the
+    // binding while it waits for its next step).
+    let diag = if !ok && cfg!(windows) {
+        w.diagnose_login(0)
+    } else {
+        String::new()
+    };
+    assert!(ok, "{label}: {}{diag}", w.redact(&r.to_string()));
 }
 
 /// The grant a certificate key ID names (`heimdall:<environment>:<grant>:<n>`).
@@ -999,11 +1003,30 @@ fn real_issuer_signs_verification_certificates_enroll_verify_passes() {
     let mark = w.pairs[0].sshd.log_mark();
     let out = w.cli(&["--json", "--non-interactive", "enroll", "verify", &id]);
     let env = out.json();
+    // ⟨windiag, development only⟩ The recorded verdicts of the verify operation.
+    let verdicts = if out.code != 0 {
+        let op = env["operation_id"].as_str().unwrap_or_default().to_owned();
+        heimdall_contract::ids::OperationId::parse(&op)
+            .ok()
+            .and_then(|o| w.open_store().transaction(|tx| tx.stage_receipts(&o)).ok())
+            .map(|rs| {
+                rs.into_iter()
+                    .filter(|r| r.stage.starts_with("enroll.verify"))
+                    .map(|r| format!("{} {:?}", r.stage, r.effect))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     assert!(
         out.code == 0 && env["data"]["state"] == "verified",
-        "enroll verify through the real issuer child: exit {}, {}",
+        "enroll verify through the real issuer child: exit {}, {}\n--- windiag verify receipts:\n{}\n--- server log since:\n{}",
         out.code,
-        w.redact(&out.stdout)
+        w.redact(&out.stdout),
+        verdicts,
+        w.redact(&w.pairs[0].sshd.log_lines_since(mark, "").join("\n"))
     );
     let accepted = w.accepted_since(0, mark);
     assert_eq!(
