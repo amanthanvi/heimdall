@@ -28,6 +28,12 @@
 //! `ManagedResource` of kind `Endpoint` ([`endpoint_resource`]); [`EndpointRegistry::remove`]
 //! stops exactly the instance of that generation and locator, leaving a newer one.
 
+// ⟨M04⟩ Joint wave 0 (ADR-0010 §9 items 7 and 9): the M04 track's endpoint kinds,
+// registered empty so the track fills them without editing this file.
+#[cfg(unix)]
+pub mod container;
+pub mod wsl;
+
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};

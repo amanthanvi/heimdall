@@ -61,6 +61,24 @@
     "next"
   ],
   "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
     "AccountName": {
       "description": "Remote account name on a destination.",
       "type": "string"
@@ -310,6 +328,27 @@
         }
       ]
     },
+    "MechanismGroup": {
+      "description": "⟨M05⟩ One mechanism group of a mixed profile (`next.groups`; ADR-0011 §5.3).",
+      "type": "object",
+      "properties": {
+        "mechanism": {
+          "description": "The mechanism (`managed_certificate`, `native_agent`, ...).",
+          "type": "string"
+        },
+        "pairs": {
+          "description": "Its pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "mechanism",
+        "pairs"
+      ]
+    },
     "NextAction": {
       "description": "Machine next action (spec §11.2 `next`, §11.6 \"machine-readable next action\").\n`action` names are stable; parameters are present only when relevant.",
       "type": "object",
@@ -346,6 +385,13 @@
             "string",
             "null"
           ]
+        },
+        "groups": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 9): with reason `mixed_mechanisms`, the\nmechanism groups to re-request under one work ID (ADR-0011 §5.3). Omitted when\nempty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MechanismGroup"
+          }
         },
         "operation_id": {
           "description": "Operation to observe.",

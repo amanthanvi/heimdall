@@ -616,6 +616,8 @@ pub fn compute(
         remote_processes: Some(RemoteProcesses::NotTerminated),
         unmanaged_connections: Some(UnmanagedConnections::NotControlled),
         issuer_isolation: Some(IssuerIsolation::SameUserProcess),
+        ordinary_aliases: None,
+        owner_functions: None,
     };
 
     let clocks: Vec<Option<ClockMeasurement>> = pairs

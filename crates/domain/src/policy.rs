@@ -144,6 +144,142 @@ pub fn merge_lock_and_connection(merged: &mut StandingPolicy, policies: &[Standi
     }
 }
 
+/// ⟨M05⟩ The context a policy resolution runs in (ADR-0011 §3.1 as ruled in §10 item 1;
+/// ADR-0006 revision 5, §17, replacing §13.6 item 5's first-by-ID choice).
+///
+/// Every resolution path names one: `ensure` and `run` from the request's context
+/// (personal when it has none), renewal, re-validation and issuance from the grant's
+/// recorded context ([`crate::grant::GrantOrigin::workspace`]), `activation_refusal`
+/// from the resolved intent's ([`crate::operation::ResolvedIntent::workspace`]),
+/// ordinary `ssh` (personal), the shell hook (the match of its working directory).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "workspace", rename_all = "snake_case")]
+pub enum PolicyContext {
+    /// Repository-free work, ordinary `ssh`, and every request without a workspace
+    /// match: only policies with `workspace: None` apply.
+    Personal,
+    /// A workspace the observation matched as `Trusted` or `Member` (never `Ambiguous`).
+    Workspace(WorkspaceId),
+}
+
+impl PolicyContext {
+    /// The context of a workspace match: `Trusted` and `Member` select that workspace;
+    /// `Untrusted` and `Ambiguous` are personal, so an ambiguous match (a re-clone or
+    /// restore at the same path, a move) never activates the old record's scope (ADR-0011
+    /// §10 item 1). Whether an ambiguous request may still use what personal policy
+    /// covers, and the `ReconcileWorkspace` decision it raises, are the activation's
+    /// (M05 U4); resolution only guarantees the old workspace's scope is out of reach.
+    #[must_use]
+    pub fn of_match(m: &crate::workspace::WorkspaceMatch) -> Self {
+        use crate::workspace::WorkspaceMatch;
+        match m {
+            WorkspaceMatch::Trusted { workspace } | WorkspaceMatch::Member { workspace } => {
+                Self::Workspace(workspace.clone())
+            }
+            _ => Self::Personal,
+        }
+    }
+
+    /// The context recorded on a grant or intent: `None` is personal (every M01–M03
+    /// record).
+    #[must_use]
+    pub fn of_recorded(workspace: Option<&WorkspaceId>) -> Self {
+        workspace.map_or(Self::Personal, |w| Self::Workspace(w.clone()))
+    }
+
+    /// The workspace, when there is one (what a grant or intent records).
+    #[must_use]
+    pub fn workspace(&self) -> Option<&WorkspaceId> {
+        match self {
+            Self::Personal => None,
+            Self::Workspace(w) => Some(w),
+        }
+    }
+}
+
+/// ⟨M05⟩ The standing policies that apply in `context` (ADR-0011 §10 item 1; ADR-0006
+/// revision 5 §17 item 3, replacing §13.6 item 5's "every policy naming the profile and
+/// environment"). `policies` are those naming the profile and environment
+/// (`heimdall_store::Txn::policies_for`, ordered by ID).
+///
+/// * [`PolicyContext::Personal`]: the personal policies (`workspace: None`) only.
+/// * [`PolicyContext::Workspace`]: that workspace's own policies first, then the
+///   personal ones (a personal pause or cutoff stops that profile's workspace work);
+///   when the workspace has no policy for the profile, the personal ones alone.
+///
+/// Another workspace's policy never applies, and a workspace policy never applies to
+/// personal work. Idempotent: applying it to its own result returns the same list.
+#[must_use]
+pub fn applicable_policies(
+    policies: &[StandingPolicy],
+    context: &PolicyContext,
+) -> Vec<StandingPolicy> {
+    let mut out: Vec<StandingPolicy> = match context {
+        PolicyContext::Personal => Vec::new(),
+        PolicyContext::Workspace(w) => policies
+            .iter()
+            .filter(|p| p.workspace.as_ref() == Some(w))
+            .cloned()
+            .collect(),
+    };
+    out.extend(policies.iter().filter(|p| p.workspace.is_none()).cloned());
+    out
+}
+
+/// ⟨M05⟩ The policy view a resolution in `context` uses (ADR-0011 §10 item 1; ADR-0006
+/// revision 5 §17 item 3, replacing §13.6 item 5's first-by-ID merge).
+///
+/// * **Scope, window and revision** come from the first of
+///   [`applicable_policies`]: the context's own policy (in [`PolicyContext::Workspace`],
+///   that workspace's policy for the profile, else the personal one; in
+///   [`PolicyContext::Personal`], the personal one). A workspace policy never supplies
+///   personal scope, and one workspace's policy never applies to another workspace.
+///   Among several policies of one context (none is created in production) the first by
+///   ID is chosen, as before.
+/// * **Blocks** (any pause, the earliest cutoff, the strictest lock behaviour and
+///   connection policy) are merged fail closed over every applicable policy: a personal
+///   pause or cutoff stops that profile's workspace work; a workspace's pause, cutoff or
+///   lock behaviour never reaches personal work or another workspace.
+///
+/// `None` when no policy applies in the context: the request then needs an owner
+/// decision, never another context's policy.
+#[must_use]
+pub fn resolve_policy(
+    policies: &[StandingPolicy],
+    context: &PolicyContext,
+) -> Option<StandingPolicy> {
+    let applicable = applicable_policies(policies, context);
+    let mut merged = applicable.first()?.clone();
+    for p in &applicable {
+        if let Some(c) = p.cutoff_at {
+            merged.cutoff_at = Some(merged.cutoff_at.map_or(c, |m| m.min(c)));
+        }
+        if let PauseState::Paused { since } = p.pause {
+            merged.pause = match merged.pause {
+                PauseState::Paused { since: s } => PauseState::Paused {
+                    since: s.min(since),
+                },
+                PauseState::Active => PauseState::Paused { since },
+            };
+        }
+    }
+    merge_lock_and_connection(&mut merged, &applicable);
+    Some(merged)
+}
+
+/// ⟨M05⟩ [`resolve_policy`] for **continuing** work (ADR-0006 §13.6 item 1): the same view
+/// without its pause. A pause blocks new grants and new work bindings only; every
+/// applicable cutoff of the context still bounds running grants.
+#[must_use]
+pub fn resolve_continuing_policy(
+    policies: &[StandingPolicy],
+    context: &PolicyContext,
+) -> Option<StandingPolicy> {
+    let mut view = resolve_policy(policies, context)?;
+    view.pause = PauseState::Active;
+    Some(view)
+}
+
 impl StandingPolicy {
     /// Whether automatic activation is blocked at `now` by pause or cutoff. Pure.
     #[must_use]

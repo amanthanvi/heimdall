@@ -1,0 +1,35 @@
+{
+  "items": [
+    {
+      "environment_id": "env_01010101010101010101010101010101",
+      "kind": "native_session",
+      "state": "active",
+      "realization": {"kind": "native"}
+    },
+    {
+      "environment_id": "env_00e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2",
+      "kind": "container",
+      "label": "build-box",
+      "state": "active",
+      "realization": {
+        "kind": "container",
+        "label": "build-box",
+        "directory": "/run/user/1000/heimdall/c/00000000000000e2",
+        "in_container_path": "/run/heimdall"
+      }
+    },
+    {
+      "environment_id": "env_0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+      "kind": "wsl_distribution",
+      "state": "not_running",
+      "realization": {
+        "kind": "wsl",
+        "name": "Ubuntu-24.04",
+        "guid": "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0",
+        "account": "dev",
+        "modes": ["a", "b"],
+        "helper": "stopped"
+      }
+    }
+  ]
+}

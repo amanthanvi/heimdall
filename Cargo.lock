@@ -1070,6 +1070,7 @@ dependencies = [
  "heimdall-sshconf",
  "heimdall-store",
  "heimdall-testkit",
+ "heimdall-wsl",
  "proptest",
  "ratatui",
  "rustix",
@@ -1110,6 +1111,7 @@ dependencies = [
  "getrandom 0.4.3",
  "heimdall-contract",
  "heimdall-domain",
+ "heimdall-project",
  "heimdall-registry",
  "heimdall-store",
  "heimdall-testkit",
@@ -1289,6 +1291,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "heimdall-project"
+version = "0.1.0-m01"
+dependencies = [
+ "heimdall-contract",
+ "heimdall-domain",
+]
+
+[[package]]
 name = "heimdall-registry"
 version = "0.1.0-m01"
 dependencies = [
@@ -1319,6 +1329,7 @@ dependencies = [
  "heimdall-sshconf",
  "heimdall-store",
  "heimdall-testkit",
+ "heimdall-wsl",
  "jiff",
  "libc",
  "proptest",
@@ -1388,6 +1399,14 @@ dependencies = [
  "tempfile",
  "tokio",
  "windows-sys",
+]
+
+[[package]]
+name = "heimdall-wsl"
+version = "0.1.0-m01"
+dependencies = [
+ "heimdall-contract",
+ "heimdall-domain",
 ]
 
 [[package]]

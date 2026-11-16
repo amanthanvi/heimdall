@@ -125,6 +125,20 @@ pub struct NextAction {
     /// decisions (spec §5.5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_interaction: Option<crate::provider::ProviderInteractionRef>,
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 9): with reason `mixed_mechanisms`, the
+    /// mechanism groups to re-request under one work ID (ADR-0011 §5.3). Omitted when
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<MechanismGroup>,
+}
+
+/// ⟨M05⟩ One mechanism group of a mixed profile (`next.groups`; ADR-0011 §5.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MechanismGroup {
+    /// The mechanism (`managed_certificate`, `native_agent`, ...).
+    pub mechanism: String,
+    /// Its pairs.
+    pub pairs: Vec<crate::request::AccessPairRef>,
 }
 
 impl NextAction {
@@ -589,6 +603,127 @@ pub mod reason {
         (UNINSTALL_QUARANTINE_PRESENT, Code::ServiceUnavailable),
         (LATE_WRITE_PRESENT, Code::ConfigConflict),
     ];
+
+    // --- ⟨M03⟩ revision 5 (the M03 exit suite, wave 6 question I-8(2)) -----------------
+
+    /// ⟨M03; revision 5⟩ `CAPABILITY_UNAVAILABLE` (exit 4, not retryable): the issuer child
+    /// was running and **refused** to sign the entry (an independent predicate or
+    /// ceiling failed: `ceiling_exceeded`, `subject_mismatch`, `entry_stale`, …; the
+    /// refusal's name is in the message). Distinct from [`ISSUER_UNAVAILABLE`] (not
+    /// running, locked, restarting, no answer); a rate limit stays
+    /// [`ISSUER_RATE_LIMITED`].
+    pub const ISSUER_REFUSED: &str = "issuer_refused";
+
+    /// ⟨M03⟩ The M03 reasons revision 5 adds, kept separate from [`M03`] (its golden is
+    /// M03's record): `golden/rev5-reasons.golden.json` key `m03`.
+    pub const M03_REV5: &[(&str, Code)] = &[(ISSUER_REFUSED, Code::CapabilityUnavailable)];
+
+    // --- ⟨M04⟩ revision 5 (m04-plan §5 item 8; ADR-0010) ---------------------------
+
+    /// ⟨M04⟩ `CAPABILITY_UNAVAILABLE`: WSL is not installed or not usable.
+    pub const WSL_UNAVAILABLE: &str = "wsl_unavailable";
+    /// ⟨M04⟩ `CAPABILITY_UNAVAILABLE`: the distribution's Windows interop is disabled.
+    pub const WSL_INTEROP_DISABLED: &str = "wsl_interop_disabled";
+    /// ⟨M04⟩ `NOT_FOUND`: no registered distribution has this GUID.
+    pub const WSL_DISTRIBUTION_UNKNOWN: &str = "wsl_distribution_unknown";
+    /// ⟨M04⟩ `SERVICE_UNAVAILABLE` (retryable): the distribution is not running and
+    /// background repair never starts it (ADR-0010 §3 items 9–10).
+    pub const WSL_DISTRIBUTION_NOT_RUNNING: &str = "wsl_distribution_not_running";
+    /// ⟨M04⟩ `CAPABILITY_UNAVAILABLE`: no Linux-visible helper path resolves.
+    pub const WSL_HELPER_UNAVAILABLE: &str = "wsl_helper_unavailable";
+    /// ⟨M04⟩ `CONFIG_CONFLICT`: a container environment already has a distinct active
+    /// binding (ADR-0010 §4 item 3).
+    pub const ENVIRONMENT_BUSY: &str = "environment_busy";
+    /// ⟨M04⟩ `NOT_FOUND`: the target environment was removed (or its distribution
+    /// unregistered); a removed identity is never a target again (ADR-0010 §9 item 1).
+    pub const ENVIRONMENT_REMOVED: &str = "environment_removed";
+    /// ⟨M04⟩ `CAPABILITY_UNAVAILABLE`: a jump destination has a route of its own.
+    pub const ROUTE_CHAIN_UNSUPPORTED: &str = "route_chain_unsupported";
+    /// ⟨M04⟩ `CAPABILITY_UNAVAILABLE`: the jump hop's access is neither a managed pair in
+    /// the same grant's scope nor existing access (ADR-0010 §5 item 2).
+    pub const ROUTE_DEPENDENCY_OUT_OF_SCOPE: &str = "route_dependency_out_of_scope";
+    /// ⟨M04⟩ `CAPABILITY_UNAVAILABLE`: Git's effective SSH client is Git for Windows'
+    /// bundled MSYS `ssh`, which cannot reach named pipes (ADR-0010 §1 item 5; also a
+    /// doctor finding).
+    pub const GIT_CLIENT_CANNOT_REACH_PIPE: &str = "git_client_cannot_reach_pipe";
+    /// ⟨M04⟩ `STATE_UNAVAILABLE`: the Windows state directory is not protected
+    /// owner-only; refused, never repaired (ADR-0010 §1 item 7).
+    pub const STATE_DIR_UNSAFE: &str = "state_dir_unsafe";
+    /// ⟨M04⟩ `CONFIG_CONFLICT`: a login entry of Heimdall's name exists with other data.
+    pub const LOGIN_ENTRY_CONFLICT: &str = "login_entry_conflict";
+
+    /// ⟨M04⟩ Revision 5's M04 reasons with their codes, kept separate from [`ALL`] and
+    /// [`M03`] (the code table is unchanged).
+    pub const M04: &[(&str, Code)] = &[
+        (WSL_UNAVAILABLE, Code::CapabilityUnavailable),
+        (WSL_INTEROP_DISABLED, Code::CapabilityUnavailable),
+        (WSL_DISTRIBUTION_UNKNOWN, Code::NotFound),
+        (WSL_DISTRIBUTION_NOT_RUNNING, Code::ServiceUnavailable),
+        (WSL_HELPER_UNAVAILABLE, Code::CapabilityUnavailable),
+        (ENVIRONMENT_BUSY, Code::ConfigConflict),
+        (ENVIRONMENT_REMOVED, Code::NotFound),
+        (ROUTE_CHAIN_UNSUPPORTED, Code::CapabilityUnavailable),
+        (ROUTE_DEPENDENCY_OUT_OF_SCOPE, Code::CapabilityUnavailable),
+        (GIT_CLIENT_CANNOT_REACH_PIPE, Code::CapabilityUnavailable),
+        (STATE_DIR_UNSAFE, Code::StateUnavailable),
+        (LOGIN_ENTRY_CONFLICT, Code::ConfigConflict),
+    ];
+
+    // --- ⟨M05⟩ revision 5 (m05-plan §4 item 9; ADR-0011) ---------------------------
+
+    /// ⟨M05⟩ `APPROVAL_REQUIRED` (attended) or `INTERACTION_REQUIRED`, with a decision
+    /// reference: the workspace is not trusted and its request exceeds personal policy.
+    pub const WORKSPACE_UNTRUSTED: &str = "workspace_untrusted";
+    /// ⟨M05⟩ `APPROVAL_REQUIRED` or `INTERACTION_REQUIRED`, with a `ReconcileWorkspace`
+    /// decision reference: a move or re-clone of a trusted checkout.
+    pub const WORKSPACE_AMBIGUOUS: &str = "workspace_ambiguous";
+    /// ⟨M05⟩ `CAPABILITY_UNAVAILABLE`: the filesystem has no stable file identity, so
+    /// trust is refused there (ADR-0011 R6).
+    pub const WORKSPACE_IDENTITY_UNAVAILABLE: &str = "workspace_identity_unavailable";
+    /// ⟨M05⟩ `USAGE_ERROR`: the manifest breaks its closed schema or bounds.
+    pub const MANIFEST_INVALID: &str = "manifest_invalid";
+    /// ⟨M05⟩ `USAGE_ERROR`: the manifest uses authority vocabulary (any depth).
+    pub const MANIFEST_AUTHORITY_KEY: &str = "manifest_authority_key";
+    /// ⟨M05⟩ `NOT_FOUND`: the manifest names a profile the local catalog does not have.
+    pub const MANIFEST_PROFILE_UNKNOWN: &str = "manifest_profile_unknown";
+    /// ⟨M05⟩ `NOT_FOUND`: a policy target matches no policy.
+    pub const POLICY_TARGET_EMPTY: &str = "policy_target_empty";
+    /// ⟨M05⟩ `APPROVAL_REQUIRED` or `INTERACTION_REQUIRED`, with `retry_after` and the
+    /// denied decision's reference, and no new decision (ADR-0011 §4.3).
+    pub const DECISION_COOLDOWN: &str = "decision_cooldown";
+    /// ⟨M05⟩ `INTERACTION_REQUIRED`, with no decision reference: a `covered_only`
+    /// request found nothing covered (ADR-0011 §3.2; the shell hook never prompts).
+    pub const NOT_COVERED: &str = "not_covered";
+    /// ⟨M05⟩ `CREDENTIAL_EXPIRED`: the work ID was stopped and never reactivates.
+    pub const WORK_STOPPED: &str = "work_stopped";
+
+    /// ⟨M05⟩ Revision 5's M05 reasons with their codes (a reason used with either of two
+    /// codes, by session attendance, appears once per code), kept separate from [`ALL`],
+    /// [`M03`] and [`M04`] (the code table is unchanged).
+    pub const M05: &[(&str, Code)] = &[
+        (WORKSPACE_UNTRUSTED, Code::ApprovalRequired),
+        (WORKSPACE_UNTRUSTED, Code::InteractionRequired),
+        (WORKSPACE_AMBIGUOUS, Code::ApprovalRequired),
+        (WORKSPACE_AMBIGUOUS, Code::InteractionRequired),
+        (WORKSPACE_IDENTITY_UNAVAILABLE, Code::CapabilityUnavailable),
+        (MANIFEST_INVALID, Code::UsageError),
+        (MANIFEST_AUTHORITY_KEY, Code::UsageError),
+        (MANIFEST_PROFILE_UNKNOWN, Code::NotFound),
+        (POLICY_TARGET_EMPTY, Code::NotFound),
+        (DECISION_COOLDOWN, Code::ApprovalRequired),
+        (DECISION_COOLDOWN, Code::InteractionRequired),
+        (NOT_COVERED, Code::InteractionRequired),
+        (WORK_STOPPED, Code::CredentialExpired),
+    ];
+}
+
+/// ⟨M05⟩ Warning codes revision 5 adds for M05 (m05-plan §4 item 9).
+pub mod m05_warning {
+    /// A bind joined a slot another binding materializes (ADR-0011 §5.2): ordinary aliases
+    /// are environment-level (`ordinary_aliases: shared_environment_default`).
+    pub const SLOT_SHARED: &str = "slot_shared";
+    /// Every M05 warning code.
+    pub const ALL: &[&str] = &[SLOT_SHARED];
 }
 
 /// ⟨M03⟩ Warning codes M03 adds (m03-plan §5 item 14: warnings, not error reasons).

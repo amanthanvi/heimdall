@@ -42,6 +42,9 @@ pub use migrations::SCHEMA_VERSION;
 mod codec;
 pub mod ext;
 pub mod ext_m03;
+// ⟨M04⟩ Joint wave 0: the managed-environment set and WSL distribution records.
+pub mod ext_m04;
+pub mod ext_m05;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
@@ -250,12 +253,26 @@ const REQUIRED_TABLES: &[&str] = &[
     "pair_preferences",
     "managed_slots",
     "owned_connections",
+    // schema version 7 (M04 platform realization; ADR-0010 §9 item 1)
+    "managed_environments",
+    "wsl_distributions",
+    // schema version 8 (M05 trusted work; ADR-0011 §10 item 5)
+    "workspaces",
+    "policy_history",
+    "decision_cooldowns",
+    "work_stops",
+    "slot_references",
 ];
 
 /// Columns added to existing tables that the current schema must contain
 /// (schema version 3: the approval basis persisted with the grant, ADR-0006 §13.7
 /// item 3; schema version 4: the grant's origin, ADR-0006 §13.9 item 2).
-const REQUIRED_COLUMNS: &[(&str, &str)] = &[("grants", "approval_json"), ("grants", "origin_json")];
+/// Schema version 8 adds `bindings.context_json` (ADR-0011 §5.1).
+const REQUIRED_COLUMNS: &[(&str, &str)] = &[
+    ("grants", "approval_json"),
+    ("grants", "origin_json"),
+    ("bindings", "context_json"),
+];
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
@@ -1237,6 +1254,13 @@ impl Txn<'_> {
         }
     }
 
+    /// Move the authority generation up by one, in the caller's transaction (every write
+    /// that widens or narrows authority does, ADR-0006 §13.7 item 5).
+    pub(crate) fn bump_generation(&mut self) -> Result<()> {
+        let next = self.authority_generation()?.next();
+        self.set_meta(META_AUTHORITY_GENERATION, &next.0.to_string())
+    }
+
     // --- policies, profiles, environments ------------------------------------------
 
     /// Upsert a standing policy at a new revision and bump the authority
@@ -2026,7 +2050,8 @@ mod tests {
         // 0001 → … → 0005 in one open (0003: the approval basis column; 0004: the
         // grant origin column; 0005: the M02 tables, which add tables only).
         // M03 wave 0 (S): 0006 (the M03 tables) adds tables only as well.
-        assert_eq!(migrations::SCHEMA_VERSION, 6);
+        // ⟨M04/M05 wave 0⟩ 0007 and 0008 add tables, and 0008 one nullable column.
+        assert_eq!(migrations::SCHEMA_VERSION, 8);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -2195,6 +2220,7 @@ mod tests {
                 approval,
                 covered: None,
                 binding_id: None,
+                workspace: None,
             }),
             local: None,
         }
@@ -2618,6 +2644,8 @@ mod tests {
                 // M03 wave 0 (A1): fail closed until U0b
                 lock_behavior: None,
                 connection: None,
+                policy_id: None,
+                workspace: None,
             };
             assert_eq!(tx.grant_origin(&pinned)?, Some(from_intent.clone()));
             let from_binding = GrantOrigin {
@@ -2634,6 +2662,8 @@ mod tests {
                 // M03 wave 0 (A1): fail closed until U0b
                 lock_behavior: None,
                 connection: None,
+                policy_id: None,
+                workspace: None,
             };
             assert_eq!(tx.grant_origin(&bound)?, Some(from_binding));
             assert_eq!(

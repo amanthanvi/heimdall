@@ -78,6 +78,28 @@
     "unaffected_names_checked"
   ],
   "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
     "AliasKind": {
       "description": "How an alias is defined in a plan.",
       "oneOf": [
@@ -370,6 +392,10 @@
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
       "type": "string"
     },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
     "DirectiveCertainty": {
       "description": "Whether a directive's static value is decided (ADR-0007 §6 three-valued\nevaluation).",
       "oneOf": [
@@ -423,6 +449,10 @@
         "directive",
         "certainty"
       ]
+    },
+    "DistributionGuid": {
+      "description": "A WSL distribution's registration GUID under `HKCU\\...\\Lxss` (ADR-0010 §3 item 1): the\nidentity of a distribution, kept across renames; a re-registered distribution is a new\nGUID. Wire form: 36 lowercase hex-and-hyphen characters, `8-4-4-4-12`, no braces\n(validated on decode; the CLI normalizes case and strips braces before sending).",
+      "type": "string"
     },
     "FileChange": {
       "description": "One file a plan changes.",
@@ -1036,6 +1066,27 @@
         }
       ]
     },
+    "MechanismGroup": {
+      "description": "⟨M05⟩ One mechanism group of a mixed profile (`next.groups`; ADR-0011 §5.3).",
+      "type": "object",
+      "properties": {
+        "mechanism": {
+          "description": "The mechanism (`managed_certificate`, `native_agent`, ...).",
+          "type": "string"
+        },
+        "pairs": {
+          "description": "Its pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "mechanism",
+        "pairs"
+      ]
+    },
     "NextAction": {
       "description": "Machine next action (spec §11.2 `next`, §11.6 \"machine-readable next action\").\n`action` names are stable; parameters are present only when relevant.",
       "type": "object",
@@ -1072,6 +1123,13 @@
             "string",
             "null"
           ]
+        },
+        "groups": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 9): with reason `mixed_mechanisms`, the\nmechanism groups to re-request under one work ID (ADR-0011 §5.3). Omitted when\nempty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MechanismGroup"
+          }
         },
         "operation_id": {
           "description": "Operation to observe.",
@@ -1124,10 +1182,29 @@
           "description": "Install or re-render the projection.",
           "type": "object",
           "properties": {
+            "distribution": {
+              "description": "⟨M04⟩ Revision 5: the distribution the `distribution_*` items name.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DistributionGuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "include_git": {
               "description": "Also install the Git include (ADR-0007 §5.6).",
               "type": "boolean",
               "default": false
+            },
+            "items": {
+              "description": "⟨M04⟩ Revision 5: further items to install (`login_entry`,\n`distribution_git`, `distribution_projection`). Omitted when empty, so every\nM02/M03 intent and its plan digest are unchanged.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ProjectionItem"
+              },
+              "uniqueItems": true
             },
             "kind": {
               "type": "string",
@@ -1142,6 +1219,17 @@
           "description": "Remove the projection.",
           "type": "object",
           "properties": {
+            "distribution": {
+              "description": "⟨M04⟩ Revision 5: the distribution the `distribution_*` items name.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DistributionGuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "items": {
               "description": "The items to roll back; default both.",
               "type": "array",
@@ -1281,6 +1369,21 @@
           "description": "The Git include block B_git and the managed file P_git.",
           "type": "string",
           "const": "git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 3): the runtime's login entry (ADR-0010 §1\nitem 2, §6).",
+          "type": "string",
+          "const": "login_entry"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's Git item, Mode A (ADR-0010 §2 item 2); names\nthe distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's projection, Mode B (ADR-0010 §3 item 5);\nnames the distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_projection"
         }
       ]
     },

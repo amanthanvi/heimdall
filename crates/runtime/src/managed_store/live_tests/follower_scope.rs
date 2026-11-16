@@ -70,7 +70,7 @@ async fn ensure_req(
     ops.ensure(
         &caller(),
         EnsureRequest {
-            profile: ProfileId::parse("dev").unwrap(),
+            profile: Some(ProfileId::parse("dev").unwrap()),
             profile_revision: None,
             scope: pairs().into_iter().collect(),
             environment: None,
@@ -82,6 +82,8 @@ async fn ensure_req(
             interaction: InteractionMode::Interactive,
             wait: WaitMode::Sync { timeout_ms: 30_000 },
             connection: None,
+            context: None,
+            covered_only: false,
         },
     )
     .await
@@ -308,8 +310,9 @@ async fn assert_fresh_preparation_refused(w: &Live, p: &Process, lead: &EnsureDa
         .revoke(
             &caller(),
             RevokeRequest {
-                grant_id: lead.grant_id.clone(),
+                grant_id: Some(lead.grant_id.clone()),
                 request_id: RequestId::parse(&format!("rv-{tag}")).unwrap(),
+                target: None,
             },
         )
         .await
@@ -442,8 +445,9 @@ async fn follower_with_valid_evidence_meets_the_minimum() {
         .revoke(
             &caller(),
             RevokeRequest {
-                grant_id: ra.grant_id.clone(),
+                grant_id: Some(ra.grant_id.clone()),
                 request_id: RequestId::parse("rv-c02-ok").unwrap(),
+                target: None,
             },
         )
         .await

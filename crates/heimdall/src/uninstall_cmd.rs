@@ -391,6 +391,13 @@ const DECISION_RECOVERY: &[(&str, Option<&str>)] = &[
         ),
     ),
     ("declare_interaction", Some("a local catalog declaration")),
+    // ⟨M05⟩ Revision 5 (joint wave 0): local trust records; none is created before M05
+    // U2, and their approval's effect is in `workspaces` (compared as rows).
+    ("trust_workspace", Some("a local workspace trust decision")),
+    (
+        "reconcile_workspace",
+        Some("a local workspace trust decision"),
+    ),
 ];
 
 /// The name of a decision's kind in [`DECISION_RECOVERY`]. No wildcard: a new kind
@@ -410,6 +417,8 @@ fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'stati
         D::EnrollSystemForm { .. } => "enroll_system_form",
         D::RemoveEnrollment { .. } => "remove_enrollment",
         D::ApproveTargetChange { .. } => "approve_target_change",
+        D::TrustWorkspace { .. } => "trust_workspace",
+        D::ReconcileWorkspace { .. } => "reconcile_workspace",
     }
 }
 
@@ -4946,6 +4955,54 @@ mod tests {
         heimdall_contract::ids::EnvironmentId::from_random_bytes([7; 16])
     }
 
+    /// ⟨M04⟩ A container environment controlled by `env7()`.
+    fn managed_env(n: u8) -> heimdall_domain::environment::ManagedEnvironment {
+        heimdall_domain::environment::ManagedEnvironment {
+            environment: heimdall_contract::ids::EnvironmentId::from_random_bytes([n; 16]),
+            controller: env7(),
+            realization: heimdall_domain::environment::EnvironmentRealization::Container {
+                label: "build".to_owned(),
+                dir_tag: "0123456789abcdef".to_owned(),
+            },
+            state: heimdall_domain::environment::ManagedState::Active,
+            created_at: t0(),
+            updated_at: t0(),
+        }
+    }
+
+    /// ⟨M04⟩ A WSL distribution record.
+    fn distribution(mode_a: bool) -> heimdall_domain::environment::WslDistributionRecord {
+        heimdall_domain::environment::WslDistributionRecord {
+            guid: heimdall_contract::environment::DistributionGuid::parse(
+                "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0",
+            )
+            .unwrap_or_else(|_| unreachable!()),
+            name: "scratch".to_owned(),
+            mode_a,
+            mode_b: None,
+            cleanup_pending: false,
+            updated_at: t0(),
+        }
+    }
+
+    /// ⟨M05⟩ A workspace trust record.
+    fn workspace_record() -> heimdall_domain::workspace::WorkspaceRecord {
+        heimdall_domain::workspace::WorkspaceRecord {
+            id: heimdall_contract::ids::WorkspaceId::from_random_bytes([5; 16]),
+            environment: env7(),
+            root: "/scratch/w".to_owned(),
+            root_identity: heimdall_domain::projection::FileIdentity::Unix {
+                dev: 1,
+                ino: 2,
+                birth: None,
+            },
+            git_common_identity: None,
+            decision: heimdall_contract::ids::DecisionId::from_random_bytes([6; 16]),
+            created_at: t0(),
+            state: heimdall_domain::workspace::WorkspaceState::Active,
+        }
+    }
+
     /// The insert, modify and delete cases of each `Rows` or `Part` table, through the
     /// database (audit A4). A delete case exists where the store can delete or settle
     /// the record; it has no delete for a CA, an enrollment, a foreign removal, a pair
@@ -5014,6 +5071,56 @@ mod tests {
                         let mut p = pair_pref();
                         p.issuing_cas.insert(other_ca());
                         tx.set_pair_preference(&p, t0())
+                    },
+                ),
+            ],
+            // ⟨M04, M05⟩ Joint wave 0 (migrations 0007, 0008).
+            "managed_environments" => vec![
+                case("add a managed environment", nothing, |tx| {
+                    tx.init_self_environment(&env7())?;
+                    tx.insert_managed_environment(&managed_env(9))
+                }),
+                case(
+                    "remove it (its row stays, removed)",
+                    |tx| {
+                        tx.init_self_environment(&env7())?;
+                        tx.insert_managed_environment(&managed_env(9))
+                    },
+                    |tx| {
+                        tx.set_managed_environment_state(
+                            &managed_env(9).environment,
+                            heimdall_domain::environment::ManagedState::Active,
+                            heimdall_domain::environment::ManagedState::Removed,
+                            t0(),
+                        )
+                        .map(drop)
+                    },
+                ),
+            ],
+            "wsl_distributions" => vec![
+                case("add a distribution record", nothing, |tx| {
+                    tx.put_wsl_distribution(&distribution(false))
+                }),
+                case(
+                    "enable Mode A on it",
+                    |tx| tx.put_wsl_distribution(&distribution(false)),
+                    |tx| tx.put_wsl_distribution(&distribution(true)),
+                ),
+            ],
+            "workspaces" => vec![
+                case("trust a workspace", nothing, |tx| {
+                    tx.insert_workspace(&workspace_record())
+                }),
+                case(
+                    "list it as stale",
+                    |tx| tx.insert_workspace(&workspace_record()),
+                    |tx| {
+                        tx.set_workspace_state(
+                            &workspace_record().id,
+                            heimdall_domain::workspace::WorkspaceState::Active,
+                            heimdall_domain::workspace::WorkspaceState::Stale,
+                        )
+                        .map(drop)
                     },
                 ),
             ],
@@ -5145,7 +5252,8 @@ mod tests {
                 })
             })
             .collect();
-        assert_eq!(variants.len(), 11, "{variants:?}");
+        // ⟨M05⟩ Revision 5 adds `TrustWorkspace` and `ReconcileWorkspace`.
+        assert_eq!(variants.len(), 13, "{variants:?}");
         let snake = |v: &str| {
             let mut out = String::new();
             for (i, c) in v.chars().enumerate() {

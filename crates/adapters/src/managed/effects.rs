@@ -37,7 +37,7 @@
 //! from a [`GrantScopes`] source (U10: the grant's stored scope; default: none, so the
 //! call refuses, fail closed).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -48,7 +48,9 @@ use heimdall_app::ports::{
     MaterializedCertificate, MaterializedFiles,
 };
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{BindingId, DestinationId, GrantId, IssuanceId, ResourceId};
+use heimdall_contract::ids::{
+    BindingId, DestinationId, EnvironmentId, GrantId, IssuanceId, ResourceId,
+};
 use heimdall_contract::provider::EndpointRef;
 use heimdall_credential::endpoints::{EndpointError, EndpointRegistry, endpoint_resource};
 use heimdall_credential::table::{InstallRefusal, SignerTable};
@@ -247,7 +249,7 @@ struct MaterializedBinding {
 }
 
 /// One lock per slot (pair) of the environment (§17.20 item 1).
-type SlotLocks = Arc<Mutex<HashMap<AccessPair, Arc<Mutex<()>>>>>;
+type SlotLocks = Arc<Mutex<HashMap<(EnvironmentId, AccessPair), Arc<Mutex<()>>>>>;
 
 /// The managed effects (module docs). Cloning shares it.
 #[derive(Clone)]
@@ -257,6 +259,10 @@ pub struct ManagedEffectsImpl {
     scopes: Arc<dyn GrantScopes>,
     runtime_dir: PathBuf,
     slots: SlotRoot,
+    /// ⟨M04⟩ ADR-0010 §9 item 1: the slot roots of the other managed environments these
+    /// effects serve (the M04 realizations add them); `slots` is the home (native) one.
+    /// A slot of an environment with no root here is refused (`environment_not_managed`).
+    other_slots: BTreeMap<EnvironmentId, SlotRoot>,
     call_timeout: Duration,
     state: Arc<Mutex<State>>,
     slot_locks: SlotLocks,
@@ -313,6 +319,7 @@ impl ManagedEffectsImpl {
             scopes,
             runtime_dir,
             slots,
+            other_slots: BTreeMap::new(),
             call_timeout: DEFAULT_CALL_TIMEOUT,
             state: Arc::new(Mutex::new(State::default())),
             slot_locks: Arc::default(),
@@ -329,12 +336,51 @@ impl ManagedEffectsImpl {
         self
     }
 
-    /// The lock of `pair`'s slot (shared by every clone).
-    fn slot_lock(&self, pair: &AccessPair) -> Arc<Mutex<()>> {
+    /// ⟨M04⟩ With the slot root of another managed environment (ADR-0010 §9 item 1):
+    /// its slots live under `root.data_dir`, in its own store rows and its own signer
+    /// listing ([`SignerEndpoint::ManagedEnvironment`]), never in the home
+    /// environment's. A root for the home environment itself is ignored.
+    #[must_use]
+    pub fn with_slot_root(mut self, root: SlotRoot) -> Self {
+        if root.environment != self.slots.environment {
+            self.other_slots.insert(root.environment.clone(), root);
+        }
+        self
+    }
+
+    /// ⟨M04⟩ The slot root of `environment` and its signer listing (`None`: the home
+    /// listing), or the refusal of an environment these effects do not serve.
+    fn slot_root_of(
+        &self,
+        environment: &EnvironmentId,
+    ) -> Result<(&SlotRoot, Option<EnvironmentId>), AdapterError> {
+        if environment == &self.slots.environment {
+            return Ok((&self.slots, None));
+        }
+        self.other_slots
+            .get(environment)
+            .map(|r| (r, Some(environment.clone())))
+            .ok_or_else(|| AdapterError::Protocol(ENVIRONMENT_NOT_MANAGED.to_owned()))
+    }
+
+    /// ⟨M04⟩ The environment `binding` is pinned to, from the slot store (the home
+    /// environment when the store does not say: every M03 store).
+    fn binding_environment(
+        &self,
+        binding: &BindingId,
+        store: &dyn SlotStore,
+    ) -> Result<EnvironmentId, AdapterError> {
+        Ok(store
+            .binding_environment(binding)?
+            .unwrap_or_else(|| self.slots.environment.clone()))
+    }
+
+    /// The lock of `pair`'s slot in `environment` (shared by every clone).
+    fn slot_lock(&self, environment: &EnvironmentId, pair: &AccessPair) -> Arc<Mutex<()>> {
         self.slot_locks
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .entry(pair.clone())
+            .entry((environment.clone(), pair.clone()))
             .or_default()
             .clone()
     }
@@ -438,21 +484,26 @@ impl ManagedEffectsImpl {
         pair: &AccessPair,
         generation: u64,
     ) -> Result<Vec<PathBuf>, AdapterError> {
-        let lock = self.slot_lock(pair);
+        let env = self.binding_environment(binding, self.slot_store.as_ref())?;
+        let lock = self.slot_lock(&env, pair);
         let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        self.write_slot_locked(binding, pair, generation, self.slot_store.as_ref())
+        self.write_slot_locked(&env, binding, pair, generation, self.slot_store.as_ref())
     }
 
     /// The slot write, with the slot's lock held: re-validate the store's holder and
     /// generation, then write the fenced files, then list the key at `generation`.
     fn write_slot_locked(
         &self,
+        environment: &EnvironmentId,
         binding: &BindingId,
         pair: &AccessPair,
         generation: u64,
         store: &dyn SlotStore,
     ) -> Result<Vec<PathBuf>, AdapterError> {
-        match store.slot(&self.slots.environment, pair)? {
+        // ⟨M04⟩ ADR-0010 §9 item 1: the binding's own environment's slot, root and
+        // listing (replacing M03's single-environment root).
+        let (root, listing) = self.slot_root_of(environment)?;
+        match store.slot(environment, pair)? {
             SlotState::Held {
                 binding: holder,
                 generation: g,
@@ -471,8 +522,8 @@ impl ManagedEffectsImpl {
             .certificate(&grant, pair)
             .ok_or_else(|| AdapterError::Protocol("not_installed".to_owned()))?;
         let written = files::write_slot(
-            &self.slots,
-            &self.slots.environment,
+            root,
+            environment,
             pair,
             binding,
             generation,
@@ -480,11 +531,13 @@ impl ManagedEffectsImpl {
             &cert,
         )
         .map_err(|e| adapter_from_files(&e))?;
-        if let Err(e) = self
-            .table
-            .materialize_at(binding, std::slice::from_ref(pair), generation)
-        {
-            let _ = files::clear_slot(&self.slots, &self.slots.environment, pair, generation);
+        if let Err(e) = self.table.materialize_in(
+            listing.as_ref(),
+            binding,
+            std::slice::from_ref(pair),
+            generation,
+        ) {
+            let _ = files::clear_slot(root, environment, pair, generation);
             return Err(AdapterError::Protocol(format!("materialize refused: {e}")));
         }
         Ok(written)
@@ -501,14 +554,18 @@ impl ManagedEffectsImpl {
     pub fn clear_slot(
         &self,
         binding: &BindingId,
+        environment: &EnvironmentId,
         pair: &AccessPair,
         generation: u64,
     ) -> Result<ClearOutcome, AdapterError> {
-        let lock = self.slot_lock(pair);
+        // ⟨M04⟩ The slot row's own environment (ADR-0010 §9 item 1): one environment's
+        // cleanup never touches another's slot, root or listing.
+        let (root, listing) = self.slot_root_of(environment)?;
+        let lock = self.slot_lock(environment, pair);
         let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        self.table.unmaterialize_pair(binding, pair, generation);
-        files::clear_slot(&self.slots, &self.slots.environment, pair, generation)
-            .map_err(|e| adapter_from_files(&e))
+        self.table
+            .unmaterialize_pair_in(listing.as_ref(), binding, pair, generation);
+        files::clear_slot(root, environment, pair, generation).map_err(|e| adapter_from_files(&e))
     }
 }
 
@@ -845,10 +902,11 @@ impl ManagedEffectsImpl {
         pairs: &[AccessPair],
     ) -> Result<Vec<PathBuf>, AdapterError> {
         let mut written = Vec::new();
+        let env = self.binding_environment(binding, self.slot_store.as_ref())?;
         for pair in pairs {
-            let lock = self.slot_lock(pair);
+            let lock = self.slot_lock(&env, pair);
             let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
-            let generation = match self.slot_store.slot(&self.slots.environment, pair)? {
+            let generation = match self.slot_store.slot(&env, pair)? {
                 SlotState::Held {
                     binding: holder,
                     generation,
@@ -856,6 +914,7 @@ impl ManagedEffectsImpl {
                 _ => return Err(AdapterError::Protocol(SLOT_HOLDER_CHANGED.to_owned())),
             };
             written.extend(self.write_slot_locked(
+                &env,
                 binding,
                 pair,
                 generation,
@@ -1035,7 +1094,25 @@ pub trait SlotStore: Send + Sync {
         let _ = (environment, pair, binding);
         Err(AdapterError::Unavailable(SLOT_STORE_UNAVAILABLE.to_owned()))
     }
+
+    /// ⟨M04⟩ The environment `binding` is pinned to (ADR-0010 §9 item 1), so a slot
+    /// write lands in that environment's slot namespace. `None` (the default, and a
+    /// binding the store does not know): the effects' home environment, as in M03.
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn binding_environment(
+        &self,
+        binding: &BindingId,
+    ) -> Result<Option<heimdall_contract::ids::EnvironmentId>, AdapterError> {
+        let _ = binding;
+        Ok(None)
+    }
 }
+
+/// ⟨M04⟩ The refusal of a slot in an environment these effects do not serve (no slot
+/// root: not in the runtime's managed set, or its realization not wired).
+pub const ENVIRONMENT_NOT_MANAGED: &str = "environment_not_managed";
 
 /// The text of the default [`SlotStore`]'s refusal (`CAPABILITY_UNAVAILABLE`,
 /// `driver_unavailable`).
@@ -1096,10 +1173,14 @@ impl<S: SlotStore> ManagedSlotTable<S> {
         pair: &AccessPair,
     ) -> Result<heimdall_domain::managed::SlotState, SlotClaimError> {
         use heimdall_domain::managed::{SlotEvent, slot_transition};
-        let env = self.effects.slot_root().environment.clone();
+        // ⟨M04⟩ The binding's own environment (ADR-0010 §9 item 1).
+        let env = self
+            .effects
+            .binding_environment(binding, &self.store)
+            .map_err(SlotClaimError::Failed)?;
         // The claim, its materialization and a clear of this slot are one at a time
         // (§17.20 item 1).
-        let lock = self.effects.slot_lock(pair);
+        let lock = self.effects.slot_lock(&env, pair);
         let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let current = self
             .store
@@ -1123,7 +1204,7 @@ impl<S: SlotStore> ManagedSlotTable<S> {
             )));
         };
         self.effects
-            .write_slot_locked(binding, pair, *generation, &self.store)
+            .write_slot_locked(&env, binding, pair, *generation, &self.store)
             .map_err(SlotClaimError::Failed)?;
         Ok(held)
     }

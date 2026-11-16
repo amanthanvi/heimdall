@@ -423,7 +423,7 @@ impl World {
             .ensure(
                 &owner(501),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: hosts.iter().map(|h| pair(h, "deploy")).collect(),
                     environment: None,
@@ -435,6 +435,8 @@ impl World {
                     wait: WaitMode::default(),
                     // M03 wave 0 (A1): fail closed until U0b
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await;
@@ -465,8 +467,9 @@ impl World {
             .revoke(
                 &owner(501),
                 RevokeRequest {
-                    grant_id: grant.clone(),
+                    grant_id: Some(grant.clone()),
                     request_id: RequestId::parse(rid).unwrap(),
+                    target: None,
                 },
             )
             .await;
@@ -779,8 +782,9 @@ async fn reserve_then(between: Between) -> (World, GrantId, Result<(), OpError>)
             .policy(
                 &owner(501),
                 PolicyAction::Cutoff {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
                     at: at(24 * 3600),
+                    target: None,
                 },
             )
             .await
@@ -820,8 +824,9 @@ async fn reserve_then(between: Between) -> (World, GrantId, Result<(), OpError>)
                 .policy(
                     &owner(501),
                     PolicyAction::Cutoff {
-                        policy_id: policy_id(),
+                        policy_id: Some(policy_id()),
                         at: w.clock.wall(),
+                        target: None,
                     },
                 )
                 .await
@@ -835,7 +840,8 @@ async fn reserve_then(between: Between) -> (World, GrantId, Result<(), OpError>)
                 .policy(
                     &attended(501),
                     PolicyAction::ClearCutoff {
-                        policy_id: policy_id(),
+                        policy_id: Some(policy_id()),
+                        target: None,
                     },
                 )
                 .await
@@ -1052,7 +1058,7 @@ async fn equivalent_work_is_single_flight_with_separate_references() {
             ops.ensure(
                 &owner(501),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: [pair("h1", "deploy")].into_iter().collect(),
                     environment: None,
@@ -1064,6 +1070,8 @@ async fn equivalent_work_is_single_flight_with_separate_references() {
                     wait: WaitMode::default(),
                     // M03 wave 0 (A1): fail closed until U0b
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await
@@ -1210,13 +1218,13 @@ proptest! {
                         moved = true;
                     }
                     Narrow::Pause => {
-                        w.ops.policy(&owner(501), PolicyAction::Pause { policy_id: policy_id() }).await.unwrap();
+                        w.ops.policy(&owner(501), PolicyAction::Pause { policy_id: Some(policy_id()), target: None, }).await.unwrap();
                         paused = true;
                         moved = true;
                     }
                     Narrow::CutoffNow => {
                         let now = w.clock.wall();
-                        let r = w.ops.policy(&owner(501), PolicyAction::Cutoff { policy_id: policy_id(), at: now }).await;
+                        let r = w.ops.policy(&owner(501), PolicyAction::Cutoff { policy_id: Some(policy_id()), at: now, target: None, }).await;
                         // An earlier cutoff narrows; a later one would be a decision.
                         if r.is_ok() {
                             cut = true;
@@ -1421,7 +1429,7 @@ proptest! {
                 let ops = w.ops.clone();
                 let until = ["2026-10-02T09:30:00Z", "2026-10-02T10:00:00Z"][usize::from(r.until)];
                 let req = EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: hosts_of(r.hosts).into_iter().map(|h| pair(h, "deploy")).collect(),
                     environment: None,
@@ -1433,6 +1441,8 @@ proptest! {
                     wait: WaitMode::default(),
                     // M03 wave 0 (A1): fail closed until U0b
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 };
                 handles.push(tokio::spawn(async move { ops.ensure(&owner(501), req).await }));
             }
@@ -1546,7 +1556,7 @@ async fn a07_permitted_extensions_come_from_the_grant_snapshot_not_the_caller() 
 
 fn rq(rid: &str, work: &str, hosts: &[&str], until: Option<&str>) -> EnsureRequest {
     EnsureRequest {
-        profile: ProfileId::parse("dev").unwrap(),
+        profile: Some(ProfileId::parse("dev").unwrap()),
         profile_revision: None,
         scope: hosts.iter().map(|h| pair(h, "deploy")).collect(),
         environment: None,
@@ -1558,6 +1568,8 @@ fn rq(rid: &str, work: &str, hosts: &[&str], until: Option<&str>) -> EnsureReque
         wait: WaitMode::default(),
         // M03 wave 0 (A1): fail closed until U0b
         connection: None,
+        context: None,
+        covered_only: false,
     }
 }
 
@@ -2208,7 +2220,8 @@ async fn review_a02_a_widening_record_reassesses_time_in_its_transaction() {
             .policy(
                 &owner(501),
                 PolicyAction::Pause {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
+                    target: None,
                 },
             )
             .await
@@ -2225,7 +2238,8 @@ async fn review_a02_a_widening_record_reassesses_time_in_its_transaction() {
             .policy(
                 &attended(501),
                 PolicyAction::Resume {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
+                    target: None,
                 },
             )
             .await;
@@ -2635,7 +2649,8 @@ async fn review_a06_a_fresh_decision_after_a_lifted_pause_completes() {
         .policy(
             &owner(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await
@@ -2650,7 +2665,8 @@ async fn review_a06_a_fresh_decision_after_a_lifted_pause_completes() {
         .policy(
             &attended(501),
             PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await
@@ -3159,7 +3175,8 @@ async fn review_13_6_11_a_failed_revalidation_answers_its_own_code() {
         .policy(
             &owner(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await
@@ -3251,11 +3268,11 @@ proptest! {
                         revoked = true;
                     }
                     Interleave::Pause => {
-                        w.ops.policy(&owner(501), PolicyAction::Pause { policy_id: policy_id() }).await.unwrap();
+                        w.ops.policy(&owner(501), PolicyAction::Pause { policy_id: Some(policy_id()), target: None, }).await.unwrap();
                     }
                     Interleave::CutoffNow => {
                         let at = w.clock.wall();
-                        if w.ops.policy(&owner(501), PolicyAction::Cutoff { policy_id: policy_id(), at }).await.is_ok() {
+                        if w.ops.policy(&owner(501), PolicyAction::Cutoff { policy_id: Some(policy_id()), at, target: None, }).await.is_ok() {
                             cut = true;
                         }
                     }
@@ -3482,7 +3499,8 @@ async fn r137_2_a_fully_covered_shared_request_activates_every_waiter_once() {
         .policy(
             &owner(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await
@@ -3502,7 +3520,8 @@ async fn r137_2_a_fully_covered_shared_request_activates_every_waiter_once() {
         .policy(
             &attended(501),
             PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await
@@ -3652,7 +3671,8 @@ async fn r137_3_a_narrowing_inside_the_approved_delta_and_a_pause_keep_the_grant
         .policy(
             &owner(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await
@@ -3946,7 +3966,7 @@ proptest! {
                         // nothing changes for continuing work.
                         let _ = w
                             .ops
-                            .policy(&owner(501), PolicyAction::Pause { policy_id: policy_id() })
+                            .policy(&owner(501), PolicyAction::Pause { policy_id: Some(policy_id()), target: None, })
                             .await;
                     }
                     PolicyStep::Purge => {

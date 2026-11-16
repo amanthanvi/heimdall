@@ -126,6 +126,7 @@ fn catalog() -> CatalogView {
                 port: Some(22),
                 account: AccountName::parse("deploy").unwrap(),
                 identity: identity_id(),
+                jump: None,
             },
             label: None,
             updated_at: Timestamp::UNIX_EPOCH,

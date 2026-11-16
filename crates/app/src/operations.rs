@@ -160,8 +160,7 @@ use std::time::Duration;
 use heimdall_contract::envelope::{EffectStatus, NextAction, ResourceRef, Warning};
 use heimdall_contract::event::{EventType, Snapshot};
 use heimdall_contract::ids::{
-    BindingId, DestinationId, EnvironmentId, GrantId, IssuanceId, OperationId, PolicyId, ProfileId,
-    WorkId,
+    BindingId, DestinationId, EnvironmentId, GrantId, IssuanceId, OperationId, ProfileId, WorkId,
 };
 use heimdall_contract::provider::{
     CredentialAvailability, EndpointRef, EvidenceBasis, IdentitiesOnly, IdentitySelection,
@@ -205,7 +204,9 @@ use heimdall_domain::operation::{
     LocalIntent, OperationKind, OperationRecord, RecoveryIntent, RecoveryMetadata, ResolvedIntent,
     StageReceipt,
 };
-use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+use heimdall_domain::policy::{
+    PauseState, PolicyContext, PolicyRevision, PolicySource, StandingPolicy,
+};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::ProfileSnapshot;
 use heimdall_domain::projection::ProjectionApproval;
@@ -262,6 +263,15 @@ mod issuer_m03;
 mod managed_driver_m03;
 // ⟨M03⟩ wave 5, round 3 (ADR-0008 §17.27 item 2, W5-S01): the uninstall fence.
 mod uninstall_fence_m03;
+// ⟨M05⟩ Joint wave 0 (ADR-0011 §10 item 10): the M05 track's modules, registered empty
+// so the track never edits this list (each answers `driver_unavailable` until filled).
+mod context_m05;
+mod default_activation_m05;
+mod portable_m05;
+mod review_m05;
+mod slots_m05;
+mod stop_m05;
+mod trust_m05;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use uninstall_fence_m03::{
@@ -888,40 +898,14 @@ fn unenrolled(id: &EnvironmentId) -> EnvironmentRecord {
     }
 }
 
-/// The applicable policy among several naming the profile and environment whose
-/// scope, window and revision resolution uses: the first by ID. Blocks need no
-/// preference here, because [`merged_policy`] carries every applicable pause and
-/// the earliest cutoff whichever policy is chosen; choosing by ID keeps the
-/// pinned revision stable when another applicable policy is paused (ADR-0006
-/// §13.6 items 1 and 5).
-fn choose_policy(policies: &[StandingPolicy]) -> Option<&StandingPolicy> {
-    policies.first()
-}
-
-/// The policy view every bound, block and issuance check uses: the chosen policy
-/// (scope, window, revision) restricted by **every** applicable policy's pause and
-/// cutoff (gap G08; plan §6.3 #2; ADR-0006 §13.6 item 5): the earliest cutoff of
-/// any applicable policy bounds the grant, and any applicable pause blocks
-/// activation. Never wider than the chosen policy alone.
-fn merged_policy(policies: &[StandingPolicy]) -> Option<StandingPolicy> {
-    let mut merged = choose_policy(policies)?.clone();
-    for p in policies {
-        if let Some(c) = p.cutoff_at {
-            merged.cutoff_at = Some(merged.cutoff_at.map_or(c, |m| m.min(c)));
-        }
-        if let PauseState::Paused { since } = p.pause {
-            merged.pause = match merged.pause {
-                PauseState::Paused { since: s } => PauseState::Paused {
-                    since: s.min(since),
-                },
-                PauseState::Active => PauseState::Paused { since },
-            };
-        }
-    }
-    // ⟨M03⟩ U0b row 11 (O): the strictest lock behaviour and connection policy of every
-    // applicable policy (fail closed).
-    heimdall_domain::policy::merge_lock_and_connection(&mut merged, policies);
-    Some(merged)
+/// The policy view every bound, block and issuance check uses (gap G08; plan §6.3 #2):
+/// ⟨M05⟩ resolved **in a context** (ADR-0011 §10 item 1; ADR-0006 revision 5 §17 item 3,
+/// replacing §13.6 item 5's first-by-ID choice over every policy naming the profile and
+/// environment): scope, window and revision from the context's own policy; any pause, the
+/// earliest cutoff and the strictest lock and connection policy of every policy
+/// applicable in that context. Never wider than the context's own policy.
+fn merged_policy(policies: &[StandingPolicy], context: &PolicyContext) -> Option<StandingPolicy> {
+    heimdall_domain::policy::resolve_policy(policies, context)
 }
 
 /// The policy view for **continuing** work (ADR-0006 §13.6 item 1): the merged
@@ -930,8 +914,11 @@ fn merged_policy(policies: &[StandingPolicy]) -> Option<StandingPolicy> {
 /// cutoff)` (spec §5.6; ADR-0005 §3.5–§3.7), so re-validation and issuance
 /// within an existing grant never see the pause, while every applicable cutoff
 /// still bounds them.
-fn continuing_policy(policies: &[StandingPolicy]) -> Option<StandingPolicy> {
-    let mut view = merged_policy(policies)?;
+fn continuing_policy(
+    policies: &[StandingPolicy],
+    context: &PolicyContext,
+) -> Option<StandingPolicy> {
+    let mut view = merged_policy(policies, context)?;
     view.pause = PauseState::Active;
     Some(view)
 }
@@ -1166,6 +1153,8 @@ struct GrantContext {
     expected_policy_revision: Option<PolicyRevision>,
     caller: Option<CallerContext>,
     mechanism: Option<String>,
+    /// ⟨M05⟩ The policy context recorded with the grant (personal when absent).
+    policy_context: PolicyContext,
 }
 
 fn grant_context(tx: &mut Txn<'_>, grant: &GrantSnapshot) -> heimdall_store::Result<GrantContext> {
@@ -1186,6 +1175,7 @@ fn grant_context(tx: &mut Txn<'_>, grant: &GrantSnapshot) -> heimdall_store::Res
         },
         AuthorizationSource::Delegation { .. } => origin.as_ref().and_then(|o| o.policy_revision),
     };
+    let policy_context = crate::policy_context::grant_context(origin.as_ref());
     Ok(match origin {
         Some(o) => GrantContext {
             profile: Some(o.profile),
@@ -1193,6 +1183,7 @@ fn grant_context(tx: &mut Txn<'_>, grant: &GrantSnapshot) -> heimdall_store::Res
             expected_policy_revision,
             caller: Some(o.caller),
             mechanism: Some(o.mechanism),
+            policy_context,
         },
         None => GrantContext {
             profile: None,
@@ -1200,6 +1191,7 @@ fn grant_context(tx: &mut Txn<'_>, grant: &GrantSnapshot) -> heimdall_store::Res
             expected_policy_revision,
             caller: None,
             mechanism: None,
+            policy_context,
         },
     })
 }
@@ -1221,6 +1213,10 @@ fn origin_of(r: &ResolvedIntent, caller: &CallerContext) -> Option<GrantOrigin> 
         // `lock_connection_m03::with_lock_and_connection`.
         lock_behavior: None,
         connection: None,
+        // ⟨M05⟩ The context the intent was resolved in (personal: absent); the policy
+        // the authority rests on is recorded by M05 (U2/U6).
+        workspace: r.workspace.clone(),
+        policy_id: None,
     })
 }
 
@@ -1372,6 +1368,15 @@ fn revalidate_chain_verdict_with(
     let current = tx.authority_generation()?;
     if tx.denied_ancestor(&grant.id)?.is_some() {
         return Ok(Err(withdrawn("the grant or an ancestor was revoked")));
+    }
+    // ⟨M04⟩ ADR-0010 §9 item 1: the owner removed the grant's environment (or its
+    // distribution is gone): its authority is withdrawn, so the grant ends and its
+    // environment's cleanup runs. An environment this runtime never managed stays
+    // undetermined (it refuses the use, ends nothing; `resolve_existing`).
+    if tx.admit_environment(environment, &grant.environment)?
+        == heimdall_domain::environment::EnvironmentAdmission::Removed
+    {
+        return Ok(Err(withdrawn("the grant's environment was removed")));
     }
     let chain = ancestry(tx, grant)?;
     if grant.parent.is_some() && chain.is_empty() {
@@ -1547,7 +1552,10 @@ fn resolve_existing(
         });
     // ⟨r2.6⟩ §13.9 item 2: the environment is the grant's own (its snapshot); a
     // grant pinned to an environment this runtime does not manage is undetermined.
-    if g.environment != *environment {
+    // ⟨M04⟩ ADR-0010 §9 item 1: "manages" is membership of the runtime's managed set
+    // (`environment` is the runtime's own environment), never equality with it; a
+    // removed environment's grant is undetermined too.
+    if crate::environments::admit(tx, environment, &g.environment)?.is_err() {
         return Ok(Err(revalidation_failed(
             "the grant's environment is not managed by this runtime",
         )));
@@ -1556,9 +1564,10 @@ fn resolve_existing(
         .environment(&g.environment)?
         .unwrap_or_else(|| unenrolled(&g.environment));
     // Re-validation is for continuing work: the pause does not apply (ADR-0006
-    // §13.6 item 1), every applicable cutoff does.
+    // §13.6 item 1), every applicable cutoff does. ⟨M05⟩ In the grant's recorded
+    // context (ADR-0011 §10 item 1).
     let policies = tx.policies_for(&profile_id, &g.environment)?;
-    let policy = continuing_policy(&policies);
+    let policy = continuing_policy(&policies, &ctx.policy_context);
     let destinations: BTreeMap<DestinationId, DestinationCapability> = g
         .scope
         .pairs
@@ -1671,20 +1680,27 @@ fn anchor_bound(
 }
 
 /// The bound of `grant` inside `tx`: [`grant_bound`] over its ancestors and every
-/// applicable policy of `profile`, never later than a bound already persisted
-/// for the grant ([`anchor_bound`]).
+/// policy of `profile` applicable to it, never later than a bound already persisted
+/// for the grant ([`anchor_bound`]). ⟨M04, M05⟩ The policies are those of the grant's
+/// **own** environment (ADR-0010 §9 item 1) in its recorded context (ADR-0011 §10
+/// item 1), never the runtime's environment or another context's.
 fn bound_of(
     tx: &mut Txn<'_>,
-    env: &EnvironmentId,
     grant: &GrantSnapshot,
     profile: Option<&ProfileId>,
 ) -> heimdall_store::Result<Timestamp> {
     let ancestors = ancestry(tx, grant)?;
+    let origin = tx.grant_origin(&grant.id)?;
+    let context = crate::policy_context::grant_context(origin.as_ref());
     let policies = match profile {
-        Some(p) => tx.policies_for(p, env)?,
+        Some(p) => tx.policies_for(p, &grant.environment)?,
         None => Vec::new(),
     };
-    let bound = grant_bound(grant, &ancestors, merged_policy(&policies).as_ref());
+    let bound = grant_bound(
+        grant,
+        &ancestors,
+        merged_policy(&policies, &context).as_ref(),
+    );
     anchor_bound(tx, &grant.id, bound)
 }
 
@@ -2156,8 +2172,17 @@ fn activation_refusal(
             Some(GrantEvent::RevokeLocal),
         )));
     }
-    let policies = tx.policies_for(&intent.profile, environment)?;
-    let merged = merged_policy(&policies);
+    // ⟨M04, M05⟩ The grant's own environment (ADR-0010 §9 item 1; `environment` is the
+    // runtime's own, for membership), in the intent's context (ADR-0011 §10 item 1).
+    if let Err(error) = crate::environments::admit(tx, environment, &grant.environment)? {
+        return Ok(Some(Refusal::new(
+            error,
+            Some(GrantEvent::PreparationFailed),
+        )));
+    }
+    let context = PolicyContext::of_recorded(intent.workspace.as_ref());
+    let policies = tx.policies_for(&intent.profile, &grant.environment)?;
+    let merged = merged_policy(&policies, &context);
     if activation != Activation::Existing
         && let Some(p) = merged.as_ref()
         && let Some(block) = p.blocks_activation_at(now)
@@ -2324,7 +2349,7 @@ fn grant_end(
     }
     let now = safe.wall();
     let ctx = grant_context(tx, g)?;
-    let bound = bound_of(tx, env, g, ctx.profile.as_ref())?;
+    let bound = bound_of(tx, g, ctx.profile.as_ref())?;
     // ⟨r2.6⟩ §13.9 item 1: only trusted evidence ends a grant: the accepted wall
     // time and the continuous budget, never an unassessed fresh wall reading.
     if dtime::is_expired(now, bound) || gate.expired(tx, &g.id, safe)? {
@@ -4125,6 +4150,10 @@ struct WorkSpec {
     required: RequiredCapabilities,
     interactive: bool,
     parent_binding: Option<BindingId>,
+    /// ⟨M05⟩ The policy context (ADR-0011 §10 item 1): personal for every request
+    /// without a workspace match (joint wave 0 refuses `context` before admission); a
+    /// delegation resolves in its parent's context instead.
+    context: PolicyContext,
 }
 
 impl WorkSpec {
@@ -4132,7 +4161,7 @@ impl WorkSpec {
         match request {
             Request::Ensure(r) => Some(Self {
                 kind: OperationKind::Ensure,
-                profile: Some(r.profile.clone()),
+                profile: r.profile.clone(),
                 profile_revision: r.profile_revision,
                 environment: r.environment.clone().unwrap_or_else(|| own.clone()),
                 pairs: r.scope.clone(),
@@ -4141,6 +4170,7 @@ impl WorkSpec {
                 required: r.required_capabilities.clone(),
                 interactive: r.interaction == InteractionMode::Interactive,
                 parent_binding: None,
+                context: PolicyContext::Personal,
             }),
             Request::Delegate(r) => Some(Self {
                 kind: OperationKind::Delegate,
@@ -4153,6 +4183,7 @@ impl WorkSpec {
                 required: r.required_capabilities.clone(),
                 interactive: false,
                 parent_binding: Some(r.parent_binding_id.clone()),
+                context: PolicyContext::Personal,
             }),
             _ => None,
         }
@@ -4199,6 +4230,10 @@ struct Resolved {
     adapter: Option<AdapterInfo>,
     /// ⟨M03⟩ U0b row 9 (O): the per-pair mechanism resolution.
     pairs: pair_mechanism_m03::PairsResolution,
+    /// ⟨M04⟩ The target environment (a member of the managed set).
+    environment: EnvironmentId,
+    /// ⟨M05⟩ The policy context resolution ran in.
+    context: PolicyContext,
 }
 
 /// Load everything resolution needs from `tx` and run `resolve_authority` (pure).
@@ -4212,16 +4247,16 @@ fn resolve_in(
             return Ok(Err($e))
         };
     }
-    if inp.spec.environment != inp.environment {
-        refuse!(
-            OpError::new(
-                Code::NotFound,
-                "the environment is not managed by this runtime"
-            )
-            .with_resource("environment", None)
-        );
+    // ⟨M04⟩ ADR-0010 §9 item 1: `inp.environment` is the runtime's own; the request's
+    // target must be in its managed set (replacing M01's equality check). A delegation's
+    // target is its parent binding's environment (one binding names one environment,
+    // ADR-0010 §0 item 1), checked below once the parent is read.
+    if inp.spec.kind != OperationKind::Delegate
+        && let Err(e) = crate::environments::admit(tx, &inp.environment, &inp.spec.environment)?
+    {
+        refuse!(e);
     }
-    let (profile, parent) = match inp.spec.kind {
+    let (profile, parent, target, context) = match inp.spec.kind {
         OperationKind::Delegate => {
             let Some(pb) = &inp.spec.parent_binding else {
                 refuse!(OpError::new(
@@ -4251,7 +4286,16 @@ fn resolve_in(
             {
                 parent = v.grant;
             }
-            (snapshot, Some(parent))
+            // ⟨M04⟩ The child is pinned to its parent's environment, which must still be
+            // in the managed set. ⟨M05⟩ It resolves in the parent's context (ADR-0011
+            // §3.2: delegation uses the parent's policy, never another).
+            let target = binding.environment.clone();
+            if let Err(e) = crate::environments::admit(tx, &inp.environment, &target)? {
+                refuse!(e);
+            }
+            let context =
+                crate::policy_context::grant_context(tx.grant_origin(&parent.id)?.as_ref());
+            (snapshot, Some(parent), target, context)
         }
         _ => {
             let Some(pid) = &inp.spec.profile else {
@@ -4273,14 +4317,21 @@ fn resolve_in(
                         .with_resource("profile", None)
                 );
             };
-            (snapshot, None)
+            (
+                snapshot,
+                None,
+                inp.spec.environment.clone(),
+                inp.spec.context.clone(),
+            )
         }
     };
+    // ⟨M04⟩ The target environment's own record and policies (ADR-0010 §9 item 1);
+    // ⟨M05⟩ resolved in the request's context (ADR-0011 §10 item 1).
     let environment = tx
-        .environment(&inp.environment)?
-        .unwrap_or_else(|| unenrolled(&inp.environment));
-    let policies = tx.policies_for(&profile.id, &inp.environment)?;
-    let policy = merged_policy(&policies);
+        .environment(&target)?
+        .unwrap_or_else(|| unenrolled(&target));
+    let policies = tx.policies_for(&profile.id, &target)?;
+    let policy = merged_policy(&policies, &context);
     let generation = tx.authority_generation()?;
     let base = parent.as_ref().map_or(&profile.scope, |p| &p.scope);
     let pairs = if inp.spec.pairs.is_empty() {
@@ -4377,7 +4428,7 @@ fn resolve_in(
         Ok(d) => d,
         Err(e) => refuse!(OpError::from_deadline(&e)),
     };
-    if let Some(end) = work_deadline(tx, &inp.environment, &inp.spec.work_id)? {
+    if let Some(end) = work_deadline(tx, &target, &inp.spec.work_id)? {
         if dtime::is_expired(inp.now, end) {
             refuse!(OpError::new(
                 Code::CredentialExpired,
@@ -4418,6 +4469,8 @@ fn resolve_in(
         generation,
         adapter,
         pairs: resolved_pairs,
+        environment: target,
+        context,
     }))
 }
 
@@ -4466,6 +4519,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
             approval: None,
             covered: None,
             binding_id: None,
+            workspace: r.context.workspace().cloned(),
         }))),
         AuthorityDecision::ApprovalRequired { delta, .. } => {
             // What approval would grant: exactly the requested scope (covered ∪
@@ -4484,7 +4538,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
             };
             let grant = GrantSnapshot {
                 id: inp.grant_id.clone(),
-                environment: inp.environment.clone(),
+                environment: r.environment.clone(),
                 scope: r.requested.clone(),
                 starts_at: inp.now,
                 deadline: deadline.clone(),
@@ -4509,6 +4563,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
                 approval: None,
                 covered: None,
                 binding_id: None,
+                workspace: r.context.workspace().cloned(),
             };
             Ok(Resolution::Approval(Box::new(Approval {
                 intent,
@@ -4642,7 +4697,10 @@ fn proceed_covered(
     current: heimdall_domain::policy::AuthorityGeneration,
     now: Timestamp,
 ) -> heimdall_store::Result<Vec<OperationId>> {
-    let revision = merged_policy(&tx.policies_for(profile, env)?)
+    // ⟨M04, M05⟩ The grant's own environment, in its recorded context.
+    let _ = env;
+    let context = crate::policy_context::grant_context(tx.grant_origin(&grant.id)?.as_ref());
+    let revision = merged_policy(&tx.policies_for(profile, &grant.environment)?, &context)
         .filter(|p| &p.profile == profile)
         .map(|p| p.revision);
     let basis = CoveredBasis {
@@ -4933,6 +4991,8 @@ fn history_only(i: &ConsumerIntegration) -> ConsumerIntegration {
             .iter()
             .map(|p| history_pair(prepared_pair(p), p.selection_observed_at))
             .collect(),
+        // ⟨M04⟩ Not history: a realization is recomputed (none in M01–M03).
+        realization: None,
     }
 }
 
@@ -4993,6 +5053,9 @@ fn history_pair(p: PreparedPair, at: Timestamp) -> PairIntegration {
         eligibility_checked_at: at,
         // ⟨M02⟩ §12.15 item 3(c): history, reported as stored.
         identity_selection_report: Some(p.identity_selection),
+        // ⟨M04⟩ Revision 5: no route or forwarding until M04 U6 builds them.
+        route: None,
+        agent_forwarding: false,
     }
 }
 
@@ -5010,6 +5073,8 @@ fn integration_of(p: &PreparedFacts) -> ConsumerIntegration {
             .cloned()
             .map(|pair| history_pair(pair, p.recorded_at))
             .collect(),
+        // ⟨M04⟩ Not history: a realization is recomputed (none in M01–M03).
+        realization: None,
     }
 }
 
@@ -5187,6 +5252,10 @@ fn ensure_data(
         revocation: managed.map(|m| m.revocation.clone()),
         evidence: managed.map(|m| m.evidence.clone()).unwrap_or_default(),
         connection_policy: managed.map(|m| m.connection_policy.clone()),
+        // ⟨M05⟩ Revision 5: filled by M05 (U4); absent, so every M01–M03 result is
+        // unchanged.
+        context: None,
+        uncovered: Vec::new(),
     }
 }
 
@@ -5276,6 +5345,7 @@ fn destination_view(
             port,
             account,
             identity,
+            ..
         } => (
             AliasDefinition::Managed,
             Some(serde_json::json!({
@@ -5376,7 +5446,11 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
         | DecisionKind::EnrollAccount { .. }
         | DecisionKind::EnrollSystemForm { .. }
         | DecisionKind::RemoveEnrollment { .. }
-        | DecisionKind::ApproveTargetChange { .. } => {
+        | DecisionKind::ApproveTargetChange { .. }
+        // ⟨M05⟩ Revision 5: none is created in joint wave 0; were one stored, its
+        // recorded content is shown verbatim.
+        | DecisionKind::TrustWorkspace { .. }
+        | DecisionKind::ReconcileWorkspace { .. } => {
             serde_json::to_value(&d.kind).unwrap_or_default()
         }
     };
@@ -5802,8 +5876,15 @@ impl Operations {
                 tracing::warn!(code = %e.code, "interrupted remote revocation rounds could not be read");
             }
         }
+        // ⟨M04⟩ ADR-0010 §9 item 1: recovery runs per environment for every member of
+        // this runtime's managed set (replacing M01's `== own`); an operation of an
+        // environment outside it (another runtime's, or removed) is left untouched.
+        let own = self.inner.config.environment.clone();
+        let managed: BTreeSet<EnvironmentId> = self
+            .write(move |tx, _| crate::environments::members(tx, &own))
+            .await?;
         for op in open.into_iter().chain(unresolved) {
-            if op.environment != self.inner.config.environment {
+            if !managed.contains(&op.environment) {
                 continue;
             }
             // Each operation is driven from its own durable state; a failure
@@ -6156,14 +6237,11 @@ impl Operations {
                 return Ok(Flow::Stop);
             }
             let now = clock.wall();
-            let refusal = if spec.environment != own {
-                Some(
-                    OpError::new(
-                        Code::NotFound,
-                        "the environment is not managed by this runtime",
-                    )
-                    .with_resource("environment", None),
-                )
+            // ⟨M04⟩ ADR-0010 §9 item 1: the operation's environment must be in this
+            // runtime's managed set (replacing M01's `== own`), re-read here because a
+            // removal may have happened since admission.
+            let refusal = if let Err(e) = crate::environments::admit(tx, &own, &op.environment)? {
+                Some(e)
             } else {
                 match spec.kind {
                     OperationKind::Delegate => {
@@ -7148,7 +7226,7 @@ impl Operations {
                     None => {
                         // First validation in this boot anchors the grant; the
                         // continuous budget must still be open.
-                        let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
+                        let bound = bound_of(tx, &g, Some(&resolved.profile))?;
                         if gate.anchor_grant(tx, &gid, &safe, bound)?.is_none() {
                             return Ok(Attempt::Unanchored);
                         }
@@ -7814,7 +7892,7 @@ impl Operations {
                     return Ok(Checked::Refused(gid, intent));
                 }
                 // Activation anchor (ADR-0005 §3.6), cut by the accepted tolerance.
-                let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
+                let bound = bound_of(tx, &g, Some(&resolved.profile))?;
                 if gate.anchor_grant(tx, &gid, &safe, bound)?.is_none() {
                     return Ok(Checked::Unanchored);
                 }
@@ -8052,7 +8130,7 @@ impl Operations {
                 } else {
                     Activation::NewGrant
                 };
-                let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
+                let bound = bound_of(tx, &g, Some(&resolved.profile))?;
                 // ⟨M02⟩ U0b rows 4 and 5: without this drive's facts, the grant's
                 // stored history; then fresh eligibility in this transaction.
                 let mut facts = match facts {
@@ -8271,11 +8349,14 @@ impl Operations {
         now: Timestamp,
         pipeline: bool,
         exclusive: Option<SetupAdmission>,
+        environment: EnvironmentId,
     ) -> Result<IdempotencyOutcome, OpError> {
         let key_hash = key
             .hash()
             .map_err(|_| internal("the idempotency key cannot be hashed"))?;
-        let environment = self.inner.config.environment.clone();
+        // ⟨M04⟩ ADR-0010 §9 item 1: the operation is recorded in its **target**
+        // environment (a member of the managed set, checked by the caller and again
+        // at `LoadAuthority`); setup admissions stay in the runtime's own.
         if let Some(adm) = &exclusive
             && (adm.environment != environment || !kind.is_setup())
         {
@@ -8413,6 +8494,7 @@ impl Operations {
             now,
             pipeline,
             exclusive,
+            self.inner.config.environment.clone(),
         )
         .await
     }
@@ -8446,6 +8528,7 @@ impl Operations {
         hash: heimdall_contract::canonical::RequestHash,
         request_id: heimdall_contract::ids::RequestId,
         wait: WaitMode,
+        environment: EnvironmentId,
     ) -> OpResult<EnsureData> {
         let safe = self.inner.timegate.check().await?;
         let key = IdempotencyKey {
@@ -8466,6 +8549,7 @@ impl Operations {
                 safe.wall(),
                 true,
                 None,
+                environment,
             )
             .await?;
         if let Some(e) = Self::refuse_outcome(&outcome) {
@@ -8622,8 +8706,10 @@ impl Operations {
                 // terminates nothing: the operation keeps waiting (until its
                 // deadline, a revoke, or a resume and a fresh decision), and no
                 // decision record is issued while the policy is paused.
-                let policies = tx.policies_for(&resolved.profile, &env)?;
-                if let Some(p) = merged_policy(&policies)
+                // ⟨M04, M05⟩ The operation's own environment, in its intent's context.
+                let policies = tx.policies_for(&resolved.profile, &op.environment)?;
+                let context = PolicyContext::of_recorded(resolved.workspace.as_ref());
+                if let Some(p) = merged_policy(&policies, &context)
                     && matches!(p.pause, PauseState::Paused { .. })
                 {
                     return Ok(Err(OpError::new(
@@ -8723,6 +8809,13 @@ impl Operations {
         caller: &Caller,
         req: InspectRequest,
     ) -> OpResult<serde_json::Value> {
+        // ⟨M05⟩ Revision 5's subjects (`workspace`, `policies`, `export`) are M05's (U2,
+        // U4, U7); joint wave 0 refuses them before anything is read.
+        if req.subject.is_m05() {
+            return Err(OpError::driver_unavailable(
+                "this inspect subject is not available in this build",
+            ));
+        }
         let mut warnings = Vec::new();
         // Passive reads continue with a warning while time is uncertain (spec §6.4).
         let now = match self.inner.timegate.peek().await {
@@ -9063,7 +9156,6 @@ impl Operations {
                     if !ctx.is_owner() {
                         serde_json::json!({ "connections": [] })
                     } else {
-                        let env = self.inner.config.environment.clone();
                         let view = self
                         .write(move |tx, _| {
                             let mut connections = Vec::new();
@@ -9095,8 +9187,13 @@ impl Operations {
                                 let origin = tx.grant_origin(&c.grant)?;
                                 let policy = match (&grant, &origin) {
                                     (Some(g), Some(o)) => {
-                                        let current: Vec<ConnectionPolicy> = tx
-                                            .policies_for(&o.profile, &g.environment)?
+                                        // ⟨M05⟩ In the grant's recorded context.
+                                        let current: Vec<ConnectionPolicy> =
+                                            crate::policy_context::grant_policies(
+                                                tx,
+                                                &g.environment,
+                                                Some(o),
+                                            )?
                                             .iter()
                                             .map(|p| p.connection)
                                             .collect();
@@ -9116,7 +9213,7 @@ impl Operations {
                                 let closes_at = match (&grant, closes) {
                                     (Some(g), true) => {
                                         let profile = origin.as_ref().map(|o| &o.profile);
-                                        Some(bound_of(tx, &env, g, profile)?)
+                                        Some(bound_of(tx, g, profile)?)
                                     }
                                     _ => None,
                                 };
@@ -9139,6 +9236,12 @@ impl Operations {
                             OpError::new(Code::InternalError, "connections could not be rendered")
                         })?
                     }
+                }
+                // ⟨M05⟩ Refused at the top (`is_m05`).
+                InspectSubject::Workspace | InspectSubject::Policies | InspectSubject::Export => {
+                    return Err(OpError::driver_unavailable(
+                        "this inspect subject is not available in this build",
+                    ));
                 }
             };
         if let Some(preview) = req.preview {
@@ -9225,6 +9328,8 @@ impl Operations {
                 required: p.required_capabilities,
                 interactive: false,
                 parent_binding: None,
+                // ⟨M05⟩ A preview without a workspace context is personal.
+                context: PolicyContext::Personal,
             },
             caller: caller.context.clone(),
             operation: OperationId::from_random_bytes([0; 16]),
@@ -9274,14 +9379,21 @@ impl Operations {
                 "too many destination/account pairs",
             ));
         }
+        // ⟨M04, M05⟩ Revision 5 forms (`context`, `covered_only`, no `profile`) are
+        // M05's; joint wave 0 refuses them before anything is read or written.
+        if req.uses_m05_form() {
+            return Err(OpError::driver_unavailable(
+                "trusted-work requests are not available in this build",
+            ));
+        }
         let own = self.inner.config.environment.clone();
         let environment = req.environment.clone().unwrap_or_else(|| own.clone());
-        if environment != own {
-            return Err(OpError::new(
-                Code::NotFound,
-                "the environment is not managed by this runtime",
-            )
-            .with_resource("environment", None));
+        // ⟨M04⟩ ADR-0010 §9 item 1: the target must be in this runtime's managed set
+        // (replacing M01's `environment != own`); nothing is written otherwise.
+        {
+            let (own2, target) = (own.clone(), environment.clone());
+            self.write(move |tx, _| crate::environments::admit(tx, &own2, &target))
+                .await??;
         }
         // ⟨M03⟩ U0b row 9 (O): `connection: graceful` and a pair resolving to
         // `managed_certificate` (wave 0) are refused before any record is written.
@@ -9290,7 +9402,7 @@ impl Operations {
             OperationKind::Ensure,
             &HashInput {
                 environment: &environment,
-                profile: Some(&req.profile),
+                profile: req.profile.as_ref(),
                 profile_revision: req.profile_revision,
                 scope: &req.scope,
                 deadline_intent: req.until.as_ref(),
@@ -9298,7 +9410,8 @@ impl Operations {
                 required_capabilities: &req.required_capabilities,
                 parent_binding: None,
                 // ⟨M03⟩ U0b row 9 (O): `connection` only when present.
-                extra: pair_mechanism_m03::ensure_hash_extra(&req),
+                // ⟨M05⟩ No resolved context: joint wave 0 refused `context` above.
+                extra: pair_mechanism_m03::ensure_hash_extra(&req, None),
             },
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
@@ -9312,6 +9425,7 @@ impl Operations {
                 hash,
                 request_id,
                 wait,
+                environment,
             )
             .await;
         // ⟨M03 wave 5⟩ U9-Q3 (a): a `revoke_on_lock` grant over an unverified signal
@@ -9364,14 +9478,23 @@ impl Operations {
         // `NOT_FOUND` (IDs are not bearer credentials).
         let ctx = caller.context.clone();
         let bid = req.binding_id.clone();
+        // ⟨M04⟩ The bind operation is recorded in the binding's own environment, which
+        // must still be in the managed set (ADR-0010 §9 item 1).
+        let own2 = own.clone();
         let visible = self
-            .write(move |tx, _| Ok(tx.binding(&bid)?.is_some_and(|b| may_act_on(&b, &ctx))))
-            .await?;
-        if !visible {
+            .write(move |tx, _| {
+                let Some(b) = tx.binding(&bid)?.filter(|b| may_act_on(b, &ctx)) else {
+                    return Ok(Ok(None));
+                };
+                Ok(crate::environments::admit(tx, &own2, &b.environment)?
+                    .map(|()| Some(b.environment)))
+            })
+            .await??;
+        let Some(bind_environment) = visible else {
             return Err(
                 OpError::new(Code::NotFound, "unknown binding").with_resource("binding", None)
             );
-        }
+        };
         let key = IdempotencyKey {
             caller: caller.context.clone(),
             kind: OperationKind::Bind,
@@ -9396,6 +9519,7 @@ impl Operations {
                 safe.wall(),
                 false,
                 None,
+                bind_environment,
             )
             .await?;
         if let Some(e) = Self::refuse_outcome(&outcome) {
@@ -9533,7 +9657,7 @@ impl Operations {
                 if let Some(b) = tx.binding(&req.binding_id)?
                     && let Some(g) = tx.grant(&b.grant)?
                 {
-                    let bound = bound_of(tx, &env, &g, Some(&b.profile))?;
+                    let bound = bound_of(tx, &g, Some(&b.profile))?;
                     if g.state.permits_use() && !dtime::is_expired(now, bound) {
                         gate.anchor_grant(tx, &g.id, &safe, bound)?;
                     }
@@ -9608,6 +9732,8 @@ impl Operations {
                     approval: None,
                     covered: None,
                     binding_id: None,
+                    // ⟨M05⟩ The binding's grant's recorded context.
+                    workspace: tx.grant_origin(&g.id)?.and_then(|o| o.workspace),
                 };
                 // An existing binding is not a new activation (ADR-0006 §13.6 item 1):
                 // a pause does not stop it (nor its re-validation); revocation and
@@ -9666,7 +9792,13 @@ impl Operations {
                     && matches!(req.form, BindForm::Launch(_))
                     && b.mechanism == MANAGED_CERTIFICATE
                 {
-                    return match managed_driver_m03::claim_bind_slots_in(tx, &env, &b, now)? {
+                    // ⟨M04⟩ The binding's own environment's slots (ADR-0010 §9 item 1).
+                    return match managed_driver_m03::claim_bind_slots_in(
+                        tx,
+                        &b.environment,
+                        &b,
+                        now,
+                    )? {
                         Err(e) => fail(tx, emit, &mut op, e),
                         Ok(()) => {
                             *claimed_in.lock().unwrap_or_else(PoisonError::into_inner) =
@@ -9675,7 +9807,7 @@ impl Operations {
                         }
                     };
                 }
-                let bound = bound_of(tx, &env, &g, Some(&b.profile))?;
+                let bound = bound_of(tx, &g, Some(&b.profile))?;
                 // ⟨M02⟩ U0b rows 4 and 5: the grant's stored history, then fresh
                 // eligibility, in this settling transaction.
                 let facts = Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
@@ -9724,14 +9856,21 @@ impl Operations {
         }
         let ctx = caller.context.clone();
         let pb = req.parent_binding_id.clone();
-        let visible = self
-            .write(move |tx, _| Ok(tx.binding(&pb)?.is_some_and(|b| may_act_on(&b, &ctx))))
+        // ⟨M04⟩ The child's operation is recorded in its parent binding's environment
+        // (one binding names one environment; ADR-0010 §0 item 1, §9 item 1).
+        let parent_environment = self
+            .write(move |tx, _| {
+                Ok(tx
+                    .binding(&pb)?
+                    .filter(|b| may_act_on(b, &ctx))
+                    .map(|b| b.environment))
+            })
             .await?;
-        if !visible {
+        let Some(parent_environment) = parent_environment else {
             return Err(
                 OpError::new(Code::NotFound, "unknown binding").with_resource("binding", None)
             );
-        }
+        };
         let own = self.inner.config.environment.clone();
         let hash = compute_hash(
             OperationKind::Delegate,
@@ -9757,6 +9896,7 @@ impl Operations {
                 hash,
                 request_id,
                 WaitMode::default(),
+                parent_environment,
             )
             .await;
         // ⟨M03 wave 5⟩ U9-Q3 (a), as for `ensure`.
@@ -10201,6 +10341,23 @@ impl Operations {
     /// `revoke` (tombstone before acknowledgment; cascade; residual from the
     /// issuance log; spec §6.7).
     pub async fn revoke(&self, caller: &Caller, req: RevokeRequest) -> OpResult<RevokeData> {
+        // ⟨M05⟩ Revision 5: a `target` (stop a piece of work) is M05's (U3); joint wave
+        // 0 refuses it before anything is read or written. Exactly one of `grant_id`
+        // and `target` (ADR-0006 revision 5 §17).
+        if req.target.is_some() {
+            if req.grant_id.is_some() {
+                return Err(OpError::new(
+                    Code::UsageError,
+                    "a revoke names a grant or a target, not both",
+                ));
+            }
+            return Err(OpError::driver_unavailable(
+                "stopping a piece of work is not available in this build",
+            ));
+        }
+        let Some(revoked_grant) = req.grant_id.clone() else {
+            return Err(OpError::new(Code::UsageError, "a revoke names a grant"));
+        };
         let now = self.narrowing_now().await;
         let own = self.inner.config.environment.clone();
         let hash = compute_hash(
@@ -10221,7 +10378,7 @@ impl Operations {
         // Owner role, or a caller holding a binding on the grant; anyone else sees
         // `NOT_FOUND`.
         let ctx = caller.context.clone();
-        let gid = req.grant_id.clone();
+        let gid = revoked_grant.clone();
         let visible = self
             .write(move |tx, _| {
                 if tx.grant(&gid)?.is_none() {
@@ -10261,6 +10418,7 @@ impl Operations {
                 now,
                 false,
                 None,
+                self.inner.config.environment.clone(),
             )
             .await?;
         if let Some(e) = Self::refuse_outcome(&outcome) {
@@ -10298,7 +10456,11 @@ impl Operations {
         // phase 1; a later drive (restart recovery, a same-key retry) never calls
         // them again and completes from the record.
         let id2 = id.clone();
-        let root = req.grant_id.clone();
+        // ⟨M05⟩ A stored revoke always names its grant (a `target` is refused before
+        // admission in joint wave 0).
+        let Some(root) = req.grant_id.clone() else {
+            return Err(internal("the stored revoke names no grant"));
+        };
         let interrupted = Arc::clone(&self.inner.interrupted_rounds);
         // ⟨M03⟩ U0b rows 20 and 27 (G): phase 1 commits through the narrowing protocol
         // (the cascade's gates, exclusively, before the commit); `requested_at` is the
@@ -10608,8 +10770,9 @@ impl Operations {
                     }
                     if let Some(intent) = tx.recovery_intent(&op.id)?
                         && let Ok(Request::Revoke(r)) = serde_json::from_value(intent.request)
+                        && let Some(g) = r.grant_id
                     {
-                        driven.insert(r.grant_id);
+                        driven.insert(g);
                     }
                 }
                 for g in revoking {
@@ -10789,7 +10952,7 @@ impl Operations {
     /// caller could not end in its own transaction: end `grant` and its ancestors
     /// when they can no longer be used (fresh time assessed in this transaction;
     /// uncertain time ends nothing), and complete any withdrawal.
-    async fn end_if_invalid(&self, grant: &GrantId) {
+    pub(crate) async fn end_if_invalid(&self, grant: &GrantId) {
         let gate = self.inner.timegate.in_txn();
         let env = self.inner.config.environment.clone();
         let adapters = self.adapter_infos();
@@ -10824,6 +10987,20 @@ impl Operations {
                 "owner-channel actions need the owner role",
             ));
         }
+        // ⟨M05⟩ Revision 5 (ADR-0006 §17): exactly one of `policy_id` and `target`;
+        // the new actions and targeted forms are M05's (U2, U3), refused before any
+        // record, decision record included, is written.
+        if !req.selector_ok() {
+            return Err(OpError::new(
+                Code::UsageError,
+                "a policy action names a policy or a target, exactly one",
+            ));
+        }
+        if req.is_m05() {
+            return Err(OpError::driver_unavailable(
+                "this policy action is not available in this build",
+            ));
+        }
         // ⟨M03⟩ U0b row 11 (O): `revoke_on_lock` without a usable lock signal is refused
         // before anything is written (`lock_connection_m03`; ADR-0008 D9 item 3).
         if let Some(e) = self.policy_refusal_m03(&req) {
@@ -10848,13 +11025,11 @@ impl Operations {
                     Ok(s) => s.wall(),
                     Err(_) => gate.clock().wall(),
                 };
-                let pid: PolicyId = match &action {
-                    PolicyAction::Pause { policy_id }
-                    | PolicyAction::Resume { policy_id }
-                    | PolicyAction::Cutoff { policy_id, .. }
-                    | PolicyAction::ClearCutoff { policy_id }
-                    | PolicyAction::SetLockBehavior { policy_id, .. }
-                    | PolicyAction::SetConnectionPolicy { policy_id, .. } => policy_id.clone(),
+                // ⟨M05⟩ Only M01–M03 forms reach here (`is_m05` refused above).
+                let Some(pid) = action.policy_id().cloned() else {
+                    return Ok(Err(OpError::driver_unavailable(
+                        "this policy action is not available in this build",
+                    )));
                 };
                 let Some(mut p) = tx.policy(&pid)? else {
                     return Ok(Err(OpError::new(Code::NotFound, "unknown policy")
@@ -10870,6 +11045,8 @@ impl Operations {
                     | PolicyAction::SetConnectionPolicy { .. } => {
                         lock_connection_m03::widening(&action, &p)
                     }
+                    // ⟨M05⟩ Unreachable (refused above); fail closed as widening.
+                    _ => true,
                 };
                 let unchanged = match &action {
                     PolicyAction::Pause { .. } => matches!(p.pause, PauseState::Paused { .. }),
@@ -10880,6 +11057,7 @@ impl Operations {
                     | PolicyAction::SetConnectionPolicy { .. } => {
                         lock_connection_m03::unchanged(&action, &p)
                     }
+                    _ => false,
                 };
                 if unchanged {
                     return Ok(Ok(PolicyOutcome::Applied(Box::new(p), false)));
@@ -11062,6 +11240,22 @@ impl Operations {
                             }
                         }
                     }
+                    // ⟨M05⟩ Revision 5: a revision-5 widening action, and the two new
+                    // kinds, are refused before completion (not consumed) until M05
+                    // U2 lands their driver (the M03 wave-0 pattern).
+                    DecisionKind::WidenPolicy { action } if action.is_m05() => {
+                        return Ok(Err(OpError::driver_unavailable(
+                            "this decision kind is not available in this build",
+                        )
+                        .with_resource("decision", Some(did.to_string()))));
+                    }
+                    DecisionKind::TrustWorkspace { .. }
+                    | DecisionKind::ReconcileWorkspace { .. } => {
+                        return Ok(Err(OpError::driver_unavailable(
+                            "this decision kind is not available in this build",
+                        )
+                        .with_resource("decision", Some(did.to_string()))));
+                    }
                     DecisionKind::WidenPolicy { .. } => None,
                     DecisionKind::ConfirmTime { .. } => {
                         return Ok(Err(stale(&DecisionRefusal::NotPending(d.state))));
@@ -11201,9 +11395,14 @@ impl Operations {
                                 .recovery_intent(&op.id)?
                                 .ok_or_else(|| conflict("operation has no recovery intent"))?;
                             if let Some(r) = intent.resolved.as_mut() {
-                                let revision = merged_policy(&tx.policies_for(&r.profile, &env)?)
-                                    .filter(|p| p.profile == r.profile)
-                                    .map(|p| p.revision);
+                                // ⟨M04, M05⟩ The waiter's own environment and context.
+                                let context = PolicyContext::of_recorded(r.workspace.as_ref());
+                                let revision = merged_policy(
+                                    &tx.policies_for(&r.profile, &op.environment)?,
+                                    &context,
+                                )
+                                .filter(|p| p.profile == r.profile)
+                                .map(|p| p.revision);
                                 let basis = ApprovalBasis {
                                     decision: record.id.clone(),
                                     delta: delta.clone(),
@@ -11329,6 +11528,19 @@ impl Operations {
                         DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
                         _,
                     ) => {}
+                    // ⟨M05⟩ Unreachable (refused before completion above); a backstop
+                    // that rolls the transaction back, so nothing is consumed.
+                    (
+                        DecisionKind::TrustWorkspace { .. }
+                        | DecisionKind::ReconcileWorkspace { .. },
+                        _,
+                    ) => {
+                        *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) =
+                            Some(OpError::driver_unavailable(
+                                "this decision kind is not available in this build",
+                            ));
+                        return Err(conflict("m05 decision kind refused"));
+                    }
                     // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver, in this
                     // transaction. A refusal here rolls the whole transaction back
                     // (nothing consumed): it is returned as a store-level conflict
@@ -11493,7 +11705,6 @@ impl Operations {
             Err(e) if e.code == Code::TimeUncertain => None,
             Err(e) => return Err(e),
         };
-        let env = self.inner.config.environment.clone();
         let candidates = self
             .write(move |tx, _| {
                 let mut out = Vec::new();
@@ -11503,11 +11714,16 @@ impl Operations {
                     }
                     let ancestors = ancestry(tx, &g)?;
                     let ctx = grant_context(tx, &g)?;
+                    // ⟨M04, M05⟩ The grant's own environment, in its recorded context.
                     let policies = match &ctx.profile {
-                        Some(p) => tx.policies_for(p, &env)?,
+                        Some(p) => tx.policies_for(p, &g.environment)?,
                         None => Vec::new(),
                     };
-                    let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
+                    let bound = grant_bound(
+                        &g,
+                        &ancestors,
+                        merged_policy(&policies, &ctx.policy_context).as_ref(),
+                    );
                     let bound = anchor_bound(tx, &g.id, bound)?;
                     let anchor = tx.grant_anchor(&g.id)?;
                     out.push((g, bound, anchor));
@@ -11731,7 +11947,7 @@ impl Operations {
                     && grant.state.permits_issuance()
                 {
                     let ctx = grant_context(tx, &grant)?;
-                    let bound = bound_of(tx, &env, &grant, ctx.profile.as_ref())?;
+                    let bound = bound_of(tx, &grant, ctx.profile.as_ref())?;
                     first_validation_anchor(tx, &gate, &grant.id, s, bound)?;
                 }
                 // ⟨M03⟩ U0b row 3 (O): the CA, selected in this transaction.
@@ -12281,17 +12497,23 @@ fn issuance_predicate(
         None => (None, &[][..]),
     };
     let ctx = grant_context(tx, grant)?;
+    // ⟨M04⟩ The grant's own environment (ADR-0010 §9 item 1), which must be in the
+    // managed set (`env` is the runtime's own); ⟨M05⟩ in the grant's recorded context
+    // (ADR-0011 §10 item 1).
+    if crate::environments::admit(tx, env, &grant.environment)?.is_err() {
+        return Ok(Err(IssuanceRefusal::GrantNotIssuable(GrantState::Revoked)));
+    }
     let policies = match &ctx.profile {
-        Some(p) => tx.policies_for(p, env)?,
+        Some(p) => tx.policies_for(p, &grant.environment)?,
         None => Vec::new(),
     };
     // ⟨r2.3⟩ §13.6 item 1: issuance within an existing grant (renewal, re-issue
     // under ADR-0005 §3.7) is continuing work and does not see a pause; a new
     // activation does.
     let view = if facts.new_activation {
-        merged_policy(&policies)
+        merged_policy(&policies, &ctx.policy_context)
     } else {
-        continuing_policy(&policies)
+        continuing_policy(&policies, &ctx.policy_context)
     };
     let policy = view.as_ref();
     // §13.5 ruling 2 with §13.6 item 5: every change to an applicable policy
@@ -12431,13 +12653,12 @@ fn apply_widening(
     action: &PolicyAction,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<(), OpError>> {
-    let pid = match action {
-        PolicyAction::Pause { policy_id }
-        | PolicyAction::Resume { policy_id }
-        | PolicyAction::Cutoff { policy_id, .. }
-        | PolicyAction::ClearCutoff { policy_id }
-        | PolicyAction::SetLockBehavior { policy_id, .. }
-        | PolicyAction::SetConnectionPolicy { policy_id, .. } => policy_id,
+    // ⟨M05⟩ A revision-5 action is never applied here: its decision kind is refused
+    // before completion (`DecisionKind::is_m05`), and this is the fail-closed backstop.
+    let Some(pid) = action.policy_id().filter(|_| !action.is_m05()) else {
+        return Ok(Err(OpError::driver_unavailable(
+            "this policy action is not available in this build",
+        )));
     };
     let Some(mut p) = tx.policy(pid)? else {
         return Ok(Err(
@@ -12453,6 +12674,11 @@ fn apply_widening(
         // any narrowing part of a mixed action, with it).
         PolicyAction::SetLockBehavior { .. } | PolicyAction::SetConnectionPolicy { .. } => {
             lock_connection_m03::apply(action, &mut p);
+        }
+        _ => {
+            return Ok(Err(OpError::driver_unavailable(
+                "this policy action is not available in this build",
+            )));
         }
     }
     p.revision = PolicyRevision(p.revision.0.saturating_add(1));
@@ -12716,6 +12942,12 @@ impl Operations {
         self.narrowing_now().await
     }
 
+    /// ⟨M04⟩ The runtime clock's wall reading (record timestamps only; never a time
+    /// judgement).
+    pub(crate) fn local_clock_wall(&self) -> Timestamp {
+        self.inner.config.clock.wall()
+    }
+
     /// ⟨M02⟩ U5: one store transaction with its events ([`Operations::write`]).
     pub(crate) async fn local_write<R, F>(&self, f: F) -> Result<R, OpError>
     where
@@ -12747,6 +12979,7 @@ impl Operations {
             now,
             false,
             exclusive,
+            self.inner.config.environment.clone(),
         )
         .await
     }
@@ -12838,6 +13071,8 @@ mod tests {
             },
             eligibility_checked_at: "2026-10-02T00:00:00Z".parse().unwrap(),
             identity_selection_report: None,
+            agent_forwarding: false,
+            route: None,
         }
     }
 

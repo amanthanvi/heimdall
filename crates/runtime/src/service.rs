@@ -1807,7 +1807,11 @@ fn pair_masters_enabled(
 ) -> heimdall_store::Result<bool> {
     let mut applicable = Vec::new();
     for profile in tx.profiles()? {
-        for p in tx.policies_for(&profile.id, environment)? {
+        // ⟨M05⟩ P's ordinary aliases are environment-level: personal policies only
+        // (ADR-0011 §5.2, §10 item 1).
+        for p in
+            heimdall_app::policy_context::environment_level_policies(tx, &profile.id, environment)?
+        {
             if p.scope.pairs.contains(pair) {
                 applicable.push(p.connection);
             }

@@ -1,0 +1,39 @@
+{
+  "case_id": "G05-agent-context",
+  "status": "blocked",
+  "requirement_ids": ["R-UX-02"],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "macos": "Darwin 27.2.0 arm64 (the build host)",
+    "linux": "Ubuntu 24.04, Linux 6.8.0-147-generic x86_64 (the devbox)",
+    "windows": "Windows 11, in-box OpenSSH 9.5p2: not run"
+  },
+  "provider_versions": [
+    "macOS: OpenSSH_10.5p1, LibreSSL 3.3.6; git version 2.54.0 (Apple Git-157)",
+    "Linux: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13; git version 2.43.0"
+  ],
+  "started_at": "2026-11-15T19:30:00-05:00",
+  "commands_or_harness": [
+    "python3 -I tests/native/m05/u0b/spike_driver.py --platform macos --out results-macos.json",
+    "python3 -I tests/native/m05/u0b/spike_driver.py --platform linux --out results-linux.json (on the devbox, scratch /tmp directory, deleted)",
+    "powershell -NoProfile -ExecutionPolicy Bypass -File tests/native/m05/u0b/windows-agent-wait-spike.ps1 -Target <host> -Port <port> -User <user> (not run)"
+  ],
+  "observed_result": {
+    "macos": "ssh and git ls-remote completed a real publickey login with the identities answer delayed 0, 0.5, 1, 2, 5, 10 and 30 s (sshd LoginGraceTime 120) and 65 s (LoginGraceTime 0); at 125 s with LoginGraceTime 120 both failed (ssh exit 255, git exit 128) because sshd closed the connection; no client agent timeout up to 65 s. 52 agent messages (types 27 session-bind@openssh.com, 11, 13 only), none carrying the working directory, the repository name or the canary. session-bind arrived before REQUEST_IDENTITIES on every connection.",
+    "linux": "As macOS: every delay up to 65 s succeeded for ssh and git; 125 s failed by the server's LoginGraceTime (raw unauthenticated probe closed after 120.007 s); 52 agent messages, no directory context; session-bind first.",
+    "windows": null
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m05/u0b/results-macos.json",
+    "tests/evidence/artifacts/m05/u0b/results-linux.json",
+    "tests/evidence/artifacts/m05/u0b/SUMMARY.md",
+    "tests/native/m05/u0b/"
+  ],
+  "limitations": [
+    "Whether a client agent timeout exists above 65 s is not determined: the 125 s runs were ended by the server first.",
+    "Measurement spike on scratch fixtures (disposable keys, a disposable ssh-agent, a loopback-only sshd); no product code ran.",
+    "Windows is not measured; the PowerShell script was syntax- and dry-run-checked on macOS (pwsh 7) only."
+  ],
+  "blocked_on": "The Windows 11 PC run of tests/native/m05/u0b/windows-agent-wait-spike.ps1 by the owner (in-box OpenSSH 9.5p2), against an sshd the owner names"
+}

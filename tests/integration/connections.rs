@@ -959,6 +959,8 @@ mod unix {
                 adapter: None,
                 lock_behavior: None,
                 connection: (!policy.is_default()).then_some(policy),
+                policy_id: None,
+                workspace: None,
             };
             let (gid, bid) = (g.id.clone(), b.id.clone());
             self.bindings

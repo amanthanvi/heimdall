@@ -139,6 +139,8 @@ pub(crate) async fn inspect<S: Session>(
         .request(Request::Inspect(InspectRequest {
             subject,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     if env.code.is_success() {
@@ -403,15 +405,31 @@ pub(crate) fn run(ctx: &Ctx, args: SetupArgs) -> ExitCode {
         request_id: None,
     });
     match action {
-        SetupCommand::Preview { include_git } => {
-            block(ctx, preview(ctx, PreviewIntent::Apply { include_git }))
-        }
+        SetupCommand::Preview { include_git } => block(
+            ctx,
+            preview(
+                ctx,
+                PreviewIntent::Apply {
+                    include_git,
+                    distribution: None,
+                    items: Default::default(),
+                },
+            ),
+        ),
         SetupCommand::Apply {
             include_git,
             request_id,
         } => block(
             ctx,
-            effect(ctx, PreviewIntent::Apply { include_git }, request_id),
+            effect(
+                ctx,
+                PreviewIntent::Apply {
+                    include_git,
+                    distribution: None,
+                    items: Default::default(),
+                },
+                request_id,
+            ),
         ),
         SetupCommand::Rollback {
             keep_key_files,
@@ -435,6 +453,7 @@ pub(crate) fn rollback_intent(keep_key_files: bool) -> PreviewIntent {
         items: [ProjectionItem::Ssh, ProjectionItem::Git]
             .into_iter()
             .collect(),
+        distribution: None,
     }
 }
 
@@ -1180,7 +1199,11 @@ mod tests {
     }
 
     fn apply() -> PreviewIntent {
-        PreviewIntent::Apply { include_git: false }
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        }
     }
 
     /// m02-plan U9: preview first, attend, submit the digest; on `APPROVAL_REQUIRED` the

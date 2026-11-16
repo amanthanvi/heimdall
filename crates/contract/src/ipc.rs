@@ -76,6 +76,17 @@ pub mod capability {
         MANAGED_CREDENTIALS_V1,
         CONNECTIONS_V1,
     ];
+    /// ⟨M04⟩ Revision 5 (m04-plan §5 item 1): `Request::Environment` and the
+    /// environment views. **Declared, not offered** until M04 wires it.
+    pub const ENVIRONMENTS_V1: &str = "environments/1";
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 10): the trusted-work forms (`ensure` with
+    /// `context` or `covered_only`, the new policy actions and targets, `revoke` with a
+    /// `target`, `catalog apply_import`, the M05 inspect subjects). **Declared, not
+    /// offered** until M05 W3 wires it.
+    pub const TRUSTED_WORK_V1: &str = "trusted-work/1";
+    /// ⟨M04, M05⟩ The two revision-5 capabilities, declared and **not offered** by joint
+    /// wave 0.
+    pub const REVISION_5_DECLARED: [&str; 2] = [ENVIRONMENTS_V1, TRUSTED_WORK_V1];
 }
 
 /// Identifies the peer software; informational only, never authority (spec §4.2).

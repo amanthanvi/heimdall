@@ -192,6 +192,21 @@
           "description": "The Git include block B_git and the managed file P_git.",
           "type": "string",
           "const": "git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 3): the runtime's login entry (ADR-0010 §1\nitem 2, §6).",
+          "type": "string",
+          "const": "login_entry"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's Git item, Mode A (ADR-0010 §2 item 2); names\nthe distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's projection, Mode B (ADR-0010 §3 item 5);\nnames the distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_projection"
         }
       ]
     },

@@ -2369,7 +2369,11 @@ mod tests {
         b_git.commit = true;
         SetupIntent {
             plan_digest: plan_digest(7),
-            intent: PreviewIntent::Apply { include_git: true },
+            intent: PreviewIntent::Apply {
+                include_git: true,
+                distribution: None,
+                items: Default::default(),
+            },
             generation: 3,
             approval: None,
             consent: ConsentRecord::default(),

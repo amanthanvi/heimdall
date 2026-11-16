@@ -68,6 +68,44 @@ fn checked_in_public_api_matches_the_model_exactly() {
     );
 }
 
+/// ⟨rev5⟩ ADR-0006 §17: `schemas/project/` holds exactly the trusted-work file formats
+/// as `heimdall schema export` renders them (`--project-out`), and the manifest is the
+/// closed schema ADR-0011 §2.2 requires (an unknown key rejects the file).
+#[test]
+fn checked_in_project_schemas_match_the_model_exactly() {
+    let dir = repo_root().join("schemas/project");
+    let mut expected = BTreeSet::new();
+    for s in heimdall_contract::schema::project_schemas() {
+        let name = format!("{}.schema.json", s.name);
+        let mut text = serde_json::to_string_pretty(&s.schema).unwrap();
+        text.push('\n');
+        assert_clean(&name, &text);
+        let actual = std::fs::read_to_string(dir.join(&name))
+            .unwrap_or_else(|e| panic!("{name} missing from schemas/project: {}", e.kind()));
+        assert!(
+            actual == text,
+            "{name} is stale: run `heimdall schema export`"
+        );
+        expected.insert(name);
+    }
+    let on_disk: BTreeSet<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        on_disk, expected,
+        "unexpected or missing files in schemas/project"
+    );
+    let manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("manifest.schema.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        manifest["additionalProperties"],
+        Value::Bool(false),
+        "closed schema"
+    );
+}
+
 #[test]
 fn code_schema_enumerates_exactly_the_code_table() {
     let schema = serde_json::to_value(

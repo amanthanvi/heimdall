@@ -23,3 +23,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
+
+# Joint wave 0 of M04/M05: migrations 0007/0008 and the ext_m04/ext_m05 methods.
+[[test]]
+name = "integration_store_m04_m05"
+path = "../../tests/integration/store_m04_m05.rs"

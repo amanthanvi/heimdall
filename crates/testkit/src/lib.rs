@@ -1075,6 +1075,12 @@ pub mod procstat;
 pub mod registry;
 #[cfg(feature = "fixtures")]
 pub mod shells;
+// ⟨M04⟩ U6 (ADR-0010 §5): two `LoopbackSshd`s as a bastion fixture.
+#[cfg(feature = "fixtures")]
+pub mod bastion;
+// ⟨M05⟩ (ADR-0011 §2.2–§2.3): per-run scratch Git repositories for the workspace tests.
+#[cfg(feature = "fixtures")]
+pub mod workspace;
 
 /// Proptest strategies for domain values (plan §6.3). Seeds: tests set
 /// `ProptestConfig { cases, .. }` and commit `proptest-regressions/` files; the

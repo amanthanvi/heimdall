@@ -615,6 +615,8 @@ mod pty {
                     InspectRequest {
                         subject,
                         preview: None,
+                        cwd: None,
+                        redact: false,
                     },
                 )
                 .await

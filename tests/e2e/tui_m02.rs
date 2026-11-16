@@ -547,6 +547,8 @@ mod pty {
                     InspectRequest {
                         subject,
                         preview: None,
+                        cwd: None,
+                        redact: false,
                     },
                 )
                 .await
@@ -1541,6 +1543,7 @@ mod pty {
                         port: None,
                         account: AccountName::parse("fixture").unwrap(),
                         identity,
+                        jump: None,
                     },
                     label: None,
                 },
@@ -1549,7 +1552,11 @@ mod pty {
             .unwrap();
             let plan: SetupPlan = serde_json::from_value(
                 self.setup(SetupRequest::Preview {
-                    intent: PreviewIntent::Apply { include_git: false },
+                    intent: PreviewIntent::Apply {
+                        include_git: false,
+                        distribution: None,
+                        items: Default::default(),
+                    },
                 })
                 .unwrap(),
             )

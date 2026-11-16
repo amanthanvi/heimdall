@@ -1,0 +1,25 @@
+[package]
+name = "heimdall-wsl"
+description = "Heimdall WSL realization (M04; ADR-0010 §2-§3): distribution discovery, the heimdall-wsl/1 helper channel, and Mode A/B"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges (m04-plan; ADR-0010 §9): the M04 track adds credential, localenv, ipc
+# and app (ports) when its first unit lands. `heimdall-app` must never import this crate:
+# wsl implements app ports and the runtime wires it (tools/validation/crate_graph.py).
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+
+# No test target runs yet: `tools/validation/check.sh` fails any test target that runs zero
+# tests, so the M04 track enables the lib target's tests (and doctests) with its first
+# meaningful case (ADR-0010 §9 item 8).
+[lib]
+test = false
+doctest = false

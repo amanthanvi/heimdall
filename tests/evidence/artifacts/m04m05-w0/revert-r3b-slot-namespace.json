@@ -1,0 +1,23 @@
+{
+ "name": "R3b item 3: slot cleanup reverted to M03's single slot namespace",
+ "file": "crates/adapters/src/managed/effects.rs",
+ "command": "cargo test --locked -p heimdall-runtime --lib two_environments",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test managed_store::live_tests::pipeline::two_environments_ensure_issue_bind_sign_restart_unmanaged_refused_cleanup_isolated ... FAILED",
+   "thread 'managed_store::live_tests::pipeline::two_environments_ensure_issue_bind_sign_restart_unmanaged_refused_cleanup_isolated' (28641787) panicked at crates/runtime/src/managed_store/live_tests/pipeline.rs:1498:5:",
+   "e2's grant ended, its slot freed, its files and listing gone: Revoking Free { generation: 1 } files=true listed=0",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 63 filtered out; finished in 5.94s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test managed_store::live_tests::pipeline::two_environments_ensure_issue_bind_sign_restart_unmanaged_refused_cleanup_isolated ... ok",
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 63 filtered out; finished in 0.60s"
+  ]
+ }
+}

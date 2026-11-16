@@ -286,6 +286,8 @@ async fn inspect(
         .request(Request::Inspect(InspectRequest {
             subject,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     if env.code.is_success() {

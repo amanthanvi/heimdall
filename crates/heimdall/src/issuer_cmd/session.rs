@@ -212,6 +212,8 @@ impl OwnerSession for WireSession<'_> {
         let listing = self.send(Request::Inspect(InspectRequest {
             subject: InspectSubject::Decisions,
             preview: None,
+            cwd: None,
+            redact: false,
         }));
         if !listing.code.is_success() {
             return Err(self.refuse(listing));
@@ -255,6 +257,8 @@ impl OwnerSession for WireSession<'_> {
             let capabilities = self.send(Request::Inspect(InspectRequest {
                 subject: InspectSubject::Capabilities,
                 preview: None,
+                cwd: None,
+                redact: false,
             }));
             crate::m03_cmd::lock_disclosure_text(&capabilities)
         } else {

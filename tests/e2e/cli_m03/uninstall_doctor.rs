@@ -876,6 +876,7 @@ fn seed_managed(home: &Path, aliases: &[(&str, &str, PreferredMechanism, Project
                         port: None,
                         account: account.clone(),
                         identity: IdentityId::from_random_bytes([n; 16]),
+                        jump: None,
                     },
                     label: None,
                     updated_at: t0(),

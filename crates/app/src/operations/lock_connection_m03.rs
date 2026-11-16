@@ -121,8 +121,12 @@ pub(super) fn with_lock_and_connection(
     request: &serde_json::Value,
     floor: LockBehavior,
 ) -> heimdall_store::Result<GrantOrigin> {
+    // ⟨M05⟩ In the origin's recorded context (ADR-0011 §10 item 1).
     let policies = tx.policies_for(&origin.profile, environment)?;
-    let merged = merged_policy(&policies);
+    let merged = merged_policy(
+        &policies,
+        &crate::policy_context::grant_context(Some(&origin)),
+    );
     let mut connection = merged
         .as_ref()
         .map_or(ConnectionPolicy::default(), |p| p.connection);
@@ -170,7 +174,9 @@ pub(super) fn pair_connection_policy(
 ) -> heimdall_store::Result<Option<ConnectionPolicy>> {
     let mut applicable: Vec<ConnectionPolicy> = Vec::new();
     for profile in tx.profiles()? {
-        for p in tx.policies_for(&profile.id, env)? {
+        // ⟨M05⟩ Pair-level (ordinary-alias) rendering is environment-level: personal
+        // policies only (ADR-0011 §5.2, §10 item 1).
+        for p in crate::policy_context::environment_level_policies(tx, &profile.id, env)? {
             if p.scope.pairs.contains(pair) {
                 applicable.push(p.connection);
             }

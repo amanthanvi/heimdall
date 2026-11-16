@@ -165,6 +165,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -370,7 +372,7 @@ fn config_of(
 
 fn ensure_req(request_id: &str, pairs: &[(&str, &str)]) -> EnsureRequest {
     EnsureRequest {
-        profile: profile_id(),
+        profile: Some(profile_id()),
         profile_revision: None,
         scope: pairs.iter().map(|(d, a)| pair(d, a)).collect(),
         environment: None,
@@ -381,6 +383,8 @@ fn ensure_req(request_id: &str, pairs: &[(&str, &str)]) -> EnsureRequest {
         interaction: InteractionMode::NonInteractive,
         wait: WaitMode::Sync { timeout_ms: 30_000 },
         connection: None,
+        context: None,
+        covered_only: false,
     }
 }
 
@@ -1320,7 +1324,7 @@ fn m02_hash(req: &EnsureRequest) -> RequestHash {
         OperationKind::Ensure,
         &HashInput {
             environment: &env_id(),
-            profile: Some(&req.profile),
+            profile: req.profile.as_ref(),
             profile_revision: req.profile_revision,
             scope: &req.scope,
             deadline_intent: req.until.as_ref(),

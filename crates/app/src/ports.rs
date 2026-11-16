@@ -723,8 +723,12 @@ pub use heimdall_contract::managed::SessionLockState as LockState;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SignerEndpoint {
-    /// The environment endpoint (`signing.sock` or the stable pipe).
+    /// The environment endpoint (`signing.sock` or the stable pipe): the runtime's own
+    /// (native) environment's listing.
     Environment,
+    /// ⟨M04⟩ ADR-0010 §9 item 1: another managed environment's own listing (its slots),
+    /// served by that environment's realization (M04's WSL and container endpoints).
+    ManagedEnvironment(heimdall_contract::ids::EnvironmentId),
     /// A per-binding endpoint.
     Binding(BindingId),
     /// An enrollment operation's verification endpoint.

@@ -18,6 +18,8 @@ pub mod context;
 // ⟨M03⟩ wave 4 (U10): the enrollment stage driver's public surface (ADR-0008 D5).
 pub mod enrollment;
 pub mod ensure;
+// ⟨M04⟩ Joint wave 0: the managed-environment set (ADR-0010 §9 item 1).
+pub mod environments;
 pub mod error;
 pub mod events;
 // ⟨M02⟩ U8: launch-binding holder release (`Operations::release_exited_holders`).
@@ -33,6 +35,8 @@ pub mod lock;
 // managed effect driver's entry point.
 pub mod managed;
 pub mod operations;
+// ⟨M05⟩ Joint wave 0: policy resolution by context (ADR-0011 §10 item 1).
+pub mod policy_context;
 pub mod ports;
 pub mod reconcile;
 pub mod setup;

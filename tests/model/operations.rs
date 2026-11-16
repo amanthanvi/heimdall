@@ -168,6 +168,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -456,7 +458,7 @@ fn config_of(
 
 fn ensure_req(request_id: &str, work: &str, pairs: &[(&str, &str)]) -> EnsureRequest {
     EnsureRequest {
-        profile: ProfileId::parse("dev").unwrap(),
+        profile: Some(ProfileId::parse("dev").unwrap()),
         profile_revision: None,
         scope: pairs.iter().map(|(d, a)| pair(d, a)).collect(),
         environment: None,
@@ -468,6 +470,8 @@ fn ensure_req(request_id: &str, work: &str, pairs: &[(&str, &str)]) -> EnsureReq
         wait: WaitMode::Sync { timeout_ms: 30_000 },
         // M03 wave 0 (A1): fail closed until U0b
         connection: None,
+        context: None,
+        covered_only: false,
     }
 }
 
@@ -691,7 +695,8 @@ async fn a19_decision_issued_under_an_older_generation_is_stale() {
         .policy(
             &attended(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -917,7 +922,8 @@ async fn a19_widening_policy_actions_always_create_a_decision_record() {
         .policy(
             &unattended(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -937,7 +943,8 @@ async fn a19_widening_policy_actions_always_create_a_decision_record() {
         .policy(
             &unattended(501),
             PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -949,7 +956,8 @@ async fn a19_widening_policy_actions_always_create_a_decision_record() {
         .policy(
             &attended(501),
             PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -978,8 +986,9 @@ async fn a19_widening_policy_actions_always_create_a_decision_record() {
         .policy(
             &unattended(501),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at,
+                target: None,
             },
         )
         .await);
@@ -988,7 +997,8 @@ async fn a19_widening_policy_actions_always_create_a_decision_record() {
         .policy(
             &attended(501),
             PolicyAction::ClearCutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -999,8 +1009,9 @@ async fn a19_widening_policy_actions_always_create_a_decision_record() {
         .policy(
             &attended(501),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at: shift(t0(), 7200),
+                target: None,
             },
         )
         .await);
@@ -1018,7 +1029,8 @@ async fn a19_widening_policy_actions_always_create_a_decision_record() {
         .policy(
             &limited(502),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -1123,6 +1135,8 @@ async fn a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_w
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Operations,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await);
@@ -1144,6 +1158,8 @@ async fn a19_inspect_reports_capabilities_decisions_and_previews_without_effects
                     until: None,
                     required_capabilities: RequiredCapabilities::default(),
                 }),
+                cwd: None,
+                redact: false,
             },
         )
         .await);
@@ -1166,6 +1182,8 @@ async fn a19_inspect_reports_capabilities_decisions_and_previews_without_effects
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Decisions,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await);
@@ -1643,8 +1661,9 @@ async fn a29_another_principals_binding_is_not_found_or_not_owner() {
         .revoke(
             &foreign,
             RevokeRequest {
-                grant_id: done.data.grant_id.clone(),
+                grant_id: Some(done.data.grant_id.clone()),
                 request_id: RequestId::parse("rev-x").unwrap(),
+                target: None,
             },
         )
         .await);
@@ -1911,7 +1930,8 @@ async fn restart_never_changes_environment_identity_or_revives_a_pause() {
         .policy(
             &unattended(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -2052,8 +2072,9 @@ async fn u10_revoke(w: &World, grant: &heimdall_contract::ids::GrantId, rid: &st
         .revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: grant.clone(),
+                grant_id: Some(grant.clone()),
                 request_id: RequestId::parse(rid).unwrap(),
+                target: None,
             },
         )
         .await;
@@ -2515,7 +2536,8 @@ async fn u10_crash_child_entry() {
         .policy(
             &unattended(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -2806,7 +2828,8 @@ async fn g10_widening_under_uncertain_time_creates_no_decision() {
         .policy(
             &attended(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -2817,7 +2840,8 @@ async fn g10_widening_under_uncertain_time_creates_no_decision() {
         .policy(
             &attended(501),
             PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -2833,8 +2857,9 @@ async fn g10_widening_under_uncertain_time_creates_no_decision() {
         .policy(
             &attended(501),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at: shift(t0(), 3600),
+                target: None,
             },
         )
         .await);
@@ -2846,7 +2871,8 @@ async fn g10_widening_under_uncertain_time_creates_no_decision() {
         .policy(
             &attended(501),
             PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -3317,7 +3343,8 @@ async fn r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline
         &w,
         &unattended(501),
         PolicyAction::Pause {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -3396,7 +3423,8 @@ async fn r136_1_pause_refuses_new_grants_and_bindings_and_replays_recorded_resul
         &w,
         &unattended(501),
         PolicyAction::Pause {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -3456,7 +3484,8 @@ async fn r136_1_a_waiting_request_under_a_pause_answers_policy_paused_and_keeps_
         &w,
         &attended(501),
         PolicyAction::Pause {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -3495,8 +3524,9 @@ async fn r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it() {
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: cutoff,
+            target: None,
         },
     )
     .await);
@@ -3585,7 +3615,15 @@ async fn r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_p
         .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), false))
         .await
         .unwrap();
-    ok(r136_policy(&w, &unattended(501), PolicyAction::Pause { policy_id: z }).await);
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Pause {
+            policy_id: Some(z),
+            target: None,
+        },
+    )
+    .await);
     assert_ne!(
         w.store.transaction(|tx| tx.authority_generation()).unwrap(),
         gen_before,
@@ -3661,8 +3699,9 @@ async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publis
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: z.clone(),
+            policy_id: Some(z.clone()),
             at: cutoff,
+            target: None,
         },
     )
     .await);
@@ -3696,7 +3735,8 @@ async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publis
         &w,
         &attended(501),
         PolicyAction::ClearCutoff {
-            policy_id: z.clone(),
+            policy_id: Some(z.clone()),
+            target: None,
         },
     )
     .await);
@@ -3726,8 +3766,9 @@ async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publis
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: z,
+            policy_id: Some(z),
             at: cutoff,
+            target: None,
         },
     )
     .await);
@@ -3867,8 +3908,9 @@ async fn r136_3_a_child_entering_revoking_releases_its_parent_reference() {
         .revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: child.grant_id.clone(),
+                grant_id: Some(child.grant_id.clone()),
                 request_id: RequestId::parse("r3-rv").unwrap(),
+                target: None,
             },
         )
         .await);
@@ -3944,8 +3986,9 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: c2h,
+            target: None,
         },
     )
     .await);
@@ -3954,8 +3997,9 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &attended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: shift(c2h, 3600),
+            target: None,
         },
     )
     .await);
@@ -3982,8 +4026,9 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: c2h,
+            target: None,
         },
     )
     .await);
@@ -3993,7 +4038,8 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &attended(501),
         PolicyAction::ClearCutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -4006,8 +4052,9 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &attended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: shift(c2h, 7200),
+            target: None,
         },
     )
     .await);
@@ -4017,7 +4064,8 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &unattended(501),
         PolicyAction::ClearCutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -4039,8 +4087,9 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: shift(t0(), 3600),
+            target: None,
         },
     )
     .await);
@@ -4050,7 +4099,8 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &unattended(501),
         PolicyAction::Pause {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -4059,7 +4109,8 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         &w,
         &attended(501),
         PolicyAction::Resume {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -4069,8 +4120,9 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         .revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: a.grant_id.clone(),
+                grant_id: Some(a.grant_id.clone()),
                 request_id: RequestId::parse("r6-rv").unwrap(),
+                target: None,
             },
         )
         .await);
@@ -4351,8 +4403,9 @@ async fn r138_4_a_passed_deadline_or_cutoff_expires_the_grant_at_use() {
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: shift(t0(), 600),
+            target: None,
         },
     )
     .await);
@@ -4410,8 +4463,9 @@ async fn r138_4_the_scheduler_pass_expires_grants_past_their_deadline_or_cutoff(
         &w,
         &unattended(501),
         PolicyAction::Cutoff {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
             at: shift(t0(), 600),
+            target: None,
         },
     )
     .await);
@@ -4434,7 +4488,8 @@ async fn r138_4_a_pause_or_uncertain_time_never_ends_a_grant() {
         &w,
         &unattended(501),
         PolicyAction::Pause {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await);
@@ -5156,6 +5211,8 @@ async fn r1310_view(w: &World, grant: &heimdall_contract::ids::GrantId) -> serde
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Grants,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await);
@@ -5773,8 +5830,9 @@ async fn r1310_3_a_pending_remote_effect_is_retried_on_the_jittered_schedule_up_
         .revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: g.grant_id.clone(),
+                grant_id: Some(g.grant_id.clone()),
                 request_id: RequestId::parse("r1310-3a-revoke").unwrap(),
+                target: None,
             },
         )
         .await);
@@ -5831,8 +5889,9 @@ async fn r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due
         .revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: g.grant_id.clone(),
+                grant_id: Some(g.grant_id.clone()),
                 request_id: RequestId::parse("r1310-3c-revoke").unwrap(),
+                target: None,
             },
         )
         .await);
@@ -6185,8 +6244,9 @@ async fn r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery(
     let revoke = w.ops.revoke(
         &owner,
         RevokeRequest {
-            grant_id: g.grant_id.clone(),
+            grant_id: Some(g.grant_id.clone()),
             request_id: RequestId::parse("r1312-1c-revoke").unwrap(),
+            target: None,
         },
     );
     assert!(
@@ -6208,8 +6268,9 @@ async fn r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery(
         .revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: g.grant_id.clone(),
+                grant_id: Some(g.grant_id.clone()),
                 request_id: RequestId::parse("r1312-1c-revoke").unwrap(),
+                target: None,
             },
         )
         .await);
@@ -6673,8 +6734,9 @@ async fn r1313_revoke(
         .revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: grant.clone(),
+                grant_id: Some(grant.clone()),
                 request_id: RequestId::parse(rid).unwrap(),
+                target: None,
             },
         )
         .await)
@@ -6961,8 +7023,9 @@ async fn r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_a
     let revoke = w.ops.revoke(
         &owner,
         RevokeRequest {
-            grant_id: g.grant_id.clone(),
+            grant_id: Some(g.grant_id.clone()),
             request_id: RequestId::parse("r1313-4a-revoke").unwrap(),
+            target: None,
         },
     );
     assert!(
@@ -7039,8 +7102,9 @@ async fn r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once()
     let revoke = w.ops.revoke(
         &owner,
         RevokeRequest {
-            grant_id: g.grant_id.clone(),
+            grant_id: Some(g.grant_id.clone()),
             request_id: RequestId::parse("r1313-4c-revoke").unwrap(),
+            target: None,
         },
     );
     tokio::pin!(revoke);
@@ -8387,8 +8451,9 @@ async fn r1318_2_an_explicit_revokes_first_round_in_flight_does_not_clear_a_late
         ops.revoke(
             &unattended(501),
             RevokeRequest {
-                grant_id: g,
+                grant_id: Some(g),
                 request_id: RequestId::parse("r1318-2e-revoke").unwrap(),
+                target: None,
             },
         )
         .await
@@ -8814,8 +8879,9 @@ fn r1319_spawn_revoke(
 ) -> tokio::task::JoinHandle<OpResult<heimdall_contract::request::RevokeData>> {
     let ops = w.ops.clone();
     let req = RevokeRequest {
-        grant_id: grant.clone(),
+        grant_id: Some(grant.clone()),
         request_id: RequestId::parse(rid).unwrap(),
+        target: None,
     };
     tokio::spawn(async move { ops.revoke(&unattended(501), req).await })
 }
@@ -9242,6 +9308,8 @@ async fn r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made() {
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Grants,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await);
@@ -9556,8 +9624,9 @@ mod r1319_props {
                     self.revokes += 1;
                     let ops = self.w.ops.clone();
                     let req = RevokeRequest {
-                        grant_id: self.gid.clone(),
+                        grant_id: Some(self.gid.clone()),
                         request_id: RequestId::parse(&format!("r1319-p-{}", self.revokes)).unwrap(),
+                        target: None,
                     };
                     self.spawn(hold, async move {
                         let _ = ops.revoke(&unattended(501), req).await;
@@ -9814,6 +9883,7 @@ mod m02_integration {
                 port: None,
                 account: AccountName::parse("deploy").unwrap(),
                 identity: identity.clone(),
+                jump: None,
             },
             label: None,
             updated_at: t0(),
@@ -9898,6 +9968,8 @@ mod m02_integration {
             },
             eligibility_checked_at: t0(),
             identity_selection_report: None,
+            agent_forwarding: false,
+            route: None,
         }
     }
 
@@ -10656,8 +10728,9 @@ mod m02_integration {
             (
                 OperationKind::Revoke,
                 Request::Revoke(RevokeRequest {
-                    grant_id: target.grant_id.clone(),
+                    grant_id: Some(target.grant_id.clone()),
                     request_id: RequestId::parse("u0b-rk-v").unwrap(),
+                    target: None,
                 }),
             ),
         ];
@@ -10872,7 +10945,11 @@ mod m02_integration {
     }
 
     pub(super) fn apply_intent() -> PreviewIntent {
-        PreviewIntent::Apply { include_git: false }
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        }
     }
 
     /// U0b row 16: `RecoveryIntent.local` is add-only. `None → Some` is allowed;
@@ -10963,6 +11040,7 @@ mod m02_integration {
             approval: None,
             covered: None,
             binding_id: None,
+            workspace: None,
         });
         refused(&both, &approved, "local beside resolved");
     }
@@ -11193,6 +11271,8 @@ mod m02_integration {
         InspectRequest {
             subject,
             preview: None,
+            cwd: None,
+            redact: false,
         }
     }
 
@@ -11379,8 +11459,9 @@ mod m02_integration {
         let revoke = w.ops.revoke(
             &owner,
             RevokeRequest {
-                grant_id: claimed.grant_id.clone(),
+                grant_id: Some(claimed.grant_id.clone()),
                 request_id: RequestId::parse("u0b-rr-revoke").unwrap(),
+                target: None,
             },
         );
         assert!(
@@ -12459,8 +12540,9 @@ mod u0b_adapter_bound {
             .revoke(
                 &unattended(501),
                 RevokeRequest {
-                    grant_id: ready.grant_id.clone(),
+                    grant_id: Some(ready.grant_id.clone()),
                     request_id: RequestId::parse("u0b-rv-revoke").unwrap(),
+                    target: None,
                 },
             )
             .await;
@@ -13190,6 +13272,7 @@ mod u02_sources_before_the_bound {
                         port: None,
                         account: AccountName::parse("deploy").unwrap(),
                         identity: a.identity.id.clone(),
+                        jump: None,
                     },
                     label: None,
                     updated_at: t0(),
@@ -14498,6 +14581,7 @@ mod u0b_phase2 {
                     items: [heimdall_contract::setup::ProjectionItem::Ssh]
                         .into_iter()
                         .collect(),
+                    distribution: None,
                 },
             ),
             (
@@ -14599,6 +14683,8 @@ mod u0b_phase2 {
                 InspectRequest {
                     subject: InspectSubject::Capabilities,
                     preview: None,
+                    cwd: None,
+                    redact: false,
                 },
             )
             .await);
@@ -15119,6 +15205,8 @@ mod wave0_fail_closed {
             "catalog.remove_profile",
             "catalog.declare_interaction",
             "catalog.withdraw_declaration",
+            // ⟨rev5⟩ ADR-0006 revision 5 (m05-plan section 4 item 4).
+            "catalog.apply_import",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -15421,6 +15509,8 @@ mod wave0_fail_closed {
             .request(Request::Inspect(InspectRequest {
                 subject: InspectSubject::Operations,
                 preview: None,
+                cwd: None,
+                redact: false,
             }))
             .await;
         assert_eq!(inspect.code, Code::Ok);
@@ -15449,6 +15539,8 @@ async fn inspect_operations(w: &World) -> Completed<serde_json::Value> {
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Operations,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await)
@@ -15520,7 +15612,8 @@ async fn w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged(
         .policy(
             &attended(501),
             PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             },
         )
         .await);
@@ -15540,8 +15633,9 @@ async fn w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged(
         .policy(
             &attended(501),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at: shift(t0(), 600),
+                target: None,
             },
         )
         .await);
@@ -15857,4 +15951,107 @@ async fn retry_allowance_is_the_rounds_own_commit_not_a_reread() {
     let v = holder_retry(&w).await;
     assert_eq!(v[0]["outcome"], "failed", "{v}");
     assert!(v[0]["record"].is_null(), "{v}");
+}
+
+// =================================================================================
+// ⟨M05⟩ ADR-0011 §10 item 1 (joint wave 0): policy resolution by context, through
+// the application's own paths (resolution, activation, re-validation, issuance)
+// =================================================================================
+
+/// A workspace policy for the same profile and environment as the seeded personal one,
+/// with an ID that sorts **first** (`aaa` < `pol`: M01–M03's first-by-ID merge would
+/// choose it), holding `h3` (outside the personal policy), paused, with a cutoff in the
+/// past.
+fn workspace_policy_first() -> StandingPolicy {
+    StandingPolicy {
+        id: PolicyId::parse("aaa").unwrap(),
+        revision: PolicyRevision(1),
+        profile: ProfileId::parse("dev").unwrap(),
+        workspace: Some(heimdall_contract::ids::WorkspaceId::from_random_bytes(
+            [4; 16],
+        )),
+        scope: Scope {
+            pairs: profile_pairs(),
+            capabilities: ssh_only(),
+        },
+        environments: [env_id()].into_iter().collect(),
+        max_window: 2 * HOUR,
+        pause: PauseState::Paused {
+            since: shift(t0(), -60),
+        },
+        cutoff_at: Some(shift(t0(), -30)),
+        source: PolicySource::SetupDefault,
+        lock_behavior: Default::default(),
+        connection: Default::default(),
+    }
+}
+
+/// ADR-0011 §10 item 1 through `Operations`: personal work (every request without a
+/// workspace match, ordinary `ssh`'s path included) resolves under the personal policy
+/// alone. With a paused, cut-off workspace policy that sorts first by ID:
+/// * a personal `ensure` of `h1` activates with no decision (the workspace's pause and
+///   cutoff do not reach it) and pins the personal policy's revision;
+/// * `h3`, which only the workspace policy holds, is never covered: it needs an owner
+///   decision (`INTERACTION_REQUIRED` with a decision reference);
+/// * a later `bind` of the running personal binding (activation of an existing binding,
+///   after the generation moved, so it re-validates) is not refused either.
+#[tokio::test]
+async fn personal_resolution_ignores_a_workspace_policy_that_sorts_first() {
+    let w = World::new().await;
+    w.store
+        .transaction(|tx| tx.upsert_policy(&workspace_policy_first(), false))
+        .unwrap();
+    let done = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("ctx-1", "ctx-w1", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(
+        done.code,
+        Code::AccessReady,
+        "the workspace pause and cutoff do not apply"
+    );
+    let g = w.grant(&done.data.grant_id);
+    assert_eq!(
+        g.source,
+        heimdall_domain::grant::AuthorizationSource::StandingPolicy {
+            revision: PolicyRevision(1)
+        },
+        "covered by the personal policy"
+    );
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("ctx-2", "ctx-w2", &[("h3", "deploy")]),
+        )
+        .await);
+    assert_eq!(
+        e.code,
+        Code::InteractionRequired,
+        "the workspace-only pair is never covered"
+    );
+    assert!(e.next.decision_ref.is_some());
+    // Move the generation, then use the running binding again.
+    w.store
+        .transaction(|tx| {
+            let mut p = workspace_policy_first();
+            p.revision = PolicyRevision(2);
+            tx.upsert_policy(&p, false)
+        })
+        .unwrap();
+    let bound = ok(w
+        .ops
+        .bind(
+            &unattended(501),
+            heimdall_contract::request::BindRequest {
+                binding_id: done.data.binding_id.clone(),
+                form: heimdall_contract::request::BindForm::Materialize,
+                request_id: RequestId::parse("ctx-bind").unwrap(),
+            },
+        )
+        .await);
+    assert_eq!(bound.data.grant_id, done.data.grant_id);
 }

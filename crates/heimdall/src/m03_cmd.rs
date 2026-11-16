@@ -231,6 +231,8 @@ pub(crate) fn internal(ctx: &Ctx, command: InternalCommand) -> ExitCode {
         InternalCommand::SessionLockState => {
             session_lock_state_envelope(&|name| std::env::var_os(name))
         }
+        // ⟨M04⟩ answered in `cli::dispatch` (`wsl_cmd`); the same envelope if one arrives here.
+        InternalCommand::WslHelper => crate::wsl_cmd::refusal_envelope(),
     };
     output::emit(&env, ctx.json);
     output::exit_code_for(env.code, false)
@@ -530,6 +532,8 @@ pub(crate) async fn fetch_lock_disclosure_text<S: crate::cli::Session>(
             heimdall_contract::request::InspectRequest {
                 subject: InspectSubject::Capabilities,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         ))
         .await;

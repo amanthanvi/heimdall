@@ -7,11 +7,13 @@ Commands:
   release            Drop this consumer's reference to a binding
   revoke             Revoke a grant and its descendants (spec §6.7)
   delegate           Narrower child binding (M05 demo; model in M01)
-  pause              Pause automatic activation for a policy (owner channel; narrowing)
+  pause              Pause automatic activation for a policy, a profile, a workspace or all (owner channel; narrowing)
   resume             Resume automatic activation (widening: needs an owner decision)
-  cutoff             Schedule (or clear) a hard stop for a policy (spec §6.1). An earlier cutoff applies at once; a later one or `--clear` needs an owner decision
+  cutoff             Schedule (or clear) a hard stop for a policy, a profile, a workspace or all (spec §6.1). An earlier cutoff applies at once; a later one or `--clear` needs an owner decision
   lock-behavior      Choose what a session lock does to a policy's managed grants (M03; narrowing is immediate, widening needs an owner decision)
   connection-policy  Choose what happens to owned connections at the deadline, and whether Heimdall owns a multiplex master (M03)
+  allow              Owner-initiated review that may widen a workspace's, profile's or policy's standing scope; always creates its own decision (M05; ADR-0011 §4.3)
+  stop               Stop now: end one work's access, or a policy's, a profile's, a workspace's or all (M05; ADR-0011 §7)
   help               Print this message or the help of the given subcommand(s)
 
 Options:

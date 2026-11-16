@@ -443,6 +443,24 @@ impl OperationsDispatcher {
                     )),
                 }
             }
+            // ⟨M04⟩ ADR-0006 revision 5 (joint wave 0): add or remove a WSL or container
+            // environment. Owner role first (authorization before capability), then
+            // `driver_unavailable` until the M04 track wires it; nothing is read or
+            // written either way.
+            Request::Environment(_) => {
+                if !caller.context.is_owner() {
+                    return error_value(
+                        OpError::new(
+                            Code::CapabilityUnavailable,
+                            "this request needs the owner role",
+                        )
+                        .with_effect(EffectStatus::None),
+                    );
+                }
+                error_value(OpError::driver_unavailable(
+                    "environment requests are not available in this build",
+                ))
+            }
             // A request kind this build does not know is never executed.
             _ => error_value(OpError::new(
                 Code::UsageError,

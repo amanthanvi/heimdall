@@ -845,6 +845,8 @@ mod tests {
             },
             eligibility_checked_at: now(),
             identity_selection_report: None,
+            agent_forwarding: false,
+            route: None,
         };
         assert_eq!(BoundPair::from_pair(&pair), bound_of(&one, "a"));
         let fresh = view(vec![one]);

@@ -13,9 +13,13 @@
 //! Must not own: authority semantics (domain), operation logic (app), wire
 //! formats (contract/ipc), terminal rendering.
 
+// ⟨M04⟩ U1 (ADR-0010 §1, §6): login autostart, one file per platform.
+pub mod autostart;
 pub mod config;
 // ⟨M03⟩ m03-plan U7 (ADR-0008 D8): owned masters, owned dedicated connections, policies.
 pub mod connections;
+// ⟨M05⟩ U5 (ADR-0011 §3): personal default and ordinary-`ssh` activation.
+pub mod default_activation;
 pub mod dispatch;
 pub mod instance;
 pub mod launcher;
@@ -25,10 +29,14 @@ pub mod managed_store;
 pub mod paths;
 pub mod platform;
 pub mod service;
+// ⟨M05⟩ U6 (ADR-0011 §5): managed-slot handover.
+pub mod slot_handover;
 // ⟨M03⟩ U9: the session-lock sources (ADR-0008 D9 item 3; m03-plan U9).
 pub mod session_lock;
 pub mod supervisor;
 pub mod telemetry;
+// ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3, §3.2–§3.3): workspace observation.
+pub mod workspace_observe;
 
 /// Serializes this crate's unit tests that spawn a child with those that assert a
 /// lock's release. A spawned child holds duplicates of the test process's descriptors

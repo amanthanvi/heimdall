@@ -264,7 +264,7 @@ impl World {
             .ensure(
                 &Caller::unattended(reader(501)),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: BTreeSet::new(),
                     environment: None,
@@ -276,6 +276,8 @@ impl World {
                     wait: WaitMode::default(),
                     // M03 wave 0 (A1): fail closed until U0b
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await

@@ -34,6 +34,10 @@ pub enum ResourceKind {
     MaterializedFile,
     /// ⟨M03⟩ An owned connection (ADR-0008 D8): a dedicated connection or master.
     Connection,
+    /// ⟨M04⟩ Revision 5: the runtime's login entry (a Run value, a LaunchAgent, a systemd
+    /// user unit; ADR-0010 §1 item 2, §6), compared by exact data and removed by
+    /// uninstall.
+    LoginEntry,
 }
 
 /// Who owns a resource.

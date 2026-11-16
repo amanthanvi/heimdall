@@ -480,11 +480,12 @@ pub fn effective_policy_in(
     let (Some(g), Some(origin)) = (tx.grant(grant)?, tx.grant_origin(grant)?) else {
         return Ok(FAIL_CLOSED_POLICY);
     };
-    let current: Vec<ConnectionPolicy> = tx
-        .policies_for(&origin.profile, &g.environment)?
-        .iter()
-        .map(|p| p.connection)
-        .collect();
+    // ⟨M05⟩ In the grant's recorded context (ADR-0011 §10 item 1).
+    let current: Vec<ConnectionPolicy> =
+        heimdall_app::policy_context::grant_policies(tx, &g.environment, Some(&origin))?
+            .iter()
+            .map(|p| p.connection)
+            .collect();
     Ok(effective_connection_policy(
         origin.connection,
         &current,
@@ -1027,7 +1028,8 @@ fn restart_bound(
         bound = bound.min(p.deadline.effective);
         next = p.parent.clone();
     }
-    for p in tx.policies_for(&origin.profile, &g.environment)? {
+    // ⟨M05⟩ In the grant's recorded context (ADR-0011 §10 item 1).
+    for p in heimdall_app::policy_context::grant_policies(tx, &g.environment, Some(&origin))? {
         if let Some(cutoff) = p.cutoff_at {
             bound = bound.min(cutoff);
         }
