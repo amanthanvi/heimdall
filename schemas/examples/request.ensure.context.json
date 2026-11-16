@@ -1,0 +1,15 @@
+{
+  "op": "ensure",
+  "work_id": "shell:4242.1731670000.1",
+  "required_capabilities": {},
+  "request_id": "req-0502",
+  "interaction": "non_interactive",
+  "wait": {
+    "mode": "sync",
+    "timeout_ms": 30000
+  },
+  "context": {
+    "cwd": "/home/dev/src/example-infrastructure"
+  },
+  "covered_only": true
+}

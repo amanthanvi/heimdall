@@ -134,6 +134,11 @@
           "description": "⟨M03⟩ A session lock was observed (payload\n[`crate::managed::SessionLockEventPayload`]).",
           "type": "string",
           "const": "session_lock"
+        },
+        {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 8): a background activation was activated,\nblocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not\nemitted by joint wave 0.",
+          "type": "string",
+          "const": "activation"
         }
       ]
     },

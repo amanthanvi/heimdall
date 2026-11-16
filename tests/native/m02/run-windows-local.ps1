@@ -68,6 +68,9 @@ param(
     [string]$WslDistro = '',
     [string]$ArgvDump = '',
     [string]$Label = 'windows-11-x86_64 (native msvc, local mode)',
+    # ⟨M03 wave 6⟩ The milestone run (tests/native/m03/run-windows-local.ps1 passes m03): the run
+    # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3).
+    [ValidateSet('m02', 'm03')][string]$Milestone = 'm02',
     [switch]$SelfTest,
     [string]$Out = ''
 )
@@ -531,7 +534,7 @@ $rootItem = Get-Item -LiteralPath $ScratchRoot -Force -ErrorAction SilentlyConti
 if ($null -eq $rootItem -or -not $rootItem.PSIsContainer) { Stop-Usage '-ScratchRoot must be an existing directory' }
 if ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Usage '-ScratchRoot is a reparse point (symbolic link or junction): refused' }
 
-$run = Join-Path $rootItem.FullName ("hm-m02-local-" + (New-RandomHex 8))
+$run = Join-Path $rootItem.FullName ("hm-$Milestone-local-" + (New-RandomHex 8))
 # Exclusive: a directory that exists already (another run's) is never reused.
 if (Test-Path -LiteralPath $run) { Stop-Usage 'the run directory exists already' }
 [void][System.IO.Directory]::CreateDirectory($run)
@@ -644,6 +647,11 @@ try {
     $ownerBefore = & $ownerDigest
     Add-Fact 'owner-ssh-git-before' $ownerBefore
     Add-Fact 'ssh-V-inbox' ((Invoke-Bounded $inboxSsh @('-V') $null $run 30).Output.Trim())
+    if ($Milestone -eq 'm03') {
+        # Read only (m03-plan §4.2 "Post-reboot time", Q13: an observation, never trusted).
+        $w32 = (Invoke-Bounded (Join-Path $sys32 'w32tm.exe') @('/query', '/status') $null $run 30).Output
+        Add-Fact 'w32tm-status' ((($w32 -split "`n") | Where-Object { $_ -match '^(Leap|Stratum|Source|Last Successful)' } | ForEach-Object { $_.Trim() }) -join '; ')
+    }
     Add-Fact 'ssh-V-path-first' ((Invoke-Bounded (Join-Path $sys32 'cmd.exe') @('/d', '/c', 'ssh -V') $null $run 30).Output.Trim() + ' (candidate, not selected)')
     Add-Fact 'git-version-windows' ((Invoke-Bounded $git @('--version') $gitEnv $run 30).Output.Trim())
 

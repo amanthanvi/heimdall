@@ -2195,7 +2195,6 @@ async fn reserve_positive(w: &World, op: &OperationId, enrollment: &EnrollmentId
             ca_fingerprint: ca_fp(1),
             purpose: VerificationPurpose::Positive,
             principal: "hm:h1:deploy".into(),
-            key_id: "verify-key".into(),
             valid_after: shift(now, -60),
             valid_before: shift(now, 240),
             extensions: Default::default(),

@@ -451,6 +451,8 @@ fn evidence() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -801,8 +803,9 @@ impl World {
             .revoke(
                 &owner(),
                 RevokeRequest {
-                    grant_id: grant.clone(),
+                    grant_id: Some(grant.clone()),
                     request_id: RequestId::parse(rid).unwrap(),
+                    target: None,
                 },
             )
             .await
@@ -869,7 +872,7 @@ async fn ensure_on(
     ops.ensure(
         &owner(),
         EnsureRequest {
-            profile: ProfileId::parse("dev").unwrap(),
+            profile: Some(ProfileId::parse("dev").unwrap()),
             profile_revision: None,
             scope: pairs.iter().cloned().collect(),
             environment: None,
@@ -880,6 +883,8 @@ async fn ensure_on(
             interaction: InteractionMode::NonInteractive,
             wait: WaitMode::Sync { timeout_ms: 30_000 },
             connection: None,
+            context: None,
+            covered_only: false,
         },
     )
     .await

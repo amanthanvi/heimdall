@@ -93,6 +93,8 @@ async fn list(ctx: &Ctx) -> Outcome {
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Connections,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     let human = if env.code.is_success() {

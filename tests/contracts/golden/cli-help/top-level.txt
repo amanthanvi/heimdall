@@ -16,6 +16,13 @@ Commands:
   issuer       The local issuer: its CA key, status, recovery bundle (M03; ADR-0008 D3, D4)
   enroll       Enroll a destination for managed credentials and manage its enrollments (M03; ADR-0008 D5)
   connections  Owned connections and their owner-side close (M03; ADR-0008 D8)
+  wsl          WSL distributions Heimdall serves: enable, disable, status (M04; ADR-0010 §2, §3)
+  container    Local Linux-container environments and their binding recipe (M04; ADR-0010 §4)
+  project      Project trust: the trust record of the workspace you are in (M05; ADR-0011 §2)
+  activate     Activate the profile the working directory's workspace names; the shell hook (M05; ADR-0011 §3.2)
+  shell        Shell integration (M05; ADR-0011 §3.2)
+  export       Export your portable intent: profiles and destinations, never authority (M05; ADR-0011 §2.4)
+  import       Import portable intent from an exported bundle; it grants no access (M05; ADR-0011 §2.4)
   inspect      Read-only inspection of runtime state. Never starts the runtime
   access       Access primitives
   operation    Operation observation and control

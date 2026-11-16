@@ -4,6 +4,9 @@
 # digest of the sources it was generated from, and m02-evidence.py refuses any other).
 #
 # Usage (from anywhere): tests/native/m02/refresh-inventory.sh
+#   ⟨M03 wave 6⟩ HM_HARNESS_DIR (the directory holding runs.json and the generator) and
+#   HM_EVIDENCE (the generator's name there) select another milestone's inventory;
+#   tests/native/m03/refresh-inventory.sh sets them. Default: this directory, m02-evidence.py.
 #
 # Steps, all on the build host, nothing run on a target:
 #   1. `m02-evidence.py --list-targets`: the test names the build host's sources define,
@@ -28,11 +31,14 @@ repo=$(cd "$here/../../.." && pwd)
 unset CARGO_TARGET_DIR
 cd "$repo"
 
+hdir=${HM_HARNESS_DIR:-$here}
+gen="$hdir/${HM_EVIDENCE:-m02-evidence.py}"
+[ -f "$gen" ] && [ -f "$hdir/runs.json" ] || { echo "no generator or runs.json in the harness directory" >&2; exit 2; }
 shim=$(mktemp -d)
 trap 'rm -rf "$shim"' EXIT
-m02_write_shims "$shim"
+m02_write_shims "$(m02_shim_dir "$repo")"
 
-python3 -I "$here/m02-evidence.py" --list-targets "$shim/listed"
+python3 -I "$gen" --list-targets "$shim/listed"
 scans=()
 for spec in linux:x86_64-unknown-linux-gnu windows:x86_64-pc-windows-gnu; do
     plat=${spec%%:*}
@@ -47,4 +53,4 @@ for spec in linux:x86_64-unknown-linux-gnu windows:x86_64-pc-windows-gnu; do
         --out "$shim/scan-$plat.json"
     scans+=(--scan "$plat=$shim/scan-$plat.json")
 done
-python3 -I "$here/m02-evidence.py" --config "$here/runs.json" --generate-inventory "${scans[@]}"
+python3 -I "$gen" --config "$hdir/runs.json" --generate-inventory "${scans[@]}"

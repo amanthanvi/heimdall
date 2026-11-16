@@ -41,7 +41,33 @@ use super::{
 use crate::enrollment::{Journal, plan_of_record};
 use crate::error::OpError;
 use crate::operations::VerificationRequest;
-use crate::ports::{IssuanceRef, IssuanceTable, VerificationOutcome};
+use crate::ports::{IssuanceRef, IssuanceTable, IssuerError, IssuerRefusal, VerificationOutcome};
+
+/// ⟨revision 5; M03 wave 6 I-8(2)⟩ The refusal of a verification certificate the issuer
+/// did not sign: a **refusal** by a running issuer is `issuer_refused`, naming it (a
+/// rate limit `issuer_rate_limited`, retryable); only an issuer that is not running,
+/// locked, restarting, silent or garbled is `issuer_unavailable`.
+fn sign_error(e: &IssuerError) -> OpError {
+    match e {
+        IssuerError::Refused(IssuerRefusal::RateLimited) => OpError::new(
+            Code::Backpressure,
+            "the issuer's signature rate limit was reached; retry the verification later",
+        )
+        .with_reason(reason::ISSUER_RATE_LIMITED),
+        IssuerError::Refused(refusal) => OpError::new(
+            Code::CapabilityUnavailable,
+            format!("the issuer refused the verification certificate: {refusal}"),
+        )
+        .with_reason(reason::ISSUER_REFUSED),
+        IssuerError::Unavailable(_) | IssuerError::Timeout | IssuerError::Protocol(_) => {
+            OpError::new(
+                Code::CapabilityUnavailable,
+                "the issuer did not sign the verification certificate",
+            )
+            .with_reason(reason::ISSUER_UNAVAILABLE)
+        }
+    }
+}
 
 /// What a verification run observed.
 #[derive(Debug, Clone)]
@@ -167,8 +193,13 @@ impl Operations {
             // remote: it is returned, and the enrollment's evidence and state stay as
             // they are (never recorded as an inconclusive verification).
             Err(e) if is_fence_refusal(&e) => return Err(e),
+            // ⟨I-8 (1)⟩ the run never reached a login (the issuer refused the
+            // certificate, or no session could be built): `unclassified`.
             Err(_) => Observed {
-                outcome: VerificationOutcome::default(),
+                outcome: VerificationOutcome {
+                    not_run: true,
+                    ..VerificationOutcome::default()
+                },
                 clock: None,
             },
         };
@@ -295,15 +326,6 @@ impl Operations {
                 ca_fingerprint: ctx.record.ca_fingerprint.clone(),
                 purpose,
                 principal,
-                key_id: format!(
-                    "heimdall:{}:{}:{}",
-                    self.environment(),
-                    ctx.op.id,
-                    match purpose {
-                        VerificationPurpose::Positive => "positive",
-                        _ => "negative",
-                    }
-                ),
                 valid_after: minus(wall, heimdall_domain::verification::BACKDATE),
                 valid_before: plus(wall, max_validity),
                 extensions: BTreeSet::new(),
@@ -331,15 +353,11 @@ impl Operations {
                 .await;
             let line = match signed {
                 Ok(l) => l,
-                Err(_) => {
+                Err(e) => {
                     let _ = self
                         .void_verification(&entry.id, VerificationRefusal::OperationNotVerifying)
                         .await;
-                    return Err(OpError::new(
-                        Code::CapabilityUnavailable,
-                        "the issuer did not sign the verification certificate",
-                    )
-                    .with_reason(reason::ISSUER_UNAVAILABLE));
+                    return Err(sign_error(&e));
                 }
             };
             match self.publish_verification(&entry.id, true).await? {
@@ -404,6 +422,7 @@ impl Operations {
         };
         let cctx = ClassifyContext {
             unrecorded: observed.outcome.unrecorded,
+            not_run: observed.outcome.not_run,
             offset,
             skew_lag_ms: super::steps::ms(limits.verification_skew_lag),
             skew_lead_ms: super::steps::ms(limits.verification_skew_lead),
@@ -947,6 +966,7 @@ fn host_key_mismatch_outcome() -> VerificationOutcome {
         negative: attempt,
         client: None,
         unrecorded: false,
+        not_run: false,
     }
 }
 
@@ -998,4 +1018,40 @@ pub(super) fn verdict_error(v: VerificationVerdict) -> OpError {
 fn is_fence_refusal(e: &OpError) -> bool {
     e.code == Code::ServiceUnavailable
         && e.reason.as_deref() == Some(heimdall_contract::envelope::reason::UNINSTALL_IN_PROGRESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ⟨revision 5; M03 wave 6 I-8(2)⟩ An issuer that refuses a verification certificate
+    /// (`ceiling_exceeded` here) is reported as a refusal, never as an unavailable issuer;
+    /// an unavailable or silent issuer stays `issuer_unavailable`.
+    #[test]
+    fn issuer_refusal_of_a_verification_certificate_is_not_issuer_unavailable() {
+        let refused = sign_error(&IssuerError::Refused(IssuerRefusal::CeilingExceeded));
+        assert_eq!(refused.code, Code::CapabilityUnavailable);
+        assert_eq!(refused.reason.as_deref(), Some(reason::ISSUER_REFUSED));
+        assert!(
+            refused.message.contains("ceiling exceeded"),
+            "{}",
+            refused.message
+        );
+        let limited = sign_error(&IssuerError::Refused(IssuerRefusal::RateLimited));
+        assert_eq!(
+            (limited.code, limited.reason.as_deref()),
+            (Code::Backpressure, Some(reason::ISSUER_RATE_LIMITED))
+        );
+        for unavailable in [
+            IssuerError::Unavailable("issuer_restarting".into()),
+            IssuerError::Timeout,
+            IssuerError::Protocol("frame".into()),
+        ] {
+            assert_eq!(
+                sign_error(&unavailable).reason.as_deref(),
+                Some(reason::ISSUER_UNAVAILABLE),
+                "{unavailable:?}"
+            );
+        }
+    }
 }

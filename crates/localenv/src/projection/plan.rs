@@ -179,7 +179,7 @@ pub fn preview(
         .ok_or_else(|| PreviewError::Unavailable("generation overflow".to_owned()))?;
     let mut b = Builder::new(config, spec, generation);
     match intent {
-        PreviewIntent::Apply { include_git } => {
+        PreviewIntent::Apply { include_git, .. } => {
             b.plan_ssh_apply()?;
             if *include_git {
                 b.plan_git_apply()?;
@@ -188,6 +188,7 @@ pub fn preview(
         PreviewIntent::Rollback {
             keep_key_files,
             items,
+            ..
         } => {
             if items.contains(&ProjectionItem::Ssh) {
                 b.plan_ssh_rollback(*keep_key_files)?;

@@ -47,8 +47,9 @@ use heimdall_contract::managed::{
 };
 use heimdall_contract::request::{
     DecideRequest, DestinationScopeEnforcement, Enforcement, EnsureRequest,
-    ExistingConnectionsPolicy, InteractionMode, NewAuthenticationExpiry, RefreshDependency,
-    Request, RequiredCapabilities, RevocationStatus, Verdict, WaitMode, WorkloadIsolation,
+    ExistingConnectionsPolicy, InteractionMode, NewAuthenticationExpiry, PolicyAction,
+    RefreshDependency, Request, RequiredCapabilities, RevocationStatus, RevokeRequest, Verdict,
+    WaitMode, WorkloadIsolation,
 };
 use heimdall_contract::{Code, GrantState, OperationState, Timestamp};
 use heimdall_domain::decision::{
@@ -150,6 +151,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -382,7 +385,7 @@ fn config_of(
 
 fn ensure_req(request_id: &str) -> EnsureRequest {
     EnsureRequest {
-        profile: ProfileId::parse("dev").unwrap(),
+        profile: Some(ProfileId::parse("dev").unwrap()),
         profile_revision: None,
         scope: [pair("h1", "deploy")].into_iter().collect(),
         environment: None,
@@ -393,6 +396,8 @@ fn ensure_req(request_id: &str) -> EnsureRequest {
         interaction: InteractionMode::NonInteractive,
         wait: WaitMode::Sync { timeout_ms: 30_000 },
         connection: None,
+        context: None,
+        covered_only: false,
     }
 }
 
@@ -830,6 +835,8 @@ async fn capabilities_offered_after_activation() {
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Capabilities,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await
@@ -1644,6 +1651,8 @@ async fn nominally_expired_obligation_keeps_record_grant_still_revoked() {
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Grants,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await
@@ -3248,6 +3257,8 @@ mod wave4 {
             adapter: None,
             lock_behavior: None,
             connection: None,
+            policy_id: None,
+            workspace: None,
         };
         let child = std::process::Command::new("/bin/sleep")
             .arg("30")
@@ -3531,6 +3542,8 @@ mod wave4 {
             adapter: None,
             lock_behavior: None,
             connection: None,
+            policy_id: None,
+            workspace: None,
         };
         let p = pair(dest, "deploy");
         store
@@ -3677,6 +3690,8 @@ mod wave4 {
                     heimdall_contract::request::InspectRequest {
                         subject: heimdall_contract::request::InspectSubject::Connections,
                         preview: None,
+                        cwd: None,
+                        redact: false,
                     },
                 )
                 .await
@@ -3953,6 +3968,7 @@ async fn inspect_destinations_carries_pair_preference() {
             port: None,
             account: AccountName::parse("deploy").unwrap(),
             identity: identity.clone(),
+            jump: None,
         },
         label: None,
         updated_at: t0(),
@@ -3996,6 +4012,8 @@ async fn inspect_destinations_carries_pair_preference() {
             heimdall_contract::request::InspectRequest {
                 subject: heimdall_contract::request::InspectSubject::Destinations,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await
@@ -4649,6 +4667,7 @@ mod issuer_crash {
                         port: None,
                         account: p.account.clone(),
                         identity: identity_id(),
+                        jump: None,
                     },
                     label: None,
                     updated_at: t0(),
@@ -5556,6 +5575,7 @@ mod setup_switch {
                                 port: None,
                                 account: AccountName::parse("deploy").unwrap(),
                                 identity: identity.clone(),
+                                jump: None,
                             },
                             label: None,
                             updated_at: t0(),
@@ -5716,7 +5736,11 @@ mod setup_switch {
     }
 
     fn apply_intent() -> PreviewIntent {
-        PreviewIntent::Apply { include_git: false }
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        }
     }
 
     /// The commit of a `setup apply` whose plan renders `h1`'s managed section records
@@ -5804,6 +5828,7 @@ mod setup_switch {
             PreviewIntent::Rollback {
                 keep_key_files: false,
                 items: [ProjectionItem::Ssh].into_iter().collect(),
+                distribution: None,
             },
             "rollback",
         )
@@ -5908,6 +5933,7 @@ mod setup_switch {
                 PreviewIntent::Rollback {
                     keep_key_files: false,
                     items: [ProjectionItem::Ssh].into_iter().collect(),
+                    distribution: None,
                 },
                 "q1-rollback",
             )
@@ -6102,6 +6128,7 @@ mod wave5_r2 {
                             port: None,
                             account: AccountName::parse("deploy").unwrap(),
                             identity: identity.clone(),
+                            jump: None,
                         },
                         label: None,
                         updated_at: t0(),
@@ -6165,6 +6192,8 @@ mod wave5_r2 {
             InspectRequest {
                 subject,
                 preview: None,
+                cwd: None,
+                redact: false,
             },
         )
         .await
@@ -6322,4 +6351,248 @@ mod wave5_r2 {
         drop(ops);
         stop(svc, token).await;
     }
+}
+
+// =================================================================================
+// ⟨M04, M05⟩ Joint wave 0: ADR-0006 revision 5 (§17) request surfaces fail closed
+// =================================================================================
+
+/// ADR-0006 revision 5 (§17; ADR-0010 §9 item 8, ADR-0011 §10 item 10), one table: every
+/// new request form reaching the real dispatcher answers `CAPABILITY_UNAVAILABLE` with
+/// reason `driver_unavailable` (an ill-formed selector `USAGE_ERROR`; an environment
+/// request from a non-owner the role refusal first), with no operation ID, effect `none`,
+/// and **nothing written**: no operation, no decision record (a widening revision-5
+/// action included), no event. A pending decision of a revision-5 kind is refused and
+/// not consumed, for both verdicts.
+#[tokio::test]
+async fn w0_revision_5_requests_fail_closed_before_any_record() {
+    use heimdall_contract::trust::{PolicyTarget, RevokeTarget};
+    let w = World::new().await;
+    let d = w.dispatcher();
+    let before = w.snapshot();
+    let mut ensure_with_context = ensure_req("rev5-ctx");
+    ensure_with_context.context = Some(heimdall_contract::trust::WorkContext {
+        cwd: "/scratch/w".into(),
+    });
+    let mut covered_only = ensure_req("rev5-cov");
+    covered_only.covered_only = true;
+    let mut no_profile = ensure_req("rev5-np");
+    no_profile.profile = None;
+    let target = || Some(PolicyTarget::All);
+    let table: Vec<(&str, Request, Code)> = vec![
+        // M04: the environment requests (examples) and the route field.
+        (
+            "wsl_enable",
+            example("request.environment.wsl-enable.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "wsl_disable",
+            example("request.environment.wsl-disable.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "container_add",
+            example("request.environment.container-add.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "container_remove",
+            example("request.environment.container-remove.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "upsert_destination with a jump",
+            request(serde_json::json!({
+                "op": "catalog", "action": "upsert_destination", "request_id": "rev5-jump",
+                "destination": {"id": "lab-db", "alias": "lab-db", "definition": {
+                    "kind": "managed", "hostname": "db.example.invalid", "account": "deploy",
+                    "identity": "idn_00112233445566778899aabbccddeeff", "jump": "bastion"}}
+            })),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "setup preview of a login entry",
+            request(serde_json::json!({"op": "setup", "action": "preview",
+                "intent": {"kind": "apply", "items": ["login_entry"]}})),
+            Code::CapabilityUnavailable,
+        ),
+        // M05: ensure forms, policy forms, revoke target, import, inspect subjects.
+        (
+            "ensure with context",
+            Request::Ensure(ensure_with_context),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "ensure covered_only",
+            Request::Ensure(covered_only),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "ensure without profile",
+            Request::Ensure(no_profile),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "pause target",
+            example("request.policy.pause-target.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "resume target (widening)",
+            Request::Policy(PolicyAction::Resume {
+                policy_id: None,
+                target: target(),
+            }),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "trust_workspace (widening)",
+            example("request.policy.trust-workspace.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "stop",
+            Request::Policy(PolicyAction::Stop {
+                target: PolicyTarget::All,
+            }),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "pause with policy and target",
+            Request::Policy(PolicyAction::Pause {
+                policy_id: Some(PolicyId::parse("pol").unwrap()),
+                target: target(),
+            }),
+            Code::UsageError,
+        ),
+        (
+            "revoke work",
+            example("request.revoke.work.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "revoke with grant and target",
+            Request::Revoke(RevokeRequest {
+                grant_id: Some(GrantId::from_random_bytes([9; 16])),
+                request_id: RequestId::parse("rev5-both").unwrap(),
+                target: Some(RevokeTarget::Work {
+                    environment: None,
+                    work_id: WorkId::parse("w").unwrap(),
+                }),
+            }),
+            Code::UsageError,
+        ),
+        (
+            "apply_import",
+            example("request.catalog.apply-import.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "inspect workspace",
+            example("request.inspect.workspace.json"),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "inspect policies",
+            request(serde_json::json!({"op": "inspect", "subject": "policies"})),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "inspect export",
+            request(serde_json::json!({"op": "inspect", "subject": "export", "redact": true})),
+            Code::CapabilityUnavailable,
+        ),
+        // W0-R04: `cwd` or `redact` on an M01–M03 subject is refused, never ignored.
+        (
+            "inspect capabilities with cwd",
+            request(serde_json::json!({"op": "inspect", "subject": "capabilities", "cwd": "/w"})),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "inspect capabilities with redact",
+            request(
+                serde_json::json!({"op": "inspect", "subject": "capabilities", "redact": true}),
+            ),
+            Code::CapabilityUnavailable,
+        ),
+    ];
+    for (what, r, code) in &table {
+        for caller in [attended(ClientRole::Owner), unattended(ClientRole::Owner)] {
+            let env = d.handle_as(&caller, r.clone()).await;
+            assert_no_canary(&serde_json::to_string(&env).unwrap());
+            assert_fail_closed(&env, what);
+            assert_eq!(env.code, *code, "{what}: {:?}", env.data);
+            if *code == Code::CapabilityUnavailable {
+                assert_driver_unavailable(&env, what);
+            }
+        }
+    }
+    // An environment request from a non-owner: the role refusal, no driver reason.
+    let env = d
+        .handle_as(
+            &attended(ClientRole::LimitedConsumer),
+            example("request.environment.container-add.json"),
+        )
+        .await;
+    assert_fail_closed(&env, "container_add from a limited consumer");
+    assert_eq!(reason_of(&env), None);
+    assert_eq!(w.snapshot(), before, "nothing was written");
+    // A pending decision of a revision-5 kind is refused, not consumed, either verdict.
+    let pending = [
+        insert_decision(
+            &w,
+            0x71,
+            DecisionKind::WidenPolicy {
+                action: PolicyAction::Resume {
+                    policy_id: None,
+                    target: target(),
+                },
+            },
+        ),
+        insert_decision(
+            &w,
+            0x72,
+            DecisionKind::ReconcileWorkspace {
+                action: PolicyAction::ReconcileWorkspace {
+                    workspace: heimdall_contract::ids::WorkspaceId::from_random_bytes([3; 16]),
+                    cwd: "/scratch/w".into(),
+                },
+                why: heimdall_domain::workspace::AmbiguityReason::SamePathOtherIdentity,
+            },
+        ),
+    ];
+    // (A decide assesses time first, which may record the time anchor in `meta`;
+    // nothing of the request is written: the M03 test's comparison, counts and the
+    // pending records.)
+    let records = |w: &World| {
+        w.store
+            .transaction(|tx| Ok((tx.table_counts()?, tx.pending_decisions()?)))
+            .unwrap()
+    };
+    let seeded = (records(&w), w.events().len());
+    for id in &pending {
+        for verdict in [Verdict::Approve, Verdict::Deny] {
+            let env = d
+                .handle_as(
+                    &attended(ClientRole::Owner),
+                    Request::Decide(DecideRequest {
+                        decision_id: id.clone(),
+                        verdict,
+                    }),
+                )
+                .await;
+            assert_driver_unavailable(&env, &format!("decide {id} {verdict:?}"));
+            assert_eq!(
+                decision_state(&w, id),
+                DecisionState::Pending,
+                "{id}: not consumed"
+            );
+        }
+    }
+    assert_eq!(
+        (records(&w), w.events().len()),
+        seeded,
+        "nothing was consumed or written"
+    );
 }

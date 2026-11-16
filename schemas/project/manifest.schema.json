@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifest",
+  "description": "`.heimdall.toml` (ADR-0011 §2.2). Closed: any key outside the schema rejects the whole\nfile (`manifest_invalid`), except under `[metadata]`.",
+  "type": "object",
+  "properties": {
+    "access": {
+      "description": "The requested access.",
+      "$ref": "#/$defs/ManifestAccess"
+    },
+    "metadata": {
+      "description": "The only open table; ignored (authority vocabulary is still rejected in it).",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "preferences": {
+      "description": "Requested preferences, shown at review.",
+      "$ref": "#/$defs/ManifestPreferences",
+      "default": {}
+    },
+    "project": {
+      "description": "A descriptive label only: never identity, never a decision's title or action\n(ADR-0011 I5).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "description": "Always 1.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "access"
+  ],
+  "$defs": {
+    "ManifestAccess": {
+      "description": "`[access]`: tokens resolved against the local catalog, never paths, commands, URLs or\nexecutables.",
+      "type": "object",
+      "properties": {
+        "environments": {
+          "description": "An optional subset of environments, by label.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pairs": {
+          "description": "An optional subset of the profile, as `destination:account` tokens.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "profile": {
+          "description": "A catalog profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "required_capabilities": {
+          "description": "Capability names (`ssh-authentication`, `git-signing`, `agent-forwarding`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "profile"
+      ]
+    },
+    "ManifestPreferences": {
+      "description": "`[preferences]`.",
+      "type": "object",
+      "properties": {
+        "background_work": {
+          "description": "A requested lock behaviour (`true`: work while locked), the only place this key is\naccepted (ADR-0011 §10 item 2). It reaches a policy only through an attended\n`TrustWorkspace` or `ExtendScope`; activation uses the policy's recorded lock\nbehaviour only.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    }
+  }
+}

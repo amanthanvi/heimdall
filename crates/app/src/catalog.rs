@@ -214,6 +214,26 @@ fn source_of(spec: &IdentitySourceSpec) -> Option<IdentitySource> {
 /// `CatalogRequest::validate`).
 fn check_request(req: &CatalogRequest) -> Result<(), OpError> {
     req.validate().map_err(|e| usage(&e.to_string()))?;
+    // ⟨M04, M05⟩ Revision 5 (ADR-0006 §17): a route's `jump` is M04's (U6) and
+    // `apply_import` M05's (U7); joint wave 0 refuses both before anything is written.
+    match req {
+        CatalogRequest::UpsertDestination { destination, .. }
+            if matches!(
+                destination.definition,
+                DestinationDefinitionSpec::Managed { jump: Some(_), .. }
+            ) =>
+        {
+            return Err(OpError::driver_unavailable(
+                "bastion routes are not available in this build",
+            ));
+        }
+        CatalogRequest::ApplyImport { .. } => {
+            return Err(OpError::driver_unavailable(
+                "importing a portable bundle is not available in this build",
+            ));
+        }
+        _ => {}
+    }
     match req {
         CatalogRequest::UpsertDestination { destination, .. } => {
             if !valid_alias(&destination.alias) {
@@ -684,6 +704,7 @@ fn apply_action(
                     port,
                     account,
                     identity,
+                    jump,
                 } => {
                     if tx.identity(identity)?.is_none() {
                         return Ok(Step::Refused(Box::new(not_found("identity", identity))));
@@ -693,6 +714,8 @@ fn apply_action(
                         port: *port,
                         account: account.clone(),
                         identity: identity.clone(),
+                        // ⟨M04⟩ Refused before admission while routes are not built.
+                        jump: jump.clone(),
                     }
                 }
                 _ => DestinationDefinition::Observed,

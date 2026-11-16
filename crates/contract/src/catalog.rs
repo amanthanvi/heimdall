@@ -36,6 +36,12 @@ pub enum DestinationDefinitionSpec {
         account: AccountName,
         /// The adopted identity the alias uses.
         identity: IdentityId,
+        /// ⟨M04⟩ Revision 5 (ADR-0010 §5 item 1): the single-hop jump destination, a
+        /// catalog destination with one approved host key and no route of its own
+        /// (`route_chain_unsupported`). Omitted when absent; joint wave 0 refuses a
+        /// request that names one (`driver_unavailable`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        jump: Option<DestinationId>,
     },
     /// Defined by the user; Heimdall only observes it.
     Observed,
@@ -213,6 +219,15 @@ pub enum CatalogRequest {
         /// Idempotency request ID.
         request_id: RequestId,
     },
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 4): apply a portable bundle's catalog intent in
+    /// one journaled reconciliation (owner only, no decision: it creates no authority;
+    /// ADR-0011 I4). Joint wave 0 refuses it `driver_unavailable`.
+    ApplyImport {
+        /// The bundle.
+        bundle: crate::project::PortableBundle,
+        /// Idempotency request ID.
+        request_id: RequestId,
+    },
 }
 
 /// A catalog request that breaks a boundary rule the wire types cannot express.
@@ -252,6 +267,7 @@ impl CatalogRequest {
             CatalogRequest::DeclareInteraction { .. } => "declare_interaction",
             CatalogRequest::WithdrawDeclaration { .. } => "withdraw_declaration",
             CatalogRequest::SetPreference { .. } => "set_preference",
+            CatalogRequest::ApplyImport { .. } => "apply_import",
         }
     }
 
@@ -267,7 +283,8 @@ impl CatalogRequest {
             | CatalogRequest::RemoveProfile { request_id, .. }
             | CatalogRequest::DeclareInteraction { request_id, .. }
             | CatalogRequest::WithdrawDeclaration { request_id, .. }
-            | CatalogRequest::SetPreference { request_id, .. } => request_id,
+            | CatalogRequest::SetPreference { request_id, .. }
+            | CatalogRequest::ApplyImport { request_id, .. } => request_id,
         }
     }
 
@@ -295,7 +312,8 @@ impl CatalogRequest {
             | CatalogRequest::RemoveProfile { .. }
             | CatalogRequest::DeclareInteraction { .. }
             | CatalogRequest::WithdrawDeclaration { .. }
-            | CatalogRequest::SetPreference { .. } => Ok(()),
+            | CatalogRequest::SetPreference { .. }
+            | CatalogRequest::ApplyImport { .. } => Ok(()),
         }
     }
 }

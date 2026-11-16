@@ -15,6 +15,7 @@ the orchestrator's rulings (§13.4). Rules changed by it are marked **⟨r2.1⟩
 0. Rules changed by it are marked **⟨rev3⟩**; §15 lists the deltas and the readings
 applied where the design was silent.
 **Revision 4 (2026-11-08, task M03-W0-integrate):** the M03 wave-0 contract deltas of docs/architecture/m03-plan.md §5 (revision 6) and ADR-0008 (revision 6, rulings §17.1–§17.14), as implemented at wave 0. Rules changed by it are marked **⟨rev4⟩**; §16 lists the deltas and the readings applied.
+**Revision 5 (2026-11-15, task M04-M05-W0-integrate; draft for the contract owner's approval):** the joint wave 0 of M04 and M05 (ADR-0010 §9 item 9, ADR-0011 §10 item 10): both tracks' additive deltas (`docs/architecture/m04-plan.md` §5, `docs/architecture/m05-plan.md` §4) as amended by the two rulings, the policy-resolution change of ADR-0011 §10 item 1 (replacing §13.6 item 5's first-by-ID choice) and the ensure-hash rule of ADR-0011 §10 item 5; it also carries one M03 follow-up, the reason `issuer_refused` (M03 exit suite, wave 6 question I-8(2)). Rules changed by it are marked **⟨rev5⟩**; §17 lists the deltas, the two rules, the readings applied and the questions put to the contract owner.
 **Affects:** R-AP-01…R-AP-08, R-RT-03, R-RT-06, R-SE-05, R-SE-06, R-AU-06.
 **Executable form:** `crates/contract` (types, code table, limits, schemas),
 `crates/domain::lifecycle` (state machines), `crates/ipc` (transport); `schemas/
@@ -749,7 +750,9 @@ escalations, workflow `wf_11ee3572-cd2` (summary in `progress.md`).
    * Supervisor-owned repair and cleanup retries are bounded and **jittered**. Spec
      §13.5 says "bounded backoff and jitter". The jitter source is injectable and
      deterministic in tests.
-5. **Several applicable policies.**
+5. **Several applicable policies.** ⟨rev5⟩ *Superseded by §17.3*: policies are
+   selected by the request's context (personal or a matched workspace), never first by
+   ID; the merge below now runs over the policies applicable in that context.
    * The fail-closed merge stays: the earliest cutoff and any pause across all
      policies that apply to the profile and environment. The store gets no
      one-policy-per-pair constraint, because separate workspace policy records are
@@ -798,7 +801,8 @@ escalations, workflow `wf_11ee3572-cd2` (summary in `progress.md`).
       lifted. A cutoff that passes while it waits ends it with `CREDENTIAL_EXPIRED`.
     * `choose_policy` pins the first applicable policy by ID. Blocks come from the
       merged view of every applicable policy. Inserting a policy record also moves
-      the generation.
+      the generation. ⟨rev5⟩ *The first two sentences are superseded by §17.3*
+      (`choose_policy` is removed); the third stands.
 11. **A publish voided only by an unrelated generation move** (the grant and its
     chain are still valid). Reporting `CREDENTIAL_EXPIRED` for it is misleading. The
     application re-validates and re-reserves automatically, at most 3 attempts within
@@ -1738,3 +1742,272 @@ rows of `envelope::reason::M03` with existing codes (no code is added).
 | §17.28 item 6 (doctor finding, §5 item 14) | `finding::ISSUER_STORE_ACCESS_DENIED` (`issuer_store_access_denied`, severity `problem`, level `static`, subject kind `issuer`, `reason` the same, `next.action` `owner_decision`): added when a CA is registered and an already-running runtime's `issuer.status` reports `issuer_store_access_denied`. The doctor never starts the runtime and never reads K_ca, so with no runtime running it reports nothing. `finding::M03` gains it; golden `m03-reasons.golden.json` `doctor_findings` | `contract::doctor`, `heimdall::doctor_cmd` |
 | §17.32 item 7 (Q-I-R10-1; Request) | `UninstallFenceRequest::RetryRemoteRevocations`, wire `{"op":"uninstall_fence","action":"retry_remote_revocations"}`, kind `uninstall_fence.retry_remote_revocations`, `Admission::Synchronous` (no operation row; each record's round is claimed and completed in that record, as the supervisor's are), capability `service-control/1`, owner role. **Holder only:** refused `SERVICE_UNAVAILABLE` (exit 5), effect `none`, nothing attempted, unless the connection holds the fence: reason `uninstall_in_progress` while another connection holds it (the fence's own non-holder answer), none when nobody does (no uninstall is in progress, so that reason would be false; no reason is added). Under the held fence, before the shutdown, it makes **exactly one** ordinary `retry_remote_revocation` round per pending remote revocation record with the supervisor's configured cap: an attempt is claimed (`attempts + 1`) only when an adapter call is owed; a stopped record is answered unchanged; a record at its cap is stopped with no call; it never re-arms (no count reset, no lifted stop). Answer `OK {"remote_revocations": [{"root_grant", "outcome": "completed"\|"attempted_still_pending"\|"not_attempted"\|"failed", "attempts_before", "attempts_after", "stopped", "pending", "record"}]}`; ⟨§17.33 item 3 (W5-E01)⟩ additive `record`: the complete `PendingRemoteRevocation` as stored right after the round (`null` once gone), which uninstall's final locked check admits byte for byte in the store's form and nothing else. `heimdall uninstall` sends it on its own session after `acquire`, lists what is still pending in the purge confirmation and the report (`pending_remote_revocations`, `remote_revocation_retries`), covered by the typed confirmation, and refuses a purge only when the request itself failed. Golden `journaled-kinds.golden.json` (synchronous); schemas `request.schema.json`, `ipc.client-message.schema.json` | `contract::request`, `runtime::dispatch`, `app::operations::uninstall_fence_m03`, `heimdall::uninstall_cmd` |
 | §17.29 item 2 (reason, §5 item 14) | `late_write_present` → `CONFIG_CONFLICT` (exit 6, not retryable): an attended `enroll verify <enrollment> --absence` run after the `late_write` residual's not-after (on the destination's clock), with no lock of the uncertain step and a readable registry, observed the enrollment's marker line **present**: the uncertain append landed and trust of ours remains, whatever the record's state. A definite result, not `verification_inconclusive` (which stays the reason of an inconclusive or failed check). The code of the other "the destination's registry holds a line the owner must have removed" reasons (`registry_line_damaged`, `registry_not_rewritable`, `already_enrolled`): retrying the check cannot change it, a removal can; `CAPABILITY_UNAVAILABLE` is the verification classes' code, for what the check could not establish. The residual is kept; nothing remote changes. The message names, and the CLI's error data adds, `next_command: "heimdall enroll remove <enrollment>"`; `next.action` stays the code's default. Golden `m03-reasons.golden.json` | `contract::envelope`, `app::operations::enrollment_m03::verify`, `heimdall::enroll_cmd` |
+
+## 17. ⟨rev5⟩ Revision 5 (joint wave 0 of M04 and M05)
+
+Revision 5 is **one** revision carrying both tracks' wave-0 contract deltas (ADR-0010 §9
+item 9, ADR-0011 §10 items 5 and 10): `docs/architecture/m04-plan.md` §5 and
+`docs/architecture/m05-plan.md` §4, as amended by the two rulings, which win where a plan
+differs. The orchestrator owns it (ADR-0009 §2.6); this text is the integrator's draft for
+that approval, and §17.6 lists what is put to the owner rather than decided here.
+
+Schema major stays `"1"` (§9): every change is additive. Every new field is
+`#[serde(default)]` and omitted when it carries no value, so every M01–M03 document,
+stored record, request hash and golden is byte-identical (§17.4). The code table stays at
+**30 rows**: the tracks add reasons (`reason::M04`, `reason::M05`, and M03's follow-up
+`reason::M03_REV5`), never codes. Wave 0
+lands types, wire forms and the fail-closed landing only:
+
+* the capabilities `environments/1` and `trusted-work/1` are **declared and not offered**
+  (`capability::REVISION_5_DECLARED`; `ipc::session` and `inspect capabilities` list
+  neither), and each revision-5 request form names its capability in
+  `Request::required_capability`, so a session that did not negotiate it gets
+  `SCHEMA_UNSUPPORTED` and a runtime that does not know a form refuses it instead of
+  ignoring an unknown field;
+* every revision-5 request form reached in process answers `CAPABILITY_UNAVAILABLE` with
+  reason `driver_unavailable` **before any record is written**, a decision record
+  included (after an owner-role refusal for `Request::Environment`);
+* the two new decision kinds, and a `WidenPolicy` carrying a revision-5 action, are
+  refused and not consumed;
+* the CLI's new commands and flags answer M01's "not available in this build" envelope
+  (16.2 item 6) with "(planned for M04)" or "(planned for M05)".
+
+The two semantic changes of the revision **are** implemented: the managed-environment
+seam (§17.2) and policy resolution by context (§17.3).
+
+### 17.1 Deltas (plan item → what landed → where)
+
+**M04** (`m04-plan.md` §5, ADR-0010 §9):
+
+| Item | What landed | Where |
+|---|---|---|
+| 1 | capability `environments/1` (`ENVIRONMENTS_V1`), declared, not offered | `contract::ipc::capability` |
+| 2 | `Request::Environment(EnvironmentRequest)`: `wsl_enable {distribution_guid, account, mode_a, mode_b}`, `wsl_disable {distribution_guid, start}` (`start`: ADR-0010 §9 item 2's explicit authorized start), `container_add {label}`, `container_remove {environment_id}`; kinds `environment.*`; `Admission::Synchronous` (decision-recorded or setup-confirmed, no operation row, no request ID: the `issuer.register` pattern); capability `environments/1`; `DistributionGuid` (canonical `8-4-4-4-12` lowercase hex, validated on decode). The dispatcher refuses a non-owner, then `driver_unavailable` | `contract::environment`, `contract::request`, `runtime::dispatch` |
+| 3 | setup items `ProjectionItem::{LoginEntry, DistributionGit, DistributionProjection}`; `PreviewIntent::Apply.{items, distribution}` and `PreviewIntent::Rollback.distribution` (omitted when empty: every M02/M03 intent and plan digest unchanged); a preview naming one is refused `driver_unavailable` | `contract::setup`, `app::setup` |
+| 4 | `EnvironmentsView {items: [EnvironmentView {environment_id, kind, label, state, realization}]}`, `EnvironmentKindView`, `EnvironmentState` (`active`, `not_running`, `removed`, `gone`), `RealizationView` (`native`, `wsl {name, guid, account, modes, helper}`, `container {label, directory, in_container_path}`), `WslMode`, `HelperState`; schema `inspect-environments`. Types only: `inspect environments` keeps its M01 answer until M04 fills it | `contract::environment`, `schemas/public-api` |
+| 5 | `ConsumerIntegration.realization: RealizationDescriptor {environment_kind, endpoint, config, mount: MountSpec {source, target, read_only}, environment}` | `contract::request`, `contract::environment` |
+| 6 | `PairIntegration.{route: RouteView {jump, jump_alias, jump_access: managed \| existing}, agent_forwarding}` (omitted when absent/false); `DestinationDefinitionSpec::Managed.jump` and the domain `DestinationDefinition::Managed.jump` (serde default `None`); a catalog upsert naming a jump is refused `driver_unavailable` | `contract::request`, `contract::catalog`, `domain::catalog`, `app::catalog` |
+| 7 | `ReadinessCondition::{WslDistributionRunning, RouteDependency}`; `LoginStartView {kind: run_value \| launch_agent \| systemd_user \| none, installed}` (type; `inspect capabilities` unchanged until M04 U1) | `contract::managed`, `contract::environment` |
+| 8 | `reason::M04`: 12 reasons with codes (§17.6 R5-Q4); golden `tests/contracts/golden/rev5-reasons.golden.json` | `contract::envelope` |
+| 9 | Schema version: major `"1"`, no bump. Only the major is carried (§9), so the plan's "minor bump" has no carrier | `contract::version` |
+| domain, store | `EnvironmentRealization` (`wsl {guid, name, account}`, `container {label, dir_tag}`), `ManagedState`, `ManagedEnvironment {environment, controller, realization, state, ...}`, `admit_environment`, `EnvironmentAdmission`, `WslDistributionRecord`, `ResourceKind::LoginEntry`; migration `0007_platform_realization` (`managed_environments`, `wsl_distributions`), `SCHEMA_VERSION` 7, `store::ext_m04`; app port `SignerEndpoint::ManagedEnvironment(EnvironmentId)` | `domain::{environment, resource}`, `store`, `app::ports` |
+
+**M03** (the M03 exit suite, wave 6 question I-8(2); additive, carried by this revision):
+
+| Item | What landed | Where |
+|---|---|---|
+| I-8(2) | Reason `issuer_refused` → `CAPABILITY_UNAVAILABLE` (exit 4, not retryable), in a list of its own, `reason::M03_REV5` (`reason::M03` and its golden stay M03's record); golden `rev5-reasons.golden.json` key `m03`. `run_verification` maps the issuer's answer when it does not sign a verification certificate (`sign_error`): a **refusal** by a running issuer (`ceiling_exceeded`, `subject_mismatch`, `entry_stale`, `entry_not_reserved`, `ca_not_loaded`, a predicate) is `issuer_refused`, naming the refusal in the message; `rate_limited` is the existing `issuer_rate_limited` (`BACKPRESSURE`, retryable); an issuer that is not running, locked, restarting, silent or garbled stays `issuer_unavailable`. Before, every one of these was `issuer_unavailable`. The voided entry's recorded reason is unchanged (`operation_not_verifying`), and what a run that never reached a login records (`unclassified`) is M03 wave 6's. Regression: `issuer_refusal_of_a_verification_certificate_is_not_issuer_unavailable` | `contract::envelope`, `app::operations::enrollment_m03::verify` |
+
+**M05** (`m05-plan.md` §4, ADR-0011 §10):
+
+| Item | What landed | Where |
+|---|---|---|
+| 1 | `EnsureRequest.{profile: Option, context: Option<WorkContext {cwd}>, covered_only}`: `profile` may be absent only with `context`; `WorkContext` (absolute, ≤ 4 KiB, no NUL); `EnsureRequest::uses_m05_form`; the hash rule of §17.4 | `contract::request`, `contract::trust`, `app::operations` |
+| 2 | `PolicyAction`: `pause`, `resume`, `cutoff`, `clear_cutoff` take `policy_id` **or** `target: PolicyTarget` (`policy`, `profile`, `workspace`, `all`), exactly one (`selector_ok`; otherwise `USAGE_ERROR`); new `create {profile, environments, max_window, default}`, `extend_scope {policy_id, pairs, capabilities, environments, background_work}`, `narrow_scope {policy_id, pairs}`, `set_max_window {policy_id, max_window}`, `remove {policy_id}`, `trust_workspace {cwd, access_digest, proposal: TrustProposal}`, `reconcile_workspace {workspace, cwd}`, `stop {target}`; `is_widening` extended (the new widening ones, and `set_max_window`, which the request alone cannot classify); `is_m05`, `policy_id()` | `contract::request`, `contract::trust`, `app::operations` |
+| 3 | `RevokeRequest.{grant_id: Option, target: Option<RevokeTarget::Work {environment, work_id}>}`, exactly one | `contract::request`, `contract::trust` |
+| 4 | `CatalogRequest::ApplyImport {bundle: PortableBundle, request_id}` (action `apply_import`, journaled `catalog`, owner only, no decision) | `contract::catalog`, `contract::project` |
+| 5 | `InspectSubject::{Workspace, Policies, Export}` with `InspectRequest.{cwd, redact}` (the subjects stay strings on the wire; §17.6 R5-Q6); schemas `inspect-workspace`, `inspect-policies` | `contract::request`, `contract::trust` |
+| 6 | `DecisionKind::{TrustWorkspace {action, project_label, lock_disclosure}, ReconcileWorkspace {action, why}}`, `DecisionKind::is_m05`; `WidenPolicy` carries the new widening actions | `domain::decision` |
+| 7 | `EnsureData.{context: ContextReport {kind, workspace_id, policy_id, policy_revision, provenance}, uncovered}`; `Enforcement.{ordinary_aliases, owner_functions}` (read `unknown` when absent); `GrantOrigin.{workspace, policy_id}` and `ResolvedIntent.workspace` (stored; absent: personal); `bindings.context_json` (`BindingContext`); `WorkspaceView`, `PoliciesView` | `contract::{request, trust}`, `domain::{grant, operation, workspace}`, `store::ext_m05` |
+| 8 | `EventType::Activation`, payload `ActivationEventPayload {kind: activated \| blocked \| not_covered, environment_id, policy_id, workspace_id, reason}`; not emitted in wave 0 | `contract::event`, `contract::trust` |
+| 9 | `reason::M05`: 10 reasons, 13 rows (a reason the plan gives two codes by attendance has one row per code); `m05_warning::SLOT_SHARED`; `NextAction.groups: [MechanismGroup {mechanism, pairs}]` for `mixed_mechanisms` | `contract::envelope` |
+| 10 | capability `trusted-work/1` (`TRUSTED_WORK_V1`), declared, not offered; required by every revision-5 request form | `contract::ipc::capability`, `contract::request` |
+| 11 | `schemas/project/manifest.schema.json` (`contract::project::Manifest`: closed, `deny_unknown_fields`) and `schemas/project/portable.schema.json` (`PortableBundle`), written by `heimdall schema export --project-out` and diffed by `check.sh`; outside the public API's unknown-field tolerance and keyword check, because the manifest is a closed file format, not a wire message | `contract::{project, schema}`, `heimdall::cli`, `tools/validation/check.sh` |
+| 12 | migration `0008_trusted_work` (`workspaces`, `policy_history`, `decision_cooldowns`, `work_stops`, `slot_references`, `bindings.context_json`), `SCHEMA_VERSION` 8, `store::ext_m05` (accessors in full); domain `workspace` (`WorkspaceRecord`, `WorkspaceMatch`, `AmbiguityReason`, `PolicyHistoryEntry`, `DecisionCooldown`, `WorkStop`, `SlotReference`, `BindingContext`) | `store`, `domain::workspace` |
+
+Examples (each round-trips and validates; `tests/contracts/rev5.rs`):
+`request.environment.{wsl-enable,wsl-disable,container-add,container-remove}`,
+`request.catalog.apply-import`, `request.ensure.context`, `request.revoke.work`,
+`request.policy.{pause-target,trust-workspace}`, `request.inspect.workspace`,
+`inspect.{environments,workspace,policies}`, `project-manifest`. Goldens:
+`rev5-reasons.golden.json`, `journaled-kinds.golden.json` (the four `environment.*`
+kinds synchronous), the CLI help goldens the new commands change.
+
+### 17.2 The managed-environment seam (ADR-0010 §9 item 1)
+
+1. **The set.** A runtime manages its own environment (`OperationsConfig.environment`,
+   the store's `self_environment`) and every `managed_environments` row whose
+   `controller` is that environment and whose state is `active` or `not_running`. A row
+   is never re-added; `removed` and `gone` rows stay as removed identities.
+2. **Admission replaces equality.** Every M01–M03 `target == own` check is replaced by
+   one admission (`domain::environment::admit_environment`, read in the caller's
+   transaction through `app::environments::admit`), never deleted: `ensure`, resolution,
+   `LoadAuthority`, re-validation, `activation_refusal`, the issuance check (the
+   issuer's independent check runs the same predicate), restart recovery, `bind`,
+   `delegate` (whose child is pinned to its parent binding's environment), signature
+   authorization, owned-connection registration and the event snapshot. An unmanaged
+   target is `NOT_FOUND` (M01's message, no reason); a removed one is `NOT_FOUND` with
+   reason `environment_removed`. Nothing is written for either.
+3. **Controller and execution environment stay distinct.** The caller's principal never
+   names an environment; a work operation is recorded in its **target** environment
+   (`operations.environment`), as are its grant and binding. Setup admissions stay in
+   the runtime's own environment.
+4. **Per environment.** Policies, the environment record and work deadlines are read
+   for the target or the grant's own environment. Slot rows were already keyed by
+   environment; slot files now live under each environment's own root
+   (`ManagedEffectsImpl::with_slot_root`) and the signer keeps one listing per
+   environment (`SignerEndpoint::ManagedEnvironment`); the native environment endpoint
+   never lists another environment's slot. A slot write takes the binding's environment
+   from its stored row (`SlotStore::binding_environment`), a clear takes the slot row's.
+   Recovery and cleanup iterate the managed set.
+5. **Leaving the set.** `Operations::retire_managed_environment(env, removed | gone)`
+   moves the row (and the authority generation); re-validation then classifies the
+   environment's grants as **withdrawn**, so they end through the existing withdrawal
+   path and each grant's own cleanup (endpoints, files and slots of that environment,
+   by generation) runs. An environment this runtime never managed stays undetermined
+   (refused, ends nothing), as in M01.
+6. **The issuance key ID** keeps naming the issuing runtime's environment
+   (`heimdall:<own environment>:<grant>:<serial>`), which the issuer child's ceiling
+   check compares with its store's environment; the grant's own environment is checked
+   by the issuance predicate (item 2).
+
+### 17.3 Policy resolution by context (ADR-0011 §10 item 1; replaces §13.6 item 5)
+
+A resolution names a **context**: `PolicyContext::Personal`, or
+`PolicyContext::Workspace(id)` for an observation the project crate matched as `Trusted`
+or `Member` of that workspace (`PolicyContext::of_match`; `Untrusted` and `Ambiguous`,
+including a re-clone at the same path, are personal). The applicable policies are
+(`domain::policy::applicable_policies`):
+
+* in `Personal`: the personal policies (`workspace: None`) only;
+* in `Workspace(id)`: that workspace's policies first, then the personal ones; with no
+  policy of that workspace for the profile, the personal ones alone.
+
+Scope, window and revision come from the first applicable policy (several policies of
+one context, which production never creates, keep §13.6's first-by-ID among
+themselves); any pause, the earliest cutoff and the strictest lock behaviour and
+connection policy are merged fail closed over every applicable policy
+(`resolve_policy`). So a workspace policy never supplies personal scope or reaches
+another workspace; a personal pause or cutoff stops that profile's workspace work; a
+workspace's pause, cutoff, scope or lock behaviour never reaches personal work. With no
+applicable policy the request needs an owner decision, never another context's policy.
+
+Every path resolves in its own context: `ensure` and `run` from the request (personal
+until M05 U4 resolves `context`), re-validation, renewal and issuance from the grant's
+recorded context (`GrantOrigin.workspace`), `activation_refusal` from the intent's
+(`ResolvedIntent.workspace`), delegation from its parent grant's, the lock and
+connection terms from the grant's, and pair-level rendering of ordinary aliases
+(environment-level, ADR-0011 §5.2) from the personal context, as ordinary `ssh` and the
+shell hook will. The narrowing set of a policy action contains only the grants that
+policy applies to. §13.6 item 5's other rules stand: any change to an applicable policy
+moves the generation; the store keeps no one-policy-per-pair constraint.
+
+### 17.4 The ensure hash (ADR-0011 §10 item 5)
+
+The revision-5 extras (`context`, `covered_only`, the resolved workspace and access
+digest) enter the canonical `ensure` hash's `extra` **only when `context` is present**
+(`app::operations::pair_mechanism_m03::ensure_hash_extra`). A request without `context`
+hashes exactly as in M03 (`null`, or `{"connection": …}`), so an in-flight M01–M03
+request replays and every recorded hash stands. Proven against the existing vectors:
+the byte-identity goldens `tests/contracts/golden/m02-existing-access-ensure/`
+(`request-hash.txt`, `intent.json`, `result.json`, `envelope.json`; `e2e_consumer_m03`),
+`model_operations_m03::connection_absent_hash_unchanged_from_m02` and
+`strict_request_hash_differs`, and the pure rule's unit test
+(`revision_5_extras_enter_the_ensure_hash_only_with_context`). With `context`, the same
+request ID with a different resolved workspace or digest is `REQUEST_CONFLICT` (M05 U2
+extends the idempotency property, ADR-0011 §10 item 7).
+
+### 17.5 Readings applied where the design is silent (pending the owner's confirmation)
+
+1. **Inspect parameters on the request.** `workspace` and `export` are unit subjects;
+   their parameters are `InspectRequest.{cwd, redact}`, so subjects stay strings and the
+   request stays tolerant of unknown fields (a data-carrying subject variant would be an
+   object the public schema closes).
+2. **Optional `policy_id` and `grant_id`.** The targeted forms make `policy_id` (four
+   policy actions) and `grant_id` (`revoke`) optional on the type, with "exactly one"
+   checked by the application before anything is written; every M01–M03 wire form is
+   unchanged.
+3. **Environment requests carry no request ID** (the `issuer.register` pattern: one
+   pending decision per action, coalesced).
+4. **Context records.** The context a grant, an intent and a binding pin is recorded as
+   `GrantOrigin.workspace`, `ResolvedIntent.workspace` and `bindings.context_json`; the
+   grant origin's `policy_id` is declared and left for M05 (U2/U6) to fill, so every
+   stored M01–M03 origin and intent is unchanged.
+5. **The personal default** (`create {default}`) has no `StandingPolicy` field yet:
+   where "at most one per environment" is recorded is M05 U5's.
+6. **Removed versus unmanaged.** A removed environment's grants are withdrawn (§17.2
+   item 5); an environment never managed stays undetermined, as in M01.
+7. **Recovery classes** (ADR-0008 §17.32): `managed_environments`, `wsl_distributions`
+   and `workspaces` are `Rows`; `policy_history`, `decision_cooldowns`, `work_stops` and
+   `slot_references` are `Discarded`; the two new decision kinds are excluded from the
+   purge snapshot (local trust decisions).
+
+### 17.6 The contract owner's rulings (2026-11-16)
+
+The orchestrator owns revision 5 (ADR-0010 §9 item 9, ADR-0011 §10 item 10). These rulings settle wave 0's questions, and the readings in §17.5 stand as confirmed.
+
+1. **R5-Q1, option (a): `covered_only` requires `context`,** and a request without it gets `USAGE_ERROR`. That keeps a `covered_only` request from ever sharing a hash with a request that doesn't carry it. Ordinary-`ssh` activation (M05 U5) uses an internal path, not a client `EnsureRequest`. M05 U2 implements the refusal.
+2. **R5-Q2:** the draft's encoding is accepted. That is three `ProjectionItem` unit variants (`login_entry`, `distribution_git`, `distribution_projection`), `PreviewIntent::Apply.items`, and `distribution` on `Apply` and `Rollback`, each left out when empty, so every M02/M03 intent and plan digest is unchanged. A change the M04 track needs while building on it comes back to the contract owner.
+3. **R5-Q3:** the draft's `PolicyAction` shapes are accepted:
+   - `create.max_window` is a duration string;
+   - `extend_scope` is `{pairs, capabilities, environments, background_work}`, and `narrow_scope` is `{pairs}`;
+   - `trust_workspace.proposal` is a `TrustProposal`, fixed when the decision is created;
+   - the request-only predicate treats `set_max_window` as a widening;
+   - `stop` takes `{target}`.
+4. **R5-Q4:** the draft's codes for the M04 reasons are accepted. `git_client_cannot_reach_pipe` is also a doctor finding (ADR-0010 §1 item 5), which M04 U2 adds.
+5. **R5-Q5:** `inspect-environments`, `inspect-workspace` and `inspect-policies` are published in `schemas/public-api/`. They are new typed results, and publishing them lets a caller validate without knowing the implementation.
+6. **R5-Q6:** subjects stay strings, and `cwd` and `redact` sit on `InspectRequest`, keeping §9's closed-schema tolerance rule.
+7. **R5-Q7:** confirmed. Each revision-5 form requires its capability (`trusted-work/1`, `environments/1`), so a runtime that doesn't offer one answers `SCHEMA_UNSUPPORTED` rather than ignoring a field it doesn't know.
+8. **R5-Q8:** confirmed. `Ambiguous` and `Untrusted` resolve to the personal context. The old workspace scope is out of reach, and the rest gets a `ReconcileWorkspace` decision (M05 U4).
+9. **R5-Q9:** confirmed, failing closed. A personal policy's stricter lock behaviour and connection policy apply to that profile's workspace work. A workspace's never reach personal work or another workspace. This is consistent with ADR-0011 §10 item 1 (a personal pause or cutoff applies to workspace work) and item 2 (activation uses the recorded lock behaviour, never the manifest's).
+10. **R5-Q10:** the draft is kept. Within one context, the first policy by ID gives the scope, and blocks are merged across all of them. Both policies were created by the owner, so no scope beyond the owner's approval is reachable. Production creates only one.
+11. **R5-Q11:** confirmed. `operations.environment` is the target environment. Events and setup admissions stay with the runtime's own environment.
+12. **R5-Q12:** confirmed. The key ID keeps the issuing runtime's environment (`heimdall:<own>:<grant>:<serial>`), and the issuance predicate checks the grant's environment.
+13. **R5-Q13:** confirmed. `retire_managed_environment` withdraws that environment's grants (a tombstone, `revoking`, then `revoked`) and runs its per-environment cleanup. M04's `container remove` and `wsl disable` call it.
+14. **The CLI shapes of `access allow` and `access stop`** are provisional. M05 U2 and U3 set their final syntax and add the help goldens when the commands become available.
+15. **An issuer's `rate_limited` refusal** of a verification certificate maps to the existing `issuer_rate_limited`, not to `issuer_refused`.
+16. **S-Q2 (M05 U0b):** the 2 s budget stands on macOS and Linux, which both waited 65 s for a delayed identities answer. Windows is decided by the PC run (S-Q1).
+17. **ST-Q1 and ST-Q2:** confirmed. A workspace record goes only from `active` to `stale`, and a reconcile writes a new record. `set_binding_context` is set-once and idempotent.
+
+### 17.7 Proofs
+
+* **The seam (§17.2):** `managed_store::live_tests::pipeline::two_environments_ensure_issue_bind_sign_restart_unmanaged_refused_cleanup_isolated`
+  (heimdall-runtime), extending the existing re-issue-after-restart test: the real
+  ensure → issue → bind → sign (system `ssh` against a loopback `sshd`) → restart →
+  re-issue path in two environments, an unmanaged environment refused with nothing
+  written, and one environment's cleanup leaving the other usable; plus
+  `integration_store_m04_m05::managed_environment_admission_terminal_states_and_generation`.
+* **Resolution (§17.3):** `model_authority::two_policy_trace_resolution_is_by_context_never_by_id`
+  (ADR-0011 §10 item 1's two-policy trace, 512 cases) and, through the application,
+  `model_operations::personal_resolution_ignores_a_workspace_policy_that_sorts_first`.
+* **Revert proofs** (the test fails with the change reverted, passes restored; outputs in
+  `tests/evidence/artifacts/m04m05-w0/`): resolution reverted to first-by-ID (both
+  resolution tests fail); the environment check deleted without its replacement, and slot
+  cleanup reverted to one namespace (the live test fails each time).
+* **I-8(2):** `heimdall-app` unit test
+  `operations::enrollment_m03::verify::tests::issuer_refusal_of_a_verification_certificate_is_not_issuer_unavailable`
+  (every issuer answer to a verification certificate → its code and reason).
+* **The landing:** `integration_runtime_m03::w0_revision_5_requests_fail_closed_before_any_record`
+  (every revision-5 request form, one table) and `e2e_cli_m04_m05` (every new command
+  and flag, one table).
+* **The wave's independent review** (`tests/evidence/artifacts/review-m04m05/w0.md`) and its
+  fixes, each with a regression in `model_operations` unless named:
+  1. **W0-R01 (blocking):** a new grant's origin records the lock behaviour of the
+     policies of **its own context** only, as its connection policy already did (R5-Q9):
+     `w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant`, with a revert proof
+     (`tests/evidence/artifacts/m04m05-w0/revert-w0-r01-lock-origin.json`).
+  2. **W0-R02:** the lock disclosure and `inspect capabilities` describe the runtime's
+     general lock behaviour from the personal policies only:
+     `w0_r02_lock_disclosure_reads_only_personal_policies`.
+  3. **W0-R03:** `delegate` admits its parent binding's environment before anything is
+     written, and its hash and work spec name that environment, so equal delegations in a
+     managed environment coalesce (`own` for every M01–M03 delegation, whose hashes are
+     unchanged): `w0_r03a_delegate_in_a_removed_environment_writes_nothing`,
+     `w0_r03b_equal_delegations_in_a_managed_environment_coalesce`.
+  4. **W0-R04:** `Request::required_capability` also names `trusted-work/1` for
+     `apply_import` and for `cwd` or `redact` on any inspect subject, and
+     `environments/1` for a destination with a `jump` and a setup preview of an M04 item
+     or distribution (`contracts::rev5::rev5_capabilities_declared_not_offered_and_required`);
+     in process, `inspect` refuses `cwd` and `redact` on an M01–M03 subject
+     `driver_unavailable` instead of ignoring them (two rows of the landing table).
+
+### 17.8 Not in wave 0
+
+* Serving any revision-5 request form; offering `environments/1` or `trusted-work/1`.
+* The realizations: WSL discovery, the helper and its channel (`heimdall-wsl/1`, whose
+  file-operation protocol ADR-0010 §9 item 2 governs), Mode A and B, container
+  directories and endpoints, routes and forwarding, login entries, time sync (M04 U1–U6).
+* Workspace discovery, observation and matching, manifests and bundles (`heimdall-project`,
+  M05 U1), trust and policy actions, coalescing and cooldowns, stop and targets, context
+  activation and the shell hook, ordinary-`ssh` activation, slot references, export and
+  import, delegation labels (M05 U2–U9).

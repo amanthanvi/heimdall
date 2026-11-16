@@ -608,6 +608,7 @@ impl World {
                         port: None,
                         account: AccountName::parse("fixture").unwrap(),
                         identity: identity.clone(),
+                        jump: None,
                     },
                     label: None,
                 },
@@ -690,7 +691,11 @@ impl World {
     /// Preview an apply, submit it, approve the decision it creates.
     async fn apply_approved(&self, request: &str) -> (OperationId, PlanDigest) {
         let plan = self
-            .preview(PreviewIntent::Apply { include_git: false })
+            .preview(PreviewIntent::Apply {
+                include_git: false,
+                distribution: None,
+                items: Default::default(),
+            })
             .await
             .unwrap();
         let e = self
@@ -786,7 +791,11 @@ async fn apply_requires_decision_attended_and_unattended() {
     let w = World::new().await;
     w.catalog_alpha().await;
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     assert!(
@@ -862,7 +871,11 @@ async fn apply_executes_exactly_the_decided_plan_digest() {
     let w = World::new().await;
     w.catalog_alpha().await;
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e = w
@@ -915,7 +928,11 @@ async fn apply_after_base_change_is_config_conflict_and_nothing_written() {
     w.catalog_alpha().await;
     std::fs::write(w.user(), "Host other\n    User fixture\n").unwrap();
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     std::fs::write(w.user(), "Host other\n    User changed\n").unwrap();
@@ -941,7 +958,11 @@ async fn apply_after_base_change_is_config_conflict_and_nothing_written() {
 
     // After the decision: approve, the recomputed plan differs, nothing written.
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e = w
@@ -1061,7 +1082,11 @@ async fn apply_through_operations_snapshots_the_original_user_file() {
     let original: &[u8] = b"Host other\n    User fixture\n";
     std::fs::write(w.user(), original).unwrap();
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     assert!(
@@ -1101,6 +1126,7 @@ async fn apply_through_operations_snapshots_the_original_user_file() {
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await
         .unwrap();
@@ -1179,7 +1205,11 @@ async fn a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_
     w.catalog_alpha().await;
     std::fs::write(w.user(), "Host other\n    User fixture\n").unwrap();
     let fitting = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let whole: usize = fitting.files.iter().map(|f| f.diff.len()).sum();
@@ -1207,7 +1237,11 @@ async fn a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_
         assert!(e.message.contains("never shown cut"), "{}", e.message);
     };
     let e = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap_err();
     refused(&e);
@@ -1292,6 +1326,7 @@ impl World {
                             port: None,
                             account: AccountName::parse("fixture").unwrap(),
                             identity: identity.clone(),
+                            jump: None,
                         },
                         label: None,
                     },
@@ -1330,6 +1365,7 @@ fn rollback_ssh() -> PreviewIntent {
     PreviewIntent::Rollback {
         keep_key_files: false,
         items: [ProjectionItem::Ssh].into_iter().collect(),
+        distribution: None,
     }
 }
 
@@ -1499,6 +1535,7 @@ async fn rollback_to_consented_restore_needs_no_decision() {
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await
         .unwrap();
@@ -1526,7 +1563,11 @@ async fn rollback_to_consented_restore_needs_no_decision() {
     assert!(resources.iter().all(|r| r.desired == ResourceState::Absent));
     // Re-adoption after a rollback always needs a decision.
     let again = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     assert!(again.consent.decision_required);
@@ -1548,6 +1589,7 @@ async fn rollback_exposing_inherited_hostname_and_agent_added_after_apply_needs_
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await
         .unwrap();
@@ -1613,7 +1655,11 @@ async fn changed_plan_same_request_is_request_conflict() {
     let w = World::new().await;
     w.catalog_alpha().await;
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e = w
@@ -1639,7 +1685,11 @@ async fn limited_consumer_refused() {
         .setup(
             &limited(),
             SetupRequest::Preview {
-                intent: PreviewIntent::Apply { include_git: false },
+                intent: PreviewIntent::Apply {
+                    include_git: false,
+                    distribution: None,
+                    items: Default::default(),
+                },
             },
         )
         .await
@@ -2075,6 +2125,8 @@ async fn inspect_destinations_lists_the_catalog_with_alias_and_definition() {
                     InspectRequest {
                         subject: InspectSubject::Destinations,
                         preview: None,
+                        cwd: None,
+                        redact: false,
                     },
                 )
                 .await
@@ -2154,6 +2206,8 @@ async fn inspect_profiles_lists_the_catalog_definitions() {
                     InspectRequest {
                         subject: InspectSubject::Profiles,
                         preview: None,
+                        cwd: None,
+                        redact: false,
                     },
                 )
                 .await
@@ -2388,7 +2442,11 @@ async fn second_setup_while_one_is_open_is_setup_in_progress() {
     let w = World::new().await;
     w.catalog_alpha().await;
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let first = w
@@ -2411,6 +2469,7 @@ async fn second_setup_while_one_is_open_is_setup_in_progress() {
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await;
     if let Ok(rollback) = rollback {
@@ -2428,7 +2487,11 @@ async fn setup_in_progress_persists_across_restart() {
     let mut w = World::new().await;
     w.catalog_alpha().await;
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e = w
@@ -2439,7 +2502,11 @@ async fn setup_in_progress_persists_across_restart() {
     w.restart().await;
     assert_eq!(w.op(&first).state, OperationState::AwaitingApproval);
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e2 = w
@@ -2470,7 +2537,11 @@ async fn crash_during_setup_admission_leaves_no_blocker() {
     let mut w = World::with_faults(fault.clone()).await;
     w.catalog_alpha().await;
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     *w.writer
@@ -2510,7 +2581,11 @@ async fn restart_reconciles_attempted_apply_never_reapplies() {
                 .await;
         }
         let plan = w
-            .preview(PreviewIntent::Apply { include_git: false })
+            .preview(PreviewIntent::Apply {
+                include_git: false,
+                distribution: None,
+                items: Default::default(),
+            })
             .await
             .unwrap();
         let e = w
@@ -2570,6 +2645,7 @@ async fn projection_events_carry_generation_and_change() {
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await
         .unwrap();
@@ -2620,6 +2696,7 @@ async fn rollback_after_match_exec_command_edit_needs_decision() {
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await
         .unwrap();
@@ -2653,7 +2730,11 @@ async fn sink_refuses_consent_under_another_decision() {
     w.catalog_alpha().await;
     w.writer.tamper_consent.store(true, Ordering::SeqCst);
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e = w
@@ -2863,6 +2944,7 @@ async fn include_target_glob_is_its_own_manual_reason() {
                     port: None,
                     account: AccountName::parse("fixture").unwrap(),
                     identity,
+                    jump: None,
                 },
                 label: None,
             },
@@ -2875,7 +2957,11 @@ async fn include_target_glob_is_its_own_manual_reason() {
         ops.setup(
             &attended(),
             SetupRequest::Preview {
-                intent: PreviewIntent::Apply { include_git: false },
+                intent: PreviewIntent::Apply {
+                    include_git: false,
+                    distribution: None,
+                    items: Default::default(),
+                },
             },
         )
         .await
@@ -2906,7 +2992,11 @@ async fn git_item_reasons_are_contract_reasons() {
     let w = World::new().await;
     w.catalog_alpha().await;
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: true })
+        .preview(PreviewIntent::Apply {
+            include_git: true,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let git = plan.git.expect("the Git part is planned");
@@ -2930,7 +3020,11 @@ async fn git_item_reasons_are_contract_reasons() {
                 record: None,
                 consent: heimdall_domain::projection::ConsentRecord::default(),
             },
-            &PreviewIntent::Apply { include_git: true },
+            &PreviewIntent::Apply {
+                include_git: true,
+                distribution: None,
+                items: Default::default(),
+            },
         )
         .unwrap();
     let found = plan.view.git.unwrap().reason.unwrap();
@@ -3010,7 +3104,11 @@ async fn held(kind: Hold) -> Held {
             .await;
     }
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let request = "r-held";
@@ -3169,9 +3267,13 @@ async fn held_operation_blocks_setup_except_its_repair() {
     for round in 0..2 {
         // apply and rollback are refused, naming the held operation and both repairs.
         let apply =
-            h.w.preview(PreviewIntent::Apply { include_git: false })
-                .await
-                .unwrap();
+            h.w.preview(PreviewIntent::Apply {
+                include_git: false,
+                distribution: None,
+                items: Default::default(),
+            })
+            .await
+            .unwrap();
         let e =
             h.w.effect(
                 &attended(),
@@ -3188,6 +3290,7 @@ async fn held_operation_blocks_setup_except_its_repair() {
             h.w.preview(PreviewIntent::Rollback {
                 keep_key_files: false,
                 items: [ProjectionItem::Ssh].into_iter().collect(),
+                distribution: None,
             })
             .await
         {
@@ -3298,9 +3401,13 @@ async fn held_repair_retry_continues_and_keep_closes_without_moving() {
         "{remaining}"
     );
     // A new apply previews from the files as they are.
-    h.w.preview(PreviewIntent::Apply { include_git: false })
-        .await
-        .unwrap();
+    h.w.preview(PreviewIntent::Apply {
+        include_git: false,
+        distribution: None,
+        items: Default::default(),
+    })
+    .await
+    .unwrap();
 
     // keep, after the files changed since its preview: stale, nothing written.
     let h = held(Hold::DisplacedMissing).await;
@@ -3672,7 +3779,11 @@ async fn child_preview(ops: &Operations) -> PlanDigest {
         .setup(
             &attended(),
             SetupRequest::Preview {
-                intent: PreviewIntent::Apply { include_git: false },
+                intent: PreviewIntent::Apply {
+                    include_git: false,
+                    distribution: None,
+                    items: Default::default(),
+                },
             },
         )
         .await
@@ -3735,6 +3846,7 @@ async fn child_flow(paths: ChildPaths) {
                         port: None,
                         account: AccountName::parse("fixture").unwrap(),
                         identity: identity.clone(),
+                        jump: None,
                     },
                     label: None,
                 },
@@ -3879,7 +3991,11 @@ async fn restart_reconciles_attempted_apply_never_reapplies_after_a_process_abor
 /// Preview an apply and submit it: the operation waits for the decision it created.
 async fn apply_waiting(w: &World, request: &str) -> (OperationId, String) {
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e = w
@@ -4193,7 +4309,11 @@ async fn verified_client_unavailable_at_apply_is_capability_unavailable() {
     .await
     .unwrap();
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: true })
+        .preview(PreviewIntent::Apply {
+            include_git: true,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let git_change = plan.git.clone().expect("the Git part is planned");
@@ -4302,7 +4422,7 @@ async fn remove_profile_refuses_new_work_and_keeps_pinned_snapshots() {
     .await
     .unwrap();
     let ensure = |request: &str| EnsureRequest {
-        profile: profile.clone(),
+        profile: Some(profile.clone()),
         profile_revision: None,
         scope: [pair("dst-alpha")].into_iter().collect(),
         environment: None,
@@ -4314,6 +4434,8 @@ async fn remove_profile_refuses_new_work_and_keeps_pinned_snapshots() {
         wait: WaitMode::Sync { timeout_ms: 2_000 },
         // M03 wave 0 (A1): fail closed until U0b
         connection: None,
+        context: None,
+        covered_only: false,
     };
     let unknown_profile = |e: &OpError| {
         e.code == Code::NotFound && e.resource.as_ref().is_some_and(|r| r.kind == "profile")
@@ -4507,7 +4629,11 @@ async fn remove_destination_marks_projection_stale_and_changes_no_file() {
     assert!(p.contains("Host alpha") && p.contains("Host beta"), "{p}");
     let tree = w.tree();
     let unchanged = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let removed = w
@@ -4547,7 +4673,11 @@ async fn remove_destination_marks_projection_stale_and_changes_no_file() {
     );
     // The next apply's preview shows the removal.
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     assert_ne!(plan.plan_digest, unchanged.plan_digest);
@@ -4647,7 +4777,11 @@ async fn a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_dr
     w.apply_approved("r-apply").await;
     // No conflict and nothing to change: an unchanged projection is not refused.
     let unchanged = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let conflict = |f: &heimdall_contract::doctor::Finding| {
@@ -4674,7 +4808,11 @@ async fn a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_dr
     let edited = b"# edited by another writer\nHost alpha\n    User someone-else\n";
     std::fs::write(w.p(), edited).unwrap();
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     let e = assert_refused_unchanged(&w, "apply", &plan, "r-edited", "managed_file_edited").await;
@@ -4696,7 +4834,11 @@ async fn a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_dr
     let user = std::fs::read_to_string(w.user()).unwrap();
     std::fs::write(w.user(), format!("Host early\n    User fixture\n\n{user}")).unwrap();
     let plan = w
-        .preview(PreviewIntent::Apply { include_git: false })
+        .preview(PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        })
         .await
         .unwrap();
     assert_refused_unchanged(&w, "apply", &plan, "r-cond", "include_conditional").await;
@@ -4721,6 +4863,7 @@ async fn a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_dr
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await
         .unwrap();
@@ -4765,6 +4908,7 @@ async fn managed_file_edited_is_resolved_by_rollback_and_never_by_rerender() {
         .preview(PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         })
         .await
         .unwrap();

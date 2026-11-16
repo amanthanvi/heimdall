@@ -9,8 +9,11 @@
 //! `HEIMDALL_TEST_TUI_SCREEN`. M03 records (a CA, enrollments, a pending enrollment
 //! decision) are seeded into the scratch state store before the runtime starts, with
 //! the store's own test seeding; nothing reaches a real host, key, agent or issuer.
-//! The Windows rows of these cases need a native Windows pty harness (ConPTY), which
-//! this suite does not have: they are `blocked` on Windows-native.
+//! ⟨M03 wave 6, U13; ADR-0008 §17.26 item 8⟩ On Windows, `windows_console` runs
+//! `heimdall tui` on a pseudoconsole (`heimdall_testkit::console`, ConPTY) and checks
+//! that the console is restored after quitting; the other pty cases stay Unix-only
+//! (their fixtures are Unix: the `/bin/sh` stub `ssh`, the termios reading, the uid
+//! principal), and their rendering is platform-neutral.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -612,6 +615,8 @@ mod pty {
                     InspectRequest {
                         subject,
                         preview: None,
+                        cwd: None,
+                        redact: false,
                     },
                 )
                 .await
@@ -1227,5 +1232,178 @@ mod pty {
         );
         assert_eq!(modes(&pty.termios()), raw, "still in the TUI's mode");
         quit_restored(&pty, tui, &before);
+    }
+}
+
+/// ⟨M03 wave 6, U13; ADR-0008 §17.26 item 8⟩ The TUI on a Windows console: `heimdall tui`
+/// on a pseudoconsole, in a scratch home with the debug build's test configuration (a
+/// scratch account home for the static pass, a fixture time-sync report, a session-lock
+/// state file), the runtime it starts on demand stopped at the end with `service stop`.
+/// `PATH` is only the system directory, so no `ssh` is found and nothing is contacted.
+///
+/// The pseudoconsole runs this test binary again in child mode ([`console_child`]): it
+/// starts the TUI on the same console (stdin, stdout and stderr inherited), samples the
+/// console's input mode while it runs (crossterm's `is_raw_mode_enabled`: line input,
+/// echo and processed input all off) and once it has ended, prints what it saw, and exits
+/// with the TUI's exit code.
+#[cfg(windows)]
+mod windows_console {
+    use std::io::Write as _;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use heimdall_testkit::console::TerminalCommand;
+
+    use super::bin;
+
+    const ARGV: &str = "HM_W_TUI_ARGV";
+    const ENVS: &str = "HM_W_TUI_ENV";
+    const LONG: Duration = Duration::from_secs(60);
+
+    /// Child-mode entry (module docs).
+    #[test]
+    #[ignore = "child-mode entry of the Windows console case, started by it"]
+    fn console_child() {
+        use ratatui::crossterm::terminal::is_raw_mode_enabled;
+        let (Ok(argv), Ok(envs)) = (std::env::var(ARGV), std::env::var(ENVS)) else {
+            return;
+        };
+        let argv: Vec<String> = serde_json::from_str(&argv).unwrap();
+        let envs: Vec<(String, String)> = serde_json::from_str(&envs).unwrap();
+        let before = is_raw_mode_enabled().ok();
+        let mut child = Command::new(&argv[0])
+            .args(&argv[1..])
+            .env_clear()
+            .envs(envs)
+            .spawn()
+            .unwrap_or_else(|e| panic!("the TUI did not start: {e}"));
+        let mut seen_raw = false;
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            seen_raw |= is_raw_mode_enabled().unwrap_or(false);
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        let after = is_raw_mode_enabled().ok();
+        let mut out = std::io::stdout();
+        let _ = writeln!(
+            out,
+            "hm-console-modes before={before:?} raw_seen={seen_raw} after={after:?}"
+        )
+        .and_then(|()| out.flush());
+        std::process::exit(status.code().unwrap_or(-1));
+    }
+
+    /// The scratch installation's environment for the TUI and `service stop`.
+    fn env(home: &Path, account: &Path, lock: &Path, screen: &Path) -> Vec<(String, String)> {
+        let text = |p: &Path| p.to_string_lossy().into_owned();
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_owned());
+        let mut env = vec![
+            ("HEIMDALL_HOME".to_owned(), text(home)),
+            ("HOME".to_owned(), text(account)),
+            ("HEIMDALL_TEST_SSH_HOME".to_owned(), text(account)),
+            ("HEIMDALL_TEST_TUI_SCREEN".to_owned(), text(screen)),
+            (
+                "HEIMDALL_TEST_TIME_SYNC".to_owned(),
+                "synchronized".to_owned(),
+            ),
+            ("HEIMDALL_TEST_SESSION_LOCK".to_owned(), text(lock)),
+            ("GIT_CONFIG_NOSYSTEM".to_owned(), "1".to_owned()),
+            ("PATH".to_owned(), format!(r"{system}\System32")),
+        ];
+        for k in ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"] {
+            if let Ok(v) = std::env::var(k) {
+                env.push((k.to_owned(), v));
+            }
+        }
+        env
+    }
+
+    /// Runs `heimdall service stop` in the scratch home when dropped (a no-op when no
+    /// runtime runs there): only the runtime this test's TUI started.
+    struct StopRuntime(Vec<(String, String)>);
+
+    impl Drop for StopRuntime {
+        fn drop(&mut self) {
+            let _ = Command::new(bin())
+                .args(["--json", "service", "stop"])
+                .env_clear()
+                .envs(self.0.iter().map(|(k, v)| (k, v)))
+                .stdin(Stdio::null())
+                .output();
+        }
+    }
+
+    /// `heimdall tui` on a Windows pseudoconsole: it draws (the frame file shows the
+    /// runtime's state and the finished static pass), the console's input is raw while it
+    /// runs, `q` exits 0, and afterwards the console's input mode is cooked again (as it
+    /// was before), the alternate screen left as often as it was entered.
+    #[test]
+    fn windows_tui_restores_the_console_after_quitting() {
+        let scratch = tempfile::tempdir().unwrap();
+        let home = scratch.path().join("home");
+        let account = scratch.path().join("account");
+        std::fs::create_dir_all(&account).unwrap();
+        let lock = scratch.path().join("lock-state");
+        std::fs::write(&lock, "unlocked").unwrap();
+        let screen: PathBuf = scratch.path().join("screen.txt");
+        let vars = env(&home, &account, &lock, &screen);
+        let _stop = StopRuntime(vars.clone());
+        let argv = vec![bin(), "tui".to_owned()];
+        let mut t = TerminalCommand::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "windows_console::console_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ])
+            .current_dir(scratch.path())
+            .size(140, 40)
+            .env(ARGV, serde_json::to_string(&argv).unwrap())
+            .env(ENVS, serde_json::to_string(&vars).unwrap())
+            .spawn()
+            .unwrap_or_else(|e| panic!("the pseudoconsole did not start: {e}"));
+        let deadline = Instant::now() + LONG;
+        loop {
+            let frame = std::fs::read_to_string(&screen).unwrap_or_default();
+            if frame.contains("Runtime:")
+                && frame.contains("Static pass:")
+                && !frame.contains("Static pass: running")
+            {
+                break;
+            }
+            assert!(
+                t.try_wait().is_none(),
+                "the TUI ended before drawing (exit {:?}); console: {}\nframe: {frame}",
+                t.try_wait(),
+                t.text()
+            );
+            assert!(
+                Instant::now() < deadline,
+                "no complete frame; console: {}\nframe: {frame}",
+                t.text()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        t.send(b"q").unwrap();
+        let code = t.wait(LONG);
+        let text = t.text();
+        heimdall_testkit::assert_no_canary(&text);
+        assert_eq!(code, Some(0), "q exits 0; console: {text}");
+        assert!(
+            text.contains("hm-console-modes before=Some(false) raw_seen=true after=Some(false)"),
+            "the console's input was raw while the TUI ran and cooked again after: {text}"
+        );
+        let raw = String::from_utf8_lossy(&t.output()).into_owned();
+        assert_eq!(
+            raw.matches("\u{1b}[?1049h").count(),
+            raw.matches("\u{1b}[?1049l").count(),
+            "the alternate screen is left as often as entered: {text}"
+        );
     }
 }

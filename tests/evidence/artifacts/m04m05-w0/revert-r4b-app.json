@@ -1,0 +1,23 @@
+{
+ "name": "R4b item 4: resolution reverted to first-by-ID over every policy (application)",
+ "file": "crates/domain/src/policy.rs",
+ "command": "cargo test --locked -p heimdall-runtime --test model_operations personal_resolution_ignores",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test personal_resolution_ignores_a_workspace_policy_that_sorts_first ... FAILED",
+   "thread 'personal_resolution_ignores_a_workspace_policy_that_sorts_first' (28627882) panicked at crates/runtime/../../tests/model/operations.rs:502:19:",
+   "expected success, got POLICY_PAUSED: the standing policy is paused",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 191 filtered out; finished in 0.02s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test personal_resolution_ignores_a_workspace_policy_that_sorts_first ... ok",
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 191 filtered out; finished in 0.02s"
+  ]
+ }
+}

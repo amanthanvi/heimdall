@@ -81,6 +81,8 @@ fn inspect() -> Request {
     Request::Inspect(InspectRequest {
         subject: InspectSubject::Capabilities,
         preview: None,
+        cwd: None,
+        redact: false,
     })
 }
 
@@ -1555,14 +1557,20 @@ async fn non_interactive_session_can_never_be_attended() {
         assert_eq!(env.data["attended"], false);
         assert_eq!(env.data["interaction"], "non_interactive");
         let pause = c
-            .request(policy(|policy_id| PolicyAction::Pause { policy_id }))
+            .request(policy(|policy_id| PolicyAction::Pause {
+                policy_id: Some(policy_id),
+                target: None,
+            }))
             .await
             .unwrap();
         assert_eq!(pause.code, Code::Ok, "narrowing actions need no attendance");
         // Widening actions are dispatched even when unattended (R5): the session
         // must not refuse them itself; the application answers with a
         // `WidenPolicy` decision record and `INTERACTION_REQUIRED` (N04).
-        let widening = policy(|policy_id| PolicyAction::Resume { policy_id });
+        let widening = policy(|policy_id| PolicyAction::Resume {
+            policy_id: Some(policy_id),
+            target: None,
+        });
         assert!(widening.is_widening_policy_action());
         assert!(!widening.requires_attended_session());
         let env = c.request(widening).await.unwrap();
@@ -1614,8 +1622,14 @@ async fn interactive_session_is_attended_only_after_attend() {
         // decision record and `APPROVAL_REQUIRED` (N04: attendance is not the
         // confirmation). Only `decide` on this attended session completes it.
         for req in [
-            policy(|policy_id| PolicyAction::Resume { policy_id }),
-            policy(|policy_id| PolicyAction::ClearCutoff { policy_id }),
+            policy(|policy_id| PolicyAction::Resume {
+                policy_id: Some(policy_id),
+                target: None,
+            }),
+            policy(|policy_id| PolicyAction::ClearCutoff {
+                policy_id: Some(policy_id),
+                target: None,
+            }),
         ] {
             let env = c.request(req).await.unwrap();
             assert_decision_required(&env, Code::ApprovalRequired);

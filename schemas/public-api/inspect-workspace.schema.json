@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorkspaceView",
+  "description": "`inspect workspace` data (m05-plan §4 items 5, 7).",
+  "type": "object",
+  "properties": {
+    "access_digest": {
+      "description": "The manifest's access digest (lowercase hex), when a manifest was read.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cwd": {
+      "description": "The working directory asked about.",
+      "type": "string"
+    },
+    "match": {
+      "description": "The match.",
+      "$ref": "#/$defs/WorkspaceMatchView"
+    },
+    "policy_id": {
+      "description": "The workspace policy, when one exists.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolicyId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "provenance": {
+      "description": "Provenance.",
+      "$ref": "#/$defs/ContextProvenance"
+    },
+    "root": {
+      "description": "The discovered workspace root.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "workspace_id": {
+      "description": "The workspace record, for `trusted`, `member` and `ambiguous`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkspaceId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "cwd",
+    "match",
+    "provenance"
+  ],
+  "$defs": {
+    "ContextProvenance": {
+      "description": "How much a context claim is worth (ADR-0011 R2): the working directory is a same-user\nclaim.",
+      "oneOf": [
+        {
+          "description": "Any same-user process can name any workspace.",
+          "type": "string",
+          "const": "same_user_context"
+        }
+      ]
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
+    },
+    "WorkspaceMatchView": {
+      "description": "How an observation matched the workspace records, as `inspect workspace` shows it.",
+      "oneOf": [
+        {
+          "description": "Equal path and identity.",
+          "type": "string",
+          "const": "trusted"
+        },
+        {
+          "description": "A verified linked worktree.",
+          "type": "string",
+          "const": "member"
+        },
+        {
+          "description": "No record matches.",
+          "type": "string",
+          "const": "untrusted"
+        },
+        {
+          "description": "One `ReconcileWorkspace` decision away.",
+          "type": "string",
+          "const": "ambiguous"
+        },
+        {
+          "description": "No workspace root above the working directory: personal context.",
+          "type": "string",
+          "const": "none"
+        }
+      ]
+    }
+  }
+}

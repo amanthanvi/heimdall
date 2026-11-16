@@ -226,6 +226,7 @@ async fn destination_spec(ctx: &Ctx, a: &DestinationAddArgs) -> Result<Destinati
             port: a.port,
             account,
             identity,
+            jump: None,
         }
     };
     Ok(DestinationSpec {

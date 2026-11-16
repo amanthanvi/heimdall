@@ -165,6 +165,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -370,7 +372,7 @@ fn config_of(
 
 fn ensure_req(request_id: &str, pairs: &[(&str, &str)]) -> EnsureRequest {
     EnsureRequest {
-        profile: profile_id(),
+        profile: Some(profile_id()),
         profile_revision: None,
         scope: pairs.iter().map(|(d, a)| pair(d, a)).collect(),
         environment: None,
@@ -381,6 +383,8 @@ fn ensure_req(request_id: &str, pairs: &[(&str, &str)]) -> EnsureRequest {
         interaction: InteractionMode::NonInteractive,
         wait: WaitMode::Sync { timeout_ms: 30_000 },
         connection: None,
+        context: None,
+        covered_only: false,
     }
 }
 
@@ -558,7 +562,6 @@ fn issuance(grant: &GrantId) -> IssuanceRequest {
         grant: grant.clone(),
         pair: h1(),
         principal: "hm:h1:deploy".into(),
-        key_id: "fixture-key".into(),
         valid_after: t0(),
         valid_before: shift(t0(), 1800),
         extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),
@@ -909,7 +912,6 @@ fn verification(w: &World, op: &OperationId, n: u8) -> VerificationRequest {
         ca_fingerprint: ca(n),
         purpose: VerificationPurpose::Positive,
         principal: "hm:h1:deploy".into(),
-        key_id: "verify-key".into(),
         valid_after: shift(now, -60),
         valid_before: shift(now, 300),
         extensions: BTreeSet::new(),
@@ -1322,7 +1324,7 @@ fn m02_hash(req: &EnsureRequest) -> RequestHash {
         OperationKind::Ensure,
         &HashInput {
             environment: &env_id(),
-            profile: Some(&req.profile),
+            profile: req.profile.as_ref(),
             profile_revision: req.profile_revision,
             scope: &req.scope,
             deadline_intent: req.until.as_ref(),

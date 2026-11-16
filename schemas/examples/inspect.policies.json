@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "policy_id": "personal-default",
+      "revision": 1,
+      "profile": "homelab-dev",
+      "environments": ["env_01010101010101010101010101010101"],
+      "default": true
+    },
+    {
+      "policy_id": "ws-example-infrastructure",
+      "revision": 2,
+      "profile": "homelab-dev",
+      "workspace_id": "ws_04040404040404040404040404040404",
+      "environments": ["env_01010101010101010101010101010101"],
+      "paused_since": "2026-11-15T13:00:00Z",
+      "history": [
+        {"revision": 1, "cause": "decision", "decision_id": "dec_05050505050505050505050505050505", "at": "2026-11-15T10:00:00Z"},
+        {"revision": 2, "cause": "narrowing", "at": "2026-11-15T13:00:00Z"}
+      ]
+    }
+  ]
+}

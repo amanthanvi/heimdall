@@ -1,0 +1,497 @@
+{
+    "versions":  {
+                     "git_version":  "git version 2.55.0.windows.3",
+                     "powershell":  "5.1.26100.9818",
+                     "os":  "Microsoft Windows NT 10.0.26300.0",
+                     "ssh_V":  "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2"
+                 },
+    "target":  "127.0.0.1:56030",
+    "canary_in_cwd":  "HM-SPIKE-CWD-81c89bd55361cd29",
+    "runs":  [
+                 {
+                     "client":  "ssh",
+                     "delay_s":  0,
+                     "exit_code":  255,
+                     "elapsed_s":  0.134,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "Warning: Permanently added \u0027[127.0.0.1]:56030\u0027 (ED25519) to the list of known hosts.",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                     ]
+                 },
+                 {
+                     "client":  "git",
+                     "delay_s":  0,
+                     "exit_code":  128,
+                     "elapsed_s":  0.16,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey).",
+                                         "fatal: Could not read from remote repository.",
+                                         "Please make sure you have the correct access rights",
+                                         "and the repository exists."
+                                     ]
+                 },
+                 {
+                     "client":  "ssh",
+                     "delay_s":  0.5,
+                     "exit_code":  255,
+                     "elapsed_s":  0.131,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                     ]
+                 },
+                 {
+                     "client":  "git",
+                     "delay_s":  0.5,
+                     "exit_code":  128,
+                     "elapsed_s":  0.183,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey).",
+                                         "fatal: Could not read from remote repository.",
+                                         "Please make sure you have the correct access rights",
+                                         "and the repository exists."
+                                     ]
+                 },
+                 {
+                     "client":  "ssh",
+                     "delay_s":  1,
+                     "exit_code":  255,
+                     "elapsed_s":  0.129,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                     ]
+                 },
+                 {
+                     "client":  "git",
+                     "delay_s":  1,
+                     "exit_code":  128,
+                     "elapsed_s":  0.164,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey).",
+                                         "fatal: Could not read from remote repository.",
+                                         "Please make sure you have the correct access rights",
+                                         "and the repository exists."
+                                     ]
+                 },
+                 {
+                     "client":  "ssh",
+                     "delay_s":  2,
+                     "exit_code":  255,
+                     "elapsed_s":  0.135,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                     ]
+                 },
+                 {
+                     "client":  "git",
+                     "delay_s":  2,
+                     "exit_code":  128,
+                     "elapsed_s":  0.168,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey).",
+                                         "fatal: Could not read from remote repository.",
+                                         "Please make sure you have the correct access rights",
+                                         "and the repository exists."
+                                     ]
+                 },
+                 {
+                     "client":  "ssh",
+                     "delay_s":  5,
+                     "exit_code":  255,
+                     "elapsed_s":  0.131,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                     ]
+                 },
+                 {
+                     "client":  "git",
+                     "delay_s":  5,
+                     "exit_code":  128,
+                     "elapsed_s":  0.162,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey).",
+                                         "fatal: Could not read from remote repository.",
+                                         "Please make sure you have the correct access rights",
+                                         "and the repository exists."
+                                     ]
+                 },
+                 {
+                     "client":  "ssh",
+                     "delay_s":  10,
+                     "exit_code":  255,
+                     "elapsed_s":  0.13,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                     ]
+                 },
+                 {
+                     "client":  "git",
+                     "delay_s":  10,
+                     "exit_code":  128,
+                     "elapsed_s":  0.162,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey).",
+                                         "fatal: Could not read from remote repository.",
+                                         "Please make sure you have the correct access rights",
+                                         "and the repository exists."
+                                     ]
+                 },
+                 {
+                     "client":  "ssh",
+                     "delay_s":  30,
+                     "exit_code":  255,
+                     "elapsed_s":  0.129,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                     ]
+                 },
+                 {
+                     "client":  "git",
+                     "delay_s":  30,
+                     "exit_code":  128,
+                     "elapsed_s":  0.172,
+                     "timed_out":  false,
+                     "answer_received":  "unknown",
+                     "agent_answer_written":  false,
+                     "any_canary_or_cwd_in_agent_messages":  false,
+                     "messages":  [
+
+                                  ],
+                     "agent_log_lines":  [
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity type -1",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug3: Failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert.pub error:2",
+                                             "debug3: failed to open file:C:/Users/<user>/AppData/Local/Temp/hm-spike-81c89bd55361cd29/no-such-identity-cert error:2",
+                                             "debug1: identity file C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity-cert type -1",
+                                             "debug1: get_agent_identities: ssh_get_authentication_socket: No such file or directory",
+                                             "debug1: Will attempt key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity  explicit",
+                                             "debug1: Trying private key: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity",
+                                             "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                             "<fixture-user>@127.0.0.1: Permission denied (publickey)."
+                                         ],
+                     "stderr_tail":  [
+                                         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+                                         "no such identity: C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\hm-spike-81c89bd55361cd29\\\\no-such-identity: No such file or directory",
+                                         "<fixture-user>@127.0.0.1: Permission denied (publickey).",
+                                         "fatal: Could not read from remote repository.",
+                                         "Please make sure you have the correct access rights",
+                                         "and the repository exists."
+                                     ]
+                 }
+             ],
+    "note":  "fake agent returns zero identities, so every login fails by design; see answer_received and elapsed_s"
+}

@@ -685,6 +685,7 @@ pub(super) mod world {
                             port: Some(port),
                             account: account.clone(),
                             identity: identity.clone(),
+                            jump: None,
                         },
                         label: None,
                         updated_at: now,

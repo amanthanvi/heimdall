@@ -124,6 +124,8 @@ fn outcome() -> PrepareOutcome {
                 remote_processes: None,
                 unmanaged_connections: None,
                 issuer_isolation: None,
+                ordinary_aliases: None,
+                owner_functions: None,
             },
             evidence: Vec::new(),
         },
@@ -538,7 +540,7 @@ impl W {
             .ensure(
                 &owner(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: [pair("h1", "deploy")].into_iter().collect(),
                     environment: None,
@@ -549,6 +551,8 @@ impl W {
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await;
@@ -595,8 +599,9 @@ impl W {
             .revoke(
                 &owner(),
                 RevokeRequest {
-                    grant_id: g.grant_id.clone(),
+                    grant_id: Some(g.grant_id.clone()),
                     request_id: RequestId::parse(rid).unwrap(),
+                    target: None,
                 },
             )
             .await;
@@ -613,8 +618,9 @@ impl W {
                 .revoke(
                     &owner(),
                     RevokeRequest {
-                        grant_id: g.grant_id,
+                        grant_id: Some(g.grant_id),
                         request_id: RequestId::parse(&rid).unwrap(),
+                        target: None,
                     },
                 )
                 .await
@@ -971,8 +977,9 @@ async fn permit_expiry_is_earliest_of_every_bound() {
         .policy(
             &owner(),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at,
+                target: None,
             },
         )
         .await
@@ -1200,8 +1207,9 @@ async fn cutoff_earlier_takes_gate() {
         ops.policy(
             &owner(),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at,
+                target: None,
             },
         )
         .await
@@ -1928,8 +1936,9 @@ async fn multi_root_countermodel_within_derived_bound() {
         ops.policy(
             &owner(),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at,
+                target: None,
             },
         )
         .await
@@ -1985,8 +1994,9 @@ async fn overlapping_narrowings_countermodel_within_derived_bound() {
         ops.policy(
             &owner(),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at,
+                target: None,
             },
         )
         .await
@@ -2048,8 +2058,9 @@ async fn narrowing_commit_target_20s_at_budgets() {
         ops.policy(
             &owner(),
             PolicyAction::Cutoff {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
                 at,
+                target: None,
             },
         )
         .await
@@ -3180,8 +3191,9 @@ async fn two_real_policy_cutoffs_overlapping_commit_within_bound() {
             ops.policy(
                 &owner(),
                 PolicyAction::Cutoff {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
                     at,
+                    target: None,
                 },
             )
             .await
@@ -3271,7 +3283,8 @@ async fn pause_leaves_active_grant_permit_releasable_and_refuses_new_activation(
         &w,
         &g,
         PolicyAction::Pause {
-            policy_id: policy_id(),
+            policy_id: Some(policy_id()),
+            target: None,
         },
     )
     .await;
@@ -3280,7 +3293,7 @@ async fn pause_leaves_active_grant_permit_releasable_and_refuses_new_activation(
         .ensure(
             &owner(),
             EnsureRequest {
-                profile: ProfileId::parse("dev").unwrap(),
+                profile: Some(ProfileId::parse("dev").unwrap()),
                 profile_revision: None,
                 scope: [pair("h1", "deploy")].into_iter().collect(),
                 environment: None,
@@ -3291,6 +3304,8 @@ async fn pause_leaves_active_grant_permit_releasable_and_refuses_new_activation(
                 interaction: InteractionMode::NonInteractive,
                 wait: WaitMode::Sync { timeout_ms: 30_000 },
                 connection: None,
+                context: None,
+                covered_only: false,
             },
         )
         .await

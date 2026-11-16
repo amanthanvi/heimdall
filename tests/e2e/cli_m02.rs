@@ -523,6 +523,7 @@ mod world {
                         port,
                         account: AccountName::parse(account).unwrap(),
                         identity: identity.clone(),
+                        jump: None,
                     },
                     label: None,
                 },
@@ -613,7 +614,11 @@ mod world {
         pub(super) fn project(&self) {
             let plan: SetupPlan = serde_json::from_value(
                 self.setup(SetupRequest::Preview {
-                    intent: PreviewIntent::Apply { include_git: false },
+                    intent: PreviewIntent::Apply {
+                        include_git: false,
+                        distribution: None,
+                        items: Default::default(),
+                    },
                 })
                 .unwrap(),
             )

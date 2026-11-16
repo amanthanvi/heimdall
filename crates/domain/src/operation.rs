@@ -379,6 +379,12 @@ pub struct ResolvedIntent {
     /// (omitted when absent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_id: Option<heimdall_contract::ids::BindingId>,
+    /// ⟨M05⟩ ADR-0011 §10 item 1: the policy context this intent was resolved in;
+    /// `activation_refusal` resolves the policy in it. Absent means personal (every
+    /// M01–M03 intent, which decodes and re-encodes byte-identically); omitted when
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<heimdall_contract::ids::WorkspaceId>,
 }
 
 /// ⟨r2.4⟩ What re-based a waiting added-authority intent when the owner's saved
@@ -1198,7 +1204,11 @@ mod tests {
         );
         let setup = LocalIntent::Setup(SetupIntent {
             plan_digest: heimdall_contract::setup::PlanDigest::from_sha256([1; 32]),
-            intent: heimdall_contract::setup::PreviewIntent::Apply { include_git: false },
+            intent: heimdall_contract::setup::PreviewIntent::Apply {
+                include_git: false,
+                distribution: None,
+                items: Default::default(),
+            },
             generation: 1,
             approval: None,
             consent: ConsentRecord::default(),

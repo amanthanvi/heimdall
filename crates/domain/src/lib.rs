@@ -36,6 +36,8 @@ pub mod revocation;
 pub mod scope;
 pub mod time;
 pub mod verification;
+// ⟨M05⟩ ADR-0011 §2; ADR-0006 revision 5 §17: workspace identity and the M05 records.
+pub mod workspace;
 
 pub use heimdall_contract as contract;
 pub use heimdall_contract::Timestamp;

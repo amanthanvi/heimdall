@@ -13,10 +13,11 @@ use crate::Timestamp;
 use crate::catalog::CatalogRequest;
 use crate::doctor::{ConfigProvenance, GitScope};
 use crate::enrollment::EnrollmentRequest;
+use crate::environment::{EnvironmentRequest, RealizationDescriptor, RouteView};
 use crate::event::{Cursor, EventFilter};
 use crate::ids::{
     AccountName, BindingId, DestinationId, EnvironmentId, GrantId, IdentityId, OperationId,
-    PolicyId, ProfileId, RequestId, WorkId,
+    PolicyId, ProfileId, RequestId, WorkId, WorkspaceId,
 };
 use crate::issuer::IssuerRequest;
 use crate::managed::{
@@ -30,6 +31,10 @@ use crate::provider::{
     IdentitySelectionReport, InteractionKind, NoninteractiveEligibility, ProviderStatus,
 };
 use crate::setup::SetupRequest;
+use crate::trust::{
+    ContextReport, OrdinaryAliases, OwnerFunctions, PolicyTarget, RevokeTarget, TrustProposal,
+    WorkContext,
+};
 
 /// Maximum number of destination/account pairs one request may name.
 pub const MAX_SCOPE_PAIRS: usize = 1024;
@@ -210,6 +215,15 @@ pub struct Enforcement {
     /// ⟨M03⟩ The issuer boundary; `unknown` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub issuer_isolation: Option<IssuerIsolation>,
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 7): whether ordinary aliases are shared at
+    /// environment level (ADR-0011 §5.2, §10 item 6); `unknown` when absent, so every
+    /// M01–M03 report and stored grant is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordinary_aliases: Option<OrdinaryAliases>,
+    /// ⟨M05⟩ Revision 5: whether owner functions are out of a delegated child's reach
+    /// (ADR-0011 §6.2–§6.3); `unknown` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_functions: Option<OwnerFunctions>,
 }
 
 impl Enforcement {
@@ -234,6 +248,8 @@ impl Enforcement {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         }
     }
 
@@ -271,6 +287,18 @@ impl Enforcement {
     #[must_use]
     pub fn issuer_isolation(&self) -> IssuerIsolation {
         self.issuer_isolation.unwrap_or_default()
+    }
+
+    /// ⟨M05⟩ `ordinary_aliases`, `unknown` when absent.
+    #[must_use]
+    pub fn ordinary_aliases(&self) -> OrdinaryAliases {
+        self.ordinary_aliases.unwrap_or_default()
+    }
+
+    /// ⟨M05⟩ `owner_functions`, `unknown` when absent.
+    #[must_use]
+    pub fn owner_functions(&self) -> OwnerFunctions {
+        self.owner_functions.unwrap_or_default()
     }
 }
 
@@ -364,6 +392,26 @@ pub enum InspectSubject {
     Issuer,
     /// ⟨M03⟩ Owned connections (`ConnectionsView`).
     Connections,
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 5): the workspace the request's `cwd`
+    /// resolves to and its trust state (`crate::trust::WorkspaceView`).
+    Workspace,
+    /// ⟨M05⟩ Every standing policy with its applied history (`crate::trust::PoliciesView`).
+    Policies,
+    /// ⟨M05⟩ A portable bundle of catalog intent (`crate::project::PortableBundle`),
+    /// redacted when the request says `redact`.
+    Export,
+}
+
+impl InspectSubject {
+    /// ⟨M05⟩ Whether this subject is one of revision 5's (served from M05; joint wave 0
+    /// answers `CAPABILITY_UNAVAILABLE` / `driver_unavailable`).
+    #[must_use]
+    pub fn is_m05(&self) -> bool {
+        matches!(
+            self,
+            InspectSubject::Workspace | InspectSubject::Policies | InspectSubject::Export
+        )
+    }
 }
 
 /// `inspect` request (read-only; never contacts agents, network, or executable
@@ -375,6 +423,25 @@ pub struct InspectRequest {
     /// Dry-run authority preview: resolved snapshot plus authority delta.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<EnsurePreview>,
+    /// ⟨M05⟩ Revision 5: the working directory `workspace` resolves ([`WorkContext`]'s
+    /// bounds). Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// ⟨M05⟩ Revision 5: `export` redacts host names, addresses and labels. Omitted when
+    /// false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub redact: bool,
+}
+
+impl InspectRequest {
+    /// ⟨M05⟩ Whether the request uses a revision-5 form: one of revision 5's subjects, or
+    /// `cwd` or `redact` on any subject (an M01–M03 runtime would ignore either). Joint
+    /// wave 0 refuses it `driver_unavailable` before anything is read, and it needs
+    /// `trusted-work/1` ([`Request::required_capability`]; W0-R04).
+    #[must_use]
+    pub fn uses_m05_form(&self) -> bool {
+        self.subject.is_m05() || self.cwd.is_some() || self.redact
+    }
 }
 
 /// Preview parameters for `inspect --preview` (no side effects).
@@ -396,8 +463,12 @@ pub struct EnsurePreview {
 /// `ensure` request (spec §11.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EnsureRequest {
-    /// Profile, or a subset of it via `scope`.
-    pub profile: ProfileId,
+    /// Profile, or a subset of it via `scope`. ⟨M05⟩ Revision 5: optional only when
+    /// `context` is present (the workspace's manifest or trust record, else the personal
+    /// default profile, names it); a request with neither is `USAGE_ERROR`. Every
+    /// M01–M03 request carries it, so its wire form and hash are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<ProfileId>,
     /// Explicit profile revision; default latest at creation (pinned afterwards).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_revision: Option<u64>,
@@ -427,6 +498,26 @@ pub struct EnsureRequest {
     /// the canonical hash only when present, so M01/M02 hashes are unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<ConnectionRequest>,
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 1): the caller's working directory; the
+    /// runtime resolves the workspace from it (ADR-0011 §2.2, §3.2). Absent: personal
+    /// context, exactly the M01–M03 request. Omitted when absent; the canonical hash's
+    /// context extras exist only when it is present (revision 5 §17 item 4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<WorkContext>,
+    /// ⟨M05⟩ Revision 5: activate only the subset the context's policy already covers,
+    /// never create a decision, and report the rest as `uncovered` (background
+    /// triggers; ADR-0011 §3.2). Omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub covered_only: bool,
+}
+
+impl EnsureRequest {
+    /// ⟨M05⟩ Whether the request uses a revision-5 form (served from M05; joint wave 0
+    /// answers `CAPABILITY_UNAVAILABLE` / `driver_unavailable` before any record).
+    #[must_use]
+    pub fn uses_m05_form(&self) -> bool {
+        self.context.is_some() || self.covered_only || self.profile.is_none()
+    }
 }
 
 /// `ensure`/`bind` success payload (spec §11.3 example, primitives-draft §4.2).
@@ -481,6 +572,13 @@ pub struct EnsureData {
     /// ⟨M03⟩ The effective connection policy and its wording.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_policy: Option<crate::managed::ConnectionPolicyReport>,
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 7): where the authority came from. Omitted
+    /// when absent, so every M01–M03 result is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<ContextReport>,
+    /// ⟨M05⟩ Revision 5: the requested pairs a `covered_only` request did not activate.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uncovered: Vec<AccessPairRef>,
 }
 
 impl EnsureData {
@@ -526,6 +624,10 @@ pub struct ConsumerIntegration {
     /// One entry per destination/account pair of the grant (ADR-0007 §7).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pairs: Vec<PairIntegration>,
+    /// ⟨M04⟩ Revision 5 (m04-plan §5 item 5): where the binding is realized when that is
+    /// not the native session (a WSL distribution, a container). Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realization: Option<RealizationDescriptor>,
 }
 
 /// A consumer program.
@@ -650,6 +752,14 @@ pub struct PairIntegration {
     /// clears a fallback (ADR-0007 §7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_selection_report: Option<IdentitySelectionReport>,
+    /// ⟨M04⟩ Revision 5 (m04-plan §5 item 6): the pair's single-hop route. Omitted when
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<RouteView>,
+    /// ⟨M04⟩ Revision 5: the alias forwards the binding's endpoint (the grant's
+    /// `agent-forwarding` capability, ADR-0010 §5 item 4). Omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub agent_forwarding: bool,
 }
 
 /// `bind` forms (primitives-draft §4.3).
@@ -808,10 +918,17 @@ pub struct ReleaseRequest {
 /// `revoke` request (spec §6.7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RevokeRequest {
-    /// Grant to revoke; descendants cascade.
-    pub grant_id: GrantId,
+    /// Grant to revoke; descendants cascade. ⟨M05⟩ Revision 5: exactly one of
+    /// `grant_id` and `target` is present (every M01–M03 request names the grant, so its
+    /// wire form and hash are unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_id: Option<GrantId>,
     /// Idempotency request ID.
     pub request_id: RequestId,
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 3): stop a piece of work instead of naming a
+    /// grant. Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<RevokeTarget>,
 }
 
 /// `revoke` result (spec §6.7 `local_applied`, `remote_pending`,
@@ -847,30 +964,53 @@ pub struct RevokeData {
 }
 
 /// Owner-channel policy actions (primitives-draft §4.6; spec §6.1).
+///
+/// ⟨M05⟩ Revision 5 (m05-plan §4 item 2): `pause`, `resume`, `cutoff` and `clear_cutoff`
+/// name either `policy_id` (as in M01–M03, whose wire forms are unchanged) or a `target`,
+/// exactly one of the two ([`PolicyAction::selector_ok`]); and the new actions below. Joint
+/// wave 0 serves none of the new forms: each answers `CAPABILITY_UNAVAILABLE` /
+/// `driver_unavailable` before any record (and before any decision record) is written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "action", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum PolicyAction {
     /// Pause future automatic activation.
     Pause {
         /// Policy.
-        policy_id: PolicyId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        policy_id: Option<PolicyId>,
+        /// ⟨M05⟩ Or a target.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<PolicyTarget>,
     },
     /// Resume automatic activation.
     Resume {
         /// Policy.
-        policy_id: PolicyId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        policy_id: Option<PolicyId>,
+        /// ⟨M05⟩ Or a target.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<PolicyTarget>,
     },
     /// Schedule a hard cutoff (RFC 3339 with offset).
     Cutoff {
         /// Policy.
-        policy_id: PolicyId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        policy_id: Option<PolicyId>,
         /// Instant after which no new work activates until cleared.
         at: Timestamp,
+        /// ⟨M05⟩ Or a target.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<PolicyTarget>,
     },
     /// Clear a cutoff deliberately.
     ClearCutoff {
         /// Policy.
-        policy_id: PolicyId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        policy_id: Option<PolicyId>,
+        /// ⟨M05⟩ Or a target.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<PolicyTarget>,
     },
     /// ⟨M03⟩ Set the lock behaviour (§5 item 6): `continue` is widening,
     /// `revoke_on_lock` narrowing.
@@ -892,14 +1032,89 @@ pub enum PolicyAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         multiplexing: Option<MultiplexingMode>,
     },
+    /// ⟨M05⟩ Create a personal standing policy (ADR-0011 §3.1; widening). The setup
+    /// offer's `Create{default}` carries the spec §5.2 disclosure.
+    Create {
+        /// Profile.
+        profile: ProfileId,
+        /// Environments it applies in.
+        environments: BTreeSet<EnvironmentId>,
+        /// Maximum window, as a duration string (`12h`, `PT12H`); default 12 h (P04).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_window: Option<String>,
+        /// The personal default of its environments (at most one per environment).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        default: bool,
+    },
+    /// ⟨M05⟩ Add pairs, capabilities, environments or `background_work` to a policy
+    /// (widening; ADR-0011 §4.1: a trusted workspace's manifest delta).
+    ExtendScope {
+        /// Policy.
+        policy_id: PolicyId,
+        /// Added pairs.
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        pairs: BTreeSet<AccessPairRef>,
+        /// Added capabilities.
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        capabilities: BTreeSet<Capability>,
+        /// Added environments.
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        environments: BTreeSet<EnvironmentId>,
+        /// Requested lock behaviour (`true`: work while locked).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        background_work: Option<bool>,
+    },
+    /// ⟨M05⟩ Remove pairs from a policy (narrowing; ends only grants outside their basis).
+    NarrowScope {
+        /// Policy.
+        policy_id: PolicyId,
+        /// Removed pairs.
+        pairs: BTreeSet<AccessPairRef>,
+    },
+    /// ⟨M05⟩ Set the maximum window (widening when longer; the request alone cannot
+    /// tell, so [`PolicyAction::is_widening`] treats it as widening).
+    SetMaxWindow {
+        /// Policy.
+        policy_id: PolicyId,
+        /// Duration string.
+        max_window: String,
+    },
+    /// ⟨M05⟩ Remove a policy (narrowing).
+    Remove {
+        /// Policy.
+        policy_id: PolicyId,
+    },
+    /// ⟨M05⟩ First trust of a workspace (ADR-0011 §2.1; widening): creates the workspace
+    /// record and its policy, and sets the environment's `automatic_activation`.
+    TrustWorkspace {
+        /// The working directory the owner trusts.
+        cwd: String,
+        /// The access digest the proposal was reviewed against (lowercase hex).
+        access_digest: String,
+        /// What the owner approves.
+        proposal: TrustProposal,
+    },
+    /// ⟨M05⟩ Reconcile a moved or re-cloned trusted checkout (ADR-0011 §2.3; widening).
+    ReconcileWorkspace {
+        /// The record.
+        workspace: WorkspaceId,
+        /// The new observation's working directory.
+        cwd: String,
+    },
+    /// ⟨M05⟩ Pause and end now (ADR-0011 §7.2 "Stop (policy target)"; narrowing).
+    Stop {
+        /// Target.
+        target: PolicyTarget,
+    },
 }
 
 impl PolicyAction {
     /// Whether this action widens authority and so needs a `WidenPolicy` decision
     /// (ADR-0006 §3.1; m03-plan §5 item 6): `resume`, `clear_cutoff`,
     /// `set_lock_behavior{continue}`, and `set_connection_policy` with `existing:
-    /// graceful` or `multiplexing: owned_masters`. Looks only at the request, not at
-    /// the stored policy.
+    /// graceful` or `multiplexing: owned_masters`; ⟨M05⟩ `create`, `extend_scope`,
+    /// `set_max_window`, `trust_workspace`, `reconcile_workspace`. Looks only at the
+    /// request, not at the stored policy.
     #[must_use]
     pub fn is_widening(&self) -> bool {
         match self {
@@ -914,6 +1129,74 @@ impl PolicyAction {
                 *existing == Some(ExistingConnectionsMode::Graceful)
                     || *multiplexing == Some(MultiplexingMode::OwnedMasters)
             }
+            PolicyAction::Create { .. }
+            | PolicyAction::ExtendScope { .. }
+            | PolicyAction::SetMaxWindow { .. }
+            | PolicyAction::TrustWorkspace { .. }
+            | PolicyAction::ReconcileWorkspace { .. } => true,
+            PolicyAction::NarrowScope { .. }
+            | PolicyAction::Remove { .. }
+            | PolicyAction::Stop { .. } => false,
+        }
+    }
+
+    /// The policy an M01–M03 form names (`None` for a targeted or revision-5 form).
+    #[must_use]
+    pub fn policy_id(&self) -> Option<&PolicyId> {
+        match self {
+            PolicyAction::Pause {
+                policy_id: Some(p),
+                target: None,
+            }
+            | PolicyAction::Resume {
+                policy_id: Some(p),
+                target: None,
+            }
+            | PolicyAction::Cutoff {
+                policy_id: Some(p),
+                target: None,
+                ..
+            }
+            | PolicyAction::ClearCutoff {
+                policy_id: Some(p),
+                target: None,
+            }
+            | PolicyAction::SetLockBehavior { policy_id: p, .. }
+            | PolicyAction::SetConnectionPolicy { policy_id: p, .. } => Some(p),
+            _ => None,
+        }
+    }
+
+    /// Whether `pause`, `resume`, `cutoff` and `clear_cutoff` name exactly one of
+    /// `policy_id` and `target` (always true for the other actions).
+    #[must_use]
+    pub fn selector_ok(&self) -> bool {
+        match self {
+            PolicyAction::Pause { policy_id, target }
+            | PolicyAction::Resume { policy_id, target }
+            | PolicyAction::Cutoff {
+                policy_id, target, ..
+            }
+            | PolicyAction::ClearCutoff { policy_id, target } => {
+                policy_id.is_some() != target.is_some()
+            }
+            _ => true,
+        }
+    }
+
+    /// ⟨M05⟩ Whether this is a revision-5 form: a new action, or a block action with a
+    /// `target` (served from M05; joint wave 0 refuses it `driver_unavailable`).
+    #[must_use]
+    pub fn is_m05(&self) -> bool {
+        match self {
+            PolicyAction::Pause { target, .. }
+            | PolicyAction::Resume { target, .. }
+            | PolicyAction::Cutoff { target, .. }
+            | PolicyAction::ClearCutoff { target, .. } => target.is_some(),
+            PolicyAction::SetLockBehavior { .. } | PolicyAction::SetConnectionPolicy { .. } => {
+                false
+            }
+            _ => true,
         }
     }
 }
@@ -1073,6 +1356,10 @@ pub enum Request {
     /// ⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence ([`UninstallFenceRequest`];
     /// owner principal, needs `service-control/1`).
     UninstallFence(UninstallFenceRequest),
+    /// ⟨M04⟩ Revision 5 (m04-plan §5 item 2): add or remove a WSL or container
+    /// environment ([`EnvironmentRequest`]; owner role, needs `environments/1`, not
+    /// offered until M04 wires it).
+    Environment(EnvironmentRequest),
 }
 
 /// How the application admits a request (m02-plan U0 "journaled kinds"; ADR-0006
@@ -1113,6 +1400,7 @@ impl Request {
             Request::Enrollment(r) => r.kind(),
             Request::Connections(r) => r.kind(),
             Request::UninstallFence(r) => r.kind(),
+            Request::Environment(r) => r.kind(),
         }
     }
 
@@ -1173,6 +1461,14 @@ impl Request {
                 | UninstallFenceRequest::Release
                 | UninstallFenceRequest::RetryRemoteRevocations,
             ) => Admission::Synchronous,
+            // ⟨M04⟩ Revision 5: decision-recorded or setup-confirmed, no operation row
+            // (the issuer-registration pattern).
+            Request::Environment(
+                EnvironmentRequest::WslEnable { .. }
+                | EnvironmentRequest::WslDisable { .. }
+                | EnvironmentRequest::ContainerAdd { .. }
+                | EnvironmentRequest::ContainerRemove { .. },
+            ) => Admission::Synchronous,
         }
     }
 
@@ -1187,10 +1483,41 @@ impl Request {
             Request::Shutdown(_) | Request::UninstallFence(_) => {
                 Some(crate::ipc::capability::SERVICE_CONTROL_V1)
             }
+            // ⟨M04, M05⟩ Revision 5's setup and catalog forms need their track's capability
+            // instead of `setup/1` (W0-R04): a route's `jump` and the M04 setup items are
+            // `environments/1`'s, `apply_import` is `trusted-work/1`'s.
+            Request::Catalog(CatalogRequest::ApplyImport { .. }) => {
+                Some(crate::ipc::capability::TRUSTED_WORK_V1)
+            }
+            Request::Catalog(CatalogRequest::UpsertDestination { destination, .. })
+                if matches!(
+                    destination.definition,
+                    crate::catalog::DestinationDefinitionSpec::Managed { jump: Some(_), .. }
+                ) =>
+            {
+                Some(crate::ipc::capability::ENVIRONMENTS_V1)
+            }
+            Request::Setup(SetupRequest::Preview { intent }) if intent.uses_m04_form() => {
+                Some(crate::ipc::capability::ENVIRONMENTS_V1)
+            }
             Request::Setup(_) | Request::Catalog(_) => Some(crate::ipc::capability::SETUP_V1),
             Request::Issuer(_) => Some(crate::ipc::capability::ISSUER_V1),
             Request::Enrollment(_) => Some(crate::ipc::capability::ENROLLMENT_V1),
             Request::Connections(_) => Some(crate::ipc::capability::CONNECTIONS_V1),
+            Request::Environment(_) => Some(crate::ipc::capability::ENVIRONMENTS_V1),
+            // ⟨M05⟩ Revision 5: the trusted-work forms need `trusted-work/1`, so a runtime
+            // that does not offer it refuses them explicitly (`SCHEMA_UNSUPPORTED`)
+            // instead of ignoring a field it does not know (ADR-0006 §9, §17 item 2).
+            Request::Ensure(r) if r.uses_m05_form() => {
+                Some(crate::ipc::capability::TRUSTED_WORK_V1)
+            }
+            Request::Policy(a) if a.is_m05() => Some(crate::ipc::capability::TRUSTED_WORK_V1),
+            Request::Revoke(r) if r.target.is_some() => {
+                Some(crate::ipc::capability::TRUSTED_WORK_V1)
+            }
+            Request::Inspect(r) if r.uses_m05_form() => {
+                Some(crate::ipc::capability::TRUSTED_WORK_V1)
+            }
             Request::Inspect(_)
             | Request::Ensure(_)
             | Request::Bind(_)

@@ -297,7 +297,7 @@ async fn windows_decision_joined_follower_names_the_pipe_its_materialization_cre
                 .ensure(
                     &unattended(),
                     EnsureRequest {
-                        profile: ProfileId::parse("dev").unwrap(),
+                        profile: Some(ProfileId::parse("dev").unwrap()),
                         profile_revision: None,
                         scope: [w.pair()].into_iter().collect(),
                         environment: None,
@@ -308,6 +308,8 @@ async fn windows_decision_joined_follower_names_the_pipe_its_materialization_cre
                         interaction: InteractionMode::Interactive,
                         wait: WaitMode::Sync { timeout_ms: 30_000 },
                         connection: None,
+                        context: None,
+                        covered_only: false,
                     },
                 )
                 .await

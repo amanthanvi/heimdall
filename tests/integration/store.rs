@@ -303,7 +303,8 @@ fn decision(b: u8, generation: u64) -> DecisionRecord {
         id: DecisionId::from_random_bytes([b; 16]),
         kind: DecisionKind::WidenPolicy {
             action: PolicyAction::Resume {
-                policy_id: PolicyId::parse("personal").unwrap(),
+                policy_id: Some(PolicyId::parse("personal").unwrap()),
+                target: None,
             },
         },
         generation: AuthorityGeneration(generation),
@@ -364,6 +365,7 @@ fn resolved_intent() -> ResolvedIntent {
         approval: None,
         covered: None,
         binding_id: None,
+        workspace: None,
     }
 }
 
@@ -1040,12 +1042,17 @@ fn before_commit_failure_leaves_no_row() {
         .unwrap();
     assert_eq!((o, i), (None, None));
     // Opening a fresh store visits the migration points of every step (0001,
-    // 0002, 0003, 0004, 0005, 0006) first; then the failed transaction (before
+    // 0002, 0003, 0004, 0005, 0006, 0007, 0008) first; then the failed transaction (before
     // transaction, before commit) and the verifying one.
     assert_eq!(
         faults.visited(),
         vec![
             // M03 wave 0 (S): migration 0006 adds one step.
+            // ⟨M04, M05⟩ Joint wave 0: migrations 0007 and 0008 add two.
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
@@ -1331,7 +1338,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
-    assert_eq!(SCHEMA_VERSION, 6); // M03 wave 0 (S)
+    assert_eq!(SCHEMA_VERSION, 8); // M04/M05 wave 0
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -1345,7 +1352,7 @@ fn newer_schema_is_refused_and_untouched() {
             }
         )
     });
-    // The next version (7) is just as foreign. // M03 wave 0 (S)
+    // The next version is just as foreign.
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&(SCHEMA_VERSION + 1).to_be_bytes())
@@ -1353,10 +1360,8 @@ fn newer_schema_is_refused_and_untouched() {
     assert_refused_and_untouched(&db, |e| {
         matches!(
             e,
-            StoreError::NewerSchema {
-                found: 7,
-                supported: 6
-            }
+            StoreError::NewerSchema { found, supported }
+                if *found == SCHEMA_VERSION + 1 && *supported == SCHEMA_VERSION
         )
     });
 }
@@ -3244,6 +3249,8 @@ fn grant_origin(revision: u64) -> heimdall_domain::grant::GrantOrigin {
         // M03 wave 0 (A1): fail closed until U0b
         lock_behavior: None,
         connection: None,
+        policy_id: None,
+        workspace: None,
     }
 }
 
@@ -3942,7 +3949,11 @@ mod m02 {
     }
 
     fn apply() -> PreviewIntent {
-        PreviewIntent::Apply { include_git: false }
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        }
     }
 
     /// A setup operation (queued), its idempotency record and its intent.
@@ -4214,7 +4225,7 @@ mod m02 {
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
         assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 6); // M03 wave 0 (S)
+        assert_eq!(SCHEMA_VERSION, 8); // M04/M05 wave 0
         let mut backup = db.as_os_str().to_owned();
         backup.push(".v4.backup");
         assert!(PathBuf::from(backup).exists(), "v4 file backed up first");
@@ -4314,10 +4325,7 @@ mod m02 {
         assert!(
             matches!(
                 e,
-                StoreError::OlderSchema {
-                    found: 4,
-                    supported: 6 // M03 wave 0 (S)
-                }
+                StoreError::OlderSchema { found: 4, supported } if supported == SCHEMA_VERSION
             ),
             "{e}"
         );
@@ -4350,18 +4358,14 @@ mod m02 {
         let bytes = std::fs::read(&newer).unwrap();
         assert!(matches!(
             Store::open_read_only(&newer, Arc::new(NoFaults)),
-            Err(StoreError::NewerSchema {
-                found: 7, // M03 wave 0 (S)
-                supported: 6
-            })
+            Err(StoreError::NewerSchema { found, supported })
+                if found == SCHEMA_VERSION + 1 && supported == SCHEMA_VERSION
         ));
         assert_refused_and_untouched(&newer, |e| {
             matches!(
                 e,
-                StoreError::NewerSchema {
-                    found: 7, // M03 wave 0 (S)
-                    supported: 6
-                }
+                StoreError::NewerSchema { found, supported }
+                    if *found == SCHEMA_VERSION + 1 && *supported == SCHEMA_VERSION
             )
         });
         assert_eq!(std::fs::read(&newer).unwrap(), bytes);
@@ -4386,6 +4390,7 @@ mod m02 {
                 port: None,
                 account: AccountName::parse("git").unwrap(),
                 identity: IdentityId::from_random_bytes([n; 16]),
+                jump: None,
             },
             label: None,
             updated_at: t0(),

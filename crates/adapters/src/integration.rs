@@ -309,6 +309,8 @@ fn report(destination_scope: DestinationScopeEnforcement) -> Enforcement {
         remote_processes: None,
         unmanaged_connections: None,
         issuer_isolation: None,
+        ordinary_aliases: None,
+        owner_functions: None,
     }
 }
 
@@ -716,6 +718,8 @@ impl Core {
                 // ⟨M02⟩ ADR-0007 §12.15 item 3(c): the full selection crosses the
                 // port (§12.14 item 6), with each alternative's `cleared`.
                 identity_selection_report: Some(selection.clone()),
+                agent_forwarding: false,
+                route: None,
             };
             readiness.push(judged);
             details.push(PairDetail {
@@ -793,6 +797,7 @@ impl Core {
                 executables: sources.executables(),
                 overrides,
                 pairs: details.iter().map(|d| d.pair.clone()).collect(),
+                realization: None,
             },
             managed: None,
         };

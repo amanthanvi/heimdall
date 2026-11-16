@@ -145,6 +145,8 @@ mod windows {
                 remote_processes: None,
                 unmanaged_connections: None,
                 issuer_isolation: None,
+                ordinary_aliases: None,
+                owner_functions: None,
             },
             evidence: Vec::new(),
         }
@@ -304,7 +306,7 @@ mod windows {
             .block_on(ops.ensure(
                 &owner(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: [pair()].into_iter().collect(),
                     environment: None,
@@ -315,6 +317,8 @@ mod windows {
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             ))
             .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message))
@@ -424,8 +428,9 @@ mod windows {
             let _ = rt().block_on(self.ops.revoke(
                 &owner(),
                 RevokeRequest {
-                    grant_id: self.data.grant_id.clone(),
+                    grant_id: Some(self.data.grant_id.clone()),
                     request_id: RequestId::parse("r-u7-revoke").unwrap(),
+                    target: None,
                 },
             ));
         }

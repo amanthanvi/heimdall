@@ -206,23 +206,47 @@ impl Operations {
             let Some(g) = tx.grant(&gid)? else {
                 return Ok(Err(SignRefusal::KeyNotServed));
             };
+            // ⟨M04⟩ ADR-0010 §9 item 1: a binding endpoint serves a binding of any
+            // environment in this runtime's managed set (replacing M01's `== env`); the
+            // grant itself must be pinned to that same environment.
             let served = match &endpoint {
-                SignerEndpoint::Binding(b) => tx.binding(b)?.is_some_and(|rec| {
-                    rec.grant == gid && rec.environment == env && rec.released_at.is_none()
-                }),
+                SignerEndpoint::Binding(b) => match tx.binding(b)? {
+                    Some(rec)
+                        if rec.grant == gid
+                            && rec.environment == g.environment
+                            && rec.released_at.is_none() =>
+                    {
+                        crate::environments::admit(tx, &env, &rec.environment)?.is_ok()
+                    }
+                    _ => false,
+                },
                 // ⟨integrator, wave-2 review⟩ D10 items 2–3: the environment endpoint
                 // serves a pair only while one of the grant's unreleased bindings
                 // **holds** that pair's slot here (a `clearing` slot is unlisted at
                 // once). The fresh read checks it, not only the in-memory listing.
-                SignerEndpoint::Environment => {
-                    let mut served = false;
-                    for r in tx.grant_references(&gid)? {
+                // ⟨M04⟩ An environment endpoint serves its own environment's slots only:
+                // the native endpoint the runtime's environment, a managed environment's
+                // endpoint that environment (which must be in the managed set).
+                SignerEndpoint::Environment | SignerEndpoint::ManagedEnvironment(_) => {
+                    let listing = match &endpoint {
+                        SignerEndpoint::ManagedEnvironment(e) => e.clone(),
+                        _ => env.clone(),
+                    };
+                    let mut served = crate::environments::admit(tx, &env, &listing)?.is_ok()
+                        && g.environment == listing;
+                    let refs = if served {
+                        tx.grant_references(&gid)?
+                    } else {
+                        Vec::new()
+                    };
+                    served = false;
+                    for r in refs {
                         if let Some(b) = tx.binding(&r.binding)?
                             && b.grant == gid
-                            && b.environment == env
+                            && b.environment == listing
                             && b.released_at.is_none()
                             && tx.slots_for_binding(&b.id)?.iter().any(|slot| {
-                                slot.environment == env
+                                slot.environment == listing
                                     && slot.pair == pair
                                     && matches!(
                                         &slot.state,
@@ -259,7 +283,7 @@ impl Operations {
                 _ => return Ok(Err(SignRefusal::GrantNotUsable)),
             }
             let ctx = grant_context(tx, &g)?;
-            let bound = bound_of(tx, &env, &g, ctx.profile.as_ref())?;
+            let bound = bound_of(tx, &g, ctx.profile.as_ref())?;
             if dtime::is_expired(safe.wall(), bound)
                 || gate.admission(tx, &gid, &safe)? != Admission::Open
             {

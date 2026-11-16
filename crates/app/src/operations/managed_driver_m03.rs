@@ -140,7 +140,7 @@ fn install_check_in(
         return Ok(Err(install_refusal::TOMBSTONED));
     }
     let ctx = grant_context(tx, &g)?;
-    let bound = bound_of(tx, &ops.env, &g, ctx.profile.as_ref())?;
+    let bound = bound_of(tx, &g, ctx.profile.as_ref())?;
     let now = safe.wall();
     if dtime::is_expired(now, bound)
         || entry.bounds.valid_before > bound
@@ -586,11 +586,15 @@ impl Operations {
             {
                 return Ok(None);
             }
-            let policies = tx.policies_for(&origin.profile, &env)?;
+            // ⟨M04, M05⟩ The grant's own environment, in its recorded context.
+            let _ = &env;
+            let context = crate::policy_context::grant_context(Some(&origin));
+            let policies =
+                crate::policy_context::grant_policies(tx, &g.environment, Some(&origin))?;
             let lock = crate::lock::effective_behavior_with_floor(Some(&origin), &policies, floor);
-            let cutoff_at = super::merged_policy(&policies).and_then(|p| p.cutoff_at);
+            let cutoff_at = super::merged_policy(&policies, &context).and_then(|p| p.cutoff_at);
             let tombstoned = tx.denied_ancestor(&gid)?.is_some();
-            let bound = bound_of(tx, &env, &g, Some(&origin.profile))?;
+            let bound = bound_of(tx, &g, Some(&origin.profile))?;
             g.deadline.effective = g.deadline.effective.min(bound);
             let (time, admission, now) = match gate.check(tx)? {
                 Ok(safe) => {

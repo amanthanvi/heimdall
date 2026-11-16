@@ -185,9 +185,45 @@ pub enum DecisionKind {
         /// The proposed target the operation carries.
         proposed: ApprovedTarget,
     },
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 6): first trust of a workspace (ADR-0011 §2.1,
+    /// §3.4): approval writes the workspace record, its policy, the environment's
+    /// `automatic_activation` and, when pending, the lock-disclosure acknowledgement, in
+    /// one transaction. Refused, not consumed, until M05 U2 lands its driver.
+    TrustWorkspace {
+        /// The action, verbatim (`PolicyAction::TrustWorkspace`), fixed at creation from
+        /// server-side state (I5).
+        action: PolicyAction,
+        /// The manifest's `project` label, as quoted, bounded data with control
+        /// characters stripped (never the decision's title or action).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project_label: Option<String>,
+        /// Whether approving also acknowledges the M03 lock disclosure.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        lock_disclosure: bool,
+    },
+    /// ⟨M05⟩ Revision 5: reconcile a moved or re-cloned trusted checkout (ADR-0011 §2.3).
+    /// Refused, not consumed, until M05 U2 lands its driver.
+    ReconcileWorkspace {
+        /// The action, verbatim (`PolicyAction::ReconcileWorkspace`).
+        action: PolicyAction,
+        /// Why the observation is ambiguous.
+        why: crate::workspace::AmbiguityReason,
+    },
 }
 
 impl DecisionKind {
+    /// ⟨M05⟩ Whether this is one of revision 5's M05 kinds, or a `WidenPolicy` carrying
+    /// a revision-5 action: refused and not consumed until their drivers land (the
+    /// M03 wave-0 pattern).
+    #[must_use]
+    pub fn is_m05(&self) -> bool {
+        match self {
+            DecisionKind::TrustWorkspace { .. } | DecisionKind::ReconcileWorkspace { .. } => true,
+            DecisionKind::WidenPolicy { action } => action.is_m05(),
+            _ => false,
+        }
+    }
+
     /// ⟨M03⟩ Whether this is one of the M03 kinds. Until their drivers land (U0b
     /// row 14, phase 2) every M03 kind is refused and not consumed.
     #[must_use]
@@ -366,7 +402,8 @@ mod tests {
             id: DecisionId::from_random_bytes([9; 16]),
             kind: DecisionKind::WidenPolicy {
                 action: PolicyAction::Resume {
-                    policy_id: heimdall_contract::ids::PolicyId::parse("p").unwrap(),
+                    policy_id: Some(heimdall_contract::ids::PolicyId::parse("p").unwrap()),
+                    target: None,
                 },
             },
             generation: AuthorityGeneration(generation),

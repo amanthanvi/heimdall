@@ -44,6 +44,11 @@ pub enum DestinationDefinition {
         account: AccountName,
         /// The adopted identity the alias uses.
         identity: IdentityId,
+        /// ⟨M04⟩ Revision 5 (ADR-0010 §5 item 1): the single-hop jump destination.
+        /// Serde default, omitted when absent, so every M02/M03 record decodes and
+        /// re-encodes unchanged.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        jump: Option<DestinationId>,
     },
     /// Defined by the user; Heimdall only observes it.
     Observed,

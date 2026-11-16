@@ -89,8 +89,24 @@ a `check.sh` step) checks these edges against the manifests on every run:
 * `crates/enroll` (`heimdall-enroll`): enrollment I/O only, the CLI-side
   `SshStepRunner` and the runtime-side `Verifier` (`VerificationRunner`) (U5).
 
-`app` depends on none of `credential`, `issuer`, `enroll`, `adapters`, `localenv` or
-`runtime`, and `ipc` depends only on `contract`: the signing permit crosses into `ipc`
+**M04/M05 crates** (joint wave 0; ADR-0010 §9 item 9, ADR-0011 §10 item 10). Two skeleton
+crates, registered with `contract` and `domain` only; their tracks add the rest.
+
+```text
+   wsl        ──► credential, localenv, ipc, app (ports), domain, contract   (planned)
+   project    ──► domain, contract                       (pure: no I/O)
+   runtime    ──► … + wsl           heimdall ──► … + wsl           app ──► … + project
+```
+
+* `crates/wsl` (`heimdall-wsl`, M04): WSL distribution discovery, the `heimdall-wsl/1`
+  helper channel and Mode A/B (ADR-0010 §2–§3). It implements `app` ports and the runtime
+  wires it, so `app` never imports it.
+* `crates/project` (`heimdall-project`, M05): the pure manifest parser, access digest,
+  workspace discovery over an `FsView`, `match_workspace` and the portable bundle
+  (ADR-0011 §2.2–§2.4). Pure: `contract` and `domain` only; `app` calls it directly.
+
+`app` depends on none of `credential`, `issuer`, `enroll`, `adapters`, `localenv`, `runtime`
+or `wsl`, and `ipc` depends only on `contract`: the signing permit crosses into `ipc`
 as the opaque `ipc::signing::PermitGuard` (a boxed `ReleaseCheck`). Ports carry what
 flows upward: `TargetEvaluator` (localenv → app), `ManagedEffects` (adapters → app),
 `IssuerPort` (issuer → app), `VerificationRunner` (enroll → app), `SignatureAuthority`
@@ -140,6 +156,8 @@ M02 adapters are both known callers; no plugin framework exists.
 | `heimdall-credential` (M03) | The B1 signer: key vault with memory protection, certificates, purpose parsing, `session-bind`, the signer and its grant, environment and verification endpoints (ADR-0008 D1, D2; U1, U2) | Authorization (asks `SignatureAuthority`), the store, K_ca | app (ports, managed), ipc, domain, contract, ssh-key, zeroize | `vault`, `cert`, `purpose`, `signer`, `endpoints`, `sys` |
 | `heimdall-issuer` (M03) | The issuer child (no listener) and `heimdall-issuer/1`, its client (`IssuerPort`), the `SecretStore` trait and the product stores, the D5 backup, ceremonies and the recovery bundle (ADR-0008 D3, D4; U3, U4) | A listener of any kind, issuing without a store reservation, writing the store (it opens it read-only) | credential, app (issuance_ro, ports), store, domain, contract | `protocol`, `child`, `client`, `store`, `backup`, `ceremony`, `bundle`, `sys` |
 | `heimdall-enroll` (M03) | Enrollment I/O: the CLI-side `SshStepRunner` (client-executed remote steps) and the runtime-side `Verifier` (`VerificationRunner`, the independent fresh login) (ADR-0008 D5 §6.3, §6.5; U5) | Deciding anything the pure `heimdall-registry` decides; contacting the signer of a managed binding during maintenance | registry, app (ports), domain, contract | `remote`, `verify` |
+| `heimdall-wsl` (M04, skeleton) | WSL distribution discovery, the `heimdall-wsl/1` helper channel and Mode A/B (ADR-0010 §2–§3) | Being imported by `app` (it implements `app` ports; the runtime wires it) | contract, domain now; credential, localenv, ipc, app (ports) planned | none yet |
+| `heimdall-project` (M05, skeleton) | The pure manifest parser, access digest, discovery over an `FsView`, `match_workspace` and the portable bundle (ADR-0011 §2.2–§2.4) | Any I/O of its own, any workspace crate but `contract` and `domain` | domain, contract | none yet |
 
 ## 3. Process model (spec §13.1, §13.2, P01)
 
@@ -457,6 +475,20 @@ ADR-0007 §12.48 item 2):
     flag is kept.
   * **The current user's SID:** read from the token user, for `PrincipalRef::WindowsUser`.
   * **Memory:** every `LocalAlloc`ed result is freed exactly once.
+* `crates/testkit/src/conpty.rs` (`#![allow(unsafe_code)]`, Windows only, feature `fixtures`;
+  M03 wave 6, U13): the pseudoconsole behind `console::TerminalCommand`, G02's proven
+  `X1Pty.Start` approach.
+  * **Creation:** `CreatePipe` twice, `CreatePseudoConsole`, a process-thread attribute list
+    with `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`, and `CreateProcessW` with
+    `STARTF_USESTDHANDLES` and null standard handles, `bInheritHandles = FALSE` and an
+    explicit environment block.
+  * **Ctrl-C disposition:** `SetConsoleCtrlHandler(NULL, FALSE)` before `CreateProcessW`
+    clears the test process's inherited "ignore Ctrl-C" attribute, so the program gets the
+    normal disposition. It is never set again.
+  * **The process:** `WaitForSingleObject`, `GetExitCodeProcess` and `TerminateProcess`, all
+    on the handle held since creation, never a PID lookup.
+  * **Ownership:** every handle is an `OwnedHandle`, and the pseudoconsole and the attribute
+    list are guards that close or delete once.
 * `crates/testkit/src/hook.rs`, at one `#[allow(unsafe_code)]` site, Windows only: the
   fixture hook calls `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` before it
   spawns, as `runtime::platform::disinherit_standard_handles` does (wave 6w).
@@ -498,8 +530,8 @@ lesson); `cargo-deny`/`cargo auditable`/OSV scanning are M08 obligations
   reports `running 0 tests` fails the run (review F09). Each step prints its real
   exit code. ⟨M03⟩ Three more steps (m03-plan U0, U0b row 16): `crate-graph`
   (`crate_graph.py`: no production cycle, no `app → {credential, issuer, enroll,
-  adapters, localenv, runtime}` edge, `ipc` only on `contract`, `registry` only on
-  `contract` and `domain`; with its mutant-fixture self-tests), `claims-table`
+  adapters, localenv, runtime, wsl}` edge, `ipc` only on `contract`, `registry` and
+  `project` only on `contract` and `domain`; with its mutant-fixture self-tests), `claims-table`
   (`claims_table.py`: every claim-table entry backed by a `verified` record at an
   ancestor commit, custody claims only from release builds on product stores; with
   its self-tests) and `release-gate` (`release-gate.sh`: a release binary exits 2 for

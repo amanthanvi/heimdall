@@ -51,6 +51,10 @@ pub enum EventType {
     /// ⟨M03⟩ A session lock was observed (payload
     /// [`crate::managed::SessionLockEventPayload`]).
     SessionLock,
+    /// ⟨M05⟩ Revision 5 (m05-plan §4 item 8): a background activation was activated,
+    /// blocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not
+    /// emitted by joint wave 0.
+    Activation,
 }
 
 /// One event (spec §11.5 field list).

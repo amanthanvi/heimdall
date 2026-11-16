@@ -601,7 +601,11 @@ impl Fx {
         self.writer()
             .preview(
                 &self.spec(None),
-                &PreviewIntent::Apply { include_git: true },
+                &PreviewIntent::Apply {
+                    include_git: true,
+                    distribution: None,
+                    items: Default::default(),
+                },
             )
             .unwrap()
     }
@@ -799,7 +803,14 @@ fn git_item_not_offered_without_bundled_msys_default() {
     #[cfg(windows)]
     {
         let plan = LocalProjection::new(c.clone())
-            .preview(&fx.spec(None), &PreviewIntent::Apply { include_git: true })
+            .preview(
+                &fx.spec(None),
+                &PreviewIntent::Apply {
+                    include_git: true,
+                    distribution: None,
+                    items: Default::default(),
+                },
+            )
             .unwrap();
         assert_eq!(
             plan.view.git.unwrap().applicability,
@@ -825,7 +836,14 @@ fn git_item_not_offered_without_bundled_msys_default() {
         c.env = Env::from_vars(vars);
     }
     let plan = LocalProjection::new(c)
-        .preview(&fx.spec(None), &PreviewIntent::Apply { include_git: true })
+        .preview(
+            &fx.spec(None),
+            &PreviewIntent::Apply {
+                include_git: true,
+                distribution: None,
+                items: Default::default(),
+            },
+        )
         .unwrap();
     let git = plan.view.git.unwrap();
     assert_eq!(git.applicability, GitApplicability::NotApplicable);
@@ -886,7 +904,11 @@ fn git_first_adoption_previews_reproduce_their_plan_digest() {
             std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
         }
         let spec = fx.spec(None);
-        let intent = PreviewIntent::Apply { include_git: true };
+        let intent = PreviewIntent::Apply {
+            include_git: true,
+            distribution: None,
+            items: std::collections::BTreeSet::new(),
+        };
         let label = format!("global_present={global_present}");
         let preview = |spec: &ProjectionSpec| fx.complete_preview(spec, &intent, &label);
         let (a, b) = (preview(&spec), preview(&spec));
@@ -973,6 +995,7 @@ fn git_include_applied_under_lock_and_rollback_restores_bytes() {
             &PreviewIntent::Rollback {
                 keep_key_files: true,
                 items: [ProjectionItem::Git].into_iter().collect(),
+                distribution: None,
             },
         )
         .unwrap()
@@ -2331,6 +2354,7 @@ fn rollback_git(fx: &Fx, intent: &SetupIntent, sink: &Sink) -> ProjectionPlan {
             &PreviewIntent::Rollback {
                 keep_key_files: true,
                 items: [ProjectionItem::Git].into_iter().collect(),
+                distribution: None,
             },
         )
         .unwrap()
@@ -2368,6 +2392,7 @@ fn git_consent_apply_decided_rollback_to_consented_state_waived() {
     let rollback = PreviewIntent::Rollback {
         keep_key_files: true,
         items: [ProjectionItem::Git].into_iter().collect(),
+        distribution: None,
     };
     let rb = fx.writer().preview(&spec, &rollback).unwrap();
     assert!(rb.files.iter().any(|s| s.role == FileRole::GitInclude));
@@ -2770,7 +2795,11 @@ impl Fx {
     }
 }
 
-const GIT_APPLY: PreviewIntent = PreviewIntent::Apply { include_git: true };
+const GIT_APPLY: PreviewIntent = PreviewIntent::Apply {
+    include_git: true,
+    distribution: None,
+    items: std::collections::BTreeSet::new(),
+};
 
 /// Apply the Git item (and SSH) once. Returns the spec it applied, the intent and the
 /// receipts: `again(&spec, …)` is the spec of a later preview that has the record.
@@ -3089,12 +3118,14 @@ fn git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git
         let git_only = PreviewIntent::Rollback {
             keep_key_files: true,
             items: [ProjectionItem::Git].into_iter().collect(),
+            distribution: None,
         };
         let both = PreviewIntent::Rollback {
             keep_key_files: true,
             items: [ProjectionItem::Ssh, ProjectionItem::Git]
                 .into_iter()
                 .collect(),
+            distribution: None,
         };
         // The control: the file as the writer accepts it is rolled back by a plan that
         // edits it.
@@ -3522,6 +3553,7 @@ fn git_rollback_without_a_recorded_file_searches_both_global_files() {
     let git_only = PreviewIntent::Rollback {
         keep_key_files: true,
         items: [ProjectionItem::Git].into_iter().collect(),
+        distribution: None,
     };
 
     // Exactly one block (in ~/.gitconfig; the XDG file appeared later without one).
@@ -4146,6 +4178,7 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
     let rollback = PreviewIntent::Rollback {
         keep_key_files: true,
         items: [ProjectionItem::Git].into_iter().collect(),
+        distribution: None,
     };
     for case in cases {
         let fx = Fx::new();
@@ -4501,7 +4534,14 @@ fn git_spaced_client_path_is_quoted_and_runs() {
         consent: heimdall_domain::projection::ConsentRecord::default(),
     };
     let plan = LocalProjection::new(config.clone())
-        .preview(&spec, &PreviewIntent::Apply { include_git: false })
+        .preview(
+            &spec,
+            &PreviewIntent::Apply {
+                include_git: false,
+                distribution: None,
+                items: Default::default(),
+            },
+        )
         .unwrap();
     let out = LocalProjection::new(config)
         .apply(&plan.intent(), &mut Sink::default())
@@ -4603,7 +4643,11 @@ fn git_preview_digest_is_stable_under_a_slow_git() {
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
     fx.git = wrapper;
     let spec = fx.spec(None);
-    let intent = PreviewIntent::Apply { include_git: true };
+    let intent = PreviewIntent::Apply {
+        include_git: true,
+        distribution: None,
+        items: std::collections::BTreeSet::new(),
+    };
 
     // The old bound: the slow query times out, and the observation says which one.
     fx.query_bound = Some(Duration::from_secs(2));

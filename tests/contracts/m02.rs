@@ -132,6 +132,12 @@ fn one_of_every_request() -> Vec<Request> {
         "schemas/examples/request.enrollment.abandon.json",
         "schemas/examples/request.enrollment.step.json",
         "schemas/examples/request.enrollment.step-result.json",
+        // ⟨rev5⟩ ADR-0006 revision 5: the environment requests and `apply_import`.
+        "schemas/examples/request.environment.wsl-enable.json",
+        "schemas/examples/request.environment.wsl-disable.json",
+        "schemas/examples/request.environment.container-add.json",
+        "schemas/examples/request.environment.container-remove.json",
+        "schemas/examples/request.catalog.apply-import.json",
     ]
     .iter()
     .map(|p| request(load(p)))
@@ -282,7 +288,14 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
         let (op, _) = op_and_action(&r);
         match op.as_str() {
             "setup" | "catalog" => {
-                assert_eq!(r.required_capability(), Some(capability::SETUP_V1), "{op}");
+                // ⟨rev5⟩ `apply_import` is M05's form and needs `trusted-work/1` instead
+                // (ADR-0006 §17.6 R5-Q7; W0-R04).
+                let needs = if matches!(r, Request::Catalog(CatalogRequest::ApplyImport { .. })) {
+                    capability::TRUSTED_WORK_V1
+                } else {
+                    capability::SETUP_V1
+                };
+                assert_eq!(r.required_capability(), Some(needs), "{op}");
                 assert!(!r.requires_attended_session(), "{op}");
                 assert!(!r.is_widening_policy_action(), "{op}");
                 let preview = matches!(r, Request::Setup(SetupRequest::Preview { .. }));
@@ -303,6 +316,10 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
             }
             "connections" => {
                 assert_eq!(r.required_capability(), Some(capability::CONNECTIONS_V1));
+            }
+            // ⟨rev5⟩ ADR-0006 revision 5 (m04-plan section 5 items 1-2).
+            "environment" => {
+                assert_eq!(r.required_capability(), Some(capability::ENVIRONMENTS_V1));
             }
             _ => assert_eq!(r.required_capability(), None, "{op}"),
         }

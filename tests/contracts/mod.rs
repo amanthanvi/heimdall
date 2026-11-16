@@ -22,6 +22,9 @@
 //!   rows, the section 5 item 14 reason golden, no scratch store kind in the public
 //!   schemas, the M03 additive fields and their M01/M02 decodes, capabilities and
 //!   the policy widening rule (the journaled-kind mapping stays in `m02`).
+//! * `rev5`: ADR-0006 revision 5 deltas (joint wave 0 of M04 and M05): the M04 and M05
+//!   reason goldens, the new examples against their schemas, the two declared
+//!   capabilities, and every pre-revision-5 request example unchanged.
 //!
 //! Property tests run 256 cases with a fixed default seed so a failure reproduces;
 //! set `PROPTEST_RNG_SEED=<u64>` to explore other seeds. Failing cases persist to
@@ -37,6 +40,8 @@ mod jsonschema_lite;
 mod limits;
 mod m02;
 mod m03;
+// ⟨rev5⟩ ADR-0006 revision 5 (joint wave 0 of M04 and M05).
+mod rev5;
 mod schema_export;
 
 use std::path::PathBuf;

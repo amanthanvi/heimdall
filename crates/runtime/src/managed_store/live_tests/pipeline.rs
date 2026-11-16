@@ -37,7 +37,7 @@ async fn ensure_on(
     ops.ensure(
         &caller(),
         EnsureRequest {
-            profile: ProfileId::parse("dev").unwrap(),
+            profile: Some(ProfileId::parse("dev").unwrap()),
             profile_revision: None,
             scope: scope.iter().cloned().collect(),
             environment: None,
@@ -48,6 +48,8 @@ async fn ensure_on(
             interaction: InteractionMode::Interactive,
             wait: WaitMode::Sync { timeout_ms: 30_000 },
             connection: None,
+            context: None,
+            covered_only: false,
         },
     )
     .await
@@ -769,7 +771,7 @@ async fn decision_joined_follower_gets_its_own_materialized_binding_and_both_sig
             ops.ensure(
                 &caller(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: scope.into_iter().collect(),
                     environment: None,
@@ -780,6 +782,8 @@ async fn decision_joined_follower_gets_its_own_materialized_binding_and_both_sig
                     interaction: InteractionMode::Interactive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await
@@ -983,7 +987,7 @@ async fn decision_joined(
             ops.ensure(
                 &caller(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: scope.into_iter().collect(),
                     environment: None,
@@ -994,6 +998,8 @@ async fn decision_joined(
                     interaction: InteractionMode::Interactive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await
@@ -1240,4 +1246,301 @@ async fn materialize_refuses_a_spec_with_an_inconsistent_source() {
         Some(created)
     );
     p.shutdown.cancel();
+}
+
+// ---------------------------------------------------------------------------------
+// ⟨M04⟩ ADR-0010 §9 item 1 (joint wave 0): the managed-environment seam, live.
+// ---------------------------------------------------------------------------------
+
+/// A second environment `e2` in the managed set of `w`'s runtime: its environment
+/// record (the native one's permissions), its `managed_environments` row (controller:
+/// the runtime's own environment; a container realization), and the standing policy
+/// extended to it. Its slots live under `<dir>/state-e2` (its own namespace).
+fn add_managed_environment(w: &Live, e2: &EnvironmentId) -> SlotRoot {
+    use heimdall_domain::environment::{EnvironmentRealization, ManagedEnvironment, ManagedState};
+    let data_dir = w.dir.path().join("state-e2");
+    owner_only(&data_dir);
+    w.store
+        .transaction(|tx| {
+            tx.upsert_environment(&EnvironmentRecord {
+                id: e2.clone(),
+                device: DeviceId::from_random_bytes([8; 16]),
+                kind: EnvironmentKind::Container,
+                label: None,
+                permissions: EnvironmentPermissions {
+                    automatic_activation: true,
+                    managed_signing: true,
+                    issuer_access: true,
+                },
+            })?;
+            tx.insert_managed_environment(&ManagedEnvironment {
+                environment: e2.clone(),
+                controller: env(),
+                realization: EnvironmentRealization::Container {
+                    label: "w0".to_owned(),
+                    dir_tag: "00000000000000e2".to_owned(),
+                },
+                state: ManagedState::Active,
+                created_at: t0(),
+                updated_at: t0(),
+            })?;
+            let mut p = tx.policy(&PolicyId::parse("pol").unwrap())?.unwrap();
+            p.environments.insert(e2.clone());
+            p.revision = PolicyRevision(p.revision.0 + 1);
+            tx.upsert_policy(&p, false)
+        })
+        .unwrap();
+    SlotRoot {
+        data_dir,
+        environment: e2.clone(),
+    }
+}
+
+/// [`ensure_on`] naming the target environment.
+async fn ensure_in(
+    ops: &Operations,
+    tag: &str,
+    scope: &[AccessPair],
+    environment: &EnvironmentId,
+) -> Result<EnsureData, heimdall_app::OpError> {
+    ops.ensure(
+        &caller(),
+        EnsureRequest {
+            profile: Some(ProfileId::parse("dev").unwrap()),
+            profile_revision: None,
+            scope: scope.iter().cloned().collect(),
+            environment: Some(environment.clone()),
+            work_id: WorkId::parse(&format!("w-{tag}")).unwrap(),
+            until: None,
+            required_capabilities: RequiredCapabilities::default(),
+            request_id: RequestId::parse(&format!("r-{tag}")).unwrap(),
+            interaction: InteractionMode::Interactive,
+            wait: WaitMode::Sync { timeout_ms: 30_000 },
+            connection: None,
+            context: None,
+            covered_only: false,
+        },
+    )
+    .await
+    .map(|c| c.data)
+}
+
+/// The certificate blobs an environment listing serves.
+fn listing(p: &Process, endpoint: &heimdall_app::ports::SignerEndpoint) -> Vec<Vec<u8>> {
+    p.table.list(endpoint).into_iter().map(|(b, _)| b).collect()
+}
+
+/// ⟨M04⟩ ADR-0010 §9 item 1's proof, through the real pipeline of
+/// [`reissue_restores_binding_endpoint_files_and_slot_so_ssh_signs_with_the_new_key`]
+/// extended to two environments of one runtime: the native session and a second
+/// managed environment `e2` (a container realization; its realization is M04's, so it
+/// is reached here through the binding endpoint the runtime serves).
+///
+/// * **ensure → issue → bind → sign** in each: two grants, each pinned to its own
+///   environment; each launch bind claims **its** environment's slot (store row, slot
+///   files under its own root, its own signer listing: the native environment endpoint
+///   never lists `e2`'s slot); real `ssh` signs through each binding endpoint.
+/// * **restart** in the same boot: both grants degraded, then the re-issue pass restores
+///   both, each slot back in its own listing, and `ssh` signs with each new key.
+/// * an **unmanaged** environment is refused (`NOT_FOUND`) and writes nothing.
+/// * **cleanup per environment**: `e2` leaves the set (`removed`); its grant ends (its
+///   authority is withdrawn: tombstoned, `revoking` until the remote round) and its
+///   binding endpoint, slot, files and listing are cleared, while the native grant, slot,
+///   listing and
+///   `ssh` stay usable; `e2` is then refused as a target (`environment_removed`).
+#[tokio::test]
+async fn two_environments_ensure_issue_bind_sign_restart_unmanaged_refused_cleanup_isolated() {
+    use heimdall_app::ports::SignerEndpoint;
+    use heimdall_domain::environment::ManagedState;
+    let pr = own_pair("w0-envs");
+    let w = Live::seeded(std::slice::from_ref(&pr), Timestamp::now());
+    let e2 = EnvironmentId::from_random_bytes([0xe2; 16]);
+    let root2 = add_managed_environment(&w, &e2);
+    let opts = || Opts {
+        slot_roots: vec![root2.clone()],
+        ..Opts::default()
+    };
+    let ssh = ssh_world(&w, &pr);
+
+    // Process 1: one ensure per environment, a launch bind each, ssh through each.
+    let p = w.process_opts(Arc::new(NoStageHook), opts()).await;
+    p.registry.start_environment().unwrap();
+    let d1 = ensure_on(&p.ops, "e1", std::slice::from_ref(&pr))
+        .await
+        .unwrap_or_else(|e| panic!("ensure e1: {} {}", e.code, e.message));
+    let d2 = ensure_in(&p.ops, "e2", std::slice::from_ref(&pr), &e2)
+        .await
+        .unwrap_or_else(|e| panic!("ensure e2: {} {}", e.code, e.message));
+    assert_eq!(d1.environment_id, env());
+    assert_eq!(d2.environment_id, e2, "the binding is pinned to its target");
+    assert_ne!(d1.grant_id, d2.grant_id);
+    let g2 = w
+        .store
+        .transaction(|tx| tx.grant(&d2.grant_id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(g2.environment, e2, "the grant is pinned to its target");
+    for (d, tag) in [(&d1, "e1"), (&d2, "e2")] {
+        super::launch_bind(&p, &d.binding_id, tag, None)
+            .await
+            .unwrap_or_else(|e| panic!("bind {tag}: {} {}", e.code, e.message));
+    }
+    let slot = |env: &EnvironmentId| w.store.transaction(|tx| tx.slot(env, &pr)).unwrap();
+    assert!(matches!(slot(&env()), SlotState::Held { binding, .. } if binding == d1.binding_id));
+    assert!(matches!(slot(&e2), SlotState::Held { binding, .. } if binding == d2.binding_id));
+    let paths1 = files::slot_paths(&p.effects.slot_root().data_dir, &pr).unwrap();
+    let paths2 = files::slot_paths(&root2.data_dir, &pr).unwrap();
+    assert_ne!(paths1.dir, paths2.dir, "separate slot namespaces");
+    assert!(paths1.cert_pub.exists() && paths2.cert_pub.exists());
+    let native = listing(&p, &SignerEndpoint::Environment);
+    let other = listing(&p, &SignerEndpoint::ManagedEnvironment(e2.clone()));
+    assert_eq!((native.len(), other.len()), (1, 1), "one slot per listing");
+    assert_ne!(native, other, "the native endpoint never lists e2's slot");
+    let key1 = p.table.public_key(&d1.grant_id).unwrap().fingerprint;
+    let key2 = p.table.public_key(&d2.grant_id).unwrap().fingerprint;
+    for (d, key, marker) in [(&d1, &key1, "e1-before"), (&d2, &key2, "e2-before")] {
+        let (ep, kp, cert, _) = binding_files(&w, &p, &d.binding_id, &pr);
+        let (code, fp) = ssh.run(&ep, &kp, &cert, marker).await;
+        assert_eq!(code, Some(0), "{marker}: ssh through the binding endpoint");
+        assert_eq!(fp.as_deref(), Some(key.as_str()), "{marker}");
+    }
+    let (code, fp) = ssh
+        .run(
+            &p.registry.environment().locator,
+            &paths1.key_pub,
+            &paths1.cert_pub,
+            "e1-slot",
+        )
+        .await;
+    assert_eq!(code, Some(0), "ssh through the native slot");
+    assert_eq!(fp.as_deref(), Some(key1.as_str()));
+
+    // The restart in the same boot: both environments recover and re-issue.
+    p.shutdown.cancel();
+    drop(p);
+    let q = w.process_opts(Arc::new(NoStageHook), opts()).await;
+    q.registry.start_environment().unwrap();
+    let mut reissued = q.ops.managed_reissue_pass().await.unwrap();
+    reissued.sort();
+    let mut both = vec![d1.grant_id.clone(), d2.grant_id.clone()];
+    both.sort();
+    assert_eq!(reissued, both, "each environment's grant re-issued");
+    let native = listing(&q, &SignerEndpoint::Environment);
+    let other = listing(&q, &SignerEndpoint::ManagedEnvironment(e2.clone()));
+    assert_eq!(
+        (native.len(), other.len()),
+        (1, 1),
+        "each slot back in its listing"
+    );
+    let new1 = q.table.public_key(&d1.grant_id).unwrap().fingerprint;
+    let new2 = q.table.public_key(&d2.grant_id).unwrap().fingerprint;
+    assert!(new1 != key1 && new2 != key2, "new keys");
+    for (d, key, marker) in [(&d1, &new1, "e1-after"), (&d2, &new2, "e2-after")] {
+        let (ep, kp, cert, _) = binding_files(&w, &q, &d.binding_id, &pr);
+        let (code, fp) = ssh.run(&ep, &kp, &cert, marker).await;
+        assert_eq!(code, Some(0), "{marker}: ssh after the restart");
+        assert_eq!(fp.as_deref(), Some(key.as_str()), "{marker}");
+    }
+
+    // An environment this runtime does not manage: refused, nothing written.
+    let ops_before = w
+        .store
+        .transaction(|tx| tx.table_counts())
+        .unwrap()
+        .operations;
+    let e3 = EnvironmentId::from_random_bytes([0xe3; 16]);
+    let e = ensure_in(&q.ops, "e3", std::slice::from_ref(&pr), &e3)
+        .await
+        .unwrap_err();
+    assert_eq!((e.code, e.reason.as_deref()), (Code::NotFound, None));
+    assert_eq!(
+        w.store
+            .transaction(|tx| tx.table_counts())
+            .unwrap()
+            .operations,
+        ops_before,
+        "no operation recorded for an unmanaged environment"
+    );
+
+    // e2 leaves the set: only its grant ends and only its slot, files and listing go.
+    let ended = q
+        .ops
+        .retire_managed_environment(&e2, ManagedState::Removed)
+        .await
+        .unwrap();
+    assert_eq!(ended, vec![d2.grant_id.clone()]);
+    let mut cleared = false;
+    for _ in 0..200 {
+        let state2 = w
+            .store
+            .transaction(|tx| tx.grant(&d2.grant_id))
+            .unwrap()
+            .unwrap()
+            .state;
+        // Ended: its tombstone is written (local denial); `revoking` until the
+        // adapters' remote round completes it, as for any withdrawal.
+        let denied = w
+            .store
+            .transaction(|tx| tx.denied_ancestor(&d2.grant_id))
+            .unwrap()
+            .is_some();
+        if denied
+            && matches!(state2, GrantState::Revoking | GrantState::Revoked)
+            && matches!(slot(&e2), SlotState::Free { .. })
+            && !paths2.cert_pub.exists()
+            && listing(&q, &SignerEndpoint::ManagedEnvironment(e2.clone())).is_empty()
+        {
+            cleared = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        cleared,
+        "e2's grant ended, its slot freed, its files and listing gone: {:?} {:?} files={} listed={}",
+        w.store
+            .transaction(|tx| tx.grant(&d2.grant_id))
+            .unwrap()
+            .unwrap()
+            .state,
+        slot(&e2),
+        paths2.cert_pub.exists(),
+        listing(&q, &SignerEndpoint::ManagedEnvironment(e2.clone())).len()
+    );
+    assert!(q.registry.binding_endpoint(&d2.binding_id).is_none());
+    assert_eq!(
+        w.store
+            .transaction(|tx| tx.grant(&d1.grant_id))
+            .unwrap()
+            .unwrap()
+            .state,
+        GrantState::Active,
+        "the native grant is untouched"
+    );
+    assert!(matches!(slot(&env()), SlotState::Held { binding, .. } if binding == d1.binding_id));
+    assert!(paths1.cert_pub.exists(), "the native slot files stay");
+    assert_eq!(listing(&q, &SignerEndpoint::Environment).len(), 1);
+    let (ep, kp, cert, _) = binding_files(&w, &q, &d1.binding_id, &pr);
+    let (code, fp) = ssh.run(&ep, &kp, &cert, "e1-after-e2-cleanup").await;
+    assert_eq!(code, Some(0), "the native binding still signs");
+    assert_eq!(fp.as_deref(), Some(new1.as_str()));
+    let (code, _) = ssh
+        .run(
+            &q.registry.environment().locator,
+            &paths1.key_pub,
+            &paths1.cert_pub,
+            "e1-slot-after-e2-cleanup",
+        )
+        .await;
+    assert_eq!(code, Some(0), "the native slot still signs");
+
+    // A removed environment is never a target again.
+    let e = ensure_in(&q.ops, "e2-again", std::slice::from_ref(&pr), &e2)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (e.code, e.reason.as_deref()),
+        (Code::NotFound, Some("environment_removed"))
+    );
+    q.shutdown.cancel();
 }

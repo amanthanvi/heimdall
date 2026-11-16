@@ -225,6 +225,29 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
         "owned_connections",
         RecoveryClass::Discarded("owned connection processes; end with the runtime"),
     ),
+    // ⟨M04⟩ Joint wave 0 (migration 0007). Rows, fail closed: an environment added or
+    // removed between the purge's confirmation and its final read is a changed inventory.
+    ("managed_environments", RecoveryClass::Rows),
+    ("wsl_distributions", RecoveryClass::Rows),
+    // ⟨M05⟩ Trust records changing between an uninstall's confirmation and its purge are a
+    // changed inventory (fail closed).
+    ("workspaces", RecoveryClass::Rows),
+    (
+        "policy_history",
+        RecoveryClass::Discarded("applied policy changes; local, end with the database"),
+    ),
+    (
+        "decision_cooldowns",
+        RecoveryClass::Discarded("denied-decision cooldowns; local, end with the database"),
+    ),
+    (
+        "work_stops",
+        RecoveryClass::Discarded("stopped work IDs; local, end with the runtime"),
+    ),
+    (
+        "slot_references",
+        RecoveryClass::Discarded("shared-slot references; local, end with the runtime"),
+    ),
 ];
 
 /// ⟨ADR-0008 §17.32 item 1 (audit A4)⟩ Every `meta` key the store writes, by exact key

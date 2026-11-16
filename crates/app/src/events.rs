@@ -677,12 +677,15 @@ pub fn snapshot_data(
         })
     };
     let mut operations = Vec::new();
+    // ⟨M04⟩ ADR-0010 §9 item 1: the operations of every environment this runtime
+    // manages (replacing M01's `== environment`).
+    let managed = crate::environments::members(tx, environment)?;
     for op in tx
         .open_operations()?
         .into_iter()
         .chain(tx.unresolved_operations()?)
     {
-        if op.environment == *environment && visible_to(&op.key.caller, reader) {
+        if managed.contains(&op.environment) && visible_to(&op.key.caller, reader) {
             operations.push(summarize(&op));
         }
     }
@@ -733,6 +736,9 @@ pub fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'s
         K::RetireIssuer { .. } => "retire_issuer",
         K::EnrollAccount { .. } => "enroll_account",
         K::EnrollSystemForm { .. } => "enroll_system_form",
+        // ⟨M05⟩ Revision 5 (names only; refused, not consumed, until M05 U2).
+        K::TrustWorkspace { .. } => "trust_workspace",
+        K::ReconcileWorkspace { .. } => "reconcile_workspace",
         K::RemoveEnrollment { .. } => "remove_enrollment",
         K::ApproveTargetChange { .. } => "approve_target_change",
     }

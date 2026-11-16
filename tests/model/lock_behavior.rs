@@ -141,6 +141,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -389,7 +391,7 @@ impl W {
             .ensure(
                 &owner(),
                 EnsureRequest {
-                    profile,
+                    profile: Some(profile),
                     profile_revision: None,
                     scope: [h1()].into_iter().collect(),
                     environment: None,
@@ -400,6 +402,8 @@ impl W {
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await;
@@ -852,7 +856,7 @@ async fn linux_revoke_on_lock_labelled_signal_unverified() {
     w.ops.set_session_lock_signal(linux);
     assert_eq!(w.ops.session_lock_signal(), linux);
     let ensure = |profile: ProfileId, tag: &str| EnsureRequest {
-        profile,
+        profile: Some(profile),
         profile_revision: None,
         scope: [h1()].into_iter().collect(),
         environment: None,
@@ -863,10 +867,14 @@ async fn linux_revoke_on_lock_labelled_signal_unverified() {
         interaction: InteractionMode::NonInteractive,
         wait: WaitMode::Sync { timeout_ms: 30_000 },
         connection: None,
+        context: None,
+        covered_only: false,
     };
     let capabilities = heimdall_contract::request::InspectRequest {
         subject: heimdall_contract::request::InspectSubject::Capabilities,
         preview: None,
+        cwd: None,
+        redact: false,
     };
     // A `continue` grant carries nothing; a `revoke_on_lock` one is labelled, once.
     let c = w
@@ -1413,7 +1421,6 @@ async fn lock_revocation_between_reserve_and_publish_voids() {
             grant: r.grant_id.clone(),
             pair: h1(),
             principal: "hm:h1:deploy".into(),
-            key_id: "fixture-key".into(),
             valid_after: now,
             valid_before: plus(now, Duration::from_secs(1800)),
             extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),

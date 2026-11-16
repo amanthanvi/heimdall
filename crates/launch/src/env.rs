@@ -358,6 +358,8 @@ mod tests {
             },
             eligibility_checked_at: Timestamp::UNIX_EPOCH,
             identity_selection_report: None,
+            agent_forwarding: false,
+            route: None,
         }
     }
 

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PortableBundle",
+  "description": "A portable bundle (ADR-0011 I4; `inspect export`, `catalog apply_import`): catalog\nintent only. Never policies, workspace records, environment permissions, grants,\ndecisions, enrollments, socket or home paths, or private material.",
+  "type": "object",
+  "properties": {
+    "created_at": {
+      "description": "When it was exported.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "destinations": {
+      "description": "Catalog destinations.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PortableDestination"
+      }
+    },
+    "identities": {
+      "description": "Identity references (public fingerprints and provider kind only).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PortableIdentity"
+      }
+    },
+    "profiles": {
+      "description": "Profiles.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PortableProfile"
+      }
+    },
+    "redacted": {
+      "description": "Whether host names, addresses and labels were redacted.",
+      "type": "boolean"
+    },
+    "reestablish": {
+      "description": "What the importing installation must re-establish locally (trust, policies,\nenrollments, host keys), as plain sentences.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "schema": {
+      "description": "[`PORTABLE_BUNDLE_SCHEMA`].",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "created_at"
+  ],
+  "$defs": {
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "PortableDestination": {
+      "description": "A destination in a bundle.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountName"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alias": {
+          "description": "The OpenSSH alias.",
+          "type": "string"
+        },
+        "host_key_fingerprints": {
+          "description": "Host-key fingerprints, shown in the import preview for comparison and then\ndiscarded: import never trusts a host key.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hostname": {
+          "description": "Host name (absent when redacted).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Destination ID.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "port": {
+          "description": "Port.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "alias"
+      ]
+    },
+    "PortableIdentity": {
+      "description": "An identity reference in a bundle.",
+      "type": "object",
+      "properties": {
+        "fingerprint": {
+          "description": "`SHA256:` public-key fingerprint.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The provider kind (`native_agent`, `onepassword`, ...).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "provider"
+      ]
+    },
+    "PortableProfile": {
+      "description": "A profile in a bundle.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Profile ID.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "pairs": {
+          "description": "Its pairs, as `destination:account` tokens.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "pairs"
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    }
+  }
+}

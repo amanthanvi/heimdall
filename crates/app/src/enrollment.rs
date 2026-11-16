@@ -603,11 +603,15 @@ pub fn tag_of(enrollment: &EnrollmentId) -> String {
 }
 
 /// The generated known-hosts line: `hm-target-<tag> <algorithm> <key>` (D5 §6.3: one
-/// plain line, no marker, no pattern, no hashed name).
+/// plain line, no marker, no pattern, no hashed name). ⟨M03 wave 6, U13⟩ No line
+/// terminator: [`EnrollmentHost::write_files`] takes one line and refuses any `\n` or
+/// `\r` in it, and the host writes the terminator itself. With a trailing `\n` here the
+/// runtime's host refused every real enrollment step (`driver_unavailable`, "the
+/// enrollment files could not be written"), which the suites' fake hosts never showed.
 #[must_use]
 pub fn known_hosts_line(tag: &str, target: &ApprovedTarget) -> String {
     format!(
-        "{}{tag} {} {}\n",
+        "{}{tag} {} {}",
         step::HOST_KEY_ALIAS_PREFIX,
         target.host_key.algorithm,
         target.host_key.key
@@ -975,7 +979,11 @@ mod tests {
     #[test]
     fn known_hosts_line_is_one_plain_line() {
         let l = known_hosts_line("0123456789abcdef", &target("AAAA"));
-        assert_eq!(l, "hm-target-0123456789abcdef ssh-ed25519 AAAA\n");
+        assert_eq!(l, "hm-target-0123456789abcdef ssh-ed25519 AAAA");
+        assert!(
+            !l.contains(['\n', '\r']),
+            "one line, no terminator (write_files' contract)"
+        );
     }
 
     #[test]

@@ -123,13 +123,15 @@ schema_check() {
     local tmp1 tmp2 rc=0
     tmp1="$(mktemp -d)" && tmp2="$(mktemp -d)" || return 1
     cargo run -q --locked -p heimdall -- schema export --out "${tmp1}/public-api" \
-        --config-out "${tmp1}/configuration" >/dev/null || rc=1
+        --config-out "${tmp1}/configuration" --project-out "${tmp1}/project" >/dev/null || rc=1
     cargo run -q --locked -p heimdall -- schema export --out "${tmp2}/public-api" \
-        --config-out "${tmp2}/configuration" >/dev/null || rc=1
+        --config-out "${tmp2}/configuration" --project-out "${tmp2}/project" >/dev/null || rc=1
     if [ "${rc}" -eq 0 ]; then
         diff -r "${tmp1}" "${tmp2}" || rc=1
         diff -r "${tmp1}/public-api" schemas/public-api || rc=1
         diff -r "${tmp1}/configuration" schemas/configuration || rc=1
+        # ⟨rev5⟩ ADR-0006 §17: the trusted-work file formats.
+        diff -r "${tmp1}/project" schemas/project || rc=1
     fi
     rm -rf "${tmp1}" "${tmp2}"
     return "${rc}"

@@ -979,6 +979,8 @@ mod u8b {
                 remote_processes: None,
                 unmanaged_connections: None,
                 issuer_isolation: None,
+                ordinary_aliases: None,
+                owner_functions: None,
             },
             evidence: Vec::new(),
         }
@@ -1161,7 +1163,7 @@ mod u8b {
 
     fn ensure_req(request_id: &str, work: &str, until: Option<&str>) -> EnsureRequest {
         EnsureRequest {
-            profile: ProfileId::parse("dev").unwrap(),
+            profile: Some(ProfileId::parse("dev").unwrap()),
             profile_revision: None,
             scope: [pair("h1", "deploy")].into_iter().collect(),
             environment: None,
@@ -1173,6 +1175,8 @@ mod u8b {
             wait: WaitMode::Sync { timeout_ms: 30_000 },
             // M03 wave 0 (A1): fail closed until U0b
             connection: None,
+            context: None,
+            covered_only: false,
         }
     }
 
@@ -1992,7 +1996,8 @@ mod u8b {
             .policy(
                 &owner(),
                 PolicyAction::Pause {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
+                    target: None,
                 },
             )
             .await);
@@ -2022,7 +2027,8 @@ mod u8b {
             .policy(
                 &owner(),
                 PolicyAction::Resume {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
+                    target: None,
                 },
             )
             .await);
@@ -2109,6 +2115,8 @@ mod u8b {
                 Request::Inspect(InspectRequest {
                     subject: InspectSubject::Capabilities,
                     preview: None,
+                    cwd: None,
+                    redact: false,
                 }),
             )
             .await;
@@ -2314,14 +2322,16 @@ mod u8b {
         // record (unattended: INTERACTION_REQUIRED + decision_ref).
         let pause = c
             .request(Request::Policy(PolicyAction::Pause {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             }))
             .await
             .unwrap();
         assert_eq!(pause.code, Code::Ok);
         let resume = c
             .request(Request::Policy(PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             }))
             .await
             .unwrap();
@@ -2337,7 +2347,8 @@ mod u8b {
         assert_eq!(attended.code, Code::Ok);
         let resume = a
             .request(Request::Policy(PolicyAction::Resume {
-                policy_id: policy_id(),
+                policy_id: Some(policy_id()),
+                target: None,
             }))
             .await
             .unwrap();

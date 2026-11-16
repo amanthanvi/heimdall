@@ -1041,6 +1041,13 @@ pub mod win;
 // signal dispositions, whatever the test runner ignored.
 #[cfg(all(unix, feature = "fixtures"))]
 pub mod term;
+// ⟨M03 wave 6, U13⟩ A program on a terminal on every platform (script(1) on Unix, a
+// pseudoconsole on Windows), for the interactive cases that also run on Windows
+// (ADR-0008 §17.26 item 8).
+#[cfg(all(windows, feature = "fixtures"))]
+mod conpty;
+#[cfg(feature = "fixtures")]
+pub mod console;
 
 // M03 test-configuration gates (m03-plan U0 "Frozen in wave 0"; ADR-0008 D1, D9; F23).
 // Feature `managed`: `ScratchSecretStore` (body U4's) and `FakeSessionLockSource`.
@@ -1068,6 +1075,12 @@ pub mod procstat;
 pub mod registry;
 #[cfg(feature = "fixtures")]
 pub mod shells;
+// ⟨M04⟩ U6 (ADR-0010 §5): two `LoopbackSshd`s as a bastion fixture.
+#[cfg(feature = "fixtures")]
+pub mod bastion;
+// ⟨M05⟩ (ADR-0011 §2.2–§2.3): per-run scratch Git repositories for the workspace tests.
+#[cfg(feature = "fixtures")]
+pub mod workspace;
 
 /// Proptest strategies for domain values (plan §6.3). Seeds: tests set
 /// `ProptestConfig { cases, .. }` and commit `proptest-regressions/` files; the

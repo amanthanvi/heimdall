@@ -377,6 +377,17 @@
             "$ref": "#/$defs/PairIntegration"
           }
         },
+        "realization": {
+          "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 5): where the binding is realized when that is\nnot the native session (a WSL distribution, a container). Omitted when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RealizationDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "signing_endpoint": {
           "description": "Signing endpoint path or pipe name, if one is materialized.",
           "type": [
@@ -444,6 +455,90 @@
         "consumer",
         "setting",
         "source"
+      ]
+    },
+    "ContextKind": {
+      "description": "Where a result's authority came from (m05-plan §4 item 7).",
+      "oneOf": [
+        {
+          "description": "A trusted (or member) workspace's policy.",
+          "type": "string",
+          "const": "workspace"
+        },
+        {
+          "description": "The personal policy.",
+          "type": "string",
+          "const": "personal"
+        },
+        {
+          "description": "A parent binding (`delegate`).",
+          "type": "string",
+          "const": "delegation"
+        },
+        {
+          "description": "An explicit request beyond policy, approved once.",
+          "type": "string",
+          "const": "explicit"
+        }
+      ]
+    },
+    "ContextProvenance": {
+      "description": "How much a context claim is worth (ADR-0011 R2): the working directory is a same-user\nclaim.",
+      "oneOf": [
+        {
+          "description": "Any same-user process can name any workspace.",
+          "type": "string",
+          "const": "same_user_context"
+        }
+      ]
+    },
+    "ContextReport": {
+      "description": "`EnsureData.context` (m05-plan §4 item 7).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind.",
+          "$ref": "#/$defs/ContextKind"
+        },
+        "policy_id": {
+          "description": "The policy the authority rests on, when one covered it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy_revision": {
+          "description": "Its revision.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "provenance": {
+          "description": "Provenance.",
+          "$ref": "#/$defs/ContextProvenance"
+        },
+        "workspace_id": {
+          "description": "The workspace, for `workspace`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkspaceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "provenance"
       ]
     },
     "CredentialAvailability": {
@@ -649,11 +744,33 @@
             }
           ]
         },
+        "ordinary_aliases": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 7): whether ordinary aliases are shared at\nenvironment level (ADR-0011 §5.2, §10 item 6); `unknown` when absent, so every\nM01–M03 report and stored grant is unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrdinaryAliases"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "owned_multiplexing": {
           "description": "⟨M03⟩ Owned multiplexing; `unknown` when absent.",
           "anyOf": [
             {
               "$ref": "#/$defs/OwnedMultiplexing"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner_functions": {
+          "description": "⟨M05⟩ Revision 5: whether owner functions are out of a delegated child's reach\n(ADR-0011 §6.2–§6.3); `unknown` when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OwnerFunctions"
             },
             {
               "type": "null"
@@ -728,6 +845,17 @@
         "consumer": {
           "description": "Consumer integration descriptor; contains endpoints and config references,\nnever secrets.",
           "$ref": "#/$defs/ConsumerIntegration"
+        },
+        "context": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 7): where the authority came from. Omitted\nwhen absent, so every M01–M03 result is unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "credential_availability": {
           "description": "Credential availability (spec §4.3), computed fresh for every result. Always\nwritten; a document that omits it reads as `unknown`.",
@@ -821,6 +949,13 @@
             }
           ]
         },
+        "uncovered": {
+          "description": "⟨M05⟩ Revision 5: the requested pairs a `covered_only` request did not activate.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        },
         "usable_until": {
           "description": "Credentials usable without refresh until.",
           "type": "string",
@@ -844,6 +979,26 @@
     "EnvironmentId": {
       "description": "Stable environment ID (spec §4.1 \"Environment\").",
       "type": "string"
+    },
+    "EnvironmentKindView": {
+      "description": "An environment's kind on the wire (`EnvironmentView.kind`).",
+      "oneOf": [
+        {
+          "description": "The runtime's own native session.",
+          "type": "string",
+          "const": "native_session"
+        },
+        {
+          "description": "A WSL distribution in Mode B.",
+          "type": "string",
+          "const": "wsl_distribution"
+        },
+        {
+          "description": "A local container environment.",
+          "type": "string",
+          "const": "container"
+        }
+      ]
     },
     "EvidenceBasis": {
       "description": "How a reported fact was established (ADR-0007 §7). `declared` is an owner\nstatement, never an observation.",
@@ -1297,6 +1452,21 @@
         }
       ]
     },
+    "JumpAccess": {
+      "description": "How the jump hop of a route is accessed (ADR-0010 §5 item 2).",
+      "oneOf": [
+        {
+          "description": "A managed pair in the same grant's scope.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "Existing access, outside the grant.",
+          "type": "string",
+          "const": "existing"
+        }
+      ]
+    },
     "LocalRevocation": {
       "description": "The local part of revocation.",
       "oneOf": [
@@ -1325,6 +1495,50 @@
           "type": "string",
           "const": "lock_revokes"
         }
+      ]
+    },
+    "MechanismGroup": {
+      "description": "⟨M05⟩ One mechanism group of a mixed profile (`next.groups`; ADR-0011 §5.3).",
+      "type": "object",
+      "properties": {
+        "mechanism": {
+          "description": "The mechanism (`managed_certificate`, `native_agent`, ...).",
+          "type": "string"
+        },
+        "pairs": {
+          "description": "Its pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "mechanism",
+        "pairs"
+      ]
+    },
+    "MountSpec": {
+      "description": "A bind mount a consumer must set up (the container recipe's read-only directory).",
+      "type": "object",
+      "properties": {
+        "read_only": {
+          "description": "Read-only (always true for the container recipe).",
+          "type": "boolean"
+        },
+        "source": {
+          "description": "Host path.",
+          "type": "string"
+        },
+        "target": {
+          "description": "In-environment path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "read_only"
       ]
     },
     "MultiplexingMode": {
@@ -1423,6 +1637,13 @@
             "string",
             "null"
           ]
+        },
+        "groups": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 9): with reason `mixed_mechanisms`, the\nmechanism groups to re-request under one work ID (ADR-0011 §5.3). Omitted when\nempty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MechanismGroup"
+          }
         },
         "operation_id": {
           "description": "Operation to observe.",
@@ -1524,6 +1745,21 @@
         }
       ]
     },
+    "OrdinaryAliases": {
+      "description": "`Enforcement.ordinary_aliases` (ADR-0011 §5.2 as ruled in §10 item 6).",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Ordinary aliases are environment-level: a sibling's shorter deadline is enforced\non its bound contexts, not on the shared alias (R3).",
+          "type": "string",
+          "const": "shared_environment_default"
+        }
+      ]
+    },
     "OverrideSource": {
       "description": "Where an overriding consumer setting comes from (tagged by `kind`).",
       "oneOf": [
@@ -1599,6 +1835,26 @@
         }
       ]
     },
+    "OwnerFunctions": {
+      "description": "`Enforcement.owner_functions` (ADR-0011 §6.2–§6.3).",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Nothing delegates them, but a same-user child can reach the control endpoint.",
+          "type": "string",
+          "const": "not_delegated"
+        },
+        {
+          "description": "The child cannot reach them (only an M04 container row that mounts only the child\nendpoint).",
+          "type": "string",
+          "const": "unreachable"
+        }
+      ]
+    },
     "PairIntegration": {
       "description": "One destination/account pair's integration (ADR-0007 §7). `endpoint`, `alias`,\n`mechanism`, `identity_selection` and `selection_observed_at` are history\n(prepared facts); the interaction and eligibility fields are computed fresh in\nthe transaction that builds each result (M2-R04).",
       "type": "object",
@@ -1606,6 +1862,10 @@
         "account": {
           "description": "Account.",
           "$ref": "#/$defs/AccountName"
+        },
+        "agent_forwarding": {
+          "description": "⟨M04⟩ Revision 5: the alias forwards the binding's endpoint (the grant's\n`agent-forwarding` capability, ADR-0010 §5 item 4). Omitted when false.",
+          "type": "boolean"
         },
         "alias": {
           "description": "The managed alias.",
@@ -1688,6 +1948,17 @@
           "description": "Fresh non-interactive eligibility.",
           "$ref": "#/$defs/NoninteractiveEligibility"
         },
+        "route": {
+          "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 6): the pair's single-hop route. Omitted when\nabsent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouteView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "selection_observed_at": {
           "description": "When the selection was observed.",
           "type": "string",
@@ -1706,6 +1977,10 @@
         "noninteractive",
         "eligibility_checked_at"
       ]
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
     },
     "ProbeLevel": {
       "description": "The probe ladder levels (ADR-0007 §6; spec §10.2), weakest first.",
@@ -1861,7 +2136,72 @@
           "description": "The issuer store must be unlocked at start (macOS keychain).",
           "type": "string",
           "const": "issuer_store_unlocked_at_start"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 7): the WSL distribution must be running\n(a Mode B binding; background repair never starts it).",
+          "type": "string",
+          "const": "wsl_distribution_running"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: the pair's jump hop must stay usable (its readiness is the\nweaker of the two hops).",
+          "type": "string",
+          "const": "route_dependency"
         }
+      ]
+    },
+    "RealizationDescriptor": {
+      "description": "`ConsumerIntegration.realization` (m04-plan §5 item 5): where a binding is realized when\nthat is not the native session. Paths are in-environment paths; never secrets.",
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "The in-environment OpenSSH configuration.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "endpoint": {
+          "description": "The in-environment signing endpoint.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "environment": {
+          "description": "In-environment variables (names and values; never secrets).",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "environment_kind": {
+          "description": "The environment's kind.",
+          "$ref": "#/$defs/EnvironmentKindView"
+        },
+        "mount": {
+          "description": "The mount to set up (containers).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MountSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "environment_kind"
       ]
     },
     "RefreshCondition": {
@@ -2023,6 +2363,29 @@
         }
       ]
     },
+    "RouteView": {
+      "description": "`PairIntegration.route` (m04-plan §5 item 6): a single-hop `ProxyJump`.",
+      "type": "object",
+      "properties": {
+        "jump": {
+          "description": "The jump destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "jump_access": {
+          "description": "How the jump hop is accessed.",
+          "$ref": "#/$defs/JumpAccess"
+        },
+        "jump_alias": {
+          "description": "Its alias, as `ProxyJump` renders it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "jump",
+        "jump_alias",
+        "jump_access"
+      ]
+    },
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",
       "type": "string"
@@ -2091,6 +2454,10 @@
           "const": "tested_isolated_workload"
         }
       ]
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
     }
   }
 }

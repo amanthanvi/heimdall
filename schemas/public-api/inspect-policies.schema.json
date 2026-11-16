@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PoliciesView",
+  "description": "`inspect policies` data.",
+  "type": "object",
+  "properties": {
+    "items": {
+      "description": "Every standing policy.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PolicyView"
+      }
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "$defs": {
+    "DecisionId": {
+      "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "PolicyRevisionView": {
+      "description": "One applied revision in `inspect policies` (ADR-0011 §4.4).",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "When.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "cause": {
+          "description": "`decision` or `narrowing`.",
+          "type": "string"
+        },
+        "decision_id": {
+          "description": "The decision, for `decision`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "description": "Revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "revision",
+        "cause",
+        "at"
+      ]
+    },
+    "PolicyView": {
+      "description": "One standing policy in `inspect policies`.",
+      "type": "object",
+      "properties": {
+        "cutoff_at": {
+          "description": "Hard cutoff.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "default": {
+          "description": "The personal default for its environments (at most one per environment).",
+          "type": "boolean"
+        },
+        "environments": {
+          "description": "Environments.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvironmentId"
+          }
+        },
+        "history": {
+          "description": "Applied revisions, oldest first.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PolicyRevisionView"
+          }
+        },
+        "paused_since": {
+          "description": "Paused since.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "policy_id": {
+          "description": "Policy.",
+          "$ref": "#/$defs/PolicyId"
+        },
+        "profile": {
+          "description": "Profile.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "revision": {
+          "description": "Current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workspace_id": {
+          "description": "The workspace, for a workspace policy; absent for a personal one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkspaceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "policy_id",
+        "revision",
+        "profile",
+        "environments"
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
+    }
+  }
+}

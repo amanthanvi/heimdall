@@ -15,6 +15,12 @@
 //!
 //! Model rows (spec §17 A05, model variant) are table tests below.
 //!
+//! ⟨M05⟩ ADR-0011 §10 item 1 (joint wave 0): the **two-policy trace**
+//! (`two_policy_trace_resolution_is_by_context_never_by_id`): a personal and a workspace
+//! policy for the same profile and environment, with random IDs so either sorts first,
+//! resolved through `heimdall_domain::policy::resolve_policy` exactly as every
+//! application path does.
+//!
 //! Reproduce a failure with `PROPTEST_RNG_SEED=<seed>` or the committed
 //! regression file next to this source. Every decision a test produces is
 //! serialized and scanned with `heimdall_testkit::assert_no_canary`; fixtures
@@ -41,12 +47,14 @@ use heimdall_domain::environment::{
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::grant::{AuthorizationSource, GrantSnapshot};
 use heimdall_domain::policy::{
-    AuthorityGeneration, PauseState, PolicyRevision, PolicySource, StandingPolicy,
+    AuthorityGeneration, PauseState, PolicyContext, PolicyRevision, PolicySource, StandingPolicy,
+    resolve_policy,
 };
 use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
 use heimdall_domain::profile::ProfileSnapshot;
 use heimdall_domain::scope::{AccessPair, Scope};
 use heimdall_domain::time::{Deadline, is_expired};
+use heimdall_domain::workspace::{AmbiguityReason, WorkspaceMatch};
 use heimdall_testkit::{assert_no_canary, strategies};
 use jiff::SignedDuration;
 use proptest::prelude::*;
@@ -1280,5 +1288,143 @@ proptest! {
         prop_assert_eq!(&union(&i, &d), &a);
         prop_assert_eq!(a.is_subset_of(&b), void(&a.difference(&b)));
         prop_assert!(a.intersect(&Scope::empty()).is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ⟨M05⟩ ADR-0011 §10 item 1: the two-policy trace (policy resolution by workspace
+// match, never first by ID; ADR-0006 revision 5 §17 item 3)
+// ---------------------------------------------------------------------------
+
+fn ws(n: u8) -> heimdall_contract::ids::WorkspaceId {
+    heimdall_contract::ids::WorkspaceId::from_random_bytes([n; 16])
+}
+
+/// The resolution every application path runs for `requested` in `context`: the
+/// context's policy view over `policies` (store order: by ID), then `resolve_authority`.
+fn resolve_in_context(
+    base: &Fixture,
+    policies: &[StandingPolicy],
+    context: &PolicyContext,
+    requested: Scope,
+) -> AuthorityDecision {
+    let mut f = base.clone();
+    f.policy = resolve_policy(policies, context);
+    f.requested = requested;
+    f.resolve()
+}
+
+fn has_pair(d: &AuthorityDecision, p: &AccessPair) -> bool {
+    match d {
+        AuthorityDecision::Allowed(a) => a.scope.pairs.contains(p),
+        AuthorityDecision::ApprovalRequired { covered, .. } => {
+            covered.as_ref().is_some_and(|a| a.scope.pairs.contains(p))
+        }
+        AuthorityDecision::Denied(_) => false,
+    }
+}
+
+proptest! {
+    #![proptest_config(config(512))]
+
+    /// ADR-0011 §10 item 1's proof, as a trace over one profile and environment with a
+    /// personal policy P (pair A) and a workspace policy W for `ws1` (pairs A and B),
+    /// whose IDs are random so W sorts first about half the time (M01–M03's first-by-ID
+    /// merge would then hand W's scope to every context):
+    ///
+    /// * a pair only W holds (B) is absent from ordinary `ssh` (personal), from a second
+    ///   workspace `ws2`, and from a same-path re-clone of `ws1` (`Ambiguous` → personal):
+    ///   never in an allowed or covered scope, so it can only ever be raised as added
+    ///   authority for an owner decision;
+    /// * a workspace pause or cutoff leaves personal work usable;
+    /// * a personal pause or cutoff stops `ws1`'s work too;
+    /// * `ws1` (`Trusted` or `Member`) gets W's scope when nothing blocks it.
+    #[test]
+    fn two_policy_trace_resolution_is_by_context_never_by_id(
+        personal_id in "[a-z]{1,6}",
+        workspace_id in "[a-z]{1,6}",
+        workspace_paused in any::<bool>(),
+        workspace_cutoff in prop::option::of(-3_600i64..3_600),
+        personal_paused in any::<bool>(),
+        personal_cutoff in prop::option::of(-3_600i64..3_600),
+        member in any::<bool>(),
+    ) {
+        prop_assume!(personal_id != workspace_id);
+        let (a, b) = (pair(1, 1), pair(2, 1));
+        let both = scope(&[(1, 1), (2, 1)], &[Capability::SshAuthentication]);
+        let only_a = scope(&[(1, 1)], &[Capability::SshAuthentication]);
+        let only_b = scope(&[(2, 1)], &[Capability::SshAuthentication]);
+        let base = Fixture::covered(both.clone());
+        let template = base.policy.clone().unwrap();
+        let block = |p: &mut StandingPolicy, paused: bool, cutoff: Option<i64>| {
+            if paused {
+                p.pause = PauseState::Paused { since: at(-60) };
+            }
+            p.cutoff_at = cutoff.map(at);
+        };
+        let mut personal = StandingPolicy {
+            id: PolicyId::parse(&personal_id).unwrap(),
+            workspace: None,
+            scope: only_a.clone(),
+            ..template.clone()
+        };
+        block(&mut personal, personal_paused, personal_cutoff);
+        let mut workspace = StandingPolicy {
+            id: PolicyId::parse(&workspace_id).unwrap(),
+            workspace: Some(ws(1)),
+            scope: both.clone(),
+            ..template
+        };
+        block(&mut workspace, workspace_paused, workspace_cutoff);
+        let mut policies = vec![personal.clone(), workspace.clone()];
+        policies.sort_by(|x, y| x.id.as_str().cmp(y.id.as_str()));
+        let blocks = |p: &StandingPolicy| p.blocks_activation_at(now()).is_some();
+        let personal_blocked = blocks(&personal);
+        let workspace_blocked = blocks(&workspace);
+
+        // Ordinary `ssh`, a second workspace, a same-path re-clone: personal context.
+        let reclone = PolicyContext::of_match(&WorkspaceMatch::Ambiguous {
+            workspace: ws(1),
+            why: AmbiguityReason::SamePathOtherIdentity,
+        });
+        prop_assert_eq!(&reclone, &PolicyContext::Personal);
+        let untrusted = PolicyContext::of_match(&WorkspaceMatch::Untrusted);
+        prop_assert_eq!(&untrusted, &PolicyContext::Personal);
+        for context in [PolicyContext::Personal, PolicyContext::Workspace(ws(2)), reclone] {
+            for requested in [both.clone(), only_b.clone()] {
+                let d = resolve_in_context(&base, &policies, &context, requested);
+                prop_assert!(!has_pair(&d, &b), "{context:?}: the workspace-only pair leaked: {d:?}");
+                prop_assert!(!matches!(d, AuthorityDecision::Allowed(_)) || !personal_blocked);
+            }
+            // A workspace pause or cutoff never reaches personal work.
+            let d = resolve_in_context(&base, &policies, &context, only_a.clone());
+            if personal_blocked {
+                prop_assert!(matches!(d, AuthorityDecision::Denied(Denial::Blocked(_))), "{d:?}");
+            } else {
+                prop_assert!(
+                    matches!(&d, AuthorityDecision::Allowed(x) if x.scope.pairs.contains(&a)),
+                    "{context:?}: personal work blocked by the workspace policy: {d:?}"
+                );
+            }
+        }
+
+        // The trusted workspace (or a verified member worktree of it).
+        let matched = if member {
+            WorkspaceMatch::Member { workspace: ws(1) }
+        } else {
+            WorkspaceMatch::Trusted { workspace: ws(1) }
+        };
+        let context = PolicyContext::of_match(&matched);
+        prop_assert_eq!(&context, &PolicyContext::Workspace(ws(1)));
+        let d = resolve_in_context(&base, &policies, &context, both.clone());
+        if personal_blocked || workspace_blocked {
+            // A personal pause or cutoff stops the profile's workspace work too.
+            prop_assert!(matches!(d, AuthorityDecision::Denied(Denial::Blocked(_))), "{d:?}");
+        } else {
+            prop_assert!(
+                matches!(&d, AuthorityDecision::Allowed(x) if x.scope.pairs == both.pairs),
+                "{d:?}"
+            );
+        }
     }
 }

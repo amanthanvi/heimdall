@@ -404,13 +404,16 @@ pub fn disclosure(
 }
 
 impl Operations {
-    /// Every standing policy applicable in this environment (each profile's), by ID.
+    /// Every standing policy applicable in this environment (each profile's), by ID: the
+    /// **personal** ones only (ADR-0011 §10 item 1; ADR-0006 §17.6 R5-Q9). The disclosure
+    /// and `inspect capabilities` describe the runtime's general lock behaviour, which a
+    /// workspace's policy never sets (W0-R02).
     pub(crate) async fn applicable_policies(&self) -> Result<Vec<StandingPolicy>, OpError> {
         let env = self.environment().clone();
         self.local_write(move |tx, _| {
             let mut out: Vec<StandingPolicy> = Vec::new();
             for profile in tx.profiles()? {
-                for p in tx.policies_for(&profile.id, &env)? {
+                for p in crate::policy_context::environment_level_policies(tx, &profile.id, &env)? {
                     if !out.iter().any(|q| q.id == p.id) {
                         out.push(p);
                     }
@@ -489,10 +492,13 @@ impl Operations {
                 return Ok(None);
             }
             let origin = tx.grant_origin(&gid)?;
-            let policies = match &origin {
-                Some(o) => tx.policies_for(&o.profile, &env)?,
-                None => Vec::new(),
+            // ⟨M04, M05⟩ The grant's own environment, in its recorded context.
+            let _ = &env;
+            let Some(g) = tx.grant(&gid)? else {
+                return Ok(None);
             };
+            let policies =
+                crate::policy_context::grant_policies(tx, &g.environment, origin.as_ref())?;
             Ok(Some(effective_behavior_with_floor(
                 origin.as_ref(),
                 &policies,

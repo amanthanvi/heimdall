@@ -45,7 +45,8 @@ use super::{Operations, issuance_time};
 use crate::error::OpError;
 
 /// A verification certificate reservation (ADR-0008 D5 §6.5 item 2). The serial is
-/// drawn by the runtime.
+/// drawn by the runtime, and the key ID is named from it:
+/// `heimdall:<environment>:<operation>:<serial>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerificationRequest {
     /// The verifying operation (`enrollment.apply` or `enrollment.verify`).
@@ -60,8 +61,6 @@ pub struct VerificationRequest {
     pub purpose: VerificationPurpose,
     /// The principal (`hm:<destination-id>:<account>` or the negative form).
     pub principal: String,
-    /// Key ID.
-    pub key_id: String,
     /// Validity start.
     pub valid_after: Timestamp,
     /// Validity end.
@@ -72,6 +71,21 @@ pub struct VerificationRequest {
     pub subject_fingerprint: String,
     /// K_verify is registered by this operation's verification endpoint.
     pub subject_registered: bool,
+}
+
+/// A verification certificate's key ID: `heimdall:<environment>:<operation>:<serial>`,
+/// the serial in decimal (ADR-0005 §3.4; ADR-0008 D3 item 4 step 3, the issuer's
+/// key-ID ceiling, which refuses any other form: `ceiling_exceeded`).
+fn verification_key_id(
+    environment: &heimdall_contract::ids::EnvironmentId,
+    operation: &OperationId,
+    serial: u64,
+) -> String {
+    format!(
+        "heimdall:{}:{}:{serial}",
+        environment.as_str(),
+        operation.as_str()
+    )
 }
 
 /// The store facts of the verifying operation.
@@ -241,6 +255,7 @@ impl Operations {
         let admission = self.fence_admit_reservation().await?;
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
+        let key_id = verification_key_id(self.environment(), &req.operation, serial);
         let gate = self.inner.timegate.in_txn();
         let max_validity = self.inner.config.limits.verification_max_validity;
         let tracked = ReservedVerification {
@@ -256,7 +271,7 @@ impl Operations {
                 };
                 let bounds = CertificateBounds {
                     serial,
-                    key_id: req.key_id,
+                    key_id,
                     principal: req.principal,
                     valid_after: req.valid_after,
                     valid_before: req.valid_before,

@@ -3141,6 +3141,7 @@ mod a11 {
                         port: None,
                         account: AccountName::parse("fixture").unwrap(),
                         identity: identity.clone(),
+                        jump: None,
                     },
                     label: None,
                 },
@@ -3235,7 +3236,11 @@ mod a11 {
         fn project(&self) {
             let plan = self
                 .setup(SetupRequest::Preview {
-                    intent: PreviewIntent::Apply { include_git: false },
+                    intent: PreviewIntent::Apply {
+                        include_git: false,
+                        distribution: None,
+                        items: Default::default(),
+                    },
                 })
                 .unwrap();
             let plan: SetupPlan = serde_json::from_value(plan).unwrap();
@@ -4475,6 +4480,7 @@ mod a11 {
                         port: Some(sshd.port),
                         account: AccountName::parse(&account).unwrap(),
                         identity: id.clone(),
+                        jump: None,
                     },
                     label: None,
                 },

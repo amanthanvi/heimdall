@@ -132,10 +132,9 @@ impl StoreSources {
                 return Ok(None);
             };
             let origin = tx.grant_origin(grant)?;
-            let policies = match &origin {
-                Some(o) => tx.policies_for(&o.profile, &g.environment)?,
-                None => Vec::new(),
-            };
+            // ⟨M05⟩ In the grant's recorded context (ADR-0011 §10 item 1).
+            let policies =
+                heimdall_app::policy_context::grant_policies(tx, &g.environment, origin.as_ref())?;
             let lock_behavior = heimdall_app::lock::effective_behavior_with_floor(
                 origin.as_ref(),
                 &policies,
@@ -291,6 +290,18 @@ impl SlotStore for StoreSources {
             .transaction(|tx| tx.claim_slot(environment, pair, binding, at))
             .map_err(|_| AdapterError::Unavailable("store".to_owned()))
     }
+
+    /// ⟨M04⟩ The binding's pinned environment, from its stored row (ADR-0010 §9 item
+    /// 1), so its slots land in that environment's namespace. A store failure claims
+    /// nothing (fail closed).
+    fn binding_environment(
+        &self,
+        binding: &BindingId,
+    ) -> Result<Option<EnvironmentId>, AdapterError> {
+        self.store
+            .transaction(|tx| Ok(tx.binding(binding)?.map(|b| b.environment)))
+            .map_err(|_| AdapterError::Unavailable("store".to_owned()))
+    }
 }
 
 /// The production install view (U2-Q2): D2 item 6's read is
@@ -411,7 +422,13 @@ impl StoreCleanup {
             // ⟨wave 4 round 2, integrator (R2-D → R2-C request)⟩ A released binding has
             // no grant reference any more, but its slot rows still name it: an ended
             // grant's held or clearing slots are also found by their binding's grant.
-            for (g, slot) in tx.held_slots_of_ended_grants(&self.sources.environment)? {
+            // ⟨M04⟩ In every environment of the managed set (ADR-0010 §9 item 1: cleanup
+            // runs per environment), not only the home one.
+            let mut ended = Vec::new();
+            for env in tx.managed_set(&self.sources.environment)? {
+                ended.extend(tx.held_slots_of_ended_grants(&env)?);
+            }
+            for (g, slot) in ended {
                 if g == *grant
                     && !slots
                         .iter()
@@ -497,7 +514,9 @@ impl StoreCleanup {
                 _ => Ok(()),
             })
             .map_err(|_| AdapterError::Unavailable("store".to_owned()))?;
-        self.effects.clear_slot(binding, &slot.pair, generation)?;
+        // ⟨M04⟩ The slot row's own environment (ADR-0010 §9 item 1).
+        self.effects
+            .clear_slot(binding, &slot.environment, &slot.pair, generation)?;
         Ok(())
     }
 
@@ -778,6 +797,8 @@ mod tests {
                     remote_processes: None,
                     unmanaged_connections: None,
                     issuer_isolation: None,
+                    ordinary_aliases: None,
+                    owner_functions: None,
                 },
                 evidence: Vec::new(),
             },
@@ -866,6 +887,8 @@ mod tests {
                         adapter: None,
                         lock_behavior: lock,
                         connection: None,
+                        policy_id: None,
+                        workspace: None,
                     },
                 )
             })
@@ -1236,6 +1259,7 @@ mod live_tests {
                             port: None,
                             account: p.account.clone(),
                             identity: existing_identity().id,
+                            jump: None,
                         },
                         label: None,
                         updated_at: t0(),
@@ -1676,6 +1700,9 @@ mod live_tests {
         hold: Arc<Hold>,
         /// Wraps the effects the driver uses (the wiring's), not the adapter's.
         wrap: Option<WrapEffects>,
+        /// ⟨M04⟩ The slot roots of further managed environments
+        /// (`ManagedEffectsImpl::with_slot_root`; ADR-0010 §9 item 1).
+        slot_roots: Vec<SlotRoot>,
     }
 
     impl Live {
@@ -1756,7 +1783,12 @@ mod live_tests {
         }
 
         async fn process_opts(&self, hook: Arc<dyn StageHook>, opts: Opts) -> Process {
-            let Opts { fail, hold, wrap } = opts;
+            let Opts {
+                fail,
+                hold,
+                wrap,
+                slot_roots,
+            } = opts;
             let sources = StoreSources::new(self.store.clone(), env());
             let table = SignerTable::new(Arc::new(KeyVault::new()));
             let late = Arc::new(Late::default());
@@ -1772,6 +1804,9 @@ mod live_tests {
                 },
             )
             .with_slot_store(Arc::new(sources.clone()));
+            let effects = slot_roots
+                .into_iter()
+                .fold(effects, ManagedEffectsImpl::with_slot_root);
             // ⟨X-M⟩ The adapter reads the store through the harness's equivalent of the
             // runtime's `Observing` and evidence feed (empty unless a test sets them).
             let read: Arc<dyn ManagedSourceRead> =
@@ -1857,7 +1892,7 @@ mod live_tests {
                 .ensure(
                     &caller(),
                     EnsureRequest {
-                        profile: ProfileId::parse("dev").unwrap(),
+                        profile: Some(ProfileId::parse("dev").unwrap()),
                         profile_revision: None,
                         scope: pairs().into_iter().collect(),
                         environment: None,
@@ -1870,6 +1905,8 @@ mod live_tests {
                         interaction: InteractionMode::Interactive,
                         wait: WaitMode::Sync { timeout_ms: 30_000 },
                         connection: None,
+                        context: None,
+                        covered_only: false,
                     },
                 )
                 .await
@@ -1999,8 +2036,9 @@ mod live_tests {
             .revoke(
                 &caller(),
                 RevokeRequest {
-                    grant_id: data.grant_id.clone(),
+                    grant_id: Some(data.grant_id.clone()),
                     request_id: RequestId::parse("rv-named").unwrap(),
+                    target: None,
                 },
             )
             .await

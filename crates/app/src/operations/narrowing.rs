@@ -974,13 +974,9 @@ pub(super) fn subtree_reader(root: GrantId) -> SetReader {
 ///   records only.
 pub(super) fn policy_reader(env: EnvironmentId, action: PolicyAction) -> SetReader {
     Arc::new(move |tx: &mut Txn<'_>| {
-        let pid = match &action {
-            PolicyAction::Pause { policy_id }
-            | PolicyAction::Resume { policy_id }
-            | PolicyAction::Cutoff { policy_id, .. }
-            | PolicyAction::ClearCutoff { policy_id }
-            | PolicyAction::SetLockBehavior { policy_id, .. }
-            | PolicyAction::SetConnectionPolicy { policy_id, .. } => policy_id.clone(),
+        // ⟨M05⟩ Revision-5 forms never reach a commit in joint wave 0 (refused first).
+        let Some(pid) = action.policy_id().cloned() else {
+            return Ok(Vec::new());
         };
         let Some(p) = tx.policy(&pid)? else {
             return Ok(Vec::new());
@@ -991,17 +987,12 @@ pub(super) fn policy_reader(env: EnvironmentId, action: PolicyAction) -> SetRead
                 !lock_connection_m03::widening(&action, &p)
                     && !lock_connection_m03::unchanged(&action, &p)
             }
-            PolicyAction::Pause { .. }
-            | PolicyAction::SetConnectionPolicy { .. }
-            | PolicyAction::Resume { .. }
-            | PolicyAction::ClearCutoff { .. } => false,
+            _ => false,
         };
-        if !narrows
-            || !tx
-                .policies_for(&p.profile, &env)?
-                .iter()
-                .any(|q| q.id == p.id)
-        {
+        // ⟨M04⟩ `env` is the runtime's own environment; the policy's applicability is
+        // judged per grant below (its own environment and context).
+        let _ = &env;
+        if !narrows {
             return Ok(Vec::new());
         }
         let lowers_to = match &action {
@@ -1018,8 +1009,17 @@ pub(super) fn policy_reader(env: EnvironmentId, action: PolicyAction) -> SetRead
             if ctx.profile.as_ref() != Some(&p.profile) {
                 continue;
             }
+            // ⟨M04, M05⟩ Only grants this policy applies to: their own environment, their
+            // recorded context (ADR-0010 §9 item 1; ADR-0011 §10 item 1).
+            let origin = tx.grant_origin(&g.id)?;
+            if !crate::policy_context::grant_policies(tx, &g.environment, origin.as_ref())?
+                .iter()
+                .any(|q| q.id == p.id)
+            {
+                continue;
+            }
             if let Some(at) = lowers_to
-                && at >= bound_of(tx, &env, &g, ctx.profile.as_ref())?
+                && at >= bound_of(tx, &g, ctx.profile.as_ref())?
             {
                 continue;
             }

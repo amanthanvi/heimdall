@@ -127,6 +127,8 @@ fn request_frame(seq: u64) -> Vec<u8> {
             request: Request::Inspect(InspectRequest {
                 subject: InspectSubject::Capabilities,
                 preview: None,
+                cwd: None,
+                redact: false,
             }),
         },
         MAX_CONTROL_FRAME_BYTES,

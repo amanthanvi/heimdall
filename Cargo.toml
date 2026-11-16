@@ -1,4 +1,4 @@
-# Heimdall production workspace (M01, M02, M03). See docs/architecture/overview.md for the
+# Heimdall production workspace (M01, M02, M03; M04/M05 skeletons). See docs/architecture/overview.md for the
 # crate map and docs/architecture/dependencies.md for every dependency decision.
 #
 # Every third-party version is pinned exactly ("=x.y.z") and Cargo.lock is
@@ -29,6 +29,10 @@ members = [
     "crates/credential",
     "crates/issuer",
     "crates/enroll",
+    # M04/M05 joint wave 0 (ADR-0010 §9 item 9; ADR-0011 §10 item 10): the WSL realization
+    # (M04-owned) and the pure trusted-work project logic (M05-owned). Skeletons only.
+    "crates/wsl",
+    "crates/project",
 ]
 
 [workspace.package]
@@ -57,6 +61,8 @@ heimdall-registry = { path = "crates/registry" }
 heimdall-credential = { path = "crates/credential" }
 heimdall-issuer = { path = "crates/issuer" }
 heimdall-enroll = { path = "crates/enroll" }
+heimdall-wsl = { path = "crates/wsl" }
+heimdall-project = { path = "crates/project" }
 
 # --- serialization and schemas ---------------------------------------------
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -192,3 +198,18 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "unwind"
+
+# ADR-0009 §2.7 (M03 wave 6, U13): the native test binaries the harnesses cross-build and
+# run on the devbox and in the WSL distribution (tests/native/m02/lib.sh,
+# `cargo test --profile native-test`). The dev profile with debug assertions kept (the
+# test-configured build: testcfg's HEIMDALL_TEST_* gates follow `debug_assertions`) and no
+# debug information, so every binary of the workspace fits the devbox at once (measured
+# at the wave-6 base: 88 binaries, 6.6 GB with line tables, about a third of it DWARF).
+# Panic messages keep their file and line (`Location`, not DWARF). `strip = "none"`:
+# without debug information cargo would strip by default, and the symbol table is what
+# backtraces name functions from and what platform-tests.py reads. Its own output
+# directory (target/<triple>/native-test) under the single ./target.
+[profile.native-test]
+inherits = "dev"
+debug = false
+strip = "none"

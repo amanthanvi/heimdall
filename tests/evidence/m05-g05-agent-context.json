@@ -1,0 +1,46 @@
+{
+  "case_id": "G05-agent-context",
+  "status": "verified",
+  "requirement_ids": [
+    "R-UX-02"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "macos": "Darwin 27.2.0 arm64 (the build host)",
+    "linux": "Ubuntu 24.04, Linux 6.8.0-147-generic x86_64 (the devbox)",
+    "windows": "Windows 11 (Microsoft Windows NT 10.0.26300.0), Windows PowerShell 5.1, the owner's PC; scratch sshd in WSL reached at 127.0.0.1"
+  },
+  "provider_versions": [
+    "macOS: OpenSSH_10.5p1, LibreSSL 3.3.6; git version 2.54.0 (Apple Git-157)",
+    "Linux: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13; git version 2.43.0",
+    "Windows: OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2; git version 2.55.0.windows.3"
+  ],
+  "started_at": "2026-11-15T19:30:00-05:00",
+  "commands_or_harness": [
+    "python3 -I tests/native/m05/u0b/spike_driver.py --platform macos --out results-macos.json",
+    "python3 -I tests/native/m05/u0b/spike_driver.py --platform linux --out results-linux.json (on the devbox, scratch /tmp directory, deleted)",
+    "powershell -NoProfile -ExecutionPolicy Bypass -File windows-agent-wait-spike.ps1 -Target 127.0.0.1 -Port <port> -User <fixture-user> (run twice on the owner's PC by the orchestrator's PC agent: first as committed at fe57c1d6, which measured nothing, then with $pipePath = '//./pipe/' + $pipe, the script's form now)"
+  ],
+  "observed_result": {
+    "macos": "ssh and git ls-remote completed a real publickey login with the identities answer delayed 0, 0.5, 1, 2, 5, 10 and 30 s (sshd LoginGraceTime 120) and 65 s (LoginGraceTime 0); at 125 s with LoginGraceTime 120 both failed (ssh exit 255, git exit 128) because sshd closed the connection; no client agent timeout up to 65 s. 52 agent messages (types 27 session-bind@openssh.com, 11, 13 only), none carrying the working directory, the repository name or the canary. session-bind arrived before REQUEST_IDENTITIES on every connection.",
+    "linux": "As macOS: every delay up to 65 s succeeded for ssh and git; 125 s failed by the server's LoginGraceTime (raw unauthenticated probe closed after 120.007 s); 52 agent messages, no directory context; session-bind first.",
+    "windows": "ssh and git ls-remote received the identities answer (a fake agent answering zero identities) at every delay, 0, 0.5, 1, 2, 5, 10 and 30 s, after the delay plus 0.10-0.19 s, with no timeout; the logins then failed by design (ssh exit 255, git exit 128). Every run sent exactly two agent messages, session-bind@openssh.com (27) then REQUEST_IDENTITIES (11); none of the 28 carried the working directory or the canary. The first run (-o IdentityAgent=\\\\.\\pipe\\...) reached no agent at all: OpenSSH_for_Windows 9.5p2 drops one backslash from that value."
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m05/u0b/results-macos.json",
+    "tests/evidence/artifacts/m05/u0b/results-linux.json",
+    "tests/evidence/artifacts/m05/u0b/results-windows.json",
+    "tests/evidence/artifacts/m05/u0b/results-windows-summary.txt",
+    "tests/evidence/artifacts/m05/u0b/results-windows-backslash-run.json",
+    "tests/evidence/artifacts/m05/u0b/results-windows-backslash-run-summary.txt",
+    "tests/evidence/artifacts/m05/u0b/SUMMARY.md",
+    "tests/native/m05/u0b/"
+  ],
+  "limitations": [
+    "Whether a client agent timeout exists above 65 s (macOS, Linux) or above 30 s (Windows, the longest delay tested) is not determined: the 125 s runs were ended by the server first.",
+    "Measurement spike on scratch fixtures (disposable keys, a disposable ssh-agent or the script's fake agent, a loopback-only sshd); no product code ran.",
+    "On Windows the fake agent answers zero identities, so the login itself fails by design; the measured facts are that the answer was received and how long the client waited for it.",
+    "The Windows results are redacted copies (account and PC names replaced, LF line endings); the unredacted originals stay on the PC."
+  ]
+}

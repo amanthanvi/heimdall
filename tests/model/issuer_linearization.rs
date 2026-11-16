@@ -137,6 +137,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -514,7 +516,7 @@ impl W {
             .ensure(
                 &owner(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: [h1()].into_iter().collect(),
                     environment: None,
@@ -525,6 +527,8 @@ impl W {
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await
@@ -555,8 +559,9 @@ impl W {
             .revoke(
                 &owner(),
                 RevokeRequest {
-                    grant_id: g.grant_id.clone(),
+                    grant_id: Some(g.grant_id.clone()),
                     request_id: RequestId::parse(rid).unwrap(),
+                    target: None,
                 },
             )
             .await
@@ -568,8 +573,9 @@ impl W {
             .policy(
                 &owner(),
                 PolicyAction::Cutoff {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
                     at,
+                    target: None,
                 },
             )
             .await
@@ -586,7 +592,6 @@ impl W {
             grant: g.grant_id.clone(),
             pair: h1(),
             principal: "hm:h1:deploy".into(),
-            key_id: format!("heimdall:{}:{}:1", env_id().as_str(), g.grant_id.as_str()),
             valid_after: plus(self.clock.wall(), Duration::ZERO),
             valid_before: plus(self.clock.wall(), Duration::from_secs(1800)),
             extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),

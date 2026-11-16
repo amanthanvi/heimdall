@@ -9,6 +9,7 @@
 //! | Endpoint | Lists |
 //! |---|---|
 //! | environment | the installed **certificates** of every materialized binding, for its materialized pairs only (at most one binding per pair) |
+//! | ⟨M04⟩ managed environment `e` | the same, for the bindings materialized into `e`'s own listing (ADR-0010 §9 item 1: per-environment slot namespaces; served by `e`'s realization) |
 //! | binding `b` | the installed **certificates** of `b`'s grant |
 //! | verification `op` | K_verify's plain public key **and** the certificate currently installed |
 //!
@@ -37,7 +38,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use async_trait::async_trait;
 use heimdall_app::ports::{KeyRegistration, SignatureSubject, SignerEndpoint};
 use heimdall_contract::ids::{
-    AccountName, BindingId, DestinationId, GrantId, IssuanceId, OperationId,
+    AccountName, BindingId, DestinationId, EnvironmentId, GrantId, IssuanceId, OperationId,
 };
 use heimdall_domain::issuance::{CredentialState, IssuanceEntry, IssuanceState, principal_for};
 use heimdall_domain::scope::AccessPair;
@@ -295,7 +296,43 @@ struct TableState {
     /// generation it was listed at (ADR-0008 §17.20 item 2: withdrawn per binding, pair
     /// and generation).
     materialized: BTreeMap<AccessPair, (BindingId, u64)>,
+    /// ⟨M04⟩ ADR-0010 §9 item 1: each other managed environment's own listing, with
+    /// the same rules as [`Self::materialized`] (which is the table's home environment's,
+    /// the native session's). One environment's listing never shows another's slots.
+    managed: BTreeMap<EnvironmentId, BTreeMap<AccessPair, (BindingId, u64)>>,
     verifications: HashMap<OperationId, VerificationKey>,
+}
+
+impl TableState {
+    /// The listing of `env` (`None`: the home environment's).
+    fn listing(
+        &self,
+        env: Option<&EnvironmentId>,
+    ) -> Option<&BTreeMap<AccessPair, (BindingId, u64)>> {
+        match env {
+            None => Some(&self.materialized),
+            Some(e) => self.managed.get(e),
+        }
+    }
+
+    fn listing_mut(
+        &mut self,
+        env: Option<&EnvironmentId>,
+    ) -> &mut BTreeMap<AccessPair, (BindingId, u64)> {
+        match env {
+            None => &mut self.materialized,
+            Some(e) => self.managed.entry(e.clone()).or_default(),
+        }
+    }
+
+    /// Unlist every binding `keep` refuses, in every listing.
+    fn retain_listed(&mut self, mut keep: impl FnMut(&BindingId) -> bool) {
+        self.materialized.retain(|_, (b, _)| keep(b));
+        for listing in self.managed.values_mut() {
+            listing.retain(|_, (b, _)| keep(b));
+        }
+        self.managed.retain(|_, l| !l.is_empty());
+    }
 }
 
 struct TableInner {
@@ -635,7 +672,7 @@ impl SignerTable {
     pub fn detach_binding(&self, binding: &BindingId) {
         let mut s = self.lock();
         s.bindings.remove(binding);
-        s.materialized.retain(|_, (b, _)| b != binding);
+        s.retain_listed(|b| b != binding);
     }
 
     /// The grant a binding is attached to.
@@ -657,7 +694,7 @@ impl SignerTable {
         binding: &BindingId,
         pairs: &[AccessPair],
     ) -> Result<(), MaterializeRefusal> {
-        self.materialize_with(binding, pairs, None)
+        self.materialize_with(None, binding, pairs, None)
     }
 
     /// ⟨M03 wave 3, §17.20 item 2⟩ [`Self::materialize`] at the slot `generation`: the
@@ -674,11 +711,28 @@ impl SignerTable {
         pairs: &[AccessPair],
         generation: u64,
     ) -> Result<(), MaterializeRefusal> {
-        self.materialize_with(binding, pairs, Some(generation))
+        self.materialize_with(None, binding, pairs, Some(generation))
+    }
+
+    /// ⟨M04⟩ [`Self::materialize_at`] into managed environment `env`'s own listing
+    /// (`None`: the home environment's, which is [`Self::materialize_at`]). ADR-0010 §9
+    /// item 1: a pair held in one environment's listing says nothing about another's.
+    ///
+    /// # Errors
+    /// [`MaterializeRefusal`]; nothing changes.
+    pub fn materialize_in(
+        &self,
+        env: Option<&EnvironmentId>,
+        binding: &BindingId,
+        pairs: &[AccessPair],
+        generation: u64,
+    ) -> Result<(), MaterializeRefusal> {
+        self.materialize_with(env, binding, pairs, Some(generation))
     }
 
     fn materialize_with(
         &self,
+        env: Option<&EnvironmentId>,
         binding: &BindingId,
         pairs: &[AccessPair],
         generation: Option<u64>,
@@ -693,11 +747,13 @@ impl SignerTable {
             .grants
             .get(&grant)
             .ok_or(MaterializeRefusal::UnknownBinding)?;
+        let empty = BTreeMap::new();
+        let listing = s.listing(env).unwrap_or(&empty);
         for p in pairs {
             if !key.installed.contains_key(p) {
                 return Err(MaterializeRefusal::NotInstalled(p.clone()));
             }
-            match s.materialized.get(p) {
+            match listing.get(p) {
                 Some((holder, _)) if holder != binding => {
                     return Err(MaterializeRefusal::PairHeld(p.clone()));
                 }
@@ -707,11 +763,12 @@ impl SignerTable {
                 _ => {}
             }
         }
+        let listing = s.listing_mut(env);
         for p in pairs {
             let g = generation
-                .or_else(|| s.materialized.get(p).map(|(_, g)| *g))
+                .or_else(|| listing.get(p).map(|(_, g)| *g))
                 .unwrap_or(0);
-            s.materialized.insert(p.clone(), (binding.clone(), g));
+            listing.insert(p.clone(), (binding.clone(), g));
         }
         Ok(())
     }
@@ -721,7 +778,7 @@ impl SignerTable {
     /// A cleanup of one generation uses [`Self::unmaterialize_pair`] or
     /// [`Self::unmaterialize_generation`] instead (§17.20 item 2).
     pub fn unmaterialize(&self, binding: &BindingId) {
-        self.lock().materialized.retain(|_, (b, _)| b != binding);
+        self.lock().retain_listed(|b| b != binding);
     }
 
     /// ⟨M03 wave 3, §17.20 item 2⟩ Unlist `pair` only if `binding` lists it at exactly
@@ -733,13 +790,28 @@ impl SignerTable {
         pair: &AccessPair,
         generation: u64,
     ) -> bool {
+        self.unmaterialize_pair_in(None, binding, pair, generation)
+    }
+
+    /// ⟨M04⟩ [`Self::unmaterialize_pair`] in managed environment `env`'s listing
+    /// (`None`: the home environment's).
+    pub fn unmaterialize_pair_in(
+        &self,
+        env: Option<&EnvironmentId>,
+        binding: &BindingId,
+        pair: &AccessPair,
+        generation: u64,
+    ) -> bool {
         let mut s = self.lock();
-        if s.materialized.get(pair) == Some(&(binding.clone(), generation)) {
-            s.materialized.remove(pair);
+        let listing = s.listing_mut(env);
+        let done = if listing.get(pair) == Some(&(binding.clone(), generation)) {
+            listing.remove(pair);
             true
         } else {
             false
-        }
+        };
+        s.managed.retain(|_, l| !l.is_empty());
+        done
     }
 
     /// ⟨M03 wave 3, §17.20 item 2⟩ Unlist every pair `binding` lists at exactly
@@ -750,15 +822,24 @@ impl SignerTable {
         generation: u64,
     ) -> Vec<AccessPair> {
         let mut s = self.lock();
-        let gone: Vec<AccessPair> = s
-            .materialized
-            .iter()
-            .filter(|(_, (b, g))| b == binding && *g == generation)
-            .map(|(p, _)| p.clone())
-            .collect();
-        for p in &gone {
-            s.materialized.remove(p);
+        let mut gone: Vec<AccessPair> = Vec::new();
+        let mut sweep = |listing: &mut BTreeMap<AccessPair, (BindingId, u64)>| {
+            let here: Vec<AccessPair> = listing
+                .iter()
+                .filter(|(_, (b, g))| b == binding && *g == generation)
+                .map(|(p, _)| p.clone())
+                .collect();
+            for p in &here {
+                listing.remove(p);
+            }
+            gone.extend(here);
+        };
+        // ⟨M04⟩ In every listing: a binding names one environment, so at most one has it.
+        sweep(&mut s.materialized);
+        for listing in s.managed.values_mut() {
+            sweep(listing);
         }
+        s.managed.retain(|_, l| !l.is_empty());
         gone
     }
 
@@ -776,8 +857,20 @@ impl SignerTable {
     /// ⟨M03 wave 3⟩ The generation `binding` lists `pair` at, if it lists it.
     #[must_use]
     pub fn materialized_generation(&self, binding: &BindingId, pair: &AccessPair) -> Option<u64> {
+        self.materialized_generation_in(None, binding, pair)
+    }
+
+    /// ⟨M04⟩ [`Self::materialized_generation`] in managed environment `env`'s listing
+    /// (`None`: the home environment's).
+    #[must_use]
+    pub fn materialized_generation_in(
+        &self,
+        env: Option<&EnvironmentId>,
+        binding: &BindingId,
+        pair: &AccessPair,
+    ) -> Option<u64> {
         self.lock()
-            .materialized
+            .listing(env)?
             .get(pair)
             .filter(|(b, _)| b == binding)
             .map(|(_, g)| *g)
@@ -800,7 +893,7 @@ impl SignerTable {
                 .filter(|(_, g)| *g == grant)
                 .map(|(b, _)| b.clone())
                 .collect();
-            s.materialized.retain(|_, (b, _)| !bindings.contains(b));
+            s.retain_listed(|b| !bindings.contains(b));
             s.bindings.retain(|_, g| g != grant);
             removed
         };
@@ -965,8 +1058,13 @@ impl SignerTable {
         let s = self.lock();
         let mut out: Vec<(Vec<u8>, String)> = Vec::new();
         match endpoint {
-            SignerEndpoint::Environment => {
-                for (pair, (binding, _)) in &s.materialized {
+            SignerEndpoint::Environment | SignerEndpoint::ManagedEnvironment(_) => {
+                let env = match endpoint {
+                    SignerEndpoint::ManagedEnvironment(e) => Some(e),
+                    _ => None,
+                };
+                let empty = BTreeMap::new();
+                for (pair, (binding, _)) in s.listing(env).unwrap_or(&empty) {
                     let Some(key) = s.bindings.get(binding).and_then(|g| s.grants.get(g)) else {
                         continue;
                     };
@@ -1017,8 +1115,12 @@ impl SignerTable {
             plain_requested: false,
         };
         match endpoint {
-            SignerEndpoint::Environment => {
-                s.materialized.iter().find_map(|(pair, (binding, _))| {
+            SignerEndpoint::Environment | SignerEndpoint::ManagedEnvironment(_) => {
+                let env = match endpoint {
+                    SignerEndpoint::ManagedEnvironment(e) => Some(e),
+                    _ => None,
+                };
+                s.listing(env)?.iter().find_map(|(pair, (binding, _))| {
                     let grant = s.bindings.get(binding)?;
                     let key = s.grants.get(grant)?;
                     (key.installed.get(pair)?.blob == key_blob).then(|| grant_target(grant, key))

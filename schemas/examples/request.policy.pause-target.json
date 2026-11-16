@@ -1,0 +1,5 @@
+{
+  "op": "policy",
+  "action": "pause",
+  "target": {"kind": "profile", "profile": "homelab-dev"}
+}

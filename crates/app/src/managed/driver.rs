@@ -292,20 +292,13 @@ async fn stages_after_key(
     };
     let valid_after = validity_start(now, grant.starts_at)
         .ok_or_else(|| AdapterError::Protocol("validity_start_out_of_range".to_owned()))?;
-    let env = ops.environment().clone();
     let mut published: Vec<(IssuanceEntry, String)> = Vec::new();
-    for (n, pair) in grant.scope.pairs.iter().enumerate() {
+    for pair in &grant.scope.pairs {
         // 2. reserve (a transaction; the CA is selected inside it, D4 item 3).
         let request = IssuanceRequest {
             grant: grant.id.clone(),
             pair: pair.clone(),
             principal: principal_for(pair),
-            key_id: format!(
-                "heimdall:{}:{}:{}",
-                env.as_str(),
-                grant.id.as_str(),
-                n.saturating_add(1)
-            ),
             valid_after,
             valid_before: grant.deadline.effective,
             extensions: extension_profile(grant, pair),

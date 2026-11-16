@@ -723,8 +723,12 @@ pub use heimdall_contract::managed::SessionLockState as LockState;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SignerEndpoint {
-    /// The environment endpoint (`signing.sock` or the stable pipe).
+    /// The environment endpoint (`signing.sock` or the stable pipe): the runtime's own
+    /// (native) environment's listing.
     Environment,
+    /// ⟨M04⟩ ADR-0010 §9 item 1: another managed environment's own listing (its slots),
+    /// served by that environment's realization (M04's WSL and container endpoints).
+    ManagedEnvironment(heimdall_contract::ids::EnvironmentId),
     /// A per-binding endpoint.
     Binding(BindingId),
     /// An enrollment operation's verification endpoint.
@@ -979,6 +983,10 @@ pub struct VerificationOutcome {
     /// version is unrecorded, so no attempt ran: the classification is inconclusive
     /// (`unrecorded_client_family`) and the doctor names the client.
     pub unrecorded: bool,
+    /// ⟨M03 wave 6; the orchestrator's ruling on I-8 (1)⟩ No attempt started (a
+    /// refusal before any login, or a run that could not start): the classification is
+    /// inconclusive `unclassified`, never `transport`.
+    pub not_run: bool,
 }
 
 /// Runs the production verification's fresh logins (ADR-0008 D5 §6.5; U5).

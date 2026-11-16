@@ -30,6 +30,8 @@ heimdall-sshconf = { workspace = true }
 heimdall-credential = { workspace = true }
 heimdall-issuer = { workspace = true }
 heimdall-enroll = { workspace = true }
+# M04 (ADR-0010 §2–§3; joint wave 0): the WSL realization; the runtime wires it (app never imports it).
+heimdall-wsl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }

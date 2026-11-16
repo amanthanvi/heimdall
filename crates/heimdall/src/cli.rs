@@ -74,8 +74,9 @@ use crate::client::{Client, Ctx, connect, error};
 use crate::output::{self, error_value};
 use crate::prompt::{self, Answer};
 use crate::{
-    catalog_cmd, connect_cmd, connections_cmd, doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd,
-    run_cmd, service_cmd, setup_cmd, tui, uninstall_cmd,
+    activate_cmd, catalog_cmd, connect_cmd, connections_cmd, container_cmd, doctor_cmd, enroll_cmd,
+    issuer_cmd, m03_cmd, m05_cmd, portable_cmd, run_cmd, service_cmd, setup_cmd, tui,
+    uninstall_cmd, wsl_cmd,
 };
 
 /// Heimdall: set up access once; your terminals, tools, and agents work across
@@ -147,6 +148,27 @@ pub enum Command {
     /// Helpers the runtime starts itself; not a user surface (M03).
     #[command(subcommand, hide = true)]
     Internal(InternalCommand),
+    /// WSL distributions Heimdall serves: enable, disable, status (M04; ADR-0010 §2, §3).
+    #[command(subcommand)]
+    Wsl(WslCommand),
+    /// Local Linux-container environments and their binding recipe (M04; ADR-0010 §4).
+    #[command(subcommand)]
+    Container(ContainerCommand),
+    /// Project trust: the trust record of the workspace you are in (M05; ADR-0011 §2).
+    #[command(subcommand)]
+    Project(ProjectCommand),
+    /// Activate the profile the working directory's workspace names; the shell hook
+    /// (M05; ADR-0011 §3.2).
+    Activate(ActivateArgs),
+    /// Shell integration (M05; ADR-0011 §3.2).
+    #[command(subcommand)]
+    Shell(ShellCommand),
+    /// Export your portable intent: profiles and destinations, never authority (M05;
+    /// ADR-0011 §2.4).
+    Export(ExportArgs),
+    /// Import portable intent from an exported bundle; it grants no access (M05;
+    /// ADR-0011 §2.4).
+    Import(ImportArgs),
     /// Read-only inspection of runtime state. Never starts the runtime.
     Inspect {
         /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions
@@ -205,6 +227,10 @@ pub struct RunArgs {
     /// reported when absent). A retry with the same ID never relaunches by itself.
     #[arg(long)]
     pub request_id: Option<String>,
+    /// M05: run the program with a narrower child binding of this parent binding
+    /// (ADR-0011 §6).
+    #[arg(long, value_name = "BINDING")]
+    pub parent_binding: Option<String>,
     /// Caller minimums.
     #[command(flatten)]
     pub require: RequireArgs,
@@ -389,6 +415,9 @@ pub struct DestinationAddArgs {
     /// Managed definition: adopted identity (`idn_…`).
     #[arg(long, requires = "hostname")]
     pub identity: Option<String>,
+    /// M04: reach the destination through this destination as a bastion (ADR-0010 §5).
+    #[arg(long, value_name = "DESTINATION", requires = "hostname")]
+    pub jump: Option<String>,
     /// Observed: an alias your own configuration already defines.
     #[arg(long)]
     pub observed: bool,
@@ -568,21 +597,26 @@ pub enum AccessCommand {
     },
     /// Narrower child binding (M05 demo; model in M01).
     Delegate(DelegateArgs),
-    /// Pause automatic activation for a policy (owner channel; narrowing).
+    /// Pause automatic activation for a policy, a profile, a workspace or all (owner
+    /// channel; narrowing).
     Pause {
-        /// Policy ID.
-        policy_id: String,
+        /// What to pause: a policy ID, or one target (M05).
+        #[command(flatten)]
+        target: AccessTarget,
     },
     /// Resume automatic activation (widening: needs an owner decision).
     Resume {
-        /// Policy ID.
-        policy_id: String,
+        /// What to resume: a policy ID, or one target (M05).
+        #[command(flatten)]
+        target: AccessTarget,
     },
-    /// Schedule (or clear) a hard stop for a policy (spec §6.1). An earlier cutoff
-    /// applies at once; a later one or `--clear` needs an owner decision.
+    /// Schedule (or clear) a hard stop for a policy, a profile, a workspace or all (spec
+    /// §6.1). An earlier cutoff applies at once; a later one or `--clear` needs an owner
+    /// decision.
     Cutoff {
-        /// Policy ID.
-        policy_id: String,
+        /// What to cut off: a policy ID, or one target (M05).
+        #[command(flatten)]
+        target: AccessTarget,
         /// RFC 3339 instant with explicit offset.
         #[arg(long, required_unless_present = "clear", conflicts_with = "clear")]
         at: Option<String>,
@@ -596,6 +630,92 @@ pub enum AccessCommand {
     /// Choose what happens to owned connections at the deadline, and whether Heimdall
     /// owns a multiplex master (M03).
     ConnectionPolicy(ConnectionPolicyArgs),
+    /// Owner-initiated review that may widen a workspace's, profile's or policy's
+    /// standing scope; always creates its own decision (M05; ADR-0011 §4.3).
+    Allow(AccessAllowArgs),
+    /// Stop now: end one work's access, or a policy's, a profile's, a workspace's or all
+    /// (M05; ADR-0011 §7).
+    Stop(AccessStopArgs),
+}
+
+/// The target of `access pause|resume|cutoff`: exactly one of a policy ID (the existing
+/// form), `--profile`, `--workspace` or `--all` (M05; ADR-0011 §7.3).
+#[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("access_target")
+        .required(true)
+        .multiple(false)
+        .args(["policy_id", "profile", "workspace", "all"])
+))]
+pub struct AccessTarget {
+    /// Policy ID.
+    pub policy_id: Option<String>,
+    /// M05: every policy for this profile.
+    #[arg(long, value_name = "PROFILE")]
+    pub profile: Option<String>,
+    /// M05: the policy of the workspace you are in.
+    #[arg(long)]
+    pub workspace: bool,
+    /// M05: every policy.
+    #[arg(long)]
+    pub all: bool,
+}
+
+impl AccessTarget {
+    /// The policy ID of the existing form, or `None` when an M05 target was given.
+    pub(crate) fn policy_id(&self) -> Option<&str> {
+        self.policy_id.as_deref()
+    }
+}
+
+/// `access allow` arguments (M05; ADR-0011 §4.3): what the review is for, exactly one.
+#[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("allow_target")
+        .required(true)
+        .multiple(false)
+        .args(["policy", "profile", "workspace"])
+))]
+pub struct AccessAllowArgs {
+    /// Review this policy.
+    #[arg(long, value_name = "POLICY")]
+    pub policy: Option<String>,
+    /// Review the policies of this profile.
+    #[arg(long, value_name = "PROFILE")]
+    pub profile: Option<String>,
+    /// Review the workspace you are in (or the one `--cwd` names).
+    #[arg(long)]
+    pub workspace: bool,
+    /// The directory whose workspace `--workspace` names (default the working directory).
+    #[arg(long, value_name = "PATH", requires = "workspace")]
+    pub cwd: Option<PathBuf>,
+}
+
+/// `access stop` arguments (M05; ADR-0011 §7): exactly one of a work ID or a policy-level
+/// target.
+#[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("stop_target")
+        .required(true)
+        .multiple(false)
+        .args(["work", "policy", "profile", "workspace", "all"])
+))]
+pub struct AccessStopArgs {
+    /// Stop this work: its unshared grants are revoked, other work is unaffected.
+    #[arg(long, value_name = "WORK")]
+    pub work: Option<String>,
+    /// Stop this policy (pause and end now).
+    #[arg(long, value_name = "POLICY")]
+    pub policy: Option<String>,
+    /// Stop every policy for this profile.
+    #[arg(long, value_name = "PROFILE")]
+    pub profile: Option<String>,
+    /// Stop the policy of the workspace you are in.
+    #[arg(long)]
+    pub workspace: bool,
+    /// Stop every policy.
+    #[arg(long)]
+    pub all: bool,
 }
 
 /// `access lock-behavior` arguments (m03-plan §5 item 24).
@@ -966,6 +1086,8 @@ pub enum InternalCommand {
     Issuer,
     /// The session-lock state, read-only.
     SessionLockState,
+    /// The WSL helper the Windows runtime starts inside a distribution (M04; ADR-0010 §2).
+    WslHelper,
 }
 
 /// `operation` subcommands.
@@ -1047,11 +1169,157 @@ pub enum ServiceCommand {
         /// Detach from the terminal (used by on-demand start).
         #[arg(long)]
         detach: bool,
+        /// M04: started by the login entry; yields to a running instance (ADR-0010 §1,
+        /// §6).
+        #[arg(long)]
+        login: bool,
     },
     /// Report whether a runtime is serving (exit 5 when none is).
     Status,
     /// Ask the runtime to drain and stop.
     Stop,
+    /// Start the runtime at login: enable, disable, status (M04; ADR-0010 §1, §6).
+    #[command(subcommand)]
+    Autostart(AutostartCommand),
+}
+
+/// `service autostart` subcommands (M04; ADR-0010 §1, §6).
+#[derive(Debug, Subcommand)]
+pub enum AutostartCommand {
+    /// Register the login entry.
+    Enable,
+    /// Remove the login entry Heimdall registered.
+    Disable,
+    /// Show whether the login entry is registered (read-only).
+    Status,
+}
+
+/// `wsl` subcommands (M04; ADR-0010 §2, §3).
+#[derive(Debug, Subcommand)]
+pub enum WslCommand {
+    /// Serve a WSL distribution: Mode A (Windows SSH authority) or Mode B (a Linux-native
+    /// scoped endpoint).
+    Enable(WslEnableArgs),
+    /// Stop serving a distribution and clean up what Heimdall placed in it.
+    Disable(WslDisableArgs),
+    /// Show the discovered distributions and which ones Heimdall serves (read-only).
+    Status,
+}
+
+/// `wsl enable` arguments (ADR-0010 §2, §3).
+#[derive(Debug, Args)]
+pub struct WslEnableArgs {
+    /// The distribution name.
+    pub distribution: String,
+    /// The Linux account inside the distribution (default its default user).
+    #[arg(long, value_name = "NAME")]
+    pub account: Option<String>,
+    /// Mode A: the distribution uses Windows SSH authority.
+    #[arg(long, conflicts_with = "mode_b")]
+    pub mode_a: bool,
+    /// Mode B: a Linux-native scoped endpoint inside the distribution.
+    #[arg(long)]
+    pub mode_b: bool,
+}
+
+/// `wsl disable` arguments (ADR-0010 §9 item 2).
+#[derive(Debug, Args)]
+pub struct WslDisableArgs {
+    /// The distribution name.
+    pub distribution: String,
+    /// Start a stopped distribution to finish its cleanup (an explicit, authorized
+    /// start; a distribution is never started in the background).
+    #[arg(long)]
+    pub start: bool,
+}
+
+/// `container` subcommands (M04; ADR-0010 §4).
+#[derive(Debug, Subcommand)]
+pub enum ContainerCommand {
+    /// Register a local Linux-container environment.
+    Add {
+        /// The environment's label.
+        label: String,
+    },
+    /// Remove a container environment.
+    Remove {
+        /// The environment ID.
+        environment: String,
+    },
+    /// Print the mount arguments that bind the container to its environment endpoint.
+    MountArgs {
+        /// The environment ID.
+        environment: String,
+    },
+}
+
+/// `project` subcommands (M05; ADR-0011 §2).
+#[derive(Debug, Subcommand)]
+pub enum ProjectCommand {
+    /// Trust the workspace's manifest: an owner decision that shows the exact scope.
+    Trust(ProjectCwdArgs),
+    /// Show the workspace, its trust state and its policy (read-only).
+    Status(ProjectCwdArgs),
+    /// Withdraw the workspace's trust.
+    Untrust(ProjectCwdArgs),
+    /// Resolve an ambiguous workspace match (for example a re-clone at the same path).
+    Reconcile(ProjectCwdArgs),
+}
+
+/// The directory a `project` command reads its workspace from.
+#[derive(Debug, Args)]
+pub struct ProjectCwdArgs {
+    /// The directory (default the working directory).
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<PathBuf>,
+}
+
+/// `activate` arguments (M05; ADR-0011 §3.2, §10 item 3).
+#[derive(Debug, Args)]
+pub struct ActivateArgs {
+    /// Run as the shell hook: noninteractive, never prompts, activates only what is
+    /// already covered.
+    #[arg(long)]
+    pub hook: bool,
+    /// The directory the shell is in.
+    #[arg(long, value_name = "PATH")]
+    pub cwd: PathBuf,
+}
+
+/// `shell` subcommands (M05; ADR-0011 §3.2).
+#[derive(Debug, Subcommand)]
+pub enum ShellCommand {
+    /// Print the shell integration script for `zsh` or `bash`.
+    Init {
+        /// The shell.
+        #[arg(value_enum)]
+        shell: ShellArg,
+    },
+}
+
+/// The shells `shell init` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ShellArg {
+    /// Zsh.
+    Zsh,
+    /// Bash.
+    Bash,
+}
+
+/// `export` arguments (M05; ADR-0011 §2.4).
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    /// Redact socket and home paths.
+    #[arg(long)]
+    pub redact: bool,
+}
+
+/// `import` arguments (M05; ADR-0011 §2.4).
+#[derive(Debug, Args)]
+pub struct ImportArgs {
+    /// The exported bundle.
+    #[arg(value_name = "BUNDLE")]
+    pub bundle: PathBuf,
 }
 
 /// `schema` subcommands.
@@ -1067,6 +1335,10 @@ pub enum SchemaCommand {
         /// `schemas/configuration`).
         #[arg(long, default_value = "schemas/configuration")]
         config_out: PathBuf,
+        /// ⟨rev5⟩ Output directory for the trusted-work file formats
+        /// (`manifest.schema.json`, `portable.schema.json`; default `schemas/project`).
+        #[arg(long, default_value = "schemas/project")]
+        project_out: PathBuf,
     },
     /// Print one schema or the code table to stdout.
     Show {
@@ -1174,10 +1446,21 @@ pub fn dispatch(cli: Cli) -> ExitCode {
     };
     let command = match cli.command {
         Some(Command::Schema(SchemaCommand::Show { name })) => return schema_show(&name),
-        Some(Command::Schema(SchemaCommand::Export { out, config_out })) => {
-            return schema_export(&out, &config_out, ctx.json);
+        Some(Command::Schema(SchemaCommand::Export {
+            out,
+            config_out,
+            project_out,
+        })) => {
+            return schema_export(&out, &config_out, &project_out, ctx.json);
         }
-        Some(Command::Service(ServiceCommand::Run { detach })) => {
+        // M04 wave 0: `--login` and `autostart` are answered before the runtime's own code.
+        Some(Command::Service(ServiceCommand::Run { login: true, .. })) => {
+            return wsl_cmd::refuse(&ctx);
+        }
+        Some(Command::Service(ServiceCommand::Autostart(_))) => {
+            return wsl_cmd::refuse(&ctx);
+        }
+        Some(Command::Service(ServiceCommand::Run { detach, .. })) => {
             return service_cmd::run(&ctx, detach);
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
@@ -1185,6 +1468,10 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         // M02 commands: each handler owns its command (all wired in wave 4).
         Some(Command::Setup(args)) => return setup_cmd::run(&ctx, args),
         Some(Command::Connect(args)) => return connect_cmd::run(&ctx, args),
+        // M05 wave 0: `--parent-binding` is refused before any launch step.
+        Some(Command::Run(args)) if args.parent_binding.is_some() => {
+            return m05_cmd::run_parent_binding(&ctx);
+        }
         Some(Command::Run(args)) => return run_cmd::run(&ctx, args),
         Some(Command::Doctor(args)) => return doctor_cmd::run(&ctx, args),
         Some(Command::Tui) => return tui::run(tui::TuiConfig::from_ctx(&ctx)),
@@ -1192,7 +1479,32 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Issuer(c)) => return issuer_cmd::run(&ctx, c),
         Some(Command::Enroll(a)) => return enroll_cmd::run(&ctx, a),
         Some(Command::Connections(a)) => return connections_cmd::run(&ctx, a),
+        Some(Command::Internal(InternalCommand::WslHelper)) => {
+            return wsl_cmd::refuse(&ctx);
+        }
         Some(Command::Internal(c)) => return m03_cmd::internal(&ctx, c),
+        // M04/M05 wave 0 (ADR-0010 §9 item 9; ADR-0011 §10 item 10): each new command is
+        // answered by its owner's handler before any runtime contact.
+        Some(Command::Wsl(_)) => return wsl_cmd::refuse(&ctx),
+        Some(Command::Container(_)) => return container_cmd::refuse(&ctx),
+        Some(Command::Project(_)) => return m05_cmd::refuse(&ctx),
+        Some(Command::Activate(_)) | Some(Command::Shell(_)) => {
+            return activate_cmd::refuse(&ctx);
+        }
+        Some(Command::Export(_)) | Some(Command::Import(_)) => {
+            return portable_cmd::refuse(&ctx);
+        }
+        Some(Command::Access(AccessCommand::Allow(_) | AccessCommand::Stop(_))) => {
+            return m05_cmd::refuse(&ctx);
+        }
+        Some(Command::Access(
+            AccessCommand::Pause { target }
+            | AccessCommand::Resume { target }
+            | AccessCommand::Cutoff { target, .. },
+        )) if target.policy_id().is_none() => return m05_cmd::refuse(&ctx),
+        Some(Command::Destination(DestinationCommand::Add(a))) if a.jump.is_some() => {
+            return wsl_cmd::refuse(&ctx);
+        }
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
@@ -1336,7 +1648,12 @@ async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
             one(
                 ctx,
                 false,
-                Request::Inspect(InspectRequest { subject, preview }),
+                Request::Inspect(InspectRequest {
+                    subject,
+                    preview,
+                    cwd: None,
+                    redact: false,
+                }),
             )
             .await
         }
@@ -1349,6 +1666,8 @@ async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
                 Request::Inspect(InspectRequest {
                     subject: InspectSubject::Decisions,
                     preview: None,
+                    cwd: None,
+                    redact: false,
                 }),
             )
             .await
@@ -1371,6 +1690,8 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
         Request::Inspect(InspectRequest {
             subject,
             preview: None,
+            cwd: None,
+            redact: false,
         })
     };
     let ops = client.request(inspect(InspectSubject::Operations)).await;
@@ -1403,6 +1724,10 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
         AccessCommand::ConnectionPolicy(a) => {
             policy(ctx, m03_cmd::connection_policy_action(&a)?).await
         }
+        // Answered in `dispatch` before the executor starts (M05 wave 0).
+        AccessCommand::Allow(_) | AccessCommand::Stop(_) => {
+            Err(Done::of(usage("unsupported command")))
+        }
         AccessCommand::Release { binding_id } => {
             let binding_id = parse("binding ID", BindingId::parse, &binding_id)?;
             one(ctx, true, Request::Release(ReleaseRequest { binding_id })).await
@@ -1420,8 +1745,9 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
                 ctx,
                 true,
                 Request::Revoke(RevokeRequest {
-                    grant_id,
+                    grant_id: Some(grant_id),
                     request_id,
+                    target: None,
                 }),
             )
             .await
@@ -1437,22 +1763,35 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
             };
             one(ctx, true, Request::Delegate(request)).await
         }
-        AccessCommand::Pause { policy_id } => {
-            let policy_id = parse("policy ID", PolicyId::parse, &policy_id)?;
-            policy(ctx, PolicyAction::Pause { policy_id }).await
+        AccessCommand::Pause { target } => {
+            let policy_id = parse("policy ID", PolicyId::parse, policy_of(&target)?)?;
+            policy(
+                ctx,
+                PolicyAction::Pause {
+                    policy_id: Some(policy_id),
+                    target: None,
+                },
+            )
+            .await
         }
-        AccessCommand::Resume { policy_id } => {
-            let policy_id = parse("policy ID", PolicyId::parse, &policy_id)?;
-            policy(ctx, PolicyAction::Resume { policy_id }).await
+        AccessCommand::Resume { target } => {
+            let policy_id = parse("policy ID", PolicyId::parse, policy_of(&target)?)?;
+            policy(
+                ctx,
+                PolicyAction::Resume {
+                    policy_id: Some(policy_id),
+                    target: None,
+                },
+            )
+            .await
         }
-        AccessCommand::Cutoff {
-            policy_id,
-            at,
-            clear,
-        } => {
-            let policy_id = parse("policy ID", PolicyId::parse, &policy_id)?;
+        AccessCommand::Cutoff { target, at, clear } => {
+            let policy_id = parse("policy ID", PolicyId::parse, policy_of(&target)?)?;
             let action = if clear {
-                PolicyAction::ClearCutoff { policy_id }
+                PolicyAction::ClearCutoff {
+                    policy_id: Some(policy_id),
+                    target: None,
+                }
             } else {
                 let at = at.unwrap_or_default();
                 let at: Timestamp = at.parse().map_err(|_| {
@@ -1460,11 +1799,24 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
                         "--at must be an RFC 3339 instant with an explicit offset",
                     ))
                 })?;
-                PolicyAction::Cutoff { policy_id, at }
+                PolicyAction::Cutoff {
+                    policy_id: Some(policy_id),
+                    at,
+                    target: None,
+                }
             };
             policy(ctx, action).await
         }
     }
+}
+
+/// The policy ID of an `access pause|resume|cutoff` target. `dispatch` answers every M05
+/// target (`--profile`, `--workspace`, `--all`) before this runs, so only the policy-ID
+/// form arrives; anything else is a usage error here too.
+fn policy_of(target: &AccessTarget) -> Result<&str, Done> {
+    target
+        .policy_id()
+        .ok_or_else(|| Done::of(usage("unsupported command")))
 }
 
 async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
@@ -1474,7 +1826,7 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
         (None, None) => None,
     };
     let request = EnsureRequest {
-        profile: parse("profile", ProfileId::parse, &a.profile)?,
+        profile: Some(parse("profile", ProfileId::parse, &a.profile)?),
         profile_revision: None,
         scope: a.pairs.iter().map(|p| pair(p)).collect::<Result<_, _>>()?,
         environment: a
@@ -1497,6 +1849,8 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
         // ⟨M03⟩ wave 5 (U12): `--strict` asks for strict owned connections; absent,
         // the request is M02's byte for byte (`connection` is skipped when `None`).
         connection: a.strict.then(m03_cmd::strict_connection),
+        context: None,
+        covered_only: false,
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
@@ -1760,6 +2114,8 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Decisions,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     if !listing.code.is_success() {
@@ -2047,10 +2403,16 @@ fn schema_show(name: &str) -> ExitCode {
     }
 }
 
-fn schema_export(out: &std::path::Path, config_out: &std::path::Path, json: bool) -> ExitCode {
+fn schema_export(
+    out: &std::path::Path,
+    config_out: &std::path::Path,
+    project_out: &std::path::Path,
+    json: bool,
+) -> ExitCode {
     let result = (|| -> std::io::Result<Vec<String>> {
         std::fs::create_dir_all(out)?;
         std::fs::create_dir_all(config_out)?;
+        std::fs::create_dir_all(project_out)?;
         let mut written = Vec::new();
         for s in heimdall_contract::schema::public_schemas() {
             let path = out.join(format!("{}.schema.json", s.name));
@@ -2066,6 +2428,15 @@ fn schema_export(out: &std::path::Path, config_out: &std::path::Path, json: bool
         text.push('\n');
         std::fs::write(&codes, text)?;
         written.push(codes.display().to_string());
+        // ⟨rev5⟩ The trusted-work file formats (ADR-0006 §17), same rendering.
+        for s in heimdall_contract::schema::project_schemas() {
+            let path = project_out.join(format!("{}.schema.json", s.name));
+            let mut text =
+                serde_json::to_string_pretty(&s.schema).map_err(std::io::Error::other)?;
+            text.push('\n');
+            std::fs::write(&path, text)?;
+            written.push(path.display().to_string());
+        }
         // The configuration schema (gap G18), same rendering.
         let config = config_out.join("config.schema.json");
         let text =
@@ -2582,7 +2953,7 @@ mod tests {
 
     fn ensure_request() -> EnsureRequest {
         EnsureRequest {
-            profile: ProfileId::parse("dev").unwrap_or_else(|_| unreachable!()),
+            profile: Some(ProfileId::parse("dev").unwrap_or_else(|_| unreachable!())),
             profile_revision: None,
             scope: std::collections::BTreeSet::new(),
             environment: None,
@@ -2594,6 +2965,8 @@ mod tests {
             wait: WaitMode::default(),
             // not strict (M02's request)
             connection: None,
+            context: None,
+            covered_only: false,
         }
     }
 
@@ -2755,10 +3128,12 @@ mod tests {
             assert!(p.shown.is_empty());
             for action in [
                 PolicyAction::Resume {
-                    policy_id: PolicyId::parse("pol").unwrap_or_else(|_| unreachable!()),
+                    policy_id: Some(PolicyId::parse("pol").unwrap_or_else(|_| unreachable!())),
+                    target: None,
                 },
                 PolicyAction::ClearCutoff {
-                    policy_id: PolicyId::parse("pol").unwrap_or_else(|_| unreachable!()),
+                    policy_id: Some(PolicyId::parse("pol").unwrap_or_else(|_| unreachable!())),
+                    target: None,
                 },
             ] {
                 let mut s = Recorder::new().answer("policy", unattended());
@@ -2785,8 +3160,14 @@ mod tests {
     fn owner_present_policy_and_decision_flows_attend_first() {
         let pol = || PolicyId::parse("pol").unwrap_or_else(|_| unreachable!());
         for action in [
-            PolicyAction::Resume { policy_id: pol() },
-            PolicyAction::ClearCutoff { policy_id: pol() },
+            PolicyAction::Resume {
+                policy_id: Some(pol()),
+                target: None,
+            },
+            PolicyAction::ClearCutoff {
+                policy_id: Some(pol()),
+                target: None,
+            },
         ] {
             let mut s = Recorder::new()
                 .answer("policy", approval_required())
@@ -2813,7 +3194,10 @@ mod tests {
             &mut s,
             &mut p,
             &tty(),
-            PolicyAction::Pause { policy_id: pol() },
+            PolicyAction::Pause {
+                policy_id: Some(pol()),
+                target: None,
+            },
         ));
         assert_eq!(s.sent, ["policy"], "narrowing: no attendance");
         assert_eq!(done.env.code, Code::Ok);

@@ -149,6 +149,28 @@
     }
   ],
   "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
     "BindingId": {
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
@@ -300,6 +322,10 @@
     },
     "Cursor": {
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
       "type": "string"
     },
     "EffectStatus": {
@@ -660,6 +686,11 @@
           "description": "⟨M03⟩ A session lock was observed (payload\n[`crate::managed::SessionLockEventPayload`]).",
           "type": "string",
           "const": "session_lock"
+        },
+        {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 8): a background activation was activated,\nblocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not\nemitted by joint wave 0.",
+          "type": "string",
+          "const": "activation"
         }
       ]
     },
@@ -817,6 +848,27 @@
         }
       ]
     },
+    "MechanismGroup": {
+      "description": "⟨M05⟩ One mechanism group of a mixed profile (`next.groups`; ADR-0011 §5.3).",
+      "type": "object",
+      "properties": {
+        "mechanism": {
+          "description": "The mechanism (`managed_certificate`, `native_agent`, ...).",
+          "type": "string"
+        },
+        "pairs": {
+          "description": "Its pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          }
+        }
+      },
+      "required": [
+        "mechanism",
+        "pairs"
+      ]
+    },
     "NextAction": {
       "description": "Machine next action (spec §11.2 `next`, §11.6 \"machine-readable next action\").\n`action` names are stable; parameters are present only when relevant.",
       "type": "object",
@@ -853,6 +905,13 @@
             "string",
             "null"
           ]
+        },
+        "groups": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 9): with reason `mixed_mechanisms`, the\nmechanism groups to re-request under one work ID (ADR-0011 §5.3). Omitted when\nempty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MechanismGroup"
+          }
         },
         "operation_id": {
           "description": "Operation to observe.",
@@ -1037,6 +1096,21 @@
           "description": "The Git include block B_git and the managed file P_git.",
           "type": "string",
           "const": "git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 3): the runtime's login entry (ADR-0010 §1\nitem 2, §6).",
+          "type": "string",
+          "const": "login_entry"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's Git item, Mode A (ADR-0010 §2 item 2); names\nthe distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's projection, Mode B (ADR-0010 §3 item 5);\nnames the distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_projection"
         }
       ]
     },

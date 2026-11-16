@@ -1807,7 +1807,11 @@ fn pair_masters_enabled(
 ) -> heimdall_store::Result<bool> {
     let mut applicable = Vec::new();
     for profile in tx.profiles()? {
-        for p in tx.policies_for(&profile.id, environment)? {
+        // ⟨M05⟩ P's ordinary aliases are environment-level: personal policies only
+        // (ADR-0011 §5.2, §10 item 1).
+        for p in
+            heimdall_app::policy_context::environment_level_policies(tx, &profile.id, environment)?
+        {
             if p.scope.pairs.contains(pair) {
                 applicable.push(p.connection);
             }
@@ -3036,6 +3040,29 @@ mod enrollment_host_tests {
         std::os::unix::fs::symlink(&elsewhere, run.join("e").join(other)).unwrap();
         assert!(h.write_files(other, "line", None).is_err());
         assert!(!elsewhere.join("known_hosts").exists());
+        // ⟨M03 wave 6, U13⟩ The line the enrollment step actually produces is accepted
+        // (a trailing terminator made every real enrollment step `driver_unavailable`).
+        let target = heimdall_contract::enrollment::ApprovedTarget {
+            hostname: "127.0.0.1".into(),
+            port: 2222,
+            user: heimdall_contract::ids::AccountName::parse("deploy").unwrap(),
+            proxy: heimdall_contract::enrollment::NoProxy::None,
+            host_key: heimdall_contract::enrollment::ApprovedHostKey {
+                algorithm: "ssh-ed25519".into(),
+                key: "DDDD".into(),
+                fingerprint: "SHA256:x".into(),
+            },
+        };
+        h.write_files(
+            tag,
+            &heimdall_app::enrollment::known_hosts_line(tag, &target),
+            None,
+        )
+        .expect("the step's own known-hosts line is one line");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("known_hosts")).unwrap(),
+            "hm-target-0123456789abcdef ssh-ed25519 DDDD\n"
+        );
         // No verified client: no `ssh -G`, no version.
         assert!(h.client().is_none() && h.client_version().is_none());
         // Heimdall's endpoints and runtime directory are listed; one under the runtime

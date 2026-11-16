@@ -618,7 +618,11 @@ impl World {
             Wk::Create => std::fs::remove_file(&home.user_config).unwrap(),
             _ => write_mode(&home.user_config, USER_TEXT.as_bytes(), 0o600),
         }
-        let ssh_only = PreviewIntent::Apply { include_git: false };
+        let ssh_only = PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        };
         let mut intent = preview_in(&home, kind, &env, &ssh_only);
         match kind {
             Wk::Replace | Wk::Create => {
@@ -634,7 +638,11 @@ impl World {
                     matches!(r.items.as_slice(), [ItemOutcome::Applied { .. }]),
                     "{r:?}"
                 );
-                let git = PreviewIntent::Apply { include_git: true };
+                let git = PreviewIntent::Apply {
+                    include_git: true,
+                    distribution: None,
+                    items: Default::default(),
+                };
                 intent = preview_in(&home, kind, &env, &git);
                 render(&intent, FileRole::GitManaged);
                 intent = preview_in(&home, kind, &env, &git);

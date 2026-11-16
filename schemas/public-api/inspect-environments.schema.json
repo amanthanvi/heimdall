@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentsView",
+  "description": "`inspect environments` data.",
+  "type": "object",
+  "properties": {
+    "items": {
+      "description": "Every environment the runtime knows, its own first.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EnvironmentView"
+      }
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "$defs": {
+    "DistributionGuid": {
+      "description": "A WSL distribution's registration GUID under `HKCU\\...\\Lxss` (ADR-0010 §3 item 1): the\nidentity of a distribution, kept across renames; a re-registered distribution is a new\nGUID. Wire form: 36 lowercase hex-and-hyphen characters, `8-4-4-4-12`, no braces\n(validated on decode; the CLI normalizes case and strips braces before sending).",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "EnvironmentKindView": {
+      "description": "An environment's kind on the wire (`EnvironmentView.kind`).",
+      "oneOf": [
+        {
+          "description": "The runtime's own native session.",
+          "type": "string",
+          "const": "native_session"
+        },
+        {
+          "description": "A WSL distribution in Mode B.",
+          "type": "string",
+          "const": "wsl_distribution"
+        },
+        {
+          "description": "A local container environment.",
+          "type": "string",
+          "const": "container"
+        }
+      ]
+    },
+    "EnvironmentState": {
+      "description": "An environment's state (m04-plan §5 item 4).",
+      "oneOf": [
+        {
+          "description": "In the managed set and running.",
+          "type": "string",
+          "const": "active"
+        },
+        {
+          "description": "In the managed set; its distribution is not running (background repair never\nstarts it).",
+          "type": "string",
+          "const": "not_running"
+        },
+        {
+          "description": "Removed by the owner (`wsl disable`, `container remove`); kept as a removed\nidentity, refused as a target (`environment_removed`).",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Its distribution was unregistered; refused as a target.",
+          "type": "string",
+          "const": "gone"
+        }
+      ]
+    },
+    "EnvironmentView": {
+      "description": "One environment in `inspect environments` (m04-plan §5 item 4: every environment, not\nonly the caller's).",
+      "type": "object",
+      "properties": {
+        "environment_id": {
+          "description": "Environment ID.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "kind": {
+          "description": "Kind.",
+          "$ref": "#/$defs/EnvironmentKindView"
+        },
+        "label": {
+          "description": "Owner label.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "realization": {
+          "description": "Realization.",
+          "$ref": "#/$defs/RealizationView"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/EnvironmentState"
+        }
+      },
+      "required": [
+        "environment_id",
+        "kind",
+        "state",
+        "realization"
+      ]
+    },
+    "HelperState": {
+      "description": "The helper's observed state for a Mode B distribution.",
+      "oneOf": [
+        {
+          "description": "Running and past its hello.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "Not running (no active binding, or the distribution is stopped).",
+          "type": "string",
+          "const": "stopped"
+        },
+        {
+          "description": "No Linux-visible helper path resolves (`wsl_helper_unavailable`).",
+          "type": "string",
+          "const": "unavailable"
+        }
+      ]
+    },
+    "RealizationView": {
+      "description": "How an environment is realized, as `inspect environments` shows it (m04-plan §5\nitem 4). Tagged by `kind`.",
+      "oneOf": [
+        {
+          "description": "The runtime's own session.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "native"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A WSL distribution.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "description": "Linux account.",
+              "type": "string"
+            },
+            "guid": {
+              "description": "Registration GUID (identity).",
+              "$ref": "#/$defs/DistributionGuid"
+            },
+            "helper": {
+              "description": "The helper's state (Mode B only).",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/HelperState"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "wsl"
+            },
+            "modes": {
+              "description": "Enabled modes.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/WslMode"
+              }
+            },
+            "name": {
+              "description": "Current distribution name (mutable; not identity).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "guid",
+            "account",
+            "modes"
+          ]
+        },
+        {
+          "description": "A container environment.",
+          "type": "object",
+          "properties": {
+            "directory": {
+              "description": "The stable host directory (`<runtime_dir>/c/<16 hex>/`).",
+              "type": "string"
+            },
+            "in_container_path": {
+              "description": "Where it is mounted inside the container (`/run/heimdall`).",
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "container"
+            },
+            "label": {
+              "description": "The owner's label.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "directory",
+            "in_container_path"
+          ]
+        }
+      ]
+    },
+    "WslMode": {
+      "description": "The modes enabled for a WSL distribution.",
+      "oneOf": [
+        {
+          "description": "Mode A (Windows SSH authority).",
+          "type": "string",
+          "const": "a"
+        },
+        {
+          "description": "Mode B (Linux-native scoped endpoint).",
+          "type": "string",
+          "const": "b"
+        }
+      ]
+    }
+  }
+}

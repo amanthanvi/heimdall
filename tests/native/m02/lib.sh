@@ -6,8 +6,11 @@
 #
 # Conventions:
 #   * Build output stays in the workspace ./target (AGENTS.md): no CARGO_TARGET_DIR, no
-#     --target-dir. Shims and staging live in the caller's mktemp directory ($shim),
-#     removed by the caller's EXIT trap.
+#     --target-dir. Staging lives in the caller's mktemp directory ($shim), removed by the
+#     caller's EXIT trap. ⟨M03 wave 6, ADR-0009 §2.7⟩ The zig shims live at one stable
+#     path under ./target (m02_shim_dir), so the linker and CC values cargo and cc-rs see
+#     never change between runs and the cross builds stay incremental; cross builds use
+#     the lean `native-test` profile (Cargo.toml), so every binary fits a small host.
 #   * Nothing here prints a home path, user name or host name: saved logs go through
 #     m02_redact first, and m02_leak_scan checks the result.
 #   * Each line of commands.txt carries the real exit code of the command it names.
@@ -27,8 +30,38 @@ m02_valid_alias() {
 # m02_random_hex BYTES: lowercase hex from /dev/urandom.
 m02_random_hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 
-# m02_write_shims DIR: the M01 zig cc/ar/dlltool shims for both cross targets.
+# m02_shim_dir REPO: the stable shim directory, REPO/target/hm-zig-shims, or
+# HM_SHIM_DIR when set (the self-tests point it into their own temporary tree).
+m02_shim_dir() { echo "${HM_SHIM_DIR:-$1/target/hm-zig-shims}"; }
+
+# m02_install_file SRC DST MODE: move SRC to DST (mode MODE) only when DST is absent or
+# differs, by an atomic rename, so a concurrent build that is executing DST never sees a
+# partly written file; otherwise SRC is removed and DST (and its mtime) stays as it was.
+m02_install_file() {
+    if [ -f "$2" ] && cmp -s "$1" "$2"; then
+        rm -f -- "$1"
+    else
+        chmod "$3" "$1" && mv -f -- "$1" "$2"
+    fi
+}
+
+# m02_write_shims DIR: the M01 zig cc/ar/dlltool shims for both cross targets, written
+# into DIR (created if absent; ⟨M03 wave 6⟩ normally m02_shim_dir, a stable path) only
+# where a file is missing or differs. Sets M02_SHIMS=DIR for m02_cargo_build.
 m02_write_shims() {
+    local d=$1 t f
+    mkdir -p -- "$d" || return 1
+    t=$(mktemp -d "$d/.new.XXXXXX") || return 1
+    m02_shim_contents "$t" || { rm -rf -- "$t"; return 1; }
+    for f in zigcc-linux.sh zigcc-win.sh zigcc-win-cc.sh x86_64-w64-mingw32-dlltool zigar.sh; do
+        m02_install_file "$t/$f" "$d/$f" 755 || { rm -rf -- "$t"; return 1; }
+    done
+    rmdir -- "$t"
+    M02_SHIMS=$d
+}
+
+# m02_shim_contents DIR: write the shims into DIR (m02_write_shims installs them).
+m02_shim_contents() {
     local d=$1
     cat >"$d/zigcc-linux.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -78,31 +111,32 @@ exec zig cc -target x86_64-windows-gnu "${args[@]}"
 EOF
     printf '#!/usr/bin/env bash\nexec zig dlltool "$@"\n' >"$d/x86_64-w64-mingw32-dlltool"
     printf '#!/usr/bin/env bash\nexec zig ar "$@"\n' >"$d/zigar.sh"
-    chmod +x "$d/zigcc-linux.sh" "$d/zigcc-win.sh" "$d/zigcc-win-cc.sh" \
-        "$d/x86_64-w64-mingw32-dlltool" "$d/zigar.sh"
 }
 
-# m02_cargo_build TRIPLE SHIM BUILD_LOG: `cargo test [--target TRIPLE] --workspace
-# --no-run --locked`, through the zig shims for a cross target. JSON messages go to
-# SHIM/build.json, diagnostics to BUILD_LOG. Returns cargo's exit code. TRIPLE "host"
-# builds for the build host.
+# m02_cargo_build TRIPLE WORK BUILD_LOG: `cargo test [--target TRIPLE] --workspace
+# --no-run --locked`, through the zig shims (M02_SHIMS, from m02_write_shims; WORK when
+# unset) for a cross target. JSON messages go to WORK/build.json, diagnostics to
+# BUILD_LOG. Returns cargo's exit code. TRIPLE "host" builds for the build host with the
+# dev profile (check.sh's build). ⟨M03 wave 6, ADR-0009 §2.7⟩ A cross target builds with
+# the profile HM_CARGO_PROFILE (default `native-test`: line tables only, Cargo.toml).
 m02_cargo_build() {
-    local triple=$1 shim=$2 log=$3
+    local triple=$1 work=$2 log=$3 s=${M02_SHIMS:-$2} profile=${HM_CARGO_PROFILE:-native-test}
+    case "$profile" in '' | *[!a-z0-9-]*) echo "bad HM_CARGO_PROFILE" >&2; return 2 ;; esac
     case "$triple" in
         host)
             cargo test --workspace --no-run --locked \
-                --message-format=json-render-diagnostics >"$shim/build.json" 2>"$log" ;;
+                --message-format=json-render-diagnostics >"$work/build.json" 2>"$log" ;;
         x86_64-unknown-linux-gnu)
-            CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$shim/zigcc-linux.sh" \
-            CC_x86_64_unknown_linux_gnu="$shim/zigcc-linux.sh" \
-            AR_x86_64_unknown_linux_gnu="$shim/zigar.sh" \
-                cargo test --target "$triple" --workspace --no-run --locked \
-                --message-format=json-render-diagnostics >"$shim/build.json" 2>"$log" ;;
+            CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$s/zigcc-linux.sh" \
+            CC_x86_64_unknown_linux_gnu="$s/zigcc-linux.sh" \
+            AR_x86_64_unknown_linux_gnu="$s/zigar.sh" \
+                cargo test --target "$triple" --profile "$profile" --workspace --no-run --locked \
+                --message-format=json-render-diagnostics >"$work/build.json" 2>"$log" ;;
         x86_64-pc-windows-gnu)
-            PATH="$shim:$PATH" CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$shim/zigcc-win.sh" \
-            CC_x86_64_pc_windows_gnu="$shim/zigcc-win-cc.sh" AR_x86_64_pc_windows_gnu="$shim/zigar.sh" \
-                cargo test --target "$triple" --workspace --no-run --locked \
-                --message-format=json-render-diagnostics >"$shim/build.json" 2>"$log" ;;
+            PATH="$s:$PATH" CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$s/zigcc-win.sh" \
+            CC_x86_64_pc_windows_gnu="$s/zigcc-win-cc.sh" AR_x86_64_pc_windows_gnu="$s/zigar.sh" \
+                cargo test --target "$triple" --profile "$profile" --workspace --no-run --locked \
+                --message-format=json-render-diagnostics >"$work/build.json" 2>"$log" ;;
         *) echo "unsupported triple" >&2; return 2 ;;
     esac
 }
@@ -129,9 +163,11 @@ m02_artifacts() {
 # m02_plan HERE PLATFORM SHIM OUT: the run plan for PLATFORM from the case index's
 # build_host_paths: SHIM/run.tsv (the targets to copy and run), SHIM/skips.tsv
 # (target<TAB>exact test name to --skip) and OUT/skipped.txt (every skip, its reason).
+# HERE holds case-index.json and the generator M02_EVIDENCE (default m02-evidence.py;
+# ⟨M03 wave 6⟩ tests/native/m03 sets m03-evidence.py).
 m02_plan() {
     local here=$1 platform=$2 s=$3 out=$4
-    python3 -I "$here/m02-evidence.py" --skip-plan "$platform" \
+    python3 -I "$here/${M02_EVIDENCE:-m02-evidence.py}" --skip-plan "$platform" \
         --case-index "$here/case-index.json" --targets "$s/all.tsv" \
         --run-out "$s/run.tsv" --skips-out "$s/skips.tsv" --report-out "$out/skipped.txt"
 }
@@ -213,11 +249,38 @@ PY
 
 # m02_canary_scan OUT: count HEIMDALL_CANARY_ occurrences in every saved artifact under
 # OUT (binary files too) and write OUT/canary-scan.txt. Prints the count.
+# ⟨M03 wave 6, W6-R06⟩ A contaminated artifact never keeps the secret: each canary value
+# (the prefix and the token after it) is masked in place, as `<canary-value-masked>`,
+# before the harness exits, so a failed run keeps only its nonsecret failure record. Masked
+# markers count too, so a second scan reports the same number.
 m02_canary_scan() {
-    local out=$1 hits
-    hits=$(find "$out" -type f ! -name canary-scan.txt -exec grep -a -o 'HEIMDALL_CANARY_' {} + 2>/dev/null | wc -l | tr -d ' ')
-    echo "canary-prefix occurrences in saved output: $hits" >"$out/canary-scan.txt"
-    echo "$hits"
+    python3 -I - "$1" <<'PY2'
+import os, re, sys
+out = sys.argv[1]
+value = re.compile(rb"HEIMDALL_CANARY_[A-Za-z0-9_]*")
+mask = b"<canary-value-masked>"
+hits = 0
+for dp, _, fns in os.walk(out):
+    for f in fns:
+        if f == "canary-scan.txt":
+            continue
+        p = os.path.join(dp, f)
+        if os.path.islink(p) or not os.path.isfile(p):
+            continue
+        try:
+            data = open(p, "rb").read()
+        except OSError:
+            continue
+        found = data.count(b"HEIMDALL_CANARY_")
+        hits += found + data.count(mask)
+        if found:
+            with open(p, "wb") as w:
+                w.write(value.sub(mask, data))
+with open(os.path.join(out, "canary-scan.txt"), "w", encoding="utf-8") as w:
+    w.write("canary-prefix occurrences in saved output: %d%s\n"
+            % (hits, " (values masked in place before the artifact was kept)" if hits else ""))
+print(hits)
+PY2
 }
 
 # m02_leak_scan OUT [[--word] VALUE]...: print the number of saved artifacts under OUT
