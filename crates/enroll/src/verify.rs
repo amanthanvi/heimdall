@@ -176,6 +176,8 @@ impl VerifierReport {
                 negative: AttemptResult::default(),
                 client,
                 unrecorded: false,
+                // ⟨I-8 (1)⟩ nothing ran: `unclassified`, never `transport`.
+                not_run: true,
             },
             positive: AttemptEvidence::default(),
             negative: AttemptEvidence::default(),
@@ -399,6 +401,7 @@ impl Verifier {
                 negative: negative_evidence.result.clone(),
                 client: Some(client_label),
                 unrecorded: false,
+                not_run: false,
             },
             positive: positive_evidence,
             negative: negative_evidence,
@@ -940,6 +943,7 @@ pub fn classify_evidence(
         heimdall_contract::enrollment::EnrollmentForm::Account,
         &heimdall_domain::verification::ClassifyContext {
             unrecorded: report.unrecorded.is_some(),
+            not_run: report.refused.is_some() && report.unrecorded.is_none(),
             offset,
             skew_lag_ms,
             skew_lead_ms,

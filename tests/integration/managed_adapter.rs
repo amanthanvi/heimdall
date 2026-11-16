@@ -83,7 +83,7 @@ use heimdall_contract::request::{
     WorkloadIsolation,
 };
 use heimdall_contract::{Code, GrantState, Timestamp};
-use heimdall_credential::cert::{self, CertificateProfile, SecretCaKey, build_and_sign};
+use heimdall_credential::cert::{CertificateProfile, SecretCaKey, build_and_sign};
 use heimdall_credential::endpoints::{EndpointLayout, EndpointTag};
 use heimdall_credential::table::{InstallRefusal, InstallView, SignerTable};
 use heimdall_credential::vault::KeyVault;
@@ -1037,7 +1037,6 @@ impl World {
             grant: grant.id.clone(),
             pair: p.clone(),
             principal: principal_for(p),
-            key_id: cert::key_id(&env_id(), &grant.id, 1),
             valid_after: shift(self.wall(), -60),
             valid_before: grant.deadline.effective,
             extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),

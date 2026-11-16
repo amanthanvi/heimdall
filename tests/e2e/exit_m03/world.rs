@@ -213,6 +213,50 @@ pub struct WorldOptions {
     /// ⟨A03 lock driver⟩ `<hh>/config/config.toml`, written before the first command
     /// (for example a longer `session.max_window`).
     pub config_toml: Option<String>,
+    /// ⟨W6-R01⟩ Own the projection's rollback from just before `setup apply`
+    /// ([`World::rollback_projection`]; always on with [`WorldOptions::product`]).
+    pub own_projection_rollback: bool,
+    /// ⟨W6-R01, the regression only⟩ Fail right after `setup apply` (as a failing or
+    /// time-limited `time confirm` would).
+    pub fail_after_apply: bool,
+    /// ⟨W6-R01, the regression only⟩ Make the rollback fail without running it, so the
+    /// kept-recovery-state branch is exercised.
+    pub fail_rollback: bool,
+}
+
+/// ⟨W6-R01⟩ Where the world's projection stands: whether a rollback is owed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Projection {
+    /// No `setup apply` has been attempted (or the world does not own its rollback).
+    NotApplied,
+    /// `setup apply` may have run: a rollback is owed.
+    MayBeApplied,
+    /// Rolled back, and the restoration verified.
+    RolledBack,
+    /// The rollback or its verification failed; the scratch home (the projection's
+    /// state and backups) is kept for recovery.
+    Kept(String),
+}
+
+/// ⟨W6-R01⟩ A projection cleanup a world ran as it was dropped (for example while a
+/// failed preparation unwound), for the caller to report honestly.
+#[derive(Debug, Clone)]
+pub struct ProjectionCleanup {
+    /// `Ok(text)`: rolled back and verified; `Err(text)`: failed, recovery state kept.
+    pub result: Result<String, String>,
+    /// The world's scratch root (kept on failure, removed otherwise).
+    pub root: PathBuf,
+}
+
+static PROJECTION_CLEANUPS: Mutex<Vec<ProjectionCleanup>> = Mutex::new(Vec::new());
+
+/// Take the reports of the worlds dropped since the last call.
+pub fn take_projection_cleanups() -> Vec<ProjectionCleanup> {
+    std::mem::take(
+        &mut *PROJECTION_CLEANUPS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
 }
 
 /// The issuer store the runtime's child selects.
@@ -259,6 +303,12 @@ pub struct World {
     platform_session_lock: bool,
     product: bool,
     pair_policy_windows: Vec<Duration>,
+    /// ⟨W6-R01⟩ Whether this world owns its projection's rollback.
+    own_projection_rollback: bool,
+    fail_after_apply: bool,
+    fail_rollback: bool,
+    /// ⟨W6-R01⟩ The projection's state.
+    pub projection: Projection,
     pub transcript: Mutex<Transcript>,
     pub started: Timestamp,
     next: Mutex<u32>,
@@ -354,6 +404,10 @@ impl World {
             platform_session_lock: o.platform_session_lock,
             product: o.product,
             pair_policy_windows: o.pair_policy_windows,
+            own_projection_rollback: o.product || o.own_projection_rollback,
+            fail_after_apply: o.fail_after_apply,
+            fail_rollback: o.fail_rollback,
+            projection: Projection::NotApplied,
             transcript: Mutex::new(Transcript::default()),
             started,
             next: Mutex::new(0),
@@ -563,7 +617,16 @@ impl World {
             .unwrap();
         // P names the aliases, and this boot's time is confirmed (the issuer child's
         // read-only gate needs a same-boot reference): both typed on a terminal.
+        // ⟨W6-R01⟩ From here a rollback is owed: a failure after this point unwinds through
+        // `Drop`, which rolls the projection back (or keeps the recovery state).
+        if self.own_projection_rollback {
+            self.projection = Projection::MayBeApplied;
+        }
         let applied = self.confirm(&["setup", "apply"]);
+        assert!(
+            !self.fail_after_apply,
+            "injected failure after setup apply (W6-R01 regression)"
+        );
         assert_eq!(
             applied.code,
             0,
@@ -1046,8 +1109,112 @@ impl World {
     }
 }
 
+impl World {
+    /// The configuration file the projection writes: the account's own `.ssh/config`
+    /// in the product configuration, else the scratch SSH home's
+    /// (`HEIMDALL_TEST_SSH_HOME`).
+    fn projection_config(&self) -> Option<PathBuf> {
+        if self.product {
+            heimdall_localenv::sys::account_home()
+                .ok()
+                .map(|h| h.join(".ssh").join("config"))
+        } else {
+            Some(self.home.git_home.join(".ssh").join("config"))
+        }
+    }
+
+    /// ⟨W6-R01⟩ Whether the projection is restored: the projected configuration is
+    /// absent, or holds nothing of Heimdall's (before the apply it was absent or empty:
+    /// the product configuration's guard, a fresh scratch home otherwise).
+    fn projection_restored(&self) -> Result<(), String> {
+        let Some(path) = self.projection_config() else {
+            return Err("the projected configuration's location is unknown".to_owned());
+        };
+        match std::fs::read(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!(
+                "the projected configuration is unreadable: {}",
+                e.kind()
+            )),
+            Ok(bytes) => {
+                let text = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+                let hh = self
+                    .hh
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .replace('\\', "/");
+                if text.contains("heimdall") || text.replace('\\', "/").contains(&hh) {
+                    Err("the projected configuration still names Heimdall's projection".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    /// ⟨W6-R01⟩ Roll the projection back if a rollback is owed: `setup rollback` must
+    /// exit 0 and the restoration must verify. A nonzero exit, a timeout, a
+    /// panic or a failed verification keeps the scratch home (the projection's state
+    /// and backups) for recovery and returns the failure; nothing is deleted then.
+    pub fn rollback_projection(&mut self) -> Result<String, String> {
+        if self.projection != Projection::MayBeApplied {
+            return Ok(format!(
+                "projection rollback: none owed ({:?})",
+                self.projection
+            ));
+        }
+        let attempt: Result<(), String> = if self.fail_rollback {
+            Err("injected rollback failure (W6-R01 regression)".to_owned())
+        } else {
+            // `setup rollback` restores without a typed confirmation (it only returns to
+            // a state the owner consented to), so it runs as an ordinary command.
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.cli(&["--json", "--non-interactive", "setup", "rollback"])
+            })) {
+                Ok(o) if o.code == 0 => self.projection_restored(),
+                Ok(o) => Err(format!("setup rollback exited {}", o.code)),
+                Err(_) => Err("setup rollback panicked or timed out".to_owned()),
+            }
+        };
+        match attempt {
+            Ok(()) => {
+                self.projection = Projection::RolledBack;
+                Ok("projection rollback: setup rollback exit 0, restoration verified".to_owned())
+            }
+            Err(why) => {
+                self.home.keep_on_drop();
+                let text = format!(
+                    "projection rollback FAILED ({why}): the scratch home holding the projection's state and backups is kept for recovery"
+                );
+                self.projection = Projection::Kept(text.clone());
+                Err(text)
+            }
+        }
+    }
+}
+
 impl Drop for World {
     fn drop(&mut self) {
+        // ⟨W6-R01⟩ A rollback still owed (a preparation that failed after `setup apply`,
+        // or a caller that never ran its cleanup) runs first, while the runtime's home is
+        // intact; its result is reported to the caller and on stderr.
+        if self.projection == Projection::MayBeApplied {
+            let r = self.rollback_projection();
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!(
+                    "m03 observation: lock cleanup {}",
+                    r.as_ref().map_or_else(|e| e, |t| t)
+                );
+            }
+            PROJECTION_CLEANUPS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(ProjectionCleanup {
+                    result: r,
+                    root: self.home.root.clone(),
+                });
+        }
         // The runtime this world started, in its own home (a no-op when none runs);
         // the servers and the scratch directory go with their own handles after this.
         let _ = Command::new(bin())

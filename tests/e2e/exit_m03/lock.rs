@@ -388,9 +388,32 @@ fn run(shared: &'static Shared) {
             }
             _ => "not run: the preparation failed".to_owned(),
         });
+        // ⟨W6-R01⟩ A world dropped while the preparation unwound ran its owned projection
+        // rollback: report it, and fail the cleanup when it could not be completed (its
+        // recovery state is then kept, never deleted).
+        let cleanups = crate::world::take_projection_cleanups();
+        let failed: Vec<&str> = cleanups
+            .iter()
+            .filter_map(|c| c.result.as_ref().err().map(String::as_str))
+            .collect();
+        let mut text = String::from(
+            "cleanup: the preparation failed; what it had started stopped through its handles as it unwound\n",
+        );
+        for c in &cleanups {
+            text.push_str(&format!(
+                "cleanup: {}\n",
+                c.result
+                    .as_ref()
+                    .map_or_else(|e| e.as_str(), |t| t.as_str())
+            ));
+        }
         shared.put(
             Step::Cleanup,
-            Ok("cleanup: the preparation failed; what it had started stopped through its handles as it unwound\n".to_owned()),
+            if failed.is_empty() {
+                Ok(text)
+            } else {
+                Err(format!("cleanup failed: {}", failed.join("; ")))
+            },
         );
         hs.write("done", "");
         return;
@@ -1402,20 +1425,19 @@ impl Run {
         if let Some(s) = self.standin.take() {
             let _ = writeln!(out, "cleanup: stand-in agent {}", s.stop());
         }
-        let w = self.w.take().expect("the world");
-        if cfg!(windows) {
-            // The product projection wrote the (disposable) account's configuration:
-            // roll it back to the consented state.
-            let rb = guarded(|| {
-                let o = w.confirm(&["setup", "rollback"]);
-                format!("exit {}", o.code)
-            });
-            let _ = writeln!(
-                out,
-                "cleanup: setup rollback {}",
-                rb.unwrap_or_else(|e| format!("not completed: {}", one_line(&e)))
-            );
-        }
+        let mut w = self.w.take().expect("the world");
+        // ⟨W6-R01⟩ The world owns the projection's rollback (the product configuration
+        // wrote the disposable account's configuration): a nonzero exit, a timeout, a
+        // panic or a failed restoration check keeps its scratch home for recovery and
+        // fails this cleanup.
+        let rollback = w.rollback_projection();
+        let _ = writeln!(
+            out,
+            "cleanup: {}",
+            rollback
+                .as_ref()
+                .map_or_else(|e| e.as_str(), |t| t.as_str())
+        );
         let stop = w.cli(&["--json", "service", "stop"]);
         assert!(
             matches!(stop.code, 0 | 5),
@@ -1424,8 +1446,13 @@ impl Run {
         );
         let _ = writeln!(out, "cleanup: service stop exit {}", stop.code);
         let root = w.home.root.clone();
+        let kept = rollback.is_err();
         drop(w);
-        assert!(!root.exists(), "the world's scratch directory is removed");
+        if kept {
+            assert!(root.exists(), "the recovery state is kept");
+        } else {
+            assert!(!root.exists(), "the world's scratch directory is removed");
+        }
         if let Some(s) = self.servers_scratch.take() {
             let p = s.path().to_path_buf();
             drop(s);
@@ -1436,6 +1463,9 @@ impl Run {
             "cleanup: fixtures stopped through their handles; both scratch directories removed"
         );
         let _ = std::fs::remove_file(self.hs.dir.join("runtime-home.txt"));
+        if let Err(why) = rollback {
+            panic!("cleanup failed: {why}\n{out}");
+        }
         out
     }
 }
@@ -1543,6 +1573,14 @@ fn release_probe() {
 fn owner_ssh_guard() {
     let home = heimdall_localenv::sys::account_home()
         .unwrap_or_else(|_| panic!("blocked: owner_ssh_in_scope: the account home is unreadable"));
+    // ⟨W6-R01⟩ An absent or empty `.ssh` does not prove the account is disposable: the
+    // B2 account's setup creates this marker, and only an account carrying it is used.
+    let marker = home.join(DISPOSABLE_ACCOUNT_MARKER);
+    let opted_in = std::fs::symlink_metadata(&marker).is_ok_and(|m| m.file_type().is_file());
+    assert!(
+        opted_in,
+        "blocked: owner_ssh_in_scope: this account carries no {DISPOSABLE_ACCOUNT_MARKER} marker; the Windows lock procedure runs only in the disposable second Windows account (B2), whose setup creates that marker (a release-profile runtime projects into the account's own .ssh, ProjectionWiring::Account)"
+    );
     let ssh = home.join(".ssh");
     let empty = match std::fs::read_dir(&ssh) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
@@ -1551,9 +1589,13 @@ fn owner_ssh_guard() {
     };
     assert!(
         empty,
-        "blocked: owner_ssh_in_scope: this account's .ssh directory is not empty, and a release-profile runtime would read it and setup apply would edit its config (ProjectionWiring::Account); run the Windows lock procedure as a disposable account, or rule otherwise (AGENTS.md: the owner's ~/.ssh is never edited)"
+        "blocked: owner_ssh_in_scope: this account's .ssh directory is not empty, and a release-profile runtime would read it and setup apply would edit its config (ProjectionWiring::Account); the disposable account (B2) starts with none (AGENTS.md: the owner's ~/.ssh is never edited)"
     );
 }
+
+/// ⟨W6-R01⟩ The opt-in a disposable Windows account carries in its profile directory
+/// (created by the B2 account setup, never by this suite).
+const DISPOSABLE_ACCOUNT_MARKER: &str = ".heimdall-disposable-account";
 
 /// Windows: the K_ca blob exists where the release issuer child reads it.
 fn product_blob_exists(w: &World) -> bool {

@@ -132,31 +132,56 @@ fn find(data: &[u8], needle: &[u8]) -> Option<usize> {
     None
 }
 
+/// ⟨M03 wave 6, W6-R04⟩ What [`scan_tree`] covered: only files actually read count as
+/// scanned. A file or directory that could not be read is incomplete coverage (A33
+/// fails on it); a file that vanished between the listing and the read is listed as
+/// unobservable (it was not scanned, and is never counted as scanned).
+#[derive(Debug, Default, Clone)]
+pub struct TreeScan {
+    /// Files read and scanned.
+    pub read: usize,
+    /// `<kind> file #<n>: <error kind>` or `<kind> directory: <error kind>` (no path).
+    pub not_scanned: Vec<String>,
+    /// Files listed but gone before they were read.
+    pub vanished: Vec<String>,
+}
+
 /// Scan every regular file under `root` (not following links), labelling each hit
-/// `<kind> file #<n>`; the number of files scanned. In the state database files the
-/// effect receipts' own `credential_ref` field is not counted
-/// ([`neutralize_receipt_refs`]); `receipt_refs` counts those.
+/// `<kind> file #<n>` ([`TreeScan`]). In the state database files the effect receipts'
+/// own `credential_ref` field is not counted ([`neutralize_receipt_refs`]);
+/// `receipt_refs` counts those.
 pub fn scan_tree(
     kind: &str,
     root: &Path,
     needles: &[Needles],
     hits: &mut Vec<Hit>,
     receipt_refs: &mut usize,
-) -> usize {
+) -> TreeScan {
+    let mut t = TreeScan::default();
     let mut files = Vec::new();
-    collect_files(root, &mut files);
+    collect_files(kind, root, true, &mut files, &mut t.not_scanned);
     files.sort();
     for (i, f) in files.iter().enumerate() {
-        if let Ok(mut bytes) = std::fs::read(f) {
-            if f.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with("state.db"))
-            {
-                *receipt_refs += neutralize_receipt_refs(&mut bytes, needles);
+        match std::fs::read(f) {
+            Ok(mut bytes) => {
+                if f.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("state.db"))
+                {
+                    *receipt_refs += neutralize_receipt_refs(&mut bytes, needles);
+                }
+                scan(&format!("{kind} file #{i}"), &bytes, needles, hits);
+                t.read += 1;
             }
-            scan(&format!("{kind} file #{i}"), &bytes, needles, hits);
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                t.vanished
+                    .push(format!("{kind} file #{i} vanished before it was read"));
+            }
+            Err(e) => t
+                .not_scanned
+                .push(format!("{kind} file #{i}: {:?}", e.kind())),
         }
     }
-    files.len()
+    t
 }
 
 /// The one place a canary-prefixed value may be stored: the test configuration's fake
@@ -191,14 +216,40 @@ fn neutralize_receipt_refs(bytes: &mut [u8], needles: &[Needles]) -> usize {
     count
 }
 
-fn collect_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+/// Every regular file under `dir`; a directory or entry that cannot be read is recorded
+/// in `gaps` (a `root` that does not exist is no gap: nothing was written there).
+fn collect_files(
+    kind: &str,
+    dir: &Path,
+    root: bool,
+    out: &mut Vec<std::path::PathBuf>,
+    gaps: &mut Vec<String>,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if root && e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            gaps.push(format!("{kind} directory: {:?}", e.kind()));
+            return;
+        }
     };
-    for e in entries.flatten() {
-        let Ok(t) = e.file_type() else { continue };
+    for e in entries {
+        let e = match e {
+            Ok(e) => e,
+            Err(err) => {
+                gaps.push(format!("{kind} directory entry: {:?}", err.kind()));
+                continue;
+            }
+        };
+        let t = match e.file_type() {
+            Ok(t) => t,
+            Err(err) => {
+                gaps.push(format!("{kind} directory entry type: {:?}", err.kind()));
+                continue;
+            }
+        };
         if t.is_dir() {
-            collect_files(&e.path(), out);
+            collect_files(kind, &e.path(), false, out, gaps);
         } else if t.is_file() {
             out.push(e.path());
         }
@@ -255,6 +306,9 @@ pub struct Scanned {
     pub receipt_refs: usize,
     /// What could not be read here, each `<what>: <why>` (no path, user or secret).
     pub unobservable: Vec<String>,
+    /// ⟨W6-R04⟩ Files and directories that exist but could not be read: incomplete
+    /// coverage, which A33 fails on (never counted as scanned).
+    pub not_scanned: Vec<String>,
 }
 
 impl Scanned {
@@ -288,35 +342,51 @@ pub fn artifacts(
         scan(&format!("output #{i} ({label})"), bytes, needles, hits);
         s.outputs += 1;
     }
-    s.files += scan_tree("heimdall home", &w.hh, needles, hits, &mut s.receipt_refs);
-    s.files += scan_tree(
+    let add = |s: &mut Scanned, t: TreeScan| {
+        s.files += t.read;
+        s.not_scanned.extend(t.not_scanned);
+        s.unobservable.extend(t.vanished);
+    };
+    let t = scan_tree("heimdall home", &w.hh, needles, hits, &mut s.receipt_refs);
+    add(&mut s, t);
+    let t = scan_tree(
         "account .ssh",
         &w.home.ssh_dir,
         needles,
         hits,
         &mut s.receipt_refs,
     );
+    add(&mut s, t);
     if let Ok(entries) = std::fs::read_dir(&w.home.root) {
         for e in entries.flatten() {
             let n = e.file_name().to_string_lossy().into_owned();
             if n.starts_with("worker") {
-                s.files += scan_tree(
+                let t = scan_tree(
                     "worker record",
                     &e.path(),
                     needles,
                     hits,
                     &mut s.receipt_refs,
                 );
+                add(&mut s, t);
             }
         }
     }
     let (crash, why) = crash_files(w);
     s.unobservable.extend(why);
     for (i, f) in crash.iter().enumerate() {
-        if let Ok(bytes) = std::fs::read(f) {
-            scan(&format!("crash artifact #{i}"), &bytes, needles, hits);
+        match std::fs::read(f) {
+            Ok(bytes) => {
+                scan(&format!("crash artifact #{i}"), &bytes, needles, hits);
+                s.crash_files += 1;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => s
+                .unobservable
+                .push(format!("crash artifact #{i} vanished before it was read")),
+            Err(e) => s
+                .not_scanned
+                .push(format!("crash artifact #{i}: {:?}", e.kind())),
         }
-        s.crash_files += 1;
     }
     for (kind, pid) in pids {
         if !crate::procs::alive(*pid) {
@@ -357,6 +427,8 @@ pub fn artifacts(
     }
     s.unobservable.sort();
     s.unobservable.dedup();
+    s.not_scanned.sort();
+    s.not_scanned.dedup();
     s
 }
 
@@ -444,6 +516,6 @@ pub fn public_control(w: &crate::world::World) -> usize {
         forms: vec![blob],
     }];
     let mut hits = Vec::new();
-    scan_tree("heimdall home", &w.hh, &needles, &mut hits, &mut 0);
+    let _ = scan_tree("heimdall home", &w.hh, &needles, &mut hits, &mut 0);
     hits.len()
 }

@@ -46,7 +46,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use heimdall_testkit::sshd::AcceptedCert;
-use world::{World, WorldOptions, platform};
+use world::{World, WorldOptions, platform, take_projection_cleanups};
 
 /// The worker's entry when this binary is re-executed under `heimdall run`
 /// ([`world::World::spawn_worker`]); a no-op in the suite itself (no instructions).
@@ -225,15 +225,82 @@ fn real_issuer_activation_reissue_revocation_with_fresh_logins() {
         "no accepted line for the revoked grant after the revocation: {after:?}"
     );
     assert!(after.is_empty(), "no login at all was accepted: {after:?}");
-    let suffix = if second.key_id.rsplit(':').next() == Some(second.serial.to_string().as_str()) {
-        "serial"
-    } else {
-        "not_serial"
-    };
+    // ⟨M03 wave 6; the orchestrator's ruling on I-3⟩ ADR-0005 §3.4: each certificate's key ID
+    // is `heimdall:<env>:<grant>:<serial>`, so the re-issue has a new key ID ending in its new
+    // serial (the pair ordinal it once carried stayed `…:1` across re-issues).
+    for (what, c) in [("activation", &first), ("re-issue", &second)] {
+        assert_eq!(
+            c.key_id,
+            format!("{prefix}{}", c.serial),
+            "the {what} certificate's key ID ends in its own serial"
+        );
+    }
+    assert_ne!(second.key_id, first.key_id, "the re-issue has a new key ID");
+    let suffix = "serial";
     println!(
         "m03 observation: issuer_child {} activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field={suffix}",
         platform()
     );
+}
+
+/// ⟨M03 wave 6, W6-R01⟩ A failure injected right after `setup apply` (as a failing or
+/// time-limited `time confirm` would) unwinds the preparation, and the world's owned
+/// rollback runs as it is dropped: the projection is rolled back and the restoration
+/// verified (the scratch home then removed), or, when the rollback fails, the scratch home
+/// holding the projection's state and backups is kept and the failure reported, never
+/// deleted. (The A03 lock driver's Windows product configuration owns the same rollback.)
+#[test]
+fn projection_rolled_back_or_recovery_kept_after_a_failure_after_apply() {
+    let failing = |fail_rollback: bool| {
+        let _ = take_projection_cleanups();
+        let unwound = std::panic::catch_unwind(|| {
+            World::start(WorldOptions {
+                pairs: 1,
+                own_projection_rollback: true,
+                fail_after_apply: true,
+                fail_rollback,
+                ..WorldOptions::default()
+            })
+        });
+        assert!(
+            unwound.is_err(),
+            "the injected failure unwinds the preparation"
+        );
+        let mut reports = take_projection_cleanups();
+        assert_eq!(reports.len(), 1, "one owned rollback ran: {reports:?}");
+        reports.remove(0)
+    };
+    // Rolled back and verified; nothing kept.
+    let done = failing(false);
+    assert!(
+        matches!(&done.result, Ok(t) if t.contains("restoration verified")),
+        "{:?}",
+        done.result
+    );
+    assert!(
+        !done.root.exists(),
+        "the scratch home is removed after a verified rollback"
+    );
+    // The rollback fails: the recovery state is kept and the failure reported.
+    let kept = failing(true);
+    assert!(
+        matches!(&kept.result, Err(t) if t.contains("kept for recovery")),
+        "{:?}",
+        kept.result
+    );
+    assert!(
+        kept.root.exists(),
+        "the recovery state is kept, never deleted"
+    );
+    let projected = std::fs::read_to_string(kept.root.join("home").join(".ssh").join("config"))
+        .unwrap_or_default();
+    assert!(
+        projected.to_ascii_lowercase().contains("heimdall")
+            || projected.contains(&*kept.root.join("hh").to_string_lossy()),
+        "the projection was applied and is still there to recover"
+    );
+    // This test's own scratch (the kept recovery state), removed by its exact path.
+    std::fs::remove_dir_all(&kept.root).unwrap();
 }
 
 /// A10, U13 (ADR-0008 D12 item 6; F10): what a same-user worker started on a managed
@@ -624,6 +691,12 @@ fn a10_bound_consumer_issuer_reachability_recorded() {
         "K_ca bytes found: {}",
         scan::describe(&hits)
     );
+    // ⟨W6-R04⟩ No unread artifact is counted as scanned.
+    assert!(
+        scanned.not_scanned.is_empty(),
+        "artifacts that exist but could not be read (incomplete coverage): {:?}",
+        scanned.not_scanned
+    );
     let control = scan::public_control(&w);
     assert!(
         control >= 1,
@@ -749,6 +822,13 @@ fn a33_secret_bytes_scan_all_artifacts() {
         placed_seen += s.placed_seen;
         receipt_refs = receipt_refs.max(s.receipt_refs);
         unobservable.extend(s.unobservable.clone());
+        // ⟨W6-R04⟩ Every listed artifact was read: an unreadable file or directory is
+        // incomplete coverage, never a clean scan.
+        assert!(
+            s.not_scanned.is_empty(),
+            "{name}: artifacts that exist but could not be read (incomplete coverage): {:?}",
+            s.not_scanned
+        );
         checkpoints.push(format!("{name} [{}]", s.summary()));
     };
 

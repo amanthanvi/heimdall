@@ -249,11 +249,38 @@ PY
 
 # m02_canary_scan OUT: count HEIMDALL_CANARY_ occurrences in every saved artifact under
 # OUT (binary files too) and write OUT/canary-scan.txt. Prints the count.
+# ⟨M03 wave 6, W6-R06⟩ A contaminated artifact never keeps the secret: each canary value
+# (the prefix and the token after it) is masked in place, as `<canary-value-masked>`,
+# before the harness exits, so a failed run keeps only its nonsecret failure record. Masked
+# markers count too, so a second scan reports the same number.
 m02_canary_scan() {
-    local out=$1 hits
-    hits=$(find "$out" -type f ! -name canary-scan.txt -exec grep -a -o 'HEIMDALL_CANARY_' {} + 2>/dev/null | wc -l | tr -d ' ')
-    echo "canary-prefix occurrences in saved output: $hits" >"$out/canary-scan.txt"
-    echo "$hits"
+    python3 -I - "$1" <<'PY2'
+import os, re, sys
+out = sys.argv[1]
+value = re.compile(rb"HEIMDALL_CANARY_[A-Za-z0-9_]*")
+mask = b"<canary-value-masked>"
+hits = 0
+for dp, _, fns in os.walk(out):
+    for f in fns:
+        if f == "canary-scan.txt":
+            continue
+        p = os.path.join(dp, f)
+        if os.path.islink(p) or not os.path.isfile(p):
+            continue
+        try:
+            data = open(p, "rb").read()
+        except OSError:
+            continue
+        found = data.count(b"HEIMDALL_CANARY_")
+        hits += found + data.count(mask)
+        if found:
+            with open(p, "wb") as w:
+                w.write(value.sub(mask, data))
+with open(os.path.join(out, "canary-scan.txt"), "w", encoding="utf-8") as w:
+    w.write("canary-prefix occurrences in saved output: %d%s\n"
+            % (hits, " (values masked in place before the artifact was kept)" if hits else ""))
+print(hits)
+PY2
 }
 
 # m02_leak_scan OUT [[--word] VALUE]...: print the number of saved artifacts under OUT

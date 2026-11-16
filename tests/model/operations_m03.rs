@@ -558,7 +558,6 @@ fn issuance(grant: &GrantId) -> IssuanceRequest {
         grant: grant.clone(),
         pair: h1(),
         principal: "hm:h1:deploy".into(),
-        key_id: "fixture-key".into(),
         valid_after: t0(),
         valid_before: shift(t0(), 1800),
         extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),

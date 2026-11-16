@@ -796,6 +796,9 @@ mod fx {
         pub table: Mutex<Option<SignerTable>>,
         /// Grant certificates signed (the managed issuance, not the verification).
         pub grant_signed: AtomicUsize,
+        /// ⟨M03 wave 6, I-8 (1)⟩ Refuse every verification entry (an issuer refusal
+        /// before any login), as the real issuer child refuses a bound it rejects.
+        pub refuse_verification: AtomicBool,
     }
 
     impl TestIssuer {
@@ -873,6 +876,13 @@ mod fx {
                 }
                 if entry.table == IssuanceTable::Grant {
                     return self.sign_grant(&entry, subject);
+                }
+                if self.refuse_verification.load(Ordering::SeqCst) {
+                    return Err(IssuerError::Refused(
+                        heimdall_app::ports::IssuerRefusal::Verification(
+                            heimdall_domain::verification::VerificationRefusal::PairMismatch,
+                        ),
+                    ));
                 }
                 let stored = self
                     .store
@@ -1622,6 +1632,7 @@ mod fx {
                 available: AtomicBool::new(true),
                 table: Mutex::new(None),
                 grant_signed: AtomicUsize::new(0),
+                refuse_verification: AtomicBool::new(false),
             });
             let managed = parts.map(|p| p.finish(&ops, &runtime, &issuer, &target, &host));
             let vdir = home.scratch().subdir("vs").unwrap();
@@ -4080,6 +4091,45 @@ async fn enroll_restart_leaves_operation_unresolved_and_reported() {
     // The owner resumes it.
     let result = w.drive(&op).await.unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(result.state, EnrollmentState::Verified);
+}
+
+/// ⟨M03 wave 6; the orchestrator's ruling on I-8 (1)⟩ A verification that never reached a
+/// login (the issuer refuses the verification certificate, before any attempt) records
+/// the existing reason `unclassified`, never `transport`: nothing touched the network.
+/// (Before the fix the empty outcome classified as `transport`; worker F's B-L1-2.)
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn verification_refused_by_the_issuer_before_any_login_is_unclassified() {
+    use std::sync::atomic::Ordering;
+    let w = World::new().await;
+    let op = w.approved(&w.spec(), "req_refused").await;
+    w.issuer.refuse_verification.store(true, Ordering::SeqCst);
+    let _ = w.drive(&op).await;
+    let verdicts: Vec<String> = w
+        .receipts(&op)
+        .into_iter()
+        .filter(|r| r.stage == heimdall_domain::operation::enrollment_stage::VERIFY_OUTCOME)
+        .map(|r| match r.effect {
+            heimdall_domain::operation::EffectReceipt::Confirmed { credential_ref, .. } => {
+                credential_ref
+            }
+            other => panic!("the outcome receipt is confirmed: {other:?}"),
+        })
+        .collect();
+    // The drive retries an inconclusive verification within its bounds: every recorded
+    // verdict is `unclassified`.
+    assert!(
+        !verdicts.is_empty()
+            && verdicts
+                .iter()
+                .all(|v| v == r#"{"verdict":"inconclusive","reason":"unclassified"}"#),
+        "every recorded verdict is unclassified (never transport): {verdicts:?}"
+    );
+    assert_eq!(
+        w.issuer.signed.load(Ordering::SeqCst),
+        0,
+        "nothing was signed, so no login was attempted"
+    );
 }
 
 /// m03-plan U10 (§17.4 item 9): the verification session is dropped on every exit

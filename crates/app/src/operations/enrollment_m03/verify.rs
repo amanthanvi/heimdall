@@ -167,8 +167,13 @@ impl Operations {
             // remote: it is returned, and the enrollment's evidence and state stay as
             // they are (never recorded as an inconclusive verification).
             Err(e) if is_fence_refusal(&e) => return Err(e),
+            // ⟨I-8 (1)⟩ the run never reached a login (the issuer refused the
+            // certificate, or no session could be built): `unclassified`.
             Err(_) => Observed {
-                outcome: VerificationOutcome::default(),
+                outcome: VerificationOutcome {
+                    not_run: true,
+                    ..VerificationOutcome::default()
+                },
                 clock: None,
             },
         };
@@ -395,6 +400,7 @@ impl Operations {
         };
         let cctx = ClassifyContext {
             unrecorded: observed.outcome.unrecorded,
+            not_run: observed.outcome.not_run,
             offset,
             skew_lag_ms: super::steps::ms(limits.verification_skew_lag),
             skew_lead_ms: super::steps::ms(limits.verification_skew_lead),
@@ -938,6 +944,7 @@ fn host_key_mismatch_outcome() -> VerificationOutcome {
         negative: attempt,
         client: None,
         unrecorded: false,
+        not_run: false,
     }
 }
 

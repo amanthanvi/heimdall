@@ -1089,7 +1089,6 @@ mod tests {
                 account: AccountName::parse("deploy").unwrap(),
             },
             principal: "hm:dst-lab:deploy".to_owned(),
-            key_id: "k".to_owned(),
             valid_after: t0(),
             valid_before: t0(),
             extensions: BTreeSet::new(),

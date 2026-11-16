@@ -16,6 +16,7 @@ M03 additions are data, not code:
     lock-windows.ps1) are scenario platforms whose steps are the A03 checks; an unverified
     lock is configured as `missing_capabilities` (blocked, never failed or verified);
   * the case index's `blocked_rows` carry the owner inputs B1–B13 (m03-plan §7);
+  * OBSERVATION_LINE also keeps the `m03 observation:` lines the M03 tests print (W6-R02);
   * EXTRA_FACT_KEYS keeps the M03 host facts (ptrace scope, memlock limit, time sync,
     the lock procedure's idle and lock-state observations, the build profile and store kind).
 
@@ -41,6 +42,9 @@ ev = load_m02()
 ev.MILESTONE = "M03"
 ev.PLAN_REF = "m03-plan §4"
 ev.GENERATOR = "m03-evidence.py"
+# W6-R02: the M03 tests' `m03 observation: …` lines (A10 reachability facts, A33's
+# unobservable surfaces, the issuer lifecycle, the lock driver) are row observations too.
+ev.OBSERVATION_LINE = ev.re.compile(r"^\s*(?:m03 )?observation\b")
 ev.EXTRA_FACT_KEYS = [
     "ptrace-scope", "memlock-limit", "ntp-synchronized", "w32tm-.*", "gnome-keyring",
     "lock-.*", "idle-.*", "build-profile", "store-kind", "docker-.*", "keychain-.*",

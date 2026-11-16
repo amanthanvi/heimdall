@@ -5409,7 +5409,9 @@ pub struct IssuanceFacts {
 }
 
 /// A certificate reservation request (ADR-0005 §3.5 step 1). The serial is drawn
-/// by the runtime.
+/// by the runtime, and the key ID is built from it there:
+/// `heimdall:<environment>:<grant>:<serial>` (ADR-0005 §3.4; ⟨M03 wave 6, U13; the
+/// orchestrator's ruling on I-3⟩ the request no longer names a key ID).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssuanceRequest {
     /// Grant.
@@ -5418,8 +5420,6 @@ pub struct IssuanceRequest {
     pub pair: AccessPair,
     /// Requested principal (must be exactly `hm:<destination>:<account>`).
     pub principal: String,
-    /// Key ID.
-    pub key_id: String,
     /// Validity start.
     pub valid_after: Timestamp,
     /// Validity end.
@@ -11751,7 +11751,10 @@ impl Operations {
                 };
                 let bounds = CertificateBounds {
                     serial,
-                    key_id: req.key_id.clone(),
+                    // ADR-0005 §3.4 (`heimdall_credential::cert::key_id`'s form): the
+                    // serial drawn above, in decimal, so each certificate (a re-issue
+                    // included) has its own key ID next to sshd's `serial <n>`.
+                    key_id: format!("heimdall:{}:{}:{serial}", env.as_str(), req.grant.as_str()),
                     principal: req.principal.clone(),
                     valid_after: req.valid_after,
                     valid_before: req.valid_before,

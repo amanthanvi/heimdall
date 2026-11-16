@@ -732,6 +732,10 @@ check "X08 lib: the canary scan counts nothing in clean output and writes canary
 printf 'x HEIMDALL_CANARY_ x\nHEIMDALL_CANARY_ again\n' >"$X0/scan/b.txt"
 check "X09 lib: the canary scan counts every occurrence (and the scan file itself is not scanned)" \
     bash -c '. "$1"; [ "$(m02_canary_scan "$2")" = 2 ] && [ "$(m02_canary_scan "$2")" = 2 ]' _ "$m02/lib.sh" "$X0/scan"
+# ⟨M03 wave 6, W6-R06⟩ A contaminated artifact keeps no canary value: masked in place.
+check "X09b lib: the canary scan masks each canary value in place before the artifact is kept" \
+    bash -c '. "$1"; d=$2/mask; mkdir -p "$d"; printf "a HEIMDALL_CANARY_%s b\n" s3cr3tvalue >"$d/x.txt"; [ "$(m02_canary_scan "$d")" = 1 ] &&
+        ! grep -q "HEIMDALL_CANARY_\|s3cr3tvalue" "$d/x.txt" && grep -q "<canary-value-masked>" "$d/x.txt" && grep -q "masked in place" "$d/canary-scan.txt"' _ "$m02/lib.sh" "$X0"
 printf 'the secret-home-value is here\n' >"$X0/scan/c.txt"
 leak_out=$(m02_leak_scan "$X0/scan" "secret-home-value" "x" "absent-value")
 leak_rc=$?

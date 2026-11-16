@@ -72,8 +72,11 @@ cleanup() {
         m02_redact "$scratch/$f.raw" "$out/$f.txt" "$scratch" "<scratch>" "$repo" "<repo>" "${TMPDIR:-/tmp}" "<tmp>" \
             "$HOME" "<home>" --word "$lhost" "<host>" --word "$lshort" "<host>" "$(id -un)" "<user>"
     done
-    hits=$(find "$out" -name 'docker*.txt' -type f -exec grep -a -o 'HEIMDALL_CANARY_' {} + 2>/dev/null | wc -l | tr -d ' ')
-    m02_record "$commands" "canary-prefix scan over the Docker artifacts (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
+    # ⟨W6-R06⟩ Over everything kept (the M02 harness's files and the Docker phase's): any
+    # canary value is masked in place before the artifacts are kept, and the count fails
+    # the run.
+    hits=$(m02_canary_scan "$out")
+    m02_record "$commands" "canary-prefix scan over the saved macOS artifacts, values masked in place (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
     [ "$hits" = 0 ] || rc=1
     leaks=$(m02_leak_scan "$out" "$HOME" --word "$lhost" --word "$lshort" "$(id -un)") && lrc=0 || lrc=$?
     m02_record "$commands" "leak scan over macos/ after the Docker phase ($leaks)" "$lrc"

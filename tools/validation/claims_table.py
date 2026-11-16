@@ -531,6 +531,14 @@ def record_rows(record):
 # ---------------------------------------------------------------------------
 # The check
 
+def _first_word(value):
+    """The first word of a recorded fact, lowercased (`release (…)` -> `release`), or ''."""
+    if not isinstance(value, str):
+        return ""
+    parts = value.strip().split()
+    return parts[0].lower() if parts else ""
+
+
 def git_is_ancestor(commit, repo):
     if not re.fullmatch(r"[0-9a-f]{7,64}", commit or ""):
         return False
@@ -595,6 +603,26 @@ def check_entries(entries, custody, kinds, record_root, repo, schema):
                             "%s: record %s row for %s/%s is %r, not verified"
                             % (tag, rec, osn, arch, r.get("status"))
                         )
+                # ⟨M03 wave 6, W6-R03⟩ A custody claim's declaration must match the
+                # provenance its evidence row recorded (the run's `build-profile` and
+                # `store-kind` facts, carried into the row by the evidence generator): a
+                # debug or test-store run never feeds a custody field, whatever the entry says.
+                if rows and (e["field"] in custody or e["field"] in MIRROR_CUSTODY_FIELDS):
+                    prov = [
+                        r for r in rows
+                        if _first_word(r.get("build_profile")) == "release"
+                        and _first_word(r.get("store_kind")) == (e["store_kind"] or "")
+                    ]
+                    if not prov:
+                        found = ", ".join(
+                            "%s/%s" % (_first_word(r.get("build_profile")) or "unrecorded",
+                                       _first_word(r.get("store_kind")) or "unrecorded")
+                            for r in rows
+                        )
+                        bad.append(
+                            "%s: record %s has no %s/%s row whose recorded run is a release build on store kind %r (the rows record %s)"
+                            % (tag, rec, osn, arch, e["store_kind"], found)
+                        )
         if not git_is_ancestor(e["record_commit"], repo):
             bad.append("%s: record_commit %r is not a commit that is an ancestor of HEAD" % (tag, e["record_commit"]))
     return bad
@@ -623,7 +651,12 @@ def head_commit():
     return r.stdout.strip()
 
 
-def _record(status, platform="windows-11-x86_64"):
+def _record(status, platform="windows-11-x86_64", build_profile="release (fixture)", store_kind="windows_dpapi"):
+    row = {"platform": platform, "status": status}
+    if build_profile is not None:
+        row["build_profile"] = build_profile
+    if store_kind is not None:
+        row["store_kind"] = store_kind
     return {
         "case_id": "m03-a03-fixture",
         "status": status,
@@ -634,7 +667,7 @@ def _record(status, platform="windows-11-x86_64"):
         "provider_versions": [],
         "started_at": None,
         "commands_or_harness": None,
-        "observed_result": {"rows": [{"platform": platform, "status": status}]},
+        "observed_result": {"rows": [row]},
         "evidence_paths": [],
         "limitations": [],
         **({"blocked_on": "fixture: a missing platform"} if status == "blocked" else {}),
@@ -707,6 +740,20 @@ def _t_debug_or_test_store():
     bad3 = _run_fixture(_entry_source(store="None"), rec)
     ok3 = _has(bad3, "product store kind")
     return ok1 and ok2 and ok3, bad1 + bad2 + bad3
+
+
+def _t_custody_row_provenance():
+    """W6-R03: a verified row whose recorded run was a debug build on the scratch test
+    store never feeds a custody claim, even when the entry declares Release and a product
+    store (the reviewer's contradictory row); a row with no recorded provenance neither."""
+    rec = _record("verified", platform="macos-arm64 (debug build, scratch test store)",
+                  build_profile="debug (test configuration)", store_kind="scratch_test (the test store)")
+    bad = _run_fixture(_entry_source(os_="macos", arch="aarch64", store='Some("macos_login_keychain")'), rec)
+    ok1 = _has(bad, "no macos/aarch64 row whose recorded run is a release build", "debug/scratch_test")
+    unrecorded = _record("verified", build_profile=None, store_kind=None)
+    bad2 = _run_fixture(_entry_source(), unrecorded)
+    ok2 = _has(bad2, "whose recorded run is a release build", "unrecorded/unrecorded")
+    return ok1 and ok2, bad + bad2
 
 
 def _t_positive():
@@ -814,6 +861,7 @@ SELF_TESTS = [
     ("claims_table_empty_validates", _t_empty),
     ("claims_table_rejects_entry_for_blocked_record", _t_blocked),
     ("claims_table_rejects_debug_profile_or_test_store_for_custody_claim", _t_debug_or_test_store),
+    ("claims_table_rejects_custody_claim_whose_evidence_row_is_debug_or_test_store", _t_custody_row_provenance),
     ("claims_table_positive_control", _t_positive),
 ]
 

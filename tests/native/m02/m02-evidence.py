@@ -79,6 +79,10 @@ PLAN_REF = "m02-plan §4"
 GENERATOR = "m02-evidence.py"
 # Host-fact keys a later milestone's harness adds to the environment (regex alternatives).
 EXTRA_FACT_KEYS = []
+# The observation lines a row keeps (parse_observations). ⟨M03 wave 6, W6-R02⟩ M03's tests
+# print `m03 observation: …`; m03-evidence.py widens this so their qualifications reach the
+# records.
+OBSERVATION_LINE = re.compile(r"^\s*observation\b")
 
 
 class PlanError(Exception):
@@ -642,7 +646,7 @@ def parse_observations(path):
         if re.match(r"^(successes|failures):$", line) or line.startswith("test result:"):
             test = ""
             continue
-        if target is not None and re.match(r"^\s*observation\b", line):
+        if target is not None and OBSERVATION_LINE.match(line):
             lines = out.setdefault(target, {}).setdefault(test, [])
             text = line.strip()
             if text not in lines and len(lines) < OBSERVATION_LINES_PER_TEST:
@@ -808,6 +812,12 @@ def row_for(index, platform, pconf, logs, tests, obs=None, guard=None):
     }
     if guard is not None:
         row.update(guard_fields(guard))
+    # ⟨M03 wave 6, W6-R03⟩ The run's provenance travels with its row: the claims table
+    # compares a custody claim's declared build profile and store kind with these.
+    facts = pconf.get("_facts", {})
+    for key in ("build-profile", "store-kind"):
+        if facts.get(key):
+            row[key.replace("-", "_")] = facts[key]
     seen, truncated = row_observations(passed, obs or {})
     if seen:
         row["observations"] = seen

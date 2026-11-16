@@ -31,7 +31,12 @@ Steps:
      the store kind `issuer status` reports; anything but windows_dpapi ends the run (`abort`,
      exit 1): only a release-profile, product-store row is claim-eligible. A preparation the
      driver reports `blocked:` (for example owner_ssh_in_scope: a release runtime projects into
-     the account's own ~/.ssh, so it runs only as a disposable account) is exit 3.
+     the account's own ~/.ssh, so it runs only in the disposable second Windows account, B2,
+     whose profile directory carries the `.heimdall-disposable-account` marker its setup creates
+     and whose .ssh is absent or empty; W6-R01) is exit 3. The driver owns the projection's
+     rollback from just before `setup apply`, a failed preparation included; a rollback that
+     cannot be completed and verified keeps the scratch Heimdall home for recovery and fails the
+     cleanup step (never reported as clean).
   6. Idle again (else `abort`, blocked), then LockWorkStation (user32). The lock is verified
      through the product's query within 30 s; otherwise `abort`, blocked (lock_not_verified),
      and the driver cleans up.
@@ -507,6 +512,15 @@ function Invoke-LockRun([hashtable]$P, [hashtable]$H) {
         $ownerAfter = Get-OwnerDigest (& $H.OwnerRoots)
         Add-Fact 'owner-ssh-after' $ownerAfter
         Add-Command $(if ($ownerBefore -eq $ownerAfter) { 0 } else { 1 }) '%USERPROFILE%\.ssh metadata unchanged by the run (digests)'
+        # ⟨W6-R01⟩ A driver whose cleanup could not complete and verify the projection's
+        # rollback kept its scratch Heimdall home (under this run's TEMP) for recovery: the run
+        # directory is then kept too, and the run fails; it is never reported as clean.
+        $driverText = $tests.ToString()
+        $keepRun = ($driverText -match 'kept for recovery') -or ($driverText -match 'test lock::a03_lock_cleanup \.\.\. FAILED')
+        if ($keepRun) {
+            Add-Fact 'recovery-state' 'kept: the driver could not complete the projection rollback; the run directory under TEMP is kept for recovery (setup rollback from its Heimdall home)'
+            Add-Command 1 'projection rollback completed and verified by the driver cleanup'
+        }
         foreach ($x in $samples) { [void]$facts.Append("lock-sample=$x`n") }
         # A run that stopped before the driver started still names why (the importer needs one
         # "### <name> exit=N" line); `lock_procedure` is the harness, never a cargo target.
@@ -524,7 +538,7 @@ function Invoke-LockRun([hashtable]$P, [hashtable]$H) {
         foreach ($k in $files.Keys) { [IO.File]::WriteAllText((Join-Path $P.Out $k), $files[$k]) }
         $bundle = New-Bundle $files @{ commit = $P.Commit; label = $P.Label; started = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ') }
         [IO.File]::WriteAllText((Join-Path $P.Out 'bundle.b64'), $bundle)
-        Remove-Item -LiteralPath $run -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not $keepRun) { Remove-Item -LiteralPath $run -Recurse -Force -ErrorAction SilentlyContinue }
     }
     return $RS.Exit
 }
