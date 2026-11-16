@@ -652,9 +652,14 @@ impl World {
         );
         // The default-identity guard over P for every alias: each one's identity list
         // is certainly the projection's scratch files, never the account's defaults.
+        // ⟨M03 wave 6⟩ On Windows the projection's agent is this world's own runtime's pipe
+        // (`\\.\pipe\heimdall-…`, which no scratch path can hold): the guard also accepts
+        // exactly the pipes this runtime rendered into its managed file under the scratch
+        // Heimdall home, and nothing else (never the system agent's pipe).
+        let own_agents = self.rendered_agents();
         for p in &self.pairs {
             self.home
-                .check_alias(&p.alias)
+                .check_alias_with_agents(&p.alias, &own_agents)
                 .unwrap_or_else(|e| panic!("the projection of {}: {e:?}", p.alias));
         }
     }
@@ -1121,6 +1126,21 @@ impl World {
         } else {
             Some(self.home.git_home.join(".ssh").join("config"))
         }
+    }
+
+    /// The `IdentityAgent` values this world's runtime rendered into its managed SSH
+    /// configuration (`<hh>/config/ssh_config`, under the scratch Heimdall home).
+    fn rendered_agents(&self) -> Vec<String> {
+        std::fs::read_to_string(self.hh.join("config").join("ssh_config"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| {
+                let l = l.trim();
+                let (key, value) = l.split_once(char::is_whitespace)?;
+                key.eq_ignore_ascii_case("identityagent")
+                    .then(|| value.trim().trim_matches('"').to_owned())
+            })
+            .collect()
     }
 
     /// ⟨W6-R01⟩ Whether the projection is restored: the projected configuration is
