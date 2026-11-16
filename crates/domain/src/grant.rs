@@ -1,7 +1,9 @@
 //! Grants: immutable scope/deadline snapshots (spec §4.1 "Grant", §6.1, §6.7;
 //! plan §4.3).
 
-use heimdall_contract::ids::{BindingId, EnvironmentId, GrantId, OperationId, ProfileId};
+use heimdall_contract::ids::{
+    BindingId, EnvironmentId, GrantId, OperationId, PolicyId, ProfileId, WorkspaceId,
+};
 use heimdall_contract::{GrantState, Timestamp};
 use serde::{Deserialize, Serialize};
 
@@ -115,6 +117,17 @@ pub struct GrantOrigin {
     /// absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<ConnectionPolicy>,
+    /// ⟨M05⟩ ADR-0011 §5.1, §10 item 1: the policy context the grant was resolved in,
+    /// recorded once at creation; renewal, re-validation and issuance resolve the policy
+    /// in this context (`heimdall_domain::policy::PolicyContext::of_recorded`). Absent
+    /// means personal: every M01–M03 grant, which decodes and re-encodes unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceId>,
+    /// ⟨M05⟩ ADR-0011 §5.1 (revision 5 §17 item 7): the standing policy the grant's
+    /// authority rests on, when one covered it. Recorded by M05 (U2/U6); absent in every
+    /// M01–M03 grant and omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_id: Option<PolicyId>,
 }
 
 /// ⟨r2.7⟩ Why a `degraded` grant is degraded (spec §6.3 "some capability

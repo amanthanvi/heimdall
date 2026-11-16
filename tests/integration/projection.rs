@@ -369,13 +369,18 @@ impl Fx {
     }
 
     fn apply_intent() -> PreviewIntent {
-        PreviewIntent::Apply { include_git: false }
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        }
     }
 
     fn rollback_intent() -> PreviewIntent {
         PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         }
     }
 
@@ -6903,7 +6908,11 @@ mod generated {
         };
         let intent = SetupIntent {
             plan_digest: heimdall_contract::setup::PlanDigest::from_sha256([9; 32]),
-            intent: PreviewIntent::Apply { include_git: true },
+            intent: PreviewIntent::Apply {
+                include_git: true,
+                distribution: None,
+                items: Default::default(),
+            },
             generation: 1,
             approval: None,
             consent: heimdall_domain::projection::ConsentRecord::default(),
@@ -7042,6 +7051,7 @@ mod generated {
             intent: PreviewIntent::Rollback {
                 keep_key_files: true,
                 items: [ProjectionItem::Ssh].into_iter().collect(),
+                distribution: None,
             },
             generation: 2,
             approval: None,
@@ -7119,7 +7129,11 @@ mod generated {
         };
         let intent = SetupIntent {
             plan_digest: heimdall_contract::setup::PlanDigest::from_sha256([9; 32]),
-            intent: PreviewIntent::Apply { include_git: false },
+            intent: PreviewIntent::Apply {
+                include_git: false,
+                distribution: None,
+                items: Default::default(),
+            },
             generation: 1,
             approval: None,
             consent: heimdall_domain::projection::ConsentRecord::default(),
@@ -8069,7 +8083,11 @@ fn the_writer_snapshots_the_global_git_file_before_its_first_edit() {
     };
     config.test.git_item_any_default = true;
     let writer = LocalProjection::new(config);
-    let intent = PreviewIntent::Apply { include_git: true };
+    let intent = PreviewIntent::Apply {
+        include_git: true,
+        distribution: None,
+        items: Default::default(),
+    };
     let plan = writer.preview(&fx.spec(&["alpha"], None), &intent).unwrap();
     assert!(
         plan.files.iter().any(|s| s.role == FileRole::GitInclude),
@@ -8201,7 +8219,11 @@ fn a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies() {
         let label = "a".repeat(60);
         a.hostname = format!("{label}.{label}.{label}.{}.example.invalid", a.alias);
     }
-    let intent = PreviewIntent::Apply { include_git: true };
+    let intent = PreviewIntent::Apply {
+        include_git: true,
+        distribution: None,
+        items: Default::default(),
+    };
     let plan = writer.preview(&spec, &intent).unwrap();
     let sink = Sink::default();
     let applied = writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
@@ -8232,6 +8254,7 @@ fn a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies() {
         items: [ProjectionItem::Ssh, ProjectionItem::Git]
             .into_iter()
             .collect(),
+        distribution: None,
     };
     let rb = writer
         .preview(&fx.spec(&[], Some(record.clone())), &rollback)

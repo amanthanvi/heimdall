@@ -24,8 +24,9 @@ async fn revoke(p: &Process, grant: &GrantId, tag: &str) {
         .revoke(
             &caller(),
             RevokeRequest {
-                grant_id: grant.clone(),
+                grant_id: Some(grant.clone()),
                 request_id: RequestId::parse(&format!("rv-{tag}")).unwrap(),
+                target: None,
             },
         )
         .await

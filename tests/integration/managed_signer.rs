@@ -181,6 +181,8 @@ fn outcome() -> PrepareOutcome {
                 remote_processes: None,
                 unmanaged_connections: None,
                 issuer_isolation: None,
+                ordinary_aliases: None,
+                owner_functions: None,
             },
             evidence: Vec::new(),
         },
@@ -796,7 +798,7 @@ impl W {
             .ensure(
                 &owner(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: pairs.iter().cloned().collect(),
                     environment: None,
@@ -807,6 +809,8 @@ impl W {
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await;
@@ -882,8 +886,9 @@ impl W {
             ops.policy(
                 &owner(),
                 PolicyAction::Cutoff {
-                    policy_id: policy_id(),
+                    policy_id: Some(policy_id()),
                     at,
+                    target: None,
                 },
             )
             .await
@@ -918,8 +923,9 @@ async fn revoke(ops: &Operations, gid: &GrantId, rid: &str) -> RevokeData {
         .revoke(
             &owner(),
             RevokeRequest {
-                grant_id: gid.clone(),
+                grant_id: Some(gid.clone()),
                 request_id: RequestId::parse(rid).unwrap(),
+                target: None,
             },
         )
         .await

@@ -51,6 +51,24 @@ pub fn public_schemas() -> Vec<NamedSchema> {
         named::<crate::enrollment::EnrollmentResult>("enrollment-result"),
         named::<crate::issuer::IssuerStatus>("issuer-status"),
         named::<crate::issuer::RecoveryBundle>("recovery-bundle"),
+        // ⟨rev5⟩ ADR-0006 revision 5 (§17): the result views of the new inspect
+        // subjects. (The two trusted-work file formats are [`project_schemas`].)
+        named::<crate::environment::EnvironmentsView>("inspect-environments"),
+        named::<crate::trust::WorkspaceView>("inspect-workspace"),
+        named::<crate::trust::PoliciesView>("inspect-policies"),
+    ]
+}
+
+/// ⟨rev5⟩ ADR-0006 revision 5 (§17; m05-plan §4 item 11): the trusted-work file
+/// formats, written to `schemas/project/` (`manifest`, `portable`). Not wire messages:
+/// the manifest is a **closed** schema (ADR-0011 §2.2, any unknown key rejects the
+/// file), so these documents are outside the public API's unknown-field tolerance
+/// (ADR-0006 §9) and its keyword check.
+#[must_use]
+pub fn project_schemas() -> Vec<NamedSchema> {
+    vec![
+        named::<crate::project::Manifest>("manifest"),
+        named::<crate::project::PortableBundle>("portable"),
     ]
 }
 

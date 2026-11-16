@@ -117,6 +117,8 @@ pub fn baseline_enforcement() -> Enforcement {
             heimdall_contract::managed::UnmanagedConnections::NotControlled,
         ),
         issuer_isolation: Some(heimdall_contract::managed::IssuerIsolation::SameUserProcess),
+        ordinary_aliases: None,
+        owner_functions: None,
     }
 }
 

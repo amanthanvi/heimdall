@@ -132,6 +132,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -348,7 +350,7 @@ impl World {
             .ensure(
                 &owner(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: [h1()].into_iter().collect(),
                     environment: None,
@@ -359,6 +361,8 @@ impl World {
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await
@@ -2043,12 +2047,25 @@ mod process {
         let entry = w.reserve(&k).await;
         let fenced = Arc::new(AtomicBool::new(false));
         let admitted = Arc::new(AtomicUsize::new(0));
-        let spawns = Arc::new(AtomicUsize::new(0));
-        let (f, a, n) = (fenced.clone(), admitted.clone(), spawns.clone());
+        // Every PID the start-token reader was asked for, in order. A spawn reads its new
+        // child's token, and so does an exact-child signal (`signal_exact`) of a child the
+        // kernel has not reaped yet: a spawn is a PID not seen before, not a call.
+        let reads = Arc::new(std::sync::Mutex::new(Vec::<u32>::new()));
+        let spawns = {
+            let reads = reads.clone();
+            move || {
+                let reads = reads.lock().unwrap();
+                reads
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+            }
+        };
+        let (f, a, n) = (fenced.clone(), admitted.clone(), reads.clone());
         let mut config = ClientConfig::new(
             command(&w, false),
             Arc::new(move |pid| {
-                n.fetch_add(1, Ordering::SeqCst);
+                n.lock().unwrap().push(pid);
                 start_token(pid)
             }),
         );
@@ -2065,10 +2082,7 @@ mod process {
         issuer.start().await.unwrap();
         assert_eq!(issuer.state(), IssuerState::Ready);
         let pid = issuer.identity().unwrap().pid;
-        let (spawned, loads) = (
-            spawns.load(Ordering::SeqCst),
-            admitted.load(Ordering::SeqCst),
-        );
+        let (spawned, loads) = (spawns(), admitted.load(Ordering::SeqCst));
         // The fence is taken; then the link breaks (the child ends: exact PID).
         fenced.store(true, Ordering::SeqCst);
         kill_exact(pid);
@@ -2078,7 +2092,12 @@ mod process {
             .unwrap_err();
         assert!(matches!(e, IssuerError::Unavailable(_)), "{e:?}");
         tokio::time::sleep(Duration::from_secs(3)).await;
-        assert_eq!(spawns.load(Ordering::SeqCst), spawned, "no child spawned");
+        assert_eq!(
+            spawns(),
+            spawned,
+            "no child spawned (start-token reads {:?})",
+            reads.lock().unwrap()
+        );
         assert_eq!(admitted.load(Ordering::SeqCst), loads, "no load admitted");
         assert!(
             issuer.loaded_cas().is_empty(),
@@ -2094,7 +2113,7 @@ mod process {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         assert_eq!(issuer.state(), IssuerState::Ready);
-        assert!(spawns.load(Ordering::SeqCst) > spawned);
+        assert!(spawns() > spawned);
         assert_ne!(issuer.identity().unwrap().pid, pid);
         assert_eq!(issuer.loaded_cas().len(), 1);
         issuer.stop().await;

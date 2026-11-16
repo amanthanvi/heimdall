@@ -99,6 +99,29 @@ pub enum ProjectionItem {
     Ssh,
     /// The Git include block B_git and the managed file P_git.
     Git,
+    /// ⟨M04⟩ Revision 5 (m04-plan §5 item 3): the runtime's login entry (ADR-0010 §1
+    /// item 2, §6).
+    LoginEntry,
+    /// ⟨M04⟩ Revision 5: a WSL distribution's Git item, Mode A (ADR-0010 §2 item 2); names
+    /// the distribution through the intent's `distribution`.
+    DistributionGit,
+    /// ⟨M04⟩ Revision 5: a WSL distribution's projection, Mode B (ADR-0010 §3 item 5);
+    /// names the distribution through the intent's `distribution`.
+    DistributionProjection,
+}
+
+impl ProjectionItem {
+    /// ⟨M04⟩ Whether this item is one of revision 5's (served from M04; joint wave 0
+    /// refuses an intent naming one `driver_unavailable`).
+    #[must_use]
+    pub fn is_m04(self) -> bool {
+        matches!(
+            self,
+            ProjectionItem::LoginEntry
+                | ProjectionItem::DistributionGit
+                | ProjectionItem::DistributionProjection
+        )
+    }
 }
 
 /// A conflict a repair addresses (ADR-0007 §5.5, §5.7). Also a stable error reason.
@@ -178,6 +201,14 @@ pub enum PreviewIntent {
         /// Also install the Git include (ADR-0007 §5.6).
         #[serde(default)]
         include_git: bool,
+        /// ⟨M04⟩ Revision 5: further items to install (`login_entry`,
+        /// `distribution_git`, `distribution_projection`). Omitted when empty, so every
+        /// M02/M03 intent and its plan digest are unchanged.
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        items: BTreeSet<ProjectionItem>,
+        /// ⟨M04⟩ Revision 5: the distribution the `distribution_*` items name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distribution: Option<crate::environment::DistributionGuid>,
     },
     /// Remove the projection.
     Rollback {
@@ -187,6 +218,9 @@ pub enum PreviewIntent {
         /// The items to roll back; default both.
         #[serde(default = "all_items")]
         items: BTreeSet<ProjectionItem>,
+        /// ⟨M04⟩ Revision 5: the distribution the `distribution_*` items name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distribution: Option<crate::environment::DistributionGuid>,
     },
     /// Repair a conflict.
     Repair {
@@ -224,6 +258,25 @@ pub enum PreviewIntentError {
 }
 
 impl PreviewIntent {
+    /// ⟨M04⟩ Whether the intent uses a revision-5 form (an M04 item or a
+    /// distribution): joint wave 0 refuses it `driver_unavailable` before any record.
+    #[must_use]
+    pub fn uses_m04_form(&self) -> bool {
+        match self {
+            PreviewIntent::Apply {
+                items,
+                distribution,
+                ..
+            } => !items.is_empty() || distribution.is_some(),
+            PreviewIntent::Rollback {
+                items,
+                distribution,
+                ..
+            } => items.iter().any(|i| i.is_m04()) || distribution.is_some(),
+            PreviewIntent::Repair { .. } => false,
+        }
+    }
+
     /// Check the rules of m02-plan §5 item 2 that the wire types cannot express.
     pub fn validate(&self) -> Result<(), PreviewIntentError> {
         match self {
@@ -757,19 +810,28 @@ mod tests {
     #[test]
     fn preview_intent_defaults_and_rules() {
         let apply: PreviewIntent = serde_json::from_str(r#"{"kind":"apply"}"#).unwrap();
-        assert_eq!(apply, PreviewIntent::Apply { include_git: false });
+        assert_eq!(
+            apply,
+            PreviewIntent::Apply {
+                include_git: false,
+                distribution: None,
+                items: Default::default(),
+            }
+        );
         let rollback: PreviewIntent = serde_json::from_str(r#"{"kind":"rollback"}"#).unwrap();
         assert_eq!(
             rollback,
             PreviewIntent::Rollback {
                 keep_key_files: false,
-                items: all_items()
+                items: all_items(),
+                distribution: None,
             }
         );
         assert_eq!(rollback.validate(), Ok(()));
         let empty = PreviewIntent::Rollback {
             keep_key_files: false,
             items: BTreeSet::new(),
+            distribution: None,
         };
         assert_eq!(empty.validate(), Err(PreviewIntentError::NoItems));
     }

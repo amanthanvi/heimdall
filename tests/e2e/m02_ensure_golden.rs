@@ -101,6 +101,8 @@ fn enforcement() -> EnforcementEvidence {
             remote_processes: None,
             unmanaged_connections: None,
             issuer_isolation: None,
+            ordinary_aliases: None,
+            owner_functions: None,
         },
         evidence: Vec::new(),
     }
@@ -322,7 +324,7 @@ pub async fn produce(dir: &Path) -> Produced {
         .ensure(
             &caller,
             EnsureRequest {
-                profile: ProfileId::parse("dev").unwrap(),
+                profile: Some(ProfileId::parse("dev").unwrap()),
                 profile_revision: None,
                 scope: [pair()].into_iter().collect(),
                 environment: None,
@@ -333,6 +335,8 @@ pub async fn produce(dir: &Path) -> Produced {
                 interaction: InteractionMode::NonInteractive,
                 wait: WaitMode::Sync { timeout_ms: 30_000 },
                 connection: None,
+                context: None,
+                covered_only: false,
             },
         )
         .await

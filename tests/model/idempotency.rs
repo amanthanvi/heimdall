@@ -234,7 +234,7 @@ impl World {
 
 fn ensure_req(rid: &str, work: &str, h: &str, until: Option<&str>) -> EnsureRequest {
     EnsureRequest {
-        profile: ProfileId::parse("dev").unwrap(),
+        profile: Some(ProfileId::parse("dev").unwrap()),
         profile_revision: None,
         scope: [pair(h, "deploy")].into_iter().collect(),
         environment: None,
@@ -246,6 +246,8 @@ fn ensure_req(rid: &str, work: &str, h: &str, until: Option<&str>) -> EnsureRequ
         wait: WaitMode::default(),
         // M03 wave 0 (A1): fail closed until U0b
         connection: None,
+        context: None,
+        covered_only: false,
     }
 }
 

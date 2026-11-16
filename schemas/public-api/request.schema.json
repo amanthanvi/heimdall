@@ -254,6 +254,20 @@
       "required": [
         "op"
       ]
+    },
+    {
+      "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 2): add or remove a WSL or container\nenvironment ([`EnvironmentRequest`]; owner role, needs `environments/1`, not\noffered until M04 wires it).",
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "const": "environment"
+        }
+      },
+      "$ref": "#/$defs/EnvironmentRequest",
+      "required": [
+        "op"
+      ]
     }
   ],
   "$defs": {
@@ -613,6 +627,29 @@
             "mechanism",
             "request_id"
           ]
+        },
+        {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 4): apply a portable bundle's catalog intent in\none journaled reconciliation (owner only, no decision: it creates no authority;\nADR-0011 I4). Joint wave 0 refuses it `driver_unavailable`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "apply_import"
+            },
+            "bundle": {
+              "description": "The bundle.",
+              "$ref": "#/$defs/PortableBundle"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "bundle",
+            "request_id"
+          ]
         }
       ]
     },
@@ -912,6 +949,17 @@
               "description": "The adopted identity the alias uses.",
               "$ref": "#/$defs/IdentityId"
             },
+            "jump": {
+              "description": "⟨M04⟩ Revision 5 (ADR-0010 §5 item 1): the single-hop jump destination, a\ncatalog destination with one approved host key and no route of its own\n(`route_chain_unsupported`). Omitted when absent; joint wave 0 refuses a\nrequest that names one (`driver_unavailable`).",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DestinationId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "kind": {
               "type": "string",
               "const": "managed"
@@ -1017,6 +1065,10 @@
         "alias",
         "definition"
       ]
+    },
+    "DistributionGuid": {
+      "description": "A WSL distribution's registration GUID under `HKCU\\...\\Lxss` (ADR-0010 §3 item 1): the\nidentity of a distribution, kept across renames; a re-registered distribution is a new\nGUID. Wire form: 36 lowercase hex-and-hyphen characters, `8-4-4-4-12`, no braces\n(validated on decode; the CLI normalizes case and strips braces before sending).",
+      "type": "string"
     },
     "EndpointKind": {
       "description": "The transport of an agent endpoint.",
@@ -1411,6 +1463,21 @@
             }
           ]
         },
+        "context": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 1): the caller's working directory; the\nruntime resolves the workspace from it (ADR-0011 §2.2, §3.2). Absent: personal\ncontext, exactly the M01–M03 request. Omitted when absent; the canonical hash's\ncontext extras exist only when it is present (revision 5 §17 item 4).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "covered_only": {
+          "description": "⟨M05⟩ Revision 5: activate only the subset the context's policy already covers,\nnever create a decision, and report the rest as `uncovered` (background\ntriggers; ADR-0011 §3.2). Omitted when false.",
+          "type": "boolean"
+        },
         "environment": {
           "description": "Environment, default the caller's own.",
           "anyOf": [
@@ -1428,8 +1495,15 @@
           "default": "non_interactive"
         },
         "profile": {
-          "description": "Profile, or a subset of it via `scope`.",
-          "$ref": "#/$defs/ProfileId"
+          "description": "Profile, or a subset of it via `scope`. ⟨M05⟩ Revision 5: optional only when\n`context` is present (the workspace's manifest or trust record, else the personal\ndefault profile, names it); a request with neither is `USAGE_ERROR`. Every\nM01–M03 request carries it, so its wire form and hash are unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProfileId"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "profile_revision": {
           "description": "Explicit profile revision; default latest at creation (pinned afterwards).",
@@ -1482,7 +1556,6 @@
         }
       },
       "required": [
-        "profile",
         "work_id",
         "request_id"
       ]
@@ -1490,6 +1563,100 @@
     "EnvironmentId": {
       "description": "Stable environment ID (spec §4.1 \"Environment\").",
       "type": "string"
+    },
+    "EnvironmentRequest": {
+      "description": "`Request::Environment`, tagged by `action` (m04-plan §5 item 2). Synchronous, owner\nrole, capability `environments/1`. Mode B and containers add a place where authority\ncan be realized, so each creates a decision record (ADR-0006 §3.1) and never executes\non dispatch; Mode A alone goes through the setup confirmation only.",
+      "oneOf": [
+        {
+          "description": "Enable WSL integration for one distribution (ADR-0010 §2, §3). Kind\n`environment.wsl_enable`.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "description": "The Linux account chosen at enable (Mode B's environment identity, with the\nGUID).",
+              "type": "string"
+            },
+            "action": {
+              "type": "string",
+              "const": "wsl_enable"
+            },
+            "distribution_guid": {
+              "description": "The distribution.",
+              "$ref": "#/$defs/DistributionGuid"
+            },
+            "mode_a": {
+              "description": "Mode A: the distribution's Git uses the Windows in-box `ssh.exe`.",
+              "type": "boolean"
+            },
+            "mode_b": {
+              "description": "Mode B: a Linux-native scoped endpoint through the supervised helper.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "action",
+            "distribution_guid",
+            "account"
+          ]
+        },
+        {
+          "description": "Disable it: release the environment's bindings, withdraw the endpoints, roll back\nthe distribution's projection, end the helper (ADR-0010 §3 item 13). Kind\n`environment.wsl_disable`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "wsl_disable"
+            },
+            "distribution_guid": {
+              "description": "The distribution.",
+              "$ref": "#/$defs/DistributionGuid"
+            },
+            "start": {
+              "description": "The explicit authorized start of a stopped distribution so its cleanup runs\nnow (ADR-0010 §9 item 2); without it a stopped distribution's cleanup stays a\nretained, reported obligation.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "action",
+            "distribution_guid"
+          ]
+        },
+        {
+          "description": "Create a container environment and its stable directory (ADR-0010 §4 item 1). Kind\n`environment.container_add`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "container_add"
+            },
+            "label": {
+              "description": "The owner's label (1 to 64 bytes, no control characters).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "label"
+          ]
+        },
+        {
+          "description": "Release the container environment's binding and remove its directory (ADR-0010 §4\nitem 6). Kind `environment.container_remove`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "container_remove"
+            },
+            "environment_id": {
+              "description": "The container environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            }
+          },
+          "required": [
+            "action",
+            "environment_id"
+          ]
+        }
+      ]
     },
     "EventFilter": {
       "description": "Event filter for subscriptions and `observe --events`.",
@@ -1572,6 +1739,11 @@
           "description": "⟨M03⟩ A session lock was observed (payload\n[`crate::managed::SessionLockEventPayload`]).",
           "type": "string",
           "const": "session_lock"
+        },
+        {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 8): a background activation was activated,\nblocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not\nemitted by joint wave 0.",
+          "type": "string",
+          "const": "activation"
         }
       ]
     },
@@ -1753,6 +1925,13 @@
       "description": "`inspect` request (read-only; never contacts agents, network, or executable\nconfiguration; spec §10.2).",
       "type": "object",
       "properties": {
+        "cwd": {
+          "description": "⟨M05⟩ Revision 5: the working directory `workspace` resolves ([`WorkContext`]'s\nbounds). Omitted when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "preview": {
           "description": "Dry-run authority preview: resolved snapshot plus authority delta.",
           "anyOf": [
@@ -1763,6 +1942,10 @@
               "type": "null"
             }
           ]
+        },
+        "redact": {
+          "description": "⟨M05⟩ Revision 5: `export` redacts host names, addresses and labels. Omitted when\nfalse.",
+          "type": "boolean"
         },
         "subject": {
           "description": "What to inspect.",
@@ -1840,6 +2023,21 @@
           "description": "⟨M03⟩ Owned connections (`ConnectionsView`).",
           "type": "string",
           "const": "connections"
+        },
+        {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 5): the workspace the request's `cwd`\nresolves to and its trust state (`crate::trust::WorkspaceView`).",
+          "type": "string",
+          "const": "workspace"
+        },
+        {
+          "description": "⟨M05⟩ Every standing policy with its applied history (`crate::trust::PoliciesView`).",
+          "type": "string",
+          "const": "policies"
+        },
+        {
+          "description": "⟨M05⟩ A portable bundle of catalog intent (`crate::project::PortableBundle`),\nredacted when the request says `redact`.",
+          "type": "string",
+          "const": "export"
         }
       ]
     },
@@ -2151,7 +2349,7 @@
       "type": "string"
     },
     "PolicyAction": {
-      "description": "Owner-channel policy actions (primitives-draft §4.6; spec §6.1).",
+      "description": "Owner-channel policy actions (primitives-draft §4.6; spec §6.1).\n\n⟨M05⟩ Revision 5 (m05-plan §4 item 2): `pause`, `resume`, `cutoff` and `clear_cutoff`\nname either `policy_id` (as in M01–M03, whose wire forms are unchanged) or a `target`,\nexactly one of the two ([`PolicyAction::selector_ok`]); and the new actions below. Joint\nwave 0 serves none of the new forms: each answers `CAPABILITY_UNAVAILABLE` /\n`driver_unavailable` before any record (and before any decision record) is written.",
       "oneOf": [
         {
           "description": "Pause future automatic activation.",
@@ -2163,12 +2361,29 @@
             },
             "policy_id": {
               "description": "Policy.",
-              "$ref": "#/$defs/PolicyId"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "target": {
+              "description": "⟨M05⟩ Or a target.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
-            "action",
-            "policy_id"
+            "action"
           ]
         },
         {
@@ -2181,12 +2396,29 @@
             },
             "policy_id": {
               "description": "Policy.",
-              "$ref": "#/$defs/PolicyId"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "target": {
+              "description": "⟨M05⟩ Or a target.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
-            "action",
-            "policy_id"
+            "action"
           ]
         },
         {
@@ -2204,12 +2436,29 @@
             },
             "policy_id": {
               "description": "Policy.",
-              "$ref": "#/$defs/PolicyId"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "target": {
+              "description": "⟨M05⟩ Or a target.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
             "action",
-            "policy_id",
             "at"
           ]
         },
@@ -2223,12 +2472,29 @@
             },
             "policy_id": {
               "description": "Policy.",
-              "$ref": "#/$defs/PolicyId"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "target": {
+              "description": "⟨M05⟩ Or a target.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PolicyTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
-            "action",
-            "policy_id"
+            "action"
           ]
         },
         {
@@ -2293,12 +2559,451 @@
             "action",
             "policy_id"
           ]
+        },
+        {
+          "description": "⟨M05⟩ Create a personal standing policy (ADR-0011 §3.1; widening). The setup\noffer's `Create{default}` carries the spec §5.2 disclosure.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "create"
+            },
+            "default": {
+              "description": "The personal default of its environments (at most one per environment).",
+              "type": "boolean"
+            },
+            "environments": {
+              "description": "Environments it applies in.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EnvironmentId"
+              },
+              "uniqueItems": true
+            },
+            "max_window": {
+              "description": "Maximum window, as a duration string (`12h`, `PT12H`); default 12 h (P04).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "profile": {
+              "description": "Profile.",
+              "$ref": "#/$defs/ProfileId"
+            }
+          },
+          "required": [
+            "action",
+            "profile",
+            "environments"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ Add pairs, capabilities, environments or `background_work` to a policy\n(widening; ADR-0011 §4.1: a trusted workspace's manifest delta).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "extend_scope"
+            },
+            "background_work": {
+              "description": "Requested lock behaviour (`true`: work while locked).",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "capabilities": {
+              "description": "Added capabilities.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Capability"
+              },
+              "uniqueItems": true
+            },
+            "environments": {
+              "description": "Added environments.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EnvironmentId"
+              },
+              "uniqueItems": true
+            },
+            "pairs": {
+              "description": "Added pairs.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AccessPairRef"
+              },
+              "uniqueItems": true
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ Remove pairs from a policy (narrowing; ends only grants outside their basis).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "narrow_scope"
+            },
+            "pairs": {
+              "description": "Removed pairs.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AccessPairRef"
+              },
+              "uniqueItems": true
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id",
+            "pairs"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ Set the maximum window (widening when longer; the request alone cannot\ntell, so [`PolicyAction::is_widening`] treats it as widening).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_max_window"
+            },
+            "max_window": {
+              "description": "Duration string.",
+              "type": "string"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id",
+            "max_window"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ Remove a policy (narrowing).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ First trust of a workspace (ADR-0011 §2.1; widening): creates the workspace\nrecord and its policy, and sets the environment's `automatic_activation`.",
+          "type": "object",
+          "properties": {
+            "access_digest": {
+              "description": "The access digest the proposal was reviewed against (lowercase hex).",
+              "type": "string"
+            },
+            "action": {
+              "type": "string",
+              "const": "trust_workspace"
+            },
+            "cwd": {
+              "description": "The working directory the owner trusts.",
+              "type": "string"
+            },
+            "proposal": {
+              "description": "What the owner approves.",
+              "$ref": "#/$defs/TrustProposal"
+            }
+          },
+          "required": [
+            "action",
+            "cwd",
+            "access_digest",
+            "proposal"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ Reconcile a moved or re-cloned trusted checkout (ADR-0011 §2.3; widening).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "reconcile_workspace"
+            },
+            "cwd": {
+              "description": "The new observation's working directory.",
+              "type": "string"
+            },
+            "workspace": {
+              "description": "The record.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "action",
+            "workspace",
+            "cwd"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ Pause and end now (ADR-0011 §7.2 \"Stop (policy target)\"; narrowing).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "stop"
+            },
+            "target": {
+              "description": "Target.",
+              "$ref": "#/$defs/PolicyTarget"
+            }
+          },
+          "required": [
+            "action",
+            "target"
+          ]
         }
       ]
     },
     "PolicyId": {
       "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
       "type": "string"
+    },
+    "PolicyTarget": {
+      "description": "What a narrowing or block action applies to (ADR-0011 §7.3 \"Targets\"; m05-plan §4\nitem 2), tagged by `kind`.",
+      "oneOf": [
+        {
+          "description": "One policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "kind",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "Every policy for a profile.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            },
+            "profile": {
+              "description": "Profile.",
+              "$ref": "#/$defs/ProfileId"
+            }
+          },
+          "required": [
+            "kind",
+            "profile"
+          ]
+        },
+        {
+          "description": "Every policy of a workspace.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "workspace"
+            },
+            "workspace": {
+              "description": "Workspace.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "kind",
+            "workspace"
+          ]
+        },
+        {
+          "description": "Every policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "all"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "PortableBundle": {
+      "description": "A portable bundle (ADR-0011 I4; `inspect export`, `catalog apply_import`): catalog\nintent only. Never policies, workspace records, environment permissions, grants,\ndecisions, enrollments, socket or home paths, or private material.",
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "description": "When it was exported.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "destinations": {
+          "description": "Catalog destinations.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PortableDestination"
+          }
+        },
+        "identities": {
+          "description": "Identity references (public fingerprints and provider kind only).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PortableIdentity"
+          }
+        },
+        "profiles": {
+          "description": "Profiles.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PortableProfile"
+          }
+        },
+        "redacted": {
+          "description": "Whether host names, addresses and labels were redacted.",
+          "type": "boolean"
+        },
+        "reestablish": {
+          "description": "What the importing installation must re-establish locally (trust, policies,\nenrollments, host keys), as plain sentences.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "schema": {
+          "description": "[`PORTABLE_BUNDLE_SCHEMA`].",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "created_at"
+      ]
+    },
+    "PortableDestination": {
+      "description": "A destination in a bundle.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountName"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alias": {
+          "description": "The OpenSSH alias.",
+          "type": "string"
+        },
+        "host_key_fingerprints": {
+          "description": "Host-key fingerprints, shown in the import preview for comparison and then\ndiscarded: import never trusts a host key.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hostname": {
+          "description": "Host name (absent when redacted).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Destination ID.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "port": {
+          "description": "Port.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "alias"
+      ]
+    },
+    "PortableIdentity": {
+      "description": "An identity reference in a bundle.",
+      "type": "object",
+      "properties": {
+        "fingerprint": {
+          "description": "`SHA256:` public-key fingerprint.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The provider kind (`native_agent`, `onepassword`, ...).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "provider"
+      ]
+    },
+    "PortableProfile": {
+      "description": "A profile in a bundle.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Profile ID.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "pairs": {
+          "description": "Its pairs, as `destination:account` tokens.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "pairs"
+      ]
     },
     "PreferredMechanism": {
       "description": "The pair mechanism a `SetPreference` catalog action selects.",
@@ -2322,10 +3027,29 @@
           "description": "Install or re-render the projection.",
           "type": "object",
           "properties": {
+            "distribution": {
+              "description": "⟨M04⟩ Revision 5: the distribution the `distribution_*` items name.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DistributionGuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "include_git": {
               "description": "Also install the Git include (ADR-0007 §5.6).",
               "type": "boolean",
               "default": false
+            },
+            "items": {
+              "description": "⟨M04⟩ Revision 5: further items to install (`login_entry`,\n`distribution_git`, `distribution_projection`). Omitted when empty, so every\nM02/M03 intent and its plan digest are unchanged.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ProjectionItem"
+              },
+              "uniqueItems": true
             },
             "kind": {
               "type": "string",
@@ -2340,6 +3064,17 @@
           "description": "Remove the projection.",
           "type": "object",
           "properties": {
+            "distribution": {
+              "description": "⟨M04⟩ Revision 5: the distribution the `distribution_*` items name.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DistributionGuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "items": {
               "description": "The items to roll back; default both.",
               "type": "array",
@@ -2467,6 +3202,21 @@
           "description": "The Git include block B_git and the managed file P_git.",
           "type": "string",
           "const": "git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5 (m04-plan §5 item 3): the runtime's login entry (ADR-0010 §1\nitem 2, §6).",
+          "type": "string",
+          "const": "login_entry"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's Git item, Mode A (ADR-0010 §2 item 2); names\nthe distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_git"
+        },
+        {
+          "description": "⟨M04⟩ Revision 5: a WSL distribution's projection, Mode B (ADR-0010 §3 item 5);\nnames the distribution through the intent's `distribution`.",
+          "type": "string",
+          "const": "distribution_projection"
         }
       ]
     },
@@ -2636,17 +3386,68 @@
       "type": "object",
       "properties": {
         "grant_id": {
-          "description": "Grant to revoke; descendants cascade.",
-          "$ref": "#/$defs/GrantId"
+          "description": "Grant to revoke; descendants cascade. ⟨M05⟩ Revision 5: exactly one of\n`grant_id` and `target` is present (every M01–M03 request names the grant, so its\nwire form and hash are unchanged).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GrantId"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "request_id": {
           "description": "Idempotency request ID.",
           "$ref": "#/$defs/RequestId"
+        },
+        "target": {
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 3): stop a piece of work instead of naming a\ngrant. Omitted when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RevokeTarget"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
-        "grant_id",
         "request_id"
+      ]
+    },
+    "RevokeTarget": {
+      "description": "What a `revoke` revokes (m05-plan §4 item 3), tagged by `kind`. Absent means the\nrequest's `grant_id`, as in M01–M03.",
+      "oneOf": [
+        {
+          "description": "Stop one piece of work (ADR-0011 §7.2 \"Stop (work)\"): its unshared grants are\nrevoked, its references on shared grants dropped, and the work ID never\nreactivates (`work_stopped`).",
+          "type": "object",
+          "properties": {
+            "environment": {
+              "description": "Environment; default the caller's.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EnvironmentId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "work"
+            },
+            "work_id": {
+              "description": "Work ID.",
+              "$ref": "#/$defs/WorkId"
+            }
+          },
+          "required": [
+            "kind",
+            "work_id"
+          ]
+        }
       ]
     },
     "SetupRequest": {
@@ -2768,6 +3569,47 @@
           "type": "string",
           "const": "linux_secret_service"
         }
+      ]
+    },
+    "TrustProposal": {
+      "description": "What the owner approves in a `TrustWorkspace` decision (ADR-0011 §2.1): the request\nthe workspace makes (its manifest ∩ the latest profile snapshot, or the trust record's\nown scope when there is no manifest), fixed at decision creation (I5).",
+      "type": "object",
+      "properties": {
+        "background_work": {
+          "description": "Lock behaviour requested by `preferences.background_work`, shown at review.",
+          "type": "boolean"
+        },
+        "capabilities": {
+          "description": "Capabilities.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "uniqueItems": true
+        },
+        "environments": {
+          "description": "Environments.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvironmentId"
+          },
+          "uniqueItems": true
+        },
+        "pairs": {
+          "description": "Pairs (a subset of the profile; empty means the whole profile).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          },
+          "uniqueItems": true
+        },
+        "profile": {
+          "description": "Profile.",
+          "$ref": "#/$defs/ProfileId"
+        }
+      },
+      "required": [
+        "profile"
       ]
     },
     "UninstallFenceRequest": {
@@ -2902,8 +3744,25 @@
         }
       ]
     },
+    "WorkContext": {
+      "description": "`EnsureRequest.context` (m05-plan §4 item 1): the caller's working directory, metadata\nonly. The runtime discovers, observes and reads the workspace itself (ADR-0011 §2.2\n\"Who reads it\"); the client never sends a manifest. A same-user claim (ADR-0011 R2).",
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "description": "Absolute path, 1 to 4096 bytes, no NUL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cwd"
+      ]
+    },
     "WorkId": {
       "description": "Caller-chosen work ID; a continuing binding cannot reset its expiry by\nchanging it (spec §6.1).",
+      "type": "string"
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
       "type": "string"
     }
   }

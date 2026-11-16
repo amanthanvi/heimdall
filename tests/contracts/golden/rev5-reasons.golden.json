@@ -1,0 +1,116 @@
+{
+ "source": "ADR-0006 revision 5 (joint wave 0 of M04 and M05; section 17): m04-plan section 5 item 8 (reasons; the codes are the contract owner's to confirm, section 17.5 question R5-Q4) and m05-plan section 4 item 9 (reasons and their codes; a reason the table gives two codes, by session attendance, has one row per code), transcribed; `m03` is the M03 reason revision 5 adds (the M03 exit suite, wave 6 question I-8(2): an issuer refusal of a verification certificate, distinct from issuer_unavailable); `m05_warnings` is the table's warning row (slot_shared). Kept separate from reason::ALL (M02) and reason::M03; the code table stays at 30 rows.",
+ "m03": [
+  {
+   "reason": "issuer_refused",
+   "code": "CAPABILITY_UNAVAILABLE"
+  }
+ ],
+ "m04": [
+  {
+   "reason": "wsl_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "wsl_interop_disabled",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "wsl_distribution_unknown",
+   "code": "NOT_FOUND"
+  },
+  {
+   "reason": "wsl_distribution_not_running",
+   "code": "SERVICE_UNAVAILABLE"
+  },
+  {
+   "reason": "wsl_helper_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "environment_busy",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "environment_removed",
+   "code": "NOT_FOUND"
+  },
+  {
+   "reason": "route_chain_unsupported",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "route_dependency_out_of_scope",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "git_client_cannot_reach_pipe",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "state_dir_unsafe",
+   "code": "STATE_UNAVAILABLE"
+  },
+  {
+   "reason": "login_entry_conflict",
+   "code": "CONFIG_CONFLICT"
+  }
+ ],
+ "m05": [
+  {
+   "reason": "workspace_untrusted",
+   "code": "APPROVAL_REQUIRED"
+  },
+  {
+   "reason": "workspace_untrusted",
+   "code": "INTERACTION_REQUIRED"
+  },
+  {
+   "reason": "workspace_ambiguous",
+   "code": "APPROVAL_REQUIRED"
+  },
+  {
+   "reason": "workspace_ambiguous",
+   "code": "INTERACTION_REQUIRED"
+  },
+  {
+   "reason": "workspace_identity_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "manifest_invalid",
+   "code": "USAGE_ERROR"
+  },
+  {
+   "reason": "manifest_authority_key",
+   "code": "USAGE_ERROR"
+  },
+  {
+   "reason": "manifest_profile_unknown",
+   "code": "NOT_FOUND"
+  },
+  {
+   "reason": "policy_target_empty",
+   "code": "NOT_FOUND"
+  },
+  {
+   "reason": "decision_cooldown",
+   "code": "APPROVAL_REQUIRED"
+  },
+  {
+   "reason": "decision_cooldown",
+   "code": "INTERACTION_REQUIRED"
+  },
+  {
+   "reason": "not_covered",
+   "code": "INTERACTION_REQUIRED"
+  },
+  {
+   "reason": "work_stopped",
+   "code": "CREDENTIAL_EXPIRED"
+  }
+ ],
+ "m05_warnings": [
+  "slot_shared"
+ ]
+}

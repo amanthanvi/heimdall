@@ -489,10 +489,13 @@ impl Operations {
                 return Ok(None);
             }
             let origin = tx.grant_origin(&gid)?;
-            let policies = match &origin {
-                Some(o) => tx.policies_for(&o.profile, &env)?,
-                None => Vec::new(),
+            // ⟨M04, M05⟩ The grant's own environment, in its recorded context.
+            let _ = &env;
+            let Some(g) = tx.grant(&gid)? else {
+                return Ok(None);
             };
+            let policies =
+                crate::policy_context::grant_policies(tx, &g.environment, origin.as_ref())?;
             Ok(Some(effective_behavior_with_floor(
                 origin.as_ref(),
                 &policies,

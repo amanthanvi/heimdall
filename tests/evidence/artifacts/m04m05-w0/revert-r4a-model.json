@@ -1,0 +1,23 @@
+{
+ "name": "R4a item 4: resolution reverted to first-by-ID over every policy (model trace)",
+ "file": "crates/domain/src/policy.rs",
+ "command": "cargo test --locked -p heimdall-testkit --test model_authority two_policy_trace",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test two_policy_trace_resolution_is_by_context_never_by_id ... FAILED",
+   "thread 'two_policy_trace_resolution_is_by_context_never_by_id' (28622451) panicked at crates/testkit/../../tests/model/authority.rs:1327:1:",
+   "Test failed: ApprovalRequired { covered: Some(EffectiveAuthority { scope: Scope { pairs: {AccessPairRef { destination: DestinationId(\"h1\"), account: AccountName(\"u1\") }}, capabilities: {SshAuthentication} }, deadline: 2026-10-01T14:00:00Z, policy_revision: Some(PolicyRevision(3)), generation: AuthorityGeneration(7) }), delta: AuthorityDelta { added_scope: Scope { pairs: {AccessPairRef { destinatio",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.01s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test two_policy_trace_resolution_is_by_context_never_by_id ... ok",
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.09s"
+  ]
+ }
+}

@@ -1,0 +1,5 @@
+{
+  "op": "environment",
+  "action": "container_remove",
+  "environment_id": "env_00e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2"
+}

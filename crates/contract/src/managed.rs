@@ -173,6 +173,12 @@ pub enum ReadinessCondition {
     TimeConfirmationAfterReboot,
     /// The issuer store must be unlocked at start (macOS keychain).
     IssuerStoreUnlockedAtStart,
+    /// ⟨M04⟩ Revision 5 (m04-plan §5 item 7): the WSL distribution must be running
+    /// (a Mode B binding; background repair never starts it).
+    WslDistributionRunning,
+    /// ⟨M04⟩ Revision 5: the pair's jump hop must stay usable (its readiness is the
+    /// weaker of the two hops).
+    RouteDependency,
 }
 
 /// What would trigger a refresh.

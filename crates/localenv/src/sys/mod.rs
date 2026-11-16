@@ -87,6 +87,12 @@ pub use quarantine::*;
 mod managed_dir;
 pub use managed_dir::*;
 
+// ⟨M04⟩ U2 (ADR-0010 §1 items 4–6): the explicit handle-list spawn (owner: the M04 track).
+pub mod spawn;
+// ⟨M04⟩ U3 (ADR-0010 §2): the read-only Lxss registry read; Windows only.
+#[cfg(windows)]
+pub mod lxss;
+
 /// The account's home directory from the account database (ADR-0007 F19): Unix
 /// `getpwuid_r(getuid())`, Windows the profile folder of the process token. Never
 /// `$HOME` or `%USERPROFILE%`.

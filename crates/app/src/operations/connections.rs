@@ -79,7 +79,11 @@ impl Operations {
                 let Some(rec) = tx.binding(&b)? else {
                     return Ok(None);
                 };
-                if rec.environment != env || rec.released_at.is_some() {
+                // ⟨M04⟩ ADR-0010 §9 item 1: the binding's environment must be in this
+                // runtime's managed set (replacing M03's `== env`).
+                if rec.released_at.is_some()
+                    || crate::environments::admit(tx, &env, &rec.environment)?.is_err()
+                {
                     return Ok(None);
                 }
                 // ⟨M03 wave 3⟩ ADR-0008 §17.20 item 14 (U7-Q4); m03-plan §5 item 4a: only a
@@ -132,7 +136,7 @@ impl Operations {
                     return Ok(Err(refused::TIME_UNCERTAIN));
                 };
                 let ctx = grant_context(tx, &g)?;
-                let bound = bound_of(tx, &env, &g, ctx.profile.as_ref())?;
+                let bound = bound_of(tx, &g, ctx.profile.as_ref())?;
                 if dtime::is_expired(safe.wall(), bound)
                     || gate.admission(tx, &grant, &safe)? != Admission::Open
                 {

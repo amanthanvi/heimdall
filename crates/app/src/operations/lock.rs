@@ -58,8 +58,15 @@ pub(super) fn effective_lock_behavior(
     floor: LockBehavior,
 ) -> heimdall_store::Result<LockBehavior> {
     let origin = tx.grant_origin(&g.id)?;
+    // ⟨M04, M05⟩ The grant's own environment, in its recorded context.
+    let _ = env;
     let policies = match profile {
-        Some(p) => tx.policies_for(p, env)?,
+        Some(p) => crate::policy_context::policies_in(
+            tx,
+            p,
+            &g.environment,
+            &crate::policy_context::grant_context(origin.as_ref()),
+        )?,
         None => Vec::new(),
     };
     Ok(crate::lock::effective_behavior_with_floor(

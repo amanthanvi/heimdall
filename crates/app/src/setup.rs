@@ -193,8 +193,16 @@ fn kind_of(intent: &PreviewIntent) -> Option<OperationKind> {
 fn candidates(kind: OperationKind) -> Vec<PreviewIntent> {
     match kind {
         OperationKind::SetupApply => vec![
-            PreviewIntent::Apply { include_git: false },
-            PreviewIntent::Apply { include_git: true },
+            PreviewIntent::Apply {
+                include_git: false,
+                items: BTreeSet::new(),
+                distribution: None,
+            },
+            PreviewIntent::Apply {
+                include_git: true,
+                items: BTreeSet::new(),
+                distribution: None,
+            },
         ],
         OperationKind::SetupRollback => {
             let sets: [&[ProjectionItem]; 3] = [
@@ -208,6 +216,7 @@ fn candidates(kind: OperationKind) -> Vec<PreviewIntent> {
                     out.push(PreviewIntent::Rollback {
                         keep_key_files,
                         items: items.iter().copied().collect(),
+                        distribution: None,
                     });
                 }
             }
@@ -646,6 +655,7 @@ async fn load_spec(ops: &Operations) -> Result<ProjectionSpec, OpError> {
                 port,
                 account,
                 identity,
+                ..
             } = d.definition
             {
                 let endpoint = identities
@@ -881,6 +891,17 @@ impl Operations {
                 "setup is not available in this runtime: no projection writer is configured",
             ));
         };
+        // ⟨M04⟩ ADR-0006 revision 5 (joint wave 0): the login entry and the WSL
+        // distribution items are M04's (U1, U3, U4); an intent naming one is refused
+        // before anything is planned or written. (An effectful action names a digest of
+        // a plan only a preview produces, so the preview is the one gate.)
+        if let SetupRequest::Preview { intent } = &req
+            && intent.uses_m04_form()
+        {
+            return Err(OpError::driver_unavailable(
+                "this setup item is not available in this build",
+            ));
+        }
         match &req {
             SetupRequest::Preview { intent } => self.setup_preview(&writer, intent).await,
             SetupRequest::Apply {
@@ -2552,7 +2573,11 @@ mod tests {
         ProjectionPlan {
             view: SetupPlan {
                 plan_digest: PlanDigest::from_sha256([1; 32]),
-                intent: PreviewIntent::Apply { include_git: false },
+                intent: PreviewIntent::Apply {
+                    include_git: false,
+                    distribution: None,
+                    items: Default::default(),
+                },
                 mode: SetupMode::Automatic,
                 manual_reasons: Vec::new(),
                 files: diffs
@@ -2880,7 +2905,11 @@ mod tests {
                 consent: ConsentRecord::default(),
             }
         };
-        let apply = PreviewIntent::Apply { include_git: true };
+        let apply = PreviewIntent::Apply {
+            include_git: true,
+            distribution: None,
+            items: Default::default(),
+        };
         let git =
             |record: &ProjectionRecord| record.items[&ProjectionItem::Git].include_file.clone();
 
@@ -2936,6 +2965,7 @@ mod tests {
         let rollback = PreviewIntent::Rollback {
             keep_key_files: true,
             items: [ProjectionItem::Git].into_iter().collect(),
+            distribution: None,
         };
         let rolled = committed_record(
             Some(ssh),

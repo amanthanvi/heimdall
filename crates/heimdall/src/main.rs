@@ -7,17 +7,22 @@
 //! command goes through `heimdall_app::Operations`, locally in `service run` or
 //! over the authenticated control endpoint otherwise.
 
+mod activate_cmd;
 mod catalog_cmd;
 mod cli;
 mod client;
 mod connect_cmd;
 mod connections_cmd;
+mod container_cmd;
 mod doctor_cmd;
 mod enroll_cmd;
 mod issuer_cmd;
 mod launch_flow;
 mod m03_cmd;
+// ⟨M05⟩ joint wave 0 (ADR-0011 §10 item 10): refusals until the M05 handlers land.
+mod m05_cmd;
 mod output;
+mod portable_cmd;
 mod prompt;
 // ⟨ADR-0008 §17.33 items 4-5⟩ The purge's anchored deletion.
 mod purge_sweep;
@@ -27,6 +32,8 @@ mod setup_cmd;
 mod testcfg;
 mod tui;
 mod uninstall_cmd;
+// ⟨M04⟩ joint wave 0 (ADR-0010 §9 item 9): refusals until the M04 handlers land.
+mod wsl_cmd;
 
 use clap::Parser;
 

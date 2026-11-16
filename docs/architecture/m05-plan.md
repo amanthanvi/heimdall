@@ -70,6 +70,24 @@ Each unit lists its owner paths, dependencies, tests and acceptance.
   - the delay an identities answer can take without failing `ssh` and Git (0.5, 1, 2 and 5 s);
   - when `session-bind@openssh.com` arrives.
   - U5's wait budget is set from this.
+  - **Result (joint wave 0, 2026-11-15; scripts `tests/native/m05/u0b/`, results
+    `tests/evidence/artifacts/m05/u0b/`, record `tests/evidence/m05-g05-agent-context.json`).**
+    A delaying proxy in front of a disposable `ssh-agent`, a loopback-only scratch `sshd`,
+    real publickey logins, clients run from a canary-named Git working tree:
+
+    | Platform | Client | Identities answer delayed by | Result | Failure point | Budget |
+    |---|---|---|---|---|---|
+    | macOS arm64 | OpenSSH 10.5p1, Git 2.54.0 | 0, 0.5, 1, 2, 5, 10, 30 s (`LoginGraceTime 120`); 65 s (`LoginGraceTime 0`) | `ssh` and `git ls-remote` succeed every time (observed) | 125 s with `LoginGraceTime 120`: the **server** closed the connection; no client agent timeout up to 65 s | **2 s** (ADR-0011 §3.2 (a)) |
+    | Linux devbox (Ubuntu 24.04) | OpenSSH 9.6p1, Git 2.43.0 | as macOS | as macOS (observed) | as macOS | **2 s** |
+    | Windows 11 | in-box OpenSSH 9.5p2 | script `windows-agent-wait-spike.ps1` | **blocked:** the owner's PC run | — | undecided: no identities-path call on Windows until the run (ADR-0011 §10 item 4) |
+
+    - **No directory context:** across 52 agent messages per platform (`session-bind`,
+      `REQUEST_IDENTITIES`, `SIGN_REQUEST` only), none carried the working directory, the
+      repository name or the canary (observed).
+    - **`session-bind@openssh.com` arrives first** on every connection, before
+      `REQUEST_IDENTITIES` (observed): a later per-destination narrowing can key on it.
+    - **Not determined:** whether a client agent timeout exists above 65 s (the server's
+      grace ended the 125 s runs first). The 2 s budget is far inside every observed bound.
 - **Depends:** the ADR-0011 ruling.
 - **Tests:**
   - contract goldens: the code table unchanged at 30, the new `m05-reasons.golden.json`, the

@@ -1,0 +1,1637 @@
+{
+ "platform": "macos",
+ "scratch_root_name": "hm-w0-spike.ou2goe8f",
+ "versions": {
+  "ssh_V": "OpenSSH_10.5p1, LibreSSL 3.3.6",
+  "git_version": "git version 2.54.0 (Apple Git-157)",
+  "uname_a": "Darwin Mac 27.2.0 Darwin Kernel Version 27.2.0: Wed Oct 14 23:47:58 PDT 2026; root:xnu-13432.41.4~25/RELEASE_ARM64_T6050 arm64",
+  "python": "3.15.2",
+  "ssh_path": "/usr/bin/ssh",
+  "git_path": "/usr/bin/git"
+ },
+ "agent_pid": 36464,
+ "servers": {
+  "120": {
+   "effective_login_grace_time": 120,
+   "listen": "127.0.0.1"
+  },
+  "0": {
+   "effective_login_grace_time": 0,
+   "listen": "127.0.0.1"
+  }
+ },
+ "pids_started": {
+  "ssh-agent": 36464,
+  "sshd_grace_120": 36468,
+  "sshd_grace_0": 36475
+ },
+ "server_grace_probe_unauthenticated_connection": {
+  "closed_by": "server EOF",
+  "elapsed_s": 122.43
+ },
+ "runs": [
+  {
+   "client": "git",
+   "delay_s": 0,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 0.072,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0674
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0702
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0705
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.0 seconds",
+    "Bytes per second: sent 216844.4, received 216167.4"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 0.5,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 0.574,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0648
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0658
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.5714
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.0 seconds",
+    "Bytes per second: sent 214078.9, received 213410.6"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 1,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 1.074,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0717
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0727
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 1.0782
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.0 seconds",
+    "Bytes per second: sent 244110.0, received 243347.9"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 2,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 2.076,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0696
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0706
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 2.076
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.0 seconds",
+    "Bytes per second: sent 183248.3, received 182676.3"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 5,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 5.087,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0743
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0754
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 5.0809
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.0 seconds",
+    "Bytes per second: sent 200699.6, received 200073.1"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 10,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 10.104,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0677
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0687
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 10.07
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.1 seconds",
+    "Bytes per second: sent 75253.0, received 75018.1"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 30,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 30.154,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.1453
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.1481
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 30.1495
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.0 seconds",
+    "Bytes per second: sent 210192.5, received 209536.3"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 65,
+   "login_grace_time": 0,
+   "exit_code": 0,
+   "elapsed_s": 65.079,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0708
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0737
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 65.0793
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53545) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3844, received 3832 bytes, in 0.0 seconds",
+    "Bytes per second: sent 224755.9, received 224054.3"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "git",
+   "delay_s": 125,
+   "login_grace_time": 120,
+   "exit_code": 128,
+   "elapsed_s": 125.049,
+   "timed_out": false,
+   "success": false,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": false,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0735
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0755
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Connection closed by 127.0.0.1 port 53542",
+    "fatal: Could not read from remote repository.",
+    "",
+    "Please make sure you have the correct access rights",
+    "and the repository exists."
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "Connection closed by 127.0.0.1 port 53542"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 0,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 0.049,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0567
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0577
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0589
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 455325.0, received 446377.5"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 0.5,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 0.549,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0549
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.056
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.5568
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 431109.5, received 422638.0"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 1,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 1.053,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0597
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0607
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 1.0663
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 464974.6, received 455837.6"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 2,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 2.055,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0595
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0605
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 2.0661
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 375140.8, received 367769.0"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 5,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 5.06,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0578
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0588
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 5.0646
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 326938.5, received 320514.0"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 10,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 10.059,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0589
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0599
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 10.0624
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 222667.9, received 218292.3"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 30,
+   "login_grace_time": 120,
+   "exit_code": 0,
+   "elapsed_s": 30.079,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0667
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0679
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 30.0734
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53542) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 478453.9, received 469052.0"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 65,
+   "login_grace_time": 0,
+   "exit_code": 0,
+   "elapsed_s": 65.062,
+   "timed_out": false,
+   "success": true,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": true,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11",
+     "13"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0574
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0593
+    },
+    {
+     "conn": 1,
+     "seq": 3,
+     "type": 13,
+     "type_name": "SIGN_REQUEST",
+     "ext": null,
+     "len": 298,
+     "frame_bytes": 302,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 65.0649
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Authenticated to 127.0.0.1 ([127.0.0.1]:53545) using \"publickey\".",
+    "  #0 client-session (t4 [session:command] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)",
+    "",
+    "Transferred: sent 3664, received 3592 bytes, in 0.0 seconds",
+    "Bytes per second: sent 344944.5, received 338166.1"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Server accepts key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: channel 0: new session [client-session] (inactive timeout: 0)",
+    "debug2: channel_set_xtype: labeled channel 0 as session:command (inactive timeout 0)"
+   ]
+  },
+  {
+   "client": "ssh",
+   "delay_s": 125,
+   "login_grace_time": 120,
+   "exit_code": 255,
+   "elapsed_s": 125.03,
+   "timed_out": false,
+   "success": false,
+   "answer_delivered": true,
+   "client_closed_during_delay": false,
+   "client_closed_after_s": null,
+   "client_sent_more_after_answer": false,
+   "needle_hits": [],
+   "message_sequences_per_connection": {
+    "1": [
+     "27:session-bind@openssh.com",
+     "11"
+    ]
+   },
+   "session_bind_after_request_identities": false,
+   "session_bind_seen": true,
+   "messages": [
+    {
+     "conn": 1,
+     "seq": 1,
+     "type": 27,
+     "type_name": "EXTENSION",
+     "ext": "session-bind@openssh.com",
+     "len": 208,
+     "frame_bytes": 212,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0553
+    },
+    {
+     "conn": 1,
+     "seq": 2,
+     "type": 11,
+     "type_name": "REQUEST_IDENTITIES",
+     "ext": null,
+     "len": 1,
+     "frame_bytes": 5,
+     "has_canary": false,
+     "has_cwd": false,
+     "has_repo_name": false,
+     "has_remote_repo": false,
+     "has_scratch_root": false,
+     "t": 0.0564
+    }
+   ],
+   "stdout_lines": 0,
+   "stderr_error_lines": [
+    "Connection closed by 127.0.0.1 port 53542"
+   ],
+   "debug_agent_lines": [
+    "debug3: channel_clear_timeouts: clearing",
+    "debug1: get_agent_identities: bound agent to hostkey",
+    "debug1: get_agent_identities: agent returned 1 keys",
+    "debug1: Will attempt key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "debug1: Will attempt key: /tmp/hm-w0-spike.ou2goe8f/data/no-such-identity  explicit",
+    "debug1: Offering public key: hm-spike ED25519 SHA256:LqakGSRU2j99woJPW2mlOdxg46JcG5Sgnkn4OFodAME agent",
+    "Connection closed by 127.0.0.1 port 53542"
+   ]
+  }
+ ],
+ "summary": {
+  "ssh": {
+   "max_delay_succeeded_s": 65,
+   "failures": [
+    {
+     "delay_s": 125,
+     "exit_code": 255,
+     "elapsed_s": 125.03,
+     "login_grace_time": 120
+    }
+   ]
+  },
+  "git": {
+   "max_delay_succeeded_s": 65,
+   "failures": [
+    {
+     "delay_s": 125,
+     "exit_code": 128,
+     "elapsed_s": 125.049,
+     "login_grace_time": 120
+    }
+   ]
+  },
+  "any_needle_hit_in_any_message": [],
+  "total_agent_messages_logged": 52,
+  "message_types_seen": [
+   "EXTENSION:session-bind@openssh.com",
+   "REQUEST_IDENTITIES",
+   "SIGN_REQUEST"
+  ],
+  "sshd_log_grace_120": {
+   "timeout_before_authentication_lines": 3,
+   "accepted_publickey_lines": 14
+  },
+  "sshd_log_grace_0": {
+   "timeout_before_authentication_lines": 0,
+   "accepted_publickey_lines": 2
+  }
+ },
+ "note": "client run with extra options -vvv, GlobalKnownHostsFile=/dev/null and a nonexistent IdentityFile so default ~/.ssh keys are never probed; runs executed with up to 6 in parallel against MaxStartups 100:30:200",
+ "scratch_removed": true
+}

@@ -2182,6 +2182,7 @@ fn destination(n: u8, alias: &str) -> DestinationRecord {
             port: None,
             account: AccountName::parse("git").unwrap(),
             identity: IdentityId::from_random_bytes([n; 16]),
+            jump: None,
         },
         label: None,
         updated_at: t0(),
@@ -2256,7 +2257,11 @@ fn setup_op(env: &EnvironmentId) -> (OperationRecord, IdempotencyRecord, Recover
     };
     let intent = SetupIntent {
         plan_digest: PlanDigest::from_sha256([1; 32]),
-        intent: PreviewIntent::Apply { include_git: false },
+        intent: PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
         generation: 1,
         approval: None,
         consent: ConsentRecord::default(),
@@ -2523,7 +2528,7 @@ fn migration_0005_to_0006_keeps_m01_m02_rows_byte_identical() {
 
     let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
     assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 6);
+    assert_eq!(SCHEMA_VERSION, 8); // M04/M05 wave 0: 0007 and 0008 add tables and a column
     let mut backup = db.as_os_str().to_owned();
     backup.push(".v5.backup");
     assert!(PathBuf::from(backup).exists(), "v5 file backed up first");
@@ -2595,7 +2600,7 @@ fn migration_0005_to_0006_keeps_m01_m02_rows_byte_identical() {
     assert_eq!(ro.transaction(|tx| tx.open_enrollments()).unwrap().len(), 1);
 }
 
-/// A newer `user_version` (7) is refused by both opens, and the file is untouched.
+/// A newer `user_version` is refused by both opens, and the file is untouched.
 #[test]
 fn newer_user_version_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -2612,10 +2617,8 @@ fn newer_user_version_refused() {
     let newer_ok = |e: &StoreError| {
         matches!(
             e,
-            StoreError::NewerSchema {
-                found: 7,
-                supported: 6
-            }
+            StoreError::NewerSchema { found, supported }
+                if *found == SCHEMA_VERSION + 1 && *supported == SCHEMA_VERSION
         )
     };
     let e = Store::open(&newer, Arc::new(NoFaults)).unwrap_err();
@@ -2625,7 +2628,7 @@ fn newer_user_version_refused() {
     assert!(newer_ok(&e), "{e}");
     assert_eq!(std::fs::read(&newer).unwrap(), bytes, "untouched");
     let mut backup = newer.as_os_str().to_owned();
-    backup.push(".v7.backup");
+    backup.push(format!(".v{}.backup", SCHEMA_VERSION + 1));
     assert!(!PathBuf::from(backup).exists());
 }
 

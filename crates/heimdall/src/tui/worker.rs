@@ -235,6 +235,8 @@ fn inspect(subject: InspectSubject) -> Request {
     Request::Inspect(InspectRequest {
         subject,
         preview: None,
+        cwd: None,
+        redact: false,
     })
 }
 

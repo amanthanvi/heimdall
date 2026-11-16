@@ -201,12 +201,51 @@ pub(super) fn no_mechanism(
     e
 }
 
+/// ⟨M05⟩ What resolving a request's `context` established (ADR-0006 revision 5 §17
+/// item 4): the workspace it matched and the access digest of the manifest it read. M05
+/// U4 fills it; joint wave 0 refuses every request with a `context` before hashing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ContextHashExtras<'a> {
+    /// The workspace the observation matched (`Trusted` or `Member`).
+    pub(crate) workspace: Option<&'a heimdall_contract::ids::WorkspaceId>,
+    /// The manifest's access digest (lowercase hex).
+    pub(crate) access_digest: Option<&'a str>,
+}
+
 /// The canonical hash's kind-specific extra for `ensure`: `null` without
 /// `connection` (M01/M02 hashes unchanged), `{"connection": …}` with it.
-pub(super) fn ensure_hash_extra(req: &EnsureRequest) -> serde_json::Value {
-    match &req.connection {
-        None => serde_json::Value::Null,
-        Some(c) => serde_json::json!({ "connection": c }),
+///
+/// ⟨M05⟩ ADR-0006 revision 5 §17 item 4 (ADR-0011 §10 item 5): the revision-5 extras
+/// (`context`, `covered_only`, and the resolved workspace and access digest) enter
+/// **only when `context` is present**, so a request without `context` keeps its
+/// M01–M03 hash byte for byte; with `context`, the same request ID with a different
+/// resolved workspace or digest is another request (`REQUEST_CONFLICT`).
+pub(crate) fn ensure_hash_extra(
+    req: &EnsureRequest,
+    resolved: Option<&ContextHashExtras<'_>>,
+) -> serde_json::Value {
+    let mut extra = serde_json::Map::new();
+    if let Some(c) = &req.connection {
+        extra.insert("connection".to_owned(), serde_json::json!(c));
+    }
+    if let Some(context) = &req.context {
+        extra.insert("context".to_owned(), serde_json::json!(context));
+        if req.covered_only {
+            extra.insert("covered_only".to_owned(), serde_json::Value::Bool(true));
+        }
+        if let Some(r) = resolved {
+            if let Some(w) = r.workspace {
+                extra.insert("workspace".to_owned(), serde_json::json!(w));
+            }
+            if let Some(d) = r.access_digest {
+                extra.insert("access_digest".to_owned(), serde_json::json!(d));
+            }
+        }
+    }
+    if extra.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::Object(extra)
     }
 }
 
@@ -263,7 +302,12 @@ impl Operations {
             )
             .with_effect(EffectStatus::None));
         }
-        let profile = req.profile.clone();
+        // ⟨M05⟩ A request without a profile is a revision-5 form, refused before here.
+        let Some(profile) = req.profile.clone() else {
+            return Err(OpError::driver_unavailable(
+                "trusted-work requests are not available in this build",
+            ));
+        };
         let revision = req.profile_revision;
         let scope = req.scope.clone();
         let resolution = self
@@ -301,6 +345,77 @@ impl Operations {
                 pending_projection: r.pending_projection,
             }),
             Err(_) => Ok(EnsurePrecheck::default()),
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use heimdall_contract::ids::{ProfileId, RequestId, WorkId, WorkspaceId};
+    use heimdall_contract::managed::ConnectionRequest;
+    use heimdall_contract::request::{InteractionMode, RequiredCapabilities, WaitMode};
+    use heimdall_contract::trust::WorkContext;
+
+    fn request(connection: Option<ConnectionRequest>) -> EnsureRequest {
+        EnsureRequest {
+            profile: Some(ProfileId::parse("dev").unwrap()),
+            profile_revision: None,
+            scope: std::collections::BTreeSet::new(),
+            environment: None,
+            work_id: WorkId::parse("w").unwrap(),
+            until: None,
+            required_capabilities: RequiredCapabilities::default(),
+            request_id: RequestId::parse("r").unwrap(),
+            interaction: InteractionMode::NonInteractive,
+            wait: WaitMode::default(),
+            connection,
+            context: None,
+            covered_only: false,
+        }
+    }
+
+    /// ⟨M05⟩ ADR-0006 revision 5 §17 item 4 (ADR-0011 §10 item 5): without `context`
+    /// the extra is exactly M03's (`null`, or `{"connection": …}`), whatever
+    /// `covered_only` says and whatever resolution found; with `context` the resolved
+    /// workspace and access digest are part of the request's identity.
+    #[test]
+    fn revision_5_extras_enter_the_ensure_hash_only_with_context() {
+        let strict = Some(ConnectionRequest {
+            existing: Some(ExistingConnectionsMode::Strict),
+        });
+        let ws = WorkspaceId::from_random_bytes([3; 16]);
+        let resolved = ContextHashExtras {
+            workspace: Some(&ws),
+            access_digest: Some("ab"),
+        };
+        for connection in [None, strict] {
+            let m03 = match &connection {
+                None => serde_json::Value::Null,
+                Some(c) => serde_json::json!({ "connection": c }),
+            };
+            let mut plain = request(connection);
+            assert_eq!(ensure_hash_extra(&plain, None), m03);
+            assert_eq!(ensure_hash_extra(&plain, Some(&resolved)), m03);
+            plain.covered_only = true;
+            assert_eq!(ensure_hash_extra(&plain, Some(&resolved)), m03);
+            let mut with = plain.clone();
+            with.context = Some(WorkContext { cwd: "/w".into() });
+            let a = ensure_hash_extra(&with, Some(&resolved));
+            assert_ne!(a, m03);
+            assert_eq!(a["workspace"], serde_json::json!(ws));
+            assert_eq!(a["access_digest"], "ab");
+            assert_eq!(a["covered_only"], true);
+            let other = ContextHashExtras {
+                access_digest: Some("cd"),
+                ..resolved
+            };
+            assert_ne!(
+                ensure_hash_extra(&with, Some(&other)),
+                a,
+                "a changed digest is another request"
+            );
         }
     }
 }

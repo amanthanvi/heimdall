@@ -1537,6 +1537,7 @@ mod fx {
                             port: Some(sshd.port),
                             account: account.clone(),
                             identity: identity.clone(),
+                            jump: None,
                         },
                         label: None,
                         updated_at: now,
@@ -2572,6 +2573,8 @@ mod fx {
                 adapter: None,
                 lock_behavior: None,
                 connection: None,
+                policy_id: None,
+                workspace: None,
             };
             let entry = IssuanceEntry {
                 id: heimdall_contract::ids::IssuanceId::from_random_bytes(rand16()),
@@ -2659,6 +2662,7 @@ mod fx {
                         port: Some(sshd.port),
                         account: self.account.clone(),
                         identity: self.identity.clone(),
+                        jump: None,
                     },
                     label: None,
                     updated_at: now,
@@ -2796,7 +2800,11 @@ mod fx {
                     .setup(
                         &attended(),
                         SetupRequest::Preview {
-                            intent: PreviewIntent::Apply { include_git: false },
+                            intent: PreviewIntent::Apply {
+                                include_git: false,
+                                distribution: None,
+                                items: Default::default(),
+                            },
                         },
                     )
                     .await
@@ -2857,7 +2865,7 @@ mod fx {
                 .ensure(
                     &unattended(),
                     EnsureRequest {
-                        profile: ProfileId::parse("dev").unwrap(),
+                        profile: Some(ProfileId::parse("dev").unwrap()),
                         profile_revision: None,
                         scope: [self.pair()].into_iter().collect(),
                         environment: None,
@@ -2868,6 +2876,8 @@ mod fx {
                         interaction: InteractionMode::Interactive,
                         wait: WaitMode::Sync { timeout_ms: 30_000 },
                         connection: None,
+                        context: None,
+                        covered_only: false,
                     },
                 )
                 .await
@@ -8027,7 +8037,7 @@ async fn managed_ensure_result_carries_d8_connection_policy_graceful_and_strict(
             .ensure(
                 &unattended(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: [w.pair()].into_iter().collect(),
                     environment: None,
@@ -8040,6 +8050,8 @@ async fn managed_ensure_result_carries_d8_connection_policy_graceful_and_strict(
                     connection: strict.then_some(ConnectionRequest {
                         existing: Some(ExistingConnectionsMode::Strict),
                     }),
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await

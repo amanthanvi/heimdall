@@ -17,6 +17,8 @@ heimdall-store = { workspace = true }
 # M03 (m03-plan §0.6; ADR-0008 §18): the pure registry crate (plan::build,
 # classify_step), called directly through no port.
 heimdall-registry = { workspace = true }
+# M05 (ADR-0011 §2.2–§2.4; joint wave 0): the pure trusted-work project logic.
+heimdall-project = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 jiff = { workspace = true }

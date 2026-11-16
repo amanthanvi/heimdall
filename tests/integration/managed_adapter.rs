@@ -990,7 +990,7 @@ impl World {
             .ensure(
                 &owner(),
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: pairs.iter().cloned().collect(),
                     environment: None,
@@ -1001,6 +1001,8 @@ impl World {
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await
@@ -1013,8 +1015,9 @@ impl World {
             .revoke(
                 &owner(),
                 RevokeRequest {
-                    grant_id: grant.clone(),
+                    grant_id: Some(grant.clone()),
                     request_id: RequestId::parse(rid).unwrap(),
+                    target: None,
                 },
             )
             .await
@@ -3800,7 +3803,9 @@ async fn expiry_clears_slot_and_binding_files() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        w.effects.clear_slot(&data.binding_id, &h1(), 1).unwrap(),
+        w.effects
+            .clear_slot(&data.binding_id, &env_id(), &h1(), 1)
+            .unwrap(),
         ClearOutcome::Removed
     );
     w.effects
@@ -3829,7 +3834,9 @@ async fn expiry_clears_slot_and_binding_files() {
         }
     );
     assert_eq!(
-        w.effects.clear_slot(&data.binding_id, &h1(), 1).unwrap(),
+        w.effects
+            .clear_slot(&data.binding_id, &env_id(), &h1(), 1)
+            .unwrap(),
         ClearOutcome::OtherGeneration(2)
     );
     w.effects.clear(&data.binding_id, 1).unwrap();
@@ -3995,8 +4002,9 @@ async fn inject(w: &World, gid: &GrantId, event: A07Event, tag: &str) {
                 .policy(
                     &owner(),
                     heimdall_contract::request::PolicyAction::Cutoff {
-                        policy_id: policy_id(),
+                        policy_id: Some(policy_id()),
                         at: shift(w.wall(), 1),
+                        target: None,
                     },
                 )
                 .await
@@ -4130,7 +4138,7 @@ async fn projection_pending_refused_only_for_managed_only_minimums() {
         .ensure(
             &owner(),
             EnsureRequest {
-                profile: ProfileId::parse("dev").unwrap(),
+                profile: Some(ProfileId::parse("dev").unwrap()),
                 profile_revision: None,
                 scope: [h1()].into_iter().collect(),
                 environment: None,
@@ -4141,6 +4149,8 @@ async fn projection_pending_refused_only_for_managed_only_minimums() {
                 interaction: InteractionMode::NonInteractive,
                 wait: WaitMode::Sync { timeout_ms: 30_000 },
                 connection: None,
+                context: None,
+                covered_only: false,
             },
         )
         .await
@@ -4273,7 +4283,9 @@ async fn stale_generation_write_never_rolls_back_the_slot() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap(),
+        w.effects
+            .clear_slot(&a.binding_id, &env_id(), &h1(), 1)
+            .unwrap(),
         ClearOutcome::Removed
     );
     w.store
@@ -4368,7 +4380,7 @@ async fn slot_claim_and_clear_are_serialized() {
         });
         entered_rx.recv().unwrap();
         s.spawn(|| {
-            let _ = w.effects.clear_slot(&a.binding_id, &h1(), 1);
+            let _ = w.effects.clear_slot(&a.binding_id, &env_id(), &h1(), 1);
             cleared.store(true, Ordering::SeqCst);
             order.lock().unwrap().push("clear");
         });
@@ -4404,7 +4416,9 @@ async fn stale_clear_never_unlists_the_current_binding() {
         .transaction(|tx| tx.release_slot(&env_id(), &h1(), &a.binding_id, 1, t0()))
         .unwrap()
         .unwrap();
-    w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap();
+    w.effects
+        .clear_slot(&a.binding_id, &env_id(), &h1(), 1)
+        .unwrap();
     w.store
         .transaction(|tx| tx.slot_files_removed(&env_id(), &h1(), 1, t0()))
         .unwrap()
@@ -4437,7 +4451,9 @@ async fn stale_clear_never_unlists_the_current_binding() {
     assert_eq!(w.table().list(&env).len(), 1);
     // The stale clears of generation 1, of the slot and of the binding.
     assert_eq!(
-        w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap(),
+        w.effects
+            .clear_slot(&a.binding_id, &env_id(), &h1(), 1)
+            .unwrap(),
         ClearOutcome::OtherGeneration(2)
     );
     w.effects.clear(&a.binding_id, 1).unwrap();
@@ -4452,7 +4468,9 @@ async fn stale_clear_never_unlists_the_current_binding() {
     assert!(bfiles.files.iter().all(|f| f.exists()));
     // The current generation's clear withdraws it.
     assert_eq!(
-        w.effects.clear_slot(&a.binding_id, &h1(), 2).unwrap(),
+        w.effects
+            .clear_slot(&a.binding_id, &env_id(), &h1(), 2)
+            .unwrap(),
         ClearOutcome::Removed
     );
     assert!(w.table().list(&env).is_empty());
@@ -4473,7 +4491,9 @@ async fn clearing_one_pair_keeps_the_other_pairs_listing() {
     assert_eq!(w.table().list(&env).len(), 2);
     free_slot(&w, &a.binding_id, &h1(), 1);
     assert_eq!(
-        w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap(),
+        w.effects
+            .clear_slot(&a.binding_id, &env_id(), &h1(), 1)
+            .unwrap(),
         ClearOutcome::Removed
     );
     assert_eq!(w.table().materialized_pairs(&a.binding_id), vec![h2()]);

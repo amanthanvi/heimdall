@@ -278,6 +278,8 @@ mod tests {
                 remote_processes: None,
                 unmanaged_connections: None,
                 issuer_isolation: None,
+                ordinary_aliases: None,
+                owner_functions: None,
             },
             evidence: Vec::new(),
         }
@@ -393,7 +395,7 @@ mod tests {
             .ensure(
                 &caller,
                 EnsureRequest {
-                    profile: ProfileId::parse("dev").unwrap(),
+                    profile: Some(ProfileId::parse("dev").unwrap()),
                     profile_revision: None,
                     scope: BTreeSet::new(),
                     environment: None,
@@ -405,6 +407,8 @@ mod tests {
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
                     // M03 wave 0 (A1): fail closed until U0b
                     connection: None,
+                    context: None,
+                    covered_only: false,
                 },
             )
             .await

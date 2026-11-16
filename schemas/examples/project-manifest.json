@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "project": "example-infrastructure",
+  "access": {
+    "profile": "homelab-dev",
+    "pairs": ["lab-db:deploy"],
+    "environments": ["native"],
+    "required_capabilities": ["ssh-authentication"]
+  },
+  "preferences": {"background_work": true}
+}

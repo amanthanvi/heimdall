@@ -214,7 +214,7 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         .map_err(|d| none(Failure::of(d.env)))?;
     let interaction = launch_flow::interaction(ctx, &args.launch);
     let request = EnsureRequest {
-        profile,
+        profile: Some(profile),
         profile_revision: None,
         scope: Default::default(),
         environment: None,
@@ -228,6 +228,8 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         },
         // M03 wave 0 (A1): fail closed until U0b
         connection: None,
+        context: None,
+        covered_only: false,
     };
     let rt = crate::service_cmd::current_thread()
         .map_err(|e| none(Failure::of(output::error_value(e))))?;
@@ -618,6 +620,8 @@ mod tests {
             },
             eligibility_checked_at: heimdall_contract::Timestamp::now(),
             identity_selection_report: None,
+            agent_forwarding: false,
+            route: None,
         }
     }
 

@@ -24,17 +24,20 @@ is allowed (Cargo allows it, and `heimdall-ipc` already has one).
 What it rejects (exit 1, with the reason):
   * any production cycle among workspace crates;
   * an edge `heimdall-app` -> {heimdall-credential, heimdall-issuer, heimdall-enroll,
-    heimdall-adapters, heimdall-localenv, heimdall-runtime};
+    heimdall-adapters, heimdall-localenv, heimdall-runtime, heimdall-wsl} (wsl implements
+    app ports and the runtime wires it; ADR-0010 section 9 item 9);
   * an edge `heimdall-ipc` -> any workspace crate but `heimdall-contract`
     (third-party dependencies are fine);
-  * an edge `heimdall-registry` -> any workspace crate but `heimdall-contract` and
-    `heimdall-domain` (the registry is pure).
+  * an edge `heimdall-registry` or `heimdall-project` -> any workspace crate but
+    `heimdall-contract` and `heimdall-domain` (both are pure; ADR-0011 section 2).
 The rules are vacuous for a crate that does not exist yet, so the check works whether
-or not the M03 crates (registry, credential, issuer, enroll) exist.
+or not the M03 crates (registry, credential, issuer, enroll) or the M04/M05 crates (wsl,
+project) exist.
 
 Self-tests build mutant fixture workspaces in a `tempfile.mkdtemp()` directory that is
 removed afterwards (never a glob; the exact path):
   crate_graph_step_rejects_app_edge_to_enroll
+  crate_graph_step_rejects_app_edge_to_wsl
   crate_graph_step_rejects_cycle_and_ipc_to_app_edge
   crate_graph_reads_package_names_optional_and_target_dependencies
   crate_graph_positive_control (the clean fixture and the real workspace pass)
@@ -63,11 +66,13 @@ APP_FORBIDDEN = {
     "heimdall-adapters",
     "heimdall-localenv",
     "heimdall-runtime",
+    "heimdall-wsl",
 }
 # crate -> the only workspace crates it may depend on (production).
 ONLY_ALLOWED = {
     "heimdall-ipc": {"heimdall-contract"},
     "heimdall-registry": {"heimdall-contract", "heimdall-domain"},
+    "heimdall-project": {"heimdall-contract", "heimdall-domain"},
 }
 
 
@@ -245,16 +250,18 @@ CLEAN = {
     "domain": ["contract"],
     "store": ["contract", "domain"],
     "registry": ["contract", "domain"],
-    "app": ["contract", "domain", "store", "registry"],
+    "project": ["contract", "domain"],
+    "wsl": ["contract", "domain"],
+    "app": ["contract", "domain", "store", "registry", "project"],
     "ipc": ["contract"],
     "localenv": ["contract", "domain", "app", "ipc"],
     "credential": ["contract", "domain", "ipc", "app"],
     "issuer": ["contract", "domain", "store", "app", "credential"],
     "enroll": ["contract", "domain", "registry", "app"],
     "adapters": ["contract", "domain", "app", "ipc", "localenv", "credential"],
-    "runtime": ["contract", "domain", "store", "app", "ipc", "localenv", "adapters", "credential", "issuer", "enroll"],
+    "runtime": ["contract", "domain", "store", "app", "ipc", "localenv", "adapters", "credential", "issuer", "enroll", "wsl"],
     "testkit": [],
-    "heimdall": ["contract", "domain", "app", "ipc", "runtime", "localenv", "store", "issuer", "enroll", "testkit"],
+    "heimdall": ["contract", "domain", "app", "ipc", "runtime", "localenv", "store", "issuer", "enroll", "wsl", "testkit"],
 }
 
 
@@ -319,6 +326,13 @@ def _t_app_edge_to_enroll():
         specs["app"]["deps"].append("enroll")
     bad = _run_fixture(m)
     return _expect(bad, "forbidden edge: heimdall-app -> heimdall-enroll"), bad
+
+
+def _t_app_edge_to_wsl():
+    def m(specs):
+        specs["app"]["deps"].append("wsl")
+    bad = _run_fixture(m)
+    return _expect(bad, "forbidden edge: heimdall-app -> heimdall-wsl"), bad
 
 
 def _t_cycle_and_ipc_to_app():
@@ -389,6 +403,7 @@ def _t_positive():
 
 SELF_TESTS = [
     ("crate_graph_step_rejects_app_edge_to_enroll", _t_app_edge_to_enroll),
+    ("crate_graph_step_rejects_app_edge_to_wsl", _t_app_edge_to_wsl),
     ("crate_graph_step_rejects_cycle_and_ipc_to_app_edge", _t_cycle_and_ipc_to_app),
     ("crate_graph_reads_package_names_optional_and_target_dependencies", _t_package_names_optional_target),
     ("crate_graph_positive_control", _t_positive),

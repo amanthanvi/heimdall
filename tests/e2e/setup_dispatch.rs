@@ -315,6 +315,7 @@ async fn adopt_and_alias(s: &mut Session, endpoint: EndpointRef) -> IdentityId {
                     port: None,
                     account: AccountName::parse("fixture").unwrap(),
                     identity: identity.clone(),
+                    jump: None,
                 },
                 label: None,
             },
@@ -347,7 +348,15 @@ async fn e2e_setup_preview_apply_decide_restart_through_dispatcher() {
     let mut s = Session::setup_session(&service, InteractionMode::NonInteractive).await;
     let endpoint = agent_endpoint_at(&rig.home.root, "fixture-agent");
     adopt_and_alias(&mut s, endpoint).await;
-    let plan = preview(&mut s, PreviewIntent::Apply { include_git: false }).await;
+    let plan = preview(
+        &mut s,
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
+    )
+    .await;
     assert!(plan.consent.decision_required);
     let env = s.request(apply(&plan.plan_digest, "r-apply")).await;
     assert_eq!(env.code, Code::InteractionRequired);
@@ -378,6 +387,8 @@ async fn e2e_setup_preview_apply_decide_restart_through_dispatcher() {
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Projections,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     assert_eq!(inspect.code, Code::Ok);
@@ -403,7 +414,11 @@ async fn e2e_setup_without_capability_is_schema_unsupported() {
     let service = rig.service().await;
     assert!(server_capabilities().contains(capability::SETUP_V1));
     let preview = Request::Setup(SetupRequest::Preview {
-        intent: PreviewIntent::Apply { include_git: false },
+        intent: PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
     });
     let catalog = Request::Catalog(CatalogRequest::RemoveIdentity {
         id: IdentityId::from_random_bytes([1; 16]),
@@ -554,7 +569,15 @@ async fn simultaneous_setup_admissions_admit_exactly_one() {
     // projection is applied once (approved), a second alias joins the catalog (the
     // apply and the rerender add it), and the user's configuration gains an inherited
     // HostName that a rollback would expose.
-    let first = preview(&mut setup, PreviewIntent::Apply { include_git: false }).await;
+    let first = preview(
+        &mut setup,
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
+    )
+    .await;
     let env = setup.request(apply(&first.plan_digest, "r-first")).await;
     let d = env.next.as_ref().unwrap().decision_ref.clone().unwrap();
     service
@@ -578,6 +601,7 @@ async fn simultaneous_setup_admissions_admit_exactly_one() {
                     port: None,
                     account: AccountName::parse("fixture").unwrap(),
                     identity,
+                    jump: None,
                 },
                 label: None,
             },
@@ -588,12 +612,21 @@ async fn simultaneous_setup_admissions_admit_exactly_one() {
     let mut user = std::fs::read_to_string(&rig.home.user_config).unwrap();
     user.push_str("\nHost *\n    HostName inherited.example.invalid\n");
     std::fs::write(&rig.home.user_config, user).unwrap();
-    let apply_plan = preview(&mut setup, PreviewIntent::Apply { include_git: false }).await;
+    let apply_plan = preview(
+        &mut setup,
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
+    )
+    .await;
     let rollback_plan = preview(
         &mut setup,
         PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         },
     )
     .await;
@@ -830,7 +863,7 @@ fn pair() -> heimdall_contract::request::AccessPairRef {
 
 fn ensure(request: &str, work: &str, interaction: InteractionMode) -> Request {
     Request::Ensure(heimdall_contract::request::EnsureRequest {
-        profile: heimdall_contract::ids::ProfileId::parse("work").unwrap(),
+        profile: Some(heimdall_contract::ids::ProfileId::parse("work").unwrap()),
         profile_revision: None,
         scope: [pair()].into_iter().collect(),
         environment: None,
@@ -842,6 +875,8 @@ fn ensure(request: &str, work: &str, interaction: InteractionMode) -> Request {
         wait: heimdall_contract::request::WaitMode::Sync { timeout_ms: 30_000 },
         // M03 wave 0 (A1): fail closed until U0b
         connection: None,
+        context: None,
+        covered_only: false,
     })
 }
 
@@ -881,7 +916,15 @@ async fn catalog_and_project(rig: &Rig, service: &Service) -> (IdentityId, Endpo
         .await;
     assert_eq!(env.code, Code::Ok, "{:?}", env.data);
     seed_policy(service);
-    let plan = preview(&mut s, PreviewIntent::Apply { include_git: false }).await;
+    let plan = preview(
+        &mut s,
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
+    )
+    .await;
     let env = s.request(apply(&plan.plan_digest, "r-apply")).await;
     let d = env.next.as_ref().unwrap().decision_ref.clone().unwrap();
     service
@@ -984,6 +1027,8 @@ async fn e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher() {
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Destinations,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     assert_eq!(env.code, Code::Ok, "{:?}", env.data);
@@ -1096,6 +1141,8 @@ async fn e2e_setup_attended_apply_inspect_rollback_through_dispatcher() {
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Capabilities,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     assert_eq!(caps.code, Code::Ok);
@@ -1112,7 +1159,15 @@ async fn e2e_setup_attended_apply_inspect_rollback_through_dispatcher() {
     adopt_and_alias(&mut s, endpoint).await;
 
     // Preview, then apply: an attended session is asked for approval.
-    let plan = preview(&mut s, PreviewIntent::Apply { include_git: false }).await;
+    let plan = preview(
+        &mut s,
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
+    )
+    .await;
     assert!(plan.consent.decision_required);
     let env = s.request(apply(&plan.plan_digest, "r-apply")).await;
     assert_eq!(env.code, Code::ApprovalRequired, "{:?}", env.data);
@@ -1150,6 +1205,7 @@ async fn e2e_setup_attended_apply_inspect_rollback_through_dispatcher() {
         PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         },
     )
     .await;
@@ -1181,6 +1237,8 @@ async fn inspect_projections(s: &mut Session) -> Envelope<serde_json::Value> {
     s.request(Request::Inspect(InspectRequest {
         subject: InspectSubject::Projections,
         preview: None,
+        cwd: None,
+        redact: false,
     }))
     .await
 }
@@ -1202,7 +1260,15 @@ async fn e2e_supervisor_cleaner_deletes_after_rollback_through_the_service() {
     assert_eq!(s.client.attend().await.unwrap().code, Code::Ok);
     let endpoint = agent_endpoint_at(&rig.home.root, "fixture-agent");
     adopt_and_alias(&mut s, endpoint).await;
-    let plan = preview(&mut s, PreviewIntent::Apply { include_git: false }).await;
+    let plan = preview(
+        &mut s,
+        PreviewIntent::Apply {
+            include_git: false,
+            distribution: None,
+            items: Default::default(),
+        },
+    )
+    .await;
     let env = s.request(apply(&plan.plan_digest, "r-apply")).await;
     assert_eq!(env.code, Code::ApprovalRequired, "{:?}", env.data);
     let decision = env.next.as_ref().unwrap().decision_ref.clone().unwrap();
@@ -1229,6 +1295,7 @@ async fn e2e_supervisor_cleaner_deletes_after_rollback_through_the_service() {
         PreviewIntent::Rollback {
             keep_key_files: false,
             items: [ProjectionItem::Ssh].into_iter().collect(),
+            distribution: None,
         },
     )
     .await;

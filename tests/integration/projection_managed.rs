@@ -252,7 +252,11 @@ impl Fx {
 }
 
 fn apply_intent() -> PreviewIntent {
-    PreviewIntent::Apply { include_git: false }
+    PreviewIntent::Apply {
+        include_git: false,
+        distribution: None,
+        items: Default::default(),
+    }
 }
 
 /// P's planned bytes in `plan` (its whole-file step).

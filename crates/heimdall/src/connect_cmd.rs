@@ -259,7 +259,7 @@ impl ManagedConnect<'_> {
         let work_id =
             WorkId::parse(request_id.as_str()).map_err(|_| Failure::usage("invalid work ID"))?;
         let request = EnsureRequest {
-            profile,
+            profile: Some(profile),
             profile_revision: None,
             scope: std::iter::once(self.pair.clone()).collect(),
             environment: None,
@@ -272,6 +272,8 @@ impl ManagedConnect<'_> {
                 timeout_ms: ENSURE_TIMEOUT_MS,
             },
             connection: None,
+            context: None,
+            covered_only: false,
         };
         let ensured = ensure_flow(client, &mut TerminalPrompt, ctx, request, false).await;
         if ensured.env.code != Code::AccessReady {
@@ -347,6 +349,8 @@ async fn covering_profile(client: &mut Client, pair: &AccessPairRef) -> Result<P
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Profiles,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     if !listed.code.is_success() {
@@ -556,6 +560,8 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Kn
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Destinations,
             preview: None,
+            cwd: None,
+            redact: false,
         }))
         .await;
     if !listed.code.is_success() {
@@ -881,6 +887,8 @@ mod tests {
             },
             eligibility_checked_at: now,
             identity_selection_report: None,
+            agent_forwarding: false,
+            route: None,
         };
         let bound = |mechanism: &str, endpoint: Option<&str>| -> EnsureData {
             let mut d: EnsureData = serde_json::from_value(serde_json::json!({

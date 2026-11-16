@@ -585,6 +585,8 @@ pub fn pair_integrations(
             },
             eligibility_checked_at: now,
             identity_selection_report: report,
+            agent_forwarding: false,
+            route: None,
         })
         .collect()
 }

@@ -1,0 +1,24 @@
+[package]
+name = "heimdall-project"
+description = "Heimdall trusted-work project logic (M05; ADR-0011 §2.2-§2.4): the pure manifest parser, access digest, workspace discovery over an FsView, match_workspace, and the portable bundle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges (ADR-0011 §2): contract and domain only. The crate-graph step
+# (tools/validation/crate_graph.py) refuses any other workspace edge: project is pure.
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+
+# No test target runs yet: `tools/validation/check.sh` fails any test target that runs zero
+# tests, so the M05 track enables the lib target's tests (and doctests) with its first
+# meaningful case (ADR-0010 §9 item 8, applied to M05 by ADR-0011 §10).
+[lib]
+test = false
+doctest = false

@@ -1,0 +1,5 @@
+{
+  "op": "inspect",
+  "subject": "workspace",
+  "cwd": "/home/dev/src/example-infrastructure/modules"
+}
