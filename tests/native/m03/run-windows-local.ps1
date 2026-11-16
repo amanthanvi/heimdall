@@ -24,6 +24,7 @@ param(
     [string]$WslDistro = '',
     [string]$ArgvDump = '',
     [string]$Label = 'windows-11-x86_64 (native msvc, local mode)',
+    [string]$Only = '',
     [switch]$SelfTest,
     [string]$Out = ''
 )

@@ -71,6 +71,9 @@ param(
     # ⟨M03 wave 6⟩ The milestone run (tests/native/m03/run-windows-local.ps1 passes m03): the run
     # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3).
     [ValidateSet('m02', 'm03')][string]$Milestone = 'm02',
+    # ⟨windiag, development only⟩ Comma-separated test target names to run (all built);
+    # empty: every target.
+    [string]$Only = '',
     [switch]$SelfTest,
     [string]$Out = ''
 )
@@ -730,6 +733,11 @@ try {
     }
     if ($r.Code -ne 0 -or $bins.Count -eq 0 -or -not $cli -or -not $hook) { throw 'the build failed or produced no test binaries' }
     $bins = @($bins | Sort-Object -Property Name -Unique)
+    if ($Only) {
+        $want = @($Only -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $bins = @($bins | Where-Object { $want -contains $_.Name })
+        Add-Fact 'only-targets' ($want -join ',')
+    }
     foreach ($b in $bins) { [void]$build.Append("$($b.Name).exe sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($b.Exe)))`n") }
     [void]$build.Append("heimdall.exe (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($cli)))`n")
     [void]$build.Append("hm-fixture-hook.exe (HM_FIXTURE_HOOK) sha256: $(Get-Sha256Hex ([System.IO.File]::ReadAllBytes($hook)))`n")
