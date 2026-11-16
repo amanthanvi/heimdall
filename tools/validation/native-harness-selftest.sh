@@ -25,6 +25,8 @@
 #        harness exits nonzero, and commands.txt keeps both exits. m01: a failing
 #        binary -> nonzero.
 #
+#   M03  tests/native/m03/selftest.sh (the lock harness, the Windows lock harness's
+#        -SelfTest and the Linux wrapper; listed in that file's header).
 #   M02  tests/native/m02/selftest.sh (its own checks, listed in that file's header: the
 #        helpers, run-linux/macos/windows/wsl-distro with stubs and a fake host tree, the
 #        scenario in its isolated mode when a debug heimdall and a sshd exist) and
@@ -408,6 +410,28 @@ if [ -f "$m02_dir/test_m02_evidence.py" ]; then
     fi
 else
     check "M02 evidence tests: tests/native/m02/test_m02_evidence.py exists" false
+fi
+
+# --- M03 harnesses (m03-plan U13 "Tests") -------------------------------------------------
+
+m03_dir="$root/tests/native/m03"
+if [ -f "$m03_dir/selftest.sh" ]; then
+    bash "$m03_dir/selftest.sh" >"$T/m03-selftest.out" 2>&1 </dev/null
+    m03_rc=$?
+    cat "$T/m03-selftest.out"
+    m03_line=$(grep '^m03-selftest: ' "$T/m03-selftest.out" | tail -1)
+    m03_pass=$(printf '%s\n' "$m03_line" | sed -n 's/^m03-selftest: \([0-9][0-9]*\) passed.*/\1/p')
+    m03_fail=$(printf '%s\n' "$m03_line" | sed -n 's/^m03-selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+    if [ -n "$m03_pass" ] && [ -n "$m03_fail" ]; then
+        passes=$((passes + m03_pass))
+        fails=$((fails + m03_fail))
+        check "M03 selftest: its exit code agrees with its totals ($m03_pass passed, $m03_fail failed)" \
+            exit_agrees "$m03_rc" "$m03_fail"
+    else
+        check "M03 selftest: it ran to its summary line" false
+    fi
+else
+    check "M03 selftest: tests/native/m03/selftest.sh exists" false
 fi
 
 echo "native-harness-selftest: $passes passed, $fails failed"

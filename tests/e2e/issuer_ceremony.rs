@@ -13,6 +13,10 @@
 //!
 //! The pty rows are Unix-only (`cfg(unix)`); `init_refuses_non_tty_and_non_interactive`
 //! also runs on Windows (a detached child has no console, so `CONIN$` cannot open).
+//! ⟨M03 wave 6, U13⟩ `windows_ceremony_registration_prompt_times_out_and_sends_nothing`
+//! runs the same child on a Windows pseudoconsole (`heimdall_testkit::console`); the
+//! ceremony's other Windows paths (Ctrl-C, end of input, the hidden read, the passphrase
+//! on the console only) run through the real CLI in `e2e_cli_m03`'s `issuer::windows_cases`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
 
@@ -273,6 +277,14 @@ fn run_case(case: &str, dir: &Path) {
             );
         }
     }
+    // ⟨M03 wave 6, U13⟩ Windows: whether the console's input is still raw after the
+    // ceremony (line input, echo and processed input all off): the read's raw mode must
+    // have been restored, a timed-out read included.
+    #[cfg(windows)]
+    result.insert(
+        "console_raw",
+        serde_json::json!(ratatui::crossterm::terminal::is_raw_mode_enabled().ok()),
+    );
     result.insert("events", serde_json::json!(runtime.events));
     result.insert("permissions", serde_json::json!(runtime.permissions));
     result.insert(
@@ -1111,4 +1123,85 @@ fn ceremony_ctrl_c_at_written_cancels_at_once() {
 #[test]
 fn ceremony_eof_at_written_cancels_at_once() {
     cancel_at_written(b"\x04");
+}
+
+/// ⟨M03 wave 6, U13; ADR-0008 §17.27 item 6, §17.26 item 8⟩
+/// `ceremony_registration_prompt_times_out_and_sends_nothing`, Windows: the ceremony child
+/// on a pseudoconsole (`ControllingTerminal` on `CONIN$`/`CONOUT$`; the console's input raw
+/// for each read), the registration confirmation unanswered within the shortened bound:
+/// `NotConfirmed`, nothing sent after the registration, nothing written or stored, and the
+/// console's input no longer raw although the abandoned read still waits on it; a late
+/// `yes` changes nothing.
+#[cfg(windows)]
+#[test]
+fn windows_ceremony_registration_prompt_times_out_and_sends_nothing() {
+    let dir = scratch();
+    std::fs::create_dir(dir.path().join("store")).unwrap();
+    let mut cmd = heimdall_testkit::console::TerminalCommand::new(std::env::current_exe().unwrap())
+        .args(entry("pty_ceremony_child"))
+        .current_dir(dir.path())
+        .env(CASE, "short_init")
+        .env(DIR, dir.path())
+        .env("HOME", dir.path());
+    for k in ["TEMP", "TMP"] {
+        if let Some(v) = std::env::var_os(k) {
+            cmd = cmd.env(k, v);
+        }
+    }
+    let mut t = cmd.spawn().unwrap();
+    // Without the blank before the cursor (the console may leave it out).
+    if let Err(e) = t.expect("to register this CA:", Duration::from_secs(60)) {
+        panic!("{e}");
+    }
+    let asked = Instant::now();
+    let code = loop {
+        if let Some(code) = t.try_wait() {
+            break code;
+        }
+        assert!(
+            asked.elapsed() < Duration::from_secs(30),
+            "the unanswered prompt did not time out: {}",
+            t.text()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert_eq!(code, 0, "child exit; console: {}", t.text());
+    assert!(
+        asked.elapsed() >= SHORT_TIMEOUT - Duration::from_millis(200),
+        "not before the bound: {:?}",
+        asked.elapsed()
+    );
+    let result = read_result(dir.path());
+    assert_eq!(result["outcome"], "refused", "{result}");
+    assert_eq!(result["code"], "INTERACTION_REQUIRED", "{result}");
+    assert!(
+        result["error"].as_str().unwrap().contains("not confirmed"),
+        "{result}"
+    );
+    assert_eq!(
+        result["events"],
+        serde_json::json!(["status", "attend", "register"]),
+        "nothing more was sent"
+    );
+    assert_eq!(result["approved"], 0);
+    assert_eq!(
+        result["console_raw"],
+        serde_json::json!(false),
+        "the console's input mode was restored: {result}"
+    );
+    assert!(
+        files_under(&dir.path().join("store")).is_empty(),
+        "nothing stored"
+    );
+    assert!(
+        !dir.path().join("ca-backup.key").exists(),
+        "no backup written"
+    );
+    // A late `yes`: the ceremony is over; nothing more happens.
+    let _ = t.send(b"yes\r");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!dir.path().join("ca-backup.key").exists());
+    assert!(files_under(&dir.path().join("store")).is_empty());
+    assert!(!t.text().contains("without the spaces"));
+    assert_eq!(t.wait(Duration::from_secs(30)), Some(0));
 }

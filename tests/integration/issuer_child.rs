@@ -393,7 +393,6 @@ impl World {
             grant: self.grant.clone(),
             pair: h1(),
             principal: "hm:h1:deploy".into(),
-            key_id: format!("heimdall:{}:{}:1", env_id().as_str(), self.grant.as_str()),
             valid_after: shift(self.wall(), -60),
             valid_before: shift(self.wall(), 1800),
             extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),

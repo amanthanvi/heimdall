@@ -150,13 +150,13 @@ REMOTE
 }
 trap cleanup EXIT
 
-m02_write_shims "$shim"
+m02_write_shims "$(m02_shim_dir "$repo")"
 cd "$repo"
 set +e
 m02_cargo_build "$triple" "$shim" "$out/build.txt"
 rc=$?
 set -e
-m02_record "$commands" "cargo test --target $triple --workspace --no-run --locked (zig linker/CC shims)" "$rc"
+m02_record "$commands" "cargo test --target $triple --profile ${HM_CARGO_PROFILE:-native-test} --workspace --no-run --locked (zig linker/CC shims at the stable shim directory)" "$rc"
 [ "$rc" = 0 ] || { redact_build_log; exit "$rc"; }
 m02_artifacts "$shim" || { echo "heimdall.exe or hm-fixture-hook.exe was not built" >&2; redact_build_log; exit 5; }
 set +e

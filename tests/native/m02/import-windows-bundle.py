@@ -219,18 +219,23 @@ def config_target(config, dest):
     return cfg_path, cfg
 
 
-def import_bundle(text, label, artifacts_root, config=None, commit=None):
-    """(directory, digest, tests) after writing the files; raises Refused before writing."""
+def import_bundle(text, label, artifacts_root, config=None, commit=None, platform="windows"):
+    """(directory, digest, tests) after writing the files; raises Refused before writing.
+
+    ⟨M03 wave 6⟩ `platform` is the platform directory and runs.json platform name (default
+    `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`)."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", label or ""):
         raise Refused("the label must be [A-Za-z0-9._-] and not start with punctuation")
+    if not re.fullmatch(r"windows(-[a-z0-9]+)?", platform or ""):
+        raise Refused("the platform directory must be windows or windows-<word>")
     doc = decode(text)
     files = validate(doc, commit)
-    dest = Path(artifacts_root) / label / "windows"
+    dest = Path(artifacts_root) / label / platform
     if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
         raise Refused(f"{dest} exists and is not empty: an import never overwrites")
     target = config_target(config, dest) if config else None
     # Checked in a staging directory next to the destination, then renamed into place.
-    stage = dest.with_name(".windows-import")
+    stage = dest.with_name(f".{platform}-import")
     if stage.exists():
         raise Refused(f"{stage} exists (an interrupted import): remove it first")
     stage.mkdir(parents=True)
@@ -252,16 +257,16 @@ def import_bundle(text, label, artifacts_root, config=None, commit=None):
     digest = h.hexdigest()
     if target:
         cfg_path, cfg = target
-        win = dict(cfg.get("platforms", {}).get("windows", {}))
+        win = dict(cfg.get("platforms", {}).get(platform, {}))
         win.pop("unavailable", None)
         win.update({
             "label": doc.get("label") or "windows (local mode)",
-            "logs": ["windows/tests.txt"],
-            "commands_logs": ["windows/commands.txt"],
-            "facts": ["windows/host.txt"],
+            "logs": [f"{platform}/tests.txt"],
+            "commands_logs": [f"{platform}/commands.txt"],
+            "facts": [f"{platform}/host.txt"],
             "artifact_digest": digest,
         })
-        cfg.setdefault("platforms", {})["windows"] = win
+        cfg.setdefault("platforms", {})[platform] = win
         cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return dest, digest, n
 
@@ -286,6 +291,8 @@ def main(argv=None):
     ap.add_argument("--config", help="run configuration whose windows platform is pointed at the files")
     ap.add_argument("--commit", help="the exit commit the bundle must name")
     ap.add_argument("--artifacts-root", default=str(ROOT / "tests" / "evidence" / "artifacts" / "m02"))
+    ap.add_argument("--platform-dir", default="windows",
+                    help="the platform directory and runs.json platform (windows, or windows-<word> such as windows-lock)")
     a = ap.parse_args(argv)
     try:
         text = read_report(a.bundle)
@@ -296,7 +303,7 @@ def main(argv=None):
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1
     try:
-        dest, digest, n = import_bundle(text, a.label, a.artifacts_root, a.config, a.commit)
+        dest, digest, n = import_bundle(text, a.label, a.artifacts_root, a.config, a.commit, a.platform_dir)
     except Refused as e:
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1

@@ -586,7 +586,6 @@ impl W {
             grant: g.grant_id.clone(),
             pair: h1(),
             principal: "hm:h1:deploy".into(),
-            key_id: format!("heimdall:{}:{}:1", env_id().as_str(), g.grant_id.as_str()),
             valid_after: plus(self.clock.wall(), Duration::ZERO),
             valid_before: plus(self.clock.wall(), Duration::from_secs(1800)),
             extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),

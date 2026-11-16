@@ -855,6 +855,25 @@ class CoverageGuard(unittest.TestCase):
 
 
 class Parsing(unittest.TestCase):
+    def test_m03_generator_keeps_m03_observation_lines(self):
+        """W6-R02: the M03 generator attaches the `m03 observation:` lines its tests print
+        to their test (the M02 generator keeps only `observation` lines)."""
+        spec = importlib.util.spec_from_file_location("m03_evidence_t", HERE.parent / "m03" / "m03-evidence.py")
+        m03 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m03)
+        text = ("### e2e_exit_m03\n---- a10_x stdout ----\n"
+                "m03 observation: a10 macos issuer_path=none\nm03 observation: a10 macos ca_listed=0\n"
+                "observation plain\ntest a10_x ... ok\n### e2e_exit_m03 exit=0\n")
+        with tempfile.TemporaryDirectory(prefix="m03obs") as d:
+            p = Path(d) / "log"
+            p.write_text(text)
+            got = m03.ev.parse_observations(p)
+            m02_got = ev.parse_observations(p)
+        self.assertEqual(got["e2e_exit_m03"]["a10_x"], [
+            "m03 observation: a10 macos issuer_path=none", "m03 observation: a10 macos ca_listed=0",
+            "observation plain"])
+        self.assertEqual(m02_got["e2e_exit_m03"]["a10_x"], ["observation plain"])
+
     def parse(self, text):
         with tempfile.TemporaryDirectory(prefix="m02parse") as d:
             p = Path(d) / "log"

@@ -86,6 +86,13 @@ impl Scratch {
         self.dir.path()
     }
 
+    /// ⟨M03 wave 6, W6-R01⟩ Keep the directory when this value is dropped: a fixture
+    /// whose cleanup could not restore what it changed keeps its recovery state (for
+    /// example a projection's backups) for the owner instead of deleting it.
+    pub fn keep_on_drop(&mut self) {
+        self.dir.disable_cleanup(true);
+    }
+
     /// Create a fresh, owner-only subdirectory `<root>/<prefix><n>` and return it.
     /// Names stay short so Unix socket paths fit the platform limit.
     ///
@@ -574,6 +581,12 @@ pub struct ScratchHome {
 }
 
 impl ScratchHome {
+    /// ⟨M03 wave 6, W6-R01⟩ Keep the scratch root when this value is dropped
+    /// ([`Scratch::keep_on_drop`]).
+    pub fn keep_on_drop(&mut self) {
+        self.scratch.keep_on_drop();
+    }
+
     /// Create the layout and start the decoy agent.
     ///
     /// # Panics

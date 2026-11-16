@@ -979,6 +979,10 @@ pub struct VerificationOutcome {
     /// version is unrecorded, so no attempt ran: the classification is inconclusive
     /// (`unrecorded_client_family`) and the doctor names the client.
     pub unrecorded: bool,
+    /// ⟨M03 wave 6; the orchestrator's ruling on I-8 (1)⟩ No attempt started (a
+    /// refusal before any login, or a run that could not start): the classification is
+    /// inconclusive `unclassified`, never `transport`.
+    pub not_run: bool,
 }
 
 /// Runs the production verification's fresh logins (ADR-0008 D5 §6.5; U5).

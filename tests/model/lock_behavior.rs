@@ -1413,7 +1413,6 @@ async fn lock_revocation_between_reserve_and_publish_voids() {
             grant: r.grant_id.clone(),
             pair: h1(),
             principal: "hm:h1:deploy".into(),
-            key_id: "fixture-key".into(),
             valid_after: now,
             valid_before: plus(now, Duration::from_secs(1800)),
             extensions: [EXTENSION_PTY.to_owned()].into_iter().collect(),

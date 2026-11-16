@@ -922,3 +922,8 @@ mod enroll;
 mod issuer;
 #[path = "cli_m03/uninstall_doctor.rs"]
 mod uninstall_doctor;
+// ⟨M03 wave 6, U13; ADR-0008 §17.26 item 8⟩ The Windows console cases' harness: a case on a
+// pseudoconsole (`heimdall_testkit::console`), stdout and stderr apart from the console.
+#[cfg(windows)]
+#[path = "cli_m03/windows_console.rs"]
+mod windows_console;

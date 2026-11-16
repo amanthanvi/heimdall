@@ -51,6 +51,9 @@ docker_fallback=${HM_DOCKER_FALLBACK:-0}
 lock_held=0
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
+# ⟨M03 wave 6⟩ The milestone's case index (its observation_targets): tests/native/m03/run-macos.sh
+# sets HM_HARNESS_DIR; default this directory.
+hdir=${HM_HARNESS_DIR:-$here}
 owner_lock="$repo/tests/fixtures/ssh/runtime.owner.lock"
 # shellcheck source=tests/native/m02/lib.sh
 . "$here/lib.sh"
@@ -115,6 +118,8 @@ facts="$scratch/host.raw"
     hm2_versions "$scratch"
     echo "owner-ssh-before=$(hm2_owner_digest "$HOME/.ssh")"
     echo "owner-git-before=$(hm2_owner_digest "$HOME/.gitconfig" "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")"
+    # ⟨M03 wave 6⟩ The keychain search list (m03-plan §0.2): a digest only, never its names.
+    echo "keychain-list-before=$(security list-keychains -d user 2>/dev/null | shasum -a 256 | cut -c1-24)"
 } >"$facts"
 
 if hm2_sshd_start "$scratch/sshd-preflight" "$scratch/sshd-preflight.keys" "$scratch/sshd-preflight.log"; then
@@ -171,7 +176,7 @@ m02_record "$commands" "bash tools/validation/check.sh (TMPDIR in scratch under 
 # `observation` lines (case-index.json observation_targets: the settled ADR-0007 facts) run
 # once more through cargo with --show-output, their output kept as observations.txt.
 obs_args=()
-for t in $(jq -r '.observation_targets[]' "$here/case-index.json"); do
+for t in $(jq -r '.observation_targets[]' "$hdir/case-index.json"); do
     case "$t" in *[!A-Za-z0-9_-]* | '') echo "bad observation target" >&2; exit 2 ;; esac
     obs_args+=(--test "$t")
 done
@@ -191,6 +196,7 @@ m02_record "$commands" "cargo test --workspace --locked --no-fail-fast <the obse
     echo "leftover-test-processes=$n"
     echo "owner-ssh-after=$(hm2_owner_digest "$HOME/.ssh")"
     echo "owner-git-after=$(hm2_owner_digest "$HOME/.gitconfig" "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")"
+    echo "keychain-list-after=$(security list-keychains -d user 2>/dev/null | shasum -a 256 | cut -c1-24)"
 } >>"$facts"
 lhost=$(hostname)
 lshort=$(hostname -s 2>/dev/null || echo "$lhost")
@@ -203,8 +209,8 @@ m02_redact "$scratch/check.raw" "$out/check.txt" "$scratch" "<scratch>" "${TMPDI
 m02_redact "$scratch/obs.raw" "$out/observations.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" \
     --word "$lhost" "<host>" --word "$lshort" "<host>" "$(id -un)" "<user>"
 
-before=$(sed -n 's/^owner-ssh-before=//p;s/^owner-git-before=//p' "$out/host.txt" | tr '\n' ' ')
-after=$(sed -n 's/^owner-ssh-after=//p;s/^owner-git-after=//p' "$out/host.txt" | tr '\n' ' ')
+before=$(sed -n 's/^owner-ssh-before=//p;s/^owner-git-before=//p;s/^keychain-list-before=//p' "$out/host.txt" | tr '\n' ' ')
+after=$(sed -n 's/^owner-ssh-after=//p;s/^owner-git-after=//p;s/^keychain-list-after=//p' "$out/host.txt" | tr '\n' ' ')
 same=1
 [ -n "$before" ] && [ "$before" = "$after" ] || same=0
 m02_record "$commands" "the home .ssh directory and Git configuration metadata unchanged by the run" "$([ "$same" = 1 ] && echo 0 || echo 1)"

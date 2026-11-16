@@ -457,6 +457,20 @@ ADR-0007 §12.48 item 2):
     flag is kept.
   * **The current user's SID:** read from the token user, for `PrincipalRef::WindowsUser`.
   * **Memory:** every `LocalAlloc`ed result is freed exactly once.
+* `crates/testkit/src/conpty.rs` (`#![allow(unsafe_code)]`, Windows only, feature `fixtures`;
+  M03 wave 6, U13): the pseudoconsole behind `console::TerminalCommand`, G02's proven
+  `X1Pty.Start` approach.
+  * **Creation:** `CreatePipe` twice, `CreatePseudoConsole`, a process-thread attribute list
+    with `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`, and `CreateProcessW` with
+    `STARTF_USESTDHANDLES` and null standard handles, `bInheritHandles = FALSE` and an
+    explicit environment block.
+  * **Ctrl-C disposition:** `SetConsoleCtrlHandler(NULL, FALSE)` before `CreateProcessW`
+    clears the test process's inherited "ignore Ctrl-C" attribute, so the program gets the
+    normal disposition. It is never set again.
+  * **The process:** `WaitForSingleObject`, `GetExitCodeProcess` and `TerminateProcess`, all
+    on the handle held since creation, never a PID lookup.
+  * **Ownership:** every handle is an `OwnedHandle`, and the pseudoconsole and the attribute
+    list are guards that close or delete once.
 * `crates/testkit/src/hook.rs`, at one `#[allow(unsafe_code)]` site, Windows only: the
   fixture hook calls `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` before it
   spawns, as `runtime::platform::disinherit_standard_handles` does (wave 6w).

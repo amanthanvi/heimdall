@@ -298,6 +298,29 @@ pub struct LoopbackSshd {
     _lease: Option<HarnessLease>,
 }
 
+/// ⟨M03 wave 6, U13⟩ A loopback sshd a harness started for one test process alone
+/// ([`LoopbackSshd::external`]): where it listens, its host key and the files the
+/// fixture writes and reads. Paths are as this process reaches them.
+#[derive(Debug, Clone, Default)]
+pub struct ExternalSshd {
+    /// The loopback address (`127.0.0.1`).
+    pub host: String,
+    /// The port.
+    pub port: u16,
+    /// Its host key, `<type> <base64>`.
+    pub host_key: String,
+    /// Its `AuthorizedKeysFile` (emptied while a registry carries the keys).
+    pub authorized_keys: Option<PathBuf>,
+    /// Its log (`LogLevel VERBOSE`), read from its length when adopted.
+    pub log: Option<PathBuf>,
+    /// Its account-form enrollment registry, as this process reaches it.
+    pub registry: Option<PathBuf>,
+    /// The same registry as the server's account names it (an absolute POSIX path).
+    pub registry_remote: Option<String>,
+    /// The account it authenticates (`None`: the current account).
+    pub account: Option<String>,
+}
+
 /// `MaxAuthTries` of the harness sshd (tests/native/m02/remote-lib.sh default).
 pub const HARNESS_MAX_AUTH_TRIES: u32 = 6;
 /// `MaxAuthTries` of the strict harness sshd (`HM_FIXTURE_SSHD_STRICT_*`).
@@ -552,6 +575,126 @@ impl LoopbackSshd {
             ca_keys: None,
             principals_dir: None,
             _lease: Some(lease),
+        })
+    }
+
+    /// ⟨M03 wave 6, U13⟩ Adopt a loopback server a harness started for this process
+    /// alone ([`ExternalSshd`]; the Windows lock procedure's three WSL sshds,
+    /// `tests/native/m03/lock-windows.ps1`). It is used like a harness server (the
+    /// config's keys or [`SshdConfig::registry_seed`] go to its files, which are emptied
+    /// on drop; its log is read from its length now; its account is recorded in
+    /// `scratch` for the user configuration's `User` line) but takes **no** harness lease
+    /// and reads no `HM_FIXTURE_SSHD_*` variable: each external server is dedicated to the
+    /// caller. It is never stopped here (the harness that started it stops it).
+    ///
+    /// # Errors
+    /// [`SshdUnavailable`]: a config a harness server cannot honour, a non-loopback host,
+    /// a malformed host key, a non-plain account, a registry without its remote path (or
+    /// one that is not an absolute POSIX path), a needed file that is not given, or a
+    /// failed write.
+    pub fn external(
+        scratch: &Scratch,
+        server: &ExternalSshd,
+        config: &SshdConfig,
+    ) -> Result<LoopbackSshd, SshdUnavailable> {
+        if let Some(setting) = config.local_only_setting() {
+            return Err(unavailable(format!(
+                "an external sshd cannot honour {setting} (M03 fixtures need a local sshd)"
+            )));
+        }
+        // It runs as the harness sshd does (remote-lib.sh `hm2_sshd_start`: MaxAuthTries
+        // 6, LogLevel VERBOSE); any other setting would be silently ignored.
+        if config.max_auth_tries != HARNESS_MAX_AUTH_TRIES || !config.log_level_verbose {
+            return Err(unavailable(format!(
+                "an external sshd serves MaxAuthTries {HARNESS_MAX_AUTH_TRIES} and LogLevel \
+                 VERBOSE only"
+            )));
+        }
+        if !matches!(server.host.as_str(), "127.0.0.1" | "::1" | "localhost") {
+            return Err(unavailable(
+                "the external sshd is not on a loopback address",
+            ));
+        }
+        let mut fields = server.host_key.split_whitespace();
+        let (Some(kind), Some(b64)) = (fields.next(), fields.next()) else {
+            return Err(unavailable(
+                "the external sshd's host key is not a public key line",
+            ));
+        };
+        if let Some(name) = &server.account
+            && !is_plain_account(name)
+        {
+            return Err(unavailable(
+                "the external sshd's account is not a plain account name",
+            ));
+        }
+        let registry = match (&server.registry, &server.registry_remote) {
+            (Some(local), Some(remote)) => {
+                if !remote.starts_with('/') || remote.chars().any(char::is_control) {
+                    return Err(unavailable(
+                        "the external sshd's registry remote path is not an absolute POSIX path",
+                    ));
+                }
+                Some((local.clone(), remote.clone()))
+            }
+            (None, None) => None,
+            _ => {
+                return Err(unavailable(
+                    "the external sshd's registry needs both its local and its remote path",
+                ));
+            }
+        };
+        let needs_keys = !config.authorized.is_empty() || config.registry_seed.is_some();
+        match (&registry, &server.authorized_keys) {
+            (Some((local, _)), keys) if config.registry_seed.is_some() => {
+                if let Some(path) = keys {
+                    fs::write(path, b"").map_err(|_| {
+                        unavailable("cannot write the external sshd's authorized-keys file")
+                    })?;
+                }
+                fs::write(local, authorized_keys_text(config))
+                    .map_err(|_| unavailable("cannot write the external sshd's registry"))?;
+            }
+            (_, Some(path)) => {
+                fs::write(path, authorized_keys_text(config)).map_err(|_| {
+                    unavailable("cannot write the external sshd's authorized-keys file")
+                })?;
+            }
+            (_, None) if needs_keys => {
+                return Err(unavailable(
+                    "the external sshd has no authorized-keys file for this config",
+                ));
+            }
+            (_, None) => {}
+        }
+        let log_start = server
+            .log
+            .as_ref()
+            .and_then(|p| fs::metadata(p).ok())
+            .map_or(0, |m| m.len());
+        if let Some(name) = &server.account {
+            scratch.set_fixture_account(name);
+        }
+        let seeded_registry = registry.filter(|_| config.registry_seed.is_some());
+        Ok(LoopbackSshd {
+            host_key_line: format!("[{}]:{} {kind} {b64}", server.host, server.port),
+            host: server.host.clone(),
+            port: server.port,
+            account: server.account.clone(),
+            log: server.log.clone(),
+            log_start,
+            child: None,
+            registry: match &seeded_registry {
+                Some((local, _)) => Some(local.clone()),
+                None => server.authorized_keys.clone(),
+            },
+            registry_remote: seeded_registry.as_ref().map(|(_, remote)| remote.clone()),
+            harness_registry: seeded_registry.map(|(local, _)| local),
+            harness_keys: server.authorized_keys.clone(),
+            destination_id: None,
+            ca_keys: None,
+            principals_dir: None,
+            _lease: None,
         })
     }
 
@@ -2188,6 +2331,79 @@ mod tests {
         let other =
             thread::spawn(|| HarnessLease::acquire(&SLOT, Duration::from_millis(200)).is_err());
         assert!(other.join().unwrap());
+    }
+
+    /// ⟨M03 wave 6, U13⟩ An external server (the Windows lock procedure's WSL sshds):
+    /// the seed goes to its registry and its keys file is emptied, both emptied again on
+    /// drop; its log is read from where it was adopted; it takes no harness lease (two at
+    /// once on one thread), never stops anything, and refuses what it cannot honour.
+    #[test]
+    fn external_sshd_is_adopted_without_a_lease_and_refuses_what_it_cannot_honour() {
+        let scratch = Scratch::new().unwrap();
+        let p = |n: &str| scratch.path().join(n);
+        fs::write(p("log"), b"old line\n").unwrap();
+        fs::write(p("keys"), b"stale\n").unwrap();
+        let server = |n: &str| ExternalSshd {
+            host: LOOPBACK.to_owned(),
+            port: 2201,
+            host_key: "ssh-ed25519 AAAAC3Nza".to_owned(),
+            authorized_keys: Some(p(&format!("keys{n}"))),
+            log: Some(p("log")),
+            registry: Some(p(&format!("registry{n}"))),
+            registry_remote: Some(format!("/tmp/hm/registry{n}")),
+            account: Some("fixture".to_owned()),
+        };
+        let seeded = SshdConfig {
+            registry_seed: Some(b"seed-line\n".to_vec()),
+            ..SshdConfig::default()
+        };
+        fs::write(p("keys1"), b"stale\n").unwrap();
+        let a = LoopbackSshd::external(&scratch, &server("1"), &seeded).unwrap();
+        let b = LoopbackSshd::external(&scratch, &server("2"), &seeded).unwrap();
+        assert_eq!(fs::read(p("keys1")).unwrap(), b"");
+        assert!(
+            fs::read_to_string(p("registry1"))
+                .unwrap()
+                .contains("seed-line")
+        );
+        assert_eq!(a.registry_path(), Some(p("registry1").as_path()));
+        assert_eq!(a.registry_remote_path(), Some("/tmp/hm/registry1"));
+        assert_eq!(a.host_key_line, "[127.0.0.1]:2201 ssh-ed25519 AAAAC3Nza");
+        assert_eq!(a.login_account().as_deref(), Some("fixture"));
+        assert_eq!(a.log_mark(), 9, "read from where it was adopted");
+        assert_eq!(a.pid(), None);
+        drop((a, b));
+        assert_eq!(fs::read(p("registry1")).unwrap(), b"");
+        let refused =
+            |s: ExternalSshd, c: &SshdConfig| LoopbackSshd::external(&scratch, &s, c).is_err();
+        assert!(refused(
+            ExternalSshd {
+                host: "10.0.0.1".to_owned(),
+                ..server("3")
+            },
+            &seeded
+        ));
+        assert!(refused(
+            ExternalSshd {
+                registry_remote: None,
+                ..server("3")
+            },
+            &seeded
+        ));
+        assert!(refused(
+            server("3"),
+            &SshdConfig {
+                max_auth_tries: STRICT_MAX_AUTH_TRIES,
+                ..seeded.clone()
+            }
+        ));
+        assert!(refused(
+            ExternalSshd {
+                account: Some("-x".to_owned()),
+                ..server("3")
+            },
+            &seeded
+        ));
     }
 
     #[test]

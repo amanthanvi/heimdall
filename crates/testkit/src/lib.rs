@@ -1041,6 +1041,13 @@ pub mod win;
 // signal dispositions, whatever the test runner ignored.
 #[cfg(all(unix, feature = "fixtures"))]
 pub mod term;
+// ⟨M03 wave 6, U13⟩ A program on a terminal on every platform (script(1) on Unix, a
+// pseudoconsole on Windows), for the interactive cases that also run on Windows
+// (ADR-0008 §17.26 item 8).
+#[cfg(all(windows, feature = "fixtures"))]
+mod conpty;
+#[cfg(feature = "fixtures")]
+pub mod console;
 
 // M03 test-configuration gates (m03-plan U0 "Frozen in wave 0"; ADR-0008 D1, D9; F23).
 // Feature `managed`: `ScratchSecretStore` (body U4's) and `FakeSessionLockSource`.

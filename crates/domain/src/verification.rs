@@ -383,6 +383,12 @@ pub struct ClassifyContext {
     /// The client's trace family or version is unrecorded: no attempt ran
     /// (`VerificationOutcome::unrecorded`).
     pub unrecorded: bool,
+    /// ⟨M03 wave 6; the orchestrator's ruling on I-8 (1)⟩ No attempt started: the run
+    /// never reached a login (a refusal before any attempt, such as the issuer refusing
+    /// the verification certificate, or a run that could not start). Classified
+    /// `unclassified`, never `transport` (nothing touched the network)
+    /// (`VerificationOutcome::not_run`).
+    pub not_run: bool,
     /// The known clock offset, if any.
     pub offset: Option<KnownOffset>,
     /// `verification_skew_lag` in milliseconds (60 000).
@@ -397,6 +403,7 @@ impl ClassifyContext {
     pub fn recorded() -> Self {
         Self {
             unrecorded: false,
+            not_run: false,
             offset: None,
             skew_lag_ms: 60_000,
             skew_lead_ms: 300_000,
@@ -461,6 +468,9 @@ pub fn classify(
     let inconclusive = |reason| VerificationVerdict::Inconclusive { reason };
     if context.unrecorded {
         return inconclusive(InconclusiveReason::UnrecordedClientFamily);
+    }
+    if context.not_run {
+        return inconclusive(InconclusiveReason::Unclassified);
     }
     if positive.trace.host_key_failure || negative.trace.host_key_failure {
         return VerificationVerdict::HostKeyMismatch;

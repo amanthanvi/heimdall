@@ -1998,7 +1998,6 @@ fn u10_issuance(
         grant: grant.clone(),
         pair: pair("h1", "deploy"),
         principal: "hm:h1:deploy".into(),
-        key_id: "fixture-key".into(),
         valid_after: t0(),
         valid_before,
         extensions: BTreeSet::new(),
