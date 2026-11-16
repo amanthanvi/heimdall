@@ -1,6 +1,6 @@
 # ADR-0010: Platform realization (M04)
 
-**Status:** proposed · **Date:** 2026-11-15 · **Gate:** G03 and the platform parts of G09
+**Status:** accepted with the §9 rulings (2026-11-15; proposed the same day) · **Date:** 2026-11-15 · **Gate:** G03 and the platform parts of G09
 **Plan:** `docs/architecture/m04-plan.md` · **Affects:** R-EN-01, R-EN-02, R-EN-03, R-EN-04, R-EN-06,
 R-SS-03, R-SS-06, R-SE-03, R-DI-02, R-QU-02, R-RT-07
 **Builds on, unchanged:** ADR-0004 §3 (WSL, Windows stores, E6 client baseline), ADR-0005 §3.4 (certificate
@@ -374,3 +374,60 @@ This ADR is reopened when any of these happens:
 - a client cannot express `ProxyJump` or `ForwardAgent <path>`; that client is then labelled
   `unsupported`, and the ADR is not widened;
 - the owner rules otherwise on a plan §7 question.
+
+## 9. Orchestrator rulings (2026-11-15)
+
+**Source:** the independent design review (Codex `gpt-6.1-sol`): `tests/evidence/artifacts/review-design/m04-design-review.md`. Verdict: revise first, with M04-D01 to D04 blocking.
+- **This is the single ruling pass** (ADR-0009 §2.8).
+- **Where `docs/architecture/m04-plan.md` differs from these rulings, the rulings win.** The track integrator folds them into the plan when its wave starts.
+- **Joint wave 0 with M05:** item 9 governs, and replaces the plan's U0.
+
+1. **M04-D01: one runtime manages a set of environments.** An endpoint target is not enough. The managed-environment seam is joint-wave-0 work (item 9), owned by that integrator:
+   - **The set:** the runtime manages a set of environment identities (native, each enabled WSL distribution, each container binding).
+   - **Each request:** a request names its target environment, which must be in the set and owned by this runtime. The authenticated controller principal stays distinct from the execution environment.
+   - **Per environment:** slots and projection namespaces are separate, issuer validation checks the target environment, and recovery and cleanup run separately.
+   - **Removing the existing equality checks without that replacement is not allowed.**
+   - **The proof:** the real ensure → issue → bind → sign → restart path, run across two environments. An unmanaged or removed environment is refused, and one environment's cleanup leaves the other usable. These extend the existing authority tests rather than adding a parallel suite.
+2. **M04-D02: the projection transaction crosses the WSL channel.**
+   - **The record stays on Windows.** The helper owns nothing durable.
+   - **The `heimdall-wsl/1` protocol** gets file-operation requests with durable acknowledgments of each receipt and each item commit, bounds and cancellation rules, and reconciliation after a lost reply.
+   - **A stopped distribution is never started in the background.** Its cleanup is a retained, reported obligation, done at the next explicit start or `ensure`, or by an explicit authorized start (`heimdall wsl disable --start`). Ownership is never dropped, and a rollback is never claimed without being done.
+   - **The proof:** one existing projection fault scenario run over the real helper channel. It is interrupted after the exchange and before the durable receipt or commit, then restarted and reconciled. A later user edit must be preserved, and only the recorded generation removed.
+3. **M04-D03: host-key trust at both hops is narrowed.**
+   - **The claim** (spec §8.4 and the §14.2 route row) is consistent host-key lookup at each hop under OpenSSH's user-controlled trust. The rendered aliases bind lookup consistently.
+   - **What Heimdall never does:** set `StrictHostKeyChecking no` or `accept-new`, or weaken `UpdateHostKeys` or the known-hosts settings.
+   - **The proof:** with the configuration the product generates, the bastion's key and the final host's key are substituted separately, plus once with an inherited `KnownHostsCommand` source. Each must fail before authenticating to the substituted hop.
+   - **Deferred:** catalog-pinned host identity goes to M06-T03 (stable destination and host identity).
+4. **M04-D04: verified evidence is aware of routes.**
+   - **What survives:** verified-scope evidence holds through an approved single-hop route while the final host identity, the account and the CA are unchanged.
+   - **What doesn't:** an unapproved, changed or dynamic route invalidates the evidence, which fails closed.
+   - **`connect`:** uses the approved jump dependency inside the selected profile, or refuses with a stated limitation. It never adds scope silently.
+   - **Deferred:** remote enrollment mutations through a jump go to M06-T03. The `route_unsupported` refusal stays until then.
+   - **The proof**, through the product's own operations, with no pre-verified record seeded: direct enroll and verify → configure the jump → `ensure`/`inspect` requiring verified scope → `connect` through a managed bastion and an existing-access bastion. Also an unauthorized dependency, and a later change of jump or key.
+5. **M04-D05:** one permitted login, an unauthorized-key and destination refusal, a refusal at the original deadline, and a working replacement generation are folded into the existing mounted container case. The UID-negative rows keep an admitted positive control. WSL and test-store results are mechanism evidence, and the native Linux product row stays blocked on B11.
+6. **M04-D06: trust in the Linux clock-sync signal is gated.** The mapper is built, including its error, unit and threshold cases. Trust stays off until native negative evidence exists: synchronization absent or failed, on a disposable host, and the wrong-clock reboot (B12). Until then every platform keeps `unknown` and the attended confirmation. Owner services are never disturbed to manufacture a negative control.
+7. **M04-D07:** the joint-wave-0 integrator owns:
+   - the integration files the review lists (`operations.rs` authority, issuer validation and recovery; `managed/driver.rs`; `store/src/migrations.rs`; `heimdall/src/main.rs`; `localenv/src/sys/mod.rs`; `localenv/src/projection/mod.rs`; `runtime/src/managed_store.rs`; the managed slot and file sources);
+   - the crate `lib.rs`, `mod.rs` and `Cargo.toml` registrations.
+
+   Registration edits are serialized. Implementations stay in modules each track owns.
+8. **M04-D08: no placeholder tests.**
+   - A suite is registered when its first meaningful case lands.
+   - New command and request refusals get one table-driven test.
+   - A graph mutant is added only for a new forbidden rule (`app` → `wsl`).
+   - The container rendering checks fold into the mounted-flow case.
+   - **Kept:** the review's coverage notes, which are the positive start-up case for a freshly created protected state directory, `helper_unavailable` when no Linux-visible helper path resolves, an explicitly defined WSL user session, and Windows `ForwardAgent` to a pipe staying `unsupported`. Also the `LoopbackSshd` forwarding settings, so the positive control isn't prohibited by its fixture.
+9. **Joint wave 0, shared with M05, replacing U0.** One integrator lands a single coordinated change:
+   - **ADR-0006 revision 5,** with both tracks' additive deltas and ADR-0011 §10 item 1's policy-resolution change. The orchestrator owns it.
+   - **Migrations:** `0007` (M04) and `0008` (M05).
+   - **The two seams:** the managed-environment seam (item 1) and the policy-resolution rewrite (ADR-0011 §10 item 1).
+   - **The rest:** both tracks' new crate skeletons (`crates/wsl`, `crates/project`) and the shared registrations.
+
+   After it merges, the M04 and M05 tracks run in parallel in files each track owns.
+10. **The plan's questions:**
+    - **Q1:** yes. Mode B is for managed bindings only.
+    - **Q2:** as item 4.
+    - **Q3:** yes. ADR-0004 §3 is extended: up to two disposable distributions at once, created and unregistered by name, with Podman and Docker Engine installed only inside them.
+    - **Q4:** as item 6.
+    - **Q5:** as item 9.
+    - **Q6:** yes. Recipe A and hardware working keys are deferred again, to be reopened only for an observed target without certificate support.

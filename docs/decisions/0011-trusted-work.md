@@ -1,6 +1,6 @@
 # ADR-0011: Trusted work (M05): manifests and trust records, activation, scope review, delegation, stop precedence
 
-**Status:** proposed · **Date:** 2026-11-15 · **Task:** M05 design (draft 1)
+**Status:** accepted with the §10 rulings (2026-11-15; proposed the same day) · **Date:** 2026-11-15 · **Task:** M05 design (draft 1)
 **Decided by:** pending. Under ADR-0009 §2.8 this draft gets one independent review and one ruling
 pass. The owner questions are in `docs/architecture/m05-plan.md` §6.
 **Gate:** G05 (trusted project activation and context provenance), plus the M05 parts of G08 and G09.
@@ -500,3 +500,65 @@ These are recorded in `RESIDUALS` and in the claims table, with probes, under AD
   - M04's WSL Mode A path handling changes workspace namespaces;
   - a stronger approval boundary is adopted, such as OS user-presence confirmation;
   - a single mixed-mechanism grant becomes necessary.
+
+## 10. Orchestrator rulings (2026-11-15)
+
+**Source:** the independent design review (Grok `grok-4.7`): `tests/evidence/artifacts/review-design/m05-design-review.md`. Verdict: revise first, with M05-D01 to D06 blocking.
+- **This is the single ruling pass** (ADR-0009 §2.8).
+- **Where `docs/architecture/m05-plan.md` differs from these rulings, the rulings win.** The track integrator folds them into the plan when its wave starts.
+- **Joint wave 0 with M04:** item 10 governs, and replaces the plan's W0.
+
+1. **M05-D01: policy resolution is by workspace match, never first by ID.** `choose_policy`'s first-by-ID merge is replaced on every resolution path: `ensure`, `run`, renewal, `activation_refusal`, ordinary `ssh` and the shell hook.
+   - **When a workspace policy applies:** only when the match is `Trusted`, or `Member` of that workspace.
+   - **Personal scope** never includes another policy's pairs.
+   - **Pause and cutoff:** a personal pause or cutoff applies to that profile's workspace work. A workspace's pause, cutoff or scope never applies to personal work or to another workspace.
+   - **`Ambiguous`** (including a re-clone at the same path) gets one `ReconcileWorkspace` decision and no workspace grant.
+   - **Where it lands:** this changes ADR-0006 §13.6 item 5's frozen merge, so it lands in revision 5 in joint wave 0.
+   - **The proof:** the U2 model gets a two-policy trace. A pair that only a workspace policy holds is absent from ordinary `ssh` and from a second workspace, a same-path re-clone doesn't activate the old scope, and a workspace pause leaves personal work usable.
+2. **M05-D02: `background_work`.**
+   - **Where it is allowed:** only as the boolean `preferences.background_work`. It is rejected under `[metadata]` and at any other path, and `FORBIDDEN_KEYS` is not extended blindly.
+   - **Coverage includes lock behaviour,** and activation uses only the policy's recorded lock behaviour.
+   - **The manifest's flag** reaches a policy only through an attended `TrustWorkspace` or `ExtendScope`.
+   - **The proof** (P9): `background_work = true` under a `revoke_on_lock` policy yields no `continue` grant, and no decision from a background trigger.
+3. **M05-D03: the shell hook never prompts.** `heimdall activate --hook` is noninteractive: no `Attend`, no prompt and no `Decide`. The server activates the covered subset, or returns `not_covered` with no decision row. **The proof:** `hook_creates_no_decision_when_uncovered` (an untrusted manifest, and a trusted manifest that adds a pair). The decision rows stay 0, and no prompt is written.
+4. **M05-D04: where ordinary `ssh` is hooked.**
+   - **The hook point:** `Signer::identities` for the environment endpoint (`crates/credential/src/signer.rs`), never `session_bind`.
+   - **If the spike finds a client that fails within the budget:** that platform gets no identities-path call and no added delay, and its record says activation happens through `run`, `ensure` and the shell hook.
+   - **Where the budget holds:** a wait that expires returns the identities already admitted and does not fail the request. A pair already active, or already refused by a pause, cutoff or cooldown, returns at once.
+5. **M05-D05: the contract.**
+   - **One owner:** one ADR-0006 revision 5, owned by the orchestrator, carries both tracks' wave-0 patches (item 10).
+   - **The ensure hash:** the new extras are left out of the canonical ensure hash when `context` is absent, so a request without context keeps its M03 hash.
+   - **Migrations:** `0007` (M04) and `0008` (M05), fixed now.
+6. **M05-D06: what shared slots really claim.** The sentence "property 8 still holds" is deleted. The claim is Q4 as built:
+   - one pair and one materializer grant;
+   - the certificate's principals and `valid_before` come from that grant only;
+   - the slot ends when the last referencer drops;
+   - shorter siblings are enforced on bound contexts, not on the ordinary alias (`shared_environment_default`, R3).
+
+   The U6 model asserts exactly these.
+7. **M05-D07: the missing proofs.**
+   - The existing idempotency property is extended with the two new extras: the same request ID with a different digest is `REQUEST_CONFLICT`, and a retry with the same digest converges.
+   - A committed activation whose identities-path caller timed out stays applied.
+   - One mixed-profile example: two groups, one work ID, the later group's deadline at or before the earlier group's.
+   - Import is a single transaction. Otherwise it needs one crash-before-commit case.
+   - P11 gains three `gitdir` cases: a relative path, a `..` segment, and a copied worktree whose `gitdir` text names the original common.
+8. **M05-D08: the shared-file list.**
+   - **Added:** `setup_cmd.rs`, `docs/compatibility/matrix.md`, the root `Cargo.toml` members, `Cargo.lock` and `credential/src/signer.rs`.
+   - **Not taken by M05:** M04's projection, setup-item and issuance files.
+9. **M05-D09: cuts.**
+   - The Q8 environment-marker guard is dropped, and R1 is recorded as a residual.
+   - The WSL and container A16 parameters are not built; M04 adds those rows.
+   - U1's byte cases fold into the proptest regressions.
+   - **Kept:** U4's symlink, FIFO and swapped-manifest cases, and U9's four snapshots.
+10. **Joint wave 0, shared with M04.** This is ADR-0010 §9 item 9: one integrator lands revision 5, migrations `0007`/`0008`, the policy-resolution rewrite (item 1), M04's managed-environment seam, the `crates/project` and `crates/wsl` skeletons, and the shared registrations. The spike (U0b) runs in joint wave 0 too, since item 4 depends on it.
+11. **The plan's questions:**
+    - **Q1:** yes.
+    - **Q2:** yes, with item 1.
+    - **Q3:** yes.
+    - **Q4:** yes, with item 6's wording.
+    - **Q5:** yes, with item 4.
+    - **Q6:** yes.
+    - **Q7:** yes, plus the example in item 7.
+    - **Q8:** the residual only.
+    - **Q9:** yes.
+    - **Q10:** yes, with item 2. Covering "the whole request" includes lock behaviour.
