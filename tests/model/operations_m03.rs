@@ -909,7 +909,6 @@ fn verification(w: &World, op: &OperationId, n: u8) -> VerificationRequest {
         ca_fingerprint: ca(n),
         purpose: VerificationPurpose::Positive,
         principal: "hm:h1:deploy".into(),
-        key_id: "verify-key".into(),
         valid_after: shift(now, -60),
         valid_before: shift(now, 300),
         extensions: BTreeSet::new(),

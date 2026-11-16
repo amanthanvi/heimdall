@@ -12,7 +12,8 @@
 #
 # The bundled SQLite and other C code need a C compiler for the target: zig (`zig cc
 # -target x86_64-linux-gnu.2.31`, the glibc floor of tests/native/m02/lib.sh's shims)
-# through a shim in a mktemp directory removed on exit. Not a check.sh step; run it
+# through the native harnesses' shim at its stable path, target/hm-zig-shims
+# (tests/native/m02/lib.sh). Not a check.sh step; run it
 # when you change Linux-only code.
 #
 # Exit codes: clippy's own; 2 for a usage error; 3 when a prerequisite is missing (the
@@ -38,21 +39,12 @@ if ! command -v zig >/dev/null 2>&1; then
     exit 3
 fi
 
-shim=$(mktemp -d) || exit 2
-trap 'rm -rf "$shim"' EXIT
-cat >"$shim/zigcc-linux.sh" <<'SHIM'
-#!/usr/bin/env bash
-args=()
-for a in "$@"; do
-  case "$a" in
-    --target=*|-m64) ;;
-    *) args+=("$a") ;;
-  esac
-done
-exec zig cc -target x86_64-linux-gnu.2.31 "${args[@]}"
-SHIM
-printf '#!/usr/bin/env bash\nexec zig ar "$@"\n' >"$shim/zigar.sh"
-chmod +x "$shim/zigcc-linux.sh" "$shim/zigar.sh"
+# ⟨M03 wave 6, ADR-0009 §2.7⟩ The shared zig shims at their stable path under ./target
+# (tests/native/m02/lib.sh m02_shim_dir), so the build stays incremental between runs.
+# shellcheck source=tests/native/m02/lib.sh
+. tests/native/m02/lib.sh
+shim=$(m02_shim_dir "$PWD")
+m02_write_shims "$shim" || exit 2
 
 CC_x86_64_unknown_linux_gnu="$shim/zigcc-linux.sh" AR_x86_64_unknown_linux_gnu="$shim/zigar.sh" \
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$shim/zigcc-linux.sh" \

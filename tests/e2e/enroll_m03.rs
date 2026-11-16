@@ -2445,7 +2445,6 @@ mod fx {
                         self.destination.as_str(),
                         self.account.as_str()
                     ),
-                    key_id: "verify-key".into(),
                     valid_after: Timestamp::from_second(now.as_second() - 60).unwrap(),
                     valid_before: Timestamp::from_second(now.as_second() + 240).unwrap(),
                     extensions: std::collections::BTreeSet::new(),

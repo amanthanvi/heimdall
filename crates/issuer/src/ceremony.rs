@@ -267,10 +267,13 @@ impl ControllingTerminal {
         &mut self.output
     }
 
-    /// One bounded read (type docs): the line is read on a thread of its own from a
+    /// One bounded read (type docs): `read` reads the line on a thread of its own from a
     /// clone of the terminal's handle; no answer within the bound spends the terminal.
     #[cfg(any(unix, windows))]
-    fn bounded_read(&mut self) -> io::Result<TtyRead> {
+    fn bounded_read<F>(&mut self, read: F) -> io::Result<TtyRead>
+    where
+        F: FnOnce(&mut std::fs::File) -> io::Result<TtyRead> + Send + 'static,
+    {
         if self.spent {
             return Ok(TtyRead::TimedOut);
         }
@@ -280,7 +283,7 @@ impl ControllingTerminal {
             .name("heimdall-ceremony-read".into())
             .spawn(move || {
                 // A receiver that stopped waiting drops the line (zeroized).
-                let _ = tx.send(read_line_from(&mut reader));
+                let _ = tx.send(read(&mut reader));
             })?;
         match rx.recv_timeout(self.timeout) {
             Ok(read) => read,
@@ -297,8 +300,9 @@ impl ControllingTerminal {
 
 /// Read one line from `reader` a byte at a time: up to `\n` (a trailing `\r` dropped);
 /// Ctrl-C ([`CTRL_C`]) is a cancellation, and nothing typed so far counts; end of input
-/// with nothing typed is [`TtyRead::Eof`].
-#[cfg(any(unix, windows))]
+/// with nothing typed is [`TtyRead::Eof`]. (Unix: the terminal in canonical mode, which
+/// edits and echoes the line itself.)
+#[cfg_attr(not(unix), allow(dead_code))]
 fn read_line_from(reader: &mut impl io::Read) -> io::Result<TtyRead> {
     let mut bytes = Zeroizing::new(Vec::with_capacity(LINE_MAX));
     let mut one = Zeroizing::new([0u8; 1]);
@@ -328,11 +332,75 @@ fn read_line_from(reader: &mut impl io::Read) -> io::Result<TtyRead> {
     Ok(TtyRead::Line(text))
 }
 
+/// ⟨M03 wave 6, U13; ADR-0008 §17.28 item 4, K3-Q1⟩ Read one line from a Windows console
+/// whose input is raw for the read (no line input, no echo, no processed input; see
+/// [`ControllingTerminal`]'s Windows `read_answer`), a byte at a time, editing and
+/// echoing it here as the console would: up to Enter (`\r`); Ctrl-C ([`CTRL_C`]) is a
+/// cancellation and Ctrl-Z ([`CTRL_Z`], the console's end of input) is [`TtyRead::Eof`],
+/// whatever was typed before them; Backspace removes the last byte; other control bytes
+/// (a stray `\n` after an Enter included) are ignored. Each typed byte is echoed to
+/// `echo` unless `hidden`, and Enter as `\r\n` in both cases, so the screen holds the
+/// same lines as the console's own echo would (the passphrase region's line count). End
+/// of input from the console itself (a raw `ReadFile` answers Ctrl-Z with no bytes) is
+/// [`TtyRead::Eof`] too, whatever was typed before it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_raw_line_from(
+    reader: &mut impl io::Read,
+    echo: &mut impl io::Write,
+    hidden: bool,
+) -> io::Result<TtyRead> {
+    const BACKSPACE: u8 = 0x08;
+    const DELETE: u8 = 0x7f;
+    let mut bytes = Zeroizing::new(Vec::with_capacity(LINE_MAX));
+    let mut one = Zeroizing::new([0u8; 1]);
+    let mut show = |shown: &[u8]| {
+        // Echo is best effort: a terminal that cannot be written still answers the read.
+        let _ = echo.write_all(shown).and_then(|()| echo.flush());
+    };
+    loop {
+        match reader.read(&mut one[..]) {
+            Ok(0) => return Ok(TtyRead::Eof),
+            Ok(_) => match one[0] {
+                b'\r' => {
+                    show(b"\r\n");
+                    break;
+                }
+                CTRL_C => return Ok(TtyRead::Cancelled),
+                CTRL_Z => return Ok(TtyRead::Eof),
+                BACKSPACE | DELETE => {
+                    if bytes.pop().is_some() && !hidden {
+                        show(b"\x08 \x08");
+                    }
+                }
+                c if c < 0x20 => {}
+                c => {
+                    if bytes.len() < LINE_MAX {
+                        bytes.push(c);
+                        if !hidden {
+                            show(&[c]);
+                        }
+                    }
+                }
+            },
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let text = Zeroizing::new(String::from_utf8_lossy(&bytes).into_owned());
+    Ok(TtyRead::Line(text))
+}
+
 /// Ctrl-C (ETX). ⟨M03 wave 5, round 2⟩ While a ceremony reads a line, Ctrl-C ends it as a
 /// cancellation instead of raising `SIGINT` (Unix: `ISIG` off and `VEOL` = ETX for the
 /// read, restored after it), so the typed confirmation's "Ctrl-C sends nothing" ends
 /// `NotConfirmed` (exit 3) like end of input, rather than killing the process.
+/// ⟨M03 wave 6, U13; K3-Q1⟩ Windows: processed input is off for the read, so Ctrl-C is
+/// this byte, never a `CTRL_C_EVENT` (whose default handler would end the process).
 const CTRL_C: u8 = 0x03;
+
+/// Ctrl-Z (SUB), the Windows console's end of input ([`read_raw_line_from`]).
+#[cfg_attr(not(windows), allow(dead_code))]
+const CTRL_Z: u8 = 0x1a;
 
 #[cfg(unix)]
 impl ControllingTerminal {
@@ -360,7 +428,7 @@ impl ControllingTerminal {
             OptionalActions::Now
         };
         tcsetattr(&self.tty, when, &mode)?;
-        let line = self.bounded_read();
+        let line = self.bounded_read(read_line_from);
         let restored = tcsetattr(&self.tty, OptionalActions::Now, &original);
         let line = line?;
         restored?;
@@ -390,22 +458,37 @@ impl Tty for ControllingTerminal {
         {
             self.read_in_mode(hidden)
         }
+        // ⟨M03 wave 6, U13; ADR-0008 §17.27 item 7, §17.28 item 4 (K3-Q1)⟩ The console's
+        // input is raw for the read: with processed input on, Ctrl-C would be a
+        // CTRL_C_EVENT, whose default handler ends the process (exit 0xC000013A) racing
+        // the aborted read, and whose delivery depends on the "ignore Ctrl-C" attribute
+        // the process inherited; with it off, Ctrl-C is the byte [`CTRL_C`], a
+        // cancellation (`NotConfirmed`, exit 3) as on Unix. Line input is off too (else
+        // that byte would wait in the line until Enter), and echo with it, so
+        // [`read_raw_line_from`] edits and echoes the line itself. The original mode is
+        // restored after the read, whatever its outcome.
         #[cfg(windows)]
         {
-            if !hidden {
-                return self.bounded_read();
-            }
             if self.spent {
                 return Ok(TtyRead::TimedOut);
             }
+            const ENABLE_PROCESSED_INPUT: u32 = 0x0001;
+            const ENABLE_LINE_INPUT: u32 = 0x0002;
             const ENABLE_ECHO_INPUT: u32 = 0x0004;
+            let mut echo = self.output.try_clone()?;
             let original = crate::sys::windows::console_mode(&self.input)?;
-            crate::sys::windows::set_console_mode(&self.input, original & !ENABLE_ECHO_INPUT)?;
-            let line = self.bounded_read();
+            crate::sys::windows::set_console_mode(
+                &self.input,
+                original & !(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT),
+            )?;
+            let line =
+                self.bounded_read(move |reader| read_raw_line_from(reader, &mut echo, hidden));
             let restored = crate::sys::windows::set_console_mode(&self.input, original);
             let line = line?;
             restored?;
-            self.write_text("\r\n")?;
+            if hidden && !matches!(line, TtyRead::Line(_)) {
+                self.write_text("\r\n")?;
+            }
             Ok(line)
         }
     }
@@ -1637,6 +1720,36 @@ mod tests {
         assert!(matches!(read(b""), TtyRead::Eof));
         assert!(matches!(read(b"partial"), TtyRead::Line(l) if l.as_str() == "partial"));
         assert_eq!(format!("{:?}", read(b"secret\n")), "Line(<typed>)");
+    }
+
+    /// ⟨M03 wave 6, U13; ADR-0008 §17.28 item 4, K3-Q1⟩ The Windows raw console reader:
+    /// Enter (`\r`) ends a line and is echoed as `\r\n`; typed bytes are echoed unless
+    /// hidden; Backspace edits; Ctrl-C cancels, and Ctrl-Z or the console's end of input
+    /// ends input, whatever was typed before them; a stray `\n` (after `\r`) and other
+    /// controls are ignored.
+    #[test]
+    fn raw_console_reads_edit_echo_and_keep_cancellation_apart() {
+        let read = |bytes: &[u8], hidden: bool| {
+            let mut echo = Vec::new();
+            let r = read_raw_line_from(&mut &bytes[..], &mut echo, hidden).unwrap();
+            (r, String::from_utf8(echo).unwrap())
+        };
+        let (r, echo) = read(b"yse\x08\x08es\r", false);
+        assert!(matches!(r, TtyRead::Line(l) if l.as_str() == "yes"));
+        assert_eq!(echo, "yse\x08 \x08\x08 \x08es\r\n");
+        let (r, echo) = read(b"\nwr\x1b\titten\r\n", true);
+        assert!(matches!(r, TtyRead::Line(l) if l.as_str() == "written"));
+        assert_eq!(echo, "\r\n", "nothing typed is echoed when hidden");
+        let (r, echo) = read(b"ye\x03s\r", false);
+        assert!(matches!(r, TtyRead::Cancelled));
+        assert_eq!(echo, "ye");
+        assert!(matches!(read(b"\x03", true).0, TtyRead::Cancelled));
+        assert!(matches!(read(b"ye\x1a", false).0, TtyRead::Eof));
+        assert!(matches!(read(b"", false).0, TtyRead::Eof));
+        assert!(matches!(read(b"partial", false).0, TtyRead::Eof));
+        let (r, echo) = read(b"\x08\x7fa\r", false);
+        assert!(matches!(r, TtyRead::Line(l) if l.as_str() == "a"));
+        assert_eq!(echo, "a\r\n", "Backspace on an empty line shows nothing");
     }
 
     /// A terminal answering from a script (`None`: end of input), recording what was shown.

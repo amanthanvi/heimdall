@@ -8,6 +8,13 @@
 #   HM_BUILD_ONLY  1 = cross-build, plan and record the binaries' hashes, then stop (no ssh)
 #   HM_ONLY        optional space-separated list of test target names to run (default: all)
 #   HM_TIMEOUT_S   per-binary timeout in seconds (default 1800)
+#   ⟨M03 wave 6⟩ The milestone's harness (tests/native/m03/run-linux.sh sets these):
+#   HM_HARNESS_DIR the directory holding case-index.json and the evidence generator
+#                  (default: this directory)
+#   HM_EVIDENCE    the generator's file name there (default m02-evidence.py)
+#   HM_RUN_PREFIX  the scratch directory prefix, hm-m0<N> (default hm-m02)
+#   HM_EXTRA_REMOTE a file of bash defining hm_extra_facts, sent with remote-lib.sh and
+#                  run on the host after the version facts (key=value lines only)
 #
 # Steps:
 #   1. `uname -m` on the host (anything but x86_64 stops with exit 3, nothing copied).
@@ -69,6 +76,12 @@ timeout_s=${HM_TIMEOUT_S:-1800}
 case "$timeout_s" in '' | *[!0-9]*) echo "bad HM_TIMEOUT_S" >&2; exit 2 ;; esac
 triple=x86_64-unknown-linux-gnu
 repo=$(cd "$here/../../.." && pwd)
+hdir=${HM_HARNESS_DIR:-$here}
+M02_EVIDENCE=${HM_EVIDENCE:-m02-evidence.py}
+prefix=${HM_RUN_PREFIX:-hm-m02}
+case "$prefix" in hm-m0[0-9]) ;; *) echo "bad HM_RUN_PREFIX" >&2; exit 2 ;; esac
+extra=${HM_EXTRA_REMOTE:-}
+[ -z "$extra" ] || [ -f "$extra" ] || { echo "HM_EXTRA_REMOTE is not a file" >&2; exit 2; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 unset CARGO_TARGET_DIR
@@ -112,18 +125,18 @@ if [ "$build_only" != 1 ]; then
     fi
 fi
 
-m02_write_shims "$shim"
+m02_write_shims "$(m02_shim_dir "$repo")"
 cd "$repo"
 set +e
 m02_cargo_build "$triple" "$shim" "$out/build.txt"
 rc=$?
 set -e
-m02_record "$commands" "cargo test --target $triple --workspace --no-run --locked (zig cc linker/CC shims)" "$rc"
+m02_record "$commands" "cargo test --target $triple --profile ${HM_CARGO_PROFILE:-native-test} --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)" "$rc"
 redact_build_log() { m02_redact "$out/build.txt" "$out/build.txt" "$shim" "<shim>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"; }
 [ "$rc" = 0 ] || { redact_build_log; exit "$rc"; }
 m02_artifacts "$shim" || { echo "the heimdall or hm-fixture-hook binary was not built" >&2; redact_build_log; exit 5; }
 set +e
-m02_plan "$here" linux "$shim" "$out"
+m02_plan "$hdir" linux "$shim" "$out"
 rc=$?
 set -e
 m02_record "$commands" "run plan from case-index.json build_host_paths" "$rc"
@@ -142,12 +155,12 @@ if [ "$build_only" = 1 ]; then
 fi
 
 # The scratch directory: created exclusively, remembered only after the creation succeeded.
-name="hm-m02-$(m02_random_hex 6)"
+name="$prefix-$(m02_random_hex 6)"
 set +e
 rssh "mkdir -m 700 -- \"\$HOME/$name\" && mkdir -m 700 -- \"\$HOME/$name/tmp\"" </dev/null
 rc=$?
 set -e
-m02_record "$commands" "ssh <linuxhost> mkdir (exclusive) ~/hm-m02-<random> and its tmp" "$rc"
+m02_record "$commands" "ssh <linuxhost> mkdir (exclusive) ~/$prefix-<random> and its tmp" "$rc"
 [ "$rc" = 0 ] || exit 1
 scratch=$name
 
@@ -168,7 +181,7 @@ names=$(cut -f1 "$shim/run.tsv" | tr '\n' ' ')
 
 set +e
 # shellcheck disable=SC2086  # names are [A-Za-z0-9_-] target names
-{ cat "$here/remote-lib.sh"; cat <<'REMOTE'; } | rssh bash -s -- "$scratch" "$timeout_s" $names >"$shim/remote.txt" 2>&1
+{ cat "$here/remote-lib.sh"; if [ -n "$extra" ]; then cat "$extra"; else echo 'hm_extra_facts() { :; }'; fi; cat <<'REMOTE'; } | rssh bash -s -- "$scratch" "$timeout_s" $names >"$shim/remote.txt" 2>&1
 main() {
 set -u
 scratch=$HOME/$1
@@ -184,6 +197,7 @@ echo "nproc=$(nproc)"
 echo "script=$(command -v script >/dev/null 2>&1 && script --version 2>&1 | head -1 || echo absent)"
 echo "scratch-fs=$(hm2_fs_type "$scratch")"
 hm2_versions "$scratch"
+hm_extra_facts "$scratch"
 echo "owner-ssh-before=$(hm2_owner_digest "$HOME/.ssh")"
 echo "owner-git-before=$(hm2_owner_digest "$HOME/.gitconfig" "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")"
 if hm2_sshd_start "$scratch/sshd-preflight" "$scratch/sshd-preflight.keys" "$scratch/sshd-preflight.log"; then
@@ -245,7 +259,7 @@ rhome=$(val rhome); rfqdn=$(val rfqdn); rhost=$(val rhost); ruser=$(val ruser)
 sed '/^---redaction---$/,$d' "$shim/remote.txt" >"$shim/remote.body"
 m02_redact "$shim/remote.body" "$shim/redacted.txt" "$rhome" "<home>" "$HOME" "<home>" --word "$rfqdn" "<linuxhost>" \
     --word "$rhost" "<linuxhost>" --word "$host" "<linuxhost>" "$ruser" "<user>" "$(id -un)" "<user>"
-sed -i.bak -E 's/hm-m02-[0-9a-f]{12}/hm-m02-<random>/g' "$shim/redacted.txt" && rm -f "$shim/redacted.txt.bak"
+sed -i.bak -E "s/$prefix-[0-9a-f]{12}/$prefix-<random>/g" "$shim/redacted.txt" && rm -f "$shim/redacted.txt.bak"
 {
     sed -n '1,/^---tests---$/p' "$shim/redacted.txt" | sed '$d'
     cat "$shim/host-arch.txt"

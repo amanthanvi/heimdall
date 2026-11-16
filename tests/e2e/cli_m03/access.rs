@@ -13,8 +13,9 @@
 //! tests close are `/bin/sleep` children this test spawned, signalled only by the runtime's
 //! own verified close and killed otherwise through their `Child` handles.
 //!
-//! **Owner prompts** run the binary under `script(1)` (a pseudo-terminal; Unix only), as
-//! `e2e_cli_m01` does; the in-process half is `m03_cmd::wave5_tests`.
+//! **Owner prompts** run the binary under `script(1)` (a pseudo-terminal) on Unix, as
+//! `e2e_cli_m01` does, and ⟨M03 wave 6, U13⟩ on a pseudoconsole on Windows
+//! (`heimdall_testkit::console`); the in-process half is `m03_cmd::wave5_tests`.
 //!
 //! **Managed grants** (ADR-0008 §17.25 item 18): [`ManagedPair`] reaches a managed pair
 //! through the real binary (its runtime's production managed wiring and its real issuer
@@ -223,6 +224,60 @@ impl Rt {
             code,
             stdout,
             stderr: err,
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Rt {
+    /// ⟨M03 wave 6, U13; ADR-0008 §17.26 item 8⟩ [`Rt::run`] on a Windows pseudoconsole
+    /// (stdin, stdout and stderr the console; `heimdall_testkit::console`), typing `input`
+    /// once the owner prompt shows. The Unix bytes are typed as their console equivalents:
+    /// `\n` as Enter (`\r`) and Ctrl-D (end of input) as Ctrl-Z; Ctrl-C (`\x03`) is
+    /// Ctrl-C at the console. `stdout` is the console's text (escapes and line breaks
+    /// removed), as the Unix side's is `script(1)`'s transcript; `stderr` is empty.
+    fn run_pty(&self, args: &[&str], input: &[u8]) -> Out {
+        let typed: Vec<u8> = input
+            .iter()
+            .map(|&b| match b {
+                b'\n' => b'\r',
+                0x04 => 0x1a,
+                b => b,
+            })
+            .collect();
+        let mut cmd = heimdall_testkit::console::TerminalCommand::new(bin())
+            .args(args)
+            .size(400, 50)
+            .env("HEIMDALL_HOME", &self.home)
+            .env("HOME", &self.account)
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+        for k in ["SystemRoot", "PATH", "TEMP", "TMP"] {
+            if let Some(v) = std::env::var_os(k) {
+                cmd = cmd.env(k, v);
+            }
+        }
+        for (k, v) in self.env() {
+            cmd = cmd.env(k, v);
+        }
+        let mut t = cmd
+            .spawn()
+            .unwrap_or_else(|e| panic!("{args:?}: the pseudoconsole did not start: {e}"));
+        // Without the blank before the cursor (the console may leave it out).
+        if let Err(e) = t.expect("[y/N]:", Duration::from_secs(60)) {
+            panic!("{args:?}: no prompt: {e}");
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        t.send(&typed).unwrap();
+        let code = t.wait(Duration::from_secs(120));
+        // Line breaks removed: a long line (the envelope) may wrap on the console.
+        let stdout = t.text().replace('\n', "");
+        let code = code.unwrap_or_else(|| panic!("{args:?}: did not exit: {stdout}"));
+        assert_no_canary(&stdout);
+        assert!(!stdout.contains("panicked"), "{args:?}: {stdout}");
+        Out {
+            code,
+            stdout,
+            stderr: String::new(),
         }
     }
 }
@@ -570,8 +625,9 @@ fn access_lock_behavior_refused_where_unavailable() {
     ]);
     assert_eq!(narrowing.code, 0, "{narrowing:?}");
 
-    // On a terminal: no, and end of input, send nothing; a typed yes applies.
-    #[cfg(unix)]
+    // On a terminal: no, and end of input, send nothing; a typed yes applies (⟨M03 wave
+    // 6⟩ on Windows too, on a pseudoconsole).
+    #[cfg(any(unix, windows))]
     {
         let args = [
             "--json",
@@ -1596,4 +1652,33 @@ fn lock_behavior_results_labelled_signal_unverified_on_linux_only() {
         linux,
         "{human:?}"
     );
+}
+
+/// ⟨M03 wave 6, U13; ADR-0008 §17.26 item 8⟩ The typed `yes` of ordinary decisions on a
+/// **Windows console** (`prompt::ask`: stdin is the console, Ctrl-C through tokio's
+/// console control handler): `setup apply` and `time confirm` each send nothing for
+/// `no`, end of input (Ctrl-Z) and **Ctrl-C** (exit 3, "not confirmed" with the reason),
+/// and apply on a typed `yes` (exit 0). The Unix rows are `ManagedPair::set_up` (each
+/// typed `yes` on a pseudo-terminal) and the CLI's unit tests.
+#[cfg(windows)]
+#[test]
+fn windows_setup_apply_and_time_confirm_need_a_typed_yes() {
+    let rt = Rt::new("unlocked");
+    for argv in [&["setup", "apply"][..], &["time", "confirm"]] {
+        for (input, why) in [
+            (&b"no\n"[..], "answered no"),
+            (&b"\x04"[..], "end of input"),
+            (&b"\x03"[..], "interrupted"),
+        ] {
+            let out = rt.run_pty(argv, input);
+            assert_eq!(out.code, 3, "{argv:?} {why}: {out:?}");
+            assert!(
+                out.stdout.contains("not confirmed"),
+                "{argv:?} {why}: {out:?}"
+            );
+            assert!(out.stdout.contains(why), "{argv:?} {why}: {out:?}");
+        }
+        let yes = rt.run_pty(argv, b"yes\n");
+        assert_eq!(yes.code, 0, "{argv:?} yes: {yes:?}");
+    }
 }

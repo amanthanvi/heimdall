@@ -295,15 +295,6 @@ impl Operations {
                 ca_fingerprint: ctx.record.ca_fingerprint.clone(),
                 purpose,
                 principal,
-                key_id: format!(
-                    "heimdall:{}:{}:{}",
-                    self.environment(),
-                    ctx.op.id,
-                    match purpose {
-                        VerificationPurpose::Positive => "positive",
-                        _ => "negative",
-                    }
-                ),
                 valid_after: minus(wall, heimdall_domain::verification::BACKDATE),
                 valid_before: plus(wall, max_validity),
                 extensions: BTreeSet::new(),

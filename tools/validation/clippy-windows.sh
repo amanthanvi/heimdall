@@ -3,8 +3,8 @@
 # x86_64-pc-windows-gnu --workspace --all-targets -- -D warnings`, so cfg(windows)
 # code paths (dead imports, unused constants) fail validation on any build host.
 # The bundled SQLite needs a C compiler for the target: zig (`zig cc -target
-# x86_64-windows-gnu`) through a shim in a mktemp directory removed on exit (same
-# shim as tests/native/m01/run-windows.sh). Nothing is linked or run.
+# x86_64-windows-gnu`) through the native harnesses' shim at its stable path,
+# target/hm-zig-shims (tests/native/m02/lib.sh). Nothing is linked or run.
 #
 # Exit codes: clippy's own; 3 when a prerequisite is missing (the rustup target
 # x86_64-pc-windows-gnu or zig), with the missing piece named. check.sh treats 3 as
@@ -26,21 +26,13 @@ if ! command -v zig >/dev/null 2>&1; then
     exit 3
 fi
 
-shim=$(mktemp -d) || exit 2
-trap 'rm -rf "$shim"' EXIT
-cat >"$shim/zigcc-win-cc.sh" <<'SHIM'
-#!/usr/bin/env bash
-args=()
-for a in "$@"; do
-  case "$a" in
-    --target=*|-m64|-mthreads) ;;
-    *) args+=("$a") ;;
-  esac
-done
-exec zig cc -target x86_64-windows-gnu "${args[@]}"
-SHIM
-printf '#!/usr/bin/env bash\nexec zig ar "$@"\n' >"$shim/zigar.sh"
-chmod +x "$shim/zigcc-win-cc.sh" "$shim/zigar.sh"
+# ⟨M03 wave 6, ADR-0009 §2.7⟩ The shared zig shims at their stable path under ./target
+# (tests/native/m02/lib.sh m02_shim_dir), so CC never changes between runs and the
+# bundled SQLite's build script is not re-run each time.
+# shellcheck source=tests/native/m02/lib.sh
+. tests/native/m02/lib.sh
+shim=$(m02_shim_dir "$PWD")
+m02_write_shims "$shim" || exit 2
 
 CC_x86_64_pc_windows_gnu="$shim/zigcc-win-cc.sh" AR_x86_64_pc_windows_gnu="$shim/zigar.sh" \
     cargo clippy --target "$triple" --workspace --all-targets --locked -- -D warnings

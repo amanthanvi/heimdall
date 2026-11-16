@@ -109,8 +109,9 @@ impl Rig {
     }
 
     /// A started runtime with no CA, on the product-file test store: a file keychain this
-    /// test creates (marker first) in its scratch home (macOS).
-    #[cfg(target_os = "macos")]
+    /// test creates (marker first) in its scratch home (macOS); ⟨M03 wave 6, U13⟩ on
+    /// Windows a DPAPI blob directory there (`test_product::create`).
+    #[cfg(any(target_os = "macos", windows))]
     fn product() -> Rig {
         Rig::with_store(true)
     }
@@ -124,10 +125,15 @@ impl Rig {
         private_dir(&account);
         let program_dir = tmp.path().join("program");
         private_dir(&program_dir);
-        let program = program_dir.join("heimdall");
+        // `heimdall.exe` on Windows (CreateProcess finds a program by its extension).
+        let program = program_dir.join(format!("heimdall{}", std::env::consts::EXE_SUFFIX));
         std::fs::copy(bin(), &program).unwrap();
         let product = product.then(|| {
-            let path = home.join("test-ca.keychain-db");
+            let path = home.join(if cfg!(windows) {
+                "test-ca-dpapi"
+            } else {
+                "test-ca.keychain-db"
+            });
             create_product_store(&path);
             path
         });
@@ -176,8 +182,9 @@ impl Rig {
         }
     }
 
-    /// The product-file test store, as this installation's environment sees it (macOS).
-    #[cfg(target_os = "macos")]
+    /// The product-file test store, as this installation's environment sees it (macOS;
+    /// Windows: the DPAPI directory).
+    #[cfg(any(target_os = "macos", windows))]
     fn product_store(&self) -> Box<dyn SecretStore> {
         let env = self
             .store()
@@ -202,10 +209,16 @@ impl Rig {
         self.tmp.path().join(name)
     }
 
-    /// The environment every CLI process of this rig gets.
+    /// The environment every CLI process of this rig gets (⟨M03 wave 6⟩ on Windows the
+    /// system variables and this process's `PATH` instead of the Unix `PATH`).
     fn env(&self) -> Vec<(OsString, OsString)> {
-        vec![
-            ("PATH".into(), "/usr/bin:/bin".into()),
+        #[cfg(windows)]
+        let path: OsString = std::env::var_os("PATH").unwrap_or_default();
+        #[cfg(not(windows))]
+        let path: OsString = "/usr/bin:/bin".into();
+        #[cfg_attr(not(windows), allow(unused_mut))]
+        let mut env: Vec<(OsString, OsString)> = vec![
+            ("PATH".into(), path),
             ("HOME".into(), self.account.clone().into()),
             ("HEIMDALL_HOME".into(), self.home.clone().into()),
             (
@@ -214,7 +227,10 @@ impl Rig {
             ),
             ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
             ("TERM".into(), "dumb".into()),
-        ]
+        ];
+        #[cfg(windows)]
+        env.extend(super::windows_console::system_env());
+        env
     }
 
     fn start(&mut self) {
@@ -352,7 +368,6 @@ impl Rig {
 
     /// The newest event's sequence in this installation's environment (a request that
     /// changed anything leaves an event).
-    #[cfg(unix)]
     fn event_head(&self) -> u64 {
         let env = self
             .store()
@@ -431,17 +446,19 @@ impl Rig {
     /// The CLI ([`Rig::program`]) with stdin closed, no terminal involved (as the parent's
     /// `run`, with this rig's program).
     fn cli(&self, args: &[&str]) -> Out {
-        let out = Command::new(&self.program)
-            .args(args)
+        let mut cmd = Command::new(&self.program);
+        cmd.args(args)
             .env_clear()
             .env("HEIMDALL_HOME", &self.home)
             .env("HOME", &self.account)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("PATH", "/usr/bin:/bin")
-            .env("HEIMDALL_TEST_SECRET_STORE", self.store_value())
-            .stdin(Stdio::null())
-            .output()
-            .expect("spawn heimdall");
+            .env("HEIMDALL_TEST_SECRET_STORE", self.store_value());
+        // ⟨M03 wave 6⟩ Windows: the system variables and this process's PATH.
+        #[cfg(windows)]
+        cmd.envs(super::windows_console::system_env())
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default());
+        let out = cmd.stdin(Stdio::null()).output().expect("spawn heimdall");
         let out = Out {
             code: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -511,9 +528,16 @@ fn create_product_store(path: &Path) {
     );
 }
 
-#[cfg(not(target_os = "macos"))]
+/// ⟨M03 wave 6, U13⟩ Create the product-file test store at `path` on Windows: the marker
+/// first, then the DPAPI blob directory (`test_product::create`), inside the scratch home.
+#[cfg(windows)]
+fn create_product_store(path: &Path) {
+    heimdall_issuer::store::test_product::create(path).unwrap();
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn create_product_store(_: &Path) {
-    unreachable!("the product-file test store is macOS-only in this suite");
+    unreachable!("the product-file test store is macOS and Windows only in this suite");
 }
 
 /// Remove the product-file test store (keychain and marker), by path.
@@ -528,7 +552,18 @@ fn remove_product_store(path: &Path, home: &Path) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// ⟨M03 wave 6, U13⟩ Remove the Windows product-file test store (the DPAPI directory with
+/// its blobs, and its marker), by path, inside the scratch home only.
+#[cfg(windows)]
+fn remove_product_store(path: &Path, home: &Path) {
+    let removed = heimdall_issuer::store::test_product::remove(path, home);
+    if !std::thread::panicking() {
+        removed.unwrap();
+        assert!(!path.exists(), "the DPAPI test store was removed");
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn remove_product_store(_: &Path, _: &Path) {}
 
 // --- the terminal -------------------------------------------------------------------------
@@ -1475,7 +1510,7 @@ fn issuer_restore_paths_past_registration_on_the_product_store() {
 }
 
 /// The CA fingerprint of the backup at `path` under `pass` (the test's own key).
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn prepared_fp(path: &Path, pass: &heimdall_issuer::backup::Passphrase) -> CaFingerprint {
     heimdall_issuer::backup::restore(path, pass)
         .unwrap()
@@ -3237,4 +3272,560 @@ fn residual_leader_shaped_sign_unconfirmed_stop_keeps_no_admission() {
         assert!(!ops.uninstall_fence_release(FENCE_HOLDER));
         issuer.stop().await;
     });
+}
+
+// --- Windows: the console cases (M03 wave 6, U13) --------------------------------------------
+
+/// ⟨M03 wave 6, U13; ADR-0008 §17.26 item 8⟩ The issuer ceremonies and an enrollment
+/// decision's consent on a **Windows console**: `heimdall` on a pseudoconsole through
+/// `super::windows_console` (stdin the console, stdout and stderr their own files), the
+/// ceremony's terminal being the console's `CONIN$`/`CONOUT$`. The product-file test store
+/// is a DPAPI blob directory this test creates in its scratch home
+/// (`HEIMDALL_TEST_SECRET_STORE=product-file:<dir>`, ADR-0008 §17.25 item 7 (b)); no
+/// Credential Manager entry, no owner store, no blob outside the scratch home.
+///
+/// What a pseudoconsole cannot show: the console's text is conhost's re-rendering of the
+/// screen, not the bytes the program wrote, so the passphrase region's own clearing
+/// sequence (`A\r\x1b[J`, asserted on Unix) is not checked here; the clearing itself runs
+/// on the same code path (`Tty::clear_lines`).
+#[cfg(windows)]
+mod windows_cases {
+    use heimdall_contract::enrollment::DisclosureKind;
+    use heimdall_issuer::ceremony::{DisclosureContext, Zeroizing, disclosure_text};
+
+    use super::super::windows_console::{
+        self as console, CEREMONY, Case, PROMPT, REDIRECTED_STDIN, Wiring, passphrase_forms, squash,
+    };
+    use super::*;
+
+    const REGISTER: &str = "Type 'yes' to register this CA: ";
+    /// Ctrl-Z: the console's end of input (the ceremony reads the console raw).
+    const EOF: &[u8] = b"\x1a";
+
+    /// `heimdall <args>` (this rig's program, this rig's environment) on a pseudoconsole.
+    fn start(rig: &Rig, case: &str, args: &[&str], wiring: Wiring) -> Case {
+        let mut argv: Vec<OsString> = vec![rig.program.clone().into_os_string()];
+        argv.extend(args.iter().map(OsString::from));
+        console::start(rig.tmp.path(), case, &argv, &rig.env(), wiring)
+    }
+
+    /// `text` with every form of `passphrase` replaced (failure messages).
+    fn hide(text: &str, passphrase: &str) -> String {
+        let mut out = text.to_owned();
+        for form in passphrase_forms(passphrase) {
+            out = out.replace(&form, "<passphrase>");
+        }
+        out
+    }
+
+    /// The registration decision's three refusals at the console, then `--non-interactive`.
+    fn assert_nothing_sent_without_yes(rig: &Rig, args: &[&str], backup: &Path) {
+        let registered = |rig: &Rig| rig.store().transaction(|tx| tx.issuers()).unwrap().len();
+        for (label, answer) in [("EOF", EOF), ("no", &b"no\r"[..]), ("Ctrl-C", &b"\x03"[..])] {
+            let mut c = start(rig, &format!("reg-{label}"), args, CEREMONY);
+            c.expect(REGISTER);
+            c.send(answer);
+            let out = c
+                .finish_within(Duration::from_secs(30))
+                .unwrap_or_else(|| panic!("{label}: the ceremony did not end: {}", c.shown()));
+            assert_eq!(out.code, 3, "{label}: {out:?}\n{}", c.shown());
+            assert_eq!(out.json()["code"], "INTERACTION_REQUIRED", "{label}");
+            assert!(!backup.exists(), "{label}: no backup");
+            assert!(
+                rig.product_store().list().unwrap().is_empty(),
+                "{label}: no DPAPI item"
+            );
+            assert_eq!(registered(rig), 0, "{label}: nothing registered");
+            assert!(c.passphrase().is_none(), "{label}: no passphrase shown");
+            assert!(
+                !has_passphrase_shape(&out.stdout) && !has_passphrase_shape(&out.stderr),
+                "{label}"
+            );
+        }
+        let argv = [&["--non-interactive"][..], args].concat();
+        let mut c = start(rig, "non-interactive", &argv, CEREMONY);
+        let out = c.finish();
+        assert_eq!(out.code, 3, "{out:?}");
+        assert_eq!(out.json()["code"], "INTERACTION_REQUIRED");
+        assert!(
+            !c.text().contains("Register CA"),
+            "nothing sent: {}",
+            c.shown()
+        );
+        assert_eq!(registered(rig), 0);
+    }
+
+    /// `issuer init --json` on the console against the rig's DPAPI store, through to
+    /// `registered`: the decision and its disclosures before the `yes`, then the
+    /// passphrase **on the console only**. Returns the CA and the passphrase (for the
+    /// scans and the decryption; never printed).
+    fn init_on_console(rig: &Rig, backup: &Path) -> (CaFingerprint, String) {
+        let backup_arg = backup.to_string_lossy().into_owned();
+        let args = ["--json", "issuer", "init", "--backup-out", &backup_arg];
+        let mut c = start(rig, "init", &args, CEREMONY);
+        c.expect(REGISTER);
+        let shown = squash(&c.text());
+        assert!(
+            shown.contains(&squash("Register CA SHA256:")),
+            "{}",
+            c.shown()
+        );
+        for kind in [
+            DisclosureKind::SameUserIssuerBoundary,
+            DisclosureKind::BackupInstructions,
+        ] {
+            let text = disclosure_text(kind, &DisclosureContext::default());
+            assert!(
+                shown.contains(&squash(&text)),
+                "{kind:?} before the prompt: {}",
+                c.shown()
+            );
+        }
+        assert!(c.passphrase().is_none(), "no passphrase before the yes");
+        assert!(!backup.exists(), "nothing written before the yes");
+        c.send(b"yes\r");
+        c.expect("Type 'written'");
+        let joined = c
+            .passphrase()
+            .unwrap_or_else(|| panic!("the passphrase was shown; console: {}", c.shown()));
+        assert!(
+            backup.exists(),
+            "the backup is written before the passphrase is shown"
+        );
+        c.send(b"written\r");
+        let out = c.finish();
+        assert_eq!(out.code, 0, "{out:?}\n{}", hide(&c.shown(), &joined));
+        let env = out.json();
+        assert_eq!(env["code"], "OK", "{out:?}");
+        let ca = &env["data"]["cas"][0];
+        assert_eq!(ca["state"], "active", "{env}");
+        assert_eq!(ca["store"], "windows_dpapi", "{env}");
+        let fp = CaFingerprint::parse(ca["fingerprint"].as_str().unwrap()).unwrap();
+        assert!(
+            squash(&c.text()).contains(&squash(&format!("CA {fp} registered"))),
+            "{}",
+            hide(&c.shown(), &joined)
+        );
+        // The passphrase reached the console only: not stdout, stderr, any argument or
+        // variable this test gave, or any file of the scratch tree (the state database,
+        // the DPAPI blob, the backup, the case files).
+        for form in passphrase_forms(&joined) {
+            assert!(!out.stdout.contains(&form) && !out.stderr.contains(&form));
+            for g in &c.given {
+                assert!(
+                    !g.to_string_lossy().contains(&form),
+                    "an argument or variable"
+                );
+            }
+            for f in files_under(rig.tmp.path()) {
+                let bytes = std::fs::read(&f).unwrap_or_default();
+                assert!(
+                    !bytes.windows(form.len()).any(|w| w == form.as_bytes()),
+                    "the passphrase is in {}",
+                    f.display()
+                );
+            }
+        }
+        // One DPAPI item, under the scratch store only, holding this CA; the backup
+        // decrypts with the shown passphrase to the registered CA.
+        let items = rig.product_store().list().unwrap();
+        assert_eq!(items.len(), 1, "one DPAPI item");
+        assert_eq!(items[0].fingerprint, fp);
+        let dir = rig.product.clone().unwrap();
+        assert!(
+            !files_under(&dir).is_empty(),
+            "the blob is in the scratch store"
+        );
+        let pass = heimdall_issuer::backup::Passphrase::new(Zeroizing::new(joined.clone()));
+        assert_eq!(prepared_fp(backup, &pass), fp, "the backup decrypts");
+        assert_no_canary(&c.text());
+        (fp, joined)
+    }
+
+    /// m03-plan U12 `issuer_init_prints_passphrase_only_to_tty` and
+    /// `issuer_init_register_issuer_typed_yes_sends_nothing_without_yes`, Windows (DPAPI
+    /// under the scratch home; ADR-0008 §17.26 item 8): at `issuer init --json`'s
+    /// registration prompt, end of input (Ctrl-Z), `no` and **Ctrl-C** send nothing more
+    /// (exit 3 `INTERACTION_REQUIRED`: no backup, no DPAPI item, nothing registered, no
+    /// passphrase anywhere); `--non-interactive` is refused before any runtime contact;
+    /// a typed `yes` registers the CA (`windows_dpapi`) with the passphrase on the console
+    /// only, and the backup decrypts with it. Then
+    /// `issuer_retire_deletes_the_exact_keychain_item_on_the_product_store`'s R2B on the
+    /// DPAPI store: `issuer retire` → typed `yes` at the prompt → `unloaded` → this process
+    /// deletes exactly the recorded blob → `retired` (exit 0), the store empty.
+    #[test]
+    fn windows_issuer_init_and_retire_on_the_dpapi_store() {
+        let rig = Rig::product();
+        let backup = rig.file("typed.key");
+        let backup_arg = backup.to_string_lossy().into_owned();
+        let args = ["--json", "issuer", "init", "--backup-out", &backup_arg];
+        assert_nothing_sent_without_yes(&rig, &args, &backup);
+        let (fp, _passphrase) = init_on_console(&rig, &backup);
+        assert_eq!(rig.ca_state(&fp), Some(CaState::Active));
+
+        let fp_arg = fp.to_string();
+        let mut c = start(
+            &rig,
+            "retire-product",
+            &["--json", "issuer", "retire", &fp_arg],
+            PROMPT,
+        );
+        c.expect("Type 'yes' to confirm [y/N]: ");
+        c.send(b"yes\r");
+        let out = c.finish();
+        assert_eq!(out.code, 0, "{out:?}\n{}", c.shown());
+        assert_eq!(out.json()["data"]["cas"][0]["state"], "retired", "{out:?}");
+        assert_eq!(rig.ca_state(&fp), Some(CaState::Retired));
+        assert!(
+            rig.product_store().list().unwrap().is_empty(),
+            "exactly the recorded blob was deleted"
+        );
+    }
+
+    /// ⟨ADR-0008 §17.27 item 7, §17.28 item 4 (K3-Q1)⟩
+    /// `issuer_init_ctrl_c_or_eof_at_written_sends_nothing_more`, Windows (DPAPI): after
+    /// the `yes`, **Ctrl-C** or end of input (Ctrl-Z) at the passphrase's `written`
+    /// acknowledgement ends the ceremony at once (no retry): exit 3
+    /// `INTERACTION_REQUIRED` (Ctrl-C is a cancellation, not a console control event that
+    /// ends the process), no DPAPI item, nothing registered, the lock acknowledgement not
+    /// recorded. (The backup written at step 4 stays, D4 item 1's crash point between
+    /// steps 4 and 6.)
+    #[test]
+    fn windows_issuer_init_ctrl_c_or_eof_at_written_sends_nothing_more() {
+        let rig = Rig::product();
+        for (label, bytes) in [("Ctrl-C", &b"\x03"[..]), ("EOF", EOF)] {
+            let backup = rig.file(&format!("written-{label}.key"));
+            let backup_arg = backup.to_string_lossy().into_owned();
+            let args = ["--json", "issuer", "init", "--backup-out", &backup_arg];
+            let mut c = start(&rig, &format!("written-{label}"), &args, CEREMONY);
+            c.expect(REGISTER);
+            c.send(b"yes\r");
+            c.expect("Type 'written'");
+            c.send(bytes);
+            let out = c.finish_within(Duration::from_secs(30)).unwrap_or_else(|| {
+                panic!(
+                    "{label} at `written` did not end the ceremony: {}",
+                    c.shown()
+                )
+            });
+            assert_eq!(out.code, 3, "{label}: {out:?}\n{}", c.shown());
+            assert_eq!(out.json()["code"], "INTERACTION_REQUIRED", "{label}");
+            assert_eq!(
+                c.text().matches("Type 'written'").count(),
+                1,
+                "{label}: no retry: {}",
+                c.shown()
+            );
+            assert!(
+                rig.product_store().list().unwrap().is_empty(),
+                "{label}: no DPAPI item"
+            );
+            assert!(
+                rig.store()
+                    .transaction(|tx| tx.issuers())
+                    .unwrap()
+                    .is_empty(),
+                "{label}: nothing registered"
+            );
+            assert!(
+                rig.store()
+                    .transaction(|tx| tx.lock_disclosure_ack())
+                    .unwrap()
+                    .is_none(),
+                "{label}: the lock disclosure was not acknowledged"
+            );
+            assert!(!has_passphrase_shape(&out.stdout) && !has_passphrase_shape(&out.stderr));
+        }
+    }
+
+    /// ⟨ADR-0008 §17.27 item 5; W5-R03⟩ `issuer_ceremonies_refuse_redirected_stdin_with_a_terminal_attached`,
+    /// Windows: every ceremony with stdin redirected (`NUL`) while the console stays
+    /// attached (`CONIN$` opens) is not an interactive invocation: exit 3
+    /// `INTERACTION_REQUIRED`, effect `none`, before anything is connected, attended or
+    /// opened. The ceremony writes nothing to the console; no request changed the
+    /// runtime; no backup; the store keeps its one item.
+    #[test]
+    fn windows_issuer_ceremonies_refuse_redirected_stdin_with_a_console_attached() {
+        let rig = Rig::new();
+        let orphan = rig.seed_orphan();
+        let fp = orphan.fingerprint.to_string();
+        let backup = rig.file("redirected.key");
+        let b = backup.to_string_lossy().into_owned();
+        let restore_from = rig.file("absent-backup.key");
+        let r = restore_from.to_string_lossy().into_owned();
+        let head = rig.event_head();
+        let cases: Vec<(&str, Vec<&str>)> = vec![
+            ("init", vec!["--json", "issuer", "init", "--backup-out", &b]),
+            (
+                "replace-orphan",
+                vec![
+                    "--json",
+                    "issuer",
+                    "init",
+                    "--backup-out",
+                    &b,
+                    "--replace-orphan",
+                    &fp,
+                    "--no-bundle-available",
+                ],
+            ),
+            (
+                "rotate",
+                vec!["--json", "issuer", "rotate", "begin", "--backup-out", &b],
+            ),
+            (
+                "restore",
+                vec![
+                    "--json",
+                    "issuer",
+                    "restore",
+                    "--backup",
+                    &r,
+                    "--not-stolen",
+                ],
+            ),
+            ("unlock", vec!["--json", "issuer", "unlock"]),
+            ("human-init", vec!["issuer", "init", "--backup-out", &b]),
+        ];
+        for (label, args) in cases {
+            let mut c = start(
+                &rig,
+                &format!("redirected-{label}"),
+                &args,
+                REDIRECTED_STDIN,
+            );
+            let out = c.finish_within(Duration::from_secs(30)).unwrap_or_else(|| {
+                panic!(
+                    "{label}: still running (it reached a prompt): {}",
+                    c.shown()
+                )
+            });
+            assert_eq!(out.code, 3, "{label}: {out:?}\n{}", c.shown());
+            if args[0] == "--json" {
+                let env = out.json();
+                assert_eq!(env["code"], "INTERACTION_REQUIRED", "{label}: {out:?}");
+                assert_eq!(env["data"]["error"]["effect_status"], "none", "{label}");
+                assert!(out.message().contains("stdin"), "{label}: {out:?}");
+            } else {
+                assert!(out.stderr.contains("stdin"), "{label}: {out:?}");
+            }
+            let t = c.text();
+            for ceremony_text in ["Register CA", "Type '", "passphrase", "Restore"] {
+                assert!(
+                    !t.contains(ceremony_text),
+                    "{label}: nothing on the console: {}",
+                    c.shown()
+                );
+            }
+        }
+        assert_eq!(rig.event_head(), head, "no request changed the runtime");
+        assert!(rig.pending().is_empty(), "no decision");
+        assert!(
+            rig.store()
+                .transaction(|tx| tx.issuers())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(rig.scratch_store().list().unwrap(), vec![orphan]);
+        assert!(!backup.exists(), "no backup");
+    }
+
+    /// `issuer_restore_paths_past_registration_on_the_product_store`'s two log cases,
+    /// Windows (DPAPI): the passphrase is typed at the console's hidden prompt (raw
+    /// input, nothing echoed: it is not on the console, stdout or stderr).
+    /// * **Log lost:** A's backup restored on a fresh installation B: the key-only
+    ///   disclosure, the registration's typed `yes`, the CA `active` with
+    ///   `restored_without_log`, its DPAPI item in B's store (exit 0).
+    /// * **Log intact, same locator:** restored on A itself: adopted and reloaded, no new
+    ///   decision (exit 0).
+    #[test]
+    fn windows_issuer_restore_types_the_passphrase_unechoed_on_the_dpapi_store() {
+        let a = Rig::product();
+        let backup_a = a.file("a.key");
+        let (fp, passphrase) = init_on_console(&a, &backup_a);
+        let b = Rig::product();
+        let backup_arg = backup_a.to_string_lossy().into_owned();
+        let args = [
+            "--json",
+            "issuer",
+            "restore",
+            "--backup",
+            &backup_arg,
+            "--not-stolen",
+        ];
+        let restore = |rig: &Rig, case: &str, decision: Option<&str>| {
+            let mut c = start(rig, case, &args, CEREMONY);
+            c.expect("Backup passphrase: ");
+            c.send(format!("{passphrase}\r").as_bytes());
+            if let Some(prompt) = decision {
+                c.expect(prompt);
+                c.send(b"yes\r");
+            }
+            let out = c.finish();
+            let t = c.text();
+            for form in passphrase_forms(&passphrase) {
+                assert!(!t.contains(&form), "{case}: echo was off");
+                assert!(!out.stdout.contains(&form) && !out.stderr.contains(&form));
+            }
+            (out, hide(&c.shown(), &passphrase), squash(&t))
+        };
+        let (out, shown, t) = restore(
+            &b,
+            "log-lost",
+            Some("Type 'yes' to register this restored CA: "),
+        );
+        assert_eq!(out.code, 0, "{out:?}\n{shown}");
+        assert!(t.contains(&squash("Key-only restore")), "{shown}");
+        let ca = &out.json()["data"]["cas"][0];
+        assert_eq!(ca["fingerprint"], fp.as_str());
+        assert_eq!(ca["restored_without_log"], true);
+        assert_eq!(ca["state"], "active");
+        assert_eq!(b.product_store().list().unwrap()[0].fingerprint, fp);
+
+        let (out, shown, t) = restore(&a, "log-intact", None);
+        assert_eq!(out.code, 0, "{out:?}\n{shown}");
+        assert!(
+            t.contains(&squash("restored to the store and reloaded")),
+            "{shown}"
+        );
+        assert!(!t.contains(&squash("Type 'yes'")), "{shown}");
+        assert_eq!(a.product_store().list().unwrap().len(), 1);
+    }
+
+    /// m03-plan U12 ⟨ADR-0008 §17.27 items 3 and 4; W5-S02, generic decision completion⟩
+    /// `json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt`,
+    /// Windows: `heimdall --json decision approve` of a pending `EnrollAccount` decision
+    /// (seeded in the rig's runtime store; this fixture needs only the runtime and the
+    /// decision) shows the recorded enrollment in human form and every disclosure's
+    /// prose, the runtime's conditional lock text included, on the console (stderr)
+    /// **before** the typed-`yes` prompt; stdout holds exactly one envelope and no prompt;
+    /// answered `no`, the decision stays pending and nothing is acknowledged (exit 3).
+    #[test]
+    fn windows_json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt() {
+        use heimdall_domain::decision::{
+            DecisionKind, DecisionRecord, DecisionState, EnrollmentPlanSummary,
+        };
+        let rig = Rig::new();
+        let id = heimdall_contract::ids::DecisionId::from_random_bytes([9; 16]);
+        let decision = id.to_string();
+        let kinds = vec![
+            DisclosureKind::ConfigCommandsRunAsOrdinaryUse,
+            DisclosureKind::CaTrustBlastRadius,
+            DisclosureKind::RemoveWindow,
+            DisclosureKind::LockContinuityOnce,
+        ];
+        let seeded = kinds.clone();
+        rig.store()
+            .transaction(move |tx| {
+                let r = crate::enrollment(1, heimdall_domain::enrollment::EnrollmentState::Planned);
+                let now = Timestamp::now();
+                let generation = tx.authority_generation()?;
+                tx.insert_decision(&DecisionRecord {
+                    id: id.clone(),
+                    kind: DecisionKind::EnrollAccount {
+                        operation: heimdall_contract::ids::OperationId::from_random_bytes([8; 16]),
+                        plan_digest: heimdall_contract::setup::PlanDigest::parse(&"c".repeat(64))
+                            .unwrap(),
+                        summary: EnrollmentPlanSummary {
+                            destination_id: r.destination.clone(),
+                            alias: "lab1".to_owned(),
+                            account: r.account.clone(),
+                            form: r.form,
+                            registry: r.registry.clone(),
+                            line_sha256: r.line_sha256.clone(),
+                            ca_fingerprint: r.ca_fingerprint.clone(),
+                            approved_target: r.target.clone(),
+                            invocation: vec!["ssh".to_owned(), "lab1".to_owned()],
+                            host_trust: Vec::new(),
+                            bootstrap: false,
+                            disclosures: seeded.clone(),
+                        },
+                    },
+                    generation,
+                    created_at: now,
+                    expires_at: now.checked_add(Duration::from_secs(900)).unwrap(),
+                    state: DecisionState::Pending,
+                    decided_at: None,
+                })
+            })
+            .unwrap();
+        let caps = rig.cli(&["--json", "inspect", "capabilities"]);
+        let lock = caps.json()["data"]["lock"]["disclosure"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the runtime reports the lock disclosure: {caps:?}"))
+            .to_owned();
+        let mut c = start(
+            &rig,
+            "decision-approve",
+            &["--json", "decision", "approve", &decision],
+            PROMPT,
+        );
+        c.expect("Type 'yes' to confirm [y/N]: ");
+        let before = squash(&c.text());
+        let r = crate::enrollment(1, heimdall_domain::enrollment::EnrollmentState::Planned);
+        assert!(
+            before.contains(&squash(&format!(
+                "Enrollment of lab1 ({}), account {}, form account",
+                r.destination, r.account
+            ))),
+            "{}",
+            c.shown()
+        );
+        assert!(
+            before.contains(&squash("every remote step runs: ssh ")),
+            "{}",
+            c.shown()
+        );
+        let context = DisclosureContext {
+            alias: Some("lab1"),
+            lock: None,
+        };
+        for kind in kinds {
+            let text = if kind == DisclosureKind::LockContinuityOnce {
+                format!("lock_continuity_once: {lock}")
+            } else {
+                disclosure_text(kind, &context)
+            };
+            assert!(
+                before.contains(&squash(&text)),
+                "{kind:?} before the prompt: {}",
+                c.shown()
+            );
+        }
+        let general = disclosure_text(DisclosureKind::LockContinuityOnce, &context);
+        assert!(!before.contains(&squash(&general)), "{}", c.shown());
+        c.send(b"no\r");
+        let out = c.finish();
+        assert_eq!(out.code, 3, "{out:?}\n{}", c.shown());
+        let lines: Vec<&str> = out
+            .stdout
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        assert_eq!(lines.len(), 1, "exactly one envelope on stdout: {out:?}");
+        let v: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(v["code"], "INTERACTION_REQUIRED", "{v}");
+        assert!(
+            v["data"]["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("not confirmed (answered no)"),
+            "{v}"
+        );
+        assert!(
+            !out.stdout.contains("[y/N]"),
+            "no prompt on stdout: {out:?}"
+        );
+        assert!(
+            rig.pending().iter().any(|d| d.id.to_string() == decision),
+            "nothing was sent: still pending"
+        );
+        assert!(
+            rig.store()
+                .transaction(|tx| tx.lock_disclosure_ack())
+                .unwrap()
+                .is_none(),
+            "nothing acknowledged"
+        );
+    }
 }

@@ -226,7 +226,7 @@ esac
 EOF
     cat >"$B/cargo" <<'EOF'
 #!/usr/bin/env bash
-{ printf 'cargo'; printf ' %s' "$@"; echo; echo "cargo-env CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-unset}"; } >>"$HM_ST_LOG"
+{ printf 'cargo'; printf ' %s' "$@"; echo; echo "cargo-env CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-unset}"; echo "cargo-env LINUX_LINKER=${CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER:-unset}"; } >>"$HM_ST_LOG"
 if [ "${HM_ST_CARGO_FAIL:-0}" = 1 ]; then
     echo "error: could not compile (selftest)" >&2
     exit 101
@@ -451,7 +451,23 @@ case "${1:-}" in
                         fi
                         echo "user=created (non-root, disposable home)"
                         echo "heimdall-installed=yes" ;;
+                    # ⟨M03 wave 6⟩ The root sshds around scenario-managed.sh.
+                    m03-sshd-start)
+                        echo "m03-sshd-account=listening on 127.0.0.1 (selftest)"
+                        echo "m03-sshd-system=listening on 127.0.0.1 (selftest)" ;;
+                    m03-sshd-stop)
+                        echo "m03-sshd-account-stop=stopped"
+                        echo "m03-sshd-system-stop=stopped" ;;
                 esac ;;
+            scenario-managed.sh)
+                echo "### wsl_managed_ssh"
+                echo "fact mode=disposable-distribution"
+                for s in m03_wsl_enroll_account_form_verified m03_wsl_account_form_registry_is_the_default_path \
+                    m03_wsl_ordinary_ssh_managed_alias_without_f m03_wsl_revoke_then_fresh_login_refused; do
+                    echo "test $s ... ok"
+                done
+                echo "### wsl_managed_ssh exit=0"
+                exit 0 ;;
             scenario-ordinary-ssh.sh)
                 echo "### wsl_ordinary_ssh"
                 # What a scenario step may print: the local user, host and home and the Windows
@@ -579,6 +595,7 @@ harness() {
         HM_ST_LOG="$L" HM_ST_HOST="$HOST" HM_ST_HOME="$H" HM_ST_WINROOT="$W" HM_ST_BIN="$B" \
         HM_ST_BUILD_JSON="$S/build.json" HM_ST_WSLDIR="$S/wsl" HM_ST_SSHD_COPY="$S/sshd-config.copy" \
         HM_ST_SSHD_PIDS="$S/sshd.pids" HM_ST_IMAGE="$S/image.bin" HM_ST_OSRELEASE="$S/os-release" \
+        HM_SHIM_DIR="$S/shims" \
         ${extra_env[@]+"${extra_env[@]}"} \
         bash "$r/tests/native/m02/$script" "$@" >"$S/harness.log" 2>&1 </dev/null
     rc=$?
@@ -857,7 +874,11 @@ harness "$root" run-linux.sh "$O"
 check "L01 linux build-only: exits 0" is_zero "$rc"
 check "L02 linux build-only: reaches no host (no ssh, scp or tar to one)" log_lacks '^(ssh|scp) '
 check "L03 linux build-only: cargo ran for x86_64-unknown-linux-gnu, locked, without CARGO_TARGET_DIR or --target-dir" \
-    bash -c 'grep -q "^cargo test --target x86_64-unknown-linux-gnu --workspace --no-run --locked" "$1" && grep -q "cargo-env CARGO_TARGET_DIR=unset" "$1" && ! grep -q -e "--target-dir" "$1"' _ "$L"
+    bash -c 'grep -q "^cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked" "$1" && grep -q "cargo-env CARGO_TARGET_DIR=unset" "$1" && ! grep -q -e "--target-dir" "$1"' _ "$L"
+# ⟨M03 wave 6, ADR-0009 §2.7⟩ The lean profile (above) and the stable shims: the linker is the
+# shim at the stable directory (HM_SHIM_DIR, here the world's), never the run's mktemp directory.
+check "L03b linux build-only: the zig linker shim is at the stable shim directory, not a per-run temporary one" \
+    bash -c 'grep -qxF "cargo-env LINUX_LINKER=$2/zigcc-linux.sh" "$1" && [ -x "$2/zigcc-linux.sh" ]' _ "$L" "$S/shims"
 check "L04 linux build-only: build.txt has a sha256 per planned binary, the CLI and the hook, and the toolchain" \
     bash -c 'b=$1; grep -q "^e2e_cli_m02 sha256: [0-9a-f]\{64\}$" "$b" && grep -q "^heimdall (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: [0-9a-f]\{64\}$" "$b" &&
         grep -q "^hm-fixture-hook (HM_FIXTURE_HOOK) sha256: [0-9a-f]\{64\}$" "$b" && grep -q "^toolchain: rustc 0.0.0-selftest; zig 0.0.0-selftest; target x86_64-unknown-linux-gnu" "$b"' _ "$O/build.txt"
@@ -1013,6 +1034,9 @@ make_fake_root() {
     mkdir -p "$r/tests/native" "$r/tools/validation" "$r/tests/fixtures/ssh"
     cp -R "$m02" "$r/tests/native/m02"
     rm -rf "$r/tests/native/m02/__pycache__"
+    # ⟨M03 wave 6⟩ The M03 wrappers (tests/native/m03/run-wsl-distro.sh and its scenario).
+    cp -R "$root/tests/native/m03" "$r/tests/native/m03"
+    rm -rf "$r/tests/native/m03/__pycache__"
     mkdir -p "$r/tests/native/windows-ipc"
     cp "$root/tests/native/windows-ipc/scratch-lib.sh" "$r/tests/native/windows-ipc/"
     cat >"$r/tools/validation/check.sh" <<'EOF'
@@ -1607,6 +1631,22 @@ extra_env+=(HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM" HM_ST_UNREGIS
 harness "$S/repo" run-wsl-distro.sh "$O"
 check "D56 distro local: an unregister that failed is retried by the EXIT trap, locally; the set ends equal, the directories are removed, no ssh" \
     bash -c '[ "$1" != 0 ] && [ "$(grep -c "^wsl --unregister " "$2")" = 2 ] && cmp -s "$3" "$4" && grep -q "^cleanup unregister-exit=0$" "$5" && [ -z "$(ls -A "$6/hm-m00")" ] && [ -z "$(ls -A "$7/localappdata/hm-m00")" ] && ! grep -qE "^(ssh|scp) " "$2"' _ "$rc" "$L" "$S/wsl/registry" "$S/registry.before" "$O/commands.txt" "$H" "$W"
+
+# ⟨M03 wave 6⟩ The M03 wrapper (local mode, as the PC runs it): the same disposable-distribution
+# rules with the hm-m03 prefix, the managed scenario and the root sshd phases around it.
+local_distro_world distro-local-m03
+extra_env+=(HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM")
+harness "$S/repo" ../m03/run-wsl-distro.sh "$O"
+check "D70 wsl_harness_unregisters_only_its_distribution (m03 wrapper, local): exit 0; one import and one unregister, both of this run's hm-m03-<hex>, every -d and --terminate targets it; the registered set equals the one before; no --shutdown, no other distribution named; m03-sshd-start, the managed scenario as the non-root user, then m03-sshd-stop" \
+    bash -c 'l=$1; [ "$2" = 0 ] && [ "$(grep -c "^wsl --import " "$l")" = 1 ] && [ "$(grep -c "^wsl --unregister " "$l")" = 1 ] &&
+        n=$(sed -n "s/^wsl --import \([^ ]*\) .*/\1/p" "$l") && case "$n" in hm-m03-[0-9a-f]*) ;; *) exit 1 ;; esac &&
+        [ "$(grep "^wsl --unregister " "$l" | sed "s/^wsl --unregister //")" = "$n" ] &&
+        ! grep "^wsl -d " "$l" | grep -qv "^wsl -d $n " && ! grep "^wsl --terminate " "$l" | grep -qv "^wsl --terminate $n$" &&
+        cmp -s "$3" "$4" && grep -q "^registered-set-equal-to-before=yes$" "$5" && grep -q "^distribution-registered-after=no$" "$5" &&
+        ! grep -q -e "--shutdown" "$l" && ! grep -q "OwnerDistroSelftest\|OtherOwnerDistro" "$l" &&
+        a=$(grep -n "target-root.sh $n m03-sshd-start hmtest " "$l" | cut -d: -f1) && b=$(grep -n -- "-u hmtest .*scenario-managed.sh" "$l" | cut -d: -f1) &&
+        c=$(grep -n "target-root.sh $n m03-sshd-stop hmtest " "$l" | cut -d: -f1) && [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] &&
+        grep -q "^### wsl_managed_ssh exit=0$" "$6"' _ "$L" "$rc" "$S/wsl/registry" "$S/registry.before" "$O/host.txt" "$O/tests.txt"
 
 # --- the controller distribution's name (ADR-0007 §12.44 item 1) -------------------------------
 

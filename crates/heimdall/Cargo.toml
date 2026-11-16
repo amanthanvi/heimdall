@@ -139,3 +139,9 @@ path = "../../tests/e2e/enroll_m03.rs"
 [[test]]
 name = "e2e_tui_m03"
 path = "../../tests/e2e/tui_m03.rs"
+
+# ⟨M03⟩ wave 6 (U13): the exit suite through the real binary and its real issuer child
+# (ADR-0008 §17.26 item 3; m03-plan U13, §3 rows A07, A10, A33).
+[[test]]
+name = "e2e_exit_m03"
+path = "../../tests/e2e/exit_m03.rs"

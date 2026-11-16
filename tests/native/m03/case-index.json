@@ -1,0 +1,1486 @@
+{
+  "description": "M03-U13 case index (m03-plan revision 6 §3, §4): every M03 exit case and claim mapped to its Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description; read by tests/native/m03/m03-evidence.py, which is m02-evidence.py with the M03 constants). Patterns resolve into required-inventory.json from the build host's sources, never from run logs. Owner-input rows are blocked_rows naming m03-plan §7's B-IDs.",
+  "build_host": "macos",
+  "observation_targets": [
+    "e2e_cli_m03",
+    "e2e_deadline_m03",
+    "e2e_enroll_m03",
+    "integration_connections",
+    "integration_credential_cert",
+    "integration_doctor",
+    "integration_enroll_registry",
+    "integration_enroll_verify",
+    "integration_git_observe",
+    "integration_managed_identity_forms",
+    "integration_managed_signer",
+    "integration_projection",
+    "integration_projection_replace",
+    "integration_session_lock",
+    "integration_sshconf_vs_ssh_g",
+    "e2e_exit_m03"
+  ],
+  "platforms": {
+    "macos": {
+      "runs": "cargo"
+    },
+    "linux": {
+      "runs": "cargo"
+    },
+    "windows": {
+      "runs": "cargo"
+    },
+    "wsl-distro": {
+      "runs": "scenario"
+    },
+    "macos-lock": {
+      "runs": "cargo"
+    },
+    "windows-lock": {
+      "runs": "cargo"
+    }
+  },
+  "build_host_paths": {
+    "heimdall_testkit-unit::repo::tests::unset_or_empty_is_the_compile_time_root": {
+      "neutral": true,
+      "reason": "asserts that the compile-time repository root (the build host's checkout) holds Cargo.toml and schemas/, which exists only where the binary was built; the HM_REPO_ROOT resolution it covers is platform-neutral and its sibling tests run everywhere"
+    }
+  },
+  "platform_only": {
+    "e2e_cli_m02::ssh::a01_personal_profile_without_repository": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (ADR-0007 §12.49 item 4, deferred with D3 to M04): its attended run decision needs a terminal on stdin, which on Windows is M04's pseudoconsole driver, and connect launches the pinned in-box ssh.exe, which finds the account's real profile from the token, so no scratch home can stand in for it and without -F it would read the owner's real configuration (§9 item 5). The rest of the ssh module runs on Windows."
+    },
+    "e2e_cli_m03::issuer::issuer_restore_after_access_denial_writes_a_new_item_and_lists_the_orphan": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS keychain case (#[cfg(target_os = \"macos\")]): runs the keychain code path on a disposable file keychain (the product-file test store: never the login keychain, never added to the search list; tests/e2e/cli_m03/issuer.rs header, ADR-0008 §17.25 item 7); Windows DPAPI and Linux (no disposable Secret Service) are named in each test there"
+    },
+    "e2e_cli_m03::issuer::issuer_restore_paths_past_registration_on_the_product_store": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS keychain case (#[cfg(target_os = \"macos\")]): runs the keychain code path on a disposable file keychain (the product-file test store: never the login keychain, never added to the search list; tests/e2e/cli_m03/issuer.rs header, ADR-0008 §17.25 item 7); Windows DPAPI and Linux (no disposable Secret Service) are named in each test there"
+    },
+    "e2e_cli_m03::issuer::issuer_retire_deletes_the_exact_keychain_item_on_the_product_store": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS keychain case (#[cfg(target_os = \"macos\")]): runs the keychain code path on a disposable file keychain (the product-file test store: never the login keychain, never added to the search list; tests/e2e/cli_m03/issuer.rs header, ADR-0008 §17.25 item 7); Windows DPAPI and Linux (no disposable Secret Service) are named in each test there"
+    },
+    "e2e_cli_m03::issuer::issuer_rotate_begin_registers_the_successor_on_the_product_store": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS keychain case (#[cfg(target_os = \"macos\")]): runs the keychain code path on a disposable file keychain (the product-file test store: never the login keychain, never added to the search list; tests/e2e/cli_m03/issuer.rs header, ADR-0008 §17.25 item 7); Windows DPAPI and Linux (no disposable Secret Service) are named in each test there"
+    },
+    "e2e_cli_m03::issuer::issuer_store_access_denied_when_another_binary_reads_the_item": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS keychain case (#[cfg(target_os = \"macos\")]): runs the keychain code path on a disposable file keychain (the product-file test store: never the login keychain, never added to the search list; tests/e2e/cli_m03/issuer.rs header, ADR-0008 §17.25 item 7); Windows DPAPI and Linux (no disposable Secret Service) are named in each test there"
+    },
+    "e2e_cli_m03::issuer::recheck_retire_after_new_item_restore_deletes_only_current_generation": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS keychain case (#[cfg(target_os = \"macos\")]): runs the keychain code path on a disposable file keychain (the product-file test store: never the login keychain, never added to the search list; tests/e2e/cli_m03/issuer.rs header, ADR-0008 §17.25 item 7); Windows DPAPI and Linux (no disposable Secret Service) are named in each test there"
+    },
+    "e2e_consumer_m03::connect_existing_access_pair_flow_unchanged_from_m02": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only (#[cfg(unix)]): the verified client is a `#!/bin/sh` stub with mode 0755 first on PATH that records its arguments (tests/e2e/consumer_m03.rs)"
+    },
+    "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_account_form": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: needs a second sshd (`add_destination`); the Windows harness serves one account-form server, leased once per thread."
+    },
+    "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_system_form": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`); and needs a second sshd (`add_destination`); the Windows harness serves one account-form server, leased once per thread."
+    },
+    "e2e_enroll_m03::client_change_triggers_prompt_reverification": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::enroll_account_approval_records_lock_disclosure_acknowledgement_once": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: needs a second sshd (`add_destination`); the Windows harness serves one account-form server."
+    },
+    "e2e_enroll_m03::enroll_reconcile_unreachable": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: it stops the server; the harness sshd is shared by the run and is not this test's to stop (`LoopbackSshd::stop` leaves a harness server running)."
+    },
+    "e2e_enroll_m03::enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::enrollment_result_next_discloses_slot_free": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::evidence_invalidated_on_host_key_or_client_change": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`) (`held_host_key_world_record_with` trusts the CA and writes the principals file)."
+    },
+    "e2e_enroll_m03::fence::concurrent_reverification_resumes_run_one_verification": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form (as `refused_reverification_is_resumed_once_after_the_fence_lifts`)."
+    },
+    "e2e_enroll_m03::fence::refused_reverification_is_resumed_once_after_the_fence_lifts": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form (as `supervisor_reverifies_before_freshness_lapses`)."
+    },
+    "e2e_enroll_m03::fence::verification_fence_refusal_is_returned_and_changes_no_evidence": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form (as `supervisor_reverifies_before_freshness_lapses`)."
+    },
+    "e2e_enroll_m03::fence_audit_keeps_signals_sent_on_unproven": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's."
+    },
+    "e2e_enroll_m03::fence_unproven_never_unlocks_and_counts_attempt": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's."
+    },
+    "e2e_enroll_m03::held_evidence_hold_reverifies_on_owner_request": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::held_host_key_change_needs_target_reapproval_with_key_diff": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::manual_removal_cancel_returns_to_origin_state_and_evidence": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::recheck_manual_recovered_last_removal_drops_issuing_ca": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Gated #[cfg(unix)] in source, with no reason stated for this test (its siblings in the manual-recovery group are Unix only because the Windows harness sshd cannot serve the system form: SshdUnavailable)"
+    },
+    "e2e_enroll_m03::recheck_manual_recovered_withdrawn_removal_clears_residual": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Gated #[cfg(unix)] in source, with no reason stated for this test (its siblings in the manual-recovery group are Unix only because the Windows harness sshd cannot serve the system form: SshdUnavailable)"
+    },
+    "e2e_enroll_m03::reconcile_after_manual_recovery_classifies_without_redispatch": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's."
+    },
+    "e2e_enroll_m03::reconcile_terminates_stale_holder_then_redispatches": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's."
+    },
+    "e2e_enroll_m03::rotation_two_accounts_one_unreachable": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: needs a second sshd (`add_destination`); the Windows harness serves one account-form server, leased once per thread; and it stops the second server."
+    },
+    "e2e_enroll_m03::supervisor_reverifies_before_freshness_lapses": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::system_form_never_reported_removed_without_absence_check": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::target_change_failure_or_inconclusive_keeps_approved_target_and_held": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::target_change_pass_replaces_approved_target_atomically": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_enroll_m03::target_change_pins_come_from_proposed_target": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`)."
+    },
+    "e2e_issuer_ceremony::d5_backup_restores_with_stock_ssh_keygen": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix pseudo-terminal case driving stock ssh-keygen at its passphrase prompt; on Windows the D5 backup is decrypted in-process with the shown passphrase in issuer::windows_cases::windows_issuer_init_and_retire_on_the_dpapi_store (ADR-0008 §17.26 item 8)"
+    },
+    "e2e_issuer_ceremony::passphrase_only_on_tty_transcript": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix pseudo-terminal case (#[cfg(unix)], rustix pty). The same ControllingTerminal path on Windows (CONIN$/CONOUT$, raw console read) runs through the real CLI in e2e_cli_m03 issuer::windows_cases::windows_issuer_init_and_retire_on_the_dpapi_store, which asserts the passphrase only on the console (ADR-0008 §17.26 item 8)"
+    },
+    "e2e_run_m02::a11::a11_confirm_constrained_native_key_refused_before_agent_contact": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "e2e_run_m02::a11::a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "e2e_run_m02::a11::a11_interactive_connect_succeeds_after_provider_approval": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "ADR-0007 §12.47 item 3 (D2/D3): deferred to M04 (deferred_with_decision row of this case): the interactive connect after provider approval is a pty case; its non-interactive twins run natively, and M04 adds the pseudoconsole driver for connect."
+    },
+    "e2e_tui_m03::pty::time_confirmation_chore_shown_after_reboot": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix pseudo-terminal case (a /bin/sh stub ssh, termios reads); the chore's all-platform counterpart is e2e_cli_m03 uninstall_doctor::status_shows_time_confirmation_chore_after_reboot, and the TUI's Windows console setup and restore is e2e_tui_m03 windows_console::windows_tui_restores_the_console_after_quitting (ADR-0008 §17.26 item 8)"
+    },
+    "integration_adapters::a11_locked_native_agent_lists_nothing": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "integration_connections::unix::": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix ownership cases (#[cfg(unix)] module `unix`): owned masters through ssh -M multiplexing, pidfd/kill signalling and holder PIDs; Windows reports and enforces owned multiplexing as unavailable (M-F7) and its dedicated-connection rows are the windows_* tests (m03-plan U7, §4.2)"
+    },
+    "integration_credential_memory::core_dumps_disabled_after_harden": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only: harden_process lowers RLIMIT_CORE (Linux, macOS) and clears PR_SET_DUMPABLE (Linux); Windows applies no process mitigation, which is disclosed (crates/credential/src/sys.rs; m03-plan §4.2, K_env custody)"
+    },
+    "integration_enroll_registry::docker_bash_sh::": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_enroll_registry::docker_busybox::": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_enroll_registry::docker_dash::": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_enroll_registry::docker_debian_dash::": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_enroll_registry::native_sh::": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix-only module (#[cfg(all(unix, debug_assertions))]): the registry scripts run directly under this host's /bin/sh or through a loopback sshd; Windows is the client to the WSL fixture sshd (m03-plan §4.2, remote registry protocol)"
+    },
+    "integration_enroll_registry::native_sh::acl_indicator_refused": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS-only registry row (#[cfg(target_os = \"macos\")] in native_sh): ACL indicators and the boot-identity timestamp are macOS shell facts; the module is Unix-only (#[cfg(all(unix, debug_assertions))]) and Windows runs the scripts as the client against the WSL fixture (m03-plan §4.2)"
+    },
+    "integration_enroll_registry::native_sh::timestamp_boot_identity_difference_alone_never_proves_gone": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS-only registry row (#[cfg(target_os = \"macos\")] in native_sh): ACL indicators and the boot-identity timestamp are macOS shell facts; the module is Unix-only (#[cfg(all(unix, debug_assertions))]) and Windows runs the scripts as the client against the WSL fixture (m03-plan §4.2)"
+    },
+    "integration_enroll_registry::native_sshd::": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix-only module (#[cfg(all(unix, debug_assertions))]): the registry scripts run directly under this host's /bin/sh or through a loopback sshd; Windows is the client to the WSL fixture sshd (m03-plan §4.2, remote registry protocol)"
+    },
+    "integration_enroll_verify": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix only (#[cfg(unix)] mod fx and per-test gates): the file's own loopback sshd run as this user on 127.0.0.1 and the system ssh client wrapper are the Unix harness; Windows runs the same steps as the client to the WSL fixture sshd (e2e_enroll_m03 windows:: tests and the WSL rows; m03-plan §4.2, remote registry protocol)"
+    },
+    "integration_enroll_verify::cli_child_entry": {
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "rationale": "Runs on every platform: an exception to the broader platform_only entry above (no gate, or a #[cfg(windows)] counterpart)"
+    },
+    "integration_enroll_verify::cli_death_ends_ssh_step_process": {
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "rationale": "Runs on every platform: an exception to the broader platform_only entry above (no gate, or a #[cfg(windows)] counterpart)"
+    },
+    "integration_enroll_verify::runner_refuses_without_spawning": {
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "rationale": "Runs on every platform: an exception to the broader platform_only entry above (no gate, or a #[cfg(windows)] counterpart)"
+    },
+    "integration_enroll_verify::trace_patterns_keyed_by_release_family": {
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "rationale": "Runs on every platform: an exception to the broader platform_only entry above (no gate, or a #[cfg(windows)] counterpart)"
+    },
+    "integration_enroll_verify::unrecorded_client_family_doctor_finding_names_version": {
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "rationale": "Runs on every platform: an exception to the broader platform_only entry above (no gate, or a #[cfg(windows)] counterpart)"
+    },
+    "integration_enroll_verify::verify_on_account_without_log_access": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_issuer_child::process::issuer_path_never_exists_through_runtime_lifecycle": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "Unix process cases (#[cfg(unix)] module `process`): the issuer and runtime child processes are spawned over Unix pipes and signalled by process group; the Windows process path has its own rows (m03-plan U3)"
+    },
+    "integration_issuer_store::macos::": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS keychain module (#[cfg(target_os = \"macos\")] mod macos): the keychain code path against a disposable file keychain exists only on macOS (m03-plan §4.2, K_ca product store; Windows is DPAPI, Linux is Secret Service)"
+    },
+    "integration_managed_adapter::revoke_during_each_issuance_step": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "#[cfg(unix)] in source, no reason stated there: the test runs a real issuer child process (the Unix `process` harness of tests/integration/issuer_child.rs, also Unix only)"
+    },
+    "integration_managed_signer::destroyed_key_makes_installed_certificate_unusable": {
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "rationale": "#[cfg(unix)] in source, no reason stated there: the test logs in with a real ssh client through the slot certificate against the loopback fixture sshd (real::login)"
+    },
+    "integration_session_lock::macos_lock_signal_observed": {
+      "platforms": [
+        "macos-lock"
+      ],
+      "rationale": "macOS lock signal (#[cfg(target_os = \"macos\")]), #[ignore]d: observed only across a real screen lock under the ADR-0004 §2 lock rule, so it runs in the lock procedure (tests/native/m03/lock-macos.sh, platform macos-lock), started unlocked before pmset displaysleepnow (m03-plan §4.4)"
+    },
+    "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "integration_testkit_m03::shell_containers_run_each_shell_as_group_leader": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_testkit_m03::docker_ca_hook_is_container_internal_only": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_testkit_m03::docker_enrollable2_seeded_like_enrollable": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+    },
+    "integration_testkit_m03::registry_guard_refuses_non_scratch_paths": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)]: the registry guard's test builds Unix scratch, Docker-label and WSL-distribution paths; on Windows the enrollment registry is the harness WSL sshd's (HM_FIXTURE_SSHD_REGISTRY), which the Windows enrollment e2e tests use under the same guard"
+    },
+    "integration_testkit_m03::owner_digest_detects_change": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)]: the testkit owner digest reads Unix lstat metadata; the Windows harness takes its own owner-profile digest (run-windows-local.ps1 owner-ssh-git-before/after) around the run"
+    },
+    "e2e_exit_m03::lock::": {
+      "platforms": [
+        "macos-lock",
+        "windows-lock"
+      ],
+      "rationale": "the A03 lock procedure's driver step (#[ignore]): run once, in one driver process, by tests/native/m03/lock-macos.sh (platform macos-lock) and lock-windows.ps1 (platform windows-lock) under the ADR-0004 §2 lock rule (m03-plan §4.4); never in an ordinary run"
+    }
+  },
+  "groups": {
+    "A03": {
+      "title": "A03: fresh authentications succeed through desktop and vault lock without the original vault staying unlocked; the configured lock-revokes alternative behaves differently, as disclosed (includes R-UX-03: disclose once, configurable alternatives)",
+      "requirement_ids": [
+        "R-UX-03",
+        "R-CR-02"
+      ],
+      "tests": {
+        "integration_session_lock": [
+          "macos_lock_signal_observed",
+          "revoke_on_lock_refused_where_signal_unavailable"
+        ],
+        "model_lock_behavior": "*",
+        "e2e_managed_m03": [
+          "reissue_after_runtime_process_restart_same_boot"
+        ],
+        "e2e_cli_m03": [
+          "m03_help_and_discovery_goldens"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_revoke_on_lock_refused_lock_signal_unavailable"
+        ],
+        "e2e_exit_m03": [
+          "lock::a03_lock_prepare",
+          "lock::a03_fresh_logins_while_locked_continue",
+          "lock::a03_new_grant_while_locked_under_standing_policy",
+          "lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "lock::a03_vault_stand_in_locked_agent_does_not_matter",
+          "lock::a03_post_unlock_follows_remaining_deadline",
+          "lock::a03_lock_cleanup"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "macos-arm64 login-keychain product row (K_ca written at init, read at issuer start, during lock, after login, ACL across ad-hoc-signed updates)",
+          "status": "blocked",
+          "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+        },
+        {
+          "platform": "linux desktop (logind lock signal, the Linux lock-revokes row, Secret Service availability after login)",
+          "status": "blocked",
+          "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+        },
+        {
+          "platform": "1Password vault row (lock the vault; managed logins continue)",
+          "status": "blocked",
+          "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7)"
+        },
+        {
+          "platform": "windows-11 system-agent vault row (the Windows system ssh-agent as the locked source provider)",
+          "status": "blocked",
+          "blocked_on": "B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "macos-lock",
+        "windows-lock",
+        "wsl-distro"
+      ],
+      "platform_required": {
+        "windows": {
+          "integration_issuer_store": [
+            "windows::windows_dpapi_round_trip_across_processes"
+          ],
+          "e2e_cli_m03": [
+            "issuer::windows_cases::windows_json_decision_approve_of_an_enrollment_shows_its_disclosures_before_the_prompt"
+          ]
+        },
+        "windows-lock": {
+          "integration_session_lock": [
+            "windows_lock_signal_observed"
+          ],
+          "e2e_exit_m03": [
+            "lock::a03_issuer_restart_dpapi_unprotect_while_locked"
+          ]
+        }
+      },
+      "limitation": "The macOS lock run is a debug build on the test store: mechanism evidence only, it can never produce the macOS lock_continuity claim (F03). Only a release-profile run on the Windows product DPAPI store is claim-eligible. The U13 lock-procedure checks (a03_*) are native harness steps run apart from the exit build window and bound to the exit commit."
+    },
+    "A07": {
+      "title": "A07: new local use fails immediately; descendants and stale callbacks cannot reactivate; remote-pending effects and the maximum residual are truthful (includes R-SE-07: recheck the generation before issuance and activation)",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-SE-07"
+      ],
+      "tests": {
+        "model_issuer_linearization": "*",
+        "model_narrowing_m03": "*",
+        "model_signing_gates": "*",
+        "integration_ipc_signing_m03": "*",
+        "integration_managed_signer": [
+          "sign_paused_after_precheck_then_revoke_is_refused",
+          "sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit",
+          "no_signature_enqueued_after_revocation_acknowledged",
+          "sign_during_revoke_is_linearized",
+          "destroyed_key_makes_installed_certificate_unusable",
+          "sign_crossing_deadline_after_fresh_read_not_released",
+          "sign_budget_overrun_expires_permit_nothing_released",
+          "deadline_crossed_while_enqueue_blocked_nothing_released",
+          "deadline_crossed_between_capacity_and_release_check_refused",
+          "precheck_before_mark_then_gate_after_mark_refused",
+          "release_check_refuses_when_mark_set_after_admission",
+          "signer_multi_root_countermodel_within_derived_bound",
+          "signer_overlapping_narrowings_countermodel_within_derived_bound"
+        ],
+        "integration_managed_adapter": [
+          "revoke_during_each_issuance_step",
+          "revoke_with_unreachable_destination_reports_bounded_remote_effect",
+          "revoke_cascades_to_children_destroying_their_keys",
+          "stale_approval_cannot_reactivate_after_revoke",
+          "slow_server_clock_residual_bounded_by_measurement",
+          "unmeasured_residual_reported_nominally_expired_never_cleared",
+          "revoke_destroys_keys_under_exclusive_gate"
+        ],
+        "integration_runtime_m03": [
+          "bounded_obligation_completes_after_measured_bound_on_safe_time",
+          "unmeasured_obligation_becomes_nominally_expired_never_cleared",
+          "bounded_obligation_never_moves_on_uncertain_time",
+          "bounded_obligation_consumes_no_attempt"
+        ],
+        "model_lock_behavior": [
+          "lock_revocation_between_reserve_and_publish_voids"
+        ],
+        "integration_issuer_store": [
+          "key_only_restore_reports_unbounded_unknown"
+        ],
+        "e2e_managed_m03": [
+          "revoke_destroys_k_env_under_the_gates",
+          "revoke_result_reports_requested_and_committed_at"
+        ],
+        "model_operations_m03": [
+          "issuance_refuses_unknown_ca",
+          "issuance_refuses_ca_not_verified_for_pair",
+          "issuance_refuses_ca_retiring",
+          "extension_profile_matches_adr_0005_3_4_table",
+          "reserve_selects_newest_verified_ca_for_pair",
+          "publish_voids_when_enrollment_removed_between_reserve_and_publish",
+          "publish_voids_when_ca_retired_between",
+          "verification_reserve_refuses_*",
+          "verification_entries_counted_in_pair_residual",
+          "reserved_verification_never_published_after_restart"
+        ],
+        "model_managed_domain": [
+          "verification_check_refuses_each_predicate"
+        ],
+        "heimdall_domain-unit": [
+          "verification::tests::one_refusal_per_predicate"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_access_ensure_signed_by_the_real_issuer_child",
+          "m03_wsl_revoke_then_fresh_login_refused"
+        ],
+        "e2e_exit_m03": [
+          "real_issuer_activation_reissue_revocation_with_fresh_logins"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "disconnected-runner variant of A07 (a runner disconnected from the runtime keeps no authority after revocation)",
+          "status": "deferred_with_decision",
+          "decision": "m03-plan §3, §4.5: the disconnected-runner variant of A07 is deferred to M06 (G07; plan §5 M06); A07's M01 model rows stay as recorded"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ],
+      "note": "A07's destination variant; R-SE-07 (recheck the generation before issuance and activation) is U0b rows 2-5 and 20, the U3 linearization model and U6 stale_approval_cannot_reactivate_after_revoke, all in this group (m03-plan §3)."
+    },
+    "A09": {
+      "title": "A09: existing access survives; only owned records change; uncertain outcomes reconcile; newer edits are not overwritten; rotation; rollback (includes R-CR-06: rotation and unenrollment touch only owned records)",
+      "requirement_ids": [
+        "R-CR-02",
+        "R-CR-05",
+        "R-CR-06"
+      ],
+      "tests": {
+        "integration_enroll_registry": "*",
+        "integration_enroll_verify": "*",
+        "heimdall_enroll-unit": "*",
+        "e2e_enroll_m03": "*",
+        "model_managed_domain": [
+          "foreign_removal_paths_golden",
+          "target_change_outcomes_golden",
+          "enrollment_recovery_paths_each_tested"
+        ],
+        "integration_managed_adapter": [
+          "rotation_keeps_ensure_working_per_account"
+        ],
+        "e2e_cli_m03": [
+          "uninstall_refuses_purge_with_live_enrollments",
+          "uninstall_doctor::uninstall_lists_remote_enrollments_and_refuses_purge_without_ack",
+          "uninstall_doctor::uninstall_purge_keeping_enrollments_requires_fresh_bundle"
+        ],
+        "integration_testkit_m03": [
+          "registry_guard_refuses_non_scratch_paths",
+          "owner_digest_detects_change",
+          "shell_containers_run_each_shell_as_group_leader"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_enroll_account_form_verified",
+          "m03_wsl_account_form_registry_is_the_default_path",
+          "m03_wsl_enroll_system_form_verified",
+          "m03_wsl_setup_apply_projects_the_managed_aliases",
+          "m03_wsl_ordinary_ssh_managed_alias_without_f",
+          "m03_wsl_ordinary_git_managed_alias_without_f",
+          "m03_wsl_ordinary_scp_managed_alias_without_f",
+          "m03_wsl_ordinary_sftp_managed_alias_without_f",
+          "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca",
+          "m03_wsl_strictmodes_refuses_a_group_writable_registry",
+          "m03_wsl_uninstall_lists_the_remote_enrollments",
+          "m03_wsl_uninstall_restores_the_users_config_bytes"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "enrollment with 1Password as the existing access",
+          "status": "blocked",
+          "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7)"
+        },
+        {
+          "platform": "enrollment through the Windows system ssh-agent as the source provider",
+          "status": "blocked",
+          "blocked_on": "B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7)"
+        },
+        {
+          "platform": "enrollment through a touch-required existing identity (provider-interaction path of D5 §6.10)",
+          "status": "blocked",
+          "blocked_on": "B6: a hardware security key (FIDO2) owned for testing (m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ],
+      "limitation": "The remove window of the registry script is disclosed (m03-plan U5): a remote edit made inside the script's remove window is lost, and the verification that follows reports it; revision 2's fence window is closed (§17.4 item 2). Docker default-path rows run on macOS only; the devbox default path is covered by the WSL distribution (B8, not a declared row)."
+    },
+    "A10": {
+      "title": "A10: only the intended access succeeds where enforcement is claimed; no issuer key or broader certificate escapes; unsupported scope is labelled",
+      "requirement_ids": [
+        "R-AU-08",
+        "R-CR-04",
+        "R-CR-07"
+      ],
+      "tests": {
+        "integration_enroll_verify": [
+          "verify_positive_one_signature_negative_zero",
+          "verify_negative_*",
+          "principals_not_enforced_detected_and_rolled_back",
+          "principals_not_enforced_system_form_via_echoing_principals_command",
+          "bare_cert_authority_line_is_verification_failed",
+          "verification_failed_when_server_reads_another_registry"
+        ],
+        "e2e_enroll_m03": [
+          "a10_narrow_certificate_refused_on_other_host_account_form",
+          "a10_narrow_certificate_refused_on_other_host_system_form"
+        ],
+        "integration_issuer_child": [
+          "ceiling_two_principals",
+          "process::issuer_path_never_exists_through_runtime_lifecycle"
+        ],
+        "integration_managed_signer": [
+          "environment_endpoint_lists_only_materialized_bindings"
+        ],
+        "integration_managed_adapter": [
+          "report_*"
+        ],
+        "integration_testkit_m03": [
+          "docker_ca_hook_is_container_internal_only",
+          "docker_enrollable2_seeded_like_enrollable"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_enroll_account_form_verified",
+          "m03_wsl_enroll_system_form_verified",
+          "m03_wsl_logins_attributed_to_the_grant_certificate"
+        ],
+        "e2e_exit_m03": [
+          "a10_bound_consumer_issuer_reachability_recorded"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux desktop: the Secret Service reachability row (what a same-user worker can reach of the issuer store)",
+          "status": "blocked",
+          "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ],
+      "note": "U13's a10_bound_consumer_issuer_reachability_recorded (per-platform reachability with positive controls) is added with the exit suite (e2e_exit_m03)."
+    },
+    "A23": {
+      "title": "A23: owned admission and closure match the policy; no certificate-only enforcement assumption; unmanaged and remote-process limits are reported accurately; OpenSSH stop behaviour tested",
+      "requirement_ids": [
+        "R-AU-05"
+      ],
+      "tests": {
+        "integration_connections": "*",
+        "e2e_deadline_m03": "*",
+        "e2e_consumer_m03": "*",
+        "integration_projection_managed": [
+          "p_renders_owned_master_control_path_when_enabled",
+          "deadline_wording_follows_identity_selection"
+        ],
+        "integration_managed_adapter": [
+          "revoke_result_lists_owned_connections_and_ordinary_note"
+        ],
+        "heimdall_adapters-unit": [
+          "managed::report::tests::notes_and_multiplexing"
+        ],
+        "heimdall-unit": [
+          "managed_readiness_detail_exact_deadline_strings"
+        ]
+      },
+      "blocked_rows": [],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "note": "macOS and the devbox run real masters; Windows runs dedicated connections through the job object and registration, and reports and enforces owned multiplexing as unavailable (windows_owned_multiplexing_reported_unavailable; M-F7)."
+    },
+    "A33": {
+      "title": "A33: no secret leakage or plaintext fallback; previewed and redacted outputs; nothing collected by default",
+      "requirement_ids": [
+        "R-CR-03",
+        "R-CR-04"
+      ],
+      "tests": {
+        "integration_issuer_store": [
+          "no_plaintext_when_store_unavailable",
+          "bundle_contains_no_private_material"
+        ],
+        "e2e_issuer_ceremony": [
+          "passphrase_only_on_tty_transcript",
+          "d5_backup_restores_with_stock_ssh_keygen"
+        ],
+        "integration_credential_memory": [
+          "secret_key_has_no_clone_debug_serialize",
+          "core_dumps_disabled_after_harden"
+        ],
+        "heimdall-unit": [
+          "testcfg::tests::the_m03_refusal_covers_every_m03_variable"
+        ],
+        "e2e_cli_m03": [
+          "m03_test_gates_are_validated_before_anything_else"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_product_store_unavailable_no_plaintext_fallback"
+        ],
+        "e2e_exit_m03": [
+          "a33_secret_bytes_scan_all_artifacts"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "support bundles (secret-byte scan of generated bundles)",
+          "status": "deferred_with_decision",
+          "decision": "m03-plan §3, §4.5: support bundles are M08 (their rows are deferred_with_decision)"
+        },
+        {
+          "platform": "update artifacts (secret-byte scan of update artifacts)",
+          "status": "deferred_with_decision",
+          "decision": "m03-plan §3, §4.5: update artifacts are M08 (their rows are deferred_with_decision)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ],
+      "note": "U13's a33_secret_bytes_scan_all_artifacts (the seeded K_env, the test K_ca, the passphrase and canaries over every artifact kind) is added with the exit suite (e2e_exit_m03). release_build_refuses_m03_test_gates exists only in a release-profile test build (#[cfg(not(debug_assertions))]); its binary half is check.sh's release-gate step (tools/validation/release-gate.sh). The debug-build tests indexed here are the closest Cargo-listed ones.",
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m03": [
+            "issuer::windows_cases::windows_issuer_init_and_retire_on_the_dpapi_store",
+            "issuer::windows_cases::windows_issuer_init_ctrl_c_or_eof_at_written_sends_nothing_more",
+            "issuer::windows_cases::windows_issuer_ceremonies_refuse_redirected_stdin_with_a_console_attached"
+          ],
+          "e2e_issuer_ceremony": [
+            "windows_ceremony_registration_prompt_times_out_and_sends_nothing"
+          ]
+        }
+      }
+    },
+    "R-AU-08": {
+      "title": "R-AU-08: actual enforcement is reported; unmet minimums are rejected",
+      "requirement_ids": [
+        "R-AU-08"
+      ],
+      "tests": {
+        "integration_managed_adapter": [
+          "report_*",
+          "offline_until_beyond_bound_capability_unavailable",
+          "unattended_minimum_requires_claim_continue_and_no_interaction"
+        ],
+        "heimdall_adapters-unit": [
+          "managed::report::*",
+          "state::tests::unattended_is_never_met_without_verified_continuity"
+        ],
+        "model_operations_m03": [
+          "unattended_requires_claim_and_continue"
+        ]
+      },
+      "blocked_rows": [],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "note": "claims_table_rejects_debug_profile_or_test_store_for_custody_claim (m03-plan §3, U0) is not a Cargo test: the rule is enforced by tools/validation/claims_table.py (check.sh step claims-table, with its --self-test)."
+    },
+    "background-once": {
+      "title": "plan §5 M03 exit: the user can allow background work once without routine unlocks, within one boot (fixture level plus the A03 native rows)",
+      "requirement_ids": [],
+      "tests": {
+        "e2e_enroll_m03": [
+          "enroll_preview_apply_verify_setup_apply_ensure_ssh"
+        ],
+        "model_lock_behavior": [
+          "disclosure_shown_once_then_recorded"
+        ],
+        "e2e_tui_m03": [
+          "time_confirmation_chore_shown_after_reboot"
+        ],
+        "e2e_cli_m03": [
+          "uninstall_doctor::status_shows_time_confirmation_chore_after_reboot"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "the human walkthrough of allowing background work once",
+          "status": "blocked",
+          "blocked_on": "B7: the owner as participant (the human walkthrough of allowing background work once without routine unlocks; m03-plan §7)"
+        },
+        {
+          "platform": "native reboot and logout rows (the runtime start and one attended time confirm counted as chores after a real reboot)",
+          "status": "blocked",
+          "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "note": "The A03 lock rows are part of this claim (m03-a03-lock-continuity.json). After a reboot the runtime start and one attended `time confirm` are counted as chores (F14).",
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m03": [
+            "access::windows_setup_apply_and_time_confirm_need_a_typed_yes"
+          ],
+          "e2e_tui_m03": [
+            "windows_console::windows_tui_restores_the_console_after_quitting"
+          ]
+        }
+      }
+    },
+    "no-self-renewal": {
+      "title": "plan §5 M03 exit: an expired grant cannot renew itself",
+      "requirement_ids": [],
+      "tests": {
+        "integration_managed_adapter": [
+          "expired_grant_never_reissued",
+          "renew_never_extends_deadline_or_pairs",
+          "reissue_refused_for_revoke_on_lock"
+        ],
+        "integration_issuer_child": [
+          "ceiling_*"
+        ],
+        "model_authority": [
+          "a05_*"
+        ]
+      },
+      "blocked_rows": [],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "honest-limits": {
+      "title": "plan §5 M03 exit: does not claim all remote processes terminate or all offline credentials revoke immediately",
+      "requirement_ids": [],
+      "tests": {
+        "integration_connections": [
+          "remote_process_survives_close_reported_not_terminated"
+        ],
+        "integration_managed_adapter": [
+          "revoke_with_unreachable_destination_reports_bounded_remote_effect",
+          "unmeasured_residual_reported_nominally_expired_never_cleared",
+          "report_for_local_managed_binding_with_empty_claim_table",
+          "report_with_fixture_claim_table_reports_verified_with_record"
+        ]
+      },
+      "blocked_rows": [],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "note": "Report goldens: remote_processes is not_terminated and revocation.remote is unknown until its claim, never immediate remote (F11)."
+    },
+    "fixed-provider": {
+      "title": "plan §5 M03 exit: a fixed provider remains usable under its real limitations (the M02 A11 and A35 suites re-run unchanged at the M03 build)",
+      "requirement_ids": [],
+      "tests": {
+        "integration_projection_managed": [
+          "existing_access_aliases_render_byte_identical_to_m02"
+        ],
+        "integration_managed_adapter": [
+          "issuer_unavailable_no_fallback_to_existing_identity"
+        ],
+        "model_operations_m03": [
+          "pending_projection_ensure_resolves_existing_with_warning"
+        ],
+        "e2e_enroll_m03": [
+          "enroll_*"
+        ],
+        "integration_adapters": [
+          "a11_*",
+          "a35_identity_selected_by_public_key_with_identities_only",
+          "prepare_marks_uncleared_fallback_entries",
+          "prepared_facts_from_outcome_drop_interaction_fields",
+          "adapters_never_send_*"
+        ],
+        "heimdall_domain-unit": [
+          "*domain_eligibility_rule_table",
+          "*domain_fallback_clearance_rule_table"
+        ],
+        "e2e_run_m02": [
+          "a11_*",
+          "a27_git_*",
+          "a27_scp_*",
+          "git_run_*"
+        ],
+        "integration_testkit_fixtures": [
+          "f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed",
+          "many_keys_exhaust_max_auth_tries_without_identities_only",
+          "client_command_never_adds_selection_options"
+        ],
+        "model_operations": [
+          "m02_integration::u0b_eligibility_is_recomputed_per_result_never_taken_from_prepared_facts"
+        ],
+        "e2e_setup_dispatch": [
+          "declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher"
+        ],
+        "e2e_cli_m02": [
+          "a11_*",
+          "a35_wrong_key_exclusive_selection_fails_without_fallback",
+          "a35_*",
+          "a01_*"
+        ],
+        "integration_doctor": [
+          "a21_noninteractive_authentication_refused_*"
+        ],
+        "integration_git_observe": "*",
+        "wsl_ordinary_ssh": [
+          "a01_ordinary_ssh_alias_without_f",
+          "a01_ordinary_git_without_f",
+          "a01_ordinary_scp_without_f",
+          "a01_ordinary_sftp_without_f"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "1Password live rows (every platform; carried from M02 A11/A35)",
+          "status": "blocked",
+          "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7)"
+        },
+        {
+          "platform": "windows-11 system agent, incl. its confirm-constrained row (carried from M02 A11/A35)",
+          "status": "blocked",
+          "blocked_on": "B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7)"
+        },
+        {
+          "platform": "hardware-key touch-required row (carried from M02 A11)",
+          "status": "blocked",
+          "blocked_on": "B6: a hardware security key (FIDO2) owned for testing (m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_run_m02": [
+            "a11::a11_declaration_expiring_between_bind_and_launch_refused",
+            "a11::a11_declaration_withdrawn_after_bind_refused_before_launch",
+            "a11::a11_declared_none_allows_noninteractive_launch_and_result_says_declared",
+            "a11::a11_fallback_cleared_when_alternative_adopted_and_declared_launches",
+            "a11::a11_file_backed_fallback_is_never_cleared",
+            "a11::a11_identityfile_added_after_ensure_is_seen_by_prelaunch_check",
+            "a11::a11_lapse_recorded_by_failed_listing_between_ensure_and_bind_refuses_launch",
+            "a11::a11_multi_pair_binding_refused_when_any_pair_needs_interaction",
+            "a11::a11_noninteractive_run_refuses_interactive_identity_before_launch",
+            "a11::a11_redeclaration_after_bind_changes_revision_and_refuses_launch",
+            "a11::a11_replayed_bind_result_still_gets_prelaunch_check",
+            "a11::a11_withdrawal_and_redeclaration_after_a_restart_between_ensure_and_bind_refuse",
+            "a11::a27_binary_stdin_stdout_roundtrip_through_ssh",
+            "a11::a27_git_clone_and_push_over_ssh_with_binary_blob",
+            "a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths",
+            "git_run_injection_yields_to_dash_c_and_env",
+            "git_run_malformed_caller_git_config_count_injects_nothing",
+            "git_run_never_records_child_arguments_or_config_values",
+            "git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing"
+          ],
+          "e2e_setup_dispatch": [
+            "declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher"
+          ],
+          "integration_doctor": [
+            "a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity"
+          ],
+          "e2e_cli_m02": [
+            "ssh::a35_identity_agent_overriding_ssh_auth_sock_is_reported_and_managed_alias_unaffected",
+            "ssh::a35_inherited_identity_fallback_agent_backed_reported_not_exclusive",
+            "ssh::a35_inherited_identity_fallback_file_backed_reported_not_exclusive",
+            "ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound",
+            "ssh::a35_mutation_broken_identity_agent_is_detected",
+            "ssh::a35_too_many_keys_succeeds_for_managed_alias_only",
+            "ssh::a35_wrong_key_exclusive_selection_fails_without_fallback"
+          ],
+          "integration_testkit_fixtures": [
+            "many_keys_exhaust_max_auth_tries_without_identities_only"
+          ]
+        },
+        "wsl-distro": {
+          "wsl_ordinary_ssh": [
+            "a01_ordinary_git_without_f",
+            "a01_ordinary_scp_without_f",
+            "a01_ordinary_sftp_without_f",
+            "a01_ordinary_ssh_alias_without_f"
+          ]
+        }
+      },
+      "note": "References the M02 A11 and A35 rows at the M03 build; the M02 blocked rows stay blocked (B1, B4, B6). The identity-untouched rows are U10 enroll_*."
+    },
+    "store-macos-keychain": {
+      "title": "K_ca custody, macOS: the mechanism row runs on a disposable file keychain; the login-keychain product row and the data-protection keychain are blocked",
+      "requirement_ids": [],
+      "tests": {
+        "integration_issuer_store": [
+          "macos::*"
+        ],
+        "e2e_cli_m03": [
+          "issuer::issuer_restore_paths_past_registration_on_the_product_store",
+          "issuer::issuer_retire_deletes_the_exact_keychain_item_on_the_product_store",
+          "issuer::issuer_rotate_begin_registers_the_successor_on_the_product_store",
+          "issuer::issuer_store_access_denied_when_another_binary_reads_the_item",
+          "issuer::issuer_restore_after_access_denial_writes_a_new_item_and_lists_the_orphan",
+          "issuer::recheck_retire_after_new_item_restore_deletes_only_current_generation"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "macos-arm64 login-keychain product row (K_ca item written at init, read at issuer start, during lock, after login, ACL behaviour across ad-hoc-signed updates)",
+          "status": "blocked",
+          "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+        },
+        {
+          "platform": "macos-arm64 data-protection keychain row (P6) and Secure Enclave persistent keys, the signed bundle",
+          "status": "blocked",
+          "blocked_on": "B13: Apple Developer membership (G04 D3; ADR-0002 Q-F; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos"
+      ],
+      "limitation": "Mechanism evidence only: the keychain code path against a disposable file keychain (the product-file test store) in a debug build; never the login keychain, so no custody claim (ADR-0008 D12 item 3, F03)."
+    },
+    "store-windows-dpapi": {
+      "title": "K_ca custody, Windows: the DPAPI CurrentUser blob in scratch (round trip across processes, owner-only DACL); cross-user refusal is blocked",
+      "requirement_ids": [],
+      "tests": {
+        "integration_issuer_store": [
+          "scratch_store_round_trip",
+          "no_plaintext_when_store_unavailable"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows-11 DPAPI cross-user unprotect refusal (a second Windows account)",
+          "status": "blocked",
+          "blocked_on": "B2: the disposable second Windows account (one elevation consent; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "integration_issuer_store": [
+            "windows::windows_dpapi_blob_dacl_owner_only",
+            "windows::windows_dpapi_round_trip_across_processes"
+          ],
+          "e2e_cli_m03": [
+            "issuer::windows_cases::windows_issuer_init_and_retire_on_the_dpapi_store",
+            "issuer::windows_cases::windows_issuer_restore_types_the_passphrase_unechoed_on_the_dpapi_store"
+          ]
+        }
+      },
+      "limitation": "Only the windows-11-x86_64 row is DPAPI evidence (windows_dpapi_* run natively there); the scratch-store tests also run on the other platforms and those rows are the scratch-store mechanism, not DPAPI. Only a release-profile run on the product DPAPI store kind can carry a custody claim (ADR-0008 D12 item 3, F03)."
+    },
+    "store-linux-secret-service": {
+      "title": "K_ca custody, Linux: the headless devbox reports issuer_store_unavailable and writes no plaintext; Secret Service over DH needs a desktop host",
+      "requirement_ids": [],
+      "tests": {
+        "integration_issuer_store": [
+          "no_plaintext_when_store_unavailable",
+          "scratch_store_round_trip"
+        ],
+        "integration_issuer_child": [
+          "store_unavailable_reports_reason_and_no_fallback"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux desktop Secret Service over DH, K_ca availability after login (the product store row)",
+          "status": "blocked",
+          "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "linux"
+      ],
+      "note": "The private-session mechanism tests (linux::linux_secret_service_round_trip_in_private_session and ..._two_installations_restore_and_retire_in_private_session) are #[ignore]d: they need dbus-run-session and gnome-keyring-daemon and run with HM_SECRET_SERVICE_TESTS=1 -- --ignored; they are not required here."
+    },
+    "sleep-logout-reboot": {
+      "title": "ADR-0005 §9.3 P2, P3, P4, P-W2 and R4: the process-restart rows and virtual-clock sleep rows run; native sleep, logout and reboot are blocked",
+      "requirement_ids": [],
+      "tests": {
+        "e2e_managed_m03": [
+          "reissue_after_runtime_process_restart_same_boot",
+          "reissue_after_reboot_waits_for_time_confirm"
+        ],
+        "integration_managed_adapter": [
+          "reissue_after_process_restart_same_boot_restores_usability",
+          "reissue_waits_on_time_uncertain_until_confirmed"
+        ],
+        "integration_runtime_m03": [
+          "installed_instances_become_lost_at_restart",
+          "pending_instances_destroyed_at_restart_entries_still_counted",
+          "lost_instance_grant_degraded_credential_reissue_pending"
+        ],
+        "integration_managed_signer": [
+          "crash_after_install_makes_instance_lost_at_restart"
+        ],
+        "model_lock_behavior": [
+          "restart_never_reissues_revoke_on_lock_grant"
+        ],
+        "model_time": [
+          "sleep_across_expiry_expires_and_is_never_extended",
+          "sleep_with_wall_running_expires_at_the_persisted_instant"
+        ],
+        "model_timegate": [
+          "sleep_across_expiry_expires_and_is_never_extended",
+          "sleep_with_wall_running_expires_at_the_persisted_instant"
+        ],
+        "e2e_exit_m03": [
+          "real_issuer_activation_reissue_revocation_with_fresh_logins"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "native sleep across a deadline (macOS, Windows, Linux desktop)",
+          "status": "blocked",
+          "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+        },
+        {
+          "platform": "re-issue after logout and after reboot (ADR-0005 §9.3 P2, P3, P4, P-W2, P-L2, R4); the synchronized-time behaviour after a real reboot",
+          "status": "blocked",
+          "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+        },
+        {
+          "platform": "macOS logout row with a disposable account",
+          "status": "blocked",
+          "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "limitation": "Same-boot process restart and the virtual clock only. The WSL row is a `wsl --terminate` of the disposable distribution (a boot-ID change inside it is [U], recorded). The devbox is not rebooted (owner's machine). The WSL \"wsl --terminate as a restart\" row of m03-plan §4.2 was not built in wave 6: the process-restart property runs natively on the devbox, macOS and Windows (reissue_after_runtime_process_restart_same_boot, e2e_exit_m03 real_issuer_activation_reissue_revocation_with_fresh_logins); the boot-ID change inside a terminated distribution stays an unrecorded [U] observation."
+    },
+    "P1": {
+      "title": "ADR-0005 §9.3 P1: macOS screen lock: the screen-lock signal observed across a real lock, the signer and issuer serving fresh logins and a new grant from memory while locked, lock-revokes ending its grant (debug build, test store: mechanism evidence only)",
+      "requirement_ids": [
+        "R-UX-03",
+        "R-CR-02"
+      ],
+      "tests": {
+        "integration_session_lock": [
+          "macos_lock_signal_observed"
+        ],
+        "e2e_exit_m03": [
+          "lock::a03_lock_prepare",
+          "lock::a03_fresh_logins_while_locked_continue",
+          "lock::a03_new_grant_while_locked_under_standing_policy",
+          "lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "lock::a03_vault_stand_in_locked_agent_does_not_matter",
+          "lock::a03_post_unlock_follows_remaining_deadline",
+          "lock::a03_lock_cleanup"
+        ]
+      },
+      "declared_platforms": [
+        "macos-lock"
+      ],
+      "limitation": "Mechanism evidence only: a debug build on the test store never yields the macOS lock_continuity claim, which waits for a release-profile run on the login keychain of a disposable account (B3; F03). Supersedes tests/evidence/g04-macos-screen-lock-probe.json."
+    },
+    "PW1": {
+      "title": "ADR-0005 §9.3 P-W1: Windows desktop lock: the WTS lock signal observed across a real lock, fresh logins and a new grant while locked, DPAPI unprotect at a forced issuer restart under lock, lock-revokes ending its grant (release profile, product DPAPI store)",
+      "requirement_ids": [
+        "R-UX-03",
+        "R-CR-02"
+      ],
+      "tests": {
+        "e2e_exit_m03": [
+          "lock::a03_lock_prepare",
+          "lock::a03_fresh_logins_while_locked_continue",
+          "lock::a03_new_grant_while_locked_under_standing_policy",
+          "lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "lock::a03_vault_stand_in_locked_agent_does_not_matter",
+          "lock::a03_post_unlock_follows_remaining_deadline",
+          "lock::a03_lock_cleanup"
+        ]
+      },
+      "declared_platforms": [
+        "windows-lock"
+      ],
+      "platform_required": {
+        "windows-lock": {
+          "integration_session_lock": [
+            "windows_lock_signal_observed"
+          ],
+          "e2e_exit_m03": [
+            "lock::a03_issuer_restart_dpapi_unprotect_while_locked"
+          ]
+        }
+      },
+      "limitation": "Only a release-profile run on the product DPAPI store is claim-eligible (F03). Supersedes tests/evidence/g04-windows-desktop-lock-probe.json."
+    }
+  },
+  "exit_claims": {
+    "M03 exit cases (m03-plan §3)": {
+      "groups": [
+        "A03",
+        "A07",
+        "A09",
+        "A10",
+        "A23",
+        "A33",
+        "R-AU-08",
+        "background-once",
+        "no-self-renewal",
+        "honest-limits",
+        "fixed-provider",
+        "store-macos-keychain",
+        "store-windows-dpapi",
+        "store-linux-secret-service",
+        "sleep-logout-reboot",
+        "P1",
+        "PW1"
+      ]
+    }
+  },
+  "child_entries": {
+    "e2e_cli_m02::terminal::pty_child": "pseudo-terminal child entry point (#[ignore]; run only as a child of the pty cases)",
+    "e2e_cli_m03::enroll::terminal::pty_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",
+    "e2e_cli_m03::issuer::issuer_cli_pty_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",
+    "e2e_cli_m03::uninstall_doctor::pty::pty_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",
+    "e2e_cli_m03::windows_console::console_child": "child entry point (#[ignore]; started by its parent case, never required)",
+    "e2e_deadline_m03::windows::windows_job_probe_child": "fixture process (#[ignore]; started by its parent case, never required)",
+    "e2e_deadline_m03::windows::windows_launcher_fixture_child": "fixture process (#[ignore]; started by its parent case, never required)",
+    "e2e_issuer_ceremony::pty_ceremony_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",
+    "e2e_issuer_ceremony::pty_exec_child": "child entry point (#[ignore]; started by its parent case, never required)",
+    "e2e_run_m02::terminal::pty_child": "pseudo-terminal child entry point (#[ignore]; run only as a child of the pty cases)",
+    "e2e_tui_m02::pty::pty_child": "pseudo-terminal child entry point (#[ignore]; run only as a child of the pty cases)",
+    "e2e_tui_m03::pty::pty_child": "pseudo-terminal child entry point (#[ignore]; started by its parent case, never required)",
+    "e2e_tui_m03::windows_console::console_child": "child entry point (#[ignore]; started by its parent case, never required)",
+    "heimdall_launch-unit::handoff::tests::handoff_child": "child entry point (#[ignore]; re-executed by the handoff tests)",
+    "heimdall_launch-unit::unix::tests::exec_child": "child entry point (#[ignore]; re-executed by the exec tests)",
+    "integration_issuer_store::linux::linux_no_session_bus_child": "child entry point (#[ignore]; started by its parent case, never required)",
+    "integration_issuer_store::linux::linux_secret_service_child": "child entry point (#[ignore]; started by its parent case, never required)",
+    "integration_issuer_store::linux::linux_secret_service_two_installations_child": "child entry point (#[ignore]; started by its parent case, never required)",
+    "integration_issuer_store::windows::windows_dpapi_child_reads_blob": "child entry point (#[ignore]; started by its parent case, never required)",
+    "integration_runtime::fd_hygiene::detached_spawn_probe": "child entry point (#[ignore]; M01)",
+    "integration_runtime::u8b::launcher_child_service": "child entry point (#[ignore]; M01)",
+    "e2e_exit_m03::worker_process_entry": "the worker program entry the exit checks start under heimdall run (a no-op in the suite itself: no instructions)"
+  },
+  "scenario_targets": {
+    "wsl_ordinary_ssh": {
+      "platforms": [
+        "wsl-distro"
+      ],
+      "source": "tests/native/m02/scenario-ordinary-ssh.sh",
+      "steps": {
+        "a01_setup_apply_writes_the_users_real_ssh_config": "setup apply (typed yes on a pty) changes the disposable user's real ~/.ssh/config",
+        "a01_ordinary_ssh_alias_without_f": "ssh <alias> true, no -F, no isolation options, SSH_AUTH_SOCK at an empty decoy agent",
+        "a01_ordinary_git_without_f": "git ls-remote and git clone <alias>:<scratch repo> with no GIT_SSH_COMMAND",
+        "a01_ordinary_scp_without_f": "scp to and from <alias>, bytes compared",
+        "a01_ordinary_sftp_without_f": "sftp -b put/get through <alias>, bytes compared",
+        "a01_unaffected_alias_effective_config_unchanged": "ssh -G of an alias the projection does not manage is identical before and after apply",
+        "a01_provider_agent_accepted_key_is_the_adopted_one": "the fixture sshd log accepts only the adopted key's fingerprint",
+        "a22_rename_exchange_supported_on_the_home_fs": "renameat2(RENAME_EXCHANGE) works on the disposable home's file system (ext4 exchange support)",
+        "t06_uninstall_restores_user_bytes": "uninstall: ~/.ssh/config is byte-identical to the original",
+        "t06_uninstall_restores_effective_config": "uninstall: ssh -G <alias> no longer shows the managed values",
+        "a22_birth_time_recorded_on_the_home_fs": "statx(STATX_BTIME) on a file in the disposable home: the birth time is filled on its file system (ext4); fact birth-time names the result (m02-plan U4 file_identity_birth_recorded_on_target_fs, WSL ext4; ADR-0007 F25)"
+      }
+    },
+    "wsl_managed_ssh": {
+      "platforms": [
+        "wsl-distro"
+      ],
+      "source": "tests/native/m03/scenario-managed.sh",
+      "steps": {
+        "m03_wsl_product_store_unavailable_no_plaintext_fallback": "without a test store, issuer init on a pty ends issuer_store_unavailable (exit 4): no backup file and no private-key material anywhere in the Heimdall home (headless Linux, unreachable session bus)",
+        "m03_wsl_enroll_account_form_verified": "enroll <alias> (typed yes) of the account form ends verified; the registry holds exactly one cert-authority,principals=\"hm:<dest>:<account>\" line of this run's CA (fingerprint checked) with its heimdall:enr_ marker, and the existing-access line is untouched",
+        "m03_wsl_account_form_registry_is_the_default_path": "enrolled with no --registry-path (resolved_by remote_home), and the root sshd (StrictModes yes, AuthorizedKeysFile .ssh/authorized_keys) logged the verification certificate accepted \"found at\" the user's ~/.ssh/authorized_keys",
+        "m03_wsl_enroll_system_form_verified": "enroll --form system (typed yes) shows the lines; the CA line and the principal are installed in the system sshd's TrustedUserCAKeys and AuthorizedPrincipalsFile; enroll verify ends verified, and the system sshd logged a certificate accepted via TrustedUserCAKeys",
+        "m03_wsl_setup_apply_projects_the_managed_aliases": "destination prefer <alias> managed for both pairs, then setup apply (typed yes): the user's real ~/.ssh/config includes Heimdall's projection (written at the first apply) and ssh -G of each managed alias names Heimdall's own certificate (the managed definitions are in the included file)",
+        "m03_wsl_access_ensure_signed_by_the_real_issuer_child": "access ensure per pair (an owner decision approved with a typed yes when asked) yields a grant while the runtime's internal issuer child runs",
+        "m03_wsl_ordinary_ssh_managed_alias_without_f": "ssh <account-form alias> true: alias managed, no -F, no isolation option, SSH_AUTH_SOCK at an empty decoy agent (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
+        "m03_wsl_ordinary_git_managed_alias_without_f": "git ls-remote and git clone <account-form alias>:<scratch repo>, no GIT_SSH_COMMAND (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
+        "m03_wsl_ordinary_scp_managed_alias_without_f": "scp to and from <account-form alias>, bytes compared (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
+        "m03_wsl_ordinary_sftp_managed_alias_without_f": "sftp -b put/get through <account-form alias>, bytes compared (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
+        "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca": "ssh <system-form alias> true: alias managed, no -F (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
+        "m03_wsl_logins_attributed_to_the_grant_certificate": "every login both root sshds accepted during those clients (at least 6 on the account form, 1 on the system form) is an ED25519-CERT whose key ID heimdall:<env>:<grant>:<n> names the pair's grant, under this run's CA; none by the existing-access key",
+        "m03_wsl_strictmodes_refuses_a_group_writable_registry": "with ~/.ssh/authorized_keys made group-writable, the same managed login is refused (exit 255) and the root sshd logs bad ownership or modes; the mode is restored",
+        "m03_wsl_revoke_on_lock_refused_lock_signal_unavailable": "access lock-behavior --policy <policy> revoke-on-lock is refused: lock_signal_unavailable (no lock signal in the distribution)",
+        "m03_wsl_revoke_then_fresh_login_refused": "access revoke of each grant; fresh ordinary logins to both aliases fail and neither sshd accepts any login afterwards",
+        "m03_wsl_uninstall_lists_the_remote_enrollments": "uninstall (typed yes) names every enrollment enroll status listed (at least 2); nothing remote is removed",
+        "m03_wsl_uninstall_restores_the_users_config_bytes": "the user's ~/.ssh/config is byte-identical to its bytes before the first setup apply"
+      }
+    }
+  }
+}

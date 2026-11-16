@@ -56,6 +56,15 @@
 #   HM_LOCAL                1 = local mode (above); not combinable with HM_BUILD_ONLY
 #   HM_PREBUILT_HEIMDALL    local mode: the Linux heimdall binary cross-built on the build host
 #   HM_PREBUILT_SHA256      local mode: the 64-hex sha256 the build host recorded for it
+#   ⟨M03 wave 6⟩ The milestone's harness (tests/native/m03/run-wsl-distro.sh sets these):
+#   HM_RUN_PREFIX           the distribution name prefix, hm-m0<N> (default hm-m02)
+#   HM_SCENARIO             the scenario script run as the disposable user (default
+#                           scenario-ordinary-ssh.sh beside this file); its directory's other
+#                           files named in HM_SCENARIO_FILES are staged too
+#   HM_SCENARIO_FILES       space-separated extra file names (in the scenario's directory)
+#   HM_ROOT_PHASES          "<before>:<after>": target-root.sh phases run as root around the
+#                           scenario (default none); the after phase runs even when the
+#                           scenario fails
 #
 # Nothing is elevated; no Windows service, firewall rule, ssh-agent state or the
 # owner's ~/.ssh is touched (the WSL import's own registration is removed by the
@@ -99,7 +108,22 @@ task=${HM_TASK:-M02-U11-wsl}
 hm_valid_name "$task" || { echo "bad HM_TASK" >&2; exit 2; }
 rid=$(m02_random_hex 6)
 run="$task-$rid"
-distro="hm-m02-$rid"
+prefix=${HM_RUN_PREFIX:-hm-m02}
+case "$prefix" in hm-m0[0-9]) ;; *) echo "bad HM_RUN_PREFIX" >&2; exit 2 ;; esac
+scenario=${HM_SCENARIO:-$here/scenario-ordinary-ssh.sh}
+[ -f "$scenario" ] || { echo "HM_SCENARIO is not a file" >&2; exit 2; }
+scenario_dir=$(cd "$(dirname "$scenario")" && pwd)
+scenario_name=$(basename "$scenario")
+scenario_files=${HM_SCENARIO_FILES:-}
+for f in $scenario_files; do
+    case "$f" in */* | .* | '') echo "bad HM_SCENARIO_FILES entry" >&2; exit 2 ;; esac
+    [ -f "$scenario_dir/$f" ] || { echo "HM_SCENARIO_FILES names a missing file" >&2; exit 2; }
+done
+root_phases=${HM_ROOT_PHASES:-}
+case "$root_phases" in '' | [a-z0-9-]*:[a-z0-9-]*) ;; *) echo "bad HM_ROOT_PHASES" >&2; exit 2 ;; esac
+root_before=${root_phases%%:*}
+root_after=${root_phases#*:}
+distro="$prefix-$rid"
 hm_valid_name "$run" || { echo "cannot make a run name" >&2; exit 2; }
 rootfs_in=${HM_WSL_ROOTFS:-}
 case "$rootfs_in" in *[\"\'\`\$]*) echo "bad HM_WSL_ROOTFS" >&2; exit 2 ;; esac
@@ -162,7 +186,7 @@ cleanup() {
     local rc=$?
     if [ -n "$wsl_dir$win_dir" ]; then
         set +e
-        remote "$(printf 'wsl_dir=%q; win_dir=%q; distro=%q' "$wsl_dir" "$win_dir" "$distro")" "$run" \
+        remote "$(printf 'wsl_dir=%q; win_dir=%q; distro=%q; prefix=%q' "$wsl_dir" "$win_dir" "$distro" "$prefix")" "$run" \
             >"$shim/cleanup.txt" 2>&1 <<'REMOTE'
 main() {
 set -u
@@ -174,7 +198,7 @@ rc=0
 # this run's pattern, and absent from the list taken before the import.
 if [ -n "$wsl_dir" ] && [ -f "$wsl_dir/distro-name" ]; then
     d=$(cat "$wsl_dir/distro-name")
-    if [ "$d" = "$distro" ] && case "$d" in hm-m02-[0-9a-f]*) true ;; *) false ;; esac &&
+    if [ "$d" = "$distro" ] && case "$d" in "$prefix"-[0-9a-f]*) true ;; *) false ;; esac &&
         ! grep -qxF -- "$d" "$wsl_dir/before.txt" 2>/dev/null; then
         (cd /mnt/c && "$W/wsl.exe" --terminate "$d") </dev/null >/dev/null 2>&1
         (cd /mnt/c && "$W/wsl.exe" --unregister "$d") </dev/null >/dev/null 2>&1
@@ -212,13 +236,13 @@ if [ "$local_mode" = 1 ]; then
         echo "pinned image: $ROOTFS_URL sha256 $ROOTFS_SHA256"
     } >"$out/build.txt"
 else
-    m02_write_shims "$shim"
+    m02_write_shims "$(m02_shim_dir "$repo")"
     cd "$repo"
     set +e
     m02_cargo_build x86_64-unknown-linux-gnu "$shim" "$out/build.txt"
     rc=$?
     set -e
-    m02_record "$commands" "cargo test --target x86_64-unknown-linux-gnu --workspace --no-run --locked (zig cc linker/CC shims)" "$rc"
+    m02_record "$commands" "cargo test --target x86_64-unknown-linux-gnu --profile ${HM_CARGO_PROFILE:-native-test} --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)" "$rc"
     [ "$rc" = 0 ] || { redact_build_log; exit "$rc"; }
     m02_artifacts "$shim" || { echo "the heimdall binary was not built" >&2; redact_build_log; exit 5; }
     cli=$(cat "$shim/cli.txt")
@@ -263,7 +287,8 @@ m02_record "$commands" "remote: create the run directories exclusively (run $run
 
 mkdir "$shim/stage"
 cp "$cli" "$shim/stage/heimdall"
-cp "$here/scenario-ordinary-ssh.sh" "$here/remote-lib.sh" "$here/pty-answer.py" "$here/target-root.sh" "$shim/stage/"
+cp "$scenario" "$here/remote-lib.sh" "$here/pty-answer.py" "$here/target-root.sh" "$shim/stage/"
+for f in $scenario_files; do cp "$scenario_dir/$f" "$shim/stage/"; done
 if [ "$local_mode" = 1 ]; then
     # The digest checked above is that of the bytes shipped: hash the staged copy again.
     set +e
@@ -289,8 +314,8 @@ fi
 [ "$rc" = 0 ] || exit 1
 
 set +e
-remote "$(printf 'wsl_dir=%q; win_dir=%q; distro=%q; user=%q; rootfs_in=%q; download=%q; allow_apt=%q; url=%q; pin=%q' \
-    "$wsl_dir" "$win_dir" "$distro" "$user" "$rootfs_in" "$download" "$allow_apt" "$ROOTFS_URL" "$ROOTFS_SHA256")" \
+remote "$(printf 'wsl_dir=%q; win_dir=%q; distro=%q; user=%q; rootfs_in=%q; download=%q; allow_apt=%q; url=%q; pin=%q; prefix=%q; scenario=%q; root_before=%q; root_after=%q' \
+    "$wsl_dir" "$win_dir" "$distro" "$user" "$rootfs_in" "$download" "$allow_apt" "$ROOTFS_URL" "$ROOTFS_SHA256" "$prefix" "$scenario_name" "$root_before" "$root_after")" \
     >"$shim/remote.txt" 2>&1 <<'REMOTE'
 W=/mnt/c/Windows/System32
 # With pipefail (main), both return wsl.exe's exit code (that of the command it ran).
@@ -302,6 +327,11 @@ cd /mnt/c || return 1
 hm2_sanitize_env
 files=$win_dir/files
 cp "$wsl_dir/"heimdall "$wsl_dir/"*.sh "$wsl_dir/"*.py "$files/" || return 1
+# ⟨M03 wave 6⟩ Scenario files other than scripts (HM_SCENARIO_FILES), e.g. a test binary.
+for f in "$wsl_dir"/*; do
+    case "$f" in */heimdall | *.sh | *.py | */before.txt | */now.txt | */after.txt | */distro-name) continue ;; esac
+    [ -f "$f" ] && cp "$f" "$files/"
+done
 echo "wsl-version=$(wslx --version | head -1)"
 wslx -l -q | sed '/^$/d' | sort >"$wsl_dir/before.txt"
 echo "distributions-before=$(grep -c . "$wsl_dir/before.txt")"
@@ -344,12 +374,20 @@ prc=$?
 echo "prepare-exit=$prc"
 src=0
 if [ "$prc" = 0 ]; then
+    if [ -n "$root_before" ]; then
+        in_target -u root --exec /bin/bash "$files/target-root.sh" "$distro" "$root_before" "$user" "$files"
+        echo "root-phase-before-exit=$?"
+    fi
     echo "---tests---"
-    in_target -u "$user" --cd "~" --exec /bin/bash "$files/scenario-ordinary-ssh.sh" \
-        "/home/$user/hm-m02-scenario" "/home/$user/heimdall"
+    in_target -u "$user" --cd "~" --exec /bin/bash "$files/$scenario" \
+        "/home/$user/$prefix-scenario" "/home/$user/heimdall"
     src=$?
     echo "---after---"
     echo "scenario-exit=$src"
+    if [ -n "$root_after" ]; then
+        in_target -u root --exec /bin/bash "$files/target-root.sh" "$distro" "$root_after" "$user" "$files"
+        echo "root-phase-after-exit=$?"
+    fi
     in_target -u root --exec /bin/bash "$files/target-root.sh" "$distro" listeners
 else
     src=$prc
