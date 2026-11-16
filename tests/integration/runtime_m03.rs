@@ -6503,6 +6503,19 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             request(serde_json::json!({"op": "inspect", "subject": "export", "redact": true})),
             Code::CapabilityUnavailable,
         ),
+        // W0-R04: `cwd` or `redact` on an M01–M03 subject is refused, never ignored.
+        (
+            "inspect capabilities with cwd",
+            request(serde_json::json!({"op": "inspect", "subject": "capabilities", "cwd": "/w"})),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "inspect capabilities with redact",
+            request(
+                serde_json::json!({"op": "inspect", "subject": "capabilities", "redact": true}),
+            ),
+            Code::CapabilityUnavailable,
+        ),
     ];
     for (what, r, code) in &table {
         for caller in [attended(ClientRole::Owner), unattended(ClientRole::Owner)] {

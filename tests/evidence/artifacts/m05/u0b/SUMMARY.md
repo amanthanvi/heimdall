@@ -3,20 +3,21 @@
 Wave 0, ADR-0011 §10 item 4. Measurement only: no repository file touched; everything ran against disposable keys,
 a disposable `ssh-agent`, and a loopback-only sshd under a scratch dir (deleted afterwards; exact PIDs stopped).
 
-| | macOS (this machine) | Linux (devbox) | Windows 11 (OpenSSH 9.5p2) |
+| | macOS (this machine) | Linux (devbox) | Windows 11 (the owner's PC) |
 |---|---|---|---|
-| Client | `OpenSSH_10.5p1, LibreSSL 3.3.6` (`/usr/bin/ssh`) | `OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13` | **not run** (no access) |
-| Git | `git version 2.54.0 (Apple Git-157)` | `git version 2.43.0` | script handles it, not run |
-| OS | Darwin 27.2.0 arm64 | Linux 6.8.0-147-generic x86_64 | — |
-| Server LoginGraceTime (effective, from `sshd -T`) | 120 and 0 (two sshds) | 120 and 0 (two sshds) | — |
-| **Max delay that still succeeded, ssh** | **65 s** (D=0…30, 65 all exit 0, real login) | **65 s** (same) | pending |
-| **Max delay that still succeeded, Git (`ls-remote`)** | **65 s** (all exit 0) | **65 s** (all exit 0) | pending |
-| Failure point | D=125, grace 120: ssh exit 255 / git exit 128, elapsed 125.03 s / 125.05 s | same: 125.21 s / 125.24 s | pending |
-| Who enforced it | **server** `LoginGraceTime` (client has no agent timeout up to 65 s, see below) | **server** | pending |
-| Agent requests carrying cwd / repo context | **none** (52 messages, 0 hits) | **none** (52 messages, 0 hits) | pending (script checks canary + cwd) |
-| session-bind order | `27 session-bind@openssh.com` → `11 REQUEST_IDENTITIES` → `13 SIGN_REQUEST`, one agent connection | identical | pending |
+| Client | `OpenSSH_10.5p1, LibreSSL 3.3.6` (`/usr/bin/ssh`) | `OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13` | `OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2` (in-box `ssh.exe`) |
+| Git | `git version 2.54.0 (Apple Git-157)` | `git version 2.43.0` | `git version 2.55.0.windows.3` |
+| OS | Darwin 27.2.0 arm64 | Linux 6.8.0-147-generic x86_64 | Microsoft Windows NT 10.0.26300.0, Windows PowerShell 5.1 |
+| Server LoginGraceTime (effective, from `sshd -T`) | 120 and 0 (two sshds) | 120 and 0 (two sshds) | n/a: a fake agent answering zero identities (login fails by design) |
+| **Max delay that still succeeded, ssh** | **65 s** (D=0…30, 65 all exit 0, real login) | **≥ 30 s**, the longest tested (D=0…30: identities answer received every time, elapsed D + 0.10–0.19 s) |
+| **Max delay that still succeeded, Git (`ls-remote`)** | **65 s** (all exit 0) | **≥ 30 s** (same) |
+| Failure point | D=125, grace 120: ssh exit 255 / git exit 128, elapsed 125.03 s / 125.05 s | none up to 30 s (exit 255 / 128 every run: zero identities, by design) |
+| Who enforced it | **server** `LoginGraceTime` (client has no agent timeout up to 65 s, see below) | no timeout observed |
+| Agent requests carrying cwd / repo context | **none** (52 messages, 0 hits) | **none** (28 messages, 0 hits) |
+| session-bind order | `27 session-bind@openssh.com` → `11 REQUEST_IDENTITIES` → `13 SIGN_REQUEST`, one agent connection | `27 session-bind@openssh.com` → `11 REQUEST_IDENTITIES`, one agent connection, two messages per run |
 
-Per-run detail (every D, both clients, every message) is in `results-macos.json` and `results-linux.json`.
+Per-run detail (every D, both clients, every message) is in `results-macos.json`, `results-linux.json` and
+`results-windows.json`.
 Run elapsed ≈ D + 0.05 s (macOS) / D + 0.2 s (Linux) for every successful run (D = 0, 0.5, 1, 2, 5, 10, 30 on a
 grace-120 sshd, 65 on a grace-0 sshd), so ssh and Git waited for the full delayed answer each time.
 
@@ -47,14 +48,21 @@ grace-120 sshd, 65 on a grace-0 sshd), so ssh and Git waited for the full delaye
 - Whether a client agent timeout exists somewhere above 65 s is **not determined** (D=125 was ended by the server first).
   The only claim supported is: no client agent timeout up to 65 s on OpenSSH 10.5p1 and 9.6p1.
 - The session-bind payload (host key, session id, signature, forwarding flag) is known from the protocol, not decoded here.
-- **Windows is not measured.** `windows-agent-wait-spike.ps1` was never run on Windows PowerShell 5.1 or against
-  Win32-OpenSSH 9.5p2. Checks done on this Mac: it parses (pwsh 7 parser); the embedded C# fake-agent compiles and
-  answers type 11 after D (zero identities), type 5 to the rest, and flags canary/cwd bytes (tested over a pwsh-7
-  pipe with a Python client); an end-to-end dry run with the Windows-only paths swapped for macOS ones ran ssh and
-  `git ls-remote` through it and produced the JSON and summary. Unverified on Windows: pipe `IdentityAgent` handling by
-  Win32-OpenSSH, Git for Windows' shell quoting of the pipe path in `core.sshCommand` (script sets `MSYS_NO_PATHCONV=1`),
-  and which `-vvv` line 9.5p2 prints for the identities answer (the script reports `answer_received` yes/no/unknown
-  and keeps the raw agent log lines, so `unknown` is a possible result).
+- **Windows (added 2026-11-15, the owner's PC; run by the orchestrator's PC agent).** `windows-agent-wait-spike.ps1`
+  under Windows PowerShell 5.1, in-box `ssh.exe` (OpenSSH_for_Windows 9.5p2) and Git 2.55.0.windows.3, against a
+  scratch sshd in WSL reached at `127.0.0.1`. The script's fake agent answers REQUEST_IDENTITIES with zero identities
+  after D, so every login fails by design (ssh exit 255, git exit 128); the measured facts are `answer_received` and
+  `elapsed_s`. At every D (0, 0.5, 1, 2, 5, 10, 30 s) both clients received the answer and took D + 0.10–0.19 s, with no
+  timeout. Every run sent exactly two agent messages, `session-bind@openssh.com` (27) first, then REQUEST_IDENTITIES
+  (11); none of the 28 carried the working directory or the canary. Results: `results-windows.json`,
+  `results-windows-summary.txt`.
+- **The first Windows run measured nothing** (`results-windows-backslash-run.json`: zero agent messages at every D,
+  `answer_received: unknown`). OpenSSH_for_Windows 9.5p2 drops one backslash from `-o IdentityAgent=\\.\pipe\…`
+  (`ssh -G` shows `\.\pipe\…`), so ssh never reached the fake agent. The re-run used `//./pipe/<name>`, which `ssh -G`
+  parses unchanged; the script in `tests/native/m05/u0b/` now does the same (it is also the path Git's
+  `core.sshCommand` gets). Heimdall's own rendering already writes `//./pipe/…` (`heimdall_sshconf::render::RenderPath::pipe`).
+- The Windows results are redacted copies: the PC account name, the fixture account name and the PC name are replaced
+  by `<user>`, `<fixture-user>` and `<pc>`, and line endings are LF. The unredacted originals stay on the PC.
 
 ## Method notes and deviations from the task text
 
@@ -77,5 +85,6 @@ spike_driver.py --platform NAME --out FILE`, from a scratch checkout of that dir
 `windows-agent-wait-spike.ps1` (run: `powershell -NoProfile -ExecutionPolicy Bypass -File
 .\windows-agent-wait-spike.ps1 -Target <host> -Port <port> -User <user>`; writes
 `windows-agent-wait-spike-results.json` and `-summary.txt` into the current directory).
-Results here: `results-macos.json`, `results-linux.json`. Record:
+Results here: `results-macos.json`, `results-linux.json`, `results-windows.json` (and the first Windows run,
+`results-windows-backslash-run.json`), each Windows one with its `-summary.txt`. Record:
 `tests/evidence/m05-g05-agent-context.json`.

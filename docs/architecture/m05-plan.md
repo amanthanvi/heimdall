@@ -79,15 +79,23 @@ Each unit lists its owner paths, dependencies, tests and acceptance.
     |---|---|---|---|---|---|
     | macOS arm64 | OpenSSH 10.5p1, Git 2.54.0 | 0, 0.5, 1, 2, 5, 10, 30 s (`LoginGraceTime 120`); 65 s (`LoginGraceTime 0`) | `ssh` and `git ls-remote` succeed every time (observed) | 125 s with `LoginGraceTime 120`: the **server** closed the connection; no client agent timeout up to 65 s | **2 s** (ADR-0011 §3.2 (a)) |
     | Linux devbox (Ubuntu 24.04) | OpenSSH 9.6p1, Git 2.43.0 | as macOS | as macOS (observed) | as macOS | **2 s** |
-    | Windows 11 | in-box OpenSSH 9.5p2 | script `windows-agent-wait-spike.ps1` | **blocked:** the owner's PC run | — | undecided: no identities-path call on Windows until the run (ADR-0011 §10 item 4) |
+    | Windows 11 (NT 10.0.26300) | in-box OpenSSH_for_Windows 9.5p2, Git 2.55.0.windows.3 | 0, 0.5, 1, 2, 5, 10, 30 s (a fake agent answering zero identities) | `ssh` and `git ls-remote` receive the answer every time, after D + 0.10–0.19 s; the login then fails by design (observed) | none up to 30 s, the longest tested | **2 s** |
 
-    - **No directory context:** across 52 agent messages per platform (`session-bind`,
-      `REQUEST_IDENTITIES`, `SIGN_REQUEST` only), none carried the working directory, the
+    - **No directory context:** across 52 agent messages on macOS and on the devbox
+      (`session-bind`, `REQUEST_IDENTITIES`, `SIGN_REQUEST` only) and 28 on Windows (two per
+      run: `session-bind`, `REQUEST_IDENTITIES`), none carried the working directory, the
       repository name or the canary (observed).
     - **`session-bind@openssh.com` arrives first** on every connection, before
-      `REQUEST_IDENTITIES` (observed): a later per-destination narrowing can key on it.
-    - **Not determined:** whether a client agent timeout exists above 65 s (the server's
-      grace ended the 125 s runs first). The 2 s budget is far inside every observed bound.
+      `REQUEST_IDENTITIES`, on all three platforms (observed): a later per-destination
+      narrowing can key on it.
+    - **Not determined:** whether a client agent timeout exists above 65 s on macOS and Linux
+      (the server's grace ended the 125 s runs first) or above 30 s on Windows (not tested).
+      The 2 s budget is far inside every observed bound, so it holds on all three platforms
+      (S-Q1 resolved, 2026-11-15).
+    - **The script's first Windows run measured nothing:** OpenSSH_for_Windows 9.5p2 drops one
+      backslash from `-o IdentityAgent=\\.\pipe\…` (`ssh -G`: `\.\pipe\…`), so ssh never
+      reached the fake agent. The re-run, and the script now, use `//./pipe/<name>`, the form
+      Heimdall's own rendering already writes (`RenderPath::pipe`).
 - **Depends:** the ADR-0011 ruling.
 - **Tests:**
   - contract goldens: the code table unchanged at 30, the new `m05-reasons.golden.json`, the

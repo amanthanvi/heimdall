@@ -1,0 +1,18 @@
+ssh: OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2
+git: git version 2.55.0.windows.3
+os: Microsoft Windows NT 10.0.26300.0
+
+ssh D=0    exit=255 elapsed=  0.134s answer_received=unknown canary/cwd_in_agent_msgs=False
+git D=0    exit=128 elapsed=   0.16s answer_received=unknown canary/cwd_in_agent_msgs=False
+ssh D=0.5  exit=255 elapsed=  0.131s answer_received=unknown canary/cwd_in_agent_msgs=False
+git D=0.5  exit=128 elapsed=  0.183s answer_received=unknown canary/cwd_in_agent_msgs=False
+ssh D=1    exit=255 elapsed=  0.129s answer_received=unknown canary/cwd_in_agent_msgs=False
+git D=1    exit=128 elapsed=  0.164s answer_received=unknown canary/cwd_in_agent_msgs=False
+ssh D=2    exit=255 elapsed=  0.135s answer_received=unknown canary/cwd_in_agent_msgs=False
+git D=2    exit=128 elapsed=  0.168s answer_received=unknown canary/cwd_in_agent_msgs=False
+ssh D=5    exit=255 elapsed=  0.131s answer_received=unknown canary/cwd_in_agent_msgs=False
+git D=5    exit=128 elapsed=  0.162s answer_received=unknown canary/cwd_in_agent_msgs=False
+ssh D=10   exit=255 elapsed=   0.13s answer_received=unknown canary/cwd_in_agent_msgs=False
+git D=10   exit=128 elapsed=  0.162s answer_received=unknown canary/cwd_in_agent_msgs=False
+ssh D=30   exit=255 elapsed=  0.129s answer_received=unknown canary/cwd_in_agent_msgs=False
+git D=30   exit=128 elapsed=  0.172s answer_received=unknown canary/cwd_in_agent_msgs=False

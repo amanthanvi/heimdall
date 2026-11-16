@@ -16055,3 +16055,245 @@ async fn personal_resolution_ignores_a_workspace_policy_that_sorts_first() {
         .await);
     assert_eq!(bound.data.grant_id, done.data.grant_id);
 }
+
+/// [`workspace_policy_first`], active and without a cutoff, holding `revoke_on_lock`;
+/// the seeded personal policy keeps `continue`.
+fn workspace_policy_revoking_on_lock() -> StandingPolicy {
+    let mut p = workspace_policy_first();
+    p.pause = PauseState::Active;
+    p.cutoff_at = None;
+    p.lock_behavior = heimdall_contract::managed::LockBehavior::RevokeOnLock;
+    p
+}
+
+/// A session-lock source with one latched, unacknowledged lock.
+struct LatchedLock(tokio::sync::Notify);
+
+impl heimdall_app::ports::SessionLockSource for LatchedLock {
+    fn state(&self) -> heimdall_app::ports::LockState {
+        heimdall_app::ports::LockState::Locked
+    }
+    fn lock_epoch(&self) -> heimdall_domain::managed::LockEpoch {
+        heimdall_domain::managed::LockEpoch {
+            epoch: 1,
+            observed: true,
+        }
+    }
+    fn acknowledge(&self, _epoch: u64) {}
+    fn changed(&self) -> tokio::sync::futures::Notified<'_> {
+        self.0.notified()
+    }
+}
+
+/// W0-R01 (`tests/evidence/artifacts/review-m04m05/w0.md`; ADR-0006 §17.6 R5-Q9): a
+/// workspace policy's lock behaviour never reaches personal work. With the personal
+/// policy at `continue` and a workspace policy of the same profile and environment at
+/// `revoke_on_lock`, a personal `ensure` records no lock behaviour in its origin, its
+/// effective behaviour is `continue`, and a session lock revokes nothing.
+#[tokio::test]
+async fn w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant() {
+    use heimdall_app::ports::SessionLockSource as _;
+    use heimdall_contract::managed::LockBehavior;
+    let w = World::new().await;
+    w.store
+        .transaction(|tx| tx.upsert_policy(&workspace_policy_revoking_on_lock(), false))
+        .unwrap();
+    let done = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r01-1", "r01-w1", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(done.code, Code::AccessReady);
+    let g = done.data.grant_id.clone();
+    let origin = w
+        .store
+        .transaction(|tx| tx.grant_origin(&g))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        origin.lock_behavior, None,
+        "the workspace's revoke_on_lock is not recorded in a personal grant's origin"
+    );
+    assert_eq!(
+        w.ops.effective_lock_behavior_of(&g).await.unwrap(),
+        Some(LockBehavior::Continue)
+    );
+    let source = LatchedLock(tokio::sync::Notify::new());
+    let pass = w
+        .ops
+        .on_session_lock(source.lock_epoch(), &source)
+        .await
+        .unwrap();
+    assert!(pass.revoked.is_empty(), "revoked {:?}", pass.revoked);
+    assert_eq!(w.grant(&g).state, GrantState::Active);
+}
+
+/// W0-R02: the lock disclosure (and `inspect capabilities`, which reads the same
+/// policies) describes the runtime's general lock behaviour from the personal policies
+/// only: a workspace policy's `revoke_on_lock` neither sets it nor adds the Linux
+/// `signal_unverified` warning, and is not listed as a saved limit.
+#[tokio::test]
+async fn w0_r02_lock_disclosure_reads_only_personal_policies() {
+    use heimdall_contract::managed::LockBehavior;
+    let w = World::new().await;
+    w.store
+        .transaction(|tx| tx.upsert_policy(&workspace_policy_revoking_on_lock(), false))
+        .unwrap();
+    let d = w
+        .ops
+        .lock_disclosure(false, heimdall_app::lock::LockSignal::LinuxLogind)
+        .await
+        .unwrap();
+    assert_eq!(d.behavior, LockBehavior::Continue);
+    assert!(d.warnings.is_empty(), "{:?}", d.warnings);
+    assert!(
+        d.limits.iter().all(|l| l.policy.as_str() != "aaa"),
+        "{:?}",
+        d.limits
+    );
+}
+
+/// A second environment `e2` in the managed set of `w`'s runtime (controller: the
+/// runtime's own environment), covered by the seeded personal policy.
+fn add_managed_environment(w: &World) -> EnvironmentId {
+    use heimdall_domain::environment::{EnvironmentRealization, ManagedEnvironment, ManagedState};
+    let e2 = EnvironmentId::from_random_bytes([0xe2; 16]);
+    w.store
+        .transaction(|tx| {
+            tx.upsert_environment(&EnvironmentRecord {
+                id: e2.clone(),
+                device: DeviceId::from_random_bytes([8; 16]),
+                kind: EnvironmentKind::Container,
+                label: None,
+                permissions: EnvironmentPermissions {
+                    automatic_activation: true,
+                    managed_signing: true,
+                    issuer_access: true,
+                },
+            })?;
+            tx.insert_managed_environment(&ManagedEnvironment {
+                environment: e2.clone(),
+                controller: env_id(),
+                realization: EnvironmentRealization::Container {
+                    label: "w0".to_owned(),
+                    dir_tag: "00000000000000e2".to_owned(),
+                },
+                state: ManagedState::Active,
+                created_at: t0(),
+                updated_at: t0(),
+            })?;
+            let mut p = tx.policy(&PolicyId::parse("pol").unwrap())?.unwrap();
+            p.environments.insert(e2.clone());
+            p.revision = PolicyRevision(p.revision.0 + 1);
+            tx.upsert_policy(&p, false)
+        })
+        .unwrap();
+    e2
+}
+
+/// A delegation of `scope` from `parent` (work `work`, request `rid`).
+fn delegation(
+    parent: &heimdall_contract::ids::BindingId,
+    scope: &[(&str, &str)],
+    work: &str,
+    rid: &str,
+) -> DelegateRequest {
+    DelegateRequest {
+        parent_binding_id: parent.clone(),
+        scope: scope.iter().map(|(d, a)| pair(d, a)).collect(),
+        until: None,
+        work_id: WorkId::parse(work).unwrap(),
+        request_id: RequestId::parse(rid).unwrap(),
+        required_capabilities: RequiredCapabilities::default(),
+    }
+}
+
+/// W0-R03 (a): a delegation whose parent binding is in a removed managed environment is
+/// refused `NOT_FOUND` / `environment_removed` **before** anything is written, as an
+/// `ensure` or `bind` there is (ADR-0006 §17.2 item 2).
+#[tokio::test]
+async fn w0_r03a_delegate_in_a_removed_environment_writes_nothing() {
+    use heimdall_domain::environment::ManagedState;
+    let w = World::new().await;
+    let e2 = add_managed_environment(&w);
+    let mut req = ensure_req("r03a-par", "r03a-par", &[("h1", "deploy")]);
+    req.environment = Some(e2.clone());
+    let parent = ok(w.ops.ensure(&unattended(501), req).await);
+    w.store
+        .transaction(|tx| {
+            tx.set_managed_environment_state(&e2, ManagedState::Active, ManagedState::Removed, t0())
+        })
+        .unwrap();
+    let before = w.store.transaction(|tx| tx.table_counts()).unwrap();
+    let e = err(w
+        .ops
+        .delegate(
+            &unattended(501),
+            delegation(
+                &parent.data.binding_id,
+                &[("h1", "deploy")],
+                "r03a-c",
+                "r03a-c",
+            ),
+        )
+        .await);
+    assert_eq!(e.code, Code::NotFound);
+    assert_eq!(e.reason.as_deref(), Some("environment_removed"));
+    assert_eq!(
+        w.store.transaction(|tx| tx.table_counts()).unwrap(),
+        before,
+        "nothing written"
+    );
+}
+
+/// W0-R03 (b): equal delegations from a parent binding in a managed environment coalesce
+/// onto one owner decision, as they do in the runtime's own environment: the work is
+/// recorded, hashed and compared in the parent binding's environment.
+#[tokio::test]
+async fn w0_r03b_equal_delegations_in_a_managed_environment_coalesce() {
+    let w = World::new().await;
+    let e2 = add_managed_environment(&w);
+    // The parent holds `h3`, which the policy does not cover, by an owner decision.
+    let mut req = approval_req("r03b-par", "r03b-par");
+    req.environment = Some(e2.clone());
+    let dec = decision_ref(&err(w.ops.ensure(&attended(501), req.clone()).await));
+    ok(decide(&w, &attended(501), &dec, Verdict::Approve).await);
+    let parent = ok(w.ops.ensure(&attended(501), req).await);
+    assert_eq!(w.grant(&parent.data.grant_id).environment, e2);
+    // Delegating `h3` is added authority: an owner decision, once.
+    let first = err(w
+        .ops
+        .delegate(
+            &unattended(501),
+            delegation(
+                &parent.data.binding_id,
+                &[("h3", "deploy")],
+                "r03b-c",
+                "r03b-1",
+            ),
+        )
+        .await);
+    assert_eq!(first.code, Code::InteractionRequired);
+    let second = err(w
+        .ops
+        .delegate(
+            &unattended(501),
+            delegation(
+                &parent.data.binding_id,
+                &[("h3", "deploy")],
+                "r03b-c",
+                "r03b-2",
+            ),
+        )
+        .await);
+    assert_eq!(decision_ref(&second), decision_ref(&first), "coalesced");
+    assert_eq!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .len(),
+        1
+    );
+}

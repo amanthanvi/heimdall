@@ -4157,13 +4157,16 @@ struct WorkSpec {
 }
 
 impl WorkSpec {
-    fn from_request(request: &Request, own: &EnvironmentId) -> Option<Self> {
+    /// The work `request` asks for, recorded in `environment` (the operation's,
+    /// `operations.environment`: an `ensure`'s target, a delegation's parent binding's;
+    /// ⟨M04⟩ W0-R03).
+    fn from_request(request: &Request, environment: &EnvironmentId) -> Option<Self> {
         match request {
             Request::Ensure(r) => Some(Self {
                 kind: OperationKind::Ensure,
                 profile: r.profile.clone(),
                 profile_revision: r.profile_revision,
-                environment: r.environment.clone().unwrap_or_else(|| own.clone()),
+                environment: r.environment.clone().unwrap_or_else(|| environment.clone()),
                 pairs: r.scope.clone(),
                 work_id: r.work_id.clone(),
                 until: r.until.clone(),
@@ -4176,7 +4179,7 @@ impl WorkSpec {
                 kind: OperationKind::Delegate,
                 profile: None,
                 profile_revision: None,
-                environment: own.clone(),
+                environment: environment.clone(),
                 pairs: r.scope.clone(),
                 work_id: r.work_id.clone(),
                 until: r.until.clone(),
@@ -6161,7 +6164,7 @@ impl Operations {
             };
             let Some(spec) = st
                 .request()
-                .and_then(|r| WorkSpec::from_request(&r, &self.inner.config.environment))
+                .and_then(|r| WorkSpec::from_request(&r, &st.op.environment))
             else {
                 return Err(internal("the stored request cannot be read"));
             };
@@ -8809,9 +8812,10 @@ impl Operations {
         caller: &Caller,
         req: InspectRequest,
     ) -> OpResult<serde_json::Value> {
-        // ⟨M05⟩ Revision 5's subjects (`workspace`, `policies`, `export`) are M05's (U2,
-        // U4, U7); joint wave 0 refuses them before anything is read.
-        if req.subject.is_m05() {
+        // ⟨M05⟩ Revision 5's subjects (`workspace`, `policies`, `export`) and its `cwd` and
+        // `redact` parameters are M05's (U2, U4, U7); joint wave 0 refuses them before
+        // anything is read, on any subject (W0-R04).
+        if req.uses_m05_form() {
             return Err(OpError::driver_unavailable(
                 "this inspect subject is not available in this build",
             ));
@@ -9856,14 +9860,23 @@ impl Operations {
         }
         let ctx = caller.context.clone();
         let pb = req.parent_binding_id.clone();
+        let own = self.inner.config.environment.clone();
         // ⟨M04⟩ The child's operation is recorded in its parent binding's environment
-        // (one binding names one environment; ADR-0010 §0 item 1, §9 item 1).
+        // (one binding names one environment; ADR-0010 §0 item 1, §9 item 1), which must
+        // be in the managed set, as `ensure` and `bind` admit theirs: nothing is written
+        // for an unmanaged or removed one (ADR-0006 §17.2 item 2; W0-R03).
         let parent_environment = self
             .write(move |tx, _| {
-                Ok(tx
+                let Some(environment) = tx
                     .binding(&pb)?
                     .filter(|b| may_act_on(b, &ctx))
-                    .map(|b| b.environment))
+                    .map(|b| b.environment)
+                else {
+                    return Ok(None);
+                };
+                Ok(Some(
+                    crate::environments::admit(tx, &own, &environment)?.map(|()| environment),
+                ))
             })
             .await?;
         let Some(parent_environment) = parent_environment else {
@@ -9871,11 +9884,14 @@ impl Operations {
                 OpError::new(Code::NotFound, "unknown binding").with_resource("binding", None)
             );
         };
-        let own = self.inner.config.environment.clone();
+        let parent_environment = parent_environment?;
+        // ⟨M04⟩ The hash names the environment the work is recorded in (the parent
+        // binding's; `own` for every M01–M03 delegation), so equal delegations in a
+        // managed environment coalesce (W0-R03).
         let hash = compute_hash(
             OperationKind::Delegate,
             &HashInput {
-                environment: &own,
+                environment: &parent_environment,
                 profile: None,
                 profile_revision: None,
                 scope: &req.scope,

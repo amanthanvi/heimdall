@@ -123,7 +123,11 @@ $scratch = Join-Path ([System.IO.Path]::GetTempPath()) ('hm-spike-' + $hex)
 $canary = 'HM-SPIKE-CWD-' + $hex
 $cwd = Join-Path $scratch $canary
 $pipe = 'hm-spike-' + $hex
-$pipePath = '\\.\pipe\' + $pipe
+# OpenSSH_for_Windows 9.5p2 drops one backslash from `-o IdentityAgent=\\.\pipe\...`
+# (`ssh -G` shows `\.\pipe\...`), so ssh never reached the fake agent and the first PC
+# run measured nothing. The forward-slash form parses unchanged, for ssh and for Git's
+# `core.sshCommand` alike (both use this value).
+$pipePath = '//./pipe/' + $pipe
 $knownHosts = Join-Path $scratch 'known_hosts'
 $noKey = Join-Path $scratch 'no-such-identity'
 New-Item -ItemType Directory -Path $cwd -Force | Out-Null

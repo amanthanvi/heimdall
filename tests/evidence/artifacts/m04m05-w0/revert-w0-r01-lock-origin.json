@@ -1,0 +1,25 @@
+{
+ "name": "W0-R01: the origin's lock behaviour folded over every policy again (not only the origin's context)",
+ "file": "crates/app/src/operations/lock_connection_m03.rs",
+ "command": "cargo test --locked -p heimdall-runtime --test model_operations w0_r01",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant ... FAILED",
+   "thread 'w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant' (32661926) panicked at crates/runtime/../../tests/model/operations.rs:16115:5:",
+   "assertion `left == right` failed: the workspace's revoke_on_lock is not recorded in a personal grant's origin",
+   "  left: Some(RevokeOnLock)",
+   " right: None",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.02s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant ... ok",
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.02s"
+  ]
+ }
+}

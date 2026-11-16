@@ -288,7 +288,14 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
         let (op, _) = op_and_action(&r);
         match op.as_str() {
             "setup" | "catalog" => {
-                assert_eq!(r.required_capability(), Some(capability::SETUP_V1), "{op}");
+                // ⟨rev5⟩ `apply_import` is M05's form and needs `trusted-work/1` instead
+                // (ADR-0006 §17.6 R5-Q7; W0-R04).
+                let needs = if matches!(r, Request::Catalog(CatalogRequest::ApplyImport { .. })) {
+                    capability::TRUSTED_WORK_V1
+                } else {
+                    capability::SETUP_V1
+                };
+                assert_eq!(r.required_capability(), Some(needs), "{op}");
                 assert!(!r.requires_attended_session(), "{op}");
                 assert!(!r.is_widening_policy_action(), "{op}");
                 let preview = matches!(r, Request::Setup(SetupRequest::Preview { .. }));

@@ -121,12 +121,13 @@ pub(super) fn with_lock_and_connection(
     request: &serde_json::Value,
     floor: LockBehavior,
 ) -> heimdall_store::Result<GrantOrigin> {
-    // ⟨M05⟩ In the origin's recorded context (ADR-0011 §10 item 1).
-    let policies = tx.policies_for(&origin.profile, environment)?;
-    let merged = merged_policy(
-        &policies,
-        &crate::policy_context::grant_context(Some(&origin)),
-    );
+    // ⟨M05⟩ Only the policies applicable in the origin's recorded context (ADR-0011 §10
+    // item 1; ADR-0006 §17.6 R5-Q9), for the lock behaviour as for the connection policy:
+    // a personal policy reaches that profile's workspace work, a workspace's never reaches
+    // personal work or another workspace (W0-R01).
+    let context = crate::policy_context::grant_context(Some(&origin));
+    let policies = crate::policy_context::policies_in(tx, &origin.profile, environment, &context)?;
+    let merged = merged_policy(&policies, &context);
     let mut connection = merged
         .as_ref()
         .map_or(ConnectionPolicy::default(), |p| p.connection);
@@ -138,8 +139,9 @@ pub(super) fn with_lock_and_connection(
         connection.existing = ExistingConnectionsMode::Strict;
     }
     // ⟨M03⟩ ADR-0008 §17.17 item 4 (U9-Q2): the strictest of the applicable policies
-    // and the R3 floor in force at creation, so a later configuration edit plus a
-    // restart cannot turn this grant into `continue` without an attended decision.
+    // (those of the origin's context, above) and the R3 floor in force at creation, so a
+    // later configuration edit plus a restart cannot turn this grant into `continue`
+    // without an attended decision.
     origin.lock_behavior = crate::lock::origin_behavior(&policies, floor);
     origin.connection = (!connection.is_default()).then_some(connection);
     Ok(origin)

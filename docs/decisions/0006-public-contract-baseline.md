@@ -1980,6 +1980,26 @@ The orchestrator owns revision 5 (ADR-0010 §9 item 9, ADR-0011 §10 item 10). T
 * **The landing:** `integration_runtime_m03::w0_revision_5_requests_fail_closed_before_any_record`
   (every revision-5 request form, one table) and `e2e_cli_m04_m05` (every new command
   and flag, one table).
+* **The wave's independent review** (`tests/evidence/artifacts/review-m04m05/w0.md`) and its
+  fixes, each with a regression in `model_operations` unless named:
+  1. **W0-R01 (blocking):** a new grant's origin records the lock behaviour of the
+     policies of **its own context** only, as its connection policy already did (R5-Q9):
+     `w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant`, with a revert proof
+     (`tests/evidence/artifacts/m04m05-w0/revert-w0-r01-lock-origin.json`).
+  2. **W0-R02:** the lock disclosure and `inspect capabilities` describe the runtime's
+     general lock behaviour from the personal policies only:
+     `w0_r02_lock_disclosure_reads_only_personal_policies`.
+  3. **W0-R03:** `delegate` admits its parent binding's environment before anything is
+     written, and its hash and work spec name that environment, so equal delegations in a
+     managed environment coalesce (`own` for every M01–M03 delegation, whose hashes are
+     unchanged): `w0_r03a_delegate_in_a_removed_environment_writes_nothing`,
+     `w0_r03b_equal_delegations_in_a_managed_environment_coalesce`.
+  4. **W0-R04:** `Request::required_capability` also names `trusted-work/1` for
+     `apply_import` and for `cwd` or `redact` on any inspect subject, and
+     `environments/1` for a destination with a `jump` and a setup preview of an M04 item
+     or distribution (`contracts::rev5::rev5_capabilities_declared_not_offered_and_required`);
+     in process, `inspect` refuses `cwd` and `redact` on an M01–M03 subject
+     `driver_unavailable` instead of ignoring them (two rows of the landing table).
 
 ### 17.8 Not in wave 0
 

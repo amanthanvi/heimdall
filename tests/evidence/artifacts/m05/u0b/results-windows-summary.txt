@@ -1,0 +1,18 @@
+ssh: OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2
+git: git version 2.55.0.windows.3
+os: Microsoft Windows NT 10.0.26300.0
+
+ssh D=0    exit=255 elapsed=  0.133s answer_received=yes canary/cwd_in_agent_msgs=False
+git D=0    exit=128 elapsed=  0.165s answer_received=yes canary/cwd_in_agent_msgs=False
+ssh D=0.5  exit=255 elapsed=  0.649s answer_received=yes canary/cwd_in_agent_msgs=False
+git D=0.5  exit=128 elapsed=  0.642s answer_received=yes canary/cwd_in_agent_msgs=False
+ssh D=1    exit=255 elapsed=  1.095s answer_received=yes canary/cwd_in_agent_msgs=False
+git D=1    exit=128 elapsed=  1.138s answer_received=yes canary/cwd_in_agent_msgs=False
+ssh D=2    exit=255 elapsed=  2.096s answer_received=yes canary/cwd_in_agent_msgs=False
+git D=2    exit=128 elapsed=  2.128s answer_received=yes canary/cwd_in_agent_msgs=False
+ssh D=5    exit=255 elapsed=  5.102s answer_received=yes canary/cwd_in_agent_msgs=False
+git D=5    exit=128 elapsed=  5.187s answer_received=yes canary/cwd_in_agent_msgs=False
+ssh D=10   exit=255 elapsed=   10.1s answer_received=yes canary/cwd_in_agent_msgs=False
+git D=10   exit=128 elapsed= 10.155s answer_received=yes canary/cwd_in_agent_msgs=False
+ssh D=30   exit=255 elapsed= 30.123s answer_received=yes canary/cwd_in_agent_msgs=False
+git D=30   exit=128 elapsed= 30.137s answer_received=yes canary/cwd_in_agent_msgs=False

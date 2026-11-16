@@ -213,6 +213,7 @@ fn rev5_capabilities_declared_not_offered_and_required() {
         assert_eq!(need(path), Some(capability::ENVIRONMENTS_V1), "{path}");
     }
     for path in [
+        "schemas/examples/request.catalog.apply-import.json",
         "schemas/examples/request.ensure.context.json",
         "schemas/examples/request.revoke.work.json",
         "schemas/examples/request.policy.pause-target.json",
@@ -220,6 +221,59 @@ fn rev5_capabilities_declared_not_offered_and_required() {
         "schemas/examples/request.inspect.workspace.json",
     ] {
         assert_eq!(need(path), Some(capability::TRUSTED_WORK_V1), "{path}");
+    }
+    // W0-R04: a revision-5 field on an M01–M03 request needs its track's capability: a
+    // route's `jump` and an M04 setup item or distribution `environments/1`, `cwd` or
+    // `redact` on any inspect subject `trusted-work/1`; without them, what they needed.
+    let edited = |path: &str, edit: fn(&mut Value)| {
+        let mut v = load(path);
+        edit(&mut v);
+        v
+    };
+    let upsert = "schemas/examples/request.catalog.upsert-destination.json";
+    let preview = "schemas/examples/request.setup.preview-apply.json";
+    let rollback = "schemas/examples/request.setup.preview-rollback.json";
+    let inspect = |extra: Value| {
+        let mut v = serde_json::json!({"op": "inspect", "subject": "capabilities"});
+        if let Value::Object(m) = extra {
+            v.as_object_mut().unwrap().extend(m);
+        }
+        v
+    };
+    for (v, expected) in [
+        (
+            edited(upsert, |v| {
+                v["destination"]["definition"]["jump"] = "dest-0".into();
+            }),
+            Some(capability::ENVIRONMENTS_V1),
+        ),
+        (
+            edited(preview, |v| {
+                v["intent"]["items"] = serde_json::json!(["login_entry"]);
+            }),
+            Some(capability::ENVIRONMENTS_V1),
+        ),
+        (
+            edited(rollback, |v| {
+                v["intent"]["distribution"] = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0".into();
+            }),
+            Some(capability::ENVIRONMENTS_V1),
+        ),
+        (
+            inspect(serde_json::json!({"cwd": "/home/dev/src"})),
+            Some(capability::TRUSTED_WORK_V1),
+        ),
+        (
+            inspect(serde_json::json!({"redact": true})),
+            Some(capability::TRUSTED_WORK_V1),
+        ),
+        (load(upsert), Some(capability::SETUP_V1)),
+        (load(preview), Some(capability::SETUP_V1)),
+        (load(rollback), Some(capability::SETUP_V1)),
+        (inspect(Value::Null), None),
+    ] {
+        let r: Request = serde_json::from_value(v.clone()).unwrap_or_else(|e| panic!("{v}: {e}"));
+        assert_eq!(r.required_capability(), expected, "{v}");
     }
     // The M01–M03 forms still need nothing beyond what they needed.
     for path in [

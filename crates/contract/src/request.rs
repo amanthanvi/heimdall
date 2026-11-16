@@ -433,6 +433,17 @@ pub struct InspectRequest {
     pub redact: bool,
 }
 
+impl InspectRequest {
+    /// ⟨M05⟩ Whether the request uses a revision-5 form: one of revision 5's subjects, or
+    /// `cwd` or `redact` on any subject (an M01–M03 runtime would ignore either). Joint
+    /// wave 0 refuses it `driver_unavailable` before anything is read, and it needs
+    /// `trusted-work/1` ([`Request::required_capability`]; W0-R04).
+    #[must_use]
+    pub fn uses_m05_form(&self) -> bool {
+        self.subject.is_m05() || self.cwd.is_some() || self.redact
+    }
+}
+
 /// Preview parameters for `inspect --preview` (no side effects).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EnsurePreview {
@@ -1472,6 +1483,23 @@ impl Request {
             Request::Shutdown(_) | Request::UninstallFence(_) => {
                 Some(crate::ipc::capability::SERVICE_CONTROL_V1)
             }
+            // ⟨M04, M05⟩ Revision 5's setup and catalog forms need their track's capability
+            // instead of `setup/1` (W0-R04): a route's `jump` and the M04 setup items are
+            // `environments/1`'s, `apply_import` is `trusted-work/1`'s.
+            Request::Catalog(CatalogRequest::ApplyImport { .. }) => {
+                Some(crate::ipc::capability::TRUSTED_WORK_V1)
+            }
+            Request::Catalog(CatalogRequest::UpsertDestination { destination, .. })
+                if matches!(
+                    destination.definition,
+                    crate::catalog::DestinationDefinitionSpec::Managed { jump: Some(_), .. }
+                ) =>
+            {
+                Some(crate::ipc::capability::ENVIRONMENTS_V1)
+            }
+            Request::Setup(SetupRequest::Preview { intent }) if intent.uses_m04_form() => {
+                Some(crate::ipc::capability::ENVIRONMENTS_V1)
+            }
             Request::Setup(_) | Request::Catalog(_) => Some(crate::ipc::capability::SETUP_V1),
             Request::Issuer(_) => Some(crate::ipc::capability::ISSUER_V1),
             Request::Enrollment(_) => Some(crate::ipc::capability::ENROLLMENT_V1),
@@ -1487,7 +1515,7 @@ impl Request {
             Request::Revoke(r) if r.target.is_some() => {
                 Some(crate::ipc::capability::TRUSTED_WORK_V1)
             }
-            Request::Inspect(r) if r.subject.is_m05() => {
+            Request::Inspect(r) if r.uses_m05_form() => {
                 Some(crate::ipc::capability::TRUSTED_WORK_V1)
             }
             Request::Inspect(_)
