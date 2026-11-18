@@ -93,11 +93,40 @@ def function_paths(data, crate):
 
 def source_test_names(root):
     names = set()
+    for names_in_file in source_tests_by_file(root).values():
+        names.update(names_in_file)
+    return names
+
+
+def source_tests_by_file(root):
+    """{path: {#[test] function names}} over the sources (paths resolved)."""
+    out = {}
     for base in ("tests", "crates"):
         for p in (root / base).rglob("*.rs"):
             if "target" in p.parts:
                 continue
-            names.update(TEST_FN.findall(p.read_text(encoding="utf-8", errors="replace")))
+            found = set(TEST_FN.findall(p.read_text(encoding="utf-8", errors="replace")))
+            if found:
+                out[p.resolve()] = found
+    return out
+
+
+def own_test_names(by_file, src_path):
+    """⟨M03 wave 6⟩ The #[test] names in a binary's own sources: its root file and the
+    directory beside it of the same stem (`tests/e2e/x.rs` and `tests/e2e/x/**`); for a
+    crate's unit tests (`src/lib.rs`, `src/main.rs`), its whole `src/`. A function that
+    only shares a name with a test of another target is not one of this binary's tests."""
+    if not src_path:
+        return None
+    src = Path(src_path).resolve()
+    if src.name in ("lib.rs", "main.rs"):
+        dirs = [src.parent]
+    else:
+        dirs = [src.parent / src.stem]
+    names = set(by_file.get(src, set()))
+    for f, found in by_file.items():
+        if any(d == f.parent or d in f.parents for d in dirs):
+            names.update(found)
     return names
 
 
@@ -112,14 +141,20 @@ def artifacts(build_json):
             continue
         t = m["target"]
         name = t["name"] if "test" in t["kind"] else t["name"] + "-unit"
-        out[name] = (t["name"].replace("-", "_"), m["executable"])
+        out[name] = (t["name"].replace("-", "_"), m["executable"], t.get("src_path"))
     return out
 
 
 def analyse(arts, listed_dir, root):
-    tests_in_sources = source_test_names(root)
+    by_file = source_tests_by_file(root)
+    every = set()
+    for found in by_file.values():
+        every.update(found)
     report = {}
-    for name, (crate, exe) in sorted(arts.items()):
+    for name, art in sorted(arts.items()):
+        crate, exe = art[0], art[1]
+        own = own_test_names(by_file, art[2] if len(art) > 2 else None)
+        tests_in_sources = every if own is None else own
         data = Path(exe).read_bytes()
         paths = function_paths(data, crate)
         listed_file = Path(listed_dir) / f"{name}.txt"
@@ -129,7 +164,17 @@ def analyse(arts, listed_dir, root):
         listed_set = set(listed)
         extra = sorted("::".join(p) for p in paths if p[-1] in tests_in_sources and "::".join(p) not in listed_set)
         report[name] = {"present": len(present), "absent": absent, "extra": extra}
+        if listed and not paths:
+            # ⟨M03 wave 6⟩ Not one function of the crate has a symbol (even libtest's
+            # `main` would): the binary carries no Rust symbols (a Windows lld link without
+            # debug information), so "absent" would mean "unreadable", never "cfg-gated".
+            report[name]["unreadable"] = True
     return report
+
+
+def unreadable(report):
+    """The scanned binaries whose own crate has no symbol at all ([name])."""
+    return sorted(n for n, r in report.items() if isinstance(r, dict) and r.get("unreadable"))
 
 
 def compress(target, where, all_platforms):
@@ -225,6 +270,12 @@ def main():
         if not a.build_json:
             ap.error("--build-json is required for a scan")
         report = analyse(artifacts(a.build_json), a.listed_from, Path.cwd())
+        bad = unreadable(report)
+        if bad:
+            print(f"platform-tests: {len(bad)} test binaries carry no Rust symbols of their own crate "
+                  f"(build them with debug information or an unstripped symbol table): {', '.join(bad[:8])}"
+                  f"{' …' if len(bad) > 8 else ''}", file=sys.stderr)
+            return 1
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if a.out:
         Path(a.out).write_text(text, encoding="utf-8")

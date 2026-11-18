@@ -700,6 +700,11 @@ impl World {
         } else {
             put("PATH", OsStr::new("/usr/bin:/bin"));
         }
+        // The runtime's verification `ssh` inherits this environment.
+        #[cfg(windows)]
+        for (k, v) in openssh_startup_env() {
+            put(k, &v);
+        }
         for (k, v) in &self.extra_env {
             put(k, OsStr::new(v));
         }
@@ -1002,6 +1007,10 @@ impl World {
             }
         } else {
             env.push(("PATH".into(), "/usr/bin:/bin".into()));
+        }
+        #[cfg(windows)]
+        for (k, v) in openssh_startup_env() {
+            env.push((k.into(), v));
         }
         (openssh("ssh"), args, env)
     }
@@ -1599,4 +1608,25 @@ fn enrollment(
         created_at: now,
         updated_at: now,
     }
+}
+
+/// ⟨M03 wave 6, Windows⟩ What the in-box OpenSSH for Windows client needs in its environment
+/// just to start: without `ProgramData`, `ssh.exe` (9.5.6.4) exits 255 before it prints
+/// anything, even for `ssh -G`. This was bisected on the PC on 2026-11-18: adding
+/// `ProgramData` alone to the World's minimal login or runtime environment gives exit 0, and
+/// removing it from a full environment gives 255. The World's minimal Windows environments
+/// (its runtime, whose verification `ssh` inherits it, its logins and its `ssh-add -L`
+/// probes) carry exactly these, by name, beyond their own, never the whole environment (the
+/// orchestrator's ruling on the E2 Windows failures). The product side, a runtime started
+/// with a stripped environment, is M04 U2's.
+#[cfg(windows)]
+pub const OPENSSH_STARTUP_ENV: [&str; 1] = ["ProgramData"];
+
+/// [`OPENSSH_STARTUP_ENV`] read from this process's environment (an absent one is skipped).
+#[cfg(windows)]
+pub fn openssh_startup_env() -> Vec<(&'static str, OsString)> {
+    OPENSSH_STARTUP_ENV
+        .iter()
+        .filter_map(|k| std::env::var_os(k).map(|v| (*k, v)))
+        .collect()
 }

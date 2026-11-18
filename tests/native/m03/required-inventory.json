@@ -8,6 +8,15 @@
         "e2e_cli_m03": [
           "access::m03_help_and_discovery_goldens"
         ],
+        "e2e_exit_m03": [
+          "lock::a03_fresh_logins_while_locked_continue",
+          "lock::a03_lock_cleanup",
+          "lock::a03_lock_prepare",
+          "lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "lock::a03_new_grant_while_locked_under_standing_policy",
+          "lock::a03_post_unlock_follows_remaining_deadline",
+          "lock::a03_vault_stand_in_locked_agent_does_not_matter"
+        ],
         "e2e_managed_m03": [
           "reissue_after_runtime_process_restart_same_boot"
         ],
@@ -32,11 +41,17 @@
           "unknown_state_treated_as_locked",
           "unlock_restores_nothing",
           "widening_to_continue_needs_attended_decision"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_revoke_on_lock_refused_lock_signal_unavailable"
         ]
       }
     },
     "A07": {
       "tests": {
+        "e2e_exit_m03": [
+          "real_issuer_activation_reissue_revocation_with_fresh_logins"
+        ],
         "e2e_managed_m03": [
           "revoke_destroys_k_env_under_the_gates",
           "revoke_result_reports_requested_and_committed_at"
@@ -214,6 +229,10 @@
           "verification_gate_close_after_holders_waits_and_fences_waiters",
           "verification_gates_are_not_grant_gates",
           "verification_permit_release_refused_after_gate_closed"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_access_ensure_signed_by_the_real_issuer_child",
+          "m03_wsl_revoke_then_fresh_login_refused"
         ]
       }
     },
@@ -321,6 +340,7 @@
           "verification_authority_apply_initial_needs_its_own_approval_and_stage",
           "verification_authority_system_absence_own_stage",
           "verification_authority_target_change_needs_its_own_decision_and_stage",
+          "verification_refused_by_the_issuer_before_any_login_is_unclassified",
           "verification_session_dropped_on_every_exit_path",
           "withdrawn_with_late_write_remove_removes_exactly_that_line_and_clears_residual",
           "withdrawn_without_late_write_refuses_remove"
@@ -649,19 +669,29 @@
         "integration_managed_adapter": [
           "rotation_keeps_ensure_working_per_account"
         ],
+        "integration_testkit_m03": [
+          "owner_digest_detects_change",
+          "registry_guard_refuses_non_scratch_paths",
+          "shell_containers_run_each_shell_as_group_leader"
+        ],
         "model_managed_domain": [
           "enrollment_recovery_paths_each_tested",
           "foreign_removal_paths_golden",
           "target_change_outcomes_golden"
         ],
-        "wsl_distro_m03": [
-          "a09_enroll_account_form_default_registry_path",
-          "a09_enroll_system_form_default_registry_path",
-          "a09_ordinary_git_managed_alias_without_f",
-          "a09_ordinary_scp_managed_alias_without_f",
-          "a09_ordinary_sftp_managed_alias_without_f",
-          "a09_ordinary_ssh_managed_alias_without_f",
-          "a09_uninstall_restores_user_bytes"
+        "wsl_managed_ssh": [
+          "m03_wsl_account_form_registry_is_the_default_path",
+          "m03_wsl_enroll_account_form_verified",
+          "m03_wsl_enroll_system_form_verified",
+          "m03_wsl_ordinary_git_managed_alias_without_f",
+          "m03_wsl_ordinary_scp_managed_alias_without_f",
+          "m03_wsl_ordinary_sftp_managed_alias_without_f",
+          "m03_wsl_ordinary_ssh_managed_alias_without_f",
+          "m03_wsl_setup_apply_projects_the_managed_aliases",
+          "m03_wsl_strictmodes_refuses_a_group_writable_registry",
+          "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca",
+          "m03_wsl_uninstall_lists_the_remote_enrollments",
+          "m03_wsl_uninstall_restores_the_users_config_bytes"
         ]
       }
     },
@@ -670,6 +700,9 @@
         "e2e_enroll_m03": [
           "a10_narrow_certificate_refused_on_other_host_account_form",
           "a10_narrow_certificate_refused_on_other_host_system_form"
+        ],
+        "e2e_exit_m03": [
+          "a10_bound_consumer_issuer_reachability_recorded"
         ],
         "integration_enroll_verify": [
           "bare_cert_authority_line_is_verification_failed",
@@ -695,9 +728,14 @@
         "integration_managed_signer": [
           "environment_endpoint_lists_only_materialized_bindings"
         ],
-        "wsl_distro_m03": [
-          "a10_production_verification_account_form",
-          "a10_production_verification_system_form"
+        "integration_testkit_m03": [
+          "docker_ca_hook_is_container_internal_only",
+          "docker_enrollable2_seeded_like_enrollable"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_enroll_account_form_verified",
+          "m03_wsl_enroll_system_form_verified",
+          "m03_wsl_logins_attributed_to_the_grant_certificate"
         ]
       }
     },
@@ -780,6 +818,9 @@
         "e2e_cli_m03": [
           "m03_test_gates_are_validated_before_anything_else"
         ],
+        "e2e_exit_m03": [
+          "a33_secret_bytes_scan_all_artifacts"
+        ],
         "e2e_issuer_ceremony": [
           "d5_backup_restores_with_stock_ssh_keygen",
           "passphrase_only_on_tty_transcript"
@@ -794,6 +835,38 @@
         "integration_issuer_store": [
           "bundle_contains_no_private_material",
           "no_plaintext_when_store_unavailable"
+        ],
+        "wsl_managed_ssh": [
+          "m03_wsl_product_store_unavailable_no_plaintext_fallback"
+        ]
+      }
+    },
+    "P1": {
+      "tests": {
+        "e2e_exit_m03": [
+          "lock::a03_fresh_logins_while_locked_continue",
+          "lock::a03_lock_cleanup",
+          "lock::a03_lock_prepare",
+          "lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "lock::a03_new_grant_while_locked_under_standing_policy",
+          "lock::a03_post_unlock_follows_remaining_deadline",
+          "lock::a03_vault_stand_in_locked_agent_does_not_matter"
+        ],
+        "integration_session_lock": [
+          "macos_lock_signal_observed"
+        ]
+      }
+    },
+    "PW1": {
+      "tests": {
+        "e2e_exit_m03": [
+          "lock::a03_fresh_logins_while_locked_continue",
+          "lock::a03_lock_cleanup",
+          "lock::a03_lock_prepare",
+          "lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "lock::a03_new_grant_while_locked_under_standing_policy",
+          "lock::a03_post_unlock_follows_remaining_deadline",
+          "lock::a03_vault_stand_in_locked_agent_does_not_matter"
         ]
       }
     },
@@ -990,6 +1063,9 @@
     },
     "sleep-logout-reboot": {
       "tests": {
+        "e2e_exit_m03": [
+          "real_issuer_activation_reissue_revocation_with_fresh_logins"
+        ],
         "e2e_managed_m03": [
           "reissue_after_reboot_waits_for_time_confirm",
           "reissue_after_runtime_process_restart_same_boot"
@@ -1016,9 +1092,6 @@
         "model_timegate": [
           "sleep_across_expiry_expires_and_is_never_extended",
           "sleep_with_wall_running_expires_at_the_persisted_instant"
-        ],
-        "wsl_distro_m03": [
-          "p_restart_wsl_terminate_restart_row"
         ]
       }
     },
@@ -1060,8 +1133,1674 @@
       }
     }
   },
-  "platform_extra": {},
-  "platform_only": {},
-  "scanned_platforms": [],
-  "sources_sha256": "4b73e63f24bad157efac02ef8bb284f3eb9555bfb1e8795369e9ac99b953bb9d"
+  "platform_extra": {
+    "A09": {
+      "linux": {
+        "integration_enroll_registry": [
+          "native_sh::procstat_live_comm_fixtures_per_linux_shell"
+        ]
+      },
+      "windows": {
+        "e2e_enroll_m03": [
+          "windows::windows_binding_endpoint_pipe_lists_and_signs_through_the_agent_protocol",
+          "windows::windows_client_trace_row_host_key_changed_observation",
+          "windows::windows_client_trace_row_host_key_unknown_observation",
+          "windows::windows_client_trace_row_observation",
+          "windows::windows_decision_joined_follower_names_the_pipe_its_materialization_created",
+          "windows::windows_reissue_restores_the_binding_pipe_and_signs_with_the_new_key",
+          "windows::windows_verification_host_key_mismatch_holds_no_rollback"
+        ]
+      }
+    },
+    "A23": {
+      "windows": {
+        "e2e_deadline_m03": [
+          "windows::windows_job_probe_child",
+          "windows::windows_launcher_death_ends_ssh_through_job",
+          "windows::windows_launcher_fixture_child",
+          "windows::windows_non_ssh_run_has_no_job_object_by_default",
+          "windows::windows_pause_before_register_then_revoke_refuses_registration",
+          "windows::windows_register_refused_for_ended_grant_child_never_resumed",
+          "windows::windows_register_while_suspended_under_gate",
+          "windows::windows_registration_failure_fails_closed",
+          "windows::windows_revoke_between_register_and_resume_kills_child",
+          "windows::windows_revoke_makes_exact_ssh_exe_pid_exit",
+          "windows::windows_ssh_grandchild_inside_job",
+          "windows::windows_strict_deadline_closes_exact_ssh_exe"
+        ],
+        "integration_connections": [
+          "windows_owned_multiplexing_reported_unavailable"
+        ]
+      }
+    }
+  },
+  "platform_only": {
+    "e2e_cli_m02::ssh::a01_personal_profile_without_repository": [
+      "linux",
+      "macos"
+    ],
+    "e2e_cli_m03::issuer::issuer_restore_after_access_denial_writes_a_new_item_and_lists_the_orphan": [
+      "macos"
+    ],
+    "e2e_cli_m03::issuer::issuer_restore_paths_past_registration_on_the_product_store": [
+      "macos"
+    ],
+    "e2e_cli_m03::issuer::issuer_retire_deletes_the_exact_keychain_item_on_the_product_store": [
+      "macos"
+    ],
+    "e2e_cli_m03::issuer::issuer_rotate_begin_registers_the_successor_on_the_product_store": [
+      "macos"
+    ],
+    "e2e_cli_m03::issuer::issuer_store_access_denied_when_another_binary_reads_the_item": [
+      "macos"
+    ],
+    "e2e_cli_m03::issuer::recheck_retire_after_new_item_restore_deletes_only_current_generation": [
+      "macos"
+    ],
+    "e2e_consumer_m03::connect_existing_access_pair_flow_unchanged_from_m02": [
+      "linux",
+      "macos"
+    ],
+    "e2e_deadline_m03::windows::windows_job_probe_child": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_launcher_death_ends_ssh_through_job": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_launcher_fixture_child": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_non_ssh_run_has_no_job_object_by_default": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_pause_before_register_then_revoke_refuses_registration": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_register_refused_for_ended_grant_child_never_resumed": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_register_while_suspended_under_gate": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_registration_failure_fails_closed": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_revoke_between_register_and_resume_kills_child": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_revoke_makes_exact_ssh_exe_pid_exit": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_ssh_grandchild_inside_job": [
+      "windows"
+    ],
+    "e2e_deadline_m03::windows::windows_strict_deadline_closes_exact_ssh_exe": [
+      "windows"
+    ],
+    "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_account_form": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_system_form": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::client_change_triggers_prompt_reverification": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::enroll_account_approval_records_lock_disclosure_acknowledgement_once": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::enroll_reconcile_unreachable": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::enrollment_result_next_discloses_slot_free": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::evidence_invalidated_on_host_key_or_client_change": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::fence::concurrent_reverification_resumes_run_one_verification": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::fence::refused_reverification_is_resumed_once_after_the_fence_lifts": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::fence::verification_fence_refusal_is_returned_and_changes_no_evidence": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::fence_audit_keeps_signals_sent_on_unproven": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::fence_unproven_never_unlocks_and_counts_attempt": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::held_evidence_hold_reverifies_on_owner_request": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::held_host_key_change_needs_target_reapproval_with_key_diff": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::manual_removal_cancel_returns_to_origin_state_and_evidence": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::recheck_manual_recovered_last_removal_drops_issuing_ca": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::recheck_manual_recovered_withdrawn_removal_clears_residual": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::reconcile_after_manual_recovery_classifies_without_redispatch": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::reconcile_terminates_stale_holder_then_redispatches": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::rotation_two_accounts_one_unreachable": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::supervisor_reverifies_before_freshness_lapses": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::system_form_never_reported_removed_without_absence_check": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::target_change_failure_or_inconclusive_keeps_approved_target_and_held": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::target_change_pass_replaces_approved_target_atomically": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::target_change_pins_come_from_proposed_target": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::windows::windows_binding_endpoint_pipe_lists_and_signs_through_the_agent_protocol": [
+      "windows"
+    ],
+    "e2e_enroll_m03::windows::windows_client_trace_row_host_key_changed_observation": [
+      "windows"
+    ],
+    "e2e_enroll_m03::windows::windows_client_trace_row_host_key_unknown_observation": [
+      "windows"
+    ],
+    "e2e_enroll_m03::windows::windows_client_trace_row_observation": [
+      "windows"
+    ],
+    "e2e_enroll_m03::windows::windows_decision_joined_follower_names_the_pipe_its_materialization_created": [
+      "windows"
+    ],
+    "e2e_enroll_m03::windows::windows_reissue_restores_the_binding_pipe_and_signs_with_the_new_key": [
+      "windows"
+    ],
+    "e2e_enroll_m03::windows::windows_verification_host_key_mismatch_holds_no_rollback": [
+      "windows"
+    ],
+    "e2e_issuer_ceremony::d5_backup_restores_with_stock_ssh_keygen": [
+      "linux",
+      "macos"
+    ],
+    "e2e_issuer_ceremony::passphrase_only_on_tty_transcript": [
+      "linux",
+      "macos"
+    ],
+    "e2e_run_m02::a11::a11_confirm_constrained_native_key_refused_before_agent_contact": [
+      "linux",
+      "macos"
+    ],
+    "e2e_run_m02::a11::a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact": [
+      "linux",
+      "macos"
+    ],
+    "e2e_run_m02::a11::a11_interactive_connect_succeeds_after_provider_approval": [
+      "linux",
+      "macos"
+    ],
+    "e2e_tui_m03::pty::time_confirmation_chore_shown_after_reboot": [
+      "linux",
+      "macos"
+    ],
+    "integration_adapters::a11_locked_native_agent_lists_nothing": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::concurrent_starts_of_one_slot_are_serialized": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::descendant_walk_never_admits_a_child_under_a_reused_parent": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::enabling_masters_needs_decision_and_setup_apply": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::foreign_master_at_stable_path_never_serves_after_revocation": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::forward_through_master_refused_without_permit_port_forwarding": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::graceful_keeps_dedicated_connection_after_deadline_and_new_auth_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::master_socket_removed_only_if_same_inode": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::master_start_failure_retried_bounded_jittered_and_clients_connect_directly": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::no_leftover_processes": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::o_stop_and_o_exit_behaviour_recorded_per_client": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::ordinary_client_uses_owned_master_when_present_direct_otherwise": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::owned_connections_rows_cleared_on_exit": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::owned_master_admits_sessions_before_deadline": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::owned_master_closed_at_deadline_new_mux_session_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::owned_master_pins_fork_after_authentication_no": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::owned_row_invariant_checked_at_insertion": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::panic_with_store_failure_leaks_no_process": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::pass_discovery_failures_are_explicit": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::preaccepted_control_connection_closed_with_master": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::process_that_execs_another_image_during_grace_is_not_killed": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::remote_command_stalled_after_its_pidfile_leaves_no_process": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::remote_command_stalled_before_its_pidfile_leaves_no_process": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::remote_process_survives_close_reported_not_terminated": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::restart_closes_master_whose_deadline_passed_while_absent": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::restart_without_accepted_time_closes_masters": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::revocation_closes_dedicated_under_both_policies": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::run_of_non_ssh_program_reports_existing_connections_not_controlled": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::runtime_restart_closes_masters_of_ended_grants_first": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::slot_transfer_during_spawn_leaves_no_recorded_master": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::stale_close_never_controls_a_replacement_listener": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::start_master_refused_for_non_holder": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::strict_close_races_child_exit_cleanly": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::strict_closes_dedicated_connection_at_deadline": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::time_uncertain_closes_masters_keeps_graceful_dedicated": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::two_successive_bindings_share_the_slot_mux_path_through_ordinary_ssh": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::unix_connection_row_is_holder_pid_with_verified_image": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::unix_failed_exec_is_not_an_owned_connection": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::unix_revoke_between_bind_and_exec_not_signalled_then_closed_after_exec": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::unmanaged_alias_master_reported_not_controlled": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::unsafe_mux_directory_refuses_the_start_unrepaired": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::unverifiable_holder_never_signalled": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::unix::user_controlmaster_ignored_for_managed_alias": [
+      "linux",
+      "macos"
+    ],
+    "integration_connections::windows_owned_multiplexing_reported_unavailable": [
+      "windows"
+    ],
+    "integration_credential_memory::core_dumps_disabled_after_harden": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::admin_append_between_inspect_and_append_preserved": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::admin_append_without_newline_in_append_window_detected_damaged": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::admin_edit_before_final_check_remove_restarts": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::admin_edit_inside_remove_window_is_lost": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::append_creates_registry_exclusively_mode_0600": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::append_idempotent_by_marker_exit_10": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::append_newline_decided_at_append_time": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::bootstrap_missing_parent_exit_33_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::bootstrap_refuses_symlink_or_foreign_owner": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::busy_lock_changes_nothing_exit_40": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::fence_decision_ignores_diagnostics_uses_exit_status": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::foreign_owned_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::group_probe_and_listing_disagreement_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::group_probe_and_listing_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::group_probe_permission_failure_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::group_probe_syntax_error_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::group_writable_dir_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::hardlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::holder_is_process_group_leader_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::inspect_reports_metadata_and_content": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::late_write_residual_cleared_only_by_inspect_after_not_after": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::leader_absent_live_mutation_child_never_gone_per_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::listing_without_own_group_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::lock_lost_changes_nothing_exit_42": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::lock_records_holder_pid_start_and_boot_identity": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::lock_symlink_is_exclusive_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::missing_registry_dir_is_exit_32_not_busy": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::non_ascii_registry_bytes_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::non_posix_or_noisy_login_refused_as_registry_unsupported": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::not_after_passed_changes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::other_enrollments_lock_is_busy_never_broken": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::procstat_fixtures_rust_and_awk_agree": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::procstat_live_comm_fixtures_per_linux_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::registry_dir_bootstrap_journaled_shown_in_plan_then_locked": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::registry_protocol_on_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::registry_too_large_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::remote_clock_reading_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::remove_compare_then_rename_preserves_unrelated_bytes": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::retry_after_lost_reply_never_appends_twice": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::reused_pid_with_empty_group_is_gone_by_agreement": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::reused_pid_with_live_foreign_group_is_unproven_never_signalled": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::rotation_add_preserves_admin_edit": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::script_started_after_not_after_writes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::shell_table_matches_round4_observed_rows": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::ssh_killed_before_append_reconciled_not_applied": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::stale_lock_broken_only_after_holder_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::start_identity_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::stopped_holder_ended_by_kill": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::symlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::terminate_then_unproven_reports_signals_sent_exit_44": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::three_compare_failures_give_registry_changed": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::truncated_script_does_nothing_at_every_truncation_point": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::unprovable_holder_held_for_manual_recovery_never_redispatched": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_bash_sh::writer_paused_just_before_write_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::admin_append_between_inspect_and_append_preserved": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::admin_append_without_newline_in_append_window_detected_damaged": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::admin_edit_before_final_check_remove_restarts": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::admin_edit_inside_remove_window_is_lost": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::append_creates_registry_exclusively_mode_0600": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::append_idempotent_by_marker_exit_10": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::append_newline_decided_at_append_time": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::bootstrap_missing_parent_exit_33_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::bootstrap_refuses_symlink_or_foreign_owner": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::busy_lock_changes_nothing_exit_40": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::busybox_append_and_remove_run_with_proc_process_group": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::busybox_fence_always_unproven_manual_recovery": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::fence_decision_ignores_diagnostics_uses_exit_status": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::foreign_owned_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::group_probe_and_listing_disagreement_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::group_probe_and_listing_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::group_probe_permission_failure_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::group_probe_syntax_error_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::group_writable_dir_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::hardlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::holder_is_process_group_leader_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::inspect_reports_metadata_and_content": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::late_write_residual_cleared_only_by_inspect_after_not_after": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::leader_absent_live_mutation_child_never_gone_per_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::listing_without_own_group_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::lock_lost_changes_nothing_exit_42": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::lock_records_holder_pid_start_and_boot_identity": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::lock_symlink_is_exclusive_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::missing_registry_dir_is_exit_32_not_busy": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::non_ascii_registry_bytes_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::non_posix_or_noisy_login_refused_as_registry_unsupported": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::not_after_passed_changes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::other_enrollments_lock_is_busy_never_broken": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::procstat_fixtures_rust_and_awk_agree": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::procstat_live_comm_fixtures_per_linux_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::registry_dir_bootstrap_journaled_shown_in_plan_then_locked": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::registry_protocol_on_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::registry_too_large_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::remote_clock_reading_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::remove_compare_then_rename_preserves_unrelated_bytes": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::retry_after_lost_reply_never_appends_twice": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::reused_pid_with_empty_group_is_gone_by_agreement": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::reused_pid_with_live_foreign_group_is_unproven_never_signalled": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::rotation_add_preserves_admin_edit": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::script_started_after_not_after_writes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::shell_table_matches_round4_observed_rows": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::ssh_killed_before_append_reconciled_not_applied": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::stale_lock_broken_only_after_holder_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::start_identity_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::stopped_holder_ended_by_kill": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::symlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::terminate_then_unproven_reports_signals_sent_exit_44": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::three_compare_failures_give_registry_changed": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::truncated_script_does_nothing_at_every_truncation_point": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::unprovable_holder_held_for_manual_recovery_never_redispatched": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_busybox::writer_paused_just_before_write_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::admin_append_between_inspect_and_append_preserved": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::admin_append_without_newline_in_append_window_detected_damaged": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::admin_edit_before_final_check_remove_restarts": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::admin_edit_inside_remove_window_is_lost": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::append_creates_registry_exclusively_mode_0600": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::append_idempotent_by_marker_exit_10": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::append_newline_decided_at_append_time": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::bootstrap_missing_parent_exit_33_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::bootstrap_refuses_symlink_or_foreign_owner": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::busy_lock_changes_nothing_exit_40": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::fence_decision_ignores_diagnostics_uses_exit_status": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::foreign_owned_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::group_probe_and_listing_disagreement_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::group_probe_and_listing_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::group_probe_permission_failure_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::group_probe_syntax_error_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::group_writable_dir_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::hardlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::holder_is_process_group_leader_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::inspect_reports_metadata_and_content": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::late_write_residual_cleared_only_by_inspect_after_not_after": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::leader_absent_live_mutation_child_never_gone_per_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::listing_without_own_group_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::lock_lost_changes_nothing_exit_42": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::lock_records_holder_pid_start_and_boot_identity": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::lock_symlink_is_exclusive_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::missing_registry_dir_is_exit_32_not_busy": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::non_ascii_registry_bytes_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::non_posix_or_noisy_login_refused_as_registry_unsupported": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::not_after_passed_changes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::other_enrollments_lock_is_busy_never_broken": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::procstat_fixtures_rust_and_awk_agree": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::procstat_live_comm_fixtures_per_linux_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::registry_dir_bootstrap_journaled_shown_in_plan_then_locked": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::registry_protocol_on_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::registry_too_large_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::remote_clock_reading_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::remove_compare_then_rename_preserves_unrelated_bytes": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::retry_after_lost_reply_never_appends_twice": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::reused_pid_with_empty_group_is_gone_by_agreement": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::reused_pid_with_live_foreign_group_is_unproven_never_signalled": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::rotation_add_preserves_admin_edit": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::script_started_after_not_after_writes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::shell_table_matches_round4_observed_rows": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::ssh_killed_before_append_reconciled_not_applied": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::stale_lock_broken_only_after_holder_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::start_identity_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::stopped_holder_ended_by_kill": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::symlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::terminate_then_unproven_reports_signals_sent_exit_44": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::three_compare_failures_give_registry_changed": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::truncated_script_does_nothing_at_every_truncation_point": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::unprovable_holder_held_for_manual_recovery_never_redispatched": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_dash::writer_paused_just_before_write_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_debian_dash::acl_indicator_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::docker_debian_dash::foreign_owned_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::acl_indicator_refused": [
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::admin_append_between_inspect_and_append_preserved": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::admin_append_without_newline_in_append_window_detected_damaged": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::admin_edit_before_final_check_remove_restarts": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::admin_edit_inside_remove_window_is_lost": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::append_creates_registry_exclusively_mode_0600": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::append_idempotent_by_marker_exit_10": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::append_newline_decided_at_append_time": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::bootstrap_missing_parent_exit_33_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::bootstrap_refuses_symlink_or_foreign_owner": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::busy_lock_changes_nothing_exit_40": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::fence_decision_ignores_diagnostics_uses_exit_status": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::group_probe_and_listing_disagreement_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::group_probe_and_listing_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::group_probe_syntax_error_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::group_writable_dir_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::hardlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::holder_is_process_group_leader_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::inspect_reports_metadata_and_content": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::late_write_residual_cleared_only_by_inspect_after_not_after": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::leader_absent_live_mutation_child_never_gone_per_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::listing_without_own_group_is_unproven": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::lock_lost_changes_nothing_exit_42": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::lock_records_holder_pid_start_and_boot_identity": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::lock_symlink_is_exclusive_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::missing_registry_dir_is_exit_32_not_busy": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::non_ascii_registry_bytes_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::non_posix_or_noisy_login_refused_as_registry_unsupported": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::not_after_passed_changes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::other_enrollments_lock_is_busy_never_broken": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::procstat_fixtures_rust_and_awk_agree": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::procstat_live_comm_fixtures_per_linux_shell": [
+      "linux"
+    ],
+    "integration_enroll_registry::native_sh::registry_dir_bootstrap_journaled_shown_in_plan_then_locked": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::registry_protocol_on_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::registry_too_large_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::remote_clock_reading_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::remove_compare_then_rename_preserves_unrelated_bytes": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::retry_after_lost_reply_never_appends_twice": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::reused_pid_with_empty_group_is_gone_by_agreement": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::reused_pid_with_live_foreign_group_is_unproven_never_signalled": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::rotation_add_preserves_admin_edit": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::script_started_after_not_after_writes_nothing_exit_41": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::shell_table_matches_round4_observed_rows": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::ssh_killed_before_append_reconciled_not_applied": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::stale_lock_broken_only_after_holder_proven_gone": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::start_identity_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::stopped_holder_ended_by_kill": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::symlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::terminate_then_unproven_reports_signals_sent_exit_44": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::three_compare_failures_give_registry_changed": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::timestamp_boot_identity_difference_alone_never_proves_gone": [
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::truncated_script_does_nothing_at_every_truncation_point": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::unprovable_holder_held_for_manual_recovery_never_redispatched": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sh::writer_paused_just_before_write_no_duplicate_no_loss": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::append_creates_registry_exclusively_mode_0600": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::append_idempotent_by_marker_exit_10": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::append_newline_decided_at_append_time": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::bootstrap_missing_parent_exit_33_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::bootstrap_refuses_symlink_or_foreign_owner": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::group_writable_dir_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::hardlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::holder_is_process_group_leader_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::inspect_reports_metadata_and_content": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::lock_symlink_is_exclusive_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::missing_registry_dir_is_exit_32_not_busy": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::non_ascii_registry_bytes_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::non_posix_or_noisy_login_refused_as_registry_unsupported": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::registry_dir_bootstrap_journaled_shown_in_plan_then_locked": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::registry_protocol_on_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::registry_too_large_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::remote_clock_reading_per_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::remove_compare_then_rename_preserves_unrelated_bytes": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::start_identity_per_target_shell": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_registry::native_sshd::symlinked_registry_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::bare_cert_authority_line_is_verification_failed": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::certificate_file_none_behaviour_recorded_per_client": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::cli_killed_before_ready_never_sends_script": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::destination_clock_skew_beyond_allowance_inconclusive_no_rollback": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::effective_config_has_every_trust_pin": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::existing_access_endpoint_change_refuses_step": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::existing_access_endpoint_from_catalog_never_ssh_auth_sock": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::existing_identity_pin_used_after_projection_switch": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::gssapi_key_exchange_pinned_off_where_client_knows_it": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::heimdall_endpoint_refused_as_existing_access": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::host_key_mismatch_is_host_trust_changed_nothing_written": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::known_host_key_changed_after_approval_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::known_hosts_command_none_is_a_keyword_per_client": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::log_attestation_reported_unavailable": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::maintenance_inside_managed_run_context_zero_managed_signatures": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::maintenance_invocation_never_contacts_heimdall_signer": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::principals_not_enforced_detected_and_rolled_back": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::principals_not_enforced_system_form_via_echoing_principals_command": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::registry_guard_refuses_non_scratch_target": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::remote_clock_measurement_bounds_lag": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::retry_after_lost_reply_never_appends_twice": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::reverification_failure_holds_never_removes": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::reverification_inconclusive_keeps_verified_with_finding": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::ssh_killed_after_append_is_uncertain_then_reconciled_applied": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::ssh_killed_before_append_reconciled_not_applied": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::step_pins_hostname_port_user_and_host_key": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::strict_host_key_checking_overrides_user_accept_new": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::unreachable_after_append_stays_unknown": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::user_config_hostname_change_cannot_redirect_append": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::user_config_proxycommand_added_after_approval_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verification_failed_when_server_reads_another_registry": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verification_host_key_mismatch_holds_no_rollback": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verification_inconclusive_leaves_applied_unverified": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verification_known_host_ambiguous_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_negative_inconclusive_on_maxstartups_between_attempts": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_negative_inconclusive_on_maxstartups_during_negative": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_negative_inconclusive_on_reset": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_negative_inconclusive_when_port_closed_between_attempts": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_negative_inconclusive_when_sshd_stopped_between_attempts": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_negative_records_zero_signatures": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_never_reads_user_config": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_on_account_without_log_access": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_positive_one_signature_negative_zero": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::verify_unrecorded_client_trace_is_inconclusive": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::wrong_key_with_inherited_known_hosts_command_refused_before_mutation": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::wrong_key_with_inherited_known_hosts_file_refused_before_mutation": [
+      "linux",
+      "macos"
+    ],
+    "integration_enroll_verify::wrong_key_with_inherited_no_host_authentication_for_localhost_refused": [
+      "linux",
+      "macos"
+    ],
+    "integration_issuer_child::process::issuer_path_never_exists_through_runtime_lifecycle": [
+      "linux",
+      "macos"
+    ],
+    "integration_issuer_store::macos::macos_interaction_not_allowed_maps_to_store_locked": [
+      "macos"
+    ],
+    "integration_issuer_store::macos::macos_keychain_code_path_against_disposable_file_keychain": [
+      "macos"
+    ],
+    "integration_issuer_store::macos::retirement_on_a_shared_keychain_deletes_only_this_installations_item": [
+      "macos"
+    ],
+    "integration_issuer_store::macos::two_installations_restore_and_retire_on_a_shared_disposable_keychain": [
+      "macos"
+    ],
+    "integration_managed_adapter::revoke_during_each_issuance_step": [
+      "linux",
+      "macos"
+    ],
+    "integration_managed_signer::destroyed_key_makes_installed_certificate_unusable": [
+      "linux",
+      "macos"
+    ],
+    "integration_session_lock::macos_lock_signal_observed": [
+      "macos"
+    ],
+    "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": [
+      "linux",
+      "macos"
+    ],
+    "integration_testkit_m03::docker_ca_hook_is_container_internal_only": [
+      "linux",
+      "macos"
+    ],
+    "integration_testkit_m03::docker_enrollable2_seeded_like_enrollable": [
+      "linux",
+      "macos"
+    ],
+    "integration_testkit_m03::owner_digest_detects_change": [
+      "linux",
+      "macos"
+    ],
+    "integration_testkit_m03::registry_guard_refuses_non_scratch_paths": [
+      "linux",
+      "macos"
+    ],
+    "integration_testkit_m03::shell_containers_run_each_shell_as_group_leader": [
+      "linux",
+      "macos"
+    ]
+  },
+  "scanned_platforms": [
+    "linux",
+    "windows"
+  ],
+  "sources_sha256": "413977d4beb2e6282dde5602fc2e82ce674ea55ed72ab6e6bee95867e3e65402"
 }

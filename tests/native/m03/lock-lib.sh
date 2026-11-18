@@ -74,14 +74,106 @@ lock_start_sampler() {
 # reason), the driver writes `locked-done`, the harness writes `expect` then `unlocked`,
 # and the driver ends after its post-unlock step and cleanup (`done`).
 
-# lock_driver_start: start the driver in the background (stdin closed, output to
-# $scratch/driver.out, TMPDIR the run's scratch, HM_LOCK_HARNESS_PID this shell); sets
-# $driver_pid (this shell's own child).
+# lock_driver_start: start the driver in the background in a session of its OWN
+# (`setsid` through python3, then exec: $driver_pid is the driver itself and still this
+# shell's child; its process group ID is its PID). A signal to the harness's process
+# group (a terminal's or a session's teardown) then never reaches it: on the harness's
+# `abort`, or once it sees the harness gone, it still runs its own cleanup. Stdin closed,
+# output to $scratch/driver.out, TMPDIR the run's scratch, HM_LOCK_HARNESS_PID this shell.
 lock_driver_start() {
     HM_LOCK_STATE_DIR="$state" HM_LOCK_PLATFORM="${HM_LOCK_PLATFORM:-macos}" HM_LOCK_HARNESS_PID=$$ \
-        TMPDIR="$scratch" "$HM_LOCK_DRIVER" --ignored --test-threads=16 --show-output lock:: \
+        TMPDIR="$scratch" python3 -I -c 'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' \
+        "$HM_LOCK_DRIVER" --ignored --test-threads=16 --show-output lock:: \
         >"$scratch/driver.out" 2>&1 </dev/null &
     driver_pid=$!
+}
+
+# lock_group_stop GROUP: stop, each by its exact PID, every process of this user still in
+# process group GROUP (the driver's own, made by lock_driver_start), never this shell.
+# Prints "<count>" then the executable base names. Called only once the driver has ended
+# without its cleanup, or right before it is stopped: what it started (the fixture sshds,
+# the stand-in agent, the workers) is left in that group; its runtime detaches and is
+# lock_runtime_stop's.
+lock_group_stop() {
+    local g=$1 me pid pg uid name n=0 names=""
+    me=$(id -u)
+    case "$g" in '' | *[!0-9]*) echo 0; return 0 ;; esac
+    while read -r pid pg uid name; do
+        [ "$pg" = "$g" ] && [ "$uid" = "$me" ] && [ "$pid" != "$$" ] || continue
+        kill "$pid" 2>/dev/null && { n=$((n + 1)); names="$names ${name##*/}"; }
+    done < <(ps -A -o pid=,pgid=,uid=,comm= 2>/dev/null)
+    echo "$n$names"
+}
+
+# lock_runtime_stop: the fallback stop of the driver's runtime, when the driver did not
+# stop it itself (it removes runtime-home.txt only after its cleanup's own `service
+# stop`). The home it names must lie inside this run's scratch. The product's own
+# `service stop` there (exit 0, or 5: nothing running), then, when the PID the runtime
+# advertised (<home>/run/instance.json) still lives and runs this build's heimdall
+# (the same file), that exact PID. Prints one line for the commands record; returns 0
+# when nothing of the runtime is left, 1 otherwise. No runtime-home.txt: nothing to do,
+# prints nothing.
+lock_runtime_stop() {
+    local hh pid src exe i
+    [ -s "$state/runtime-home.txt" ] || return 0
+    hh=$(head -1 "$state/runtime-home.txt")
+    case "$hh" in
+        "$scratch"/*) case "$hh" in */../* | */..) echo "runtime-home.txt names a path outside the run's scratch: not used"; return 1 ;; esac ;;
+        *) echo "runtime-home.txt names a path outside the run's scratch: not used"; return 1 ;;
+    esac
+    if [ ! -d "$hh" ]; then
+        echo "the driver's scratch Heimdall home is already gone (its world removed it after stopping its runtime)"
+        return 0
+    fi
+    pid=$(jq -r '.pid // empty' "$hh/run/instance.json" 2>/dev/null)
+    HEIMDALL_HOME="$hh" "$HEIMDALL_E2E_BIN" --json service stop >/dev/null 2>&1 </dev/null
+    src=$?
+    case "$pid" in '' | *[!0-9]*)
+        echo "heimdall service stop in the driver's scratch Heimdall home (fallback; exit $src; no advertised PID)"
+        [ "$src" = 0 ] || [ "$src" = 5 ]
+        return ;;
+    esac
+    i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "heimdall service stop in the driver's scratch Heimdall home (fallback; exit $src); its advertised runtime is gone"
+        return 0
+    fi
+    exe=$(ps -o comm= -p "$pid" 2>/dev/null)
+    if [ -n "$exe" ] && [ "$exe" -ef "$HEIMDALL_E2E_BIN" ] && [ "$(ps -o uid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$(id -u)" ]; then
+        kill "$pid" 2>/dev/null
+        i=0
+        while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "heimdall service stop in the driver's scratch Heimdall home (fallback; exit $src) left its runtime running: stopped by its exact advertised PID"
+            return 0
+        fi
+    fi
+    echo "the driver's runtime is still running after the fallback stop (exit $src): its scratch is kept for recovery"
+    return 1
+}
+
+# lock_failure_facts: one fact per failed driver step, from the reasons the driver kept as
+# each failed (failure-<test>.txt; lock.rs keep_failure): "step-failure=<test>: <reason
+# on one line>".
+lock_failure_facts() {
+    local f
+    for f in "$state"/failure-*.txt; do
+        [ -f "$f" ] || continue
+        printf 'step-failure=%s\n' "$(head -c 4000 "$f" | tr '\n\r\t' '   ' | cut -c1-1200)"
+    done
+}
+
+# lock_kept_failures: when the driver's output has no libtest summary (it ended before
+# its end: a signal, a kill), the reasons it kept, each under a heading, for tests.txt.
+lock_kept_failures() {
+    local f
+    grep -q '^failures:$' "$scratch/driver.out" 2>/dev/null && return 0
+    for f in "$state"/failure-*.txt; do
+        [ -f "$f" ] || continue
+        printf '\n---- %s (the reason the driver kept as the step failed; its run ended before the libtest summary) ----\n' "$(basename "$f" .txt)"
+        head -c 20000 "$f"
+    done
 }
 
 # lock_flag NAME [TEXT]: write the handshake file NAME whole (a temporary file, a rename).
@@ -90,17 +182,19 @@ lock_flag() {
 }
 
 # lock_await_flag SECONDS NAME...: wait until one of the handshake files exists (0, its
-# name printed), the driver ends first (2) or SECONDS pass (1).
+# name in $flag), the driver ends first (2) or SECONDS pass (1). It runs in this shell,
+# never in a command substitution, so a signal's trap runs within a second.
 lock_await_flag() {
     local limit=$1 start f
     shift
+    flag=""
     start=$(date +%s)
     while :; do
         for f in "$@"; do
-            [ -e "$state/$f" ] && { echo "$f"; return 0; }
+            [ -e "$state/$f" ] && { flag=$f; return 0; }
         done
         kill -0 "$driver_pid" 2>/dev/null || {
-            for f in "$@"; do [ -e "$state/$f" ] && { echo "$f"; return 0; }; done
+            for f in "$@"; do [ -e "$state/$f" ] && { flag=$f; return 0; }; done
             return 2
         }
         [ $(($(date +%s) - start)) -ge "$limit" ] && return 1
