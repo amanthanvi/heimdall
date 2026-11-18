@@ -488,7 +488,10 @@ can still use the shared ordinary alias while another referencer holds it (R3).
 
 ## 8. Residuals and non-claims
 
-These are recorded in `RESIDUALS` and in the claims table, with probes, under ADR-0009 §2.1.
+These are recorded with probes under ADR-0009 §2.1. R1, R2 and R6, with I-13 (§10 item 12), have
+`RESIDUALS` entries in `crates/domain/src/claims.rs` (ruling I-23); R3, R4, R5 and R7 are design
+properties, not accepted defects, so they are recorded here and in the exit record only, with no
+`RESIDUALS` entry and no further `ResidualReason`.
 
 - **R1. A same-user agent with a terminal can drive the attended confirmation.** A prompt-injected
   agent with a pseudo-terminal could run `heimdall decision approve` and type `yes`.
