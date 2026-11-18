@@ -31,6 +31,29 @@ fn other(msg: String) -> io::Error {
     io::Error::other(msg)
 }
 
+/// ⟨W2 Windows fix, round 2⟩ The plain form of a path for Git's environment and arguments.
+/// On Windows `std::fs::canonicalize` returns verbatim paths (`\\?\C:\…`, `\\?\UNC\…`), and
+/// Git for Windows (2.55.0.windows.3, the 27bef72a PC diagnostic) cannot use a verbatim
+/// `GIT_CONFIG_GLOBAL`: `git init` exits 128. So every path handed to Git loses the prefix
+/// (`\\?\C:\x` → `C:\x`, `\\?\UNC\server\share` → `\\server\share`); the fixtures keep the
+/// canonical forms for every product-side comparison. Elsewhere it is the path unchanged.
+fn plain(path: &Path) -> PathBuf {
+    PathBuf::from(plain_text(&path.to_string_lossy()))
+}
+
+/// [`plain`] for one argument's text: only a verbatim path is changed.
+fn plain_text(text: &str) -> String {
+    if cfg!(windows) {
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return rest.to_owned();
+        }
+    }
+    text.to_owned()
+}
+
 impl Scratch {
     /// A fresh scratch directory (with its isolated Git home).
     ///
@@ -67,7 +90,8 @@ impl Scratch {
     /// # Errors
     /// The spawn failed, or Git exited unsuccessfully (its stderr in the message).
     pub fn git(&self, cwd: &Path, args: &[&str]) -> io::Result<String> {
-        let home = self.home();
+        // Plain paths for Git on Windows (`plain`); the canonical forms stay with the caller.
+        let home = plain(&self.home());
         let mut cmd = Command::new("git");
         if cfg!(windows) {
             // ⟨W2 Windows fix⟩ Git for Windows cannot read its configuration in a cleared
@@ -117,8 +141,8 @@ impl Scratch {
                 "-c",
                 "core.hooksPath=.hm-no-hooks",
             ])
-            .args(args)
-            .current_dir(cwd);
+            .args(args.iter().map(|a| plain_text(a)))
+            .current_dir(plain(cwd));
         let out = cmd.output()?;
         if !out.status.success() {
             return Err(other(format!(
