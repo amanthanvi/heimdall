@@ -1053,6 +1053,55 @@ fn workspace_paths_are_quoted_and_bidi_free() {
     }
 }
 
+/// ⟨M05⟩ Review M05-W3-RC01 (the re-check's probe, inverted): the **complete** first-trust and
+/// reconcile prompts are inert, not only their detail lines. Trusting a clone whose directory
+/// name holds a line break and U+202E, then reconciling its re-clone, through the real binary
+/// on a pseudo-terminal: neither prompt carries a raw bidirectional character, in the detail
+/// view or in the recorded request's JSON copy (where it is written as `\u202e`), and no line
+/// starts with the name's second line.
+#[cfg(unix)]
+#[test]
+fn full_trust_and_reconcile_prompts_are_bidi_free() {
+    let rt = Rt::new();
+    let src = rt
+        .ws
+        .init_repo(
+            "source",
+            Some(&manifest("safe", "dev", &["h3:deploy"], false)),
+        )
+        .unwrap();
+    let repo = rt
+        .ws
+        .clone_repo(&src, "repo\nRECHECK-LINE\u{202e}abc")
+        .unwrap();
+    rt.start();
+    let trust = rt.run_pty(&repo, &["project", "trust"], &["yes"]);
+    assert_eq!(trust.code, 0, "{trust:?}");
+    rt.ws.reclone_at(&src, &repo).unwrap();
+    let reconcile = rt.run_pty(&repo, &["project", "reconcile"], &["yes"]);
+    assert_eq!(reconcile.code, 0, "{reconcile:?}");
+    for (name, out) in [("trust", &trust), ("reconcile", &reconcile)] {
+        assert!(
+            out.stdout
+                .contains("invisible formatting characters removed"),
+            "{name}: the safe detail line: {out:?}"
+        );
+        assert_eq!(
+            out.stdout.chars().filter(|c| *c == '\u{202e}').count(),
+            0,
+            "{name}: no raw bidi anywhere in the prompt: {out:?}"
+        );
+        assert!(
+            out.stdout.contains("\\u202e"),
+            "{name}: the recorded request's copy writes it as its escape: {out:?}"
+        );
+        assert!(
+            !out.stdout.lines().any(|l| l.starts_with("RECHECK-LINE")),
+            "{name}: a path started a line of its own: {out:?}"
+        );
+    }
+}
+
 /// `run` without `--profile` (ADR-0011 §3.2; I-9): in an untrusted workspace whose
 /// manifest asks for more than personal access covers, the first-trust decision is shown on
 /// the terminal; after a typed `yes` the same request is re-issued and the program runs; the

@@ -2273,9 +2273,9 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
     };
     let text = match &record {
         Some(r) => {
+            // ⟨M05⟩ Review M05-W3-RC01: the recorded request's human copy is inert JSON.
             let request =
-                serde_json::to_string_pretty(r.get("request").unwrap_or(&serde_json::Value::Null))
-                    .unwrap_or_default();
+                crate::output::human_json(r.get("request").unwrap_or(&serde_json::Value::Null));
             let field = |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("?").to_owned();
             let expired = r.get("expired").and_then(serde_json::Value::as_bool) == Some(true);
             let human = format!(

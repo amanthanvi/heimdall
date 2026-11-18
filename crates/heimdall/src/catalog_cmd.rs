@@ -55,7 +55,8 @@ pub(crate) const DECLARATION_TEXT: &str = "Heimdall will treat this key as needi
 
 /// A pretty rendering of a read's data.
 fn pretty(v: &serde_json::Value) -> String {
-    serde_json::to_string_pretty(v).unwrap_or_default()
+    // ⟨M05⟩ Review M05-W3-RC01: human JSON is inert.
+    crate::output::human_json(v)
 }
 
 /// One read (never starts the runtime), rendered.

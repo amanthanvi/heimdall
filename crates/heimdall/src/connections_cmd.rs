@@ -42,7 +42,7 @@ pub(crate) const OWNED_MEANING: &str = "Owned connections are the ssh clients `h
 #[must_use]
 pub(crate) fn render_list(data: &serde_json::Value) -> String {
     let Ok(view) = serde_json::from_value::<ConnectionsView>(data.clone()) else {
-        return serde_json::to_string_pretty(data).unwrap_or_default();
+        return crate::output::human_json(data);
     };
     let mut out = String::new();
     if view.connections.is_empty() {
