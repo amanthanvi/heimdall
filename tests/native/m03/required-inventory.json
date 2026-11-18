@@ -688,7 +688,7 @@
           "m03_wsl_ordinary_sftp_managed_alias_without_f",
           "m03_wsl_ordinary_ssh_managed_alias_without_f",
           "m03_wsl_setup_apply_projects_the_managed_aliases",
-          "m03_wsl_strictmodes_refuses_a_group_writable_registry",
+          "m03_wsl_strictmodes_refuses_a_world_writable_registry",
           "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca",
           "m03_wsl_uninstall_lists_the_remote_enrollments",
           "m03_wsl_uninstall_restores_the_users_config_bytes"
@@ -2802,5 +2802,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "413977d4beb2e6282dde5602fc2e82ce674ea55ed72ab6e6bee95867e3e65402"
+  "sources_sha256": "c5dc3e45d1f52ce1c9dd4bfa34aac7a2e1a95cccf597c0b7b60ae181e283c1e7"
 }

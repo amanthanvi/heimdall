@@ -617,6 +617,24 @@ class Applicability(unittest.TestCase):
                          "nor run where the scan shows it is not compiled")
         self.assertEqual(ev.platform_only_lookup({}, inv, "t", "d::x"), ["linux", "macos"], "the scan alone")
 
+    def test_a_procedure_platform_row_appears_only_where_declared(self):
+        index = copy(INDEX)
+        index["platforms"]["lock"] = {"runs": "procedure"}
+        index["platform_only"] = {"t_exact::e1": {"platforms": ["macos", "linux", "windows", "lock"], "rationale": "r"}}
+        index["groups"]["G2"]["declared_platforms"] = ["macos", "linux", "windows", "lock"]
+        s = Scratch(self, index=index)
+        (s.dir / "lock.log").write_text(log_text({"t_exact": {"e1": "ok"}}, "harness"))
+        (s.dir / "lock.commands").write_text("exit 0: the procedure\n")
+        (s.dir / "lock.facts").write_text("os=synthetic\n")
+        s.cfg["platforms"]["lock"] = {"label": "lock-synthetic", "logs": ["lock.log"], "commands_logs": ["lock.commands"],
+                                      "facts": ["lock.facts"], "artifact_digest": "n/a"}
+        (s.dir / "runs.json").write_text(json.dumps(s.cfg))
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row_status(summary, "G2", "lock-"), "verified")
+        self.assertEqual([r for r in summary["groups"]["G1"]["rows"] if r["platform"].startswith("lock-")], [],
+                         "G1 does not declare the procedure, so it has no row for it")
+
     def test_a_procedure_platform_requires_only_the_tests_the_index_names_for_it(self):
         index = {"build_host": "macos",
                  "platforms": {"macos": {"runs": "cargo"}, "macos-lock": {"runs": "procedure"}},

@@ -763,7 +763,7 @@
           "m03_wsl_ordinary_scp_managed_alias_without_f",
           "m03_wsl_ordinary_sftp_managed_alias_without_f",
           "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca",
-          "m03_wsl_strictmodes_refuses_a_group_writable_registry",
+          "m03_wsl_strictmodes_refuses_a_world_writable_registry",
           "m03_wsl_uninstall_lists_the_remote_enrollments",
           "m03_wsl_uninstall_restores_the_users_config_bytes"
         ]
@@ -1493,7 +1493,7 @@
         "m03_wsl_ordinary_sftp_managed_alias_without_f": "sftp -b put/get through <account-form alias>, bytes compared (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
         "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca": "ssh <system-form alias> true: alias managed, no -F (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
         "m03_wsl_logins_attributed_to_the_grant_certificate": "every login both root sshds accepted during those clients (at least 6 on the account form, 1 on the system form) is an ED25519-CERT whose key ID heimdall:<env>:<grant>:<n> names the pair's grant, under this run's CA; none by the existing-access key",
-        "m03_wsl_strictmodes_refuses_a_group_writable_registry": "with ~/.ssh/authorized_keys made group-writable, the same managed login is refused (exit 255) and the root sshd logs bad ownership or modes; the mode is restored",
+        "m03_wsl_strictmodes_refuses_a_world_writable_registry": "with ~/.ssh/authorized_keys made world-writable, the same managed login is refused (exit 255), the root sshd logs bad ownership or modes, and the mode is restored to 600; a group-writable registry is tried first and only recorded, since Debian's and Ubuntu's OpenSSH (the user-group-modes patch) accept a group-writable file whose group is the owner's private group",
         "m03_wsl_revoke_on_lock_refused_lock_signal_unavailable": "access lock-behavior --policy <policy> revoke-on-lock is refused: lock_signal_unavailable (no lock signal in the distribution)",
         "m03_wsl_revoke_then_fresh_login_refused": "access revoke of each grant; fresh ordinary logins to both aliases fail and neither sshd accepts any login afterwards",
         "m03_wsl_uninstall_lists_the_remote_enrollments": "uninstall (typed yes) names every enrollment enroll status listed (at least 2); nothing remote is removed",

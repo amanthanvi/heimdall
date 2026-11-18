@@ -985,6 +985,12 @@ def evaluate(cfg, index, inv):
         nonlocal rc
         rows = []
         for pname, (p, logs) in plats.items():
+            # ⟨M03 wave 6⟩ A procedure's row (a lock run) belongs only to the sections that
+            # declare that procedure: two procedures sharing their tests (the macOS and the
+            # Windows lock runs) never lend a row to each other's record.
+            if (index.get("platforms", {}).get(pname, {}).get("runs") == "procedure"
+                    and declared and pname not in declared):
+                continue
             tests = required(index, inv, kind, sid, pname)
             guard = coverage_guard(index, inv, kind, sid, pname, logs)
             for key, qual, result in guard["stale"]:

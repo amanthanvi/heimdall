@@ -2039,7 +2039,16 @@ mod unix {
             v.signal(heimdall_localenv::sys::ProcessSignal::Kill)
                 .unwrap();
         }
-        assert!(wait_until(Duration::from_secs(5), || !alive(pid, &token)));
+        // Clean-up only (the assertion above is the test). The sleep is not this test's
+        // child (the loopback server started it), so it cannot be waited for: it is gone
+        // once whoever adopted it reaps it, which under load (load average 11-18 on the
+        // M05 track's run) took longer than 5 s.
+        let reap = Duration::from_secs(60);
+        assert!(
+            wait_until(reap, || !alive(pid, &token)),
+            "the killed sleep was not reaped within {} s",
+            reap.as_secs()
+        );
     }
 
     /// D8 item 2: `run` of a program other than the verified client owns nothing: no
