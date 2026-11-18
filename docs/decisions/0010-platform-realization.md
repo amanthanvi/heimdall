@@ -622,9 +622,16 @@ reading I-11.
    helper). Any stopped, absent or unreadable listing cancels the relaunch until the owner's
    next `ensure` naming the environment, which is the explicit start. ⟨Fix re-check
    M04-FX-RC02⟩ The admission is checked at the one boundary every non-owner helper start
-   passes through, so the supervisor's relaunch, endpoint creation and recovery are gated
-   alike, and it lists the distribution itself; an absent distribution in a discovery, or an
-   unreadable discovery, sets the block as a stopped listing does. A stop that begins after
+   passes through, so the supervisor's relaunch and continuing work's endpoint creation (a
+   re-issue's restoration) are gated alike, and it lists the distribution itself; an absent
+   distribution in a discovery, or an unreadable discovery, sets the block as a stopped
+   listing does. ⟨Windows fix round 5⟩ **The owner's `ensure` is never a background start.**
+   It starts the helper first (`WslRealizer::start`, which lifts the block), and its own
+   endpoint creation and realization carry the same authority (`MaterializeSpec::start`,
+   `Allowed` only for an `ensure`'s own materialization, its new activation or a follower's
+   own binding; `Forbidden` for a `delegate`, a re-issue and the slots): when the helper the
+   owner's start brought up is gone by then, they start one as the owner's start does, never
+   through the admission. A stop that begins after
    the final pre-launch listing can still be raced, because `wsl.exe` offers no launch that
    refuses a stopped distribution; the window is the time from that listing to `wsl.exe`'s
    start. Recorded as a residual.
@@ -679,6 +686,14 @@ reading I-11.
     It used the host's separator, so on Windows, the runtime that renders a Mode B binding's
     files, every path came out with `\` and was refused: no Mode B binding could be realized on
     Windows. The container renderer's tests are its native regression.
+12. **⟨Windows fix round 5⟩ A refused Mode B step is logged by its stable code.** Every A13 row
+    failed on the PC (`66e6e40f`) at the owner's `ensure` with `SERVICE_UNAVAILABLE`, whose
+    reason the error masks by design (adapter text is never echoed). The runtime now logs the
+    owner's start, endpoint creation and realization when refused, by step and stable code only
+    (a lower-case token; anything else is logged as `other`), and the Windows A13 rows print
+    those lines, the environment's row and the helper's run base (uid, whether
+    `XDG_RUNTIME_DIR` is set, each component's mode, owner and type) when an `ensure` is
+    refused.
 
 **Platform fact (the Windows fix round, the PC's run at `02108f8c`):** profiles changed by
 sandboxing tools (observed: an inherited read-and-execute entry for a local sandbox group on
@@ -711,7 +726,12 @@ The fix re-check's (`39f48be8`): `mode_b_refuses_a_run_base_reached_through_a_re
 (RC01; revert proof: with the walk reverted it fails, exit 101; restored, exit 0) and
 `wsl_mode_b_absent_or_unreadable_listings_and_endpoint_starts_respect_the_relaunch_block`
 (RC02); the Mode B harness's own self-test covers RC03 (an import recorded before it runs,
-and install directories kept until their distribution is known gone).
+and install directories kept until their distribution is known gone). Windows fix round 5:
+`wsl_mode_b_owner_ensure_is_never_a_background_start` (item 1; revert proof: with endpoint
+creation and realization forced back to `Forbidden`, as at `66e6e40f`, it fails, exit 101,
+`SERVICE_UNAVAILABLE` as on the PC; restored, exit 0) and
+`managed_driver_m03::tests::only_an_ensure_materializes_with_the_owner_start` (a `delegate`
+stays a background start).
 
 **Residuals:**
 - **A stop racing the last pre-launch listing** (item 1): `wsl.exe` has no launch that refuses

@@ -169,6 +169,21 @@ fn install_check_in(
     Ok(Ok(()))
 }
 
+/// ⟨M04 Windows fix round 5⟩ The start authority a managed materialization for an operation
+/// of `kind` carries for a WSL Mode B endpoint (`MaterializeSpec::start`): `Allowed` only for
+/// an `ensure`, the owner's own request naming its environment, whose helper
+/// `wsl_start_for_ensure` started first; `Forbidden` for any other (a `delegate` never starts
+/// a stopped Mode B distribution, ADR-0010 §11 item 1).
+pub(crate) fn materialize_start(
+    kind: heimdall_domain::operation::OperationKind,
+) -> crate::ports::DistributionStart {
+    if kind == heimdall_domain::operation::OperationKind::Ensure {
+        crate::ports::DistributionStart::Allowed
+    } else {
+        crate::ports::DistributionStart::Forbidden
+    }
+}
+
 struct InstallCtx {
     gate: crate::timegate::TxnGate,
     env: heimdall_contract::ids::EnvironmentId,
@@ -1247,7 +1262,13 @@ impl Operations {
     pub(crate) async fn managed_binding_of_token(
         &self,
         token: &str,
-    ) -> Result<Option<heimdall_contract::ids::BindingId>, OpError> {
+    ) -> Result<
+        (
+            Option<heimdall_contract::ids::BindingId>,
+            crate::ports::DistributionStart,
+        ),
+        OpError,
+    > {
         let token = token.to_owned();
         self.write(move |tx, _| {
             for op in tx.open_operations()? {
@@ -1256,13 +1277,14 @@ impl Operations {
                         if *effect_token == token)
                 });
                 if carries {
-                    return Ok(tx
+                    let binding = tx
                         .recovery_intent(&op.id)?
                         .and_then(|i| i.resolved)
-                        .and_then(|r| r.binding_id));
+                        .and_then(|r| r.binding_id);
+                    return Ok((binding, materialize_start(op.kind)));
                 }
             }
-            Ok(None)
+            Ok((None, crate::ports::DistributionStart::Forbidden))
         })
         .await
     }
@@ -1563,8 +1585,14 @@ impl Operations {
         };
         let (gid, op) = (grant.clone(), operation.clone());
         let now = self.clock().wall();
-        let installed = self
+        let (installed, start) = self
             .write(move |tx, _| {
+                // ⟨M04 Windows fix round 5⟩ The follower's own request's start authority.
+                let start = tx
+                    .operation(&op)?
+                    .map_or(crate::ports::DistributionStart::Forbidden, |o| {
+                        materialize_start(o.kind)
+                    });
                 tx.record_cleanup_intent(&heimdall_domain::revocation::CleanupIntent {
                     grant: gid.clone(),
                     operation: op,
@@ -1576,11 +1604,14 @@ impl Operations {
                     recorded_at: now,
                 })?;
                 if tx.grant(&gid)?.is_none() {
-                    return Ok(false);
+                    return Ok((false, start));
                 }
-                Ok(instances_of(tx, &gid)?
-                    .into_iter()
-                    .any(|i| i.state == CredentialState::Installed))
+                Ok((
+                    instances_of(tx, &gid)?
+                        .into_iter()
+                        .any(|i| i.state == CredentialState::Installed),
+                    start,
+                ))
             })
             .await?;
         let Some(effects) = self
@@ -1596,6 +1627,7 @@ impl Operations {
                 grant: grant.clone(),
             },
             environment_slots: false,
+            start,
         };
         let files = effects.materialize(binding, &spec).map_err(|_| refusal())?;
         files.endpoint.ok_or_else(refusal)
@@ -1858,6 +1890,7 @@ impl Operations {
                     generation: crate::managed::driver::BINDING_GENERATION,
                     source: crate::ports::MaterializeSource::SlotsOnly,
                     environment_slots: true,
+                    start: crate::ports::DistributionStart::Forbidden,
                 },
             )
             .map(|_| ())
@@ -1895,5 +1928,28 @@ impl Operations {
             super::settle_failed(tx, emit, &mut op, &err, clock.wall(), retention)
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use heimdall_domain::operation::OperationKind;
+
+    use super::materialize_start;
+    use crate::ports::DistributionStart;
+
+    /// ⟨M04 Windows fix round 5⟩ Only an `ensure`'s own materialization may start a WSL Mode B
+    /// helper as the owner's start does; every other kind (a `delegate` above all, ADR-0010 §11
+    /// item 1) is a background start.
+    #[test]
+    fn only_an_ensure_materializes_with_the_owner_start() {
+        for kind in OperationKind::ALL {
+            let want = if kind == OperationKind::Ensure {
+                DistributionStart::Allowed
+            } else {
+                DistributionStart::Forbidden
+            };
+            assert_eq!(materialize_start(kind), want, "{kind:?}");
+        }
     }
 }

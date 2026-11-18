@@ -1134,6 +1134,15 @@ pub struct MaterializeSpec {
     pub source: MaterializeSource,
     /// Also fill the environment slots (a materialized binding holding them).
     pub environment_slots: bool,
+    /// ⟨M04 Windows fix round 5⟩ Who asks, for a WSL Mode B binding's endpoint:
+    /// [`DistributionStart::Allowed`] only for the owner's own `ensure` (its new
+    /// activation, or a follower `ensure`'s own binding), whose endpoint creation and
+    /// realization may start the environment's helper (a stopped distribution too) when
+    /// none lives; a `delegate`'s and every continuing-work call (a re-issue's
+    /// restoration, the slots) pass [`DistributionStart::Forbidden`], so their helper
+    /// start is a background one (the supervisor's admission). Other placements ignore
+    /// it.
+    pub start: DistributionStart,
 }
 
 /// What `materialize` wrote.

@@ -19,13 +19,16 @@
 //! * withdraws exactly that generation when the endpoint is removed ([`super::Running::stop`]
 //!   through the lease; a newer generation is never withdrawn, R-RT-04).
 //!
-//! Nothing here starts a distribution: [`WslRealizer::start`] is the one explicit call, made
-//! only for the owner's own `ensure` naming the environment.
+//! Nothing here starts a distribution on its own: [`WslRealizer::start`] is the explicit
+//! call, made only for the owner's own `ensure` naming the environment, and ⟨M04 Windows fix
+//! round 5⟩ that `ensure`'s own endpoint creation and realization carry its authority
+//! ([`DistributionStart::Allowed`]) so they are never background starts. Everything else
+//! passes [`DistributionStart::Forbidden`].
 
 use std::io;
 use std::sync::Arc;
 
-use heimdall_app::ports::AdapterError;
+use heimdall_app::ports::{AdapterError, DistributionStart};
 use heimdall_contract::ids::{BindingId, EnvironmentId};
 use heimdall_contract::provider::{EndpointKind as TransportKind, EndpointRef};
 use heimdall_domain::resource::ResourceGeneration;
@@ -57,15 +60,21 @@ pub trait WslRealizer: Send + Sync {
     /// `wsl_distribution_not_running`.
     fn start(&self, environment: &EnvironmentId) -> Result<(), AdapterError>;
 
-    /// The Linux run directory `<run>` of `environment`'s helper (an absolute path). It starts
-    /// a bridge only when the distribution already runs, never a stopped one.
+    /// The Linux run directory `<run>` of `environment`'s helper (an absolute path), starting
+    /// a bridge when none lives: under `start` = [`DistributionStart::Allowed`] (the owner's
+    /// own `ensure`) as [`Self::start`] does; under `Forbidden` (continuing work) only as a
+    /// background start, never of a stopped distribution.
     ///
     /// # Errors
     /// As [`Self::start`].
-    fn run_dir(&self, environment: &EnvironmentId) -> Result<String, AdapterError>;
+    fn run_dir(
+        &self,
+        environment: &EnvironmentId,
+        start: DistributionStart,
+    ) -> Result<String, AdapterError>;
 
-    /// Realize `binding`'s endpoint `tag` at `generation` with `public`. Idempotent for the
-    /// same tag and generation.
+    /// Realize `binding`'s endpoint `tag` at `generation` with `public`, starting a bridge
+    /// under `start` as [`Self::run_dir`] does. Idempotent for the same tag and generation.
     ///
     /// # Errors
     /// As [`Self::start`]; `AdapterError::Protocol` for a refused file.
@@ -76,6 +85,7 @@ pub trait WslRealizer: Send + Sync {
         tag: &str,
         generation: u64,
         public: &WslPublic,
+        start: DistributionStart,
     ) -> Result<(), AdapterError>;
 
     /// Stop serving `environment`: its helper ends (the helper removes what it still
@@ -246,6 +256,7 @@ impl EndpointRegistry {
         binding: &BindingId,
         generation: ResourceGeneration,
         environment: &EnvironmentId,
+        start: DistributionStart,
     ) -> Result<EndpointRef, EndpointError> {
         let realizer = self
             .inner
@@ -263,7 +274,7 @@ impl EndpointRegistry {
             return Err(EndpointError::AlreadyRunning);
         }
         let tag = EndpointTag::generate().map_err(|_| EndpointError::RandomnessUnavailable)?;
-        let run_dir = realizer.run_dir(environment).map_err(|e| match e {
+        let run_dir = realizer.run_dir(environment, start).map_err(|e| match e {
             AdapterError::Unavailable(m) | AdapterError::Protocol(m) => EndpointError::Wsl(m),
             _ => EndpointError::Wsl("wsl_helper_unavailable".to_owned()),
         })?;
@@ -309,7 +320,8 @@ impl EndpointRegistry {
     }
 
     /// Realize `binding`'s Mode B endpoint of `generation` inside its distribution with
-    /// `public` (the adapters call it once the files' content exists). Blocking.
+    /// `public` (the adapters call it once the files' content exists), under the caller's
+    /// `start` authority ([`WslRealizer::realize`]). Blocking.
     ///
     /// # Errors
     /// [`AdapterError::Unavailable`] when `binding` has no Mode B endpoint of that
@@ -319,6 +331,7 @@ impl EndpointRegistry {
         binding: &BindingId,
         generation: ResourceGeneration,
         public: &WslPublic,
+        start: DistributionStart,
     ) -> Result<(), AdapterError> {
         let (realizer, environment, tag) = {
             let s = self.inner.lock();
@@ -336,7 +349,7 @@ impl EndpointRegistry {
                 lease.tag.clone(),
             )
         };
-        realizer.realize(&environment, binding, &tag, generation.0, public)
+        realizer.realize(&environment, binding, &tag, generation.0, public, start)
     }
 
     /// Serve one stream the helper relayed from `binding`'s Mode B endpoint of `generation`

@@ -16,11 +16,11 @@
 
 use std::io;
 
-use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ,
-    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
-    RegSetValueExW,
+    RegCloseKey, RegCreateKeyExW, RegDeleteKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW,
+    RegQueryInfoKeyW, RegQueryValueExW, RegSetValueExW,
 };
 
 use super::render::{self, LoginCommand};
@@ -270,8 +270,8 @@ impl LoginHost for RunValueHost {
 pub const SCRATCH_PREFIX: &str = r"Software\HeimdallTest\";
 
 /// Delete a scratch key a test made under `HKCU\Software\HeimdallTest\`, and its parent
-/// when that is empty. The prefix is required: this can never delete the real Run key or
-/// anything outside Heimdall's own test namespace.
+/// when that is empty ([`remove_empty_scratch_parent`]). The prefix is required: this can
+/// never delete the real Run key or anything outside Heimdall's own test namespace.
 ///
 /// # Errors
 /// The name is outside the scratch namespace, or the key could not be deleted.
@@ -293,9 +293,67 @@ pub fn delete_scratch_key(subkey: &str) -> io::Result<()> {
     if rc != ERROR_FILE_NOT_FOUND {
         check(rc)?;
     }
-    let parent = wide(SCRATCH_PREFIX.trim_end_matches('\\'))?;
-    // SAFETY: as above; a parent that still has subkeys is not deleted (the failure is
-    // ignored).
-    let _ = unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, parent.as_ptr()) };
-    Ok(())
+    remove_empty_scratch_parent().map(|_| ())
+}
+
+/// What became of `HKCU\Software\HeimdallTest` ([`remove_empty_scratch_parent`]).
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScratchParent {
+    /// It does not exist.
+    Absent,
+    /// It had no subkeys and no values, and was deleted.
+    EmptyRemoved,
+    /// It holds a subkey or a value: kept as it is.
+    NonemptyKept,
+}
+
+/// ⟨M04 Windows fix round 5⟩ Delete `HKCU\Software\HeimdallTest`, the scratch keys'
+/// parent, only when it has no subkeys and no values (`RegQueryInfoKeyW`, then
+/// `RegDeleteKeyExW`, which never deletes a key that has subkeys: never recursive). Anything
+/// in it, a key another run still uses or a value, keeps it.
+///
+/// # Errors
+/// The key could not be read or deleted.
+#[doc(hidden)]
+pub fn remove_empty_scratch_parent() -> io::Result<ScratchParent> {
+    let parent = SCRATCH_PREFIX.trim_end_matches('\\');
+    let Some(key) = open(parent, KEY_QUERY_VALUE)? else {
+        return Ok(ScratchParent::Absent);
+    };
+    let (mut subkeys, mut values) = (0u32, 0u32);
+    // SAFETY: `key` is open with KEY_QUERY_VALUE (what RegQueryInfoKeyW needs); the two
+    // counts are valid out-pointers and every other pointer is null (not requested).
+    let rc = unsafe {
+        RegQueryInfoKeyW(
+            key.0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            &raw mut subkeys,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &raw mut values,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    check(rc)?;
+    drop(key);
+    if subkeys != 0 || values != 0 {
+        return Ok(ScratchParent::NonemptyKept);
+    }
+    let name = wide(parent)?;
+    // SAFETY: `name` is NUL-terminated and outlives the call. RegDeleteKeyExW deletes only a
+    // key without subkeys: one created since the count makes it fail (access denied), and
+    // the key is kept. (Heimdall's tests never write a value there.)
+    let rc = unsafe { RegDeleteKeyExW(HKEY_CURRENT_USER, name.as_ptr(), 0, 0) };
+    match rc {
+        ERROR_SUCCESS => Ok(ScratchParent::EmptyRemoved),
+        ERROR_FILE_NOT_FOUND => Ok(ScratchParent::Absent),
+        ERROR_ACCESS_DENIED => Ok(ScratchParent::NonemptyKept),
+        other => check(other).map(|()| ScratchParent::NonemptyKept),
+    }
 }

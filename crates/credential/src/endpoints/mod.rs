@@ -151,6 +151,12 @@ pub enum EndpointPlacement {
     WslBridge {
         /// The Mode B environment (the realizer's key).
         environment: EnvironmentId,
+        /// ⟨M04 Windows fix round 5⟩ Who asks: `Allowed` only for the owner's own `ensure`
+        /// (its endpoint is created and realized on a helper the owner's start brought up,
+        /// or a new one the owner's request may start); `Forbidden` for continuing work,
+        /// whose helper start is a background one. The store's placement says `Forbidden`;
+        /// the effects set the caller's ([`heimdall_app::ports::MaterializeSpec::start`]).
+        start: heimdall_app::ports::DistributionStart,
     },
 }
 
@@ -873,8 +879,8 @@ impl EndpointRegistry {
             EndpointPlacement::Container { dir_tag } => {
                 self.create_binding_container(binding, generation, dir_tag)
             }
-            EndpointPlacement::WslBridge { environment } => {
-                self.create_binding_wsl(binding, generation, environment)
+            EndpointPlacement::WslBridge { environment, start } => {
+                self.create_binding_wsl(binding, generation, environment, *start)
             }
         }
     }

@@ -7,12 +7,16 @@
 //!   realizes and withdraws binding endpoints by generation, stops the helper when the last
 //!   binding is withdrawn, and serves each stream a helper relays with that binding's signer
 //!   ([`heimdall_credential::endpoints::EndpointRegistry::serve_wsl_stream`]).
-//! * **Starting.** A bridge starts on the first realize, with
-//!   [`DistributionStart::Forbidden`]: it starts only a distribution that already runs.
-//!   [`WslRealizer::start`] is the one start that may start a stopped distribution, and only
-//!   the owner's own `ensure` naming the environment calls it
-//!   (`Operations::wsl_start_for_ensure`). The supervisor and the restart paths never do
-//!   (ADR-0010 §10 item 2).
+//! * **Starting.** [`WslRealizer::start`] is the start that may start a stopped distribution,
+//!   and only the owner's own `ensure` naming the environment calls it
+//!   (`Operations::wsl_start_for_ensure`), before that `ensure` creates any endpoint. ⟨M04
+//!   Windows fix round 5⟩ That `ensure`'s own endpoint creation and realization carry its
+//!   authority ([`DistributionStart::Allowed`]): when the helper the owner's start brought up
+//!   is gone by then, they start one as the owner's start does, never as a background start.
+//!   Every other start ([`DistributionStart::Forbidden`]: the supervisor's relaunch, a
+//!   re-issue's restoration) is a background one: it starts only a distribution that already
+//!   runs, and only past the admission (`admit_background_start`). The supervisor and the
+//!   restart paths never start a stopped distribution (ADR-0010 §10 item 2).
 //! * **Re-check.** [`BridgeRegistry::supervise`] runs every 10 s: a GUID that discovery no
 //!   longer lists retires its environment as `gone` (without a rollback of files that are
 //!   gone); for an environment that has bindings, the running listing (which starts nothing)
@@ -211,6 +215,31 @@ fn adapter_error(e: SessionError) -> AdapterError {
 
 fn unavailable(why: &str) -> AdapterError {
     AdapterError::Unavailable(why.to_owned())
+}
+
+/// ⟨M04 Windows fix round 5⟩ The stable reason code of `e`, for the runtime's log: a
+/// lower-case token (the helper's and the supervisor's codes are), else `other`. Adapter
+/// text is never logged or echoed (`OpError::from_adapter_for`).
+fn log_code(e: &AdapterError) -> &str {
+    let code = match e {
+        AdapterError::Unavailable(c) | AdapterError::Protocol(c) => c.as_str(),
+        _ => "other",
+    };
+    let token = !code.is_empty()
+        && code.len() <= 64
+        && code
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+    if token { code } else { "other" }
+}
+
+/// ⟨M04 Windows fix round 5⟩ `r`, with a failure logged by its stable code only (`what`
+/// names the step), so a refused Mode B `ensure` can be diagnosed from the runtime's log.
+fn logged<T>(what: &'static str, r: Result<T, AdapterError>) -> Result<T, AdapterError> {
+    if let Err(e) = &r {
+        tracing::warn!(step = what, code = log_code(e), "a Mode B step was refused");
+    }
+    r
 }
 
 impl BridgeRegistry {
@@ -457,7 +486,9 @@ impl BridgeRegistry {
 
     /// ⟨M04-W2-R03, M04-FX-RC02⟩ The admission of a background (`Forbidden`) helper start,
     /// checked at the one boundary every non-owner start passes through (`ensure_bridge`):
-    /// the supervisor's relaunch, endpoint creation and recovery alike. It lists the
+    /// the supervisor's relaunch and continuing work's endpoint creation alike (⟨M04 Windows
+    /// fix round 5⟩ the owner's `ensure` creates and realizes its endpoint under `Allowed`,
+    /// never through this admission). It lists the
     /// distribution now: not running blocks (until the owner's `ensure`); otherwise the start
     /// is admitted only when not blocked and when a listing at least one re-check ago already
     /// showed it running (the first such listing is recorded here, and the start deferred).
@@ -483,6 +514,45 @@ impl BridgeRegistry {
             None => {
                 st.running_since = Some(now);
                 Err(unavailable("wsl_helper_relaunch_deferred"))
+            }
+        }
+    }
+
+    /// [`WslRealizer::realize`]'s body: `tag` at `generation` on `environment`'s helper,
+    /// started under `start` when none lives (module docs: `start`).
+    fn realize_under(
+        &self,
+        environment: &EnvironmentId,
+        binding: &BindingId,
+        tag: &str,
+        generation: u64,
+        public: &WslPublic,
+        start: DistributionStart,
+    ) -> Result<(), AdapterError> {
+        let bridge = self.ensure_bridge(environment, start, false)?;
+        // Remembered first: a stream may arrive the moment the endpoint listens.
+        self.inner
+            .lock()
+            .entry(environment.clone())
+            .or_default()
+            .tags
+            .insert(
+                tag.to_owned(),
+                TagState {
+                    binding: binding.clone(),
+                    generation,
+                    public: public.clone(),
+                },
+            );
+        match self.realize_still_wanted(environment, &bridge, tag, generation, public) {
+            Ok(true) => Ok(()),
+            // ⟨M04-W2-R02⟩ Withdrawn while it was realized: withdrawn again, and not served.
+            Ok(false) => Err(unavailable("wsl_binding_withdrawn")),
+            Err(e) => {
+                if let Some(st) = self.inner.lock().get_mut(environment) {
+                    st.tags.remove(tag);
+                }
+                Err(adapter_error(e))
             }
         }
     }
@@ -632,12 +702,19 @@ fn to_bridge(p: &WslPublic) -> BridgePublic {
 
 impl WslRealizer for BridgeRegistry {
     fn start(&self, environment: &EnvironmentId) -> Result<(), AdapterError> {
-        self.ensure_bridge(environment, DistributionStart::Allowed, false)
-            .map(|_| ())
+        logged(
+            "owner_start",
+            self.ensure_bridge(environment, DistributionStart::Allowed, false)
+                .map(|_| ()),
+        )
     }
 
-    fn run_dir(&self, environment: &EnvironmentId) -> Result<String, AdapterError> {
-        let bridge = self.ensure_bridge(environment, DistributionStart::Forbidden, false)?;
+    fn run_dir(
+        &self,
+        environment: &EnvironmentId,
+        start: DistributionStart,
+    ) -> Result<String, AdapterError> {
+        let bridge = logged("run_dir", self.ensure_bridge(environment, start, false))?;
         Ok(bridge.run_dir())
     }
 
@@ -648,33 +725,12 @@ impl WslRealizer for BridgeRegistry {
         tag: &str,
         generation: u64,
         public: &WslPublic,
+        start: DistributionStart,
     ) -> Result<(), AdapterError> {
-        let bridge = self.ensure_bridge(environment, DistributionStart::Forbidden, false)?;
-        // Remembered first: a stream may arrive the moment the endpoint listens.
-        self.inner
-            .lock()
-            .entry(environment.clone())
-            .or_default()
-            .tags
-            .insert(
-                tag.to_owned(),
-                TagState {
-                    binding: binding.clone(),
-                    generation,
-                    public: public.clone(),
-                },
-            );
-        match self.realize_still_wanted(environment, &bridge, tag, generation, public) {
-            Ok(true) => Ok(()),
-            // ⟨M04-W2-R02⟩ Withdrawn while it was realized: withdrawn again, and not served.
-            Ok(false) => Err(unavailable("wsl_binding_withdrawn")),
-            Err(e) => {
-                if let Some(st) = self.inner.lock().get_mut(environment) {
-                    st.tags.remove(tag);
-                }
-                Err(adapter_error(e))
-            }
-        }
+        logged(
+            "realize",
+            self.realize_under(environment, binding, tag, generation, public, start),
+        )
     }
 
     fn withdraw(

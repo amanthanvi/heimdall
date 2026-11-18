@@ -42,7 +42,9 @@ Runs ON the PC (pwsh 7.2 or later), not elevated. Its steps:
      distributions this run created, by exact name (each re-checked against the pattern, the
      before-list and the current list; the unregister row may have removed -2 already; never
      `wsl --shutdown`); check that the registered set equals the one before; remove the clone,
-     the toolchain, the build and the distributions' directories.
+     the toolchain, the build and the distributions' directories; remove HKCU\Software\HeimdallTest
+     only when it has no subkey and no value (never recursively), and record
+     heimdalltest-parent=absent|empty-removed|nonempty-kept in host.txt.
   9. Keep, as the run goes, the plain results (results.txt: each command's `### <name> exit=N`,
      its tests' outcomes and its `test result:` lines, then the run's exit; names and counts only)
      and print them, so the verdict survives a failed bundle. Then write one redacted bundle (no
@@ -104,7 +106,8 @@ $m02Helpers = @('New-RandomHex', 'Get-Sha256Hex', 'New-RedactionRule', 'Get-Reda
     'Get-CanaryCount', 'Hide-Canary', 'Get-LeakCount', 'Format-TargetOutput', 'Format-CommandLine', 'New-Bundle',
     'Protect-BundleFiles', 'Get-ProtectedMetadata', 'Get-ToolEnvironmentOverrides', 'Get-CrlfFileCount',
     'Get-SshdAtEnd', 'Get-SshdStartScript', 'Get-SshdStopScript', 'Test-PlainAccount', 'Get-FixtureEnvironment',
-    'Get-RunRedactionRules', 'Test-SshdAtEndOk', 'Get-StockProfileGrantArguments')
+    'Get-RunRedactionRules', 'Test-SshdAtEndOk', 'Get-StockProfileGrantArguments', 'Get-ScratchParentAction',
+    'Remove-EmptyHeimdallTestParent')
 $parseErrors = $null
 $m02Ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $m02Runner).Path, [ref]$null, [ref]$parseErrors)
 if ($parseErrors.Count -gt 0) { throw 'tests/native/m02/run-windows-local.ps1 does not parse' }
@@ -313,6 +316,9 @@ function Invoke-SelfTest {
     $rules = Get-RunRedactionRules @{ wslhost = 'PCNAME' } 'C:\S\hm-m04-modeb-00' 'C:\Users\fixtureuser' 'fixtureuser' 'PCNAME' 'pcname.example'
     $p = Protect-BundleFiles @{ 'host.txt' = "home C:\Users\fixtureuser\x on PCNAME run C:\S\hm-m04-modeb-00\src`n" } $rules
     Check 'R01 the M02 redaction applies (home, user, host, run directory)' ($p.Files['host.txt'] -ceq "home <winhome>\x on <winhost> run <run>\src`n" -and $p.Leaks -eq 0)
+    Check 'K01 the scratch registry parent is removed only when empty, through the M02 runner''s helpers' (
+        (Get-ScratchParentAction $true 0 0) -eq 'remove' -and (Get-ScratchParentAction $true 0 1) -eq 'nonempty-kept' -and
+        (Get-ScratchParentAction $false 0 0) -eq 'absent' -and (Get-Command Remove-EmptyHeimdallTestParent -CommandType Function -ErrorAction SilentlyContinue))
     Check 'A01 the run root gets the stock list from the M02 runner''s helper' (
         ((Get-StockProfileGrantArguments 'S\run' 'S-1-5-21-1-2-3-1001') -join ' ') -ceq 'S\run /inheritance:r /grant:r *S-1-5-21-1-2-3-1001:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F')
     # ⟨Windows run at 37cb179b⟩ The file table as the run builds it: every bundle file, through
@@ -818,6 +824,10 @@ try {
     $gone = -not ((Test-Path -LiteralPath $src) -or (Test-Path -LiteralPath $tools) -or ($kept.Count -eq 0 -and (Test-Path -LiteralPath $distroRoot)))
     Add-Command $(if ($gone) { 0 } else { 1 }) 'remove the clone, the toolchain, the build and the distributions'' directories, then check they are absent'
     if (-not $gone -and $overall -eq 0) { $overall = 1 }
+    # ⟨M04 Windows fix round 5⟩ The tests' scratch registry keys' parent (the M02 runner's
+    # helper): removed when empty, never recursively, and reported either way.
+    try { Add-Fact 'heimdalltest-parent' (Remove-EmptyHeimdallTestParent) }
+    catch { Add-Fact 'heimdalltest-parent' "unreadable ($($_.Exception.GetType().Name))" }
 
     # 9. Redact, mask, scan, bundle (no environment dump: only the facts above).
     $rules = Get-RunRedactionRules $wv $run $env:USERPROFILE $env:USERNAME $env:COMPUTERNAME ([System.Net.Dns]::GetHostName())

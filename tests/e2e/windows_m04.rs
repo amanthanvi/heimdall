@@ -467,7 +467,9 @@ mod native {
         format!("Software\\HeimdallTest\\a14-{:016x}", h.finish())
     }
 
-    /// Deletes the scratch login root when the test ends (absent is fine).
+    /// Deletes the scratch login root when the test ends (absent is fine), then
+    /// ⟨M04 Windows fix round 5⟩ `HKCU\Software\HeimdallTest` itself when it is left with no
+    /// subkey and no value (never recursively: `delete_scratch_key`).
     struct DeleteLoginRoot(String);
 
     impl Drop for DeleteLoginRoot {
@@ -478,6 +480,7 @@ mod native {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
+            let _ = heimdall_runtime::autostart::windows::delete_scratch_key(&self.0);
         }
     }
 
@@ -756,7 +759,11 @@ mod native {
             Verdict::LegacyInherited,
             "the inherited list of an installation from before M04"
         );
-        let (code, exit) = run_step(&env, &["setup", "rollback"], Mode::Attended);
+        // ⟨M04 Windows fix round 5⟩ No question: a rollback that yields exactly the restore
+        // state the owner approved with the apply, every affected item determined, needs no
+        // new decision (ADR-0007 §5.2), so it runs unattended (`--non-interactive` would
+        // answer `INTERACTION_REQUIRED` if it needed one).
+        let (code, exit) = run_step(&env, &["setup", "rollback"], Mode::Plain);
         assert_eq!(code, "OK", "setup rollback (exit {exit})");
         assert_eq!(
             check_owner_only(&state).unwrap(),
@@ -869,6 +876,7 @@ mod native {
         let inst = SecondInstallation::new(&scratch).unwrap();
         let mut env = product_env(&inst);
         env.push(("HEIMDALL_WSL_HELPER".into(), helper.clone().into()));
+        let _login_root = DeleteLoginRoot(login_root(&inst));
         let _stop = StopRuntime(env.clone());
         // `time confirm` first: a setup apply needs a confident clock (`TIME_UNCERTAIN`).
         let (code, exit) = run_step(&env, &["time", "confirm"], Mode::Attended);
@@ -1167,6 +1175,43 @@ mod native {
             id
         }
 
+        /// ⟨M04 Windows fix round 5⟩ The helper's run base as the account sees it through
+        /// `wsl.exe --exec`, as the helper does (nonsecret facts only): the uid, whether
+        /// `XDG_RUNTIME_DIR` is set, and each component of the base from `/` down (the
+        /// run directory's anchor `<base>/heimdall` too, when it exists) with its mode,
+        /// owner uid and type, a symbolic link shown as one (never followed).
+        fn run_base_facts(d: &Distro) -> String {
+            // One line: `wsl.exe` carries it as one argument.
+            let script = [
+                r#"echo "uid=$(id -u)""#,
+                r#"if [ -n "${XDG_RUNTIME_DIR:-}" ]; then echo xdg_runtime_dir=set; b=$XDG_RUNTIME_DIR; else echo xdg_runtime_dir=unset; b=$HOME/.local/state; fi"#,
+                r#"f() { stat -c '%n mode=%a uid=%u type=%F' "$1" 2>/dev/null || echo "$1 absent"; }"#,
+                "f /",
+                "p=",
+                r#"for c in $(printf '%s' "$b" | tr '/' ' '); do p=$p/$c; f "$p"; done"#,
+                r#"f "$b/heimdall""#,
+            ]
+            .join("; ");
+            let (code, out) = sh(d, &script);
+            format!("exit {code}\n{out}")
+        }
+
+        /// ⟨M04 Windows fix round 5⟩ The runtime log's Mode B lines (the runtime logs a
+        /// refused Mode B step by its stable code only, never adapter text), redacted.
+        fn mode_b_log(w: &World) -> String {
+            let path = w.hh.join("log").join("heimdall.log");
+            match std::fs::read_to_string(&path) {
+                Ok(text) => w.redact(
+                    &text
+                        .lines()
+                        .filter(|l| l.contains("Mode B"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+                Err(e) => format!("no runtime log ({:?})", e.kind()),
+            }
+        }
+
         /// The world's typed confirmation on a wide pseudoconsole. ⟨M04 Windows fix round 3⟩
         /// The prompt is matched without its trailing space: a pseudoconsole's text drops a
         /// line's trailing spaces, so `[y/N]: ` (the world's own needle) can miss a prompt
@@ -1199,6 +1244,15 @@ mod native {
                 .iter()
                 .find(|i| i["kind"] == "wsl_distribution" && i["realization"]["name"] == name)
                 .cloned()
+        }
+
+        /// The `inspect environments` item whose ID is `id` (`null` when none is).
+        fn environment_by_id(w: &World, id: &str) -> Value {
+            let listing = w.cli(&["--json", "inspect", "environments"]).json();
+            listing["data"]["items"]
+                .as_array()
+                .and_then(|items| items.iter().find(|i| i["environment_id"] == id).cloned())
+                .unwrap_or(Value::Null)
         }
 
         /// Let `environment` serve the first pair's profile without a decision (the approval
@@ -1236,7 +1290,27 @@ mod native {
                 "--request-id",
                 request,
             ]);
-            assert_eq!(out.code, 0, "ensure: {}", w.redact(&format!("{out:?}")));
+            // ⟨M04 Windows fix round 5⟩ A refusal names what the runtime logged of it, the
+            // environment's row as `inspect environments` shows it, and the helper's run base
+            // (probed only now, so a passing run starts nothing in the distribution).
+            if out.code != 0 {
+                let item = environment_by_id(w, environment);
+                let r = &item["realization"];
+                let facts = match (r["name"].as_str(), r["account"].as_str()) {
+                    (Some(name), Some(account)) => run_base_facts(&Distro {
+                        name: name.to_owned(),
+                        account: account.to_owned(),
+                    }),
+                    _ => "no distribution in the row".to_owned(),
+                };
+                panic!(
+                    "ensure: {}\nruntime log (Mode B):\n{}\nenvironment: {}\nrun-base facts:\n{}",
+                    w.redact(&format!("{out:?}")),
+                    mode_b_log(w),
+                    w.redact(&item.to_string()),
+                    w.redact(&facts),
+                );
+            }
             let env = out.json();
             assert_eq!(
                 env["code"],

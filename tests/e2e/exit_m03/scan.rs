@@ -8,8 +8,11 @@
 //!   padding);
 //! * `k_ca`: the test K_ca: its 32-byte private seed and its 64-byte OpenSSH private
 //!   field (seed and public key) in the same encodings, plus its unencrypted OpenSSH
-//!   encoding (the whole PEM text, and each body line that depends on this key: every
-//!   base64 line but the first, which is common to all such keys, and the last);
+//!   encoding (the whole PEM text, and each body line that carries a byte of the private
+//!   seed). ⟨M04 Windows fix round 5⟩ Only those lines: another body line holds public
+//!   bytes and a checkint only (an ed25519 key's second line is one checkint byte and
+//!   the public key blob), which a certificate this CA signed can carry verbatim (its
+//!   signature key); about one run in 256 found it in a binding's `cert-*.pub`;
 //! * `canary`: each `HEIMDALL_CANARY_<random>` value the test placed, and the prefix
 //!   `HEIMDALL_CANARY_` itself (which also catches the fake adapter's own canary
 //!   credential reference, whose value the test cannot know).
@@ -70,18 +73,24 @@ pub fn k_ca(key: &SecretCaKey) -> Needles {
     .unwrap();
     let pub32 = &public[public.len() - 32..];
     // The private field: `uint32 64` then seed (32) and public key (32).
-    let private = blob
+    let at = blob
         .windows(68)
-        .find(|w| w[..4] == [0, 0, 0, 64] && &w[36..68] == pub32)
-        .map(|w| w[4..68].to_vec())
+        .position(|w| w[..4] == [0, 0, 0, 64] && &w[36..68] == pub32)
         .expect("the OpenSSH private field");
+    let private = blob[at + 4..at + 68].to_vec();
     let mut forms = scan_forms(&private[..32]);
     forms.extend(scan_forms(&private));
     forms.push(text.trim().as_bytes().to_vec());
-    if body.len() > 2 {
-        for line in &body[1..body.len() - 1] {
+    // Each body line whose bytes include one of the seed's (`at + 4 .. at + 36`); a line of
+    // `n` base64 characters starting at character `c` covers bits `6c .. 6(c + n)`.
+    let seed = at + 4..at + 36;
+    let mut c = 0;
+    for line in &body {
+        let (first, end) = (6 * c / 8, (6 * (c + line.len())).div_ceil(8));
+        if first < seed.end && seed.start < end {
             forms.push(line.as_bytes().to_vec());
         }
+        c += line.len();
     }
     Needles {
         kind: "k_ca",

@@ -291,7 +291,11 @@ impl GrantScopes for StoreSources {
                         realization: EnvironmentRealization::Wsl { .. },
                         environment,
                         ..
-                    }) => EndpointPlacement::WslBridge { environment },
+                    }) => EndpointPlacement::WslBridge {
+                        environment,
+                        // The caller's own start authority replaces it (`materialize`).
+                        start: heimdall_app::ports::DistributionStart::Forbidden,
+                    },
                     _ => EndpointPlacement::Native,
                 })
             })
@@ -1536,6 +1540,7 @@ mod live_tests {
             binding: &heimdall_contract::ids::BindingId,
             generation: u64,
             public: &heimdall_credential::endpoints::wsl::WslPublic,
+            start: heimdall_app::ports::DistributionStart,
         ) -> Result<(), AdapterError> {
             self.get()
                 .ok_or_else(|| {
@@ -1545,6 +1550,7 @@ mod live_tests {
                     binding,
                     heimdall_domain::resource::ResourceGeneration(generation),
                     public,
+                    start,
                 )
         }
         fn remove_binding_endpoint(

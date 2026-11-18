@@ -1194,6 +1194,7 @@ impl World {
                             .collect(),
                     },
                     environment_slots: false,
+                    start: heimdall_app::ports::DistributionStart::Forbidden,
                 },
             )
             .unwrap();
@@ -4445,6 +4446,7 @@ async fn stale_clear_never_unlists_the_current_binding() {
                         .collect(),
                 },
                 environment_slots: false,
+                start: heimdall_app::ports::DistributionStart::Forbidden,
             },
         )
         .unwrap();

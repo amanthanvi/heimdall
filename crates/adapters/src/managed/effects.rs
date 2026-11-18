@@ -44,8 +44,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use heimdall_app::ports::{
-    AdapterError, KeyRegistration, ManagedEffects, MaterializeSource, MaterializeSpec,
-    MaterializedCertificate, MaterializedFiles,
+    AdapterError, DistributionStart, KeyRegistration, ManagedEffects, MaterializeSource,
+    MaterializeSpec, MaterializedCertificate, MaterializedFiles,
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{
@@ -198,7 +198,8 @@ pub trait BindingEndpoints: Send + Sync {
 
     /// ⟨M04 U4b⟩ Realize `binding`'s Mode B endpoint of `generation` (created through
     /// [`Self::create_binding_endpoint_at`] with a `WslBridge` placement) inside its
-    /// distribution with `public`. The default realizes none.
+    /// distribution with `public`, under the caller's `start` authority
+    /// ([`heimdall_app::ports::MaterializeSpec::start`]). The default realizes none.
     ///
     /// # Errors
     /// [`AdapterError`].
@@ -207,8 +208,9 @@ pub trait BindingEndpoints: Send + Sync {
         binding: &BindingId,
         generation: u64,
         public: &WslPublic,
+        start: DistributionStart,
     ) -> Result<(), AdapterError> {
-        let _ = (binding, generation, public);
+        let _ = (binding, generation, public, start);
         Err(AdapterError::Unavailable(
             BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
         ))
@@ -311,8 +313,9 @@ impl BindingEndpoints for EndpointRegistry {
         binding: &BindingId,
         generation: u64,
         public: &WslPublic,
+        start: DistributionStart,
     ) -> Result<(), AdapterError> {
-        self.realize_wsl(binding, ResourceGeneration(generation), public)
+        self.realize_wsl(binding, ResourceGeneration(generation), public, start)
     }
 
     fn remove_binding_endpoint(
@@ -918,7 +921,15 @@ impl ManagedEffects for ManagedEffectsImpl {
             ));
         }
         // ⟨M04⟩ U5 (design §4): where the grant's environment puts the endpoint.
-        let placement = self.scopes.placement(&grant)?;
+        // ⟨M04 Windows fix round 5⟩ A Mode B endpoint is created and realized under the
+        // caller's own start authority: the owner's `ensure` is never a background start.
+        let placement = match self.scopes.placement(&grant)? {
+            EndpointPlacement::WslBridge { environment, .. } => EndpointPlacement::WslBridge {
+                environment,
+                start: spec.start,
+            },
+            other => other,
+        };
         // The endpoint first (it lists nothing until the binding is attached below).
         let created = if self.endpoints.binding_endpoint(binding).is_none() {
             Some(
@@ -943,6 +954,7 @@ impl ManagedEffects for ManagedEffectsImpl {
                 &grant,
                 &public_key,
                 &certificates,
+                spec.start,
             );
             let files = match realized {
                 Ok(f) => f,
@@ -1154,7 +1166,8 @@ impl ManagedEffectsImpl {
     /// public key, one certificate per pair, the `ssh_config` and `known_hosts` rendered as a
     /// container's are (the same renderer) with the in-distribution paths of the endpoint's
     /// own directory, `<run>/b/<tag>/`. No private key is ever among them. Returns the
-    /// binding's Linux directory and file paths (as text; they are not host paths).
+    /// binding's Linux directory and file paths (as text; they are not host paths). `start`
+    /// is the caller's authority ([`MaterializeSpec::start`]).
     fn realize_in_distribution(
         &self,
         binding: &BindingId,
@@ -1162,6 +1175,7 @@ impl ManagedEffectsImpl {
         grant: &GrantId,
         public_key: &str,
         certificates: &[MaterializedCertificate],
+        start: DistributionStart,
     ) -> Result<MaterializedFiles, AdapterError> {
         let endpoint = self
             .endpoints
@@ -1198,6 +1212,7 @@ impl ManagedEffectsImpl {
                 ssh_config: rendered.ssh_config,
                 known_hosts: rendered.known_hosts,
             },
+            start,
         )?;
         Ok(MaterializedFiles {
             directory: PathBuf::from(directory),

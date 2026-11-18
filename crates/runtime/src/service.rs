@@ -1941,6 +1941,7 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
         binding: &heimdall_contract::ids::BindingId,
         generation: u64,
         public: &heimdall_credential::endpoints::wsl::WslPublic,
+        start: heimdall_app::ports::DistributionStart,
     ) -> Result<(), heimdall_app::ports::AdapterError> {
         self.get()
             .ok_or_else(|| {
@@ -1952,6 +1953,7 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
                 binding,
                 heimdall_domain::resource::ResourceGeneration(generation),
                 public,
+                start,
             )
     }
 

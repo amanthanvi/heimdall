@@ -231,6 +231,9 @@ pub(super) struct FakeFactory {
     /// ⟨M04-W2-R03⟩ The distribution stops just before the launcher's own pre-launch
     /// listing of the next `Forbidden` start (the stop the background relaunch can race).
     stop_before_launch: AtomicBool,
+    /// ⟨M04 Windows fix round 5⟩ The next helper started is lost at once, and its
+    /// distribution stops with it (WSL stops a distribution whose last process ended).
+    lose_next: AtomicBool,
 }
 
 impl FakeFactory {
@@ -242,6 +245,7 @@ impl FakeFactory {
             current: Mutex::new(None),
             fail: Mutex::new(None),
             stop_before_launch: AtomicBool::new(false),
+            lose_next: AtomicBool::new(false),
             spawned: AtomicUsize::new(0),
         })
     }
@@ -278,9 +282,13 @@ impl BridgeFactory for FakeFactory {
         if start == DistributionStart::Allowed {
             self.host.set_running(RunningState::Running);
         }
+        let lost = self.lose_next.swap(false, Ordering::SeqCst);
+        if lost {
+            self.host.set_running(RunningState::NotRunning);
+        }
         let bridge = Arc::new(FakeBridge {
             on_realize: self.on_realize.clone(),
-            alive: AtomicBool::new(true),
+            alive: AtomicBool::new(!lost),
             calls: Mutex::new(Vec::new()),
             served: Mutex::new(BTreeMap::new()),
             streams,
@@ -1111,7 +1119,8 @@ async fn wsl_mode_b_withdrawal_during_a_relaunch_leaves_no_endpoint() {
 ///    in the supervisor; the fake host has no failing listing.)
 /// 2. **Every background start passes the same admission.** With the block set by a stopped
 ///    listing and the distribution running again, the `Forbidden` endpoint entry point
-///    (`WslRealizer::run_dir`, which endpoint creation and recovery use) starts nothing either.
+///    (`WslRealizer::run_dir`, which continuing work's endpoint creation uses) starts nothing
+///    either.
 #[tokio::test]
 async fn wsl_mode_b_absent_or_unreadable_listings_and_endpoint_starts_respect_the_relaunch_block() {
     use heimdall_credential::endpoints::wsl::WslRealizer;
@@ -1147,13 +1156,68 @@ async fn wsl_mode_b_absent_or_unreadable_listings_and_endpoint_starts_respect_th
     supervisor.tick(&p.ops).await;
     host.set_running(RunningState::Running);
     tokio::time::sleep(recheck).await;
-    assert!(WslRealizer::run_dir(&supervisor, &id).is_err());
+    assert!(WslRealizer::run_dir(&supervisor, &id, DistributionStart::Forbidden).is_err());
     tokio::time::sleep(recheck).await;
-    assert!(WslRealizer::run_dir(&supervisor, &id).is_err());
+    assert!(WslRealizer::run_dir(&supervisor, &id, DistributionStart::Forbidden).is_err());
     assert_eq!(
         spawned(),
         2,
         "no background start through the endpoint entry point"
     );
+    p.shutdown.cancel();
+}
+
+/// ⟨M04 Windows run at 66e6e40f; fix round 5⟩ The owner's `ensure` is never a background
+/// start. The distribution reads stopped, and the helper the owner's start brings up is lost,
+/// its distribution stopping with it, before the `ensure` creates its endpoint. The `ensure`
+/// still succeeds: its endpoint creation and realization carry the owner's authority
+/// (`Allowed`) and start the helper again as the owner's start does, never through the
+/// background admission (which the stopped listing blocks: at 66e6e40f they went through it
+/// and the `ensure` failed `SERVICE_UNAVAILABLE`, as on the PC). A background path stays
+/// blocked: after a stopped listing the supervisor's re-checks start nothing, however many
+/// running listings follow, and continuing work's entry point (`Forbidden`) is refused.
+#[tokio::test]
+async fn wsl_mode_b_owner_ensure_is_never_a_background_start() {
+    use heimdall_credential::endpoints::wsl::WslRealizer;
+    let recheck = std::time::Duration::from_millis(120);
+    let w = Live::new();
+    let (p, host, factory) = process(&w, true).await;
+    let (id, _) = approved(&p).await;
+    permit_ensures(&w, &id);
+    let spawned = || factory.spawned.load(Ordering::SeqCst);
+    host.set_running(RunningState::NotRunning);
+    factory.lose_next.store(true, Ordering::SeqCst);
+    let a = ensure_in(&p, &id, "w-s", "r-s").await.unwrap_or_else(|e| {
+        panic!(
+            "the owner's ensure into a stopped distribution: {} {:?} {}",
+            e.code, e.reason, e.message
+        )
+    });
+    assert!(a.consumer.realization.is_some());
+    assert_eq!(
+        factory.starts(),
+        vec![DistributionStart::Allowed, DistributionStart::Allowed],
+        "the owner's start, then its endpoint creation's own: no background start"
+    );
+    assert_eq!(spawned(), 2);
+    assert_eq!(
+        factory.bridge().realized().unwrap().len(),
+        1,
+        "the endpoint is realized on the helper the owner's request started"
+    );
+
+    // A background path stays blocked.
+    let supervisor = p.bridge.clone().unwrap();
+    factory.bridge().alive.store(false, Ordering::SeqCst);
+    host.set_running(RunningState::NotRunning);
+    supervisor.tick(&p.ops).await;
+    host.set_running(RunningState::Running);
+    for _ in 0..3 {
+        tokio::time::sleep(recheck).await;
+        supervisor.tick(&p.ops).await;
+    }
+    assert!(WslRealizer::run_dir(&supervisor, &id, DistributionStart::Forbidden).is_err());
+    assert_eq!(spawned(), 2, "no background start after a stopped listing");
+    assert_eq!(factory.starts().len(), 2);
     p.shutdown.cancel();
 }
