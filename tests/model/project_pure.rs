@@ -1505,7 +1505,7 @@ fn a_verified_linked_worktree_is_a_member() {
 #[cfg(windows)]
 #[test]
 fn windows_drive_verbatim_forward_slash_and_unc_forms_observe_one_canonical_root() {
-    let fs = worktree_fs();
+    let mut fs = worktree_fs();
     let rec = recorded_main(&fs);
     assert_eq!(rec.root, r"\\?\C:\work\proj");
     for cwd in [
@@ -1537,12 +1537,14 @@ fn windows_drive_verbatim_forward_slash_and_unc_forms_observe_one_canonical_root
         WorkspaceMatch::Member { workspace: ws(1) }
     );
 
-    let mut unc = MemFs::new();
-    unc.dir(r"\\?\UNC\server\share\")
+    // The share is added to the same filesystem, so its entries get identities of their
+    // own, as a second volume's do. (A separate `MemFs` would hand out the same identity
+    // numbers again, which would make this a same-identity move and answer `Ambiguous`.)
+    fs.dir(r"\\?\UNC\server\share\")
         .dir(r"\\?\UNC\server\share\proj")
         .dir(r"\\?\UNC\server\share\proj\.git")
         .dir(r"\\?\UNC\server\share\proj\src");
-    let obs = observe_workspace(&unc, &env(), r"\\server\share\proj\src")
+    let obs = observe_workspace(&fs, &env(), r"\\server\share\proj\src")
         .unwrap()
         .expect("a workspace root on the share");
     assert_eq!(obs.root, r"\\?\UNC\server\share\proj");
