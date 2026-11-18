@@ -46,6 +46,13 @@
 //! * `WithdrawDeclaration` narrows and needs no decision: `Txn::
 //!   end_interaction_declaration`, a compare-and-swap when `revision` is given (a
 //!   newer declaration stays live and the result says `withdrawn: false`).
+//! * ⟨M05⟩ `ApplyImport` (U7; ADR-0011 §2.4 I4) writes the destinations and profiles a
+//!   portable bundle names that the catalog lacks, in this one transaction, and answers
+//!   the plan as applied (`crate::operations::portable_m05`); it needs no decision and
+//!   changes no authority; with `dry_run` (§17.9) it answers the plan and writes nothing
+//!   (a read: no operation, idempotency, event or journal record);
+//! * ⟨M05⟩ `SetDefaultProfile` (ADR-0006 §17.9) sets or clears an environment's
+//!   default-profile preference: no decision, no authority generation, no safe-time wait.
 //!
 //! **Expiry** (ADR-0007 §12.22 item 9). A declaration waiting in `awaiting_approval`
 //! whose decision passed its deadline expires (`CREDENTIAL_EXPIRED`, `next:
@@ -214,8 +221,8 @@ fn source_of(spec: &IdentitySourceSpec) -> Option<IdentitySource> {
 /// `CatalogRequest::validate`).
 fn check_request(req: &CatalogRequest) -> Result<(), OpError> {
     req.validate().map_err(|e| usage(&e.to_string()))?;
-    // ⟨M04, M05⟩ Revision 5 (ADR-0006 §17): a route's `jump` is M04's (U6) and
-    // `apply_import` M05's (U7); joint wave 0 refuses both before anything is written.
+    // ⟨M04, M05⟩ Revision 5 (ADR-0006 §17): a route's `jump` is M04's (U6) and refused
+    // before anything is written; ⟨M05⟩ `apply_import` is served (U7).
     match req {
         CatalogRequest::UpsertDestination { destination, .. }
             if matches!(
@@ -227,10 +234,11 @@ fn check_request(req: &CatalogRequest) -> Result<(), OpError> {
                 "bastion routes are not available in this build",
             ));
         }
-        CatalogRequest::ApplyImport { .. } => {
-            return Err(OpError::driver_unavailable(
-                "importing a portable bundle is not available in this build",
-            ));
+        // ⟨M05⟩ U7: a bundle is checked as a file's bytes are (bounds, schema name, every
+        // value) before anything is admitted; a refusal writes nothing.
+        CatalogRequest::ApplyImport { bundle, .. } => {
+            crate::operations::portable_m05::validate_bundle(bundle)
+                .map_err(|e| usage(&e.to_string()))?;
         }
         _ => {}
     }
@@ -275,6 +283,8 @@ fn narrowing(action: &CatalogAction) -> bool {
             | CatalogAction::RemoveIdentity { .. }
             | CatalogAction::RemoveProfile { .. }
             | CatalogAction::WithdrawDeclaration { .. }
+            // ⟨M05⟩ A preference creates no authority, so it never waits for safe time.
+            | CatalogAction::SetDefaultProfile { .. }
             | CatalogAction::SetPreference {
                 mechanism: PreferredMechanism::Existing,
                 ..
@@ -337,6 +347,20 @@ impl Operations {
             .with_effect(EffectStatus::None));
         }
         check_request(&req)?;
+        // ⟨M05⟩ Revision 5.1 (§17.9): a dry-run import is a read. It has been validated as a
+        // real one; it creates no operation, idempotency, event or journal record.
+        if let CatalogRequest::ApplyImport {
+            bundle,
+            dry_run: true,
+            ..
+        } = &req
+        {
+            let bundle = bundle.clone();
+            let plan = self
+                .local_write(move |tx, _| crate::operations::portable_m05::dry_run(tx, &bundle))
+                .await?;
+            return Ok(Completed::ok(Code::Ok, plan));
+        }
         let Some(action) = CatalogAction::from_request(&req) else {
             return Err(usage(
                 "this catalog action is not supported by this runtime",
@@ -500,6 +524,7 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
     let lifetime = ops.limits().decision_lifetime;
     let validity = ops.limits().declaration_validity;
     let now = ops.local_narrowing_now().await;
+    let own = ops.environment().clone();
     let id = id.clone();
     ops.local_write(move |tx, emit| {
         let Some(mut op) = tx.operation(&id)? else {
@@ -591,6 +616,7 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
             lifetime,
             validity,
             fresh,
+            own: &own,
         };
         match apply_action(tx, emit, &op, &intent, &ctx)? {
             Step::Done(data) => {
@@ -684,6 +710,8 @@ struct ActionCtx<'a> {
     /// How long an approved declaration lasts (`Limits::declaration_validity`).
     validity: std::time::Duration,
     fresh: IdentityId,
+    /// The runtime's own environment (⟨M05⟩ the default of `set_default_profile`).
+    own: &'a heimdall_contract::ids::EnvironmentId,
 }
 
 /// One action inside the driver's transaction.
@@ -912,6 +940,24 @@ fn apply_action(
             account,
             mechanism,
         } => set_preference(tx, destination, account, *mechanism, now)?,
+        // ⟨M05⟩ U7 (ADR-0011 §2.4 I4): catalog intent only, one transaction with the
+        // operation's settlement.
+        CatalogAction::ApplyImport { bundle } => Step::Done(
+            crate::operations::portable_m05::apply_import(tx, bundle, now)?,
+        ),
+        // ⟨M05⟩ Revision 5.1 (§17.9): a preference, never authority.
+        CatalogAction::SetDefaultProfile {
+            environment,
+            profile,
+        } => match set_default_profile_in(
+            tx,
+            ctx.own,
+            environment.as_ref().unwrap_or(ctx.own),
+            profile.as_ref(),
+        )? {
+            Ok(set) => Step::Done(json(&set)?),
+            Err(e) => Step::Refused(Box::new(e)),
+        },
     })
 }
 
@@ -1248,6 +1294,37 @@ pub struct DefaultProfile {
     pub profile_id: Option<heimdall_contract::ids::ProfileId>,
 }
 
+/// ⟨M05⟩ U6/U7 (ADR-0011 §5.1): set (`Some`) or clear (`None`) `env`'s default-profile
+/// preference inside the caller's transaction, after admitting `env` against the managed
+/// set of `own`. The one body behind [`Operations::set_default_profile`] and the journaled
+/// `catalog set_default_profile` (ADR-0006 §17.9). Writes nothing on a refusal (inner).
+fn set_default_profile_in(
+    tx: &mut Txn<'_>,
+    own: &heimdall_contract::ids::EnvironmentId,
+    env: &heimdall_contract::ids::EnvironmentId,
+    profile: Option<&heimdall_contract::ids::ProfileId>,
+) -> heimdall_store::Result<Result<DefaultProfile, OpError>> {
+    if let Err(e) = crate::environments::admit(tx, own, env)? {
+        return Ok(Err(e));
+    }
+    match profile {
+        Some(p) => {
+            if tx.profile(p)?.is_none() {
+                return Ok(Err(OpError::new(Code::NotFound, "unknown profile")
+                    .with_resource("profile", Some(p.to_string()))));
+            }
+            tx.set_default_profile(env, p)?;
+        }
+        None => {
+            tx.clear_default_profile(env)?;
+        }
+    }
+    Ok(Ok(DefaultProfile {
+        environment_id: env.clone(),
+        profile_id: profile.cloned(),
+    }))
+}
+
 impl Operations {
     /// ⟨M05⟩ U6 (ADR-0011 §5.1): set (`Some`) or clear (`None`) the default profile of
     /// `environment` (the runtime's own when `None`), an owner-channel catalog
@@ -1278,27 +1355,7 @@ impl Operations {
         let own = self.environment().clone();
         let env = environment.cloned().unwrap_or_else(|| own.clone());
         let set = self
-            .local_write(move |tx, _| {
-                if let Err(e) = crate::environments::admit(tx, &own, &env)? {
-                    return Ok(Err(e));
-                }
-                match &profile {
-                    Some(p) => {
-                        if tx.profile(p)?.is_none() {
-                            return Ok(Err(OpError::new(Code::NotFound, "unknown profile")
-                                .with_resource("profile", Some(p.to_string()))));
-                        }
-                        tx.set_default_profile(&env, p)?;
-                    }
-                    None => {
-                        tx.clear_default_profile(&env)?;
-                    }
-                }
-                Ok(Ok(DefaultProfile {
-                    environment_id: env,
-                    profile_id: profile,
-                }))
-            })
+            .local_write(move |tx, _| set_default_profile_in(tx, &own, &env, profile.as_ref()))
             .await??;
         Ok(Completed::ok(Code::Ok, set))
     }

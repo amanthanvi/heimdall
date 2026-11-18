@@ -15211,6 +15211,8 @@ mod wave0_fail_closed {
             "catalog.withdraw_declaration",
             // ⟨rev5⟩ ADR-0006 revision 5 (m05-plan section 4 item 4).
             "catalog.apply_import",
+            // ⟨rev5.1⟩ ADR-0006 §17.9 (U7, ruling I-6).
+            "catalog.set_default_profile",
         ]
         .into_iter()
         .map(str::to_owned)

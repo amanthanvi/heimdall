@@ -107,7 +107,7 @@ fn grant_of(key_id: &str) -> String {
 /// through the real `internal issuer` child, on this platform (the product binary holds
 /// no other issuer):
 /// 1. **activations**: `access ensure --profile exit` (grant A), then a worker under
-///    `heimdall run` on the same work (its own ensure activates grant B; the launch bind
+///    `heimdall run` on its own work (its own ensure activates grant B; the launch bind
 ///    claims the pair's slot). Each grant has exactly one published issuance entry,
 ///    signed under the world's CA. The worker logs in fresh through the projection: the
 ///    server accepts exactly one certificate, whose key ID names B and whose serial is
@@ -146,8 +146,11 @@ fn real_issuer_activation_reissue_revocation_with_fresh_logins() {
     );
     let (m1, m2, m3) = (marker("first"), marker("second"), marker("revoked"));
     let mark1 = w.pairs[0].sshd.log_mark();
+    // ⟨M05 U3⟩ The worker's run has its own work ID, so it activates its own grant B: under
+    // the orchestrator's ruling I-1 a run with the ensure's work ID and equal pins attaches
+    // to A instead (`a33_secret_bytes_scan_all_artifacts` asserts that).
     let mut wk = w.spawn_worker(
-        work,
+        "exit-work-lifecycle-run",
         "exit-run-1",
         vec![
             worker::login("first", &w.login_command(0, &m1), &m1),
@@ -889,19 +892,22 @@ fn a33_secret_bytes_scan_all_artifacts() {
             .unwrap_or_default(),
     );
     let _ = one_cert_of(&w, &accepted, &b, "the activation's login");
+    // ⟨M05 U3⟩ The orchestrator's ruling I-1: `run` with the ensure's work ID and equal
+    // pins attaches to the ensure's grant as a separate reference (no second activation).
+    assert_eq!(b, a, "ruling I-1: the run reuses the ensure's grant");
     checkpoint(&w, "after the activation", Some(wk.pid()), &mut hits);
 
     // The re-issue, the second login.
     w.restart_runtime();
-    w.wait_reissued(&[&a, &b], 2);
+    w.wait_reissued(&[&a], 2);
     std::fs::write(&g1, b"").unwrap();
     let results = wk.wait_signal(&s2, Duration::from_secs(120));
     assert_login_ok(&w, &results, "second");
-    let indices = seeded_indices(&w, &seed, &[&a, &b]);
+    let indices = seeded_indices(&w, &seed, &[&a]);
     assert_eq!(
         indices.len(),
-        4,
-        "two activations and two re-issues: {indices:?}"
+        2,
+        "one activation and its re-issue: {indices:?}"
     );
     assert!(
         indices.iter().all(Option::is_some),

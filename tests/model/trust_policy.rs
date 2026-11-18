@@ -2000,15 +2000,17 @@ mod p9 {
                     if with_context {
                         req.context = Some(WorkContext { cwd: cwd(0) });
                     }
-                    let e = w.ops.ensure(&owner(false), req).await.unwrap_err();
-                    prop_assert_eq!(
-                        e.code,
-                        if with_context {
-                            Code::CapabilityUnavailable
-                        } else {
-                            Code::UsageError
+                    let r = w.ops.ensure(&owner(false), req).await;
+                    if with_context {
+                        // ⟨M05 U4⟩ Served: the covered subset activates, or the request
+                        // is refused (`not_covered`, a probe refusal, a block), never
+                        // with a decision reference (ruling 3).
+                        if let Err(e) = &r {
+                            prop_assert!(e.next.decision_ref.is_none(), "{:?}", e);
                         }
-                    );
+                    } else {
+                        prop_assert_eq!(r.err().map(|e| e.code), Some(Code::UsageError));
+                    }
                     prop_assert_eq!(&w.snap().pending, &before.pending, "no decision");
                 }
                 Step::Advance { minutes } => {

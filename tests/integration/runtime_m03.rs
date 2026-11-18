@@ -6432,34 +6432,18 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             Request::Ensure(covered_only),
             Code::UsageError,
         ),
+        // ⟨M05, integrator (I-8)⟩ `profile` may be absent only with `context`
+        // (ADR-0006 §17.1 M05 item 1): a usage error, before anything is read or written.
         (
             "ensure without profile",
             Request::Ensure(no_profile),
-            Code::CapabilityUnavailable,
+            Code::UsageError,
         ),
-        (
-            "pause target",
-            example("request.policy.pause-target.json"),
-            Code::CapabilityUnavailable,
-        ),
-        (
-            "resume target (widening)",
-            Request::Policy(PolicyAction::Resume {
-                policy_id: None,
-                target: target(),
-            }),
-            Code::CapabilityUnavailable,
-        ),
+        // ⟨M05 U3⟩ Targeted `pause`/`resume`/`cutoff`/`clear_cutoff`, `stop` and `revoke`
+        // of a work are served (`model_precedence_m05`, `e2e_stop_m05`).
         (
             "trust_workspace (widening)",
             example("request.policy.trust-workspace.json"),
-            Code::CapabilityUnavailable,
-        ),
-        (
-            "stop",
-            Request::Policy(PolicyAction::Stop {
-                target: PolicyTarget::All,
-            }),
             Code::CapabilityUnavailable,
         ),
         (
@@ -6469,11 +6453,6 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
                 target: target(),
             }),
             Code::UsageError,
-        ),
-        (
-            "revoke work",
-            example("request.revoke.work.json"),
-            Code::CapabilityUnavailable,
         ),
         (
             "revoke with grant and target",
@@ -6487,11 +6466,8 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             }),
             Code::UsageError,
         ),
-        (
-            "apply_import",
-            example("request.catalog.apply-import.json"),
-            Code::CapabilityUnavailable,
-        ),
+        // ⟨M05 U7⟩ `apply_import` and `inspect export` are served (`integration_portable`,
+        // `e2e_portable_m05`), so they leave this table.
         (
             "inspect workspace",
             example("request.inspect.workspace.json"),
@@ -6502,11 +6478,6 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
         (
             "inspect policies with cwd",
             request(serde_json::json!({"op": "inspect", "subject": "policies", "cwd": "/w"})),
-            Code::CapabilityUnavailable,
-        ),
-        (
-            "inspect export",
-            request(serde_json::json!({"op": "inspect", "subject": "export", "redact": true})),
             Code::CapabilityUnavailable,
         ),
         // W0-R04: `cwd` or `redact` on an M01–M03 subject is refused, never ignored.
@@ -6545,29 +6516,18 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
     assert_eq!(reason_of(&env), None);
     assert_eq!(w.snapshot(), before, "nothing was written");
     // A pending decision of a revision-5 kind is refused, not consumed, either verdict.
-    let pending = [
-        insert_decision(
-            &w,
-            0x71,
-            DecisionKind::WidenPolicy {
-                action: PolicyAction::Resume {
-                    policy_id: None,
-                    target: target(),
-                },
+    // (⟨M05 U3⟩ a targeted widening's record is served: `model_precedence_m05`.)
+    let pending = [insert_decision(
+        &w,
+        0x72,
+        DecisionKind::ReconcileWorkspace {
+            action: PolicyAction::ReconcileWorkspace {
+                workspace: heimdall_contract::ids::WorkspaceId::from_random_bytes([3; 16]),
+                cwd: "/scratch/w".into(),
             },
-        ),
-        insert_decision(
-            &w,
-            0x72,
-            DecisionKind::ReconcileWorkspace {
-                action: PolicyAction::ReconcileWorkspace {
-                    workspace: heimdall_contract::ids::WorkspaceId::from_random_bytes([3; 16]),
-                    cwd: "/scratch/w".into(),
-                },
-                why: heimdall_domain::workspace::AmbiguityReason::SamePathOtherIdentity,
-            },
-        ),
-    ];
+            why: heimdall_domain::workspace::AmbiguityReason::SamePathOtherIdentity,
+        },
+    )];
     // (A decide assesses time first, which may record the time anchor in `meta`;
     // nothing of the request is written: the M03 test's comparison, counts and the
     // pending records.)

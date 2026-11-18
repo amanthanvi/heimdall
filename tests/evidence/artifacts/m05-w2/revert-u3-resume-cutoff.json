@@ -1,0 +1,21 @@
+{
+ "name": "M05 W2 U3: `resume` also clears a cutoff (`apply_change` sets `cutoff_at = None` for `Resume`)",
+ "file": "crates/app/src/operations/stop_m05.rs",
+ "observed_by": "the worker in its own worktree at base 22dfb168 (its DONE.md §5); sources restored byte-identical (checked with diff)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --test model_precedence_m05",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "left: None, right: Some(2026-11-18T09:00:00Z): the cutoff of pol-dev",
+   "minimal input [StopPolicy(All), Cutoff(All, 0, Approve), Resume(Dev, Approve)]"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed"
+  ]
+ }
+}

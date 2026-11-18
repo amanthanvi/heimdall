@@ -486,6 +486,209 @@ fn retries_converge_conflict_and_expire_under_interleavings_and_purges() {
 }
 
 // =================================================================================
+// #4 with `context` (ADR-0006 §17.4; ADR-0011 §10 item 7; M05 U4)
+// =================================================================================
+
+/// What the scripted probe observes: workspace `w` (two trusted workspaces) holding a
+/// manifest of digest `d` (two digests of the same request).
+#[derive(Default)]
+struct ScriptedProbe {
+    now: std::sync::Mutex<(u8, u8)>,
+}
+
+fn workspace(w: u8) -> heimdall_contract::ids::WorkspaceId {
+    heimdall_contract::ids::WorkspaceId::from_random_bytes([0x40 + w; 16])
+}
+
+fn digest(d: u8) -> String {
+    format!("{d:x}").repeat(64)
+}
+
+impl heimdall_app::ports::WorkspaceProbe for ScriptedProbe {
+    fn probe(
+        &self,
+        _environment: &EnvironmentId,
+        _cwd: &str,
+        _records: &[heimdall_domain::workspace::WorkspaceRecord],
+    ) -> Result<heimdall_app::ports::ProbedWorkspace, heimdall_app::ports::ProbeError> {
+        let (w, d) = *self.now.lock().unwrap();
+        Ok(heimdall_app::ports::ProbedWorkspace {
+            root: Some(format!("/w/{w}")),
+            root_identity: Some(heimdall_domain::projection::FileIdentity::Unix {
+                dev: 1,
+                ino: u64::from(w),
+                birth: None,
+            }),
+            git_common_identity: None,
+            matched: Some(heimdall_domain::workspace::WorkspaceMatch::Trusted {
+                workspace: workspace(w),
+            }),
+            manifest: Some(heimdall_app::ports::ProbedManifest {
+                access_digest: digest(d),
+                profile: ProfileId::parse("dev").unwrap(),
+                pairs: vec!["h1:deploy".into()],
+                environments: Vec::new(),
+                capabilities: vec!["ssh-authentication".into()],
+                background_work: false,
+                project_label: None,
+            }),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+enum CtxStep {
+    /// Send key `k` while the probe observes workspace `w` with digest `d` (`n`
+    /// concurrent copies).
+    Send { k: u8, w: u8, d: u8, n: u8 },
+}
+
+fn ctx_step() -> impl Strategy<Value = CtxStep> {
+    (0u8..3, 0u8..2, 0u8..2, 1u8..4).prop_map(|(k, w, d, n)| CtxStep::Send { k, w, d, n })
+}
+
+#[derive(Debug, Default)]
+struct CtxCoverage {
+    replay: AtomicUsize,
+    conflict_workspace: AtomicUsize,
+    conflict_digest: AtomicUsize,
+    fresh: AtomicUsize,
+}
+
+fn context_trace(steps: Vec<CtxStep>, cov: &CtxCoverage) -> Result<(), TestCaseError> {
+    block(async move {
+        let w = World::new(vec![FakeStep::Prepare(outcome())]).await;
+        // Two trusted workspaces, each with its own policy covering h1.
+        w.store
+            .transaction(|tx| {
+                for n in 0..2u8 {
+                    tx.upsert_policy(
+                        &StandingPolicy {
+                            id: PolicyId::parse(&format!("pol_ws{n}")).unwrap(),
+                            revision: PolicyRevision(1),
+                            profile: ProfileId::parse("dev").unwrap(),
+                            workspace: Some(workspace(n)),
+                            scope: Scope {
+                                pairs: [pair("h1", "deploy")].into_iter().collect(),
+                                capabilities: ssh(),
+                            },
+                            environments: [env_id()].into_iter().collect(),
+                            max_window: 2 * HOUR,
+                            pause: PauseState::Active,
+                            cutoff_at: None,
+                            source: PolicySource::SetupDefault,
+                            lock_behavior: Default::default(),
+                            connection: Default::default(),
+                            default: false,
+                        },
+                        false,
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let probe = Arc::new(ScriptedProbe::default());
+        assert!(w.ops.set_workspace_probe(probe.clone()));
+        // key → (operation, workspace, digest) of its first admission.
+        let mut model: BTreeMap<u8, (OperationId, u8, u8)> = BTreeMap::new();
+        for CtxStep::Send { k, w: ws, d, n } in steps {
+            *probe.now.lock().unwrap() = (ws, d);
+            let mut handles = Vec::new();
+            for _ in 0..n {
+                let ops = w.ops.clone();
+                let mut req = ensure_req(&format!("ctx-{k}"), &format!("ctx-work-{k}"), "h1", None);
+                req.profile = None;
+                req.scope = BTreeSet::new();
+                req.context = Some(heimdall_contract::trust::WorkContext {
+                    cwd: "/w/src".into(),
+                });
+                handles.push(tokio::spawn(
+                    async move { ops.ensure(&owner(501), req).await },
+                ));
+            }
+            let mut results = Vec::new();
+            for h in handles {
+                let r = h.await.unwrap();
+                scanned(&r);
+                results.push(r);
+            }
+            let op_of = |r: &OpResult<heimdall_contract::request::EnsureData>| match r {
+                Ok(c) => c.operation_id.clone(),
+                Err(e) => e.operation_id.clone(),
+            };
+            match model.get(&k).cloned() {
+                Some((op, w0, d0)) => {
+                    for r in &results {
+                        if (w0, d0) == (ws, d) {
+                            cov.replay.fetch_add(1, Ordering::Relaxed);
+                            prop_assert_eq!(
+                                op_of(r),
+                                Some(op.clone()),
+                                "a retry with the same resolution converges"
+                            );
+                            prop_assert!(r.is_ok(), "{:?}", r.as_ref().err());
+                        } else {
+                            if w0 != ws {
+                                cov.conflict_workspace.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                cov.conflict_digest.fetch_add(1, Ordering::Relaxed);
+                            }
+                            let e = r.as_ref().unwrap_err();
+                            prop_assert_eq!(
+                                &e.code,
+                                &Code::RequestConflict,
+                                "another workspace or digest is another request"
+                            );
+                            prop_assert_eq!(e.operation_id.clone(), Some(op.clone()));
+                        }
+                    }
+                }
+                None => {
+                    cov.fresh.fetch_add(1, Ordering::Relaxed);
+                    let ids: BTreeSet<_> = results.iter().map(op_of).collect();
+                    prop_assert_eq!(ids.len(), 1, "one admission for every copy");
+                    let id = ids.into_iter().next().unwrap().expect("operation id");
+                    for r in &results {
+                        let done = r.as_ref().unwrap();
+                        let ctx = done.data.context.clone().expect("a context report");
+                        prop_assert_eq!(ctx.workspace_id, Some(workspace(ws)));
+                    }
+                    model.insert(k, (id, ws, d));
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+/// ADR-0011 §10 item 7 (plan §6.3 #4 with the revision-5 extras): with `context`, the
+/// same request ID with another resolved workspace or another access digest is
+/// `REQUEST_CONFLICT` naming the original operation; a retry with the same workspace and
+/// digest converges on it (sequential and concurrent duplicates).
+#[test]
+fn context_retries_converge_and_conflict_on_another_workspace_or_digest() {
+    let cov = CtxCoverage::default();
+    let mut runner = TestRunner::new(config(128, 0x5535_4354_5844_4947));
+    let result = runner.run(&prop::collection::vec(ctx_step(), 1..10), |steps| {
+        context_trace(steps, &cov)
+    });
+    if let Err(e) = result {
+        panic!("{e}");
+    }
+    for (name, n) in [
+        ("replay", &cov.replay),
+        ("conflict_workspace", &cov.conflict_workspace),
+        ("conflict_digest", &cov.conflict_digest),
+        ("fresh", &cov.fresh),
+    ] {
+        assert!(
+            n.load(Ordering::Relaxed) > 0,
+            "branch {name} never exercised: {cov:?}"
+        );
+    }
+}
+
+// =================================================================================
 // #7 — a caller timeout is not cancellation; uncertainty is never "not applied"
 // =================================================================================
 

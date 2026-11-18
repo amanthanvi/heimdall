@@ -529,3 +529,257 @@ proptest! {
         block(run(steps))?;
     }
 }
+
+// =================================================================================
+// ⟨M05⟩ U4: the trust cooldown (orchestrator ruling I-5)
+// =================================================================================
+
+/// An untrusted workspace, always (a fixed observation: the trace never approves).
+struct UntrustedProbe;
+
+fn repo_cwd() -> &'static str {
+    if cfg!(windows) {
+        r"C:\w\repo"
+    } else {
+        "/w/repo"
+    }
+}
+
+fn manifest_digest() -> String {
+    "ab".repeat(32)
+}
+
+impl heimdall_app::ports::WorkspaceProbe for UntrustedProbe {
+    fn probe(
+        &self,
+        _environment: &EnvironmentId,
+        _cwd: &str,
+        _records: &[heimdall_domain::workspace::WorkspaceRecord],
+    ) -> Result<heimdall_app::ports::ProbedWorkspace, heimdall_app::ports::ProbeError> {
+        Ok(heimdall_app::ports::ProbedWorkspace {
+            root: Some(repo_cwd().to_owned()),
+            root_identity: Some(heimdall_domain::projection::FileIdentity::Unix {
+                dev: 1,
+                ino: 7,
+                birth: None,
+            }),
+            git_common_identity: None,
+            matched: Some(heimdall_domain::workspace::WorkspaceMatch::Untrusted),
+            manifest: Some(heimdall_app::ports::ProbedManifest {
+                access_digest: manifest_digest(),
+                profile: ProfileId::parse("dev").unwrap(),
+                pairs: vec!["h2:deploy".into()],
+                environments: Vec::new(),
+                capabilities: vec!["ssh-authentication".into()],
+                background_work: false,
+                project_label: Some("repo".into()),
+            }),
+        })
+    }
+}
+
+/// The owner's own `trust_workspace` of that workspace: the server's proposal exactly.
+fn owner_trust() -> PolicyAction {
+    PolicyAction::TrustWorkspace {
+        cwd: repo_cwd().to_owned(),
+        access_digest: manifest_digest(),
+        proposal: heimdall_contract::trust::TrustProposal {
+            profile: ProfileId::parse("dev").unwrap(),
+            pairs: hosts(0b0010),
+            environments: BTreeSet::new(),
+            capabilities: ssh(),
+            background_work: false,
+        },
+    }
+}
+
+fn trust_request(n: usize) -> heimdall_contract::request::EnsureRequest {
+    heimdall_contract::request::EnsureRequest {
+        profile: None,
+        profile_revision: None,
+        scope: BTreeSet::new(),
+        environment: None,
+        work_id: heimdall_contract::ids::WorkId::parse(&format!("work-{n}")).unwrap(),
+        until: None,
+        required_capabilities: Default::default(),
+        request_id: heimdall_contract::ids::RequestId::parse(&format!("req-{n}")).unwrap(),
+        interaction: InteractionMode::NonInteractive,
+        wait: Default::default(),
+        connection: None,
+        context: Some(heimdall_contract::trust::WorkContext {
+            cwd: repo_cwd().to_owned(),
+        }),
+        covered_only: false,
+    }
+}
+
+#[derive(Debug, Clone)]
+enum TrustStep {
+    /// `copies` concurrent requesters run `ensure` in the workspace.
+    Request { copies: u8 },
+    /// The owner denies the pending trust record, if any.
+    Deny,
+    /// The owner asks for the trust on the owner channel.
+    Owner,
+    /// Time passes.
+    Advance { minutes: u16 },
+}
+
+fn trust_step() -> impl Strategy<Value = TrustStep> {
+    prop_oneof![
+        5 => (1u8..4).prop_map(|copies| TrustStep::Request { copies }),
+        3 => Just(TrustStep::Deny),
+        1 => Just(TrustStep::Owner),
+        2 => prop_oneof![Just(5u16), Just(16), Just(120), Just(721)]
+            .prop_map(|minutes| TrustStep::Advance { minutes }),
+    ]
+}
+
+fn decision_rows(store: &Store) -> u64 {
+    store.transaction(|tx| tx.table_counts()).unwrap().decisions
+}
+
+/// Branches the trust traces exercised (non-vacuity across the run).
+static COOLDOWN_ANSWERED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static OWNER_CLEARED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static SHARED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[allow(clippy::too_many_lines)]
+async fn run_trust(steps: Vec<TrustStep>) -> Result<(), TestCaseError> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (store, clock, ops) = world().await;
+    assert!(ops.set_workspace_probe(Arc::new(UntrustedProbe)));
+    let lifetime = Limits::default().decision_lifetime;
+    let plus = |t: Timestamp, d: Duration| {
+        t.checked_add(jiff::SignedDuration::try_from(d).unwrap())
+            .unwrap()
+    };
+    // The model: the live pending trust record (and when it expires), the cooldown.
+    let mut pending: Option<(DecisionId, Timestamp)> = None;
+    let mut cooling: Option<(DecisionId, Timestamp)> = None;
+    let mut sent = 0usize;
+    for s in steps {
+        let now = clock.wall();
+        if pending.as_ref().is_some_and(|(_, until)| now >= *until) {
+            pending = None;
+        }
+        if cooling.as_ref().is_some_and(|(_, until)| now >= *until) {
+            cooling = None;
+        }
+        match s {
+            TrustStep::Request { copies } => {
+                let rows = decision_rows(&store);
+                let mut tasks = Vec::new();
+                for _ in 0..copies {
+                    sent += 1;
+                    let ops = ops.clone();
+                    let req = trust_request(sent);
+                    tasks.push(tokio::spawn(async move { ops.ensure(&owner(), req).await }));
+                }
+                let mut refs = BTreeSet::new();
+                for t in tasks {
+                    let e = t.await.unwrap().unwrap_err();
+                    prop_assert_eq!(&e.code, &Code::ApprovalRequired);
+                    prop_assert!(e.operation_id.is_none(), "nothing is admitted");
+                    let d = DecisionId::parse(e.next.decision_ref.as_deref().unwrap()).unwrap();
+                    match &cooling {
+                        Some((denied, until)) => {
+                            prop_assert_eq!(e.reason.as_deref(), Some("decision_cooldown"));
+                            prop_assert_eq!(&d, denied, "the denied record's reference");
+                            prop_assert!(e.next.retry_after_ms.is_some());
+                            let wait = until.duration_since(now);
+                            prop_assert!(wait > jiff::SignedDuration::ZERO);
+                        }
+                        None => {
+                            prop_assert_eq!(e.reason.as_deref(), Some("workspace_untrusted"));
+                        }
+                    }
+                    refs.insert(d);
+                }
+                prop_assert_eq!(refs.len(), 1, "every requester got the same answer");
+                let d = refs.into_iter().next().unwrap();
+                match (&cooling, &pending) {
+                    (Some(_), _) => {
+                        COOLDOWN_ANSWERED.fetch_add(1, Relaxed);
+                        prop_assert_eq!(decision_rows(&store), rows, "no record during a cooldown");
+                    }
+                    (None, Some((p, _))) => {
+                        SHARED.fetch_add(1, Relaxed);
+                        prop_assert_eq!(&d, p, "requesters share the pending record");
+                        prop_assert_eq!(decision_rows(&store), rows);
+                    }
+                    (None, None) => {
+                        prop_assert_eq!(decision_rows(&store), rows + 1, "one record");
+                        let rec = store.transaction(|tx| tx.decision(&d)).unwrap().unwrap();
+                        let is_trust = matches!(rec.kind, DecisionKind::TrustWorkspace { .. });
+                        prop_assert!(is_trust, "a TrustWorkspace record");
+                        pending = Some((d, plus(now, lifetime)));
+                    }
+                }
+            }
+            TrustStep::Deny => {
+                let Some((d, _)) = pending.take() else {
+                    continue;
+                };
+                let r = ops
+                    .decide(
+                        &owner(),
+                        DecideRequest {
+                            decision_id: d.clone(),
+                            verdict: Verdict::Deny,
+                        },
+                    )
+                    .await;
+                prop_assert!(r.is_ok(), "{:?}", r.err().map(|e| e.code));
+                cooling = Some((d, plus(now, Duration::from_secs(12 * 3600))));
+            }
+            TrustStep::Owner => {
+                let rows = decision_rows(&store);
+                let e = ops.policy(&owner(), owner_trust()).await.unwrap_err();
+                prop_assert_eq!(&e.code, &Code::ApprovalRequired);
+                let d = DecisionId::parse(e.next.decision_ref.as_deref().unwrap()).unwrap();
+                // Owner-initiated trust always creates (or shares) its record, a cooldown
+                // notwithstanding, and clears the cooldown.
+                match &pending {
+                    Some((p, _)) => {
+                        prop_assert_eq!(&d, p);
+                        prop_assert_eq!(decision_rows(&store), rows);
+                    }
+                    None => {
+                        prop_assert_eq!(decision_rows(&store), rows + 1);
+                        pending = Some((d, plus(now, lifetime)));
+                    }
+                }
+                if cooling.take().is_some() {
+                    OWNER_CLEARED.fetch_add(1, Relaxed);
+                }
+            }
+            TrustStep::Advance { minutes } => clock.advance(MINUTE * u32::from(minutes)),
+        }
+    }
+    Ok(())
+}
+
+/// P10, the trust cooldown (orchestrator ruling I-5): requester-raised trust of one
+/// workspace shares one pending record; a denial cools the key down for the policy's
+/// default window, during which requesters get `decision_cooldown` with the denied
+/// record's reference and **no** record is written; an owner-initiated
+/// `trust_workspace` always creates (or shares) its record and clears the cooldown.
+#[test]
+fn p10_trust_cooldown_no_record_until_owner_asks() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let mut runner = proptest::test_runner::TestRunner::new(config(0x0005_0011));
+    let result = runner.run(&prop::collection::vec(trust_step(), 1..24), |steps| {
+        block(run_trust(steps))
+    });
+    if let Err(e) = result {
+        panic!("{e}");
+    }
+    for (name, n) in [
+        ("cooldown answered", &COOLDOWN_ANSWERED),
+        ("owner cleared a cooldown", &OWNER_CLEARED),
+        ("requesters shared a record", &SHARED),
+    ] {
+        assert!(n.load(Relaxed) > 0, "branch {name} never exercised");
+    }
+}

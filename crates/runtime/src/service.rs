@@ -702,6 +702,9 @@ impl Service {
         // ⟨M03⟩ U9 (R3): the `[session] lock_behavior` floor, in every runtime.
         let floor = crate::session_lock::lock_floor(&config.session);
         operations.set_session_lock_floor(floor);
+        // ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3): the workspace observer behind `ensure` with
+        // `context`, `inspect workspace` and the workspace decisions.
+        operations.set_workspace_probe(Arc::new(crate::workspace_observe::RealWorkspaceProbe));
         // ⟨M03; ADR-0008 §17.25 item 19⟩ `inspect destinations`' D8 wording: the managed
         // adapter's own (`connection_policy_report`), so the destination view and the
         // ensure result say the same sentence. Without the managed wiring, none.

@@ -14,7 +14,7 @@
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 | M01-T01..T06 deterministic core | verified (M01 exit 2026-11-01, b89743ae) | `docs/architecture/m01-exit.md`; records A06, A07, A17-local and A19 are verified. A08 and A29-local are blocked only on M04 native sleep/logout/reboot and the second Windows account. 8 independent code-review rounds; the last one says ship |
 | M02-T00 design | verified (design gate closed 2026-11-01, 9c458501) | m02-plan.md and ADR-0007 rev 5; 4 independent design reviews, all findings ruled and applied |
-| M05-T01..T06 trusted work | in_progress | Design accepted with ADR-0011 §10's rulings; joint wave 0 with M04 merged (1f72bb09). Wave 1 (U1 project crate, U2 authority core, U6 shared slots, U8 A28 delegation evidence): every unit `implemented_unverified` until wave 4's records (m05-plan §0a) |
+| M05-T01..T06 trusted work | in_progress | Design accepted with ADR-0011 §10's rulings; joint wave 0 with M04 merged (1f72bb09). Wave 1 (project crate, authority core, shared slots, A28 delegation evidence) at 22dfb168, its fix round (review M05-W1-R01 and the Windows fixtures) at e49f90d0 and 931065e1. Wave 2 (stop, targets and precedence; context activation and the workspace observer; export and import; ADR-0006 revision 5.1 drafted) integrated on m05/w2-integ. Every unit `implemented_unverified` until wave 4's records (m05-plan §0a) |
 
 ## Owner decisions under delegation (2026-10-31)
 

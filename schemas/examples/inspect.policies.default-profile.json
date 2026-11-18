@@ -1,0 +1,6 @@
+{
+  "items": [],
+  "default_profiles": [
+    {"environment_id": "env_01010101010101010101010101010101", "profile_id": "homelab-dev"}
+  ]
+}
