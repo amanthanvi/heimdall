@@ -216,6 +216,10 @@ impl heimdall_issuer::client::ChildProcess for ListedIssuerProcess {
     fn start_kill(&mut self) -> std::io::Result<()> {
         self.0.kill()
     }
+
+    fn exit_code(&mut self) -> Option<i32> {
+        self.0.try_wait().ok().flatten()
+    }
 }
 
 #[cfg(windows)]

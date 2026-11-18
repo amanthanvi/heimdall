@@ -105,6 +105,11 @@ pub const MAX_RESTART_ATTEMPTS: u32 = 8;
 /// How long `stop` waits for the child to exit after `shutdown` before ending it.
 pub const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Milliseconds since `t`, for the start's log lines.
+fn ms_since(t: Instant) -> u64 {
+    u64::try_from(t.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
 /// The ceiling of the `attempt`-th restart delay (1-based): `min(cap, base·2^(n−1))`.
 #[must_use]
 pub fn backoff_ceiling(attempt: u32) -> Duration {
@@ -172,6 +177,13 @@ pub trait ChildProcess: Send {
     /// # Errors
     /// The signal or termination failed.
     fn start_kill(&mut self) -> std::io::Result<()>;
+    /// ⟨M04 merge-candidate run at 09de4fb2⟩ The child's exit code once it has exited
+    /// (reaping it, as [`ChildProcess::try_wait`] does), for the start's log line; `None`
+    /// while it runs, or when the code cannot be read (a signal on Unix). The default
+    /// knows none.
+    fn exit_code(&mut self) -> Option<i32> {
+        None
+    }
     /// Wait for the child to exit. Cancel-safe. The default polls [`ChildProcess::try_wait`]
     /// every [`CHILD_POLL`]; `tokio::process::Child` overrides it with its own wait.
     ///
@@ -204,6 +216,10 @@ impl ChildProcess for Child {
 
     fn start_kill(&mut self) -> std::io::Result<()> {
         Child::start_kill(self)
+    }
+
+    fn exit_code(&mut self) -> Option<i32> {
+        Child::try_wait(self).ok().flatten().and_then(|s| s.code())
     }
 
     fn wait(&mut self) -> BoxFuture<'_, std::io::Result<()>> {
@@ -847,12 +863,20 @@ impl Inner {
         };
         end_child(self.verifier(), slot.take(), Vec::new()).await;
         self.set_state(IssuerState::Starting, None);
+        // ⟨M04 merge-candidate run at 09de4fb2⟩ Each start's spawn and hello are timed and
+        // logged (milliseconds, outcome, how the child ended): the Windows runs saw first
+        // starts fail with nothing to tell why.
+        let begun = Instant::now();
         let Some(Started {
             mut child,
             stdin,
             stdout,
         }) = self.spawn_child()
         else {
+            tracing::warn!(
+                spawn_ms = ms_since(begun),
+                "the issuer child could not be spawned"
+            );
             self.set_state(
                 IssuerState::Crashed,
                 Some(reason::ISSUER_UNAVAILABLE.into()),
@@ -892,9 +916,32 @@ impl Inner {
         let Some(link) = slot.as_mut() else {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         };
+        let spawned = Instant::now();
+        let spawn_ms = ms_since(begun);
         match self.exchange(link, &hello, self.config.hello_timeout).await {
-            Ok(Response::HelloAck { nonce: n, pid: p }) if n == nonce && p == pid => {}
-            _ => {
+            Ok(Response::HelloAck { nonce: n, pid: p }) if n == nonce && p == pid => {
+                tracing::info!(
+                    spawn_ms,
+                    hello_ms = ms_since(spawned),
+                    "the issuer child answered its hello"
+                );
+            }
+            other => {
+                let outcome = match &other {
+                    Err(IssuerError::Timeout) => "timeout",
+                    Err(_) => "closed",
+                    Ok(_) => "unexpected",
+                };
+                // How the child ended, read before it is ended here: an exit code when it
+                // has exited on its own (the child's `EXIT_*`), none while it still runs.
+                let exit = link.child.exit_code();
+                tracing::warn!(
+                    spawn_ms,
+                    hello_ms = ms_since(spawned),
+                    outcome,
+                    exit_code = exit.map_or_else(|| "running".to_owned(), |c| c.to_string()),
+                    "the issuer child's hello failed"
+                );
                 self.crash(&mut slot).await;
                 return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
             }
@@ -941,15 +988,29 @@ impl Inner {
             inner: Arc::clone(self),
             lifecycle,
         };
-        match self
+        let begun = Instant::now();
+        let loaded = self
             .exchange_ending(
                 slot,
                 &Request::Load {},
                 self.config.request_timeout,
                 permit.into_iter().collect(),
             )
-            .await
-        {
+            .await;
+        // ⟨M04 merge-candidate run at 09de4fb2⟩ The load's time and outcome, logged.
+        let outcome = match &loaded {
+            Ok(Response::Loaded { .. }) => "loaded",
+            Ok(Response::StoreUnavailable { .. }) => "store_unavailable",
+            Ok(_) => "unexpected",
+            Err(IssuerError::Timeout) => "timeout",
+            Err(_) => "closed",
+        };
+        tracing::info!(
+            load_ms = ms_since(begun),
+            outcome,
+            "the issuer child's load answered"
+        );
+        match loaded {
             Ok(Response::Loaded { cas }) => {
                 self.update(|v| {
                     v.state = IssuerState::Ready;

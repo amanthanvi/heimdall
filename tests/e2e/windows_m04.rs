@@ -753,10 +753,41 @@ mod native {
         ));
     }
 
+    /// ⟨M04 merge-candidate run at 09de4fb2⟩ Add the pipe-name prefixes of `inst`'s own pipes,
+    /// read without opening a pipe: an advertised runtime's control and signing endpoints
+    /// (`instance.json`), `heimdall-<token>-` each (the control token is per start; a managed
+    /// signing endpoint names the installation's stable token, which its binding pipes carry
+    /// too). Another installation's pipes (a test running in parallel) are outside A14's claim.
+    fn record_own_pipe_prefixes(inst: &SecondInstallation, into: &mut BTreeSet<String>) {
+        let Ok(Some(info)) =
+            heimdall_runtime::instance::InstanceInfo::read_valid(&inst.runtime_dir())
+        else {
+            return;
+        };
+        for locator in [&info.control_endpoint, &info.signing_endpoint] {
+            if let Some(name) = locator.strip_prefix(r"\\.\pipe\")
+                && let Some(i) = name.rfind('-')
+            {
+                into.insert(name[..=i].to_lowercase());
+            }
+        }
+    }
+
+    /// The pipes of `pipes` that carry one of `prefixes`.
+    fn own_pipes(pipes: &BTreeSet<String>, prefixes: &BTreeSet<String>) -> BTreeSet<String> {
+        pipes
+            .iter()
+            .filter(|n| prefixes.iter().any(|p| n.starts_with(p.as_str())))
+            .cloned()
+            .collect()
+    }
+
     /// ADR-0010 §1 item 4 (A14): no takeover. Before and after every product step, the global
     /// agent pipe, the `ssh-agent` service (configuration, state and SDDL), the persistent user
     /// environment, Git's global and system configuration and `%USERPROFILE%\.ssh` are the same,
-    /// and the step list leaves no Heimdall pipe behind.
+    /// and the step list leaves none of this installation's pipes behind (⟨M04 merge-candidate
+    /// run at 09de4fb2⟩ another installation's, a test running in parallel, are not counted:
+    /// `record_own_pipe_prefixes`).
     #[test]
     fn a14_no_global_agent_takeover_inventory_identical() {
         let profile = PathBuf::from(std::env::var_os("USERPROFILE").expect("USERPROFILE"));
@@ -767,8 +798,10 @@ mod native {
         let env = product_env(&inst);
         let _login_root = DeleteLoginRoot(login_root(&inst));
         let _stop = StopRuntime(env.clone());
+        let mut own_prefixes = BTreeSet::new();
         for (name, args, mode, expected) in STEPS {
             let (code, exit) = run_step(&env, args, *mode);
+            record_own_pipe_prefixes(&inst, &mut own_prefixes);
             assert_eq!(code, *expected, "step `{name}` (exit {exit})");
             // The alias `setup apply` must decide on (M03 `eccab7d6`), itself product steps
             // (the inventory below brackets them with this step): after `time confirm`, since
@@ -790,11 +823,20 @@ mod native {
             assert_eq!(after.git_system, before.git_system, "after `{name}`");
             owner.assert_unchanged();
         }
-        let after = inventory();
-        assert_eq!(
-            after.heimdall_pipes, before.heimdall_pipes,
-            "the finished step list leaves no Heimdall pipe behind"
+        let mut after = inventory();
+        assert!(
+            !own_prefixes.is_empty(),
+            "control: the step list's runtimes advertised their endpoints"
         );
+        assert_eq!(
+            own_pipes(&after.heimdall_pipes, &own_prefixes),
+            BTreeSet::new(),
+            "the finished step list leaves none of this installation's pipes behind"
+        );
+        // Other installations' pipes come and go with the tests running in parallel.
+        let mut before = before;
+        after.heimdall_pipes.clear();
+        before.heimdall_pipes.clear();
         assert_eq!(after, before);
     }
 
