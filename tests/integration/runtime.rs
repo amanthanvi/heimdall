@@ -3615,11 +3615,52 @@ echo "$r" > "$1.tmp" && mv "$1.tmp" "$1""#;
 fn windows_state_dir_not_owner_only_is_refused() {
     use heimdall_runtime::paths::is_state_dir_unsafe;
     use heimdall_runtime::platform::state_dir_acl::{
-        Verdict, check_owner_only, create_protected_dir,
+        Verdict, check_owner_only, create_protected_dir, migrate_legacy,
     };
 
     // The pre-M04 directory: narrowed, content kept, and idempotent on the next start.
     let tmp = tempfile::tempdir().unwrap();
+
+    // ⟨Re-check M04-W1-RC01⟩ An inherited list in which the user may only read and
+    // traverse: the parent keeps full control for itself and passes read and execute down
+    // (`(OI)(CI)(IO)(RX)`), so the child is unprotected, owned by the user, and names
+    // nobody else. Narrowing it to `(A;OICI;GA;;;<user>)` would add write access, so it is
+    // refused and left as it is.
+    let ro_parent = tmp.path().join("ro");
+    std::fs::create_dir(&ro_parent).unwrap();
+    let me = heimdall_ipc::windows::current_user_sid().unwrap();
+    let restricted = std::process::Command::new("icacls")
+        .arg(&ro_parent)
+        .args([
+            "/inheritance:r",
+            "/grant:r",
+            &format!("*{me}:(F)"),
+            &format!("*{me}:(OI)(CI)(IO)(RX)"),
+        ])
+        .output()
+        .unwrap();
+    assert!(restricted.status.success(), "{restricted:?}");
+    let ro = ro_parent.join("state");
+    std::fs::create_dir(&ro).unwrap();
+    assert_eq!(
+        check_owner_only(&ro).unwrap(),
+        Verdict::NotProtected,
+        "a read-only inherited owner entry is not the pre-M04 shape"
+    );
+    let refused = migrate_legacy(&ro).expect_err("never narrowed into more access");
+    assert_eq!(
+        refused.kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "{refused}"
+    );
+    assert_eq!(check_owner_only(&ro).unwrap(), Verdict::NotProtected);
+    // Give the parent its inherited list back, so the temporary directory can be removed.
+    let reset = std::process::Command::new("icacls")
+        .arg(&ro_parent)
+        .args(["/reset", "/T"])
+        .output()
+        .unwrap();
+    assert!(reset.status.success(), "{reset:?}");
     let layout = Paths::under(&tmp.path().join("hh"));
     std::fs::create_dir_all(&layout.state_dir).unwrap();
     std::fs::write(layout.state_dir.join("marker"), b"mine").unwrap();

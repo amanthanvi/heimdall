@@ -488,7 +488,11 @@ list with a golden, an additive revision-5 delta in ADR-0006 §17 (the review-fi
    orchestrator's instruction that an upgrade is never silently refused). A state directory a
    build before M04 created has the profile's inherited list: owned by the user, not
    protected, granting only the user, `SYSTEM` and `BUILTIN\Administrators` (`Verdict::
-   LegacyInherited`).
+   LegacyInherited`). The user's own entry must already grant full control, effective on the
+   directory and inherited by files and subdirectories (`FA` or `GA`, `OI` and `CI`, not
+   inherit-only), so the narrowing never adds access. A read-only, inherit-only or
+   not-inheritable owner entry is refused like any other shape (re-check finding
+   M04-W1-RC01).
    - At the first start of an M04 build it is narrowed, once, to the protected owner-only DACL
      `D:P(A;OICI;GA;;;<user>)`. The narrowing goes through one `READ_CONTROL | WRITE_DAC`
      handle whose own descriptor must judge `LegacyInherited` again. It only removes access

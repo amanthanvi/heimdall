@@ -1176,13 +1176,42 @@ pub mod state_dir_acl {
         Other(u8),
     }
 
-    /// One ACE of a DACL: its kind and the SID (string form) it names.
+    /// One ACE of a DACL: its kind, the SID (string form) it names, its access mask and
+    /// its ACE flags.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct AceFacts {
         /// The kind.
         pub kind: AceKind,
         /// The trustee's SID, `S-1-...`.
         pub sid: String,
+        /// The access mask (`ACCESS_MASK`).
+        pub mask: u32,
+        /// The ACE flags (`ACE_HEADER.AceFlags`).
+        pub flags: u8,
+    }
+
+    /// `FILE_ALL_ACCESS`.
+    pub const FILE_ALL_ACCESS: u32 = 0x001F_01FF;
+    /// `GENERIC_ALL`.
+    pub const GENERIC_ALL: u32 = 0x1000_0000;
+    /// `OBJECT_INHERIT_ACE`.
+    pub const OBJECT_INHERIT_ACE: u8 = 0x01;
+    /// `CONTAINER_INHERIT_ACE`.
+    pub const CONTAINER_INHERIT_ACE: u8 = 0x02;
+    /// `INHERIT_ONLY_ACE`.
+    pub const INHERIT_ONLY_ACE: u8 = 0x08;
+
+    /// ⟨Re-check M04-W1-RC01⟩ Whether `ace` already grants `user_sid` everything the
+    /// owner-only replacement `(A;OICI;GA;;;<user>)` grants: full control on the directory
+    /// itself (not inherit-only) and inherited by files and subdirectories. Only then is
+    /// the narrowing removal-only.
+    fn grants_full_inheritable(ace: &AceFacts, user_sid: &str) -> bool {
+        ace.kind == AceKind::Allow
+            && ace.sid == user_sid
+            && (ace.mask & GENERIC_ALL != 0 || ace.mask & FILE_ALL_ACCESS == FILE_ALL_ACCESS)
+            && ace.flags & (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)
+                == OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+            && ace.flags & INHERIT_ONLY_ACE == 0
     }
 
     /// What was read from a directory's security descriptor.
@@ -1256,9 +1285,14 @@ pub mod state_dir_acl {
         }
         if !facts.protected {
             // A pre-M04 directory: the profile's inherited list, nobody but the user, SYSTEM
-            // and Administrators, the user among them.
+            // and Administrators, the user among them with full control inherited by files
+            // and subdirectories (re-check M04-W1-RC01: so the narrowing only removes
+            // access; a read-only or inherit-only owner entry is refused unchanged).
             let legacy = facts.owner_sid == user_sid
-                && facts.aces.iter().any(|a| a.sid == user_sid)
+                && facts
+                    .aces
+                    .iter()
+                    .any(|a| grants_full_inheritable(a, user_sid))
                 && facts.aces.iter().all(|a| {
                     a.kind == AceKind::Allow
                         && (a.sid == user_sid || a.sid == SYSTEM_SID || a.sid == ADMINISTRATORS_SID)
@@ -1577,20 +1611,27 @@ mod win_acl {
             }
             let header = ace.cast::<windows_sys::Win32::Security::ACE_HEADER>();
             // SAFETY: every ACE begins with an ACE_HEADER.
-            let kind = unsafe { (*header).AceType };
+            let (kind, flags) = unsafe { ((*header).AceType, (*header).AceFlags) };
             if kind == ACCESS_ALLOWED_ACE_TYPE {
                 let allowed = ace.cast::<ACCESS_ALLOWED_ACE>();
+                // SAFETY: an access-allowed ACE is an ACCESS_ALLOWED_ACE; its `Mask`
+                // follows the header.
+                let mask = unsafe { (*allowed).Mask };
                 // SAFETY: an access-allowed ACE holds its SID from `SidStart` on; the
                 // address is taken without reading through it.
                 let sid = unsafe { (&raw mut (*allowed).SidStart).cast::<c_void>() };
                 aces.push(AceFacts {
                     kind: AceKind::Allow,
                     sid: sid_string(sid)?,
+                    mask,
+                    flags,
                 });
             } else {
                 aces.push(AceFacts {
                     kind: AceKind::Other(kind),
                     sid: String::new(),
+                    mask: 0,
+                    flags,
                 });
             }
         }
@@ -1599,6 +1640,8 @@ mod win_acl {
             aces.push(AceFacts {
                 kind: AceKind::Other(u8::MAX),
                 sid: String::new(),
+                mask: 0,
+                flags: 0,
             });
         }
         Ok(DaclFacts {
@@ -1733,14 +1776,27 @@ mod time_observation_tests {
 
 #[cfg(test)]
 mod state_dir_acl_tests {
-    use super::state_dir_acl::{AceFacts, AceKind, DaclFacts, Verdict, judge};
+    use super::state_dir_acl::{
+        AceFacts, AceKind, CONTAINER_INHERIT_ACE, DaclFacts, FILE_ALL_ACCESS, GENERIC_ALL,
+        INHERIT_ONLY_ACE, OBJECT_INHERIT_ACE, Verdict, judge,
+    };
 
     const ME: &str = "S-1-5-21-1-2-3-1001";
+    /// `INHERITED_ACE`.
+    const INHERITED: u8 = 0x10;
+    const OICI: u8 = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
 
+    /// The profile's inherited entry, `(A;OICIID;FA;;;<sid>)`.
     fn allow(sid: &str) -> AceFacts {
+        ace(sid, FILE_ALL_ACCESS, OICI | INHERITED)
+    }
+
+    fn ace(sid: &str, mask: u32, flags: u8) -> AceFacts {
         AceFacts {
             kind: AceKind::Allow,
             sid: sid.to_owned(),
+            mask,
+            flags,
         }
     }
 
@@ -1782,12 +1838,39 @@ mod state_dir_acl_tests {
             ),
             Verdict::LegacyInherited
         );
+        // An explicit `GENERIC_ALL` owner entry inherited by files and subdirectories is
+        // the same full control.
+        assert_eq!(
+            judge(&facts(false, ME, vec![ace(ME, GENERIC_ALL, OICI)]), ME),
+            Verdict::LegacyInherited
+        );
+        // ⟨Re-check M04-W1-RC01⟩ The narrowing grants `(A;OICI;GA;;;<user>)`, so it is
+        // removal-only only when the user's own entry already grants that. A read-only, an
+        // inherit-only, or a not-inheritable owner entry is refused unchanged.
+        let file_generic_read = 0x0012_0089;
+        for (what, owner_ace) in [
+            ("read-only", ace(ME, file_generic_read, OICI | INHERITED)),
+            (
+                "inherit-only",
+                ace(ME, FILE_ALL_ACCESS, OICI | INHERIT_ONLY_ACE),
+            ),
+            ("files only", ace(ME, FILE_ALL_ACCESS, OBJECT_INHERIT_ACE)),
+            ("this folder only", ace(ME, FILE_ALL_ACCESS, INHERITED)),
+        ] {
+            assert_eq!(
+                judge(&facts(false, ME, vec![allow("S-1-5-18"), owner_ace]), ME),
+                Verdict::NotProtected,
+                "{what}"
+            );
+        }
         // ⟨M04 review-fix round⟩ Any other inherited list is refused, never narrowed: one
         // granting Everyone or Users, one owned by someone else, one with a deny ACE, one
         // without the user.
         let deny_ace = AceFacts {
             kind: AceKind::Other(1),
             sid: "S-1-5-18".to_owned(),
+            mask: FILE_ALL_ACCESS,
+            flags: 0,
         };
         for (what, f) in [
             (
@@ -1820,6 +1903,8 @@ mod state_dir_acl_tests {
         let deny = AceFacts {
             kind: AceKind::Other(1),
             sid: String::new(),
+            mask: 0,
+            flags: 0,
         };
         assert_eq!(
             judge(&facts(true, ME, vec![allow(ME), deny]), ME),
