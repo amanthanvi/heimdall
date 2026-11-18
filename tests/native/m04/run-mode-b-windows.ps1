@@ -21,15 +21,24 @@ Runs ON the PC (pwsh 7.2 or later), not elevated. Its steps:
      refuse when either is registered already.
   4. Clone the repository at exactly the commit, install the pinned toolchain into the run
      directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path), and build the test targets.
-  5. Import both distributions from the pinned image into the run directory, as WSL 2. In each,
+  5. Import the first distribution from the pinned image into the run directory, as WSL 2, and
      as root: `[boot] systemd=false` (then a terminate), tests/native/m02/target-root.sh
      `prepare` (the tools, git and python3; one non-root user, hmtest), and `[user] default`
-     set to that user (then a terminate).
+     set to that user (then a terminate). Then export it and import the second from that export
+     (its own GUID, the same preparation: one image import, one apt run per run), and remove the
+     export.
   6. Start the harness sshd in the second distribution as hmtest (tests/native/m02/remote-lib.sh
      hm2_sshd_start, as the M02/M03 Windows runner does in its WSL scratch): its authorized-keys
      file and log in the run directory, its enrollment registry owner-only in hmtest's home,
-     reachable from Windows and from the first distribution on 127.0.0.1. The tests get the
-     HM_FIXTURE_SSHD_* variables.
+     reachable from Windows and from the first distribution on 127.0.0.1. Reachability from
+     Windows is retried (a 3 s connect and the SSH banner, every 2 s, for up to 90 s: WSL's
+     localhost relay can take a while after a start), each attempt kept in build.txt. When it
+     never answers, host.txt records why: whether the recorded sshd is alive, whether anything
+     listens on its port inside the distribution, WSL's networking mode as the distribution
+     reports it (wslinfo), and the .wslconfig [wsl2] networkingMode and localhostForwarding
+     (read only; nothing else of the file). The tests get the HM_FIXTURE_SSHD_* variables.
+     Every commands.txt line carries the time since the previous one, and host.txt the
+     seconds before the tests.
   7. Run, from the clone, in this order, each with its real exit code and its `test result:` line:
        a. the A13 set: e2e_platform_m04 windows::native::mode_b::a13_ (ignored tests, one thread),
           except the unregister row;
@@ -211,6 +220,45 @@ function Get-TestPlan {
     )
 }
 
+# ⟨Windows run at 86cd513b⟩ Wait until Probe answers 'ok', for at most Seconds: one attempt,
+# then IntervalMs (Sleep) before the next, while Now (seconds since the wait began) is below
+# Seconds. Each attempt is kept as `attempt N: <verdict> (<t> s)`. Probe, Now and Sleep are
+# script blocks, so the self-test drives the loop with a scripted probe and clock.
+function Wait-SshReachable([scriptblock]$Probe, [int]$Seconds, [int]$IntervalMs, [scriptblock]$Now, [scriptblock]$Sleep) {
+    $attempts = [System.Collections.Generic.List[string]]::new()
+    $n = 0
+    while ($true) {
+        $n++
+        $verdict = [string](& $Probe)
+        $at = [double](& $Now)
+        $attempts.Add([string]::Format([System.Globalization.CultureInfo]::InvariantCulture, 'attempt {0}: {1} ({2:0.0} s)', $n, $verdict, $at))
+        if ($verdict -eq 'ok') { return [pscustomobject]@{ Ok = $true; Attempts = @($attempts); Count = $n; Seconds = $at } }
+        if ($at -ge $Seconds) { return [pscustomobject]@{ Ok = $false; Attempts = @($attempts); Count = $n; Seconds = $at } }
+        & $Sleep $IntervalMs
+    }
+}
+
+# ⟨Windows run at 86cd513b⟩ The networking settings in a .wslconfig's [wsl2] section, read only:
+# `networkingMode` and `localhostForwarding`, each its value (a word; anything else is `other`)
+# or `unset` (WSL's defaults are NAT and forwarding on). Nothing else of the file is kept.
+function Get-WslConfigNetworking([string]$Text) {
+    $section = ''
+    $found = @{ networkingmode = 'unset'; localhostforwarding = 'unset' }
+    foreach ($l in (($Text -replace "`0", '' -replace "`r", '') -split "`n")) {
+        $s = $l.Trim()
+        if ($s -match '^\[(.+)\]$') { $section = $Matches[1].Trim().ToLowerInvariant(); continue }
+        if ($section -ne 'wsl2' -or $s -match '^[#;]') { continue }
+        if ($s -match '^([A-Za-z]+)\s*=\s*(.*)$') {
+            $k = $Matches[1].ToLowerInvariant()
+            if ($found.ContainsKey($k)) {
+                $v = ($Matches[2] -replace '\s*[#;].*$', '').Trim()
+                $found[$k] = if ($v -cmatch '^[A-Za-z]{1,16}$') { $v } else { 'other' }
+            }
+        }
+    }
+    return "networkingMode=$($found['networkingmode']); localhostForwarding=$($found['localhostforwarding'])"
+}
+
 # The scripts sent into a distribution (bash, on stdin). Each runs as `bash -s -- <args>`.
 function Get-DistroScripts {
     return [ordered]@{
@@ -263,6 +311,44 @@ echo "wslhost=$(hostname)"
         'sshd-dir-remove' = @'
 set -u
 case "$1" in "$HOME"/hm-m04-fx-*) rm -rf -- "$1" && test ! -e "$1" ;; *) exit 2 ;; esac
+'@
+        # ⟨Windows run at 86cd513b⟩ As the non-root user, after M02's remote-lib.sh (for
+        # hm2_start_time): why the harness sshd was not reachable from Windows. $1 the sshd's
+        # directory, $2 its port (empty when it never reported one). Whether the recorded sshd
+        # is alive (its PID and start time), whether anything listens on the port inside the
+        # distribution (/proc/net/tcp*, which needs no tool), and WSL's networking mode as the
+        # distribution reports it. Facts only: no address but the listening one's kind.
+        'sshd-diagnosis' = @'
+set -u
+st="$1/sshd/state"
+pid=$(sed -n 's/^pid=//p' "$st" 2>/dev/null)
+start=$(sed -n 's/^start=//p' "$st" 2>/dev/null)
+case "$pid" in
+    '' | *[!0-9]*) echo "sshd-process=no-record" ;;
+    *)
+        if [ ! -r "/proc/$pid/stat" ]; then echo "sshd-process=gone"
+        elif [ "$(hm2_start_time "$pid")" = "$start" ]; then echo "sshd-process=alive"
+        else echo "sshd-process=pid-reused"; fi ;;
+esac
+port=${2:-}
+case "$port" in
+    '' | *[!0-9]*) echo "sshd-listening=unknown (no port reported)" ;;
+    *)
+        hex=$(printf ':%04X' "$port")
+        l=$(awk -v h="$hex" 'FNR > 1 && $4 == "0A" && substr($2, length($2) - 4) == h { print $2; exit }' /proc/net/tcp /proc/net/tcp6 2>/dev/null)
+        case "$l" in
+            '') echo "sshd-listening=no" ;;
+            0100007F:*) echo "sshd-listening=127.0.0.1" ;;
+            00000000:*) echo "sshd-listening=0.0.0.0" ;;
+            *) echo "sshd-listening=other" ;;
+        esac ;;
+esac
+if m=$(wslinfo --networking-mode 2>/dev/null) && [ -n "$m" ]; then
+    case "$m" in *[!A-Za-z]*) m=other ;; esac
+    echo "networking-mode=$m"
+else
+    echo "networking-mode=unavailable (no wslinfo)"
+fi
 '@
     }
 }
@@ -319,6 +405,25 @@ function Invoke-SelfTest {
     Check 'K01 the scratch registry parent is removed only when empty, through the M02 runner''s helpers' (
         (Get-ScratchParentAction $true 0 0) -eq 'remove' -and (Get-ScratchParentAction $true 0 1) -eq 'nonempty-kept' -and
         (Get-ScratchParentAction $false 0 0) -eq 'absent' -and (Get-Command Remove-EmptyHeimdallTestParent -CommandType Function -ErrorAction SilentlyContinue))
+    # ⟨Windows run at 86cd513b⟩ The reachability wait, on a scripted probe and clock.
+    $script:fakeNow = 0.0
+    $script:probeSeq = @('refused', 'timeout', 'ok')
+    $script:probeAt = 0
+    $wr = Wait-SshReachable { $v = $script:probeSeq[$script:probeAt]; $script:probeAt++; $v } 90 2000 { $script:fakeNow } { param($Ms) $script:fakeNow += $Ms / 1000 }
+    Check 'W01 the reachability wait retries until ok, and keeps each attempt' (
+        $wr.Ok -and $wr.Count -eq 3 -and (($wr.Attempts -join '|') -ceq 'attempt 1: refused (0.0 s)|attempt 2: timeout (2.0 s)|attempt 3: ok (4.0 s)'))
+    $script:fakeNow = 0.0
+    $wr = Wait-SshReachable { 'refused' } 90 2000 { $script:fakeNow } { param($Ms) $script:fakeNow += $Ms / 1000 }
+    Check 'W02 a sshd never reachable is given up after 90 s, with every attempt kept' (
+        -not $wr.Ok -and $wr.Count -eq 46 -and $wr.Attempts[-1] -ceq 'attempt 46: refused (90.0 s)')
+    Check 'W03 .wslconfig: only [wsl2] networkingMode and localhostForwarding are read, as words' (
+        (Get-WslConfigNetworking "[experimental]`r`nnetworkingMode=nat`r`n[wsl2]`r`nmemory=8GB`r`nnetworkingMode = mirrored # note`r`n;localhostForwarding=false`r`n") -ceq 'networkingMode=mirrored; localhostForwarding=unset' -and
+        (Get-WslConfigNetworking '') -ceq 'networkingMode=unset; localhostForwarding=unset' -and
+        (Get-WslConfigNetworking "[wsl2]`nlocalhostForwarding=true`nnetworkingMode=C:\x") -ceq 'networkingMode=other; localhostForwarding=true')
+    $selfText = [System.IO.File]::ReadAllText($PSCommandPath)
+    Check 'E01 one preparation per run: the second distribution comes from the first''s export, which is removed after its import and at cleanup' (
+        $selfText.Contains('''--export'', $names[0], $preparedTar') -and $selfText.Contains('Remove-Item -LiteralPath $preparedTar') -and
+        $selfText.Contains('(Join-Path $run ''hm-m04-prepared.tar''))) {'))
     Check 'A01 the run root gets the stock list from the M02 runner''s helper' (
         ((Get-StockProfileGrantArguments 'S\run' 'S-1-5-21-1-2-3-1001') -join ' ') -ceq 'S\run /inheritance:r /grant:r *S-1-5-21-1-2-3-1001:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F')
     # ⟨Windows run at 37cb179b⟩ The file table as the run builds it: every bundle file, through
@@ -396,7 +501,8 @@ if ($DryRun) {
     Write-Output "apt-inside-the-distributions=$(if ($AllowApt) { 'allowed' } else { 'not allowed (missing tools stop the run, exit 3)' })"
     Write-Output "prebuilt-heimdall=$(if (Test-Path -LiteralPath $PrebuiltHeimdall -PathType Leaf) { 'present' } else { 'not found here' })"
     Write-Output "user=$User (non-root, in both distributions)"
-    Write-Output 'harness-sshd=in -2 as the user (hm2_sshd_start), HM_FIXTURE_SSHD_* exported'
+    Write-Output 'preparation=once: -1 from the image and prepared; -2 imported from -1''s export (removed after the import)'
+    Write-Output 'harness-sshd=in -2 as the user (hm2_sshd_start), reachable from Windows within 90 s of attempts (else the diagnosis in host.txt), HM_FIXTURE_SSHD_* exported'
     foreach ($s in $plan) {
         $extra = if ($s.Unregister) { ' [HM_WSL_TEST_ALLOW_UNREGISTER=1; last, alone]' } else { '' }
         Write-Output "test $($s.Name): cargo $($s.Args -join ' ')$extra"
@@ -453,6 +559,7 @@ $emptyGitConfig = Join-Path $githome 'empty.gitconfig'
 [System.IO.File]::WriteAllText($emptyGitConfig, '')
 
 $started = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+$runClock = [System.Diagnostics.Stopwatch]::StartNew()
 $commands = [System.Text.StringBuilder]::new()
 $hostFacts = [System.Text.StringBuilder]::new()
 $tests = [System.Text.StringBuilder]::new()
@@ -472,7 +579,15 @@ $wv = @{}
 $remoteLib = ''
 $scripts = Get-DistroScripts
 
-function Add-Command([int]$Rc, [string]$What) { [void]$commands.Append((Format-CommandLine $Rc $What)) }
+# ⟨Windows run at 86cd513b⟩ Each command line carries the time since the previous one (the
+# step it closes), and is printed as the run goes.
+$stepClock = [System.Diagnostics.Stopwatch]::StartNew()
+function Add-Command([int]$Rc, [string]$What) {
+    $line = Format-CommandLine $Rc ('{0} [{1:0} s]' -f $What, $stepClock.Elapsed.TotalSeconds)
+    $stepClock.Restart()
+    [void]$commands.Append($line)
+    Write-Host $line.TrimEnd()
+}
 function Add-Fact([string]$Key, [string]$Value) { [void]$hostFacts.Append("$Key=$(($Value -replace "`r", '') -split "`n" | Select-Object -First 1)`n") }
 
 # An environment for a child: the inherited one without agent, askpass, Git, Heimdall, fixture,
@@ -534,6 +649,31 @@ function Get-RegisteredOrNull {
     if ($r.Code -ne 0) { return $null }
     return , @(ConvertFrom-WslList $r.Output)
 }
+# ⟨Windows run at 86cd513b⟩ One reachability attempt on 127.0.0.1:Port: `ok` (an SSH banner),
+# `refused`, `timeout` (no connection or no banner within 3 s), `no-banner` (something else
+# answered), or the socket error's name.
+function Test-SshBanner([int]$Port) {
+    $c = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $task = $c.ConnectAsync('127.0.0.1', $Port)
+        if (-not $task.Wait(3000)) { return 'timeout' }
+        $c.ReceiveTimeout = 3000
+        $buf = [byte[]]::new(8)
+        $n = $c.GetStream().Read($buf, 0, 8)
+        if ([System.Text.Encoding]::ASCII.GetString($buf, 0, $n).StartsWith('SSH-2.0-')) { return 'ok' }
+        return 'no-banner'
+    } catch {
+        $e = $_.Exception
+        while ($null -ne $e -and $e -isnot [System.Net.Sockets.SocketException]) { $e = $e.InnerException }
+        if ($null -eq $e) { return 'timeout' }
+        switch ($e.SocketErrorCode) {
+            'ConnectionRefused' { return 'refused' }
+            'TimedOut' { return 'timeout' }
+            default { return "error-$($e.SocketErrorCode)" }
+        }
+    } finally { $c.Dispose() }
+}
+
 function Add-DistributionFacts([string]$When) {
     $v = Invoke-WslExe @('--list', '--verbose') 120
     $f = Get-DistributionFacts $v.Output $names
@@ -624,6 +764,7 @@ try {
 
     # The pinned image.
     $image = if ($Rootfs) { $rootfsItem.FullName } else { Join-Path $run 'ubuntu-24.04.5-wsl-amd64.wsl' }
+    $preparedTar = Join-Path $run 'hm-m04-prepared.tar'
     if (-not $Rootfs) {
         Invoke-WebRequest -Uri $RootfsUrl -OutFile $image
         Add-Command 0 'the pinned image downloaded over HTTPS'
@@ -632,24 +773,38 @@ try {
     Add-Command $(if ($imgSha -eq $RootfsSha256) { 0 } else { 1 }) 'the image is the pinned one (sha256)'
     if ($imgSha -ne $RootfsSha256) { throw 'the image is not the pinned one; nothing imported' }
 
-    # 5. Both distributions.
+    # 5. Both distributions. ⟨Windows run at 86cd513b⟩ One preparation per run: the first is
+    # imported from the pinned image and prepared; the second is imported from the first's
+    # export once it is prepared (its own GUID, the same content), and the export is removed.
     $apt = if ($AllowApt) { '1' } else { '0' }
     foreach ($n in $names) {
         $dir = Join-Path $distroRoot $n
         [void][System.IO.Directory]::CreateDirectory($dir)
+        $fromExport = $n -ne $names[0]
+        if ($fromExport) {
+            $r = Invoke-WslExe @('--export', $names[0], $preparedTar) 1800
+            Add-Command $r.Code "wsl --export $($names[0]) (prepared; the second distribution is imported from it)"
+            if ($r.Code -ne 0) { throw "the export of $($names[0]) failed" }
+        }
         # ⟨M04-FX-RC03⟩ Attempted before the import runs, so the outer cleanup considers this
         # name whatever happens next (a failed listing, Ctrl-C); reconciled in this finally.
         $attempted.Add($n)
         $r = $null
         try {
-            $r = Invoke-WslExe @('--import', $n, $dir, $image, '--version', '2') 1800
+            $r = Invoke-WslExe @('--import', $n, $dir, $(if ($fromExport) { $preparedTar } else { $image }), '--version', '2') 1800
         } finally {
             # Recorded as this run's as soon as it is registered, whatever the exit code said.
             $listed = Get-RegisteredOrNull
             if ($null -ne $listed -and ($listed -contains $n) -and -not ($created -contains $n)) { $created.Add($n) }
         }
-        Add-Command $r.Code "wsl --import $n (into the run directory, WSL 2)"
+        Add-Command $r.Code "wsl --import $n (into the run directory, WSL 2$(if ($fromExport) { ', from the prepared export' } else { '' }))"
         if ($r.Code -ne 0 -or -not ($created -contains $n)) { throw "the import of $n failed" }
+        if ($fromExport) {
+            Remove-Item -LiteralPath $preparedTar -Force -ErrorAction SilentlyContinue
+            Add-Command $(if (Test-Path -LiteralPath $preparedTar) { 1 } else { 0 }) 'remove the prepared export'
+            [void]$build.Append("### $n prepare`n(imported from $($names[0])'s export: the same preparation)`n")
+            continue
+        }
         $r = Invoke-InDistro $n 'root' $scripts['root-phase'] @($files, $n, 'no-systemd') 600
         Add-Command $r.Code "$n`: target-root.sh no-systemd"
         if ($r.Code -ne 0) { throw 'no-systemd failed' }
@@ -701,29 +856,45 @@ try {
         if ($null -eq $line) { break }
         if ($line -match '^([a-z]+)=(.*)$') { $fx[$Matches[1]] = $Matches[2].Trim() }
     }
-    $bannerOk = {
-        param($Port)
-        try {
-            $c = [System.Net.Sockets.TcpClient]::new()
-            $c.ReceiveTimeout = 5000
-            $c.Connect('127.0.0.1', [int]$Port)
-            $buf = [byte[]]::new(8)
-            $n = $c.GetStream().Read($buf, 0, 8)
-            $c.Close()
-            return [System.Text.Encoding]::ASCII.GetString($buf, 0, $n).StartsWith('SSH-2.0-')
-        } catch { return $false }
+    # ⟨Windows run at 86cd513b⟩ Reachable from Windows only once WSL's localhost relay forwards
+    # the port, which can take a while after a distribution starts: up to 90 s of attempts,
+    # each a 3 s connect and the banner, every attempt kept.
+    $reach = $null
+    if ($fx.ContainsKey('ready')) {
+        $port = [int]$fx['port']
+        $waitClock = [System.Diagnostics.Stopwatch]::StartNew()
+        $reach = Wait-SshReachable { Test-SshBanner $port } 90 2000 { $waitClock.Elapsed.TotalSeconds } { param($Ms) Start-Sleep -Milliseconds $Ms }
+        [void]$build.Append("### harness sshd reachability from Windows (127.0.0.1)`n$(($reach.Attempts -join "`n"))`n")
+        foreach ($a in $reach.Attempts) { Write-Host "harness sshd $a" }
     }
-    if (-not $fx.ContainsKey('ready') -or -not (& $bannerOk $fx['port'])) {
-        Add-Fact 'fixture-sshd' "unavailable: $(if ($fx.ContainsKey('why')) { $fx['why'] } else { 'not reachable from Windows' })"
+    if ($null -eq $reach -or -not $reach.Ok) {
+        $why = if ($fx.ContainsKey('why')) { $fx['why'] }
+        elseif ($null -eq $reach) { 'it reported no ready listener within 60 s' }
+        else {
+            $last = ($reach.Attempts[-1] -split ': ', 2)[1]
+            'not reachable from Windows ({0} attempts in {1} s; last: {2})' -f $reach.Count, [int]$reach.Seconds, $last
+        }
+        Add-Fact 'fixture-sshd' "unavailable: $why"
+        # Why: the recorded sshd, a listener inside the distribution, WSL's networking mode.
+        try {
+            $d = Invoke-InDistro $names[1] $User ($remoteLib + "`n" + $scripts['sshd-diagnosis'] + "`n") @($sshdWslDir, [string]$fx['port']) 120
+            foreach ($l in ($d.Output -replace "`r", '' -split "`n")) {
+                if ($l -match '^(sshd-process|sshd-listening|networking-mode)=(.*)$') { Add-Fact "fixture-sshd-$($Matches[1] -replace '^sshd-', '')" $Matches[2] }
+            }
+        } catch { Add-Fact 'fixture-sshd-diagnosis' "failed ($($_.Exception.GetType().Name))" }
+        $wslconfig = Join-Path $env:USERPROFILE '.wslconfig'
+        Add-Fact 'wslconfig-networking' $(if (Test-Path -LiteralPath $wslconfig -PathType Leaf) { Get-WslConfigNetworking (Get-Content -LiteralPath $wslconfig -Raw) } else { 'no .wslconfig (NAT, localhost forwarding on)' })
         Add-Command 1 'harness sshd in the second distribution reachable from Windows on 127.0.0.1'
         throw 'the harness sshd is unavailable'
     }
-    Add-Command 0 'harness sshd in the second distribution reachable from Windows on 127.0.0.1'
-    $strictOk = $fx.ContainsKey('strictport') -and (& $bannerOk $fx['strictport'])
+    Add-Command 0 "harness sshd in the second distribution reachable from Windows on 127.0.0.1 (attempt $($reach.Count), $([int]$reach.Seconds) s)"
+    $strictClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $strictOk = $fx.ContainsKey('strictport') -and ((Wait-SshReachable { Test-SshBanner ([int]$fx['strictport']) } 30 2000 { $strictClock.Elapsed.TotalSeconds } { param($Ms) Start-Sleep -Milliseconds $Ms }).Ok)
     $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $slog $akStrict $slogStrict $User
     Add-Fact 'fixture-sshd' 'listening on 127.0.0.1 in the second disposable distribution (non-root, per-run host key)'
     Add-Fact 'fixture-sshd-registry' $(if ($fixtureEnv.ContainsKey('HM_FIXTURE_SSHD_REGISTRY')) { 'exported (owner-only, in the user''s home)' } else { 'not reported' })
 
+    Add-Fact 'seconds-before-tests' ([string][int]$runClock.Elapsed.TotalSeconds)
     # 7. The tests, in order; the unregister row last and alone.
     $testBase = @{
         HM_FIXTURE_HOOK = $hook; HM_REPO_ROOT = $src
@@ -809,7 +980,7 @@ try {
             if (-not $same -and $overall -eq 0) { $overall = 1 }
         }
     } catch { Add-Command 1 "unregistering this run's distributions: $($_.Exception.Message)"; if ($overall -eq 0) { $overall = 1 } }
-    foreach ($d in @($src, $tools, $wtmp, $files, $sshdDir, $githome, (Join-Path $run 'ubuntu-24.04.5-wsl-amd64.wsl'))) {
+    foreach ($d in @($src, $tools, $wtmp, $files, $sshdDir, $githome, (Join-Path $run 'ubuntu-24.04.5-wsl-amd64.wsl'), (Join-Path $run 'hm-m04-prepared.tar'))) {
         if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     # The distributions' install directories: each removed only when its distribution is known
