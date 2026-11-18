@@ -154,8 +154,10 @@ mod native {
             return;
         };
         let present = ffi::names_marker(handle.parse().unwrap(), &marker);
+        // On a line of its own: with `--nocapture` libtest has already written
+        // `test <name> ... ` on the current line.
         println!(
-            "{PROBE_PREFIX}{}",
+            "\n{PROBE_PREFIX}{}",
             if present { "present" } else { "absent" }
         );
     }
@@ -186,10 +188,21 @@ mod native {
         ]
     }
 
+    /// The probe's verdict word. ⟨M04 Windows fix round 2⟩ Found anywhere in a line, not only
+    /// at its start: with `--nocapture` libtest writes `test <name> ... ` before the test's
+    /// own output on the same line, so a verdict at the start of a line was never found ("no
+    /// verdict" while the probe had printed one).
     fn verdict(output: &str) -> &str {
         output
             .lines()
-            .find_map(|l| l.trim().strip_prefix(PROBE_PREFIX))
+            .find_map(|l| {
+                l.find(PROBE_PREFIX).map(|i| {
+                    l[i + PROBE_PREFIX.len()..]
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                })
+            })
             .unwrap_or_else(|| panic!("the probe printed no verdict: {output}"))
     }
 
@@ -533,6 +546,7 @@ mod native {
     /// ⟨M04 Windows fix round; M03 `eccab7d6`⟩ A plan that changes no item is applied as
     /// previewed, with no question (ADR-0007 §5.2), so a fresh home's first `setup apply` asks
     /// nothing. The first adoption of an alias always needs the owner's decision: this adopts
+    /// (after `time confirm`: an adoption needs a confident clock, `TIME_UNCERTAIN` otherwise)
     /// a scratch public key (generated per run, never the owner's) and adds a destination for
     /// it, so the next `setup apply` asks its typed `yes`. Both are plain product steps.
     fn add_alias_needing_a_decision(env: &[(OsString, OsString)], inst: &SecondInstallation) {
@@ -596,18 +610,15 @@ mod native {
         let env = product_env(&inst);
         let _login_root = DeleteLoginRoot(login_root(&inst));
         let _stop = StopRuntime(env.clone());
-        // The alias `setup apply` must decide on (M03 `eccab7d6`), itself product steps.
-        add_alias_needing_a_decision(&env, &inst);
-        let after = inventory();
-        assert_eq!(after.agent_pipes, before.agent_pipes, "after adopt and add");
-        assert_eq!(
-            after.user_environment, before.user_environment,
-            "after adopt and add"
-        );
-        owner.assert_unchanged();
         for (name, args, mode, expected) in STEPS {
             let (code, exit) = run_step(&env, args, *mode);
             assert_eq!(code, *expected, "step `{name}` (exit {exit})");
+            // The alias `setup apply` must decide on (M03 `eccab7d6`), itself product steps
+            // (the inventory below brackets them with this step): after `time confirm`, since
+            // adopting an identity needs a confident clock.
+            if *name == "time confirm" {
+                add_alias_needing_a_decision(&env, &inst);
+            }
             let after = inventory();
             assert_eq!(after.agent_pipes, before.agent_pipes, "after `{name}`");
             assert_eq!(after.agent_service, before.agent_service, "after `{name}`");
@@ -701,9 +712,11 @@ mod native {
                 .unwrap_or_default()
                 .contains("# >>> heimdall managed include")
         };
+        // `time confirm` first: adopting an identity needs a confident clock.
+        let (code, exit) = run_step(&env, &["time", "confirm"], Mode::Attended);
+        assert_eq!(code, "OK", "time confirm (exit {exit})");
         add_alias_needing_a_decision(&env, &inst);
         for (args, mode) in [
-            (&["time", "confirm"][..], Mode::Attended),
             (&["setup", "apply"][..], Mode::Attended),
             (&["service", "autostart", "enable"][..], Mode::Attended),
             (&["service", "stop"][..], Mode::Plain),

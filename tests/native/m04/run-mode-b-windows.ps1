@@ -43,7 +43,10 @@ Runs ON the PC (pwsh 7.2 or later), not elevated. Its steps:
      before-list and the current list; the unregister row may have removed -2 already; never
      `wsl --shutdown`); check that the registered set equals the one before; remove the clone,
      the toolchain, the build and the distributions' directories.
-  9. Write one redacted bundle (no environment dump): tests.txt, commands.txt, host.txt,
+  9. Keep, as the run goes, the plain results (results.txt: each command's `### <name> exit=N`,
+     its tests' outcomes and its `test result:` lines, then the run's exit; names and counts only)
+     and print them, so the verdict survives a failed bundle. Then write one redacted bundle (no
+     environment dump): tests.txt, commands.txt, host.txt,
      build.txt, skipped.txt, distributions.txt, canary-scan.txt, as bundle.json and its
      gzip+base64 rendering bundle.b64, printed between markers.
 
@@ -175,6 +178,20 @@ function Get-TestResultLines([string]$Output) {
     return @(($Output -replace "`r", '') -split "`n" | Where-Object { $_ -match '^test result: ' })
 }
 
+# ⟨Windows run at 37cb179b⟩ One command's plain result lines: `### <name> exit=N`, each
+# `test <name> ... <outcome>` line and each `test result:` line of its output. Names, outcomes
+# and counts only (no path, no user, no host), so they are printed as the run goes and kept in
+# results.txt before bundling: the run's verdict survives a failed bundle.
+function Format-ResultLines([string]$Name, [int]$Code, [string]$Output) {
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("### $Name exit=$Code")
+    foreach ($l in (($Output -replace "`r", '') -split "`n")) {
+        if ($l -match '^test (\S+) \.\.\. (ok|FAILED|ignored)\b') { $lines.Add("test $($Matches[1]) ... $($Matches[2])") }
+        elseif ($l -match '^test result: ') { $lines.Add($l.Trim()) }
+    }
+    return ($lines -join "`n") + "`n"
+}
+
 # The test commands, in order (step 7). Each: a name, the cargo arguments, and whether it needs
 # HM_WSL_TEST_ALLOW_UNREGISTER=1 (only the last).
 function Get-TestPlan {
@@ -282,8 +299,8 @@ function Invoke-SelfTest {
         ($facts.Own -join '|') -ceq 'hm-m04-0a1b2c3d-1 Stopped 2' -and $facts.OtherCount -eq 2 -and $facts.OtherDigest.Length -eq 12)
     $facts2 = Get-DistributionFacts ($verbose -replace 'Running', 'Stopped') @('hm-m04-0a1b2c3d-1')
     Check 'D02 the digest of the others follows their state, never their names in the bundle' ($facts2.OtherDigest -ne $facts.OtherDigest)
-    $out = "running 2 tests`r`ntest a ... ok`r`ntest result: ok. 2 passed; 0 failed; 0 ignored`r`n`r`ntest result: ok. 0 passed; 0 failed`r`n"
-    $lines = @(Get-TestResultLines $out)
+    $libtestOut = "running 2 tests`r`ntest a ... ok`r`ntest result: ok. 2 passed; 0 failed; 0 ignored`r`n`r`ntest result: ok. 0 passed; 0 failed`r`n"
+    $lines = @(Get-TestResultLines $libtestOut)
     Check 'T01 the test result lines' ($lines.Count -eq 2 -and $lines[0] -ceq 'test result: ok. 2 passed; 0 failed; 0 ignored')
     $plan = Get-TestPlan
     Check 'P01 four commands: A13, A12, the helper session, then the unregister row' ((($plan | ForEach-Object Name) -join ',') -ceq 'a13-mode-b,a12-mode-a,wsl-helper-session,a13-unregister')
@@ -298,8 +315,29 @@ function Invoke-SelfTest {
     Check 'R01 the M02 redaction applies (home, user, host, run directory)' ($p.Files['host.txt'] -ceq "home <winhome>\x on <winhost> run <run>\src`n" -and $p.Leaks -eq 0)
     Check 'A01 the run root gets the stock list from the M02 runner''s helper' (
         ((Get-StockProfileGrantArguments 'S\run' 'S-1-5-21-1-2-3-1001') -join ' ') -ceq 'S\run /inheritance:r /grant:r *S-1-5-21-1-2-3-1001:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F')
+    # ⟨Windows run at 37cb179b⟩ The file table as the run builds it: every bundle file, through
+    # the same protection; `.Files` stays a table that a variable holds and indexes.
+    $realistic = @{}
+    foreach ($f in $BundleFiles) { $realistic[$f] = "### x`nhome C:\Users\fixtureuser\y`n" }
+    $prot = Protect-BundleFiles $realistic $rules
+    $table = $prot.Files
+    $table['canary-scan.txt'] = 'n'
+    Check 'B02 Protect-BundleFiles returns one object whose .Files is a table every bundle file can be indexed in' (
+        $prot -isnot [array] -and $table -is [System.Collections.IDictionary] -and @($table.Keys).Count -eq $BundleFiles.Count -and
+        $table['canary-scan.txt'] -ceq 'n' -and $table['commands.txt'].Contains('<winhome>'))
+    $rl = Format-ResultLines 'a13-mode-b' 101 "running 2 tests`r`ntest windows::native::mode_b::a13_x ... ok`r`ntest windows::native::mode_b::a13_y ... FAILED`r`n  at C:\Users\fixtureuser\z`r`ntest result: FAILED. 1 passed; 1 failed; 0 ignored`r`n"
+    Check 'B03 the plain result lines: the command and its exit, each test''s outcome, the result line, and nothing else' (
+        $rl -ceq "### a13-mode-b exit=101`ntest windows::native::mode_b::a13_x ... ok`ntest windows::native::mode_b::a13_y ... FAILED`ntest result: FAILED. 1 passed; 1 failed; 0 ignored`n")
     $b = New-Bundle @{ 'tests.txt' = 'x'; 'distributions.txt' = 'y' } @{ commit = ('0' * 40); exit = 0 }
     Check 'B01 the bundle carries this runner''s format and markers' ($b.Json.Contains($BundleFormat) -and $b.Text.StartsWith($BeginMarker) -and $b.Text.TrimEnd().EndsWith($EndMarker))
+    # ⟨Windows run at 39f48be8⟩ No assignment in this script to a parameter's name: PowerShell
+    # names are case-insensitive, so `$out = <hashtable>` turned into the [string] `-Out`.
+    $selfAst = [System.Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$null, [ref]$null)
+    $paramNames = @($selfAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath.ToLowerInvariant() })
+    $clashes = @($selfAst.FindAll({ param($a) $a -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true) |
+            Where-Object { $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                ($paramNames -contains $_.Left.VariablePath.UserPath.ToLowerInvariant()) })
+    Check 'S02 nothing assigns to a parameter''s name (case-insensitive)' ($clashes.Count -eq 0)
     # bash -n of every script sent into a distribution (and the M02 sshd start and stop scripts).
     $bash = Get-Command bash -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -ne $bash) {
@@ -367,6 +405,8 @@ if (([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principa
     Stop-Run 2 'refusing to run elevated: this runner never needs administrator rights'
 }
 if ([string]::IsNullOrWhiteSpace($ScratchRoot)) { Stop-Run 2 '-ScratchRoot is required' }
+# Created when missing (with its missing parents); an existing one is checked as it is.
+if (-not (Test-Path -LiteralPath $ScratchRoot)) { [void][System.IO.Directory]::CreateDirectory($ScratchRoot) }
 $rootItem = Get-Item -LiteralPath $ScratchRoot -Force -ErrorAction SilentlyContinue
 if ($null -eq $rootItem -or -not $rootItem.PSIsContainer) { Stop-Run 2 '-ScratchRoot must be an existing directory' }
 if ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Run 2 '-ScratchRoot is a reparse point: refused' }
@@ -402,6 +442,7 @@ $sshdDir = Join-Path $run 'sshd'
 $bundleDir = Join-Path $run 'bundle'
 $githome = Join-Path $run 'githome'
 foreach ($d in @($tools, $wtmp, $files, $distroRoot, $sshdDir, $bundleDir, $githome)) { [void][System.IO.Directory]::CreateDirectory($d) }
+$resultsFile = Join-Path $bundleDir 'results.txt'
 $emptyGitConfig = Join-Path $githome 'empty.gitconfig'
 [System.IO.File]::WriteAllText($emptyGitConfig, '')
 
@@ -697,12 +738,19 @@ try {
         [void]$tests.Append((Format-TargetOutput $s.Name $r.Output $r.Code))
         $results = @(Get-TestResultLines $r.Output)
         Add-Command $r.Code "cargo $($s.Args -join ' ')$(if ($s.Unregister) { ' (HM_WSL_TEST_ALLOW_UNREGISTER=1)' }) -> $(if ($results.Count) { $results -join ' | ' } else { 'no test result line' })"
+        # As it goes: printed, and kept in results.txt (names, outcomes and counts only).
+        $plain = Format-ResultLines $s.Name $r.Code $r.Output
+        Write-Output $plain
+        [System.IO.File]::AppendAllText($resultsFile, $plain, [System.Text.UTF8Encoding]::new($false))
         if ($r.Code -ne 0) { $overall = 1 }
     }
 } catch {
-    Add-Command 1 "the run stopped: $($_.Exception.Message)"
+    # The failing line and the script's stack (redacted with the bundle; printed with it).
+    Add-Command 1 "the run stopped: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))"
+    [void]$build.Append("### the run stopped`n$($_.InvocationInfo.PositionMessage)`n$($_.ScriptStackTrace)`n")
     if ($overall -eq 0) { $overall = 1 }
 } finally {
+  try {
     # 8. Cleanup: each step reports its own failure and never stops the others or the bundle.
     try {
         if ($sshdWslDir) {
@@ -775,21 +823,36 @@ try {
     $rules = Get-RunRedactionRules $wv $run $env:USERPROFILE $env:USERNAME $env:COMPUTERNAME ([System.Net.Dns]::GetHostName())
     $raw = @{ 'tests.txt' = $tests.ToString(); 'commands.txt' = $commands.ToString(); 'host.txt' = $hostFacts.ToString()
         'build.txt' = $build.ToString(); 'skipped.txt' = $skipped.ToString(); 'distributions.txt' = $distFacts.ToString(); 'canary-scan.txt' = '' }
+    # The run's verdict first, in the plain results (it survives a failed bundle).
+    [System.IO.File]::AppendAllText($resultsFile, "### run exit=$overall`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Output "### run exit=$overall (results: <run>\bundle\results.txt)"
     $p = Protect-BundleFiles $raw $rules
+    if ($p -is [array] -or $p.Files -isnot [System.Collections.IDictionary]) { throw 'Protect-BundleFiles returned no file table' }
     $m = Get-ProtectedMetadata $Label $rules
     $canaryTotal = $p.Canaries + $m.Canaries
     $leakTotal = $p.Leaks + $m.Leaks
-    $out = $p.Files
-    $out['canary-scan.txt'] = "canary-prefix occurrences in saved output and metadata: $canaryTotal (values masked before the bundle was written)`n"
-    $out['commands.txt'] += Format-CommandLine $(if ($canaryTotal -eq 0) { 0 } else { 1 }) "canary-prefix scan over saved output and metadata (count = $canaryTotal)"
-    $out['commands.txt'] += Format-CommandLine $(if ($leakTotal -eq 0) { 0 } else { 1 }) "leak scan: saved files and metadata still naming a host, a user or a home ($leakTotal)"
+    # ⟨Windows run at 39f48be8⟩ Not `$out`: PowerShell names are case-insensitive, so `$out`
+    # was the [string] parameter `-Out`, the file table became a string, and indexing it failed.
+    $bundleOut = $p.Files
+    $bundleOut['canary-scan.txt'] = "canary-prefix occurrences in saved output and metadata: $canaryTotal (values masked before the bundle was written)`n"
+    $bundleOut['commands.txt'] += Format-CommandLine $(if ($canaryTotal -eq 0) { 0 } else { 1 }) "canary-prefix scan over saved output and metadata (count = $canaryTotal)"
+    $bundleOut['commands.txt'] += Format-CommandLine $(if ($leakTotal -eq 0) { 0 } else { 1 }) "leak scan: saved files and metadata still naming a host, a user or a home ($leakTotal)"
     if (($canaryTotal -ne 0 -or $leakTotal -ne 0) -and $overall -eq 0) { $overall = 1 }
     $meta = [ordered]@{ commit = $Commit; label = $m.Label; started_at = $started; finished_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); exit = $overall }
-    $b = New-Bundle $out $meta
+    $b = New-Bundle $bundleOut $meta
     [System.IO.File]::WriteAllText((Join-Path $bundleDir 'bundle.json'), $b.Json, [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::WriteAllText((Join-Path $bundleDir 'bundle.b64'), $b.Text, [System.Text.UTF8Encoding]::new($false))
     Write-Output "bundle: <run>\bundle\bundle.json and bundle.b64 ($($b.Text.Length) characters)"
-    Write-Output $out['commands.txt']
+    Write-Output $bundleOut['commands.txt']
     Write-Output $b.Text
+  } catch {
+    # The cleanup or the bundle itself failed: say where, redacted as the bundle would be.
+    $diag = "the cleanup or the bundle failed: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))`n$($_.InvocationInfo.PositionMessage)`n$($_.ScriptStackTrace)"
+    try {
+        $diag = Invoke-Redaction $diag (Get-RunRedactionRules $wv $run $env:USERPROFILE $env:USERNAME $env:COMPUTERNAME ([System.Net.Dns]::GetHostName()))
+    } catch { $diag = 'the cleanup or the bundle failed (the diagnostic could not be redacted, so it is not printed)' }
+    [Console]::Error.WriteLine("run-mode-b-windows: $(Hide-Canary $diag)")
+    if ($overall -eq 0) { $overall = 1 }
+  }
 }
 exit $overall
