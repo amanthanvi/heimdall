@@ -590,3 +590,84 @@ list with a golden, an additive revision-5 delta in ADR-0006 §17 (the review-fi
   field is deferred to M07-T03 (stable JSON and codes), unless an exit claim needs it first.
 - **The login entry shows a console window briefly.** `service run --login` detaches from the
   console the Run value opens (`FreeConsole`), so a window may still flash at login.
+
+## 11. Wave 2: WSL Mode B as built (2026-11-18; pending the wave's review)
+
+**Source:** M04 wave 2 (U4a, the transport in `crates/wsl/src/bridge`; U4b, the product wiring),
+merged onto `3e389a90`. The design both built against is `docs/architecture/m04-plan.md` U4 with
+reading I-11.
+
+**I-11, ruled 2026-11-18 (approved as read):**
+- **A Mode B binding is realized like a container binding.** It gets a per-binding directory
+  `<run>/b/<tag>/` inside the distribution, holding `agent.sock`, an `ssh_config` with
+  in-distribution paths (`IdentityAgent` names the socket, no `ForwardAgent`), `known_hosts`, the
+  public key and the certificates. Nothing is written into the distribution account's `~/.ssh`.
+- **The `ensure` result's descriptor** gives the socket and the config, plus `SSH_AUTH_SOCK` and
+  `GIT_SSH_COMMAND=ssh -F <config>`.
+- **`distribution_projection` stays `driver_unavailable` in M04.** A plan naming it, to apply or
+  to roll back, is refused with that reason, never planned (the revision-5 fail-closed table).
+  No `doctor` surface reports the item, so none claims it applied.
+- **Known limit, for the M04 exit draft:** plain `ssh <alias>` inside a Mode B distribution needs
+  the binding's config (`ssh -F`, `GIT_SSH_COMMAND`). There is no `~/.ssh/config` projection.
+
+**Decisions:**
+1. **Only an owner's `ensure` naming the environment starts a stopped distribution** (§3 item
+   9), and so does `wsl disable --start`, the owner's explicit cleanup start. `delegate`, `bind`
+   and `run` naming a stopped Mode B environment don't start it. The re-check, the respawn and
+   the cleanup never do.
+2. **The re-check keeps the endpoints realized.** Every 10 s, while the distribution runs and
+   bindings remain, the runtime realizes each binding's current generation again on the live
+   helper. That's idempotent for the helper, and it recreates a deleted socket (m04-plan U4,
+   `a13_deleted_socket_recreated`). A binding withdrawn while that runs is withdrawn again, so
+   a re-check never brings back an ended binding's endpoint.
+3. **The leftovers of a stopped distribution are a retained obligation.** When `wsl disable`
+   can't reach a stopped distribution, its binding directories stay, holding public material
+   and a dead socket. The answer says `cleanup_pending`. A later disable reports it again, and
+   one carrying `start` removes it: the helper's start cleans up dead directories. That
+   knowledge lasts for the runtime's lifetime only (a residual, below).
+4. **Uninstall disables every active WSL distribution, Mode A or Mode B,** never starting one. A
+   distribution with a retained cleanup keeps uninstall incomplete, as Mode A's rollback does
+   (§10 item 3).
+5. **`gone` is debounced.** An environment retires as `gone` only when two consecutive discovery
+   listings miss its GUID, because `gone` is terminal.
+6. **Late stream frames are dropped** (U4a). A `data` or `close` frame for a stream that already
+   ended is ignored, because the two directions cross. Only a stream number never opened is a
+   protocol error.
+7. **Mode B has its own lock** (`<run>/bridge.lock`), so a long-lived Mode B helper never makes
+   Mode A's file requests answer `Busy`.
+8. **A test-only stand-in distribution** (`HEIMDALL_TEST_WSL_DIRECT`, debug builds only, refused
+   in release like every test variable): the runtime and the CLI see one distribution whose
+   helper is the binary's own `internal wsl-helper`, started directly. That lets Mode B run end
+   to end through the real binary on macOS and Linux. It's mechanism evidence; the A13 rows are
+   native.
+
+**Proof (mechanism; the native A13 rows are Windows'):**
+- `wsl_mode_b::mode_b_end_to_end_through_the_real_bridge_and_helper` (`e2e_platform_m04`, Unix):
+  - `wsl enable --mode-b` through its decision, then `ensure` in the environment;
+  - `ssh-add -l` and a real login through the helper's endpoint with the binding's config, the
+    sshd accepting the grant's certificate;
+  - a deleted socket recreated by the re-check;
+  - the endpoint withdrawn when the grant ends, then `wsl disable`.
+- U4a's helper-channel and bridge-relay tests (peer and `classify` checks, the 65th connection,
+  the generation rules, restart cleanup).
+- U4b's live tests (the decision, the descriptor, withdrawal by generation, disable with and
+  without `start`, the supervisor's not-running, respawn and `gone`), and the refusal tables.
+- `wsl_cmd::tests::uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one`.
+
+**Residuals:**
+- **Another Linux user and `wsl.exe -u`:** the `SO_PEERCRED` refusal of another uid, and the
+  non-claim of §3 for a process that becomes the user through `wsl.exe -u`, are native rows.
+- **Leftovers across a restart:** a retained Mode B cleanup isn't durable. If the runtime
+  restarts before the owner's `wsl disable --start`, the leftovers stay in the distribution's run
+  directory. With systemd's `XDG_RUNTIME_DIR` they're on a tmpfs that the distribution's next
+  shutdown clears; on the fallback path they stay until a helper starts there. They hold public
+  material only.
+- **The A03 Mode B lock row** (`a03_mode_b_fresh_logins_while_windows_locked`) needs a filter in
+  the Windows lock harness, which today launches only `e2e_exit_m03 lock::`. That's U7's
+  harness generalization (wave 3).
+- **A re-issue at a higher generation onto an existing Mode B endpoint** fails closed: the
+  realization and withdrawal use the spec's generation, and every binding is generation 1 today.
+- **The helper doesn't enforce the deadline.** The Windows signer owns expiry, so a skewed
+  Linux clock can't close endpoints early.
+- **The 64-stream cap per binding is enforced by the helper only.**
+- **`Bridge::drop` blocks up to 2 s.**

@@ -38,6 +38,7 @@ pub mod telemetry;
 // ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3, §3.2–§3.3): workspace observation.
 pub mod workspace_observe;
 // ⟨M04 U3b⟩ The WSL wiring (the namespace-routing projection cleaner).
+pub mod wsl_bridge;
 pub mod wsl_wiring;
 
 /// Serializes this crate's unit tests that spawn a child with those that assert a

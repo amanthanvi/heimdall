@@ -62,6 +62,8 @@ rustix = { workspace = true, features = ["event", "termios"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# ⟨M04 U4a⟩ `integration_wsl_helper_channel`'s Mode B relay test implements `ipc::signing::Signer`.
+async-trait = { workspace = true }
 # Property tests (fixed seed, >= 256 cases), as in the other crates.
 proptest = { workspace = true }
 # M02-U8 `e2e_run_m02` (tests only): the U7 process fixtures (scratch home, fake agent).

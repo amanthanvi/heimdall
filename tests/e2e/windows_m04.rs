@@ -22,6 +22,17 @@
 //!   item 5): a state directory with the inherited list of a build before M04 is narrowed
 //!   once, and `setup rollback` and `uninstall` both run on it.
 //!
+//! * `a13_*` and `a03_mode_b_fresh_logins_while_windows_locked` (⟨M04 U4b⟩, WSL Mode B, ADR-0010
+//!   §3): the native A13 rows through the real binary, the real runtime and its Linux helper
+//!   in disposable distributions, over the exit suite's [`world::World`] (the real issuer
+//!   child, a verified enrollment, the harness's sshd). `#[ignore]`d, and each needs
+//!   `HM_WSL_TEST_DISTRO`, `HM_WSL_TEST_ACCOUNT` and `HM_WSL_TEST_HELPER` as the A12 rows do
+//!   (the row for two distributions: also `HM_WSL_TEST_DISTRO2`, and optionally
+//!   `HM_WSL_TEST_ACCOUNT2`); an unset variable panics, it never reads as a pass. The Linux
+//!   `ssh` and Git inside the distribution reach the harness's sshd at the host and port the
+//!   catalog names (WSL2 distributions share one network namespace, so a loopback server of
+//!   the harness's own distribution is reachable from the disposable one).
+//!
 //! **Not added here:** `a14_managed_alias_never_contacts_inherited_ssh_auth_sock` is already
 //! asserted on Windows by `e2e_enroll_m03`'s
 //! `enroll_preview_apply_verify_setup_apply_ensure_ssh` (a decoy pipe at `SSH_AUTH_SOCK` for the
@@ -35,8 +46,13 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::print_stdout,
+    clippy::too_many_lines,
+    dead_code,
     missing_docs
 )]
+
+// ⟨M04 U4b⟩ The A13 rows use the exit suite's world, declared at the suite's root
+// (`platform_m04.rs`).
 
 #[cfg(windows)]
 mod native {
@@ -933,5 +949,731 @@ mod native {
         let report = w.report(&[]);
         assert_eq!(selection(&report), GitSshClassification::VerifiedClient);
         assert!(!reported(&report), "{:?}", report.findings);
+    }
+    // --- ⟨M04 U4b⟩ WSL Mode B in disposable distributions (A13, A03) ------------------------
+
+    /// The A13 rows (ADR-0010 §3; module docs): one scratch installation with the real runtime,
+    /// the real Linux helper and a verified enrollment, the distribution enabled in Mode B
+    /// through the product's own attended `wsl enable --mode-b`, an `ensure` in its environment,
+    /// and Linux `ssh`, `ssh-add` and Git run **inside** the distribution through the
+    /// descriptor the `ensure` returned. Every Linux-side probe is a single `wsl.exe -d <name>
+    /// -u <account> --exec` call.
+    mod mode_b {
+        use std::io::Write as _;
+
+        use serde_json::Value;
+
+        use super::{Command, Duration, Instant, Path, Stdio, disposable, in_distro};
+        use crate::world::{self, World, WorldOptions};
+
+        /// The first and, for the two-distribution rows, second disposable distribution.
+        struct Distro {
+            name: String,
+            account: String,
+        }
+
+        fn first() -> (Distro, String) {
+            let Some((name, account, helper)) = disposable() else {
+                panic!(
+                    "HM_WSL_TEST_DISTRO, HM_WSL_TEST_ACCOUNT and HM_WSL_TEST_HELPER must be set"
+                );
+            };
+            (Distro { name, account }, helper)
+        }
+
+        fn second() -> Distro {
+            let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+            let Some(name) = get("HM_WSL_TEST_DISTRO2") else {
+                panic!("HM_WSL_TEST_DISTRO2 must name the second disposable distribution");
+            };
+            let account = get("HM_WSL_TEST_ACCOUNT2")
+                .or_else(|| get("HM_WSL_TEST_ACCOUNT"))
+                .expect("HM_WSL_TEST_ACCOUNT");
+            Distro { name, account }
+        }
+
+        /// A scratch installation whose runtime uses the Linux helper at `helper`.
+        fn world(helper: &str) -> World {
+            let (w, _ca) = World::start(WorldOptions {
+                pairs: 1,
+                per_pair_profiles: true,
+                extra_env: vec![("HEIMDALL_WSL_HELPER".to_owned(), helper.to_owned())],
+                ..WorldOptions::default()
+            });
+            w
+        }
+
+        /// Ends Mode B for `distro` when the test ends (the bindings end, the helper stops),
+        /// whatever the test did; a failure here is not the test's.
+        struct Disable<'w>(&'w World, String);
+
+        impl Drop for Disable<'_> {
+            fn drop(&mut self) {
+                let _ = self.0.cli(&["--json", "wsl", "disable", &self.1]);
+            }
+        }
+
+        /// `wsl enable <distro> --account <account> --mode-b`, the typed `yes` of the
+        /// `AddEnvironment` decision, and the policy that lets the environment serve the
+        /// profile without a further decision. Returns the environment's ID.
+        fn enable(w: &World, d: &Distro) -> String {
+            let out = w.confirm(&[
+                "wsl",
+                "enable",
+                &d.name,
+                "--account",
+                &d.account,
+                "--mode-b",
+            ]);
+            assert_eq!(
+                out.code,
+                0,
+                "wsl enable --mode-b: {}",
+                w.redact(&out.stdout)
+            );
+            let item = environment(w, &d.name).expect("the Mode B environment is listed");
+            assert_eq!(item["state"], "active", "{item}");
+            let id = item["environment_id"].as_str().unwrap().to_owned();
+            permit(w, &id);
+            id
+        }
+
+        /// The `inspect environments` item of the Mode B distribution `name`.
+        fn environment(w: &World, name: &str) -> Option<Value> {
+            let listing = w.cli(&["--json", "inspect", "environments"]).json();
+            listing["data"]["items"]
+                .as_array()?
+                .iter()
+                .find(|i| i["kind"] == "wsl_distribution" && i["realization"]["name"] == name)
+                .cloned()
+        }
+
+        /// Let `environment` serve the first pair's profile without a decision (the approval
+        /// grants `managed_signing` only), as the container row does.
+        fn permit(w: &World, environment: &str) {
+            use heimdall_contract::ids::{EnvironmentId, PolicyId};
+            let environment = EnvironmentId::parse(environment).unwrap();
+            w.open_store()
+                .transaction(|tx| {
+                    let mut rec = tx.environment(&environment)?.expect("its record");
+                    rec.permissions.automatic_activation = true;
+                    tx.upsert_environment(&rec)?;
+                    let pid = PolicyId::parse(&format!("{}-1", world::POLICY)).unwrap();
+                    let mut pol = tx.policy(&pid)?.expect("the pair's policy");
+                    pol.environments.insert(environment.clone());
+                    pol.revision = heimdall_domain::policy::PolicyRevision(pol.revision.0 + 1);
+                    tx.upsert_policy(&pol, false)
+                })
+                .unwrap();
+        }
+
+        /// `access ensure` of the first pair's profile in `environment` (exit 0 and
+        /// `ACCESS_READY` asserted): its data.
+        fn ensure(w: &World, environment: &str, work: &str, request: &str) -> Value {
+            let out = w.cli(&[
+                "--json",
+                "access",
+                "ensure",
+                "--profile",
+                &w.profile_of(0),
+                "--environment",
+                environment,
+                "--work-id",
+                work,
+                "--request-id",
+                request,
+            ]);
+            assert_eq!(out.code, 0, "ensure: {}", w.redact(&format!("{out:?}")));
+            let env = out.json();
+            assert_eq!(
+                env["code"],
+                "ACCESS_READY",
+                "{}",
+                w.redact(&env.to_string())
+            );
+            env["data"].clone()
+        }
+
+        /// The Linux socket and OpenSSH configuration of an `ensure` result's descriptor.
+        fn descriptor(data: &Value) -> (String, String) {
+            let r = &data["consumer"]["realization"];
+            assert_eq!(r["environment_kind"], "wsl_distribution", "{r}");
+            assert!(r.get("mount").is_none_or(Value::is_null), "no mount: {r}");
+            (
+                r["endpoint"].as_str().unwrap().to_owned(),
+                r["config"].as_str().unwrap().to_owned(),
+            )
+        }
+
+        /// A shell script inside the distribution as `account`; its exit code and stdout.
+        fn sh(d: &Distro, script: &str) -> (i32, String) {
+            in_distro(&d.name, &d.account, &["/bin/sh", "-c", script])
+        }
+
+        /// A shell script inside the distribution as root (the disposable distribution's own).
+        fn root(d: &Distro, script: &str) -> (i32, String) {
+            in_distro(&d.name, "root", &["/bin/sh", "-c", script])
+        }
+
+        /// `wsl.exe` with `args` (UTF-8 output); its exit code and stdout.
+        fn wsl(args: &[&str]) -> (i32, String) {
+            let system_root = std::env::var("SystemRoot").unwrap();
+            let out = Command::new(Path::new(&system_root).join("System32").join("wsl.exe"))
+                .args(args)
+                .env("WSL_UTF8", "1")
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            (
+                out.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+            )
+        }
+
+        /// Whether `name` is in `wsl.exe --list --running --quiet` (which starts nothing).
+        fn running(name: &str) -> bool {
+            wsl(&["--list", "--running", "--quiet"])
+                .1
+                .lines()
+                .any(|l| l.trim().eq_ignore_ascii_case(name))
+        }
+
+        fn eventually(what: &str, within: Duration, mut f: impl FnMut() -> bool) {
+            let deadline = Instant::now() + within;
+            while !f() {
+                assert!(Instant::now() < deadline, "not within {within:?}: {what}");
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+
+        /// `ssh-add -l` against `socket`, as the account: its exit code and lines.
+        fn list(d: &Distro, socket: &str) -> (i32, usize) {
+            let (code, out) = sh(d, &format!("SSH_AUTH_SOCK={socket} ssh-add -l 2>&1"));
+            (code, out.lines().filter(|l| l.contains("SHA256:")).count())
+        }
+
+        /// One login to the pair's alias through the binding's `ssh_config`.
+        fn login(w: &World, d: &Distro, config: &str, marker: &str) -> (i32, String) {
+            let alias = &w.pairs[0].alias;
+            sh(
+                d,
+                &format!("ssh -F {config} -o BatchMode=yes {alias} 'echo {marker}' 2>&1"),
+            )
+        }
+
+        /// A13: through the bridge the account sees exactly the binding's identity and logs in
+        /// (attributed to the binding's certificate); a key that is not listed is refused by
+        /// the server, an identity cannot be added through the endpoint, and nothing else is
+        /// listed afterwards.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd"]
+        fn a13_lists_only_binding_identities_and_refuses_unlisted_key() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let data = ensure(&w, &env, "a13-l", "a13-l-r1");
+            let (socket, config) = descriptor(&data);
+            let key_prefix = format!(
+                "heimdall:{}:{}:",
+                w.environment.as_str(),
+                data["grant_id"].as_str().unwrap()
+            );
+            assert_eq!(list(&d, &socket), (0, 1), "exactly the binding's identity");
+
+            let mark = w.pairs[0].sshd.log_mark();
+            let (code, out) = login(&w, &d, &config, "hm-b-pos");
+            assert_eq!(code, 0, "login: {}", w.redact(&out));
+            assert!(out.contains("hm-b-pos"), "{out}");
+            let accepted = w.accepted_since(0, mark);
+            assert_eq!(accepted.len(), 1, "{accepted:?}");
+            assert!(
+                accepted[0].key_id.starts_with(&key_prefix),
+                "{:?}",
+                accepted[0]
+            );
+
+            // An unlisted key (never offered to the server by the agent) is refused.
+            let mark = w.pairs[0].sshd.log_mark();
+            let alias = &w.pairs[0].alias;
+            let (code, out) = sh(
+                &d,
+                &format!(
+                    "rm -f /tmp/hm-a13-k /tmp/hm-a13-k.pub; ssh-keygen -q -t ed25519 -N '' -f /tmp/hm-a13-k && ssh -F {config} -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/tmp/hm-a13-k {alias} 'echo hm-b-neg' 2>&1"
+                ),
+            );
+            assert_ne!(code, 0, "an unlisted key is refused: {}", w.redact(&out));
+            assert!(!out.contains("hm-b-neg"));
+            assert!(w.accepted_since(0, mark).is_empty());
+
+            // An add-identity message is not on the allow-list: refused at the endpoint, and the
+            // listing is unchanged.
+            let (code, _) = sh(
+                &d,
+                &format!("SSH_AUTH_SOCK={socket} ssh-add /tmp/hm-a13-k 2>&1"),
+            );
+            assert_ne!(code, 0, "the endpoint does not add identities");
+            assert_eq!(list(&d, &socket), (0, 1));
+            let _ = sh(&d, "rm -f /tmp/hm-a13-k /tmp/hm-a13-k.pub");
+        }
+
+        /// A13, A27: Git over the Linux `ssh` through the bridge: the descriptor's own
+        /// `GIT_SSH_COMMAND` and `SSH_AUTH_SOCK`, a bare repository made on the server, a commit
+        /// pushed and read back byte for byte.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER), git in it and on the harness sshd"]
+        fn a13_git_over_linux_ssh_through_bridge() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let data = ensure(&w, &env, "a13-g", "a13-g-r1");
+            let (socket, config) = descriptor(&data);
+            let alias = &w.pairs[0].alias;
+            let git_ssh = format!("ssh -F {config}");
+            let remote = format!("/tmp/hm-a13-{}.git", std::process::id());
+            let mark = w.pairs[0].sshd.log_mark();
+            let (code, out) = sh(
+                &d,
+                &format!(
+                    "ssh -F {config} -o BatchMode=yes {alias} 'git init -q --bare {remote}' 2>&1"
+                ),
+            );
+            assert_eq!(code, 0, "git init on the server: {}", w.redact(&out));
+            let work = "/tmp/hm-a13-work";
+            let script = format!(
+                "rm -rf {work} && git init -q {work} && cd {work} && git -c user.name=hm -c user.email=hm@example.invalid commit -q --allow-empty -m a13 && printf 'payload-%s\\n' 0123456789abcdef > f && git add f && git -c user.name=hm -c user.email=hm@example.invalid commit -q -m a13b && export SSH_AUTH_SOCK={socket} GIT_SSH_COMMAND='{git_ssh}' && git push -q {alias}:{remote} HEAD:refs/heads/main 2>&1 && git rev-parse HEAD && git ls-remote {alias}:{remote} refs/heads/main 2>&1"
+            );
+            let (code, out) = sh(&d, &script);
+            assert_eq!(code, 0, "git over the bridge: {}", w.redact(&out));
+            let lines: Vec<&str> = out.lines().collect();
+            let head = lines
+                .iter()
+                .find(|l| l.len() == 40 && l.bytes().all(|b| b.is_ascii_hexdigit()))
+                .expect("the pushed commit id");
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.starts_with(head) && l.ends_with("refs/heads/main")),
+                "the server holds the pushed commit: {out}"
+            );
+            assert!(!w.accepted_since(0, mark).is_empty());
+            let _ = ssh_cleanup(&w, &d, &config, &remote, work);
+        }
+
+        fn ssh_cleanup(w: &World, d: &Distro, config: &str, remote: &str, work: &str) -> i32 {
+            let alias = &w.pairs[0].alias;
+            sh(
+                d,
+                &format!(
+                    "rm -rf {work}; ssh -F {config} -o BatchMode=yes {alias} 'rm -rf {remote}' 2>&1"
+                ),
+            )
+            .0
+        }
+
+        /// A13 (the M04 exit's "no management API" clause): the bridge socket speaks the SSH
+        /// agent protocol only. A control-protocol hello on it is not answered with a control
+        /// envelope, and the agent protocol still works on a fresh connection afterwards.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) with python3"]
+        fn a13_control_hello_on_bridge_socket_fails() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let (socket, _) = descriptor(&ensure(&w, &env, "a13-h", "a13-h-r1"));
+            let script = format!(
+                "python3 - <<'PY'\nimport socket\ns = socket.socket(socket.AF_UNIX)\ns.settimeout(5)\ns.connect('{socket}')\ns.sendall(b'{{\"hello\":{{\"protocol\":\"heimdall-control/1\"}}}}')\ntry:\n    got = s.recv(4096)\nexcept Exception:\n    got = b''\nprint('answered-json' if got.startswith(b'{{') else 'no-control-answer')\nPY"
+            );
+            let (code, out) = sh(&d, &script);
+            assert_eq!(code, 0, "{out}");
+            assert!(out.contains("no-control-answer"), "{out}");
+            assert_eq!(list(&d, &socket), (0, 1), "the agent protocol still works");
+        }
+
+        /// A13: a second distribution sees nothing of the first one's endpoint (the second
+        /// disposable distribution is the observer): no path, no abstract or `/mnt/wsl`
+        /// socket, and no new TCP listener anywhere in the shared network namespace, before
+        /// and after a binding exists.
+        #[test]
+        #[ignore = "needs two disposable WSL distributions (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER, _DISTRO2)"]
+        fn a13_other_distribution_sees_no_endpoint() {
+            let (d, helper) = first();
+            let observer = second();
+            assert_ne!(d.name, observer.name, "two distinct distributions");
+            let probe = |o: &Distro| {
+                let (_, listeners) = root(
+                    o,
+                    "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$4==\"0A\"{print $2}' | sort",
+                );
+                let (_, unix) = root(
+                    o,
+                    "awk '{print $NF}' /proc/net/unix | grep -E 'heimdall|agent.sock' | sort",
+                );
+                let (_, mnt) = root(
+                    o,
+                    "find /mnt/wsl -maxdepth 6 \\( -name 'agent.sock' -o -path '*heimdall*' \\) 2>/dev/null | sort",
+                );
+                (listeners, unix, mnt)
+            };
+            let before = probe(&observer);
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let (socket, _) = descriptor(&ensure(&w, &env, "a13-o", "a13-o-r1"));
+            assert_eq!(
+                list(&d, &socket),
+                (0, 1),
+                "the enabled distribution serves it"
+            );
+            let (listeners, unix, mnt) = probe(&observer);
+            assert_eq!(listeners, before.0, "no new TCP listener");
+            assert!(
+                !unix.contains("heimdall") && !unix.contains("agent.sock"),
+                "no abstract or path socket of the first is visible: {unix}"
+            );
+            assert_eq!(mnt, before.2, "nothing under /mnt/wsl");
+            let (code, _) = sh(&observer, &format!("test -e {socket}"));
+            assert_ne!(code, 0, "the path does not exist in the observer");
+            let (code, out) = sh(
+                &observer,
+                &format!("SSH_AUTH_SOCK={socket} ssh-add -l 2>&1"),
+            );
+            assert_ne!(code, 0, "the observer cannot use the path: {out}");
+        }
+
+        /// A13: two enabled distributions get disjoint endpoints: different paths, each served
+        /// in its own distribution only, each listing exactly its own binding's identity.
+        #[test]
+        #[ignore = "needs two disposable WSL distributions (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER, _DISTRO2)"]
+        fn a13_two_enabled_distributions_get_disjoint_endpoints() {
+            let (d1, helper) = first();
+            let d2 = second();
+            assert_ne!(d1.name, d2.name, "two distinct distributions");
+            let w = world(&helper);
+            let _e1 = Disable(&w, d1.name.clone());
+            let _e2 = Disable(&w, d2.name.clone());
+            let env1 = enable(&w, &d1);
+            let env2 = enable(&w, &d2);
+            assert_ne!(env1, env2, "two environments");
+            let (s1, _) = descriptor(&ensure(&w, &env1, "a13-t1", "a13-t1-r1"));
+            let (s2, _) = descriptor(&ensure(&w, &env2, "a13-t2", "a13-t2-r1"));
+            assert_ne!(s1, s2, "disjoint endpoints");
+            assert_eq!(list(&d1, &s1), (0, 1));
+            assert_eq!(list(&d2, &s2), (0, 1));
+            assert_ne!(
+                sh(&d1, &format!("test -S {s2}")).0,
+                0,
+                "the second's socket is not in the first"
+            );
+            assert_ne!(
+                sh(&d2, &format!("test -S {s1}")).0,
+                0,
+                "the first's socket is not in the second"
+            );
+        }
+
+        /// A13: another Linux user of the distribution is refused by the file modes and the peer
+        /// check. The `wsl.exe -u <account>` bypass (any process of the same Windows user can
+        /// become the owning account) is probed and recorded as the residual, not claimed.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER); it creates and removes a user in it"]
+        fn a13_other_linux_user_refused() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let (socket, _) = descriptor(&ensure(&w, &env, "a13-u", "a13-u-r1"));
+            let other = "hmother";
+            let _ = root(&d, &format!("userdel -r {other} 2>/dev/null; true"));
+            let (code, out) = root(&d, &format!("useradd -m -s /bin/sh {other} 2>&1"));
+            assert_eq!(code, 0, "a second user: {out}");
+            let outcome = std::panic::catch_unwind(|| {
+                let (code, out) = in_distro(
+                    &d.name,
+                    other,
+                    &[
+                        "/bin/sh",
+                        "-c",
+                        &format!("SSH_AUTH_SOCK={socket} ssh-add -l 2>&1"),
+                    ],
+                );
+                assert_ne!(code, 0, "another Linux user is refused: {out}");
+                assert!(
+                    !out.contains("SHA256:"),
+                    "no identity is listed to it: {out}"
+                );
+                let (code, _) = in_distro(
+                    &d.name,
+                    other,
+                    &["/bin/sh", "-c", &format!("ls {socket} >/dev/null 2>&1")],
+                );
+                assert_ne!(code, 0, "the 0700 directory hides the socket from it");
+            });
+            let _ = root(&d, &format!("userdel -r {other} 2>/dev/null; true"));
+            outcome.unwrap_or_else(|e| std::panic::resume_unwind(e));
+            // The residual, recorded: the owning account is reachable through `wsl.exe -u`.
+            let (code, listed) = (list(&d, &socket).0, list(&d, &socket).1);
+            println!(
+                "m04 observation: a13 windows wsl.exe -u bypass: owner account lists {listed} identity (exit {code}); a documented non-claim"
+            );
+        }
+
+        /// A13: `wsl --terminate` kills the helper with the distribution; the runtime reports it
+        /// and starts **nothing** in the background (the distribution stays stopped across two
+        /// re-check periods); a user restart brings the endpoint back at the same path.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)"]
+        fn a13_terminate_then_user_restart_recreates_endpoint_without_background_start() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let (socket, _) = descriptor(&ensure(&w, &env, "a13-r", "a13-r-r1"));
+            assert_eq!(list(&d, &socket), (0, 1));
+            let (code, _) = wsl(&["--terminate", &d.name]);
+            assert_eq!(code, 0, "wsl --terminate");
+            eventually(
+                "the distribution is stopped",
+                Duration::from_secs(30),
+                || !running(&d.name),
+            );
+            // Two re-check periods (10 s each) and a margin: nothing starts it.
+            std::thread::sleep(Duration::from_secs(25));
+            assert!(!running(&d.name), "no background start");
+            let item = environment(&w, &d.name).expect("still listed");
+            assert_eq!(item["state"], "not_running", "{item}");
+            // A user restart: the supervisor respawns the helper within a re-check period.
+            let (code, _) = sh(&d, "true");
+            assert_eq!(code, 0, "the user restarts the distribution");
+            eventually("the endpoint is back", Duration::from_secs(60), || {
+                list(&d, &socket) == (0, 1)
+            });
+            let item = environment(&w, &d.name).expect("listed");
+            assert_eq!(item["state"], "active", "{item}");
+        }
+
+        /// A13: a socket deleted by hand is recreated at the same path, still serving only the
+        /// binding's identity: the runtime's 10 s re-check realizes the current generation
+        /// again, which the helper answers by recreating a missing socket (ADR-0010 §11 item 2).
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)"]
+        fn a13_deleted_socket_recreated() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let (socket, _) = descriptor(&ensure(&w, &env, "a13-d", "a13-d-r1"));
+            assert_eq!(list(&d, &socket), (0, 1));
+            let (code, out) = sh(&d, &format!("rm -f {socket} && ! test -e {socket}"));
+            assert_eq!(code, 0, "{out}");
+            eventually("the socket is recreated", Duration::from_secs(60), || {
+                list(&d, &socket) == (0, 1)
+            });
+        }
+
+        /// A13: when the binding ends the endpoint stops listing at once (the signer refuses),
+        /// then the endpoint and its files are withdrawn, and the helper ends with the last
+        /// binding.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)"]
+        fn a13_binding_end_refuses_then_withdraws_endpoint() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let data = ensure(&w, &env, "a13-b", "a13-b-r1");
+            let (socket, config) = descriptor(&data);
+            assert_eq!(list(&d, &socket), (0, 1));
+            let dir = socket.rsplit_once('/').unwrap().0.to_owned();
+            let released = w.cli(&[
+                "--json",
+                "access",
+                "release",
+                data["binding_id"].as_str().unwrap(),
+            ]);
+            assert_eq!(released.code, 0, "{released:?}");
+            // Refuses at once: no identity is listed (or the endpoint is already gone).
+            assert_eq!(
+                list(&d, &socket).1,
+                0,
+                "no identity after the binding ended"
+            );
+            eventually("the endpoint is withdrawn", Duration::from_secs(30), || {
+                sh(&d, &format!("test ! -e {socket} && test ! -e {config}")).0 == 0
+            });
+            let (_, left) = sh(&d, &format!("ls -A {dir} 2>/dev/null | wc -l"));
+            assert_eq!(left.trim(), "0", "the binding directory is empty or gone");
+            eventually(
+                "the helper ends with the last binding",
+                Duration::from_secs(30),
+                || helper_pids(&d).is_empty(),
+            );
+        }
+
+        /// The helper processes of the distribution (`heimdall internal wsl-helper`).
+        fn helper_pids(d: &Distro) -> Vec<String> {
+            let (_, out) = sh(
+                d,
+                "ps -eo pid=,args= | grep -F 'internal wsl-helper' | grep -v grep | awk '{print $1}'",
+            );
+            out.split_whitespace().map(str::to_owned).collect()
+        }
+
+        /// A13: when the runtime stops the helper sees EOF, removes its endpoints and exits.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)"]
+        fn a13_runtime_stop_helper_exits_and_removes_endpoints() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let (socket, _) = descriptor(&ensure(&w, &env, "a13-s", "a13-s-r1"));
+            assert_eq!(list(&d, &socket), (0, 1));
+            assert!(!helper_pids(&d).is_empty(), "the helper runs");
+            w.stop_runtime();
+            eventually("the helper exits", Duration::from_secs(30), || {
+                helper_pids(&d).is_empty()
+            });
+            eventually("its endpoints are removed", Duration::from_secs(30), || {
+                sh(&d, &format!("test ! -e {socket}")).0 == 0
+            });
+        }
+
+        /// A13: an unregistered distribution releases its bindings: the environment becomes
+        /// `gone`, the grant ends, and the environment is refused as a target. **It unregisters
+        /// `HM_WSL_TEST_DISTRO2`**, so it needs the explicit `HM_WSL_TEST_ALLOW_UNREGISTER=1`
+        /// and the distribution is gone afterwards: run it last, alone.
+        #[test]
+        #[ignore = "destroys HM_WSL_TEST_DISTRO2 (needs HM_WSL_TEST_ALLOW_UNREGISTER=1): run it alone, last"]
+        fn a13_unregistered_distribution_releases_bindings() {
+            assert_eq!(
+                std::env::var("HM_WSL_TEST_ALLOW_UNREGISTER").as_deref(),
+                Ok("1"),
+                "HM_WSL_TEST_ALLOW_UNREGISTER=1 acknowledges that HM_WSL_TEST_DISTRO2 is unregistered"
+            );
+            let (_, helper) = first();
+            let d2 = second();
+            let w = world(&helper);
+            let env = enable(&w, &d2);
+            let data = ensure(&w, &env, "a13-x", "a13-x-r1");
+            let (socket, _) = descriptor(&data);
+            assert_eq!(list(&d2, &socket), (0, 1));
+            let grant = data["grant_id"].as_str().unwrap().to_owned();
+            let (code, out) = wsl(&["--unregister", &d2.name]);
+            assert_eq!(code, 0, "wsl --unregister: {out}");
+            eventually("the environment is gone", Duration::from_secs(60), || {
+                w.cli(&["--json", "inspect", "environments"]).json()["data"]["items"]
+                    .as_array()
+                    .is_some_and(|items| {
+                        items.iter().any(|i| {
+                            i["environment_id"].as_str() == Some(env.as_str())
+                                && i["state"] == "gone"
+                        })
+                    })
+            });
+            eventually("the grant ends", Duration::from_secs(60), || {
+                w.grant_state(&grant) != "active"
+            });
+            let again = w.cli(&[
+                "--json",
+                "access",
+                "ensure",
+                "--profile",
+                &w.profile_of(0),
+                "--environment",
+                &env,
+                "--work-id",
+                "a13-x2",
+                "--request-id",
+                "a13-x2-r1",
+            ]);
+            assert_ne!(again.code, 0, "a gone environment is not a target");
+            assert_eq!(
+                again.json()["data"]["reason"]
+                    .as_str()
+                    .or(again.json()["reason"].as_str()),
+                Some("environment_removed"),
+                "{again:?}"
+            );
+        }
+
+        /// A03 (WSL Mode B, ADR-0004 §2 idle rule, P-B07): while the Windows session is locked,
+        /// fresh logins from the distribution through the bridge keep working under a standing
+        /// policy, because the signer runs on the Windows side. The lock itself is the
+        /// harness's (`tests/native/m03/lock-windows.ps1`): this driver prepares, waits for
+        /// `locked` in `HM_LOCK_STATE_DIR`, does its checks, answers `locked-done` and waits for
+        /// `unlocked`, with the same handshake files as the M03 lock driver (module docs of
+        /// `exit_m03/lock.rs`). Its world is the debug configuration here; the release-profile
+        /// DPAPI product configuration is the M03 driver's `WorldOptions::product`.
+        #[test]
+        #[ignore = "run by the lock harness (tests/native/m03/lock-windows.ps1) with HM_LOCK_STATE_DIR, and the A13 variables"]
+        fn a03_mode_b_fresh_logins_while_windows_locked() {
+            let state = std::path::PathBuf::from(
+                std::env::var_os("HM_LOCK_STATE_DIR")
+                    .expect("HM_LOCK_STATE_DIR (the lock harness)"),
+            );
+            let write = |name: &str, text: &str| {
+                let tmp = state.join(format!("{name}.tmp"));
+                let mut f = std::fs::File::create(&tmp).unwrap();
+                f.write_all(text.as_bytes()).unwrap();
+                std::fs::rename(&tmp, state.join(name)).unwrap();
+            };
+            let wait_for = |name: &str, within: Duration| -> String {
+                let deadline = Instant::now() + within;
+                loop {
+                    if let Ok(text) = std::fs::read_to_string(state.join(name)) {
+                        return text;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "the harness never wrote `{name}`"
+                    );
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+            };
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let data = ensure(&w, &env, "a03-b", "a03-b-r1");
+            let (socket, config) = descriptor(&data);
+            let key_prefix = format!(
+                "heimdall:{}:{}:",
+                w.environment.as_str(),
+                data["grant_id"].as_str().unwrap()
+            );
+            let (code, out) = login(&w, &d, &config, "hm-a03-unlocked");
+            assert_eq!(code, 0, "baseline login: {}", w.redact(&out));
+            write("ready", "ready\n");
+            let locked = wait_for("locked", Duration::from_secs(12 * 3600));
+            assert!(!locked.starts_with("abort"), "aborted: {locked}");
+            // Locked: three fresh logins about 60 s apart, each accepted with exactly the
+            // binding's certificate.
+            for n in 0..3 {
+                if n > 0 {
+                    std::thread::sleep(Duration::from_secs(60));
+                }
+                let mark = w.pairs[0].sshd.log_mark();
+                let (code, out) = login(&w, &d, &config, &format!("hm-a03-locked-{n}"));
+                assert_eq!(code, 0, "fresh login {n} while locked: {}", w.redact(&out));
+                let accepted = w.accepted_since(0, mark);
+                assert_eq!(accepted.len(), 1, "{accepted:?}");
+                assert!(
+                    accepted[0].key_id.starts_with(&key_prefix),
+                    "{:?}",
+                    accepted[0]
+                );
+            }
+            assert_eq!(
+                list(&d, &socket),
+                (0, 1),
+                "the endpoint still lists the binding"
+            );
+            write("locked-done", "done\n");
+            let _ = wait_for("unlocked", Duration::from_secs(12 * 3600 + 600));
+            write("done", "done\n");
+        }
     }
 }

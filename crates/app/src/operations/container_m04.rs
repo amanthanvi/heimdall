@@ -274,13 +274,33 @@ impl Operations {
                 "a container label is 1 to 64 bytes with no control characters",
             ));
         }
+        let dir_tag = new_dir_tag()?;
+        self.request_add_environment(
+            caller,
+            EnvironmentRealization::Container { label, dir_tag },
+            EnvironmentDisclosure::CONTAINER.to_vec(),
+            "adding a container environment needs an attended owner decision (AddEnvironment)",
+        )
+        .await
+    }
+
+    /// ⟨M04 U4b⟩ The `AddEnvironment` decision of any realization (the container's and WSL
+    /// Mode B's share it, generalized by kind): an equal pending one is joined, never
+    /// duplicated; the answer is `INTERACTION_REQUIRED` / `APPROVAL_REQUIRED` with
+    /// `next.decision_ref`. The caller checked the host and the request's own fields;
+    /// the realization-specific in-use rule runs inside the transaction.
+    pub(super) async fn request_add_environment(
+        &self,
+        caller: &Caller,
+        realization: EnvironmentRealization,
+        disclosures: Vec<EnvironmentDisclosure>,
+        message: &'static str,
+    ) -> OpResult<serde_json::Value> {
         let gate = self.inner.timegate.in_txn();
         let decision_id = crate::ids::new_decision_id()?;
         let environment = crate::ids::new_environment_id()?;
-        let dir_tag = new_dir_tag()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
         let own = self.environment().clone();
-        let wanted = label.clone();
         let decided = self
             .write(move |tx, emit| {
                 // A decision's lifetime is measured on accepted time only (G10).
@@ -288,10 +308,8 @@ impl Operations {
                     Ok(s) => s.wall(),
                     Err(u) => return Ok(Err(uncertain(&u))),
                 };
-                if container_label_in_use(tx, &own, &wanted)? {
-                    return Ok(Err(usage(
-                        "a container environment already uses this label",
-                    )));
+                if let Some(refusal) = in_use_refusal(tx, &own, &realization)? {
+                    return Ok(Err(refusal));
                 }
                 let current = tx.authority_generation()?;
                 let live: Vec<DecisionRecord> = tx
@@ -302,8 +320,8 @@ impl Operations {
                 // An equal pending request is joined, never duplicated.
                 if let Some(existing) = live.iter().find(|d| {
                     matches!(&d.kind, DecisionKind::AddEnvironment {
-                        realization: EnvironmentRealization::Container { label, .. }, ..
-                    } if *label == wanted)
+                        realization: other, ..
+                    } if same_request(other, &realization))
                 }) {
                     return Ok(Ok(existing.id.clone()));
                 }
@@ -311,11 +329,8 @@ impl Operations {
                     id: decision_id,
                     kind: DecisionKind::AddEnvironment {
                         environment,
-                        realization: EnvironmentRealization::Container {
-                            label: wanted,
-                            dir_tag,
-                        },
-                        disclosures: EnvironmentDisclosure::CONTAINER.to_vec(),
+                        realization,
+                        disclosures,
                     },
                     generation: current,
                     created_at: now,
@@ -328,17 +343,17 @@ impl Operations {
                 Ok(Ok(d.id))
             })
             .await??;
-        Err(approval_needed(
-            caller.is_attended(),
-            decided.as_str(),
-            "adding a container environment needs an attended owner decision (AddEnvironment)",
+        Err(
+            approval_needed(caller.is_attended(), decided.as_str(), message)
+                .with_resource("decision", Some(decided.to_string())),
         )
-        .with_resource("decision", Some(decided.to_string())))
     }
 
-    /// After `Operations::decide` committed an `AddEnvironment`: create the stable
-    /// directory and answer the environment's view. Never fails the decide (the record is
-    /// durable); a failure to create the directory is repaired by the next `ensure`.
+    /// After `Operations::decide` committed an `AddEnvironment`: a container's stable
+    /// directory is created; a WSL Mode B environment's row takes its running state
+    /// ([`Operations::wsl_after_decision`]). Answers the environment's view. Never fails the
+    /// decide (the record is durable); a failure to create the directory is repaired by the
+    /// next `ensure`.
     pub(super) async fn container_after_decision(
         &self,
         record: &DecisionRecord,
@@ -346,7 +361,7 @@ impl Operations {
     ) -> Option<serde_json::Value> {
         let DecisionKind::AddEnvironment {
             environment,
-            realization: EnvironmentRealization::Container { dir_tag, .. },
+            realization,
             ..
         } = &record.kind
         else {
@@ -355,21 +370,34 @@ impl Operations {
         if verdict != Verdict::Approve {
             return None;
         }
-        if let Some(effects) = self.container_effects() {
-            let tag = dir_tag.clone();
-            let made =
-                tokio::task::spawn_blocking(move || effects.container_directory_create(&tag)).await;
-            if !matches!(made, Ok(Ok(_))) {
-                tracing::warn!(
-                    "the container directory could not be created; the next ensure repairs it"
-                );
+        match realization {
+            EnvironmentRealization::Container { dir_tag, .. } => {
+                if let Some(effects) = self.container_effects() {
+                    let tag = dir_tag.clone();
+                    let made = tokio::task::spawn_blocking(move || {
+                        effects.container_directory_create(&tag)
+                    })
+                    .await;
+                    if !matches!(made, Ok(Ok(_))) {
+                        tracing::warn!(
+                            "the container directory could not be created; the next ensure repairs it"
+                        );
+                    }
+                }
+                self.container_environment_view(environment).await
             }
+            EnvironmentRealization::Wsl { guid, .. } => {
+                self.wsl_after_decision(environment, guid).await
+            }
+            _ => None,
         }
-        self.container_environment_view(environment).await
     }
 
     /// The view of one managed environment, `None` when it has no row.
-    async fn container_environment_view(&self, id: &EnvironmentId) -> Option<serde_json::Value> {
+    pub(super) async fn container_environment_view(
+        &self,
+        id: &EnvironmentId,
+    ) -> Option<serde_json::Value> {
         let id = id.clone();
         let dirs = self.container_effects();
         self.write(move |tx, _| {
@@ -486,7 +514,7 @@ pub(super) fn decision_precheck(
     }
     let DecisionKind::AddEnvironment {
         environment,
-        realization: EnvironmentRealization::Container { label, dir_tag },
+        realization,
         ..
     } = &d.kind
     else {
@@ -494,18 +522,80 @@ pub(super) fn decision_precheck(
             "this decision kind is not available in this build",
         )));
     };
-    if !label_ok(label) || !tag_ok(dir_tag) {
-        return Ok(Err(stale("the recorded environment is malformed")));
+    match realization {
+        EnvironmentRealization::Container { label, dir_tag } => {
+            if !label_ok(label) || !tag_ok(dir_tag) {
+                return Ok(Err(stale("the recorded environment is malformed")));
+            }
+            if tx.managed_environment(environment)?.is_some() {
+                return Ok(Err(stale("this environment already exists")));
+            }
+            if container_label_in_use(tx, own, label)? {
+                return Ok(Err(stale(
+                    "a container environment now uses this label; add it again",
+                )));
+            }
+            Ok(Ok(None))
+        }
+        EnvironmentRealization::Wsl {
+            guid,
+            name,
+            account,
+        } => crate::operations::wsl_m04::decision_precheck_wsl(
+            tx,
+            own,
+            environment,
+            guid,
+            name,
+            account,
+        ),
+        _ => Ok(Err(OpError::driver_unavailable(
+            "this environment realization is not available in this build",
+        ))),
     }
-    if tx.managed_environment(environment)?.is_some() {
-        return Ok(Err(stale("this environment already exists")));
+}
+
+/// The refusal of a request whose realization is already in use inside the transaction, or
+/// `None` (the realization-specific rule of [`Operations::request_add_environment`]).
+fn in_use_refusal(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    realization: &EnvironmentRealization,
+) -> heimdall_store::Result<Option<OpError>> {
+    match realization {
+        EnvironmentRealization::Container { label, .. } => {
+            Ok(container_label_in_use(tx, own, label)?
+                .then(|| usage("a container environment already uses this label")))
+        }
+        EnvironmentRealization::Wsl { guid, .. } => {
+            crate::operations::wsl_m04::mode_b_in_use(tx, own, guid)
+        }
+        _ => Ok(None),
     }
-    if container_label_in_use(tx, own, label)? {
-        return Ok(Err(stale(
-            "a container environment now uses this label; add it again",
-        )));
+}
+
+/// Whether two pending requests ask for the same environment: the same container label, or
+/// the same distribution and account.
+fn same_request(a: &EnvironmentRealization, b: &EnvironmentRealization) -> bool {
+    match (a, b) {
+        (
+            EnvironmentRealization::Container { label: x, .. },
+            EnvironmentRealization::Container { label: y, .. },
+        ) => x == y,
+        (
+            EnvironmentRealization::Wsl {
+                guid: g1,
+                account: a1,
+                ..
+            },
+            EnvironmentRealization::Wsl {
+                guid: g2,
+                account: a2,
+                ..
+            },
+        ) => g1 == g2 && a1 == a2,
+        _ => false,
     }
-    Ok(Ok(None))
 }
 
 fn stale(msg: &str) -> OpError {
@@ -513,7 +603,7 @@ fn stale(msg: &str) -> OpError {
 }
 
 /// After the store completed `record` (same transaction): approval inserts the row and the
-/// environment's record. A denial changes nothing. An inner `Err` rolls the decide
+/// environment's record (and a Mode B distribution's `mode_b`). A denial changes nothing. An inner `Err` rolls the decide
 /// transaction back.
 pub(super) fn decision_apply(
     tx: &mut Txn<'_>,
@@ -533,8 +623,19 @@ pub(super) fn decision_apply(
     else {
         return Ok(Ok(()));
     };
-    let EnvironmentRealization::Container { label, .. } = realization else {
-        return Ok(Err(internal("an AddEnvironment record is not a container")));
+    let (kind, label) = match realization {
+        EnvironmentRealization::Container { label, .. } => {
+            (EnvironmentKind::Container, Some(label.clone()))
+        }
+        EnvironmentRealization::Wsl { name, .. } => (
+            EnvironmentKind::WslDistribution,
+            Some(name.clone()).filter(|n| label_ok(n)),
+        ),
+        _ => {
+            return Ok(Err(internal(
+                "an AddEnvironment record names an unknown realization",
+            )));
+        }
     };
     let Some(own) = tx.self_environment()? else {
         return Ok(Err(internal("this installation has no environment")));
@@ -563,14 +664,18 @@ pub(super) fn decision_apply(
     tx.upsert_environment(&heimdall_domain::environment::EnvironmentRecord {
         id: environment.clone(),
         device,
-        kind: EnvironmentKind::Container,
-        label: Some(label.clone()),
+        kind,
+        label,
         permissions: EnvironmentPermissions {
             automatic_activation: false,
             managed_signing: true,
             issuer_access: false,
         },
     })?;
+    // ⟨M04 U4b⟩ A Mode B environment is also its distribution's `mode_b`.
+    if let EnvironmentRealization::Wsl { guid, name, .. } = realization {
+        crate::operations::wsl_m04::record_mode_b(tx, guid, name, environment, now)?;
+    }
     Ok(Ok(()))
 }
 
@@ -665,9 +770,11 @@ pub(crate) fn admit_binding(
 
 // --- the result's realization -----------------------------------------------------------
 
-/// A container binding's `ensure` result (design §7): the native `signing_endpoint` and
-/// `ssh_config_include` carry no host path; the in-container endpoint and the mount
-/// instruction are the realization. Other environments are untouched.
+/// A container or WSL Mode B binding's `ensure` result (design §7): the native
+/// `signing_endpoint` and `ssh_config_include` carry no host path; the in-environment
+/// endpoint and the realization descriptor are the answer. A container's is the mount
+/// instruction; a Mode B distribution's names the socket and `ssh_config` inside the
+/// distribution (no mount). Other environments are untouched.
 pub(crate) fn finish_integration(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
@@ -678,6 +785,9 @@ pub(crate) fn finish_integration(
         return Ok(());
     };
     let EnvironmentRealization::Container { dir_tag, .. } = &row.realization else {
+        if matches!(row.realization, EnvironmentRealization::Wsl { .. }) {
+            finish_wsl_integration(consumer);
+        }
         return Ok(());
     };
     let directory = directory_of(dir_tag).map_or_else(
@@ -698,4 +808,43 @@ pub(crate) fn finish_integration(
     consumer.environment.clone_from(&descriptor.environment);
     consumer.realization = Some(descriptor);
     Ok(())
+}
+
+/// ⟨M04 U4b⟩ The mode B descriptor (design §1): `endpoint` is the binding's socket inside
+/// the distribution, `config` the `ssh_config` beside it (`<run>/b/<tag>/ssh_config`),
+/// `environment` is `SSH_AUTH_SOCK` and `GIT_SSH_COMMAND=ssh -F <config>`, and there is no
+/// mount. The native fields carry no path: Linux `ssh` and Git use the descriptor directly,
+/// and nothing is written into the distribution user's `~/.ssh`.
+fn finish_wsl_integration(consumer: &mut ConsumerIntegration) {
+    let socket = consumer.signing_endpoint.take().or_else(|| {
+        consumer
+            .pairs
+            .iter()
+            .find_map(|p| p.endpoint.as_ref().map(|e| e.locator.clone()))
+    });
+    consumer.ssh_config_include = None;
+    let Some(socket) = socket else { return };
+    let Some((directory, _)) = socket.rsplit_once('/') else {
+        return;
+    };
+    let config = format!("{directory}/ssh_config");
+    let descriptor = wsl_realization_descriptor(&socket, &config);
+    consumer.environment.clone_from(&descriptor.environment);
+    consumer.realization = Some(descriptor);
+}
+
+/// ⟨M04 U4b⟩ The realization descriptor of a Mode B binding whose endpoint is `socket` and
+/// whose OpenSSH configuration is `config`, both Linux paths inside the distribution.
+#[must_use]
+pub fn wsl_realization_descriptor(socket: &str, config: &str) -> RealizationDescriptor {
+    RealizationDescriptor {
+        environment_kind: EnvironmentKindView::WslDistribution,
+        endpoint: Some(socket.to_owned()),
+        config: Some(config.to_owned()),
+        mount: None,
+        environment: vec![
+            ("SSH_AUTH_SOCK".to_owned(), socket.to_owned()),
+            ("GIT_SSH_COMMAND".to_owned(), format!("ssh -F {config}")),
+        ],
+    }
 }

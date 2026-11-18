@@ -49,19 +49,14 @@
     missing_docs
 )]
 
-#[path = "exit_m03/procs.rs"]
-pub(crate) mod procs;
-#[path = "exit_m03/world.rs"]
-mod world;
-
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use crate::world::{self, Out, World, WorldOptions, platform, run_bounded};
 use heimdall_contract::Timestamp;
 use serde_json::Value;
-use world::{Out, World, WorldOptions, platform, run_bounded};
 
 const ENGINE_ENV: &str = "HEIMDALL_M04_CONTAINER_ENGINE";
 const IMAGE_ENV: &str = "HEIMDALL_M04_CONTAINER_IMAGE";

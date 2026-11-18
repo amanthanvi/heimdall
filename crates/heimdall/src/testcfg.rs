@@ -261,15 +261,75 @@ pub const WSL_CRASH_ENV: &str = "HEIMDALL_TEST_WSL_CRASH";
 /// otherwise); read only by the runtime's WSL wiring in a debug build.
 pub const WSL_HELPER_ENV: &str = "HEIMDALL_WSL_HELPER";
 
+/// ⟨M04 W2⟩ Absolute path of a JSON file `{"guid", "name", "default_uid", "helper_env":
+/// [[name, value], …]}`: the runtime and the CLI then see exactly one WSL distribution, whose
+/// helper is this binary's own `internal wsl-helper`, started directly with exactly
+/// `helper_env` as its environment ([`wsl_direct_host`]). The stand-in for `wsl.exe` and the
+/// Lxss registry on a host without WSL, so Mode A and Mode B run end to end through the real
+/// binary (mechanism evidence; the native rows run on Windows).
+pub const WSL_DIRECT_ENV: &str = "HEIMDALL_TEST_WSL_DIRECT";
+
 /// ⟨M04⟩ Every variable the WSL helper's test configuration adds. [`requested_by`] covers it,
 /// so a release build refuses them like every other test variable.
-pub const WSL_ENV: [&str; 5] = [
+pub const WSL_ENV: [&str; 6] = [
     WSL_HELPER_ID_ENV,
     WSL_HOME_ENV,
     WSL_SSH_EXE_ENV,
     WSL_CRASH_ENV,
     WSL_HELPER_ENV,
+    WSL_DIRECT_ENV,
 ];
+
+/// ⟨M04 W2⟩ The WSL host [`WSL_DIRECT_ENV`] describes, or `None` when it is unset. Debug only.
+///
+/// # Errors
+/// A message naming the variable: the file cannot be read, is not the expected JSON, names a
+/// malformed GUID, or this executable cannot be located.
+#[cfg(debug_assertions)]
+pub fn wsl_direct_host(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<heimdall_wsl::WslHost>, String> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Direct {
+        guid: String,
+        name: String,
+        default_uid: Option<u32>,
+        helper_env: Vec<(String, String)>,
+    }
+    let Some(file) = env(WSL_DIRECT_ENV) else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(&file)
+        .map_err(|e| format!("{WSL_DIRECT_ENV}: cannot read the file: {}", e.kind()))?;
+    let d: Direct = serde_json::from_str(&text)
+        .map_err(|_| format!("{WSL_DIRECT_ENV}: not the expected JSON"))?;
+    let guid = heimdall_contract::environment::DistributionGuid::parse(&d.guid)
+        .map_err(|_| format!("{WSL_DIRECT_ENV}: a malformed GUID"))?;
+    let exe = std::env::current_exe().map_err(|e| {
+        format!(
+            "{WSL_DIRECT_ENV}: cannot locate this executable: {}",
+            e.kind()
+        )
+    })?;
+    let launcher = heimdall_wsl::DirectLauncher::new(
+        exe,
+        vec!["internal".into(), "wsl-helper".into()],
+        d.helper_env
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
+    );
+    Ok(Some(heimdall_wsl::WslHost::with_direct_helper(
+        launcher,
+        vec![heimdall_app::ports::DiscoveredDistribution {
+            guid,
+            name: d.name,
+            version: 2,
+            default_uid: d.default_uid,
+        }],
+    )))
+}
 
 /// ⟨M03⟩ The longest key seed accepted, in bytes.
 const KEY_SEED_MAX_BYTES: usize = 64;

@@ -29,6 +29,12 @@ const ROWS: &[(&[&str], i32, &str, Option<&str>)] = &[
         "CAPABILITY_UNAVAILABLE",
         Some("wsl_unavailable"),
     ),
+    (
+        &["wsl", "enable", "Debian", "--mode-b", "--account", "dev"],
+        4,
+        "CAPABILITY_UNAVAILABLE",
+        Some("wsl_unavailable"),
+    ),
     (&["wsl", "enable", "Debian"], 2, "USAGE_ERROR", None),
     (
         &["wsl", "disable", "Debian", "--start"],

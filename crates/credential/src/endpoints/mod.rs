@@ -49,7 +49,7 @@ use heimdall_app::ports::{
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::enrollment::EnrollmentPlan;
-use heimdall_contract::ids::{BindingId, OperationId, ResourceId};
+use heimdall_contract::ids::{BindingId, EnvironmentId, OperationId, ResourceId};
 use heimdall_contract::ipc::MAX_SIGNING_CONNECTIONS;
 use heimdall_contract::provider::{EndpointKind as TransportKind, EndpointRef};
 use heimdall_domain::resource::{
@@ -143,6 +143,14 @@ pub enum EndpointPlacement {
     Container {
         /// The 16-hex directory tag of the environment's realization.
         dir_tag: String,
+    },
+    /// ⟨M04 U4b⟩ A WSL Mode B distribution (ADR-0010 §3 items 5–6): the endpoint is a socket
+    /// inside the distribution at `<run>/b/<tag>/agent.sock`, served by the supervised helper;
+    /// each relayed stream is served by the binding's signer ([`wsl`]). Every binding gets
+    /// its own random tag, so two distributions (and two bindings) never share a path.
+    WslBridge {
+        /// The Mode B environment (the realizer's key).
+        environment: EnvironmentId,
     },
 }
 
@@ -391,6 +399,11 @@ pub enum EndpointError {
     /// session of the same operation is alive).
     #[error("verification gate already open")]
     GateOpen,
+    /// ⟨M04 U4b⟩ A WSL Mode B endpoint could not be created: the bridge supervisor's
+    /// nonsecret reason (`wsl_distribution_not_running`, `wsl_helper_unavailable`,
+    /// `wsl_unavailable`).
+    #[error("{0}")]
+    Wsl(String),
 }
 
 impl From<EndpointError> for AdapterError {
@@ -520,21 +533,33 @@ struct Running {
     endpoint: EndpointRef,
     signer: Arc<ManagedSigner>,
     stop: CancellationToken,
-    task: tokio::task::JoinHandle<()>,
+    /// The accept loop; none for a WSL Mode B endpoint (the helper accepts, inside the
+    /// distribution).
+    task: Option<tokio::task::JoinHandle<()>>,
     dir: Option<PathBuf>,
     /// ⟨M04⟩ `(st_dev, st_ino)` of the socket this instance bound (Unix): a stop removes the
     /// socket file only while the path still names that socket, so a replacement already
     /// listening at the same (stable) path is never unlinked (R-RT-04).
     identity: Option<(u64, u64)>,
+    /// ⟨M04 U4b⟩ A Mode B endpoint's tie to its bridge supervisor: stopping it withdraws
+    /// exactly its generation inside the distribution (blocking, bounded by the helper
+    /// channel's 30 s). It has no local socket, so no local file is removed.
+    wsl: Option<wsl::WslLease>,
 }
 
 impl Running {
     /// Stop accepting, end every connection, remove the socket and its private
-    /// directory (Unix). Synchronous; safe in `Drop`.
+    /// directory (Unix); a Mode B endpoint is withdrawn inside its distribution instead.
+    /// Synchronous; safe in `Drop`.
     fn stop(self) {
         self.stop.cancel();
-        self.task.abort();
-        remove_endpoint_files(&self.endpoint, self.dir.as_deref(), self.identity);
+        if let Some(task) = &self.task {
+            task.abort();
+        }
+        match &self.wsl {
+            Some(lease) => lease.withdraw(),
+            None => remove_endpoint_files(&self.endpoint, self.dir.as_deref(), self.identity),
+        }
     }
 }
 
@@ -596,6 +621,9 @@ struct RegistryInner {
     /// ⟨INT-Q13⟩ The runtime's signing gates (`Operations::signing_gates`): each
     /// verification session opens its operation's verification gate here.
     gates: Option<SigningGates>,
+    /// ⟨M04 U4b⟩ The runtime's bridge supervisor (set once, after the registry exists: it
+    /// needs this registry's signers).
+    wsl: std::sync::OnceLock<Arc<dyn wsl::WslRealizer>>,
     state: Mutex<RegistryState>,
 }
 
@@ -645,9 +673,10 @@ impl RegistryInner {
             endpoint,
             signer,
             stop,
-            task,
+            task: Some(task),
             dir,
             identity,
+            wsl: None,
         })
     }
 }
@@ -715,6 +744,7 @@ impl EndpointRegistry {
                 shutdown,
                 hook: None,
                 gates: None,
+                wsl: std::sync::OnceLock::new(),
                 state: Mutex::new(RegistryState::default()),
             }),
         }
@@ -735,6 +765,7 @@ impl EndpointRegistry {
                 shutdown: inner.shutdown.clone(),
                 hook: Some(hook),
                 gates: inner.gates.clone(),
+                wsl: std::sync::OnceLock::new(),
                 state: Mutex::new(RegistryState::default()),
             }),
         }
@@ -761,6 +792,7 @@ impl EndpointRegistry {
                 shutdown: inner.shutdown.clone(),
                 hook: inner.hook.clone(),
                 gates: Some(gates),
+                wsl: std::sync::OnceLock::new(),
                 state: Mutex::new(RegistryState::default()),
             }),
         }
@@ -840,6 +872,9 @@ impl EndpointRegistry {
             EndpointPlacement::Native => self.create_binding_native(binding, generation),
             EndpointPlacement::Container { dir_tag } => {
                 self.create_binding_container(binding, generation, dir_tag)
+            }
+            EndpointPlacement::WslBridge { environment } => {
+                self.create_binding_wsl(binding, generation, environment)
             }
         }
     }
@@ -1089,7 +1124,12 @@ impl VerificationEndpoints for EndpointRegistry {
 #[async_trait]
 impl ResourceCleaner for EndpointRegistry {
     async fn delete(&self, resource: &ManagedResource) -> Result<(), AdapterError> {
-        self.remove(resource)
+        // ⟨M04 U4b⟩ A Mode B endpoint's removal asks the helper (blocking, bounded): the
+        // blocking pool, never an async worker.
+        let (this, resource) = (self.clone(), resource.clone());
+        tokio::task::spawn_blocking(move || this.remove(&resource))
+            .await
+            .map_err(|_| AdapterError::Unavailable("endpoint removal did not finish".to_owned()))?
     }
 }
 

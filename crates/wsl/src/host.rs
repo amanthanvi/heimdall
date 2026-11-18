@@ -114,6 +114,13 @@ impl WslHost {
         }
     }
 
+    /// ⟨M04 U4b⟩ The helper launcher this host starts helpers with, for the Mode B bridge
+    /// supervisor (it starts its own long-lived session through it).
+    #[must_use]
+    pub fn launcher(&self) -> Arc<dyn HelperLauncher> {
+        Arc::clone(&self.launcher)
+    }
+
     fn preflight(
         &self,
         target: &DistributionTarget,

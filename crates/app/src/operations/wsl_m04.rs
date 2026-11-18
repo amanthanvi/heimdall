@@ -17,8 +17,17 @@
 //! reported obligation (`cleanup_pending`), and the record keeps its namespace and every
 //! owned resource. A rollback is never claimed without being done.
 //!
-//! **Mode B** is wave 2's (U4). Until then a `mode_b` request answers `driver_unavailable`,
-//! before anything is read or written.
+//! **Mode B** (ADR-0010 §3; U4b): `wsl_enable {mode_b}` creates an
+//! [`DecisionKind::AddEnvironment`] decision for a [`EnvironmentRealization::Wsl`]
+//! environment (the container's decision path, generalized by kind in `container_m04`).
+//! Approval inserts the `managed_environments` row, the environment's record and the
+//! distribution record's `mode_b`; the row then takes its running state. `wsl_disable`
+//! takes the environment out of the set (every binding ends and withdraws through the
+//! grants' own cleanup), stops the helper and clears `mode_b`. A stopped distribution is
+//! never started for it unless the request carries `start`; the in-distribution leftovers
+//! are then reported (`cleanup_pending`) and removed by the next helper start. Only the
+//! owner's own `ensure` naming the environment starts a stopped distribution
+//! ([`Operations::wsl_start_for_ensure`]); nothing in the background does.
 //!
 //! Both requests are owner-only: the dispatcher refuses any other role first, and so does
 //! [`Operations::wsl_request`].
@@ -32,14 +41,21 @@ use heimdall_contract::environment::{
     DistributionGuid, EnvironmentKindView, EnvironmentRequest, EnvironmentState, EnvironmentView,
     MAX_ENVIRONMENT_LABEL_BYTES, RealizationView, WslMode,
 };
-use heimdall_contract::ids::OperationId;
+use heimdall_contract::ids::{EnvironmentId, OperationId};
 use heimdall_contract::setup::ProjectionItem;
-use heimdall_domain::environment::WslDistributionRecord;
+use heimdall_domain::environment::{
+    EnvironmentDisclosure, EnvironmentRealization, ManagedState, WslDistributionRecord,
+};
+use heimdall_domain::operation::OperationRecord;
+use heimdall_store::Txn;
 
+use super::internal;
 use crate::Operations;
 use crate::context::Caller;
 use crate::error::{Completed, OpError, OpResult};
-use crate::ports::{DiscoveredDistribution, DistributionHost, DistributionTarget, RunningState};
+use crate::ports::{
+    AdapterError, DiscoveredDistribution, DistributionHost, DistributionTarget, RunningState,
+};
 
 /// The per-instance WSL state: the host, when the runtime wired one, and the setup
 /// operations whose driver may start a stopped distribution right now.
@@ -351,6 +367,23 @@ impl Operations {
                 });
             }
         }
+        // ⟨M04 U4b⟩ A Mode B row's helper state, from the bridge supervisor.
+        if let Some(effects) = self.container_effects() {
+            for item in items.iter_mut() {
+                let is_b = item["kind"] == "wsl_distribution"
+                    && matches!(item["state"].as_str(), Some("active" | "not_running"))
+                    && item["realization"]["modes"]
+                        .as_array()
+                        .is_some_and(|m| m.iter().any(|x| x == "b"));
+                let id = serde_json::from_value::<EnvironmentId>(item["environment_id"].clone());
+                if let (true, Ok(id)) = (is_b, id)
+                    && let Some(helper) = effects.helper_state(&id)
+                    && let Ok(v) = serde_json::to_value(helper)
+                {
+                    item["realization"]["helper"] = v;
+                }
+            }
+        }
         data
     }
 
@@ -380,7 +413,7 @@ impl Operations {
                 mode_a,
                 mode_b,
             } => {
-                self.wsl_enable(distribution_guid, account, mode_a, mode_b)
+                self.wsl_enable(caller, distribution_guid, account, mode_a, mode_b)
                     .await
             }
             EnvironmentRequest::WslDisable {
@@ -422,22 +455,36 @@ impl Operations {
 
     async fn wsl_enable(
         &self,
+        caller: &Caller,
         guid: DistributionGuid,
         account: String,
         mode_a: bool,
         mode_b: bool,
     ) -> OpResult<serde_json::Value> {
-        if mode_b {
-            return Err(OpError::driver_unavailable(
-                "WSL Mode B is not available in this build",
-            ));
-        }
-        if !mode_a {
+        if !mode_a && !mode_b {
             return Err(usage("name at least one mode (--mode-a or --mode-b)"));
         }
         if !account_ok(&account) {
             return Err(usage("the Linux account name is not acceptable"));
         }
+        if mode_b {
+            // Mode B's refusals come first, with nothing written; Mode A (when named too) is
+            // then recorded, and Mode B answers its decision.
+            let plan = self.wsl_mode_b_plan(&guid, &account).await?;
+            if mode_a {
+                self.wsl_enable_mode_a(guid.clone(), account.clone())
+                    .await?;
+            }
+            return self.wsl_mode_b_request(caller, plan, guid, account).await;
+        }
+        self.wsl_enable_mode_a(guid, account).await
+    }
+
+    async fn wsl_enable_mode_a(
+        &self,
+        guid: DistributionGuid,
+        account: String,
+    ) -> OpResult<serde_json::Value> {
         let (_host, found, running) = self.wsl_discover(&guid).await?;
         // The owner's explicit action on this distribution: finish what it left first.
         self.redrive_distribution_setups(Some(&guid), true).await;
@@ -506,11 +553,6 @@ impl Operations {
                 let Some(mut rec) = tx.wsl_distribution(&guid)? else {
                     return Ok(Err(unknown_distribution()));
                 };
-                if rec.mode_b.is_some() {
-                    return Ok(Err(OpError::driver_unavailable(
-                        "WSL Mode B is not available in this build",
-                    )));
-                }
                 let live = match &rec.namespace {
                     Some(ns) => tx.projection_record(ns)?.is_some_and(|r| {
                         r.items
@@ -533,13 +575,426 @@ impl Operations {
                 Ok(Ok((rec, live)))
             })
             .await??;
+        // ⟨M04 U4b⟩ Mode B: the environment leaves the set, its endpoints withdraw, the
+        // helper stops (after Mode A's own check above, which refuses with nothing written).
+        let mut removed_view = None;
+        let mut b_pending = false;
+        if let Some(env) = rec.mode_b.clone() {
+            b_pending = self.wsl_disable_mode_b(&rec.guid, &env, start).await?;
+            removed_view = self.container_environment_view(&env).await;
+        } else if rec.namespace.is_none() {
+            // Idempotent: a distribution with no Mode A items answers its newest removed (or
+            // gone) Mode B environment, whose record no longer names it.
+            let (g, own) = (rec.guid.clone(), self.environment().clone());
+            let past = self
+                .write(move |tx, _| {
+                    Ok(tx
+                        .managed_environments()?
+                        .into_iter()
+                        .filter(|r| {
+                            r.controller == own
+                                && !r.state.in_set()
+                                && matches!(&r.realization,
+                                    EnvironmentRealization::Wsl { guid, .. } if *guid == g)
+                        })
+                        .max_by_key(|r| r.updated_at)
+                        .map(|r| r.environment))
+                })
+                .await?;
+            if let Some(env) = past {
+                // ⟨M04 W2⟩ Its leftovers in a stopped distribution are still owed: reported,
+                // and removed by this request's `start` (the helper start's cleanup).
+                b_pending = self.wsl_disable_mode_b(&rec.guid, &env, start).await?;
+                removed_view = self.container_environment_view(&env).await;
+            }
+        }
         // A retained cleanup is reported in the data (I-7): the distribution was not
         // running and the request did not carry `start`, so its Git item was not rolled
         // back, and the record keeps its namespace and owned resources until `wsl disable
-        // --start`, or a `wsl disable` while it runs, rolls it back.
-        let mut data = view_data(distribution_view(&rec, running))?;
-        data["cleanup_pending"] = serde_json::Value::Bool(retained);
+        // --start`, or a `wsl disable` while it runs, rolls it back. A Mode B environment's
+        // answer is its (now removed) view.
+        let mut data = match removed_view {
+            Some(view) => serde_json::json!({ "environment": view }),
+            None => view_data(distribution_view(&rec, running))?,
+        };
+        data["cleanup_pending"] = serde_json::Value::Bool(retained || b_pending);
         Ok(Completed::ok(Code::Ok, data))
+    }
+}
+
+/// What [`Operations::wsl_mode_b_plan`] found.
+enum ModeBPlan {
+    /// Already enabled for this account.
+    Existing(EnvironmentId),
+    /// To be enabled: the distribution's current name.
+    Fresh { name: String },
+}
+
+// --- Mode B (ADR-0010 §3; U4b) ------------------------------------------------------------------
+
+fn stale(msg: &str) -> OpError {
+    OpError::new(Code::DecisionStale, msg.to_owned())
+}
+
+/// The refusal reasons of a WSL helper or host `Unavailable` text.
+fn wsl_refusal(why: &str) -> OpError {
+    let r = crate::setup::unavailable_reason(why);
+    let code = if r == reason::WSL_DISTRIBUTION_NOT_RUNNING {
+        Code::ServiceUnavailable
+    } else {
+        Code::CapabilityUnavailable
+    };
+    OpError::new(
+        code,
+        format!("the distribution's helper is unavailable: {why}"),
+    )
+    .with_reason(r)
+    .with_effect(EffectStatus::None)
+}
+
+/// A Mode B environment of `guid` already in the managed set, or a retained cleanup on its
+/// record: the refusal of a second enable (inside the transaction).
+///
+/// # Errors
+/// A store error.
+pub(super) fn mode_b_in_use(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    guid: &DistributionGuid,
+) -> heimdall_store::Result<Option<OpError>> {
+    let enabled = tx.managed_environments()?.iter().any(|r| {
+        r.controller == *own
+            && r.state.in_set()
+            && matches!(&r.realization, EnvironmentRealization::Wsl { guid: g, .. } if g == guid)
+    });
+    if enabled {
+        return Ok(Some(conflict(
+            "Mode B is already enabled for this distribution: disable it first",
+        )));
+    }
+    if tx
+        .wsl_distribution(guid)?
+        .is_some_and(|r| r.cleanup_pending)
+    {
+        return Ok(Some(conflict(
+            "the distribution has a retained cleanup: run `heimdall wsl disable <name> --start` first",
+        )));
+    }
+    Ok(None)
+}
+
+/// Before the approval of a Mode B environment completes (`decisions_m03::precheck`'s
+/// contract): refuse with nothing written.
+pub(super) fn decision_precheck_wsl(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    environment: &EnvironmentId,
+    guid: &DistributionGuid,
+    name: &str,
+    account: &str,
+) -> heimdall_store::Result<Result<Option<OperationRecord>, OpError>> {
+    if !account_ok(account) || name.is_empty() {
+        return Ok(Err(stale("the recorded environment is malformed")));
+    }
+    if tx.managed_environment(environment)?.is_some() {
+        return Ok(Err(stale("this environment already exists")));
+    }
+    if mode_b_in_use(tx, own, guid)?.is_some() {
+        return Ok(Err(stale(
+            "Mode B is now enabled for this distribution; enable it again after disabling",
+        )));
+    }
+    Ok(Ok(None))
+}
+
+/// Record `environment` as `guid`'s Mode B environment (inside the approval's transaction).
+///
+/// # Errors
+/// A store error.
+pub(super) fn record_mode_b(
+    tx: &mut Txn<'_>,
+    guid: &DistributionGuid,
+    name: &str,
+    environment: &EnvironmentId,
+    now: heimdall_contract::Timestamp,
+) -> heimdall_store::Result<()> {
+    let mut rec = tx
+        .wsl_distribution(guid)?
+        .unwrap_or_else(|| WslDistributionRecord {
+            guid: guid.clone(),
+            name: name.to_owned(),
+            mode_a: false,
+            mode_b: None,
+            cleanup_pending: false,
+            account: None,
+            namespace: None,
+            updated_at: now,
+        });
+    rec.name = name.to_owned();
+    rec.mode_b = Some(environment.clone());
+    rec.updated_at = now;
+    tx.put_wsl_distribution(&rec)
+}
+
+impl Operations {
+    /// ⟨M04 U4b⟩ Mode B's refusals, before anything is written: the host, the registration,
+    /// a supervisor (`driver_unavailable` without one), and the distribution's existing Mode B
+    /// environment (the same account: idempotent; another: a conflict).
+    async fn wsl_mode_b_plan(
+        &self,
+        guid: &DistributionGuid,
+        account: &str,
+    ) -> Result<ModeBPlan, OpError> {
+        let (_host, found, _running) = self.wsl_discover(guid).await?;
+        if !self
+            .container_effects()
+            .is_some_and(|e| e.wsl_mode_b_supported())
+        {
+            return Err(OpError::driver_unavailable(
+                "WSL Mode B is not available in this runtime",
+            ));
+        }
+        let (own, g, acct) = (self.environment().clone(), guid.clone(), account.to_owned());
+        let existing = self
+            .write(move |tx, _| {
+                for r in tx.managed_environments()? {
+                    if r.controller == own
+                        && r.state.in_set()
+                        && let EnvironmentRealization::Wsl {
+                            guid, account: a, ..
+                        } = &r.realization
+                        && *guid == g
+                    {
+                        return Ok(Some((r.environment.clone(), *a == acct)));
+                    }
+                }
+                Ok(None)
+            })
+            .await?;
+        match existing {
+            Some((env, true)) => Ok(ModeBPlan::Existing(env)),
+            Some((_, false)) => Err(conflict(
+                "Mode B is enabled for another account: disable it first",
+            )),
+            None => Ok(ModeBPlan::Fresh { name: found.name }),
+        }
+    }
+
+    /// `wsl_enable {mode_b}`: an `AddEnvironment` decision for the distribution and account
+    /// (an environment already enabled for the same account answers `OK` with its view).
+    async fn wsl_mode_b_request(
+        &self,
+        caller: &Caller,
+        plan: ModeBPlan,
+        guid: DistributionGuid,
+        account: String,
+    ) -> OpResult<serde_json::Value> {
+        let name = match plan {
+            ModeBPlan::Existing(env) => {
+                let view = self.wsl_after_decision(&env, &guid).await;
+                return Ok(Completed::ok(
+                    Code::Ok,
+                    serde_json::json!({ "environment": view }),
+                ));
+            }
+            ModeBPlan::Fresh { name } => name,
+        };
+        self.request_add_environment(
+            caller,
+            EnvironmentRealization::Wsl {
+                guid,
+                name,
+                account,
+            },
+            EnvironmentDisclosure::MODE_B.to_vec(),
+            "enabling WSL Mode B needs an attended owner decision (AddEnvironment)",
+        )
+        .await
+    }
+
+    /// After an approved Mode B environment (or an idempotent re-enable): the row takes its
+    /// running state from the host's listing, and the answer is the environment's view with
+    /// its helper state. Never fails the approval.
+    pub(super) async fn wsl_after_decision(
+        &self,
+        environment: &EnvironmentId,
+        guid: &DistributionGuid,
+    ) -> Option<serde_json::Value> {
+        if let Some(host) = self.distribution_host() {
+            let g = guid.clone();
+            if let Ok(running) = tokio::task::spawn_blocking(move || host.running(&g)).await {
+                let _ = self
+                    .set_environment_running(environment, running == RunningState::Running)
+                    .await;
+            }
+        }
+        let view = self.container_environment_view(environment).await?;
+        let data = self
+            .wsl_running_states(serde_json::json!({ "items": [view] }))
+            .await;
+        data.get("items")?.get(0).cloned()
+    }
+
+    /// ⟨M04 U4b⟩ Move a Mode B environment between `active` and `not_running` as its
+    /// distribution starts and stops (ADR-0010 §3 item 10). A removed or gone row, an
+    /// unknown one and a row already in that state are left as they are. Moves the authority
+    /// generation only when the state changes.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub async fn set_environment_running(
+        &self,
+        environment: &EnvironmentId,
+        running: bool,
+    ) -> Result<(), OpError> {
+        let to = if running {
+            ManagedState::Active
+        } else {
+            ManagedState::NotRunning
+        };
+        let (env, own, at) = (
+            environment.clone(),
+            self.environment().clone(),
+            self.local_clock_wall(),
+        );
+        self.write(move |tx, _| {
+            if let Some(row) = tx
+                .managed_environment(&env)?
+                .filter(|r| r.controller == own && r.state.in_set() && r.state != to)
+            {
+                tx.set_managed_environment_state(&env, row.state, to, at)?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// ⟨M04 U4b⟩ A Mode B distribution's GUID is no longer registered (ADR-0010 §3 item 13):
+    /// the environment retires as `gone` (every binding ends and withdraws through the
+    /// grants' own cleanup; no rollback of the distribution's files, which is gone), the
+    /// distribution record's `mode_b` clears, and what serves it stops. The supervisor calls
+    /// it; idempotent.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub async fn wsl_environment_gone(&self, environment: &EnvironmentId) -> Result<(), OpError> {
+        let (env, own) = (environment.clone(), self.environment().clone());
+        let row = self
+            .write(move |tx, _| {
+                Ok(tx
+                    .managed_environment(&env)?
+                    .filter(|r| r.controller == own))
+            })
+            .await?;
+        let Some(row) = row else { return Ok(()) };
+        if row.state.in_set() {
+            self.retire_managed_environment(environment, ManagedState::Gone)
+                .await?;
+        }
+        if let Some(effects) = self.container_effects() {
+            let env = environment.clone();
+            let _ =
+                tokio::task::spawn_blocking(move || effects.stop_environment(&env, false)).await;
+        }
+        self.clear_mode_b(environment).await
+    }
+
+    /// Clear `mode_b` of the record that names `environment`.
+    async fn clear_mode_b(&self, environment: &EnvironmentId) -> Result<(), OpError> {
+        let (env, at) = (environment.clone(), self.local_clock_wall());
+        self.write(move |tx, _| {
+            for mut rec in tx.wsl_distributions()? {
+                if rec.mode_b.as_ref() == Some(&env) {
+                    rec.mode_b = None;
+                    rec.updated_at = at;
+                    tx.put_wsl_distribution(&rec)?;
+                }
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// The Mode B half of `wsl_disable`: the environment leaves the set (each binding's
+    /// endpoint withdraws through its grant's cleanup), what serves it stops, and `mode_b`
+    /// clears. Idempotent. Returns whether in-distribution leftovers are a retained
+    /// obligation (the distribution was stopped and `start` was not given).
+    async fn wsl_disable_mode_b(
+        &self,
+        guid: &DistributionGuid,
+        environment: &EnvironmentId,
+        start: bool,
+    ) -> Result<bool, OpError> {
+        let _ = guid;
+        let (env, own) = (environment.clone(), self.environment().clone());
+        let row = self
+            .write(move |tx, _| {
+                Ok(tx
+                    .managed_environment(&env)?
+                    .filter(|r| r.controller == own))
+            })
+            .await?;
+        if row.as_ref().is_some_and(|r| r.state.in_set()) {
+            self.retire_managed_environment(environment, ManagedState::Removed)
+                .await?;
+        }
+        let mut pending = false;
+        if let Some(effects) = self.container_effects() {
+            let env = environment.clone();
+            pending = tokio::task::spawn_blocking(move || effects.stop_environment(&env, start))
+                .await
+                .map_err(|_| internal("the Mode B teardown did not finish"))?
+                .map_err(|_| {
+                    OpError::new(
+                        Code::StateUnavailable,
+                        "the Mode B endpoints could not be withdrawn; run the disable again",
+                    )
+                    .with_effect(EffectStatus::Partial)
+                })?;
+        }
+        self.clear_mode_b(environment).await?;
+        Ok(pending)
+    }
+
+    /// ⟨M04 U4b⟩ The owner's own `ensure` names `environment`: when it is a WSL Mode B
+    /// environment, start its helper (starting a stopped distribution if need be, ADR-0010
+    /// §3 item 9, §10 item 2) and move its row to `active`. Restart recovery, the supervisor
+    /// and the cleanup passes never call it. Any other environment is untouched.
+    ///
+    /// # Errors
+    /// The refusal named by the helper's reason (`wsl_distribution_not_running`,
+    /// `wsl_helper_unavailable`, `wsl_unavailable`), with nothing written.
+    pub(super) async fn wsl_start_for_ensure(
+        &self,
+        environment: &EnvironmentId,
+    ) -> Result<(), OpError> {
+        if environment == self.environment() {
+            return Ok(());
+        }
+        let env = environment.clone();
+        let is_wsl = self
+            .write(move |tx, _| {
+                Ok(tx.managed_environment(&env)?.is_some_and(|r| {
+                    r.state.in_set() && matches!(r.realization, EnvironmentRealization::Wsl { .. })
+                }))
+            })
+            .await?;
+        if !is_wsl {
+            return Ok(());
+        }
+        let effects = self.container_effects().ok_or_else(unavailable)?;
+        let env = environment.clone();
+        match tokio::task::spawn_blocking(move || effects.start_environment(&env))
+            .await
+            .map_err(|_| internal("the helper start did not finish"))?
+        {
+            Ok(()) => {}
+            Err(AdapterError::Unavailable(why) | AdapterError::Protocol(why)) => {
+                return Err(wsl_refusal(&why));
+            }
+            Err(_) => return Err(wsl_refusal("wsl_helper_unavailable")),
+        }
+        self.set_environment_running(environment, true).await
     }
 }
 

@@ -21,9 +21,7 @@
 
 use std::path::Path;
 
-use heimdall_app::environments::{
-    CONTAINER_AGENT_SOCKET, CONTAINER_KNOWN_HOSTS, CONTAINER_MOUNT_TARGET,
-};
+use heimdall_app::environments::CONTAINER_MOUNT_TARGET;
 use heimdall_contract::ids::DestinationId;
 use heimdall_sshconf::render::{
     AliasName, HostName, ManagedIdentityForm, PathStyle, RenderError, RenderPath, Section,
@@ -106,10 +104,8 @@ pub fn certificate_file(destination: &DestinationId) -> Result<String, Container
         .map_err(|_| ContainerRenderError::Destination)
 }
 
-fn in_container(name: &str) -> Result<RenderPath, ContainerRenderError> {
-    Ok(RenderPath::unix(
-        &Path::new(CONTAINER_MOUNT_TARGET).join(name),
-    )?)
+fn in_directory(directory: &str, name: &str) -> Result<RenderPath, ContainerRenderError> {
+    Ok(RenderPath::unix(&Path::new(directory).join(name))?)
 }
 
 fn host_key_ok(algorithm: &str, key: &str) -> bool {
@@ -128,11 +124,27 @@ fn host_key_ok(algorithm: &str, key: &str) -> bool {
 /// # Errors
 /// [`ContainerRenderError`]; nothing is partially rendered.
 pub fn render(pairs: &[ContainerPair]) -> Result<ContainerFiles, ContainerRenderError> {
+    render_in(pairs, CONTAINER_MOUNT_TARGET)
+}
+
+/// ⟨M04 U4b⟩ [`render`] with the files' directory `directory` (an absolute Unix path, no
+/// trailing separator) in place of the container's mount target: a WSL Mode B binding's
+/// directory `<run>/b/<tag>` inside the distribution (ADR-0010 §3 item 5). Everything else is
+/// the container's rendering, byte for byte (`IdentityAgent <directory>/agent.sock`,
+/// strict host checking, the approved `known_hosts` as the only trust, never
+/// `ForwardAgent`).
+///
+/// # Errors
+/// [`ContainerRenderError`]; nothing is partially rendered.
+pub fn render_in(
+    pairs: &[ContainerPair],
+    directory: &str,
+) -> Result<ContainerFiles, ContainerRenderError> {
     if pairs.is_empty() {
         return Err(ContainerRenderError::NoPairs);
     }
-    let endpoint = RenderPath::unix(Path::new(CONTAINER_AGENT_SOCKET))?;
-    let key_pub = in_container(KEY_FILE)?;
+    let endpoint = in_directory(directory, "agent.sock")?;
+    let key_pub = in_directory(directory, KEY_FILE)?;
     let mut sections = Vec::with_capacity(pairs.len());
     let mut hosts: std::collections::BTreeMap<String, (&str, &str)> =
         std::collections::BTreeMap::new();
@@ -158,7 +170,7 @@ pub fn render(pairs: &[ContainerPair]) -> Result<ContainerFiles, ContainerRender
             user: p.user.clone(),
             endpoint: endpoint.clone(),
             key_pub: key_pub.clone(),
-            cert: in_container(&certificate_file(&p.destination)?)?,
+            cert: in_directory(directory, &certificate_file(&p.destination)?)?,
             control_path: None,
         });
     }
@@ -173,7 +185,7 @@ pub fn render(pairs: &[ContainerPair]) -> Result<ContainerFiles, ContainerRender
     // before every `Host`), then the sections.
     let (header, rest) = rendered.split_once('\n').unwrap_or((&rendered, ""));
     let ssh_config = format!(
-        "{header}\nStrictHostKeyChecking yes\nUserKnownHostsFile \"{CONTAINER_KNOWN_HOSTS}\"\nGlobalKnownHostsFile none\n{rest}"
+        "{header}\nStrictHostKeyChecking yes\nUserKnownHostsFile \"{directory}/known_hosts\"\nGlobalKnownHostsFile none\n{rest}"
     );
     let mut known_hosts = String::new();
     for (name, (algorithm, key)) in &hosts {

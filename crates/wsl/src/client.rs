@@ -252,11 +252,21 @@ pub fn check_hello(hello: &Hello, expected: &Expected) -> Result<(), ByeReason> 
 }
 
 /// Kills and reaps the child when dropped, so no session leaves a helper behind.
-struct ChildGuard(Box<dyn ChildControl>);
+pub(crate) struct ChildGuard(Box<dyn ChildControl>);
 
 impl ChildGuard {
+    /// The child's process ID.
+    pub(crate) fn id(&self) -> u32 {
+        self.0.id()
+    }
+
+    /// Whether the child has exited (or can no longer be asked).
+    pub(crate) fn exited(&mut self) -> bool {
+        !matches!(self.0.try_wait(), Ok(None))
+    }
+
     /// Wait up to `grace` for a voluntary exit, then kill.
-    fn finish(&mut self, grace: Duration) {
+    pub(crate) fn finish(&mut self, grace: Duration) {
         let start = Instant::now();
         while start.elapsed() < grace {
             if matches!(self.0.try_wait(), Ok(Some(_))) {
@@ -267,7 +277,7 @@ impl ChildGuard {
         self.kill_and_reap();
     }
 
-    fn kill_and_reap(&mut self) {
+    pub(crate) fn kill_and_reap(&mut self) {
         let _ = self.0.kill();
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(2) {
@@ -283,6 +293,15 @@ impl Drop for ChildGuard {
     fn drop(&mut self) {
         self.kill_and_reap();
     }
+}
+
+/// An open session taken apart (see [`HelperSession::into_parts`]).
+pub(crate) struct SessionParts {
+    pub(crate) rx: Receiver<Inbound<HelperFrame>>,
+    pub(crate) writer: Box<dyn Write + Send>,
+    pub(crate) child: ChildGuard,
+    pub(crate) stderr: Arc<Mutex<Vec<u8>>>,
+    pub(crate) hello: Hello,
 }
 
 /// One open session, past the hello. Dropping it ends the helper.
@@ -341,6 +360,7 @@ impl HelperSession {
                 append_windows_path: None,
                 arch: String::new(),
                 helper_version: String::new(),
+                run_dir: None,
             },
         };
         let hello = match session.rx.recv_timeout(proto::HELLO_TIMEOUT) {
@@ -364,6 +384,18 @@ impl HelperSession {
             version: VERSION.to_owned(),
         })?;
         Ok(session)
+    }
+
+    /// The pieces of an open session, for a session that keeps the channel open and serves
+    /// frames of its own (the Mode B bridge).
+    pub(crate) fn into_parts(self) -> SessionParts {
+        SessionParts {
+            rx: self.rx,
+            writer: self.writer,
+            child: self.child,
+            stderr: self.stderr,
+            hello: self.hello,
+        }
     }
 
     /// The hello the helper sent.

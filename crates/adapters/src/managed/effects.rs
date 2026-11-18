@@ -52,6 +52,7 @@ use heimdall_contract::ids::{
     BindingId, DestinationId, EnvironmentId, GrantId, IssuanceId, ResourceId,
 };
 use heimdall_contract::provider::EndpointRef;
+use heimdall_credential::endpoints::wsl::WslPublic;
 use heimdall_credential::endpoints::{
     EndpointError, EndpointPlacement, EndpointRegistry, EndpointTag, endpoint_resource,
 };
@@ -148,10 +149,69 @@ pub trait BindingEndpoints: Send + Sync {
     ) -> Result<EndpointRef, AdapterError> {
         match placement {
             EndpointPlacement::Native => self.create_binding_endpoint(binding, generation),
-            EndpointPlacement::Container { .. } => Err(AdapterError::Unavailable(
-                BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
-            )),
+            EndpointPlacement::Container { .. } | EndpointPlacement::WslBridge { .. } => Err(
+                AdapterError::Unavailable(BINDING_ENDPOINT_UNAVAILABLE.to_owned()),
+            ),
         }
+    }
+
+    /// ⟨M04 U4b⟩ The owner's own `ensure` names the WSL Mode B `environment`: start its
+    /// bridge, starting a stopped distribution if need be (ADR-0010 §3 item 9, §10 item 2).
+    /// Nothing else starts one. The default realizes no Mode B environment.
+    ///
+    /// # Errors
+    /// [`AdapterError::Unavailable`] naming the reason (`wsl_distribution_not_running`,
+    /// `wsl_helper_unavailable`, `wsl_unavailable`).
+    fn start_environment(&self, environment: &EnvironmentId) -> Result<(), AdapterError> {
+        let _ = environment;
+        Err(AdapterError::Unavailable("wsl_unavailable".to_owned()))
+    }
+
+    /// ⟨M04 U4b⟩ Whether a Mode B bridge supervisor is wired.
+    fn wsl_supported(&self) -> bool {
+        false
+    }
+
+    /// ⟨M04 U4b⟩ Stop every Mode B endpoint of `environment` (each withdrawn by its
+    /// generation) and its helper; returns whether in-distribution leftovers remain a
+    /// retained obligation. `start` is `wsl disable --start`'s explicit authorization.
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn stop_environment(
+        &self,
+        environment: &EnvironmentId,
+        start: bool,
+    ) -> Result<bool, AdapterError> {
+        let _ = (environment, start);
+        Ok(false)
+    }
+
+    /// ⟨M04 U4b⟩ The helper's state of `environment` (`inspect environments`).
+    fn helper_state(
+        &self,
+        environment: &EnvironmentId,
+    ) -> Option<heimdall_contract::environment::HelperState> {
+        let _ = environment;
+        None
+    }
+
+    /// ⟨M04 U4b⟩ Realize `binding`'s Mode B endpoint of `generation` (created through
+    /// [`Self::create_binding_endpoint_at`] with a `WslBridge` placement) inside its
+    /// distribution with `public`. The default realizes none.
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn realize_wsl_binding(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+        public: &WslPublic,
+    ) -> Result<(), AdapterError> {
+        let _ = (binding, generation, public);
+        Err(AdapterError::Unavailable(
+            BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+        ))
     }
 
     /// ⟨M04⟩ U5: stop whatever serves container environment `dir_tag`'s stable endpoint
@@ -221,6 +281,38 @@ impl BindingEndpoints for EndpointRegistry {
 
     fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
         self.remove_container(dir_tag)
+    }
+
+    fn start_environment(&self, environment: &EnvironmentId) -> Result<(), AdapterError> {
+        self.start_wsl_environment(environment)
+    }
+
+    fn wsl_supported(&self) -> bool {
+        self.has_wsl_realizer()
+    }
+
+    fn stop_environment(
+        &self,
+        environment: &EnvironmentId,
+        start: bool,
+    ) -> Result<bool, AdapterError> {
+        self.stop_wsl_environment(environment, start)
+    }
+
+    fn helper_state(
+        &self,
+        environment: &EnvironmentId,
+    ) -> Option<heimdall_contract::environment::HelperState> {
+        self.wsl_helper_state(environment)
+    }
+
+    fn realize_wsl_binding(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+        public: &WslPublic,
+    ) -> Result<(), AdapterError> {
+        self.realize_wsl(binding, ResourceGeneration(generation), public)
     }
 
     fn remove_binding_endpoint(
@@ -843,6 +935,41 @@ impl ManagedEffects for ManagedEffectsImpl {
                     .remove_binding_endpoint(binding, spec.generation);
             }
         };
+        // ⟨M04 U4b⟩ A Mode B binding's files and endpoint live inside the distribution.
+        if matches!(placement, EndpointPlacement::WslBridge { .. }) {
+            let realized = self.realize_in_distribution(
+                binding,
+                spec.generation,
+                &grant,
+                &public_key,
+                &certificates,
+            );
+            let files = match realized {
+                Ok(f) => f,
+                Err(e) => {
+                    undo();
+                    return Err(e);
+                }
+            };
+            // The files exist: now the endpoint lists the grant's certificates.
+            if attached.is_none() {
+                self.table.attach_binding(binding, &grant);
+            }
+            self.lock().materialized.insert(
+                binding.clone(),
+                MaterializedBinding {
+                    grant,
+                    generation: spec.generation,
+                },
+            );
+            let mut files = files;
+            if spec.environment_slots {
+                let pairs: Vec<AccessPair> = certificates.iter().map(|c| c.pair.clone()).collect();
+                files.files.extend(self.write_slots(binding, &pairs)?);
+            }
+            files.endpoint = created;
+            return Ok(files);
+        }
         let files = match self.files_for(binding, &dests) {
             Ok(f) => f,
             Err(e) => {
@@ -860,6 +987,9 @@ impl ManagedEffects for ManagedEffectsImpl {
             }
             // ⟨M04⟩ A container's directory also holds the in-container `ssh_config` and
             // the approved `known_hosts` of the binding's pairs (design §5).
+            EndpointPlacement::WslBridge { .. } => {
+                unreachable!("a Mode B binding returned above")
+            }
             EndpointPlacement::Container { .. } => {
                 let rendered = self.container_files(&grant, &certificates);
                 match rendered {
@@ -957,6 +1087,29 @@ impl ManagedEffects for ManagedEffectsImpl {
         cfg!(target_os = "linux") || self.test_container_host
     }
 
+    fn start_environment(&self, environment: &EnvironmentId) -> Result<(), AdapterError> {
+        self.endpoints.start_environment(environment)
+    }
+
+    fn wsl_mode_b_supported(&self) -> bool {
+        self.endpoints.wsl_supported()
+    }
+
+    fn stop_environment(
+        &self,
+        environment: &EnvironmentId,
+        start: bool,
+    ) -> Result<bool, AdapterError> {
+        self.endpoints.stop_environment(environment, start)
+    }
+
+    fn helper_state(
+        &self,
+        environment: &EnvironmentId,
+    ) -> Option<heimdall_contract::environment::HelperState> {
+        self.endpoints.helper_state(environment)
+    }
+
     fn container_directory(&self, dir_tag: &str) -> Option<PathBuf> {
         let tag = EndpointTag::parse(dir_tag)?;
         Some(
@@ -997,6 +1150,63 @@ impl ManagedEffects for ManagedEffectsImpl {
 }
 
 impl ManagedEffectsImpl {
+    /// ⟨M04 U4b⟩ Realize a Mode B binding inside its distribution (ADR-0010 §3 item 5): its
+    /// public key, one certificate per pair, the `ssh_config` and `known_hosts` rendered as a
+    /// container's are (the same renderer) with the in-distribution paths of the endpoint's
+    /// own directory, `<run>/b/<tag>/`. No private key is ever among them. Returns the
+    /// binding's Linux directory and file paths (as text; they are not host paths).
+    fn realize_in_distribution(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+        grant: &GrantId,
+        public_key: &str,
+        certificates: &[MaterializedCertificate],
+    ) -> Result<MaterializedFiles, AdapterError> {
+        let endpoint = self
+            .endpoints
+            .binding_endpoint(binding)
+            .ok_or_else(|| AdapterError::Unavailable(BINDING_ENDPOINT_UNAVAILABLE.to_owned()))?;
+        let directory = endpoint
+            .locator
+            .rsplit_once('/')
+            .map(|(dir, _)| dir.to_owned())
+            .filter(|d| d.starts_with('/'))
+            .ok_or_else(|| AdapterError::Unavailable(BINDING_ENDPOINT_UNAVAILABLE.to_owned()))?;
+        let pairs: Vec<AccessPair> = certificates.iter().map(|c| c.pair.clone()).collect();
+        let sources = self.scopes.container_pairs(grant, &pairs)?;
+        let rendered = heimdall_localenv::container::render_in(&sources, &directory)
+            .map_err(|e| AdapterError::Protocol(format!("{CONTAINER_CONFIG_UNAVAILABLE}: {e}")))?;
+        let mut files = vec![(
+            heimdall_localenv::container::KEY_FILE.to_owned(),
+            public_key.trim_end().to_owned(),
+        )];
+        for c in certificates {
+            let name = heimdall_localenv::container::certificate_file(&c.pair.destination)
+                .map_err(|e| AdapterError::Protocol(e.to_string()))?;
+            files.push((name, c.certificate.trim_end().to_owned()));
+        }
+        let written: Vec<PathBuf> = files
+            .iter()
+            .map(|(n, _)| PathBuf::from(format!("{directory}/{n}")))
+            .collect();
+        self.endpoints.realize_wsl_binding(
+            binding,
+            generation,
+            &WslPublic {
+                files,
+                ssh_config: rendered.ssh_config,
+                known_hosts: rendered.known_hosts,
+            },
+        )?;
+        Ok(MaterializedFiles {
+            directory: PathBuf::from(directory),
+            files: written,
+            generation,
+            endpoint: None,
+        })
+    }
+
     /// ⟨M04⟩ The `ssh_config` and `known_hosts` of a container binding's `certificates`
     /// (one per pair), from the grant's enrollments' approved targets.
     fn container_files(

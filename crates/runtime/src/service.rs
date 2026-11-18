@@ -386,6 +386,12 @@ pub struct ServiceOptions {
     /// ⟨M04 U3b⟩ The Windows path of the Linux helper binary, when not the one beside
     /// `heimdall.exe` (the debug-only test configuration's `HEIMDALL_WSL_HELPER`).
     pub wsl_helper: Option<std::path::PathBuf>,
+    /// ⟨M04 U4b⟩ Starts WSL Mode B helper sessions
+    /// ([`crate::wsl_bridge::BridgeFactory`]): `None` (the default) is the platform's own,
+    /// [`crate::wsl_bridge::LauncherBridgeFactory`] over the platform host's launcher (on
+    /// Windows; elsewhere none, so `wsl enable --mode-b` answers `driver_unavailable`). A
+    /// test injects its own, with [`Self::wsl_host`].
+    pub wsl_bridge: Option<Arc<dyn crate::wsl_bridge::BridgeFactory>>,
 }
 
 /// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
@@ -507,6 +513,7 @@ impl ServiceOptions {
             login_entry: None,
             wsl_host: None,
             wsl_helper: None,
+            wsl_bridge: None,
         }
     }
 }
@@ -793,11 +800,21 @@ impl Service {
         // ⟨M04 U3b⟩ The WSL host: the platform's own unless a test injects one. Off Windows
         // the platform's has no WSL, so it is not wired and WSL requests answer
         // `wsl_unavailable`.
+        let platform_host = (options.wsl_host.is_none() && cfg!(windows))
+            .then(|| heimdall_wsl::WslHost::platform(options.wsl_helper.clone()));
+        // ⟨M04 U4b⟩ The Mode B helper sessions start through the same launcher.
+        let wsl_bridge: Option<Arc<dyn crate::wsl_bridge::BridgeFactory>> =
+            options.wsl_bridge.clone().or_else(|| {
+                platform_host.as_ref().map(|h| {
+                    let f: Arc<dyn crate::wsl_bridge::BridgeFactory> =
+                        Arc::new(crate::wsl_bridge::LauncherBridgeFactory::new(h.launcher()));
+                    f
+                })
+            });
         let wsl_host: Option<Arc<dyn heimdall_app::ports::DistributionHost>> =
             options.wsl_host.clone().or_else(|| {
-                cfg!(windows).then(|| {
-                    let h: Arc<dyn heimdall_app::ports::DistributionHost> =
-                        Arc::new(heimdall_wsl::WslHost::platform(options.wsl_helper.clone()));
+                platform_host.map(|h| {
+                    let h: Arc<dyn heimdall_app::ports::DistributionHost> = Arc::new(h);
                     h
                 })
             });
@@ -838,6 +855,7 @@ impl Service {
                         endpoint_string(
                             &EndpointPaths::for_runtime(&paths.runtime_dir, &token).control,
                         )?,
+                        wsl_host.clone().zip(wsl_bridge),
                     )
                     .await?,
             ),
@@ -1880,6 +1898,58 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
         self.get().map_or(0, |r| r.remove_container(dir_tag))
     }
 
+    fn start_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Result<(), heimdall_app::ports::AdapterError> {
+        self.get()
+            .ok_or_else(|| {
+                heimdall_app::ports::AdapterError::Unavailable("wsl_unavailable".to_owned())
+            })?
+            .start_wsl_environment(environment)
+    }
+
+    fn wsl_supported(&self) -> bool {
+        self.get().is_some_and(|r| r.has_wsl_realizer())
+    }
+
+    fn stop_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+        start: bool,
+    ) -> Result<bool, heimdall_app::ports::AdapterError> {
+        match self.get() {
+            Some(r) if r.has_wsl_realizer() => r.stop_wsl_environment(environment, start),
+            _ => Ok(false),
+        }
+    }
+
+    fn helper_state(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Option<heimdall_contract::environment::HelperState> {
+        self.get()?.wsl_helper_state(environment)
+    }
+
+    fn realize_wsl_binding(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+        public: &heimdall_credential::endpoints::wsl::WslPublic,
+    ) -> Result<(), heimdall_app::ports::AdapterError> {
+        self.get()
+            .ok_or_else(|| {
+                heimdall_app::ports::AdapterError::Unavailable(
+                    heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+                )
+            })?
+            .realize_wsl(
+                binding,
+                heimdall_domain::resource::ResourceGeneration(generation),
+                public,
+            )
+    }
+
     fn remove_binding_endpoint(
         &self,
         binding: &heimdall_contract::ids::BindingId,
@@ -2464,9 +2534,14 @@ impl ManagedParts {
         floor: heimdall_contract::managed::LockBehavior,
         stop: CancellationToken,
         control_locator: String,
+        wsl: Option<(
+            Arc<dyn heimdall_app::ports::DistributionHost>,
+            Arc<dyn crate::wsl_bridge::BridgeFactory>,
+        )>,
     ) -> Result<ManagedRuntime, ServiceError> {
         let mut steps = Vec::new();
         let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(ops.clone());
+        let supervisor_stop = stop.clone();
         let registry = EndpointRegistry::new(
             self.layout.clone(),
             owner,
@@ -2476,6 +2551,22 @@ impl ManagedParts {
             stop,
         )
         .with_verification_gates(ops.signing_gates().clone());
+        // ⟨M04 U4b⟩ WSL Mode B: the bridge supervisor is the endpoint registry's realizer
+        // (it serves the streams it relays with the registry's signers). It is installed
+        // before anything can materialize a Mode B binding (the re-issue pass below), and
+        // re-checks every 10 s until the runtime stops (ADR-0010 §3 items 9–10, 13).
+        if let Some((host, factory)) = wsl {
+            let bridge = crate::wsl_bridge::BridgeRegistry::new(
+                Arc::clone(store),
+                ops.environment().clone(),
+                host,
+                factory,
+                tokio::runtime::Handle::current(),
+            );
+            bridge.attach(registry.downgrade());
+            registry.set_wsl_realizer(Arc::new(bridge.clone()));
+            tokio::spawn(bridge.supervise(ops.clone(), supervisor_stop));
+        }
         // ⟨§17.22 item 3, W4-S03⟩ From the first reference cycle on, a failed start
         // unwinding (any `?` below) runs the full teardown: the guard owns every part
         // that `Drop` must stop or clear, and the issuer joins it the moment it exists.

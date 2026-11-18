@@ -26,7 +26,7 @@ use heimdall_contract::request::{DecideRequest, InspectRequest, InspectSubject, 
 use heimdall_domain::decision::{DecisionKind, DecisionState};
 use std::path::{Path, PathBuf};
 
-fn attended() -> Caller {
+pub(super) fn attended() -> Caller {
     Caller {
         context: CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
@@ -37,7 +37,7 @@ fn attended() -> Caller {
     }
 }
 
-fn consumer() -> Caller {
+pub(super) fn consumer() -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::LimitedConsumer,
@@ -67,7 +67,7 @@ async fn add_decision(p: &Process, label: &str) -> DecisionId {
     DecisionId::parse(e.next.decision_ref.as_deref().expect("a decision ref")).unwrap()
 }
 
-async fn decide(p: &Process, id: &DecisionId, verdict: Verdict) -> serde_json::Value {
+pub(super) async fn decide(p: &Process, id: &DecisionId, verdict: Verdict) -> serde_json::Value {
     p.ops
         .decide(
             &attended(),
@@ -82,7 +82,7 @@ async fn decide(p: &Process, id: &DecisionId, verdict: Verdict) -> serde_json::V
 }
 
 /// The container environment the approval created, with its directory tag.
-fn container_rows(w: &Live) -> Vec<heimdall_domain::environment::ManagedEnvironment> {
+pub(super) fn container_rows(w: &Live) -> Vec<heimdall_domain::environment::ManagedEnvironment> {
     w.store.transaction(|tx| tx.managed_environments()).unwrap()
 }
 
@@ -102,7 +102,7 @@ async fn approved(w: &Live, p: &Process, label: &str) -> (EnvironmentId, PathBuf
 
 /// Let `environment` serve ensures of profile `dev` without a decision: automatic activation
 /// (the approval grants `managed_signing` only) and the standing policy extended to it.
-fn permit_ensures(w: &Live, environment: &EnvironmentId) {
+pub(super) fn permit_ensures(w: &Live, environment: &EnvironmentId) {
     w.store
         .transaction(|tx| {
             let mut rec = tx
@@ -118,7 +118,7 @@ fn permit_ensures(w: &Live, environment: &EnvironmentId) {
         .unwrap();
 }
 
-async fn ensure_in(
+pub(super) async fn ensure_in(
     p: &Process,
     environment: &EnvironmentId,
     work: &str,
@@ -160,21 +160,21 @@ fn socket_of(dir: &Path) -> String {
     dir.join("agent.sock").to_string_lossy().into_owned()
 }
 
-fn operations_recorded(w: &Live) -> u64 {
+pub(super) fn operations_recorded(w: &Live) -> u64 {
     w.store
         .transaction(|tx| tx.table_counts())
         .unwrap()
         .operations
 }
 
-fn decisions_pending(w: &Live) -> usize {
+pub(super) fn decisions_pending(w: &Live) -> usize {
     w.store
         .transaction(|tx| tx.pending_decisions())
         .unwrap()
         .len()
 }
 
-async fn inspect_environments(p: &Process, as_caller: &Caller) -> serde_json::Value {
+pub(super) async fn inspect_environments(p: &Process, as_caller: &Caller) -> serde_json::Value {
     p.ops
         .inspect(
             as_caller,
@@ -207,24 +207,83 @@ async fn container_environment_requests_refusals_and_the_decision_flow() {
         label: label.to_owned(),
     };
 
-    // The refusal table: (who, request, code, reason). Nothing is written by any row.
-    let rows: Vec<(Caller, EnvironmentRequest, Code, Option<&str>)> = vec![
-        (consumer(), add("lab"), Code::CapabilityUnavailable, None),
+    // ⟨M04 U4b⟩ The Mode B rows run in processes with a WSL host (`q`: a bridge supervisor,
+    // `r`: a host and no supervisor), beside the container rows in the bare process `p`.
+    let (q, _host, _factory) = super::wsl_mode_b::process(&w, true).await;
+    let (r, _host_r, _factory_r) = super::wsl_mode_b::process(&w, false).await;
+    let g = super::wsl_mode_b::guid();
+    let wsl = |guid: &heimdall_contract::environment::DistributionGuid,
+               account: &str,
+               a: bool,
+               b: bool| EnvironmentRequest::WslEnable {
+        distribution_guid: guid.clone(),
+        account: account.to_owned(),
+        mode_a: a,
+        mode_b: b,
+    };
+
+    // The refusal table: (process, who, request, code, reason). Nothing is written by any row.
+    let rows: Vec<(&Process, Caller, EnvironmentRequest, Code, Option<&str>)> = vec![
         (
+            &p,
+            consumer(),
+            add("lab"),
+            Code::CapabilityUnavailable,
+            None,
+        ),
+        (
+            &p,
             consumer(),
             remove(&unknown),
             Code::CapabilityUnavailable,
             None,
         ),
-        (caller(), add(""), Code::UsageError, None),
-        (caller(), add(&"x".repeat(65)), Code::UsageError, None),
-        (caller(), add("a\nb"), Code::UsageError, None),
-        (caller(), remove(&unknown), Code::NotFound, None),
-        (caller(), remove(&env()), Code::NotFound, None),
+        (&p, caller(), add(""), Code::UsageError, None),
+        (&p, caller(), add(&"x".repeat(65)), Code::UsageError, None),
+        (&p, caller(), add("a\nb"), Code::UsageError, None),
+        (&p, caller(), remove(&unknown), Code::NotFound, None),
+        (&p, caller(), remove(&env()), Code::NotFound, None),
+        // Mode B: the owner role first, then the host, the account and the registration, then
+        // the supervisor (a runtime with a host and no supervisor realizes no Mode B).
+        (
+            &q,
+            consumer(),
+            wsl(&g, "ubuntu", false, true),
+            Code::CapabilityUnavailable,
+            None,
+        ),
+        (
+            &p,
+            caller(),
+            wsl(&g, "ubuntu", false, true),
+            Code::CapabilityUnavailable,
+            Some("wsl_unavailable"),
+        ),
+        (
+            &q,
+            caller(),
+            wsl(&g, "a b", false, true),
+            Code::UsageError,
+            None,
+        ),
+        (
+            &q,
+            caller(),
+            wsl(&super::wsl_mode_b::other_guid(), "ubuntu", false, true),
+            Code::NotFound,
+            Some("wsl_distribution_unknown"),
+        ),
+        (
+            &r,
+            caller(),
+            wsl(&g, "ubuntu", false, true),
+            Code::CapabilityUnavailable,
+            Some("driver_unavailable"),
+        ),
     ];
     let (ops0, dec0) = (operations_recorded(&w), decisions_pending(&w));
-    for (who, request, code, reason) in rows {
-        let e = p
+    for (process, who, request, code, reason) in rows {
+        let e = process
             .ops
             .environment_request(&who, request.clone())
             .await
@@ -236,6 +295,8 @@ async fn container_environment_requests_refusals_and_the_decision_flow() {
             e.message
         );
     }
+    q.shutdown.cancel();
+    r.shutdown.cancel();
     assert_eq!(
         (
             operations_recorded(&w),

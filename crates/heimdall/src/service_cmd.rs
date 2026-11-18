@@ -279,6 +279,16 @@ async fn serve(
     {
         options.wsl_helper =
             std::env::var_os(crate::testcfg::WSL_HELPER_ENV).map(std::path::PathBuf::from);
+        // ⟨M04 W2⟩ The directly started stand-in distribution (`HEIMDALL_TEST_WSL_DIRECT`):
+        // its host, and the Mode B helper sessions through the same launcher.
+        if let Some(host) = crate::testcfg::wsl_direct_host(&|n| std::env::var_os(n))
+            .map_err(|m| Box::new(error(Code::UsageError, &m)))?
+        {
+            options.wsl_bridge = Some(std::sync::Arc::new(
+                heimdall_runtime::wsl_bridge::LauncherBridgeFactory::new(host.launcher()),
+            ));
+            options.wsl_host = Some(std::sync::Arc::new(host));
+        }
     }
     let token = CancellationToken::new();
     let service = match Service::start_with(paths, config, options, token.clone()).await {

@@ -115,41 +115,75 @@ fn helper_hello_mismatch_ends_session() {
     assert!(!dir.path().join("state").exists());
 }
 
-/// Mode B's frames are defined, answered `unsupported` and the session continues; a frame that
-/// is not valid in the state (a stray `sink_ack`, then bytes that are no frame) ends the helper
-/// with the protocol status.
+/// Mode B's requests are served on any session and change nothing until a binding is realized:
+/// a `realize` that names a path component, `withdraw` of what is not served and `realized` are
+/// answered and the session continues, with nothing created in the account; a frame that is not
+/// valid in the state (a stray `sink_ack`, then bytes that are no frame) ends the helper with the
+/// protocol status.
 #[test]
-fn helper_answers_mode_b_unsupported_and_ends_on_a_protocol_error() {
+fn helper_answers_mode_b_requests_and_ends_on_a_protocol_error() {
     let dir = tempfile::tempdir().unwrap();
     let (transport, helper) = serve_in_thread(helper_env(dir.path(), Some("Ubuntu")));
     let mut s = HelperSession::open(transport, &expected("Ubuntu", "alice", None)).unwrap();
-    for (frame, id) in [
-        (
-            WindowsFrame::Withdraw {
-                id: 4,
-                binding_tag: "b".to_owned(),
-                generation: 1,
-            },
-            4,
-        ),
-        (
-            WindowsFrame::Open {
-                stream: 9,
-                binding_tag: "b".to_owned(),
-            },
-            9,
-        ),
-    ] {
-        s.send(&frame).unwrap();
-        match s.recv(Duration::from_secs(5)).unwrap() {
-            HelperFrame::Error {
-                id: rid,
-                kind: ErrorKind::Unsupported,
-                ..
-            } => assert_eq!(rid, id),
-            other => panic!("{other:?}"),
+    assert!(
+        s.hello()
+            .run_dir
+            .as_deref()
+            .is_some_and(|d| d.starts_with('/')),
+        "the hello names the run directory"
+    );
+    s.send(&WindowsFrame::Realize {
+        id: 3,
+        binding_tag: "../escape".to_owned(),
+        generation: 1,
+        public: proto::ModeBPublic {
+            files: Vec::new(),
+            ssh_config: String::new(),
+            known_hosts: String::new(),
+        },
+        deadline: "2026-11-18T10:00:00Z".to_owned(),
+    })
+    .unwrap();
+    assert!(matches!(
+        s.recv(Duration::from_secs(5)).unwrap(),
+        HelperFrame::Error {
+            id: 3,
+            kind: ErrorKind::IntentInvalid,
+            ..
         }
-    }
+    ));
+    s.send(&WindowsFrame::Withdraw {
+        id: 4,
+        binding_tag: "b".to_owned(),
+        generation: 1,
+    })
+    .unwrap();
+    assert_eq!(
+        s.recv(Duration::from_secs(5)).unwrap(),
+        HelperFrame::WithdrawOk { id: 4 }
+    );
+    s.send(&WindowsFrame::Realized { id: 5 }).unwrap();
+    assert_eq!(
+        s.recv(Duration::from_secs(5)).unwrap(),
+        HelperFrame::RealizedOk {
+            id: 5,
+            bindings: Vec::new()
+        }
+    );
+    assert!(!dir.path().join("state").exists(), "nothing was created");
+    // A stream that was never opened is a protocol violation, not a late frame.
+    s.send(&WindowsFrame::Close { stream: 9 }).unwrap();
+    assert!(matches!(
+        s.recv(Duration::from_secs(5)).unwrap(),
+        HelperFrame::Error {
+            kind: ErrorKind::Protocol,
+            ..
+        }
+    ));
+    assert_eq!(helper.join().unwrap(), proto::EXIT_PROTOCOL);
+
+    let (transport, helper) = serve_in_thread(helper_env(dir.path(), Some("Ubuntu")));
+    let mut s = HelperSession::open(transport, &expected("Ubuntu", "alice", None)).unwrap();
     // The session continued; now a sink acknowledgment with no request in flight.
     s.send(&WindowsFrame::SinkAck { id: 1, seq: 0 }).unwrap();
     assert!(matches!(
@@ -351,4 +385,289 @@ fn a_host_without_wsl_answers_wsl_unavailable() {
     let t = target("Ubuntu");
     assert_eq!(host.running(&t.guid), RunningState::Unknown);
     assert!(host.writer(&t, DistributionStart::Forbidden).is_err());
+}
+
+// --- Mode B: the bridge over the real helper loop -------------------------------------------------
+
+use std::io::{Read as _, Write as _};
+use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use crate::bridge::{Bridge, BridgePublic, StreamHandler, realized_paths};
+use crate::client::HelperLauncher;
+
+/// The "process" of a helper thread: it has exited once the helper loop returned.
+struct ThreadChild(Arc<std::sync::atomic::AtomicBool>);
+
+impl ChildControl for ThreadChild {
+    fn id(&self) -> u32 {
+        0
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<i32>> {
+        Ok(self.0.load(Ordering::SeqCst).then_some(0))
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Launches the real helper loop on a thread (one per launch) over a socket pair.
+struct InProcess {
+    env: HelperEnv,
+    helpers: Mutex<Vec<std::thread::JoinHandle<i32>>>,
+}
+
+impl HelperLauncher for InProcess {
+    fn running(&self, _name: &str) -> RunningState {
+        RunningState::Running
+    }
+    fn launch(&self, _target: &DistributionTarget) -> Result<Transport, SessionError> {
+        let (windows, helper_end) = UnixStream::pair().unwrap();
+        let reader = helper_end.try_clone().unwrap();
+        let env = self.env.clone();
+        let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&exited);
+        let thread = std::thread::spawn(move || {
+            let code = helper::serve(&env, reader, helper_end);
+            flag.store(true, Ordering::SeqCst);
+            code
+        });
+        self.helpers.lock().unwrap().push(thread);
+        Ok(Transport {
+            reader: Box::new(windows.try_clone().unwrap()),
+            writer: Box::new(windows),
+            stderr: None,
+            child: Box::new(ThreadChild(exited)),
+        })
+    }
+}
+
+/// Counts the streams it is given and accepts or refuses them all.
+struct CountingHandler {
+    accept: bool,
+    served: AtomicUsize,
+}
+
+impl StreamHandler for CountingHandler {
+    fn serve(&self, _tag: &str, stream: tokio::io::DuplexStream) -> bool {
+        self.served.fetch_add(1, Ordering::SeqCst);
+        drop(stream);
+        self.accept
+    }
+}
+
+fn public(run_dir: &str, tag: &str, files: &[&str]) -> BridgePublic {
+    BridgePublic {
+        files: files
+            .iter()
+            .map(|n| ((*n).to_owned(), format!("ssh-ed25519 AAAA{n}")))
+            .collect(),
+        ssh_config: format!(
+            "Host *\n  IdentityAgent {}\n  IdentitiesOnly yes\n",
+            realized_paths(run_dir, tag).socket
+        ),
+        known_hosts: "h1 ssh-ed25519 AAAAhost\n".to_owned(),
+    }
+}
+
+fn mode(path: &Path) -> u32 {
+    std::fs::symlink_metadata(path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777
+}
+
+fn in_one_hour() -> heimdall_contract::Timestamp {
+    heimdall_contract::Timestamp::now()
+        .checked_add(Duration::from_secs(3600))
+        .unwrap()
+}
+
+/// `helper_withdraw_of_old_generation_keeps_replacement`, with the files and the stale-socket
+/// rule: a stopped distribution starts nothing under `Forbidden`; the first `realize` removes a
+/// dead leftover endpoint of this uid and leaves a live one (refusing that tag); the binding
+/// directory is 0700, the socket 0600; the same generation is idempotent and recreates a deleted
+/// socket; a newer generation replaces the files at the same path and drops what it no longer
+/// carries; an older one is refused; `withdraw` removes exactly the generation it names, so the
+/// old generation's withdrawal keeps the replacement; a refused stream ends at once on the Linux
+/// client; and ending the session removes every endpoint and the helper exits 0.
+#[test]
+fn helper_withdraw_of_old_generation_keeps_replacement() {
+    let root = tempfile::Builder::new()
+        .prefix("hw")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let env = helper_env(root.path(), Some("Ubuntu"));
+    let launcher = Arc::new(InProcess {
+        env,
+        helpers: Mutex::new(Vec::new()),
+    });
+    let t = target("Ubuntu");
+    let handler = Arc::new(CountingHandler {
+        accept: false,
+        served: AtomicUsize::new(0),
+    });
+
+    // A stopped distribution under `Forbidden` starts nothing.
+    let stopped = DirectLauncher::new(PathBuf::from("/usr/bin/true"), vec![], vec![]);
+    stopped.set_running(RunningState::NotRunning);
+    assert_eq!(
+        Bridge::start(
+            stopped.clone(),
+            &t,
+            DistributionStart::Forbidden,
+            handler.clone()
+        )
+        .unwrap_err(),
+        SessionError::NotRunning
+    );
+    assert_eq!(stopped.spawned(), 0);
+
+    // Leftovers of an earlier helper: a dead socket (and a file beside it), and a live one.
+    let run = root.path().join("state/heimdall/run");
+    let b = run.join("b");
+    for tag in ["dead1", "live1"] {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(b.join(tag))
+            .unwrap();
+    }
+    drop(std::os::unix::net::UnixListener::bind(b.join("dead1/agent.sock")).unwrap());
+    std::fs::write(b.join("dead1/known_hosts"), b"x").unwrap();
+    let live = std::os::unix::net::UnixListener::bind(b.join("live1/agent.sock")).unwrap();
+
+    let bridge = Bridge::start(
+        launcher.clone(),
+        &t,
+        DistributionStart::Forbidden,
+        handler.clone(),
+    )
+    .unwrap();
+    assert_eq!(bridge.run_dir(), run.to_str().unwrap());
+    assert!(bridge.alive());
+    let run_dir = bridge.run_dir().to_owned();
+    let paths = realized_paths(&run_dir, "b1");
+    let at = in_one_hour();
+
+    // generation 1.
+    assert_eq!(
+        bridge
+            .realize(
+                "b1",
+                1,
+                public(&run_dir, "b1", &["a-cert.pub", "b-cert.pub"]),
+                at
+            )
+            .unwrap(),
+        paths
+    );
+    assert!(!b.join("dead1").exists(), "the dead leftover was removed");
+    assert!(b.join("live1/agent.sock").exists(), "the live one was left");
+    assert_eq!(
+        bridge
+            .realize("live1", 1, public(&run_dir, "live1", &[]), at)
+            .unwrap_err()
+            .code(),
+        "wsl_endpoint_in_use"
+    );
+    assert!(b.join("live1/agent.sock").exists());
+    assert_eq!(
+        std::fs::read_dir(b.join("live1")).unwrap().count(),
+        1,
+        "nothing was written into a directory that is not ours"
+    );
+    drop(live);
+
+    let dir = b.join("b1");
+    assert_eq!(mode(&dir), 0o700);
+    assert_eq!(mode(&dir.join("agent.sock")), 0o600);
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".generation")).unwrap(),
+        "1"
+    );
+    assert!(dir.join("a-cert.pub").exists() && dir.join("b-cert.pub").exists());
+    assert!(
+        std::fs::read_to_string(dir.join("ssh_config"))
+            .unwrap()
+            .contains(&paths.socket)
+    );
+    assert_eq!(bridge.realized().unwrap(), vec![("b1".to_owned(), 1)]);
+
+    // The same generation is idempotent and recreates a deleted socket.
+    std::fs::remove_file(dir.join("agent.sock")).unwrap();
+    bridge
+        .realize(
+            "b1",
+            1,
+            public(&run_dir, "b1", &["a-cert.pub", "b-cert.pub"]),
+            at,
+        )
+        .unwrap();
+    assert_eq!(mode(&dir.join("agent.sock")), 0o600);
+
+    // A refused stream (the handler says no) ends at once on the Linux client.
+    let mut client = std::os::unix::net::UnixStream::connect(dir.join("agent.sock")).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    client.write_all(&[0, 0, 0, 1, 11]).unwrap();
+    let mut buf = [0u8; 16];
+    assert_eq!(client.read(&mut buf).unwrap(), 0, "closed, no reply");
+    assert_eq!(handler.served.load(Ordering::SeqCst), 1);
+
+    // generation 2 replaces the files at the same path.
+    bridge
+        .realize(
+            "b1",
+            2,
+            public(&run_dir, "b1", &["a-cert.pub", "c-cert.pub"]),
+            at,
+        )
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".generation")).unwrap(),
+        "2"
+    );
+    assert!(dir.join("c-cert.pub").exists());
+    assert!(!dir.join("b-cert.pub").exists(), "no longer carried");
+    assert_eq!(mode(&dir.join("agent.sock")), 0o600);
+    // An older generation is refused and changes nothing.
+    assert_eq!(
+        bridge
+            .realize("b1", 1, public(&run_dir, "b1", &["z.pub"]), at)
+            .unwrap_err()
+            .code(),
+        "wsl_binding_generation_stale"
+    );
+    assert!(!dir.join("z.pub").exists());
+    assert_eq!(bridge.realized().unwrap(), vec![("b1".to_owned(), 2)]);
+
+    // The old generation's withdrawal keeps the replacement; the current one's removes it.
+    bridge.withdraw("b1", 1).unwrap();
+    assert!(dir.join("agent.sock").exists() && dir.join("c-cert.pub").exists());
+    assert_eq!(bridge.realized().unwrap(), vec![("b1".to_owned(), 2)]);
+    bridge.withdraw("b1", 3).unwrap();
+    assert!(
+        dir.exists(),
+        "a generation that is not served is not removed"
+    );
+    // A second binding, disjoint from the first.
+    bridge
+        .realize("b2", 1, public(&run_dir, "b2", &[]), at)
+        .unwrap();
+    bridge.withdraw("b1", 2).unwrap();
+    assert!(!dir.exists(), "the whole directory is removed");
+    bridge.withdraw("b1", 2).unwrap();
+    assert_eq!(bridge.realized().unwrap(), vec![("b2".to_owned(), 1)]);
+    assert!(b.join("b2/agent.sock").exists());
+
+    // Ending the session (EOF) removes every endpoint and the helper exits 0.
+    drop(bridge);
+    let helper = launcher.helpers.lock().unwrap().pop().unwrap();
+    assert_eq!(helper.join().unwrap(), 0);
+    assert!(!b.join("b2").exists());
+    assert!(b.join("live1").exists(), "what was not ours stays");
 }

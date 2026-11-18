@@ -1099,3 +1099,458 @@ mod driver {
         );
     }
 }
+
+// --- Mode B: the stream relay with the real helper (ADR-0010 §3 items 4-6, 8, 11-12; U4a) ----
+
+/// A `Bridge` over [`DirectLauncher`] with the real helper binary, serving each stream with a
+/// test signer (one Ed25519 key) through `serve_with_limits`; the Linux-side clients are the
+/// real `ssh-add` and `ssh-keygen -Y sign` with `SSH_AUTH_SOCK` set to the binding's socket.
+/// A client of another uid cannot be arranged here: it is the native row's (the helper's
+/// `SO_PEERCRED` check).
+mod bridge_relay {
+    use std::io::Read as _;
+    use std::os::unix::net::UnixStream;
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use heimdall_contract::provider::{EndpointKind, EndpointRef};
+    use heimdall_ipc::PeerIdentity;
+    use heimdall_ipc::signing::{
+        ServeLimits, SignOutcome, Signer, SigningSession, serve_with_limits,
+    };
+    use heimdall_testkit::agent::FixtureKey;
+    use heimdall_wsl::{Bridge, BridgePublic, StreamHandler, realized_paths};
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    /// One key; counts what reached it.
+    struct RelaySigner {
+        key: FixtureKey,
+        listings: AtomicUsize,
+        signs: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Signer for RelaySigner {
+        async fn identities(&self, _session: &SigningSession) -> Vec<(Vec<u8>, String)> {
+            self.listings.fetch_add(1, Ordering::SeqCst);
+            vec![(self.key.public_blob(), self.key.comment().to_owned())]
+        }
+
+        async fn sign(
+            &self,
+            _session: &SigningSession,
+            key_blob: &[u8],
+            data: &[u8],
+            _flags: u32,
+        ) -> SignOutcome {
+            self.signs.fetch_add(1, Ordering::SeqCst);
+            if key_blob != self.key.public_blob() {
+                return SignOutcome::failure();
+            }
+            match self.key.sign(data) {
+                // The fixture models a grant with no signing gate.
+                Some(sig) => SignOutcome::ungated_signature(&sig),
+                None => SignOutcome::failure(),
+            }
+        }
+    }
+
+    /// Serves the tags that start with `b`; counts the streams it was given.
+    struct Relay {
+        rt: tokio::runtime::Handle,
+        signer: Arc<RelaySigner>,
+        served: AtomicUsize,
+    }
+
+    impl StreamHandler for Relay {
+        fn serve(&self, tag: &str, stream: tokio::io::DuplexStream) -> bool {
+            if !tag.starts_with('b') {
+                return false;
+            }
+            self.served.fetch_add(1, Ordering::SeqCst);
+            let signer = Arc::clone(&self.signer);
+            self.rt.spawn(async move {
+                let _ = serve_with_limits(
+                    stream,
+                    PeerIdentity::Unix {
+                        uid: 0,
+                        gid: 0,
+                        pid: None,
+                    },
+                    EndpointRef {
+                        kind: EndpointKind::UnixSocket,
+                        locator: "bridge".to_owned(),
+                    },
+                    signer,
+                    CancellationToken::new(),
+                    ServeLimits::default(),
+                )
+                .await;
+            });
+            true
+        }
+    }
+
+    struct Rig {
+        world: World,
+        runtime: tempfile::TempDir,
+        relay: Arc<Relay>,
+        stop: CancellationToken,
+    }
+
+    impl Rig {
+        fn new() -> Rig {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let handle = rt.handle().clone();
+            let stop = CancellationToken::new();
+            let waiter = stop.clone();
+            std::thread::spawn(move || rt.block_on(waiter.cancelled()));
+            // A short path: the endpoint's socket path must fit `sun_path` on macOS.
+            let runtime = tempfile::Builder::new()
+                .prefix("hmr")
+                .tempdir_in("/tmp")
+                .unwrap();
+            // The comment is not a canary: `ssh-add -l` prints it.
+            let key = FixtureKey::generate().with_comment("relay-test-key");
+            Rig {
+                world: World::new(),
+                runtime,
+                relay: Arc::new(Relay {
+                    rt: handle,
+                    signer: Arc::new(RelaySigner {
+                        key,
+                        listings: AtomicUsize::new(0),
+                        signs: AtomicUsize::new(0),
+                    }),
+                    served: AtomicUsize::new(0),
+                }),
+                stop,
+            }
+        }
+
+        fn launcher(&self) -> Arc<DirectLauncher> {
+            let mut env = self.world.helper_env(None);
+            env.push(("XDG_RUNTIME_DIR".into(), self.runtime.path().into()));
+            DirectLauncher::new(
+                PathBuf::from(helper_bin()),
+                vec!["internal".into(), "wsl-helper".into()],
+                env,
+            )
+        }
+
+        fn start(&self) -> Bridge {
+            Bridge::start(
+                self.launcher(),
+                &self.world.target,
+                DistributionStart::Forbidden,
+                self.relay.clone(),
+            )
+            .unwrap_or_else(|e| panic!("bridge start: {e}"))
+        }
+
+        fn realize(&self, bridge: &Bridge, tag: &str, generation: u64) -> heimdall_wsl::Realized {
+            let paths = realized_paths(bridge.run_dir(), tag);
+            bridge
+                .realize(
+                    tag,
+                    generation,
+                    BridgePublic {
+                        files: vec![(
+                            "id.pub".to_owned(),
+                            self.relay.signer.key.public_line_without_comment(),
+                        )],
+                        ssh_config: format!(
+                            "Host *\n  IdentityAgent {}\n  IdentitiesOnly yes\n",
+                            paths.socket
+                        ),
+                        known_hosts: String::new(),
+                    },
+                    heimdall_contract::Timestamp::now()
+                        .checked_add(Duration::from_secs(3600))
+                        .unwrap(),
+                )
+                .unwrap_or_else(|e| panic!("realize {tag}: {e}"))
+        }
+
+        /// A Linux client program with the binding's socket as its agent.
+        fn client(&self, program: &str, socket: &str) -> Command {
+            let mut c = Command::new(find_program(program).expect("OpenSSH client tools"));
+            c.env_clear()
+                .env("SSH_AUTH_SOCK", socket)
+                .env("HOME", self.world.account_home())
+                .env("PATH", "/usr/bin:/bin")
+                .current_dir(&self.world.home.root)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            c
+        }
+    }
+
+    impl Drop for Rig {
+        fn drop(&mut self) {
+            self.stop.cancel();
+        }
+    }
+
+    /// Run a client to its end within 30 s.
+    fn run(cmd: &mut Command) -> std::process::Output {
+        let mut child = cmd.spawn().unwrap();
+        let start = Instant::now();
+        loop {
+            if child.try_wait().unwrap().is_some() {
+                return child.wait_with_output().unwrap();
+            }
+            if start.elapsed() > Duration::from_secs(30) {
+                let _ = child.kill();
+                panic!("a client did not finish within 30 s");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn frame(body: &[u8]) -> Vec<u8> {
+        let mut v = u32::try_from(body.len()).unwrap().to_be_bytes().to_vec();
+        v.extend_from_slice(body);
+        v
+    }
+
+    fn connect(socket: &str) -> UnixStream {
+        let s = UnixStream::connect(socket).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s
+    }
+
+    /// What a raw client reads next: one whole agent frame, or `None` at the end of the stream.
+    fn read_frame(s: &mut UnixStream) -> Option<Vec<u8>> {
+        let mut head = [0u8; 4];
+        s.read_exact(&mut head).ok()?;
+        let mut body = vec![0u8; u32::from_be_bytes(head) as usize];
+        s.read_exact(&mut body).ok()?;
+        Some(body)
+    }
+
+    /// `bridge_relays_listing_and_signing_with_peer_and_classify_checks`: through a real helper
+    /// process, `ssh-add -l` lists the binding's one key and `ssh-keygen -Y sign -U` gets a
+    /// signature that verifies; a message `classify` refuses (add, remove, lock, another
+    /// extension) is answered `SSH_AGENT_FAILURE` on Linux, never reaches the handler (which
+    /// counts the streams and the signer's calls), and leaves the connection usable; a frame above
+    /// 256 KiB closes the connection; the 65th connection of a binding is closed at once; the
+    /// directory is 0700 and the socket 0600; and the runtime ending the session (EOF) makes the
+    /// helper remove every endpoint and exit.
+    #[test]
+    fn bridge_relays_listing_and_signing_with_peer_and_classify_checks() {
+        let rig = Rig::new();
+        let bridge = rig.start();
+        let run_dir = bridge.run_dir().to_owned();
+        assert_eq!(Path::new(&run_dir), rig.runtime.path().join("heimdall"));
+        let b1 = rig.realize(&bridge, "b1", 1);
+        let dir = Path::new(&run_dir).join("b/b1");
+        assert_eq!(b1.socket, dir.join("agent.sock").to_str().unwrap());
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(&dir), 0o700);
+            assert_eq!(mode(&dir.join("agent.sock")), 0o600);
+        }
+        assert!(dir.join("ssh_config").exists() && dir.join("id.pub").exists());
+
+        // The 65th connection of a binding is closed at once (nothing else is connected yet).
+        let mut idle: Vec<UnixStream> = (0..64)
+            .map(|_| {
+                let s = UnixStream::connect(&b1.socket).unwrap();
+                s.set_read_timeout(Some(Duration::from_millis(100)))
+                    .unwrap();
+                s
+            })
+            .collect();
+        let mut over = connect(&b1.socket);
+        let mut byte = [0u8; 1];
+        assert_eq!(
+            over.read(&mut byte).unwrap(),
+            0,
+            "the 65th connection ends at once"
+        );
+        for s in &mut idle {
+            let e = s.read(&mut byte).unwrap_err();
+            assert!(
+                matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ),
+                "the first 64 stay open and idle: {e:?}"
+            );
+        }
+        idle.clear();
+        drop(over);
+
+        // The Linux clients.
+        let listed = run_ok(rig.client("ssh-add", &b1.socket).arg("-l"));
+        let key = &rig.relay.signer.key;
+        assert!(listed.contains(&key.fingerprint()), "{listed}");
+        assert_eq!(
+            listed.lines().count(),
+            1,
+            "only the binding's key: {listed}"
+        );
+        assert!(listed.contains("relay-test-key"), "{listed}");
+
+        let msg = rig.world.home.root.join("msg.txt");
+        std::fs::write(&msg, b"the bytes to sign").unwrap();
+        let pubfile = rig.world.home.root.join("key.pub");
+        key.write_public(&pubfile).unwrap();
+        let signed = run(rig
+            .client("ssh-keygen", &b1.socket)
+            .args(["-Y", "sign", "-U", "-n", "heimdall-test", "-f"])
+            .arg(&pubfile)
+            .arg(&msg));
+        assert!(
+            signed.status.success(),
+            "ssh-keygen -Y sign: {}",
+            String::from_utf8_lossy(&signed.stderr)
+        );
+        let sig = rig.world.home.root.join("msg.txt.sig");
+        assert!(
+            std::fs::read_to_string(&sig)
+                .unwrap()
+                .starts_with("-----BEGIN SSH SIGNATURE-----")
+        );
+        let mut verify = rig.client("ssh-keygen", &b1.socket);
+        verify
+            .args(["-Y", "check-novalidate", "-n", "heimdall-test", "-s"])
+            .arg(&sig)
+            .stdin(Stdio::piped());
+        let mut child = verify.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"the bytes to sign")
+            .unwrap();
+        assert!(child.wait_with_output().unwrap().status.success());
+        assert_eq!(rig.relay.signer.signs.load(Ordering::SeqCst), 1);
+
+        // The real `ssh-add` adding a key is refused (it exits non-zero).
+        let private = rig.world.home.root.join("id_fixture");
+        key.write_private(&private).unwrap();
+        let before = (
+            rig.relay.served.load(Ordering::SeqCst),
+            rig.relay.signer.listings.load(Ordering::SeqCst),
+            rig.relay.signer.signs.load(Ordering::SeqCst),
+        );
+        let added = run(rig.client("ssh-add", &b1.socket).arg(&private));
+        assert!(!added.status.success(), "an add-identity is refused");
+
+        // Raw messages: each refused one is answered here and never counted by the handler.
+        let mut raw = connect(&b1.socket);
+        let handler_saw = || {
+            (
+                rig.relay.served.load(Ordering::SeqCst),
+                rig.relay.signer.listings.load(Ordering::SeqCst),
+                rig.relay.signer.signs.load(Ordering::SeqCst),
+            )
+        };
+        let after_add = handler_saw();
+        for body in [
+            &[17u8, 0, 0, 0, 0][..],                 // SSH_AGENTC_ADD_IDENTITY
+            &[18, 0, 0, 0, 0][..],                   // SSH_AGENTC_REMOVE_IDENTITY
+            &[19][..],                               // SSH_AGENTC_REMOVE_ALL_IDENTITIES
+            &[22, 0, 0, 0, 0][..],                   // SSH_AGENTC_LOCK
+            &[27, 0, 0, 0, 3, b'x', b'@', b'y'][..], // an extension that is not session-bind
+            &[0xff][..],                             // a type nobody defines
+        ] {
+            raw.write_all(&frame(body)).unwrap();
+            assert_eq!(
+                read_frame(&mut raw).as_deref(),
+                Some(&[5u8][..]),
+                "{body:?}"
+            );
+        }
+        assert_eq!(handler_saw(), after_add, "nothing refused reached Windows");
+        assert_eq!(
+            after_add, before,
+            "not even a stream was opened for the refused add"
+        );
+        // The same connection still serves an allowed request, which does reach the signer.
+        raw.write_all(&frame(&[11])).unwrap();
+        let answer = read_frame(&mut raw).expect("an identities answer");
+        assert_eq!(answer[0], 12);
+        assert_eq!(handler_saw().1, before.1 + 1);
+        drop(raw);
+
+        // A frame above 256 KiB closes the connection with no reply.
+        let mut big = connect(&b1.socket);
+        big.write_all(&u32::try_from((256 << 10) + 1).unwrap().to_be_bytes())
+            .unwrap();
+        assert!(read_frame(&mut big).is_none());
+
+        // EOF from Windows: the helper removes every endpoint and exits.
+        assert!(bridge.alive());
+        drop(bridge);
+        assert!(!dir.exists(), "the endpoint directory is gone");
+        assert!(
+            UnixStream::connect(&b1.socket).is_err(),
+            "nothing listens any more"
+        );
+    }
+
+    fn run_ok(cmd: &mut Command) -> String {
+        let out = cmd.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    }
+
+    /// A helper killed by its exact PID leaves a dead socket (and its files) behind; the next
+    /// helper of the account removes that directory by the stale-socket rule when it first
+    /// realizes, and serves its own endpoint.
+    #[test]
+    fn bridge_restart_after_a_killed_helper_removes_the_stale_endpoint() {
+        let rig = Rig::new();
+        let first = rig.start();
+        let run_dir = first.run_dir().to_owned();
+        let old = rig.realize(&first, "b1", 1);
+        assert!(Path::new(&old.socket).exists());
+        let status = Command::new("kill")
+            .args(["-KILL", &first.helper_pid().to_string()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let start = Instant::now();
+        while first.alive() {
+            assert!(start.elapsed() < Duration::from_secs(10), "the helper died");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            Path::new(&old.socket).exists(),
+            "a killed helper leaves its socket"
+        );
+        assert!(
+            UnixStream::connect(&old.socket).is_err(),
+            "and nobody listens"
+        );
+
+        let second = rig.start();
+        assert_eq!(second.run_dir(), run_dir);
+        let fresh = rig.realize(&second, "b2", 1);
+        assert!(
+            !Path::new(&old.socket).exists() && !Path::new(&run_dir).join("b/b1").exists(),
+            "the stale directory was removed"
+        );
+        let listed = run_ok(rig.client("ssh-add", &fresh.socket).arg("-l"));
+        assert!(
+            listed.contains(&rig.relay.signer.key.fingerprint()),
+            "{listed}"
+        );
+        assert_eq!(second.realized().unwrap(), vec![("b2".to_owned(), 1)]);
+        drop(first);
+    }
+}

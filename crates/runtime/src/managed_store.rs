@@ -271,7 +271,8 @@ impl GrantScopes for StoreSources {
     }
 
     /// ⟨M04⟩ U5 (design §4): a grant pinned to a container environment puts its binding
-    /// endpoint in that environment's stable directory; every other grant keeps the native
+    /// endpoint in that environment's stable directory; ⟨U4b⟩ one pinned to a WSL Mode B
+    /// environment puts it inside the distribution; every other grant keeps the native
     /// random per-binding path. A store failure creates nothing (fail closed).
     fn placement(&self, grant: &GrantId) -> Result<EndpointPlacement, AdapterError> {
         self.store
@@ -284,6 +285,13 @@ impl GrantScopes for StoreSources {
                         realization: EnvironmentRealization::Container { dir_tag, .. },
                         ..
                     }) => EndpointPlacement::Container { dir_tag },
+                    // ⟨M04 U4b⟩ A Mode B distribution's endpoint is inside it, served by its
+                    // helper; the placement names the environment the bridge is keyed by.
+                    Some(ManagedEnvironment {
+                        realization: EnvironmentRealization::Wsl { .. },
+                        environment,
+                        ..
+                    }) => EndpointPlacement::WslBridge { environment },
                     _ => EndpointPlacement::Native,
                 })
             })
@@ -1170,6 +1178,10 @@ mod live_tests {
     mod pipeline;
     /// ⟨X-M⟩ ADR-0008 §17.23 items 1 and 5 (`managed_store/live_tests/selection.rs`).
     mod selection;
+    /// ⟨M04 U4b⟩ ADR-0010 §3 (`managed_store/live_tests/wsl_mode_b.rs`): WSL Mode B's
+    /// decision, placement, descriptor, withdrawal by generation, disable and the
+    /// supervisor, over an in-process fake helper (no helper, no distribution).
+    mod wsl_mode_b;
 
     fn t0() -> Timestamp {
         "2026-11-02T09:00:00Z".parse().unwrap()
@@ -1487,6 +1499,54 @@ mod live_tests {
         fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
             self.get().map_or(0, |r| r.remove_container(dir_tag))
         }
+
+        fn start_environment(
+            &self,
+            environment: &heimdall_contract::ids::EnvironmentId,
+        ) -> Result<(), AdapterError> {
+            self.get()
+                .ok_or_else(|| AdapterError::Unavailable("wsl_unavailable".to_owned()))?
+                .start_wsl_environment(environment)
+        }
+
+        fn wsl_supported(&self) -> bool {
+            self.get().is_some_and(|r| r.has_wsl_realizer())
+        }
+
+        fn stop_environment(
+            &self,
+            environment: &heimdall_contract::ids::EnvironmentId,
+            start: bool,
+        ) -> Result<bool, AdapterError> {
+            match self.get() {
+                Some(r) if r.has_wsl_realizer() => r.stop_wsl_environment(environment, start),
+                _ => Ok(false),
+            }
+        }
+
+        fn helper_state(
+            &self,
+            environment: &heimdall_contract::ids::EnvironmentId,
+        ) -> Option<heimdall_contract::environment::HelperState> {
+            self.get()?.wsl_helper_state(environment)
+        }
+
+        fn realize_wsl_binding(
+            &self,
+            binding: &heimdall_contract::ids::BindingId,
+            generation: u64,
+            public: &heimdall_credential::endpoints::wsl::WslPublic,
+        ) -> Result<(), AdapterError> {
+            self.get()
+                .ok_or_else(|| {
+                    AdapterError::Unavailable("binding_endpoint_unavailable".to_owned())
+                })?
+                .realize_wsl(
+                    binding,
+                    heimdall_domain::resource::ResourceGeneration(generation),
+                    public,
+                )
+        }
         fn remove_binding_endpoint(
             &self,
             binding: &BindingId,
@@ -1630,6 +1690,9 @@ mod live_tests {
         registry: EndpointRegistry,
         effects: ManagedEffectsImpl,
         shutdown: CancellationToken,
+        /// ⟨M04 U4b⟩ The bridge supervisor, when the process was given a WSL fixture with a
+        /// factory.
+        bridge: Option<crate::wsl_bridge::BridgeRegistry>,
     }
 
     struct Live {
@@ -1809,6 +1872,9 @@ mod live_tests {
         /// (`ManagedEffectsImpl::with_test_container_host`): container environments are
         /// realized although this host is not Linux.
         container_host: bool,
+        /// ⟨M04 U4b⟩ The WSL host and fake helper factory of Mode B
+        /// ([`wsl_mode_b::WslFixture`]); none: no WSL host is wired.
+        wsl: Option<wsl_mode_b::WslFixture>,
     }
 
     impl Live {
@@ -1895,6 +1961,7 @@ mod live_tests {
                 wrap,
                 slot_roots,
                 container_host,
+                wsl,
             } = opts;
             let sources = StoreSources::new(self.store.clone(), env());
             let table = SignerTable::new(Arc::new(KeyVault::new()));
@@ -1968,6 +2035,23 @@ mod live_tests {
                 shutdown.clone(),
             );
             *late.0.write().unwrap() = Some(registry.clone());
+            // ⟨M04 U4b⟩ The WSL host and, with a factory, the bridge supervisor as the
+            // registry's realizer (as the runtime wires them).
+            let bridge = wsl.and_then(|fx| {
+                ops.set_distribution_host(fx.host.clone());
+                fx.factory.map(|f| {
+                    let b = crate::wsl_bridge::BridgeRegistry::new(
+                        self.store.clone(),
+                        env(),
+                        fx.host.clone(),
+                        f,
+                        tokio::runtime::Handle::current(),
+                    );
+                    b.attach(registry.downgrade());
+                    registry.set_wsl_realizer(Arc::new(b.clone()));
+                    b
+                })
+            });
             table.set_install_view(Arc::new(OpsInstallView::new(ops.clone())));
             let issuer: Arc<dyn IssuerPort> = Arc::new(FixtureIssuer {
                 store: self.store.clone(),
@@ -1991,6 +2075,7 @@ mod live_tests {
                 registry,
                 effects,
                 shutdown,
+                bridge,
             }
         }
 

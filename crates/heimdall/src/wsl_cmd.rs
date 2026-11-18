@@ -1,8 +1,12 @@
 //! M04 command surface (ADR-0010 §2, §3, §9 items 2 and 9; m04-plan U3).
 //!
 //! * `wsl enable|disable|status` (U3b): Mode A through the runtime's `wsl_enable` and
-//!   `wsl_disable` and the M02 setup flow for the distribution's Git item; Mode B answers
-//!   `driver_unavailable` until U4.
+//!   `wsl_disable` and the M02 setup flow for the distribution's Git item. ⟨U4b⟩ `enable
+//!   --mode-b` goes through the decision flow as `container add` does: the session is
+//!   attended first, the exact recorded `AddEnvironment` decision is shown with its three
+//!   disclosures, a typed `yes` is required, and only then is `Decide approve` sent;
+//!   `disable` ends Mode B too (the environment's bindings end and withdraw, the helper
+//!   stops).
 //! * `internal wsl-helper` (U3a): the in-distribution helper of `heimdall-wsl/1`.
 //! * [`refusal_envelope`]: the wave-0 refusal (`USAGE_ERROR`, "planned for M04"), now only
 //!   the unreachable `internal wsl-helper` arm of `m03_cmd::internal` answers it; every M04
@@ -104,6 +108,12 @@ fn helper_env(
 /// The WSL host this command reads: the platform's (Lxss and `wsl.exe` on Windows, none
 /// elsewhere), with the debug-only test configuration's helper path.
 fn wsl_host() -> heimdall_wsl::WslHost {
+    // ⟨M04 W2⟩ The test configuration's directly started stand-in, when it names one (a
+    // malformed one answers as no WSL here; the runtime refuses it at start).
+    #[cfg(debug_assertions)]
+    if let Ok(Some(host)) = crate::testcfg::wsl_direct_host(&|n| std::env::var_os(n)) {
+        return host;
+    }
     #[cfg(debug_assertions)]
     let helper = std::env::var_os(crate::testcfg::WSL_HELPER_ENV).map(std::path::PathBuf::from);
     #[cfg(not(debug_assertions))]
@@ -198,7 +208,8 @@ async fn wsl_session(ctx: &Ctx) -> Result<crate::client::Client, crate::setup_cm
 /// `heimdall wsl enable <distribution> [--account <name>] --mode-a|--mode-b`: record the
 /// distribution with the runtime (`wsl_enable`), then, for Mode A, preview, confirm and
 /// apply its Git item through the M02 setup flow (ADR-0010 §2 item 2: setup-confirmed, no
-/// decision record). Mode B is wave 2's: the runtime answers `driver_unavailable`.
+/// decision record). `--mode-b` is decision-recorded instead ([`enable_mode_b`]); clap
+/// refuses the two flags together.
 pub(crate) fn enable(ctx: &Ctx, args: crate::cli::WslEnableArgs) -> ExitCode {
     crate::setup_cmd::block(ctx, async move {
         use heimdall_contract::environment::EnvironmentRequest;
@@ -220,6 +231,16 @@ pub(crate) fn enable(ctx: &Ctx, args: crate::cli::WslEnableArgs) -> ExitCode {
             Ok(c) => c,
             Err(o) => return o,
         };
+        if args.mode_b {
+            return enable_mode_b(
+                &mut client,
+                &mut crate::cli::TerminalPrompt,
+                ctx,
+                &d.guid,
+                account,
+            )
+            .await;
+        }
         let env = client
             .request(Request::Environment(EnvironmentRequest::WslEnable {
                 distribution_guid: d.guid.clone(),
@@ -244,6 +265,48 @@ pub(crate) fn enable(ctx: &Ctx, args: crate::cli::WslEnableArgs) -> ExitCode {
         )
         .await
     })
+}
+
+/// The preface of the Mode B `AddEnvironment` confirmation (ADR-0010 §3 "Non-claims", item 14).
+const MODE_B_PREFACE: &str = "Enable WSL Mode B for this distribution (ADR-0010 §3). Heimdall will run a helper inside the distribution that exposes one binding's signing endpoint and public files at a socket only the distribution account can use; the private key stays in Windows. WSL is not a boundary from your Windows user: any process of your Windows user, and the distribution's root, can use the endpoint (wsl.exe -d), and a Linux user who can use interop can become the account that owns it (wsl.exe -u). An active binding keeps the distribution running.";
+
+/// `wsl enable --mode-b`: the runtime answers the request with an `AddEnvironment`
+/// decision (host, account and registration rules first, nothing written when they refuse).
+/// On an interactive terminal the session is attended first, the exact recorded decision is
+/// shown, a typed `yes` is required and only then is `Decide approve` sent; the answer is the
+/// environment's view. Otherwise nothing more is sent and the command exits 3 with
+/// `next.decision_ref`. An already enabled distribution answers `OK` at once.
+async fn enable_mode_b<S: crate::cli::Session, P: crate::cli::Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    guid: &heimdall_contract::environment::DistributionGuid,
+    account: String,
+) -> crate::setup_cmd::Outcome {
+    use heimdall_contract::environment::EnvironmentRequest;
+    use heimdall_contract::request::Request;
+    if let Err(refused) = crate::setup_cmd::attend_first(s, ctx).await {
+        return crate::setup_cmd::Outcome::of(refused);
+    }
+    let env = s
+        .request(Request::Environment(EnvironmentRequest::WslEnable {
+            distribution_guid: guid.clone(),
+            account,
+            mode_a: false,
+            mode_b: true,
+        }))
+        .await;
+    let Some(decision) = crate::setup_cmd::pending_decision(&env) else {
+        return crate::setup_cmd::Outcome::of(env);
+    };
+    if !ctx.interactive() {
+        // The pending decision stays pending; nothing more is sent (exit 3).
+        return crate::setup_cmd::Outcome::of(env);
+    }
+    let decided =
+        crate::setup_cmd::confirm_and_decide(s, p, ctx, &decision, MODE_B_PREFACE, None, None)
+            .await;
+    crate::setup_cmd::Outcome::of(decided)
 }
 
 /// `heimdall wsl disable <distribution> [--start]` (ADR-0010 §3 item 13, §9 item 2): ask the
@@ -396,11 +459,11 @@ pub(crate) async fn uninstall_distributions<S: crate::cli::Session, P: crate::cl
         .cloned()
         .unwrap_or_default()
         .into_iter()
+        // ⟨M04 W2⟩ Mode A and Mode B alike: `wsl disable` rolls Mode A back and retires a
+        // Mode B environment (its endpoints withdraw; a stopped distribution's leftovers are
+        // a retained obligation, as Mode A's rollback is).
         .filter(|v| {
-            v["kind"] == "wsl_distribution"
-                && v["realization"]["modes"]
-                    .as_array()
-                    .is_some_and(|m| m.is_empty() || m.iter().any(|x| x == "a"))
+            v["kind"] == "wsl_distribution" && v["state"] != "removed" && v["state"] != "gone"
         })
         .collect();
     let mut out = Vec::new();
@@ -475,5 +538,92 @@ mod tests {
         assert!(message(false).contains("inside a WSL distribution"));
         assert_ne!(message(true), message(false));
         assert_ne!(message(false), refusal_message());
+    }
+
+    /// ⟨M04 W2⟩ Uninstall's distribution step: every active WSL distribution row, Mode A or
+    /// Mode B alike, gets `wsl disable` without `start`; a removed or gone environment and a
+    /// container are left alone; a disable that kept a cleanup (a stopped distribution) is
+    /// `retained`, with the owner's explicit start as its next step.
+    #[tokio::test]
+    async fn uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one() {
+        use heimdall_contract::Code;
+        use heimdall_contract::envelope::Envelope;
+        use heimdall_contract::request::Request;
+
+        const A: &str = "0b1c2d3e-1111-4222-8333-abcdef01234a";
+        const B: &str = "0b1c2d3e-1111-4222-8333-abcdef01234b";
+        const GONE: &str = "0b1c2d3e-1111-4222-8333-abcdef01234c";
+        struct Fake {
+            disabled: Vec<(String, bool)>,
+        }
+        impl crate::cli::Session for Fake {
+            async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+                match request {
+                    Request::Inspect(_) => {
+                        let wsl = |guid: &str, state: &str, modes: &[&str]| {
+                            serde_json::json!({"kind": "wsl_distribution", "state": state,
+                                "realization": {"guid": guid, "name": guid, "modes": modes}})
+                        };
+                        Envelope::ok(serde_json::json!({"items": [
+                            wsl(A, "active", &["a"]),
+                            wsl(B, "not_running", &["b"]),
+                            wsl(GONE, "removed", &["b"]),
+                            {"kind": "container", "state": "active", "realization": {}},
+                        ]}))
+                    }
+                    Request::Environment(
+                        heimdall_contract::environment::EnvironmentRequest::WslDisable {
+                            distribution_guid,
+                            start,
+                        },
+                    ) => {
+                        let guid = serde_json::to_value(&distribution_guid).unwrap();
+                        let guid = guid.as_str().unwrap().to_owned();
+                        let pending = guid == B;
+                        self.disabled.push((guid, start));
+                        Envelope::ok(serde_json::json!({"cleanup_pending": pending}))
+                    }
+                    other => panic!("unexpected request {}", other.kind()),
+                }
+            }
+            async fn attend(&mut self) -> Envelope<serde_json::Value> {
+                panic!("uninstall's distribution step never asks for attendance")
+            }
+        }
+        struct NoPrompt;
+        impl crate::cli::Prompter for NoPrompt {
+            async fn ask(&mut self, text: &str) -> crate::prompt::Answer {
+                panic!("unexpected prompt: {text}")
+            }
+        }
+        let ctx = Ctx {
+            json: true,
+            non_interactive: true,
+            home: None,
+            stdin_tty: false,
+        };
+        let mut s = Fake {
+            disabled: Vec::new(),
+        };
+        let out = uninstall_distributions(&mut s, &mut NoPrompt, &ctx).await;
+        assert_eq!(
+            s.disabled,
+            vec![(A.to_owned(), false), (B.to_owned(), false)],
+            "each active distribution, never started"
+        );
+        let outcome = |guid: &str| {
+            out.iter()
+                .find(|r| r["guid"] == guid)
+                .map(|r| (r["outcome"].clone(), r["next"].clone(), r["code"].clone()))
+                .unwrap()
+        };
+        assert_eq!(outcome(A).0, "disabled");
+        assert_eq!(outcome(B).0, "retained");
+        assert_eq!(
+            outcome(B).1,
+            format!("heimdall wsl disable {B} --start").as_str()
+        );
+        assert_eq!(outcome(A).2, serde_json::to_value(Code::Ok).unwrap());
+        assert_eq!(out.len(), 2);
     }
 }

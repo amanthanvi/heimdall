@@ -17,9 +17,10 @@
 //! runtime wires it (`heimdall-runtime → heimdall-wsl`); the crate-graph step refuses an
 //! `app → wsl` edge (`tools/validation/crate_graph.py`).
 //!
-//! **Mode B** (the Linux-native scoped endpoint) is a later unit's: its frames are defined
-//! in [`proto`] and the helper answers them `unsupported`.
+//! * [`bridge`]: **Mode B** (the Linux-native scoped endpoint, ADR-0010 §3): the Windows-side
+//!   [`bridge::Bridge`] session, and the helper's endpoints and stream relay.
 
+pub mod bridge;
 pub mod client;
 pub mod discover;
 pub mod helper;
@@ -27,6 +28,7 @@ pub mod host;
 pub mod proto;
 pub mod spawn;
 
+pub use bridge::{Bridge, BridgePublic, Realized, StreamHandler, realized_paths};
 pub use client::{
     DistributionCleaner, DistributionWriter, HelperLauncher, HelperSession, SessionError, Transport,
 };

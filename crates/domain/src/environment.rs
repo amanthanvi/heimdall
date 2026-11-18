@@ -90,6 +90,15 @@ pub enum EnvironmentDisclosure {
     EngineAccessIsHostRootEquivalent,
     /// Any process of the same host user can use the mounted signing endpoint.
     SameUidProcessesCanUseEndpoint,
+    /// ⟨M04 U4b⟩ Mode B (ADR-0010 §3 non-claims): the same Windows user, and the
+    /// distribution's root, can use the endpoint (`wsl.exe -d <name>`, interop).
+    SameWindowsUserAndDistributionRootCanUseEndpoint,
+    /// ⟨M04 U4b⟩ Mode B (ADR-0010 §3 non-claims): a Linux user who can use interop can
+    /// become the account that owns the endpoint (`wsl.exe -u`).
+    InteropUserCanBecomeOwner,
+    /// ⟨M04 U4b⟩ Mode B (ADR-0010 §3 item 14): an active binding keeps its distribution
+    /// running (P-B10).
+    BindingKeepsDistributionRunning,
 }
 
 impl EnvironmentDisclosure {
@@ -98,6 +107,14 @@ impl EnvironmentDisclosure {
         EnvironmentDisclosure::NotASandbox,
         EnvironmentDisclosure::EngineAccessIsHostRootEquivalent,
         EnvironmentDisclosure::SameUidProcessesCanUseEndpoint,
+    ];
+
+    /// ⟨M04 U4b⟩ The disclosures a WSL Mode B environment's decision carries, in order
+    /// (ADR-0010 §3 "Non-claims" and item 14).
+    pub const MODE_B: [EnvironmentDisclosure; 3] = [
+        EnvironmentDisclosure::SameWindowsUserAndDistributionRootCanUseEndpoint,
+        EnvironmentDisclosure::InteropUserCanBecomeOwner,
+        EnvironmentDisclosure::BindingKeepsDistributionRunning,
     ];
 }
 

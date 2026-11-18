@@ -6383,11 +6383,6 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
     let table: Vec<(&str, Request, Code)> = vec![
         // M04: the environment requests (examples) and the route field.
         (
-            "wsl_enable",
-            example("request.environment.wsl-enable.json"),
-            Code::CapabilityUnavailable,
-        ),
-        (
             "container_add",
             example("request.environment.container-add.json"),
             Code::CapabilityUnavailable,
@@ -6407,6 +6402,24 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             "setup preview of a login entry",
             request(serde_json::json!({"op": "setup", "action": "preview",
                 "intent": {"kind": "apply", "items": ["login_entry"]}})),
+            Code::CapabilityUnavailable,
+        ),
+        // ⟨M04 W2; I-11, ruled⟩ Mode B's `distribution_projection` (a B include in the
+        // distribution's `~/.ssh/config`) is not built in M04: a plan naming it (and so any
+        // apply, which applies a previewed plan) answers `driver_unavailable`, never a plan
+        // that claims it.
+        (
+            "setup preview of the distribution projection",
+            request(serde_json::json!({"op": "setup", "action": "preview",
+                "intent": {"kind": "apply", "items": ["distribution_projection"],
+                    "distribution": "0b1c2d3e-1111-4222-8333-abcdef012345"}})),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "setup preview of the distribution projection's rollback",
+            request(serde_json::json!({"op": "setup", "action": "preview",
+                "intent": {"kind": "rollback", "items": ["distribution_projection"],
+                    "distribution": "0b1c2d3e-1111-4222-8333-abcdef012345"}})),
             Code::CapabilityUnavailable,
         ),
         // M05: ensure forms, policy forms, revoke target, import, inspect subjects.
@@ -6520,16 +6533,25 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             }
         }
     }
-    // ⟨M04 U3b⟩ `wsl_disable` is served now: a runtime without WSL refuses it
-    // `wsl_unavailable`, before anything is read or written. (`wsl_enable` above names Mode
-    // B, which stays `driver_unavailable` until U4.)
-    for caller in [attended(ClientRole::Owner), unattended(ClientRole::Owner)] {
-        let env = d
-            .handle_as(&caller, example("request.environment.wsl-disable.json"))
-            .await;
-        assert_fail_closed(&env, "wsl_disable without WSL");
-        assert_eq!(env.code, Code::CapabilityUnavailable, "{:?}", env.data);
-        assert_eq!(reason_of(&env), Some("wsl_unavailable"));
+    // ⟨M04 U3b, U4b⟩ `wsl_enable` (the example names both modes) and `wsl_disable` are served
+    // now: a runtime without WSL refuses them `wsl_unavailable`, before anything is read or
+    // written.
+    for (what, name) in [
+        (
+            "wsl_enable without WSL",
+            "request.environment.wsl-enable.json",
+        ),
+        (
+            "wsl_disable without WSL",
+            "request.environment.wsl-disable.json",
+        ),
+    ] {
+        for caller in [attended(ClientRole::Owner), unattended(ClientRole::Owner)] {
+            let env = d.handle_as(&caller, example(name)).await;
+            assert_fail_closed(&env, what);
+            assert_eq!(env.code, Code::CapabilityUnavailable, "{:?}", env.data);
+            assert_eq!(reason_of(&env), Some("wsl_unavailable"));
+        }
     }
     // An environment request from a non-owner: the role refusal, no driver reason.
     let env = d

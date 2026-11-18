@@ -11,6 +11,8 @@
 //!   Windows).
 //! * `container`: the container recipe's mounted flow (U5; Linux only; its engine rows skip
 //!   by name without `HEIMDALL_M04_CONTAINER_ENGINE`).
+//! * `wsl_mode_b`: WSL Mode B through the real binary with the helper started directly, as the
+//!   distribution's stand-in (U4; Unix; mechanism evidence, the native rows are `windows`').
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -20,6 +22,16 @@
 
 #[path = "service_login_m04.rs"]
 mod service_login;
+
+// The M03 exit suite's world (a scratch home, the CLI-started runtime and its issuer child, a
+// seeded CA, one server per pair), shared by the modules that drive the product end to end.
+// `world.rs` names `crate::procs`.
+#[cfg(any(unix, windows))]
+#[path = "exit_m03/procs.rs"]
+mod procs;
+#[cfg(any(unix, windows))]
+#[path = "exit_m03/world.rs"]
+mod world;
 
 #[cfg(windows)]
 #[path = "windows_m04.rs"]
@@ -32,6 +44,7 @@ mod wsl_cli;
 #[cfg(target_os = "linux")]
 #[path = "container_m04.rs"]
 mod container;
-// `exit_m03/world.rs`, which the container module includes, names `crate::procs`.
-#[cfg(target_os = "linux")]
-use container::procs;
+
+#[cfg(unix)]
+#[path = "wsl_mode_b_m04.rs"]
+mod wsl_mode_b;

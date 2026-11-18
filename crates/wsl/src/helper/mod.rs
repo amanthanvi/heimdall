@@ -16,16 +16,18 @@
 //! * It never starts a new file step after a sink call failed (`LocalProjection` guarantees
 //!   it) and ends at EOF on stdin.
 //!
-//! Nothing but protocol frames is written to stdout.
+//! Mode B (ADR-0010 §3; [`crate::bridge::linux`]) interleaves with all of this: stream frames
+//! keep flowing, and `realize`, `withdraw` and `realized` are answered, while a file request
+//! waits for its acknowledgments. Nothing but protocol frames is written to stdout.
 
 pub mod identity;
 pub mod lock;
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use heimdall_app::ports::{PreviewError, ReconcileError, SinkError, StageSink};
 use heimdall_contract::ids::EnvironmentId;
@@ -39,6 +41,7 @@ use heimdall_localenv::paths::SshPaths;
 use heimdall_localenv::projection::{LocalProjection, ProjectionConfig, ReplaceHook};
 
 use self::identity::Identity;
+use crate::bridge::linux::Endpoints;
 use crate::proto::{
     self, DistContext, EXIT_PROTOCOL, ErrorKind, Hello, HelperFrame, Inbound, SinkCalls, VERSION,
     WindowsFrame, WireHeldStep, WireItemOutcome,
@@ -138,6 +141,11 @@ impl HelperEnv {
             append_windows_path: self.identity.append_windows_path,
             arch: std::env::consts::ARCH.to_owned(),
             helper_version: env!("CARGO_PKG_VERSION").to_owned(),
+            run_dir: Some(
+                crate::bridge::linux::run_dir_path(self)
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         }
     }
 }
@@ -182,7 +190,7 @@ struct Ready {
 /// umask made it (often group-writable under `umask 002`), so the anchor is Heimdall's own
 /// directory, not the XDG base.
 #[cfg(unix)]
-fn heimdall_dir(base: &Path) -> Result<PathBuf, Failure> {
+pub(crate) fn heimdall_dir(base: &Path) -> Result<PathBuf, Failure> {
     use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};
 
     use heimdall_localenv::sys::ManagedDir;
@@ -210,7 +218,7 @@ fn heimdall_dir(base: &Path) -> Result<PathBuf, Failure> {
 }
 
 #[cfg(not(unix))]
-fn heimdall_dir(_base: &Path) -> Result<PathBuf, Failure> {
+pub(crate) fn heimdall_dir(_base: &Path) -> Result<PathBuf, Failure> {
     Err(fail(
         ErrorKind::Unavailable,
         "the helper runs on Linux only",
@@ -326,17 +334,35 @@ fn projection_config(
 
 // --- the proxy sink ---------------------------------------------------------------------
 
-/// Why the proxy sink's exchange broke the session.
+/// Why an exchange broke the session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Broken {
+pub(crate) enum Broken {
     /// Windows went away (EOF, a write failure): exit quietly.
     Gone,
     /// A protocol violation: exit with [`EXIT_PROTOCOL`].
     Protocol,
 }
 
-struct ProxySink<'a, W: Write> {
-    writer: &'a mut W,
+/// The channel's writer, shared with the Mode B connection tasks: a frame is written whole
+/// under the lock.
+#[derive(Clone)]
+pub(crate) struct FrameWriter(Arc<Mutex<Box<dyn Write + Send>>>);
+
+impl FrameWriter {
+    fn new(writer: impl Write + Send + 'static) -> Self {
+        FrameWriter(Arc::new(Mutex::new(Box::new(writer))))
+    }
+
+    /// Write one frame.
+    pub(crate) fn send(&self, frame: &HelperFrame) -> Result<(), proto::FrameError> {
+        let mut w = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        proto::write_frame(&mut *w, frame)
+    }
+}
+
+struct ProxySink<'a> {
+    writer: &'a FrameWriter,
+    modeb: &'a mut Endpoints,
     rx: &'a mut Receiver<Inbound<WindowsFrame>>,
     id: u64,
     calls: SinkCalls,
@@ -347,7 +373,7 @@ struct ProxySink<'a, W: Write> {
     broken: Option<Broken>,
 }
 
-impl<W: Write> ProxySink<'_, W> {
+impl ProxySink<'_> {
     fn exchange(&mut self, frame: impl FnOnce(u64, u64) -> HelperFrame) -> Result<(), SinkError> {
         let stop = |m: &str| SinkError(m.to_owned());
         if self.failed {
@@ -359,31 +385,42 @@ impl<W: Write> ProxySink<'_, W> {
             self.broken = Some(Broken::Protocol);
             return Err(stop("too many sink calls"));
         }
-        if proto::write_frame(self.writer, &frame(self.id, seq)).is_err() {
+        if self.writer.send(&frame(self.id, seq)).is_err() {
             self.failed = true;
             self.broken = Some(Broken::Gone);
             return Err(stop("the channel is gone"));
         }
-        let verdict = match self.rx.recv_timeout(self.ack_timeout) {
-            Ok(Inbound::Frame(WindowsFrame::SinkAck { id, seq: s }))
-                if id == self.id && s == seq =>
-            {
-                Ok(())
+        let deadline = Instant::now() + self.ack_timeout;
+        let verdict = loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.rx.recv_timeout(left) {
+                Ok(Inbound::Frame(WindowsFrame::SinkAck { id, seq: s }))
+                    if id == self.id && s == seq =>
+                {
+                    break Ok(());
+                }
+                Ok(Inbound::Frame(WindowsFrame::SinkFailed { id, seq: s }))
+                    if id == self.id && s == seq =>
+                {
+                    break Err("windows could not make the call durable");
+                }
+                // Mode B keeps flowing while a file request waits.
+                Ok(Inbound::Frame(f)) if f.is_mode_b() => {
+                    if let Err(b) = self.modeb.handle(f) {
+                        self.broken = Some(b);
+                        break Err("the channel ended during a sink call");
+                    }
+                }
+                Ok(Inbound::Frame(_) | Inbound::Broken(_)) => {
+                    self.broken = Some(Broken::Protocol);
+                    break Err("an unexpected frame during a sink call");
+                }
+                Ok(Inbound::Eof) | Err(RecvTimeoutError::Disconnected) => {
+                    self.broken = Some(Broken::Gone);
+                    break Err("the channel ended");
+                }
+                Err(RecvTimeoutError::Timeout) => break Err("no acknowledgment in time"),
             }
-            Ok(Inbound::Frame(WindowsFrame::SinkFailed { id, seq: s }))
-                if id == self.id && s == seq =>
-            {
-                Err("windows could not make the call durable")
-            }
-            Ok(Inbound::Frame(_) | Inbound::Broken(_)) => {
-                self.broken = Some(Broken::Protocol);
-                Err("an unexpected frame during a sink call")
-            }
-            Ok(Inbound::Eof) | Err(RecvTimeoutError::Disconnected) => {
-                self.broken = Some(Broken::Gone);
-                Err("the channel ended")
-            }
-            Err(RecvTimeoutError::Timeout) => Err("no acknowledgment in time"),
         };
         verdict.map_err(|m| {
             self.failed = true;
@@ -392,7 +429,7 @@ impl<W: Write> ProxySink<'_, W> {
     }
 }
 
-impl<W: Write + Send> StageSink for ProxySink<'_, W> {
+impl StageSink for ProxySink<'_> {
     fn append(&mut self, receipt: &LocalReceipt) -> Result<(), SinkError> {
         let receipt = receipt.clone();
         self.exchange(|id, seq| HelperFrame::SinkAppend { id, seq, receipt })
@@ -418,29 +455,41 @@ enum Next {
 }
 
 /// Serve one session: hello, wait for `welcome`, then requests until `shutdown`, EOF or a
-/// protocol error. Returns the helper's exit status (0, or [`EXIT_PROTOCOL`]).
-pub fn serve<R, W>(env: &HelperEnv, reader: R, mut writer: W) -> i32
+/// protocol error. Returns the helper's exit status (0, or [`EXIT_PROTOCOL`]). Whatever ends
+/// the session, every Mode B endpoint is withdrawn before this returns (ADR-0010 §3 item 11).
+pub fn serve<R, W>(env: &HelperEnv, reader: R, writer: W) -> i32
 where
     R: Read + Send + 'static,
-    W: Write + Send,
+    W: Write + Send + 'static,
+{
+    let writer = FrameWriter::new(writer);
+    let mut modeb = Endpoints::new(env, writer.clone());
+    let code = session(env, reader, &writer, &mut modeb);
+    modeb.shutdown();
+    code
+}
+
+fn session<R>(env: &HelperEnv, reader: R, writer: &FrameWriter, modeb: &mut Endpoints) -> i32
+where
+    R: Read + Send + 'static,
 {
     let mut rx = proto::spawn_reader::<WindowsFrame, _>(reader);
-    if proto::write_frame(&mut writer, &HelperFrame::Hello(env.hello())).is_err() {
+    if writer.send(&HelperFrame::Hello(env.hello())).is_err() {
         return 0;
     }
     match rx.recv_timeout(proto::HELLO_TIMEOUT) {
         Ok(Inbound::Frame(WindowsFrame::Welcome { version })) if version == VERSION => {}
         Ok(Inbound::Frame(WindowsFrame::Bye { .. }) | Inbound::Eof) => return 0,
-        _ => return protocol_exit(&mut writer),
+        _ => return protocol_exit(writer),
     }
     let mut ready = Ready::default();
     loop {
         let frame = match rx.recv() {
             Ok(Inbound::Frame(f)) => f,
             Ok(Inbound::Eof) | Err(_) => return 0,
-            Ok(Inbound::Broken(_)) => return protocol_exit(&mut writer),
+            Ok(Inbound::Broken(_)) => return protocol_exit(writer),
         };
-        match handle(env, &mut ready, &mut rx, &mut writer, frame) {
+        match handle(env, &mut ready, modeb, &mut rx, writer, frame) {
             Next::Continue => {}
             Next::Exit(code) => return code,
         }
@@ -448,20 +497,17 @@ where
 }
 
 /// Tell Windows (best effort) and exit with [`EXIT_PROTOCOL`].
-fn protocol_exit<W: Write>(writer: &mut W) -> i32 {
-    let _ = proto::write_frame(
-        writer,
-        &HelperFrame::Error {
-            id: 0,
-            kind: ErrorKind::Protocol,
-            message: "protocol error".to_owned(),
-        },
-    );
+fn protocol_exit(writer: &FrameWriter) -> i32 {
+    let _ = writer.send(&HelperFrame::Error {
+        id: 0,
+        kind: ErrorKind::Protocol,
+        message: "protocol error".to_owned(),
+    });
     EXIT_PROTOCOL
 }
 
-fn reply<W: Write>(writer: &mut W, frame: &HelperFrame) -> Next {
-    match proto::write_frame(writer, frame) {
+fn reply(writer: &FrameWriter, frame: &HelperFrame) -> Next {
+    match writer.send(frame) {
         Ok(()) => Next::Continue,
         Err(_) => Next::Exit(0),
     }
@@ -475,23 +521,21 @@ fn error_frame(id: u64, (kind, message): Failure) -> HelperFrame {
     }
 }
 
-fn handle<W: Write + Send>(
+fn handle(
     env: &HelperEnv,
     ready: &mut Ready,
+    modeb: &mut Endpoints,
     rx: &mut Receiver<Inbound<WindowsFrame>>,
-    writer: &mut W,
+    writer: &FrameWriter,
     frame: WindowsFrame,
 ) -> Next {
     match frame {
         WindowsFrame::Shutdown {} => Next::Exit(0),
-        // Mode B is U4's: defined, answered `unsupported`, and the session continues.
-        f if f.is_mode_b() => reply(
-            writer,
-            &error_frame(
-                f.mode_b_id(),
-                fail(ErrorKind::Unsupported, "mode b is not served by this build"),
-            ),
-        ),
+        f if f.is_mode_b() => match modeb.handle(f) {
+            Ok(()) => Next::Continue,
+            Err(Broken::Gone) => Next::Exit(0),
+            Err(Broken::Protocol) => Next::Exit(protocol_exit(writer)),
+        },
         WindowsFrame::Welcome { .. }
         | WindowsFrame::Bye { .. }
         | WindowsFrame::SinkAck { .. }
@@ -531,6 +575,7 @@ fn handle<W: Write + Send>(
             run_with_sink(
                 rx,
                 writer,
+                modeb,
                 id,
                 &ctx,
                 config,
@@ -555,6 +600,7 @@ fn handle<W: Write + Send>(
             run_with_sink(
                 rx,
                 writer,
+                modeb,
                 id,
                 &ctx,
                 config,
@@ -645,7 +691,7 @@ fn handle<W: Write + Send>(
         // would hide a new frame.
         WindowsFrame::Realize { .. }
         | WindowsFrame::Withdraw { .. }
-        | WindowsFrame::Open { .. }
+        | WindowsFrame::Realized { .. }
         | WindowsFrame::Data { .. }
         | WindowsFrame::Close { .. } => Next::Continue,
     }
@@ -653,18 +699,17 @@ fn handle<W: Write + Send>(
 
 /// Run `apply` or `reconcile` over a [`ProxySink`] and answer: `done` builds the success
 /// frame; a failure is answered `error`; a broken channel ends the session.
-fn run_with_sink<W, T>(
+#[allow(clippy::too_many_arguments)] // the channel's three ends, the request, and two closures
+fn run_with_sink<T>(
     rx: &mut Receiver<Inbound<WindowsFrame>>,
-    writer: &mut W,
+    writer: &FrameWriter,
+    modeb: &mut Endpoints,
     id: u64,
     ctx: &DistContext,
     config: Result<ProjectionConfig, Failure>,
     run: impl FnOnce(&LocalProjection, &mut dyn StageSink) -> Result<Vec<T>, ReconcileError>,
     done: impl FnOnce(Vec<T>) -> HelperFrame,
-) -> Next
-where
-    W: Write + Send,
-{
+) -> Next {
     let projection = config.and_then(|c| {
         LocalProjection::writing(c).map_err(|e| fail(ErrorKind::Unavailable, &e.to_string()))
     });
@@ -674,6 +719,7 @@ where
     };
     let mut sink = ProxySink {
         writer,
+        modeb,
         rx,
         id,
         calls: SinkCalls::new(id),

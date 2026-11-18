@@ -20,12 +20,19 @@ heimdall-app = { workspace = true }
 # The projection transaction the helper runs (`LocalProjection`), the client inventory,
 # `ManagedDir`, and the spawn and Lxss primitives.
 heimdall-localenv = { workspace = true }
+# Mode B (ADR-0010 §3 items 4–6): `ipc::signing::classify` on the Linux endpoint, the
+# stale-socket rule, and the endpoint types a `StreamHandler`'s signer serves.
+heimdall-ipc = { workspace = true }
 async-trait = { workspace = true }
+# `data` frames carry base64 (the workspace pin `heimdall-app` already uses).
+base64ct = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 # `DistributionCleaner::delete` runs the blocking session on the blocking pool.
 tokio = { workspace = true }
+# The Linux endpoints' and the stream pumps' cancellation.
+tokio-util = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 # The helper's instance lock (`flock`, O_NOFOLLOW) and its effective uid, through

@@ -57,6 +57,23 @@ pub const MAX_STREAMS_PER_BINDING: usize = 64;
 pub const MAX_AGENT_MESSAGE: usize = 256 << 10;
 /// Mode B: idle time per stream.
 pub const STREAM_IDLE: Duration = Duration::from_secs(30);
+/// Mode B: one `data` frame, decoded (the signing limit; ADR-0010 §3 item 4).
+pub const MAX_DATA_BYTES: usize = MAX_AGENT_MESSAGE;
+/// Mode B: the longest wait for the answer to `realize`, `withdraw` or `realized`.
+pub const BRIDGE_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Mode B: the most bindings one helper serves.
+pub const MAX_BINDINGS: usize = 64;
+/// Mode B: the most public files one `realize` carries.
+pub const MAX_PUBLIC_FILES: usize = 16;
+/// Mode B: one public file's line.
+pub const MAX_PUBLIC_LINE: usize = 16 << 10;
+/// Mode B: the rendered `ssh_config` and the known-hosts text.
+pub const MAX_PUBLIC_TEXT: usize = 256 << 10;
+/// Mode B: a Unix socket path must fit `sun_path` on every host (macOS allows 104 bytes
+/// including the terminator).
+pub const MAX_SOCKET_PATH: usize = 103;
+/// The names the helper keeps in a binding directory for itself.
+pub const RESERVED_FILES: [&str; 3] = ["agent.sock", "ssh_config", "known_hosts"];
 
 /// The helper's exit status after a protocol error.
 pub const EXIT_PROTOCOL: i32 = 3;
@@ -181,7 +198,7 @@ pub enum ErrorKind {
     Unavailable,
     /// Another helper holds this account's instance lock.
     Busy,
-    /// The frame is defined but not served in this build (Mode B before U4).
+    /// The request is defined but this helper does not serve it (Mode B off Linux).
     Unsupported,
     /// A protocol violation the helper reports before it exits.
     Protocol,
@@ -213,6 +230,10 @@ pub struct Hello {
     pub arch: String,
     /// The helper crate's version.
     pub helper_version: String,
+    /// Mode B: `<run>`, the absolute Linux directory the binding directories live under
+    /// (`$XDG_RUNTIME_DIR/heimdall`, else `~/.local/state/heimdall/run`). Nothing is created
+    /// before the first `realize`. `null` from a helper that does not serve Mode B.
+    pub run_dir: Option<String>,
 }
 
 /// Why Windows ends a session after the hello.
@@ -240,13 +261,14 @@ pub struct DistContext {
     pub items: BTreeSet<ProjectionItem>,
 }
 
-/// Mode B's public material of one binding (defined now, served by U4).
+/// Mode B's public material of one binding (never a private key).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModeBPublic {
-    /// Certificate lines.
-    pub certs: Vec<String>,
-    /// The managed include's text.
+    /// `(file name, one OpenSSH line)` per certificate and public key; the name satisfies
+    /// [`valid_file_name`].
+    pub files: Vec<(String, String)>,
+    /// The `ssh_config` text, rendered on Windows with the in-distribution paths in it.
     pub ssh_config: String,
     /// The known-hosts text.
     pub known_hosts: String,
@@ -324,6 +346,47 @@ pub enum HelperFrame {
         seq: u64,
         /// The commit.
         commit: Box<ItemCommit>,
+    },
+    /// Mode B: `realize` is done; the paths are the helper's own.
+    RealizeOk {
+        /// The request.
+        id: u64,
+        /// The socket path.
+        socket: String,
+        /// The `ssh_config` path.
+        ssh_config: String,
+    },
+    /// Mode B: `withdraw` is done (or there was nothing to withdraw).
+    WithdrawOk {
+        /// The request.
+        id: u64,
+    },
+    /// Mode B: `realized`'s answer.
+    RealizedOk {
+        /// The request.
+        id: u64,
+        /// `(tag, generation)` of every binding served now.
+        bindings: Vec<(String, u64)>,
+    },
+    /// Mode B: a Linux client connected and sent its first allowed message. Streams are
+    /// numbered by the helper: odd and increasing.
+    Open {
+        /// The stream.
+        stream: u64,
+        /// The binding's tag.
+        binding_tag: String,
+    },
+    /// Mode B: request bytes of a stream.
+    Data {
+        /// The stream.
+        stream: u64,
+        /// Base64, at most [`MAX_DATA_BYTES`] decoded.
+        bytes_b64: String,
+    },
+    /// Mode B: the stream ends (one-way: the receiver does not answer it).
+    Close {
+        /// The stream.
+        stream: u64,
     },
 }
 
@@ -419,11 +482,11 @@ pub enum WindowsFrame {
     },
     /// The helper exits 0.
     Shutdown {},
-    /// Mode B (served by U4; answered `unsupported` until then).
+    /// Mode B: serve `binding_tag`'s endpoint at `generation`.
     Realize {
         /// The request.
         id: u64,
-        /// The binding's tag.
+        /// The binding's tag ([`valid_tag`]).
         binding_tag: String,
         /// The generation.
         generation: u64,
@@ -432,7 +495,7 @@ pub enum WindowsFrame {
         /// The binding's deadline (RFC 3339).
         deadline: String,
     },
-    /// Mode B.
+    /// Mode B: stop serving `binding_tag` at exactly `generation`.
     Withdraw {
         /// The request.
         id: u64,
@@ -441,21 +504,19 @@ pub enum WindowsFrame {
         /// The generation.
         generation: u64,
     },
-    /// Mode B: a stream opens.
-    Open {
-        /// The stream.
-        stream: u64,
-        /// The binding's tag.
-        binding_tag: String,
+    /// Mode B: which bindings does the helper serve?
+    Realized {
+        /// The request.
+        id: u64,
     },
-    /// Mode B: bytes of a stream.
+    /// Mode B: reply bytes of a stream.
     Data {
         /// The stream.
         stream: u64,
-        /// Base64.
+        /// Base64, at most [`MAX_DATA_BYTES`] decoded.
         bytes_b64: String,
     },
-    /// Mode B: a stream closes.
+    /// Mode B: the stream ends (one-way: the receiver does not answer it).
     Close {
         /// The stream.
         stream: u64,
@@ -463,31 +524,174 @@ pub enum WindowsFrame {
 }
 
 impl WindowsFrame {
-    /// Whether this is one of the Mode B frames (U4's).
+    /// Whether this is one of the Mode B frames.
     #[must_use]
     pub fn is_mode_b(&self) -> bool {
         matches!(
             self,
             WindowsFrame::Realize { .. }
                 | WindowsFrame::Withdraw { .. }
-                | WindowsFrame::Open { .. }
+                | WindowsFrame::Realized { .. }
                 | WindowsFrame::Data { .. }
                 | WindowsFrame::Close { .. }
         )
     }
+}
 
-    /// The request or stream a Mode B frame names (a stream's number for the stream frames;
-    /// the error answer carries it, 0 never).
-    #[must_use]
-    pub fn mode_b_id(&self) -> u64 {
-        match self {
-            WindowsFrame::Realize { id, .. } | WindowsFrame::Withdraw { id, .. } => *id,
-            WindowsFrame::Open { stream, .. }
-            | WindowsFrame::Data { stream, .. }
-            | WindowsFrame::Close { stream } => *stream,
-            _ => 0,
+// --- Mode B: the pure rules both sides apply --------------------------------------------------
+
+/// A binding's tag: `[A-Za-z0-9._-]{1,64}`, not starting with a dot (it is one path component
+/// under `<run>/b/`).
+#[must_use]
+pub fn valid_tag(tag: &str) -> bool {
+    valid_name(tag)
+}
+
+/// A public file's name: the tag's alphabet, and none of the names the helper keeps for itself
+/// ([`RESERVED_FILES`]).
+#[must_use]
+pub fn valid_file_name(name: &str) -> bool {
+    valid_name(name) && !RESERVED_FILES.contains(&name)
+}
+
+fn valid_name(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// Why a `realize` is refused before anything is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PublicRefused {
+    /// The tag is not a path component of the allowed alphabet.
+    #[error("the binding tag is not allowed")]
+    Tag,
+    /// A file name is not allowed, or is repeated.
+    #[error("a public file name is not allowed")]
+    FileName,
+    /// Too many files, or a line, the config or the known-hosts text above its bound, or a
+    /// line that is not one line of text.
+    #[error("the public material is out of bounds")]
+    Bounds,
+    /// The deadline is not RFC 3339.
+    #[error("the deadline is not a timestamp")]
+    Deadline,
+    /// The socket path would not fit `sun_path`.
+    #[error("the socket path is too long")]
+    SocketPath,
+}
+
+/// Check what a `realize` carries (both sides: Windows before it sends, the helper before it
+/// writes). `run_dir` is `<run>`.
+///
+/// # Errors
+/// [`PublicRefused`].
+pub fn check_realize(
+    run_dir: &str,
+    tag: &str,
+    public: &ModeBPublic,
+    deadline: &str,
+) -> Result<(), PublicRefused> {
+    if !valid_tag(tag) {
+        return Err(PublicRefused::Tag);
+    }
+    if socket_path(run_dir, tag).len() > MAX_SOCKET_PATH {
+        return Err(PublicRefused::SocketPath);
+    }
+    if public.files.len() > MAX_PUBLIC_FILES {
+        return Err(PublicRefused::Bounds);
+    }
+    let mut seen = BTreeSet::new();
+    for (name, line) in &public.files {
+        if !valid_file_name(name) || !seen.insert(name.as_str()) {
+            return Err(PublicRefused::FileName);
+        }
+        if line.len() > MAX_PUBLIC_LINE || line.contains(['\n', '\r', '\0']) {
+            return Err(PublicRefused::Bounds);
         }
     }
+    if public.ssh_config.len() > MAX_PUBLIC_TEXT
+        || public.known_hosts.len() > MAX_PUBLIC_TEXT
+        || public.ssh_config.contains('\0')
+        || public.known_hosts.contains('\0')
+    {
+        return Err(PublicRefused::Bounds);
+    }
+    if deadline.parse::<heimdall_contract::Timestamp>().is_err() {
+        return Err(PublicRefused::Deadline);
+    }
+    Ok(())
+}
+
+/// The binding directory under `<run>`.
+#[must_use]
+pub fn binding_dir(run_dir: &str, tag: &str) -> String {
+    format!("{}/b/{tag}", run_dir.trim_end_matches('/'))
+}
+
+/// The binding's socket path.
+#[must_use]
+pub fn socket_path(run_dir: &str, tag: &str) -> String {
+    format!("{}/agent.sock", binding_dir(run_dir, tag))
+}
+
+/// The binding's `ssh_config` path.
+#[must_use]
+pub fn ssh_config_path(run_dir: &str, tag: &str) -> String {
+    format!("{}/ssh_config", binding_dir(run_dir, tag))
+}
+
+/// A `data` frame's bytes on the wire.
+#[must_use]
+pub fn encode_data(bytes: &[u8]) -> String {
+    use base64ct::{Base64, Encoding as _};
+    Base64::encode_string(bytes)
+}
+
+/// A `data` frame's bytes; `None` for text that is not base64 or decodes above
+/// [`MAX_DATA_BYTES`] (the length is checked before anything is decoded).
+#[must_use]
+pub fn decode_data(text: &str) -> Option<Vec<u8>> {
+    use base64ct::{Base64, Encoding as _};
+    if text.len() > MAX_DATA_BYTES.div_ceil(3) * 4 {
+        return None;
+    }
+    Base64::decode_vec(text)
+        .ok()
+        .filter(|b| b.len() <= MAX_DATA_BYTES)
+}
+
+/// What a frame for a stream number means, given the streams open and the highest number
+/// opened so far (streams are numbered odd and increasing by the helper).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamRef {
+    /// An open stream.
+    Open,
+    /// A number that was opened and has since ended: the sender cannot have known yet (the
+    /// two directions cross), so the frame is dropped, not an error.
+    Late,
+    /// A number never opened (even, or above the highest): a protocol error.
+    Unknown,
+}
+
+/// Classify a stream number for a `data` or `close` frame.
+#[must_use]
+pub fn stream_ref(highest: u64, is_open: bool, stream: u64) -> StreamRef {
+    if is_open {
+        StreamRef::Open
+    } else if stream % 2 == 1 && (1..=highest).contains(&stream) {
+        StreamRef::Late
+    } else {
+        StreamRef::Unknown
+    }
+}
+
+/// Whether `stream` may open: odd and above the highest number opened.
+#[must_use]
+pub fn may_open(highest: u64, stream: u64) -> bool {
+    stream % 2 == 1 && stream > highest
 }
 
 /// `message`, cut to [`MAX_MESSAGE`] bytes on a character boundary.
@@ -894,8 +1098,10 @@ pub(crate) mod tests {
     /// before the body is read; invalid JSON, an unknown `t`, an unknown or missing field and a
     /// frame of the other direction do not decode; a truncated stream is not a clean end; a
     /// `seq` gap or repeat, a sink call outside its request and more than 8192 calls are
-    /// violations; a Mode B frame decodes (so the helper can answer `unsupported`); an
-    /// over-large frame is not written.
+    /// violations; the Mode B frames decode in their own direction only (`open` is the
+    /// helper's), a `realize`'s tag, file names, bounds, deadline and socket path are checked,
+    /// `data` is bounded at 256 KiB before it is decoded, and stream numbers are odd and
+    /// increasing with late frames told from unknown ones; an over-large frame is not written.
     #[test]
     fn wsl_proto_bounds_and_unknown_frames_refused() {
         // Lengths, checked before any allocation: only the 4 header bytes are supplied.
@@ -952,18 +1158,129 @@ pub(crate) mod tests {
             Some(WindowsFrame::Shutdown {})
         );
         let realize = r#"{"t":"realize","id":7,"binding_tag":"b1","generation":2,
-            "public":{"certs":[],"ssh_config":"","known_hosts":""},"deadline":"2026-11-18T10:00:00Z"}"#;
+            "public":{"files":[["b1-cert.pub","ssh-ed25519-cert-v01@openssh.com AAAA"]],
+            "ssh_config":"","known_hosts":""},"deadline":"2026-11-18T10:00:00Z"}"#;
         let f = read_windows(&frame_bytes(realize)).unwrap().unwrap();
         assert!(f.is_mode_b());
-        assert_eq!(f.mode_b_id(), 7);
-        let open = read_windows(&frame_bytes(
-            r#"{"t":"open","stream":9,"binding_tag":"b1"}"#,
-        ))
-        .unwrap()
-        .unwrap();
-        assert!(open.is_mode_b());
-        assert_eq!(open.mode_b_id(), 9);
         assert!(!WindowsFrame::Shutdown {}.is_mode_b());
+        // Mode B's request and stream frames decode in their own direction only: streams open
+        // on Linux, so `open` is no Windows → helper frame, and the helper's answers are not
+        // Windows frames.
+        for json in [
+            r#"{"t":"open","stream":9,"binding_tag":"b1"}"#,
+            r#"{"t":"realize_ok","id":1,"socket":"/s","ssh_config":"/c"}"#,
+            r#"{"t":"withdraw_ok","id":1}"#,
+        ] {
+            assert!(
+                matches!(read_windows(&frame_bytes(json)), Err(FrameError::Malformed)),
+                "{json}"
+            );
+        }
+        for json in [
+            r#"{"t":"open","stream":9,"binding_tag":"b1"}"#,
+            r#"{"t":"data","stream":9,"bytes_b64":"AAAA"}"#,
+            r#"{"t":"close","stream":9}"#,
+            r#"{"t":"realize_ok","id":1,"socket":"/s","ssh_config":"/c"}"#,
+            r#"{"t":"withdraw_ok","id":2}"#,
+            r#"{"t":"realized_ok","id":3,"bindings":[["b1",2]]}"#,
+        ] {
+            assert!(
+                read_frame::<HelperFrame>(&mut &frame_bytes(json)[..])
+                    .unwrap()
+                    .is_some(),
+                "{json}"
+            );
+        }
+        // An unknown field on a Mode B frame is refused like on any other.
+        assert!(matches!(
+            read_windows(&frame_bytes(r#"{"t":"close","stream":9,"extra":1}"#)),
+            Err(FrameError::Malformed)
+        ));
+
+        // Mode B's bounds: a realize's material, `data` bytes, and the stream numbering.
+        let run = "/run/user/1000/heimdall";
+        let public = |files: Vec<(&str, &str)>| ModeBPublic {
+            files: files
+                .into_iter()
+                .map(|(n, l)| (n.to_owned(), l.to_owned()))
+                .collect(),
+            ssh_config: "Host *\n".to_owned(),
+            known_hosts: String::new(),
+        };
+        let good = public(vec![("cert.pub", "ssh-ed25519 AAAA")]);
+        let at = "2026-11-18T10:00:00Z";
+        assert_eq!(check_realize(run, "b1", &good, at), Ok(()));
+        for (tag, why) in [
+            ("", PublicRefused::Tag),
+            ("a/b", PublicRefused::Tag),
+            ("..", PublicRefused::Tag),
+            (".hidden", PublicRefused::Tag),
+            ("white space", PublicRefused::Tag),
+            (&"t".repeat(65), PublicRefused::Tag),
+        ] {
+            assert_eq!(check_realize(run, tag, &good, at), Err(why), "{tag}");
+        }
+        for name in ["agent.sock", "ssh_config", "known_hosts", "a/b", "", ".x"] {
+            assert_eq!(
+                check_realize(run, "b1", &public(vec![(name, "x")]), at),
+                Err(PublicRefused::FileName),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            check_realize(run, "b1", &public(vec![("a", "x"), ("a", "y")]), at),
+            Err(PublicRefused::FileName),
+            "a repeated name"
+        );
+        assert_eq!(
+            check_realize(run, "b1", &public(vec![("a", "two\nlines")]), at),
+            Err(PublicRefused::Bounds)
+        );
+        let many: Vec<(String, &str)> = (0..=MAX_PUBLIC_FILES)
+            .map(|i| (format!("f{i}"), "x"))
+            .collect();
+        assert_eq!(
+            check_realize(
+                run,
+                "b1",
+                &public(many.iter().map(|(n, l)| (n.as_str(), *l)).collect()),
+                at
+            ),
+            Err(PublicRefused::Bounds)
+        );
+        assert_eq!(
+            check_realize(run, "b1", &good, "yesterday"),
+            Err(PublicRefused::Deadline)
+        );
+        assert_eq!(
+            check_realize(&format!("/{}", "r".repeat(90)), "b1", &good, at),
+            Err(PublicRefused::SocketPath)
+        );
+        assert_eq!(
+            socket_path(run, "b1"),
+            "/run/user/1000/heimdall/b/b1/agent.sock"
+        );
+        assert_eq!(
+            ssh_config_path(run, "b1"),
+            "/run/user/1000/heimdall/b/b1/ssh_config"
+        );
+
+        let max = vec![7u8; MAX_DATA_BYTES];
+        assert_eq!(decode_data(&encode_data(&max)).unwrap(), max);
+        assert!(decode_data(&encode_data(&vec![7u8; MAX_DATA_BYTES + 1])).is_none());
+        assert!(decode_data("not base64!").is_none());
+        // The length is judged before anything is decoded.
+        assert!(decode_data(&"A".repeat(MAX_DATA_BYTES * 2)).is_none());
+
+        // Streams open odd and increasing; an unknown number is an error, a number that ended
+        // is a late frame.
+        assert!(may_open(0, 1) && may_open(1, 3));
+        assert!(!may_open(3, 3) && !may_open(3, 1) && !may_open(0, 2));
+        assert_eq!(stream_ref(5, true, 5), StreamRef::Open);
+        assert_eq!(stream_ref(5, false, 3), StreamRef::Late);
+        assert_eq!(stream_ref(5, false, 7), StreamRef::Unknown);
+        assert_eq!(stream_ref(5, false, 4), StreamRef::Unknown);
+        assert_eq!(stream_ref(0, false, 1), StreamRef::Unknown);
 
         // A frame above the bound is not written.
         let huge = HelperFrame::Error {

@@ -5542,14 +5542,20 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
             "valid_until": valid_until,
         }),
         // ⟨M04⟩ U5: what the owner decides: the new environment, how it is realized and the
-        // disclosures (not a sandbox, engine access, same-UID use).
+        // disclosures (not a sandbox, engine access, same-UID use; ⟨U4b⟩ for Mode B, the same
+        // Windows user and the distribution's root, the interop owner, the uptime).
         DecisionKind::AddEnvironment {
             environment,
             realization,
             disclosures,
         } => serde_json::json!({
             "environment_id": environment,
-            "environment_kind": "container",
+            "environment_kind": match realization {
+                heimdall_domain::environment::EnvironmentRealization::Wsl { .. } => {
+                    "wsl_distribution"
+                }
+                _ => "container",
+            },
             "realization": realization,
             "disclosures": disclosures,
         }),
@@ -9562,6 +9568,10 @@ impl Operations {
             self.write(move |tx, _| crate::environments::admit(tx, &own2, &target))
                 .await??;
         }
+        // ⟨M04 U4b⟩ An `ensure` naming a WSL Mode B environment is the owner's own explicit
+        // action on it: its helper starts here (a stopped distribution too), never in the
+        // background (ADR-0010 §3 item 9, §10 item 2).
+        self.wsl_start_for_ensure(&environment).await?;
         // ⟨M03⟩ U0b row 9 (O): `connection: graceful` and a pair resolving to
         // `managed_certificate` (wave 0) are refused before any record is written.
         let precheck = self.ensure_precheck(&req).await?;

@@ -1240,6 +1240,58 @@ pub trait ManagedEffects: Send + Sync {
         let _ = dir_tag;
         Ok(ContainerRemoval::default())
     }
+
+    /// ⟨M04 U4b⟩ The owner's own `ensure` names the WSL Mode B `environment`: start its
+    /// supervised helper, starting a stopped distribution if need be (ADR-0010 §3 item 9,
+    /// §10 item 2). Called on the blocking pool, only on the request path; restart
+    /// recovery, the supervisor and every cleanup pass never call it. The default (a fixture
+    /// that realizes no distribution) answers `wsl_unavailable`.
+    ///
+    /// # Errors
+    /// [`AdapterError::Unavailable`] naming `wsl_distribution_not_running`,
+    /// `wsl_helper_unavailable` or `wsl_unavailable`.
+    fn start_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Result<(), AdapterError> {
+        let _ = environment;
+        Err(AdapterError::Unavailable("wsl_unavailable".to_owned()))
+    }
+
+    /// ⟨M04 U4b⟩ Whether these effects realize WSL Mode B environments (a bridge supervisor
+    /// is wired). The default is `false`: `wsl enable --mode-b` then answers
+    /// `driver_unavailable`.
+    fn wsl_mode_b_supported(&self) -> bool {
+        false
+    }
+
+    /// ⟨M04 U4b⟩ `wsl disable` of a Mode B environment: stop every endpoint it serves
+    /// (each withdrawn by generation) and its helper. `start` is the request's explicit
+    /// authorized start: only then may a stopped distribution be started so the leftovers
+    /// inside it are removed now. Returns whether in-distribution leftovers remain a
+    /// retained obligation (removed by the next helper start). Idempotent. The default
+    /// stops nothing.
+    ///
+    /// # Errors
+    /// [`AdapterError`] when what serves the environment could not be stopped.
+    fn stop_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+        start: bool,
+    ) -> Result<bool, AdapterError> {
+        let _ = (environment, start);
+        Ok(false)
+    }
+
+    /// ⟨M04 U4b⟩ The helper's state for `inspect environments` (Mode B only); `None` for an
+    /// environment these effects do not serve.
+    fn helper_state(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Option<heimdall_contract::environment::HelperState> {
+        let _ = environment;
+        None
+    }
 }
 
 /// ⟨M04⟩ U5: what [`ManagedEffects::container_directory_remove`] did.

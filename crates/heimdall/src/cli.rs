@@ -1483,7 +1483,7 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Internal(c)) => return m03_cmd::internal(&ctx, c),
         // M04/M05 wave 0 (ADR-0010 §9 item 9; ADR-0011 §10 item 10): each new command is
         // answered by its owner's handler before any runtime contact.
-        // ⟨M04 U3b⟩ WSL Mode A (ADR-0010 §2); Mode B answers `driver_unavailable` until U4.
+        // ⟨M04 U3b, U4b⟩ WSL Mode A (ADR-0010 §2) and Mode B (§3, decision-recorded).
         Some(Command::Wsl(WslCommand::Enable(a))) => return wsl_cmd::enable(&ctx, a),
         Some(Command::Wsl(WslCommand::Disable(a))) => return wsl_cmd::disable(&ctx, a),
         Some(Command::Wsl(WslCommand::Status)) => return wsl_cmd::status(&ctx),
