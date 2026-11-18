@@ -610,8 +610,12 @@ impl World {
             let prefer = self.cli(&["--json", "destination", "prefer", &p.alias, "managed"]);
             assert_eq!(prefer.code, 0, "{prefer:?}");
         }
-        let status = self.cli(&["--json", "issuer", "status"]);
-        assert_eq!(status.json()["data"]["state"], "ready", "{status:?}");
+        // ⟨M04 Windows run at 2675e2ff⟩ `ready` within a bound, not at once: when the issuer
+        // child's first start fails, the runtime logs it and the client's restart cycle (D3
+        // item 7: jittered, bounded) starts it again, and `issuer status` reads `crashed`
+        // (`issuer_restarting`) meanwhile. The runtime's issuer lines and the states seen
+        // are printed whenever the first reading is not `ready`.
+        self.await_issuer_ready(Duration::from_secs(60));
         let fp = self.ca_fingerprint.clone();
         let ps: Vec<AccessPair> = pairs.into_iter().collect();
         self.open_store()
@@ -800,6 +804,59 @@ impl World {
     }
 
     /// `service stop` of this world's runtime (a no-op when none runs).
+    /// ⟨M04 Windows run at 2675e2ff⟩ Wait up to `bound` for `issuer status` to read `ready`
+    /// (the restart cycle after a failed first start; see `set_up`). When the first reading
+    /// is not `ready`, the states seen and the runtime log's issuer lines are printed; a
+    /// world whose issuer never becomes ready fails with them.
+    pub fn await_issuer_ready(&self, bound: Duration) {
+        let deadline = Instant::now() + bound;
+        let mut seen: Vec<String> = Vec::new();
+        loop {
+            let status = self.cli(&["--json", "issuer", "status"]);
+            let data = &status.json()["data"];
+            let state = data["state"].as_str().unwrap_or("").to_owned();
+            if state == "ready" {
+                break;
+            }
+            let entry = format!("{state} ({})", data["reason"].as_str().unwrap_or("-"));
+            if seen.last() != Some(&entry) {
+                seen.push(entry);
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the issuer is not ready within {bound:?}: states {seen:?}; runtime log: {}\n{status:?}",
+                self.runtime_issuer_log()
+            );
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        if !seen.is_empty() {
+            println!(
+                "world: the issuer became ready after {seen:?}; runtime log: {}",
+                self.runtime_issuer_log()
+            );
+        }
+    }
+
+    /// The runtime log's lines about the issuer child (its start's failure, with the
+    /// error's kind), redacted.
+    fn runtime_issuer_log(&self) -> String {
+        let mut lines = Vec::new();
+        for name in ["heimdall.log.1", "heimdall.log"] {
+            if let Ok(text) = std::fs::read_to_string(self.hh.join("log").join(name)) {
+                lines.extend(
+                    text.lines()
+                        .filter(|l| l.contains("issuer"))
+                        .map(|l| self.redact(l)),
+                );
+            }
+        }
+        if lines.is_empty() {
+            "no issuer line".to_owned()
+        } else {
+            lines.join("\n")
+        }
+    }
+
     pub fn stop_runtime(&self) {
         let out = self.cli(&["--json", "service", "stop"]);
         assert!(matches!(out.code, 0 | 5), "{out:?}");
@@ -815,8 +872,8 @@ impl World {
         let before = self.runtime_pid();
         self.stop_runtime();
         self.start_runtime();
-        let status = self.cli(&["--json", "issuer", "status"]);
-        assert_eq!(status.json()["data"]["state"], "ready", "{status:?}");
+        // ⟨M04 Windows run at 2675e2ff⟩ Within a bound, as at set-up (`await_issuer_ready`).
+        self.await_issuer_ready(Duration::from_secs(60));
         assert_ne!(before, self.runtime_pid(), "a new runtime process");
     }
 
