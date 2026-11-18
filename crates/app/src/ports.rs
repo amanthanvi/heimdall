@@ -1331,3 +1331,78 @@ pub struct ManagedSources {
     /// [`crate::managed::MANAGED_PREPARE_WITHOUT_DRIVER`].
     pub prepared: Option<ManagedPrepared>,
 }
+
+// ---------------------------------------------------------------------------------
+// ⟨M05⟩ Workspace observation (ADR-0011 §2.2–§2.3; M05 U2)
+// ---------------------------------------------------------------------------------
+
+/// ⟨M05⟩ Observes the workspace containing a working directory (ADR-0011 §2.2–§2.3). The
+/// runtime implements it in wave 2 (heimdall-project + a no-follow file reader); until then
+/// `Operations` has none and the requests that need it fail closed
+/// (`CAPABILITY_UNAVAILABLE`, `driver_unavailable`, before any record).
+///
+/// The application reads `records` in a transaction, calls this outside any transaction
+/// (it performs file I/O), and the writing transaction re-checks what it relied on.
+pub trait WorkspaceProbe: Send + Sync {
+    /// Discover and observe the workspace of `cwd` in `environment`'s path namespace, and
+    /// match it against `records` (the environment's active workspace records).
+    ///
+    /// # Errors
+    /// [`ProbeError`].
+    fn probe(
+        &self,
+        environment: &EnvironmentId,
+        cwd: &str,
+        records: &[heimdall_domain::workspace::WorkspaceRecord],
+    ) -> Result<ProbedWorkspace, ProbeError>;
+}
+
+/// ⟨M05⟩ One observation of a working directory's workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbedWorkspace {
+    /// The workspace root; `None`: no root above the working directory (personal context).
+    pub root: Option<String>,
+    /// The root directory's identity; `None` on a filesystem without one (ADR-0011 R6).
+    pub root_identity: Option<heimdall_domain::projection::FileIdentity>,
+    /// The Git common directory's identity, when the root is a Git checkout.
+    pub git_common_identity: Option<heimdall_domain::projection::FileIdentity>,
+    /// The match against the records; `None` when `root` is `None`.
+    pub matched: Option<heimdall_domain::workspace::WorkspaceMatch>,
+    /// The manifest, when the root holds a valid one; `None` for a manifest-less root.
+    pub manifest: Option<ProbedManifest>,
+}
+
+/// ⟨M05⟩ A validated manifest as the probe read it (ADR-0011 §2.2): request data only,
+/// resolved by the application against the local catalog (I2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbedManifest {
+    /// The access digest of the bytes parsed (lowercase hex).
+    pub access_digest: String,
+    /// The profile the manifest names (a catalog reference).
+    pub profile: heimdall_contract::ids::ProfileId,
+    /// `destination:account` tokens, already validated as bounded tokens.
+    pub pairs: Vec<String>,
+    /// Environment labels.
+    pub environments: Vec<String>,
+    /// Capability names.
+    pub capabilities: Vec<String>,
+    /// `preferences.background_work`.
+    pub background_work: bool,
+    /// The `project` label, already stripped of control characters (quoted again by the
+    /// application before any decision shows it).
+    pub project_label: Option<String>,
+}
+
+/// ⟨M05⟩ Why an observation failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeError {
+    /// The filesystem has no stable identity (`workspace_identity_unavailable`).
+    IdentityUnavailable,
+    /// The manifest is refused: `manifest_invalid` or `manifest_authority_key`.
+    Manifest {
+        /// The stable reason.
+        reason: &'static str,
+    },
+    /// The working directory could not be read.
+    Io,
+}

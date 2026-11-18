@@ -588,6 +588,7 @@ impl World {
                             source: PolicySource::SetupDefault,
                             lock_behavior: heimdall_contract::managed::LockBehavior::Continue,
                             connection: heimdall_contract::managed::ConnectionPolicy::default(),
+                            default: false,
                         },
                         false,
                     )?;

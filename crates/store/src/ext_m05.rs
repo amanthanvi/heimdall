@@ -16,13 +16,15 @@
 //! same transaction as the policy or binding change that already moves the generation,
 //! so they do not move it themselves.
 
+use heimdall_contract::ids::DecisionId;
 use heimdall_contract::ids::{
     AccountName, BindingId, DestinationId, EnvironmentId, PolicyId, WorkId, WorkspaceId,
 };
 use heimdall_domain::policy::PolicyRevision;
+use heimdall_domain::policy::StandingPolicy;
 use heimdall_domain::workspace::{
-    BindingContext, DecisionCooldown, PolicyHistoryEntry, SlotReference, WorkStop, WorkspaceRecord,
-    WorkspaceState,
+    BindingContext, DecisionBasis, DecisionCooldown, PolicyHistoryEntry, SlotReference, WorkStop,
+    WorkspaceRecord, WorkspaceState,
 };
 use rusqlite::OptionalExtension as _;
 
@@ -34,6 +36,15 @@ fn conflict(what: &str) -> StoreError {
 
 fn state_str(s: WorkspaceState) -> Result<String> {
     codec::enum_str(&s)
+}
+
+/// ⟨M05 U2⟩ The `meta` key prefix of a pending decision's [`DecisionBasis`]: an internal
+/// bookkeeping row beside the decision record (no schema change; never part of the
+/// record's wire form).
+const META_M05_DECISION_BASIS: &str = "m05_decision_basis:";
+
+fn basis_key(id: &DecisionId) -> String {
+    format!("{META_M05_DECISION_BASIS}{}", id.as_str())
 }
 
 impl Txn<'_> {
@@ -358,5 +369,134 @@ impl Txn<'_> {
             rusqlite::params![binding.as_str(), codec::doc(context)?],
         )?;
         Ok(())
+    }
+
+    // --- ⟨M05 U2⟩ policies: listing and removal ----------------------------------------
+
+    /// Every standing policy, by ID (`inspect policies`; the default-flag rule).
+    pub fn policies(&mut self) -> Result<Vec<StandingPolicy>> {
+        self.docs("SELECT record_json FROM policies ORDER BY id", [])
+    }
+
+    /// Delete a standing policy (`policy remove`, a narrowing). Returns whether one existed.
+    /// Moves the authority generation when it did (every policy write does, ADR-0006 §13.6
+    /// item 5), so the grants resting on it re-validate against what remains. Its history
+    /// rows stay (they are the record of what was applied).
+    pub fn delete_policy(&mut self, id: &PolicyId) -> Result<bool> {
+        let n = self
+            .tx
+            .execute("DELETE FROM policies WHERE id = ?1", [id.as_str()])?;
+        if n > 0 {
+            self.bump_generation()?;
+        }
+        Ok(n > 0)
+    }
+
+    // --- ⟨M05 U2⟩ decision bases ------------------------------------------------------
+
+    /// Record what a pending decision was created from (ADR-0011 I5), in the transaction
+    /// that inserts the record; replaces an earlier basis of the same decision. Does not
+    /// move the authority generation.
+    pub fn put_decision_basis(&mut self, id: &DecisionId, basis: &DecisionBasis) -> Result<()> {
+        self.set_meta(&basis_key(id), &codec::doc(basis)?)
+    }
+
+    /// A decision's basis, when one is recorded.
+    pub fn decision_basis(&mut self, id: &DecisionId) -> Result<Option<DecisionBasis>> {
+        self.meta(&basis_key(id))?
+            .as_deref()
+            .map(codec::parse_doc)
+            .transpose()
+    }
+
+    /// Delete a decision's basis (the record was consumed). Returns whether one existed.
+    pub fn delete_decision_basis(&mut self, id: &DecisionId) -> Result<bool> {
+        Ok(self
+            .tx
+            .execute("DELETE FROM meta WHERE key = ?1", [basis_key(id)])?
+            > 0)
+    }
+
+    /// Delete the basis of every decision that is no longer pending (or no longer exists):
+    /// an expired, stale or withdrawn record is never completed, so its basis is dead
+    /// weight. Returns how many were deleted.
+    pub fn prune_decision_bases(&mut self) -> Result<usize> {
+        let keys: Vec<String> = {
+            let mut stmt = self
+                .tx
+                .prepare("SELECT key FROM meta WHERE substr(key, 1, ?1) = ?2")?;
+            let rows = stmt.query_map(
+                rusqlite::params![
+                    codec::int(META_M05_DECISION_BASIS.len() as u64)?,
+                    META_M05_DECISION_BASIS
+                ],
+                |r| r.get::<_, String>(0),
+            )?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut n = 0;
+        for key in keys {
+            let live = match key
+                .strip_prefix(META_M05_DECISION_BASIS)
+                .and_then(|id| DecisionId::parse(id).ok())
+            {
+                Some(id) => self
+                    .decision(&id)?
+                    .is_some_and(|d| d.state == heimdall_domain::decision::DecisionState::Pending),
+                None => false,
+            };
+            if !live {
+                n += self.tx.execute("DELETE FROM meta WHERE key = ?1", [&key])?;
+            }
+        }
+        Ok(n)
+    }
+}
+
+// --- ⟨M05⟩ U6: the default-profile catalog preference (ADR-0011 §5.1) ---------------------
+
+use heimdall_contract::ids::ProfileId;
+
+/// The `meta` key of `environment`'s default-profile preference.
+fn default_profile_key(environment: &EnvironmentId) -> String {
+    format!(
+        "{}{}",
+        crate::ext_m03::META_DEFAULT_PROFILE_PREFIX,
+        environment.as_str()
+    )
+}
+
+impl Txn<'_> {
+    /// ⟨M05⟩ U6: `environment`'s default-profile catalog preference (ADR-0011 §5.1), when
+    /// one is set. Read only by a new request that omits its profile; a binding never
+    /// reads it (R-AU-03). A stored value that is not a profile ID is
+    /// [`StoreError::Corrupt`].
+    pub fn default_profile(&mut self, environment: &EnvironmentId) -> Result<Option<ProfileId>> {
+        self.meta(&default_profile_key(environment))?
+            .map(|v| {
+                ProfileId::parse(&v)
+                    .map_err(|_| StoreError::Corrupt("stored default profile is malformed".into()))
+            })
+            .transpose()
+    }
+
+    /// ⟨M05⟩ U6: set `environment`'s default-profile preference to `profile`, replacing
+    /// any earlier one. A preference, not authority: it does not move the authority
+    /// generation, and no binding or grant is touched.
+    pub fn set_default_profile(
+        &mut self,
+        environment: &EnvironmentId,
+        profile: &ProfileId,
+    ) -> Result<()> {
+        self.set_meta(&default_profile_key(environment), profile.as_str())
+    }
+
+    /// ⟨M05⟩ U6: clear `environment`'s default-profile preference. Returns whether one
+    /// was set.
+    pub fn clear_default_profile(&mut self, environment: &EnvironmentId) -> Result<bool> {
+        let key = default_profile_key(environment);
+        let existed = self.meta(&key)?.is_some();
+        self.delete_meta(&key)?;
+        Ok(existed)
     }
 }

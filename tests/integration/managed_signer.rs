@@ -230,6 +230,7 @@ fn policy(pairs: &[AccessPair], lock: LockBehavior, revision: u64) -> StandingPo
         source: PolicySource::SetupDefault,
         lock_behavior: lock,
         connection: Default::default(),
+        default: false,
     }
 }
 

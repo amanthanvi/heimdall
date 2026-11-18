@@ -175,6 +175,7 @@ fn policy(lock: LockBehavior) -> StandingPolicy {
         source: PolicySource::SetupDefault,
         lock_behavior: lock,
         connection: ConnectionPolicy::default(),
+        default: false,
     }
 }
 

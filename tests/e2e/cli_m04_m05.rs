@@ -157,17 +157,6 @@ const M05: &[&[&str]] = &[
     &["import", "bundle.json"],
 ];
 
-/// `run --parent-binding` (M05): the envelope is on stderr.
-const M05_RUN: &[&str] = &[
-    "run",
-    "--profile",
-    "dev",
-    "--parent-binding",
-    "bnd",
-    "--",
-    "true",
-];
-
 fn assert_refused(out: &Out, on_stderr: bool, expected: &str, line: &[&str]) {
     assert_eq!(out.code, 2, "{line:?}: {out:?}");
     let (stream, other) = if on_stderr {
@@ -194,7 +183,6 @@ fn m04_m05_new_commands_refuse_as_not_available_without_a_runtime() {
     let mut rows: Vec<(&[&str], &str, bool)> = Vec::new();
     rows.extend(M04.iter().map(|l| (*l, "M04", false)));
     rows.extend(M05.iter().map(|l| (*l, "M05", false)));
-    rows.push((M05_RUN, "M05", true));
     for (i, (line, milestone, on_stderr)) in rows.iter().enumerate() {
         let home = scratch.path().join(format!("home-{i}"));
         let out = run(&home, &account, line);

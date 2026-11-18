@@ -74,9 +74,9 @@ use crate::client::{Client, Ctx, connect, error};
 use crate::output::{self, error_value};
 use crate::prompt::{self, Answer};
 use crate::{
-    activate_cmd, catalog_cmd, connect_cmd, connections_cmd, container_cmd, doctor_cmd, enroll_cmd,
-    issuer_cmd, m03_cmd, m05_cmd, portable_cmd, run_cmd, service_cmd, setup_cmd, tui,
-    uninstall_cmd, wsl_cmd,
+    activate_cmd, catalog_cmd, connect_cmd, connections_cmd, container_cmd, delegate_cmd,
+    doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd, m05_cmd, portable_cmd, run_cmd, service_cmd,
+    setup_cmd, tui, uninstall_cmd, wsl_cmd,
 };
 
 /// Heimdall: set up access once; your terminals, tools, and agents work across
@@ -228,9 +228,23 @@ pub struct RunArgs {
     #[arg(long)]
     pub request_id: Option<String>,
     /// M05: run the program with a narrower child binding of this parent binding
-    /// (ADR-0011 §6).
+    /// (ADR-0011 §6): the program gets only the child's signing endpoint and no
+    /// `HEIMDALL_*` variable. A wider scope or a later deadline is refused
+    /// (`DELEGATION_EXCEEDS_PARENT`) and nothing is launched.
     #[arg(long, value_name = "BINDING")]
     pub parent_binding: Option<String>,
+    /// M05, with `--parent-binding`: the child's `destination:account` pairs (repeatable;
+    /// a subset of the parent's; default all of them).
+    #[arg(
+        long = "scope",
+        value_name = "DEST:ACCOUNT",
+        requires = "parent_binding"
+    )]
+    pub scope: Vec<String>,
+    /// M05, with `--parent-binding`: the child's deadline, an absolute RFC 3339 instant
+    /// not later than the parent's (default the parent's).
+    #[arg(long, value_name = "INSTANT", requires = "parent_binding")]
+    pub until: Option<String>,
     /// Caller minimums.
     #[command(flatten)]
     pub require: RequireArgs,
@@ -1468,9 +1482,9 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         // M02 commands: each handler owns its command (all wired in wave 4).
         Some(Command::Setup(args)) => return setup_cmd::run(&ctx, args),
         Some(Command::Connect(args)) => return connect_cmd::run(&ctx, args),
-        // M05 wave 0: `--parent-binding` is refused before any launch step.
+        // M05 (U8): `--parent-binding` delegates a child, then launches as `run` does.
         Some(Command::Run(args)) if args.parent_binding.is_some() => {
-            return m05_cmd::run_parent_binding(&ctx);
+            return delegate_cmd::run(&ctx, args);
         }
         Some(Command::Run(args)) => return run_cmd::run(&ctx, args),
         Some(Command::Doctor(args)) => return doctor_cmd::run(&ctx, args),

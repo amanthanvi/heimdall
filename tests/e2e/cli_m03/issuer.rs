@@ -429,6 +429,7 @@ impl Rig {
                         source: PolicySource::SetupDefault,
                         lock_behavior,
                         connection: Default::default(),
+                        default: false,
                     },
                     false,
                 )

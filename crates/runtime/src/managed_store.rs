@@ -291,6 +291,24 @@ impl SlotStore for StoreSources {
             .map_err(|_| AdapterError::Unavailable("store".to_owned()))
     }
 
+    /// ⟨M05⟩ U6: whether `binding` has a `slot_references` row for the slot (ADR-0011
+    /// §5.2). A store failure is an error (the write refuses).
+    fn references(
+        &self,
+        environment: &EnvironmentId,
+        pair: &AccessPair,
+        binding: &BindingId,
+    ) -> Result<bool, AdapterError> {
+        self.store
+            .transaction(|tx| {
+                Ok(tx
+                    .slot_references(environment, &pair.destination, &pair.account)?
+                    .iter()
+                    .any(|r| r.binding == *binding))
+            })
+            .map_err(|_| AdapterError::Unavailable("store".to_owned()))
+    }
+
     /// ⟨M04⟩ The binding's pinned environment, from its stored row (ADR-0010 §9 item
     /// 1), so its slots land in that environment's namespace. A store failure claims
     /// nothing (fail closed).
@@ -523,7 +541,10 @@ impl StoreCleanup {
     /// The second half: the slot's stable mux path cleared when its pair had no
     /// owned master, then `clearing → free` committed. Called only after the slot's
     /// files and its binding's files are removed (§17.22 item 9): until this commits,
-    /// the `clearing` row keeps the obligation discoverable.
+    /// the `clearing` row keeps the obligation discoverable. ⟨M05⟩ U6: when a usable
+    /// referencer remains, the slot passes to it instead (`clearing(g) → held(n, g +
+    /// 1)`, ADR-0011 §5.2) and is re-materialized from its own grant
+    /// ([`crate::slot_handover`]).
     async fn finish_slot(
         &self,
         slot: &StoreSlot,
@@ -536,16 +557,14 @@ impl StoreCleanup {
         {
             return Err(AdapterError::Unavailable("slot_path".to_owned()));
         }
-        let env = slot.environment.clone();
-        let pair = slot.pair.clone();
-        let at = Timestamp::now();
-        self.sources
-            .store
-            .transaction(|tx| {
-                tx.slot_files_removed(&env, &pair, generation, at)
-                    .map(|_| ())
-            })
-            .map_err(|_| AdapterError::Unavailable("store".to_owned()))
+        crate::slot_handover::finish_clearing(
+            &self.sources.store,
+            &self.effects,
+            &slot.environment,
+            &slot.pair,
+            generation,
+            Timestamp::now(),
+        )
     }
 
     /// ⟨round 5, W4-C01⟩ The highest resource generation `binding` can own, from the
@@ -1073,6 +1092,9 @@ mod live_tests {
 
     /// ⟨R3-C1⟩ ADR-0008 §17.22 items 4, 9, 10 (`managed_store/live_tests/cleanup.rs`).
     mod cleanup;
+    /// ⟨M05, U8⟩ A28 on real loopback sshds: delegation and the narrower binding
+    /// (`managed_store/live_tests/delegation_m05.rs`).
+    mod delegation_m05;
     /// ⟨Y-S, round 5⟩ W4-C02: a follower's own scope evidence
     /// (`managed_store/live_tests/follower_scope.rs`).
     mod follower_scope;
@@ -1080,6 +1102,8 @@ mod live_tests {
     mod pipeline;
     /// ⟨X-M⟩ ADR-0008 §17.23 items 1 and 5 (`managed_store/live_tests/selection.rs`).
     mod selection;
+    /// ⟨M05⟩ U6: shared slots, handover and defaults (`managed_store/live_tests/slots_m05.rs`).
+    mod slots_m05;
 
     fn t0() -> Timestamp {
         "2026-11-02T09:00:00Z".parse().unwrap()
@@ -1232,6 +1256,7 @@ mod live_tests {
                         source: PolicySource::SetupDefault,
                         lock_behavior: LockBehavior::Continue,
                         connection: ConnectionPolicy::default(),
+                        default: false,
                     },
                     false,
                 )?;
@@ -2229,12 +2254,15 @@ mod live_tests {
         );
     }
 
-    /// §17.21 item 2: a slot another binding holds refuses the launch bind with its
-    /// reason (`CONFIG_CONFLICT`, `managed_slot_held`, next `release_binding`) and
-    /// writes nothing else: no slot claim, no holder, no slot file or listing for the
-    /// refused binding; the holder's slot is untouched.
+    /// §17.21 item 2, ⟨M05⟩ as narrowed by ADR-0011 §5.2 (U6): a slot another
+    /// **compatible** binding holds is joined, not refused: the launch bind succeeds,
+    /// labelled `ordinary_aliases: shared_environment_default` with the warning
+    /// `slot_shared`, and writes nothing else of the slot: the holder's slot (state,
+    /// generation, listing) is untouched, the joining binding claims no slot and is listed
+    /// for no pair; only its slot references are recorded. (M03 refused it,
+    /// `managed_slot_held`; an incompatible holder still is: `slots_m05` live tests.)
     #[tokio::test]
-    async fn launch_bind_refuses_a_held_slot_with_its_reason_and_writes_nothing_else() {
+    async fn launch_bind_joins_a_compatible_held_slot_and_writes_nothing_else() {
         let w = Live::new();
         let p = w.process(Arc::new(NoStageHook)).await;
         let first = w
@@ -2253,12 +2281,33 @@ mod live_tests {
             pid: std::process::id(),
             started_at: "fixture-start".into(),
         };
-        let e = launch_bind(&p, &second.binding_id, "second", Some(holder))
-            .await
-            .unwrap_err();
-        assert_eq!(e.code, Code::ConfigConflict, "{}", e.message);
-        assert_eq!(e.reason.as_deref(), Some("managed_slot_held"));
-        assert_eq!(e.next.action, "release_binding");
+        let joined = {
+            use heimdall_contract::request::{BindForm, BindRequest, LaunchBinding};
+            p.ops
+                .bind(
+                    &caller(),
+                    BindRequest {
+                        binding_id: second.binding_id.clone(),
+                        form: BindForm::Launch(LaunchBinding {
+                            executable: "/usr/bin/true".into(),
+                            holder: Some(holder),
+                        }),
+                        request_id: RequestId::parse("bind-second").unwrap(),
+                    },
+                )
+                .await
+                .unwrap_or_else(|e| panic!("join: {} {}", e.code, e.message))
+        };
+        assert_eq!(
+            joined.data.enforcement.ordinary_aliases,
+            Some(heimdall_contract::trust::OrdinaryAliases::SharedEnvironmentDefault)
+        );
+        assert!(
+            joined
+                .warnings
+                .iter()
+                .any(|w| w.code == heimdall_contract::envelope::m05_warning::SLOT_SHARED)
+        );
         for pr in pairs() {
             assert_eq!(
                 slot_of(&w, &pr),
@@ -2269,23 +2318,25 @@ mod live_tests {
                 "the holder's slot is untouched"
             );
             assert_eq!(
+                p.table.materialized_generation(&first.binding_id, &pr),
+                Some(1)
+            );
+            assert_eq!(
                 p.table.materialized_generation(&second.binding_id, &pr),
                 None
             );
         }
-        let (holder, slots, connections) = w
+        let (slots, references) = w
             .store
             .transaction(|tx| {
                 Ok((
-                    tx.binding_holder(&second.binding_id)?,
                     tx.slots_for_binding(&second.binding_id)?,
-                    tx.owned_connections_for_binding(&second.binding_id)?,
+                    tx.slot_references_for_binding(&second.binding_id)?,
                 ))
             })
             .unwrap();
-        assert!(holder.is_none(), "no holder registered");
         assert!(slots.is_empty(), "no slot claimed");
-        assert!(connections.is_empty(), "no owned connection");
+        assert_eq!(references.len(), pairs().len(), "one reference per pair");
         assert_eq!(p.table.materialized_pairs(&second.binding_id), Vec::new());
     }
 }

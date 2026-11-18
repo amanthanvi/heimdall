@@ -14,6 +14,8 @@ mod client;
 mod connect_cmd;
 mod connections_cmd;
 mod container_cmd;
+// ⟨M05⟩ U8: `run --parent-binding` (ADR-0011 §6).
+mod delegate_cmd;
 mod doctor_cmd;
 mod enroll_cmd;
 mod issuer_cmd;

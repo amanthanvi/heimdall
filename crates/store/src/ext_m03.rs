@@ -61,6 +61,12 @@ const META_LAST_BUNDLE_AT: &str = "issuer_last_bundle_at";
 /// written. Key `<prefix><sha256>` (64 lowercase hex characters), value the bundle's
 /// `created_at`. Never the bundle's path.
 const META_BUNDLE_DIGEST_PREFIX: &str = "issuer_bundle_sha256:";
+/// `meta` (⟨M05⟩ U6, ADR-0011 §5.1; no schema, as `issuer_bundle_sha256:`): one row per
+/// environment with a default-profile catalog preference
+/// (`Txn::default_profile`, `crate::ext_m05`). Key `<prefix><environment>`, value the
+/// profile ID. A preference, never authority: only a new request that omits its profile
+/// reads it.
+pub const META_DEFAULT_PROFILE_PREFIX: &str = "m05.default_profile:";
 
 /// ⟨ADR-0008 §17.32 item 1 (W5-D01)⟩ How the uninstall purge's final comparison (the
 /// recovery snapshot, `heimdall uninstall`) treats one table of the schema.
@@ -286,6 +292,12 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
         "issuer_bundle_sha256:",
         Some("the bundles this installation wrote; the bundle is re-checked under the lock"),
     ),
+    (
+        "m05_decision_basis:",
+        Some(
+            "what a pending local trust or policy decision was created from (ADR-0006 §17.5 item 7: decisions are out)",
+        ),
+    ),
     ("high_water_mark", Some("the local time high-water mark")),
     ("runtime_anchor", Some("the local time anchor")),
     ("time_confirmation", Some("the local time confirmation")),
@@ -309,6 +321,11 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
         Some("an access grant's local cleanup (ADR-0008 §17.32 item 6: out)"),
     ),
     ("cleanup_intent_version", Some("a local counter")),
+    // ⟨M05⟩ U6 (ADR-0011 §5.1): local preference state, like the lock acknowledgement.
+    (
+        "m05.default_profile:",
+        Some("a local catalog preference (the default profile)"),
+    ),
 ];
 
 /// ⟨ADR-0008 §17.32 item 1⟩ One row of a [`RecoveryClass::Rows`] table

@@ -187,6 +187,101 @@ pub enum BindingContext {
     },
 }
 
+/// ⟨M05⟩ The most bytes of a manifest's `project` label a decision quotes (ADR-0011 I5).
+pub const MAX_PROJECT_LABEL_BYTES: usize = 128;
+
+/// ⟨M05⟩ A manifest's `project` label as a decision may quote it (ADR-0011 I5: repository
+/// text appears only as quoted, bounded data with control characters stripped, never as the
+/// decision's title or action): every control character (`Cc`, newlines included) and every
+/// bidirectional or zero-width formatting character is removed, surrounding whitespace is
+/// trimmed, and the result is cut at a character boundary to at most
+/// [`MAX_PROJECT_LABEL_BYTES`]. `None` when nothing is left. Shell metacharacters (`$(…)`,
+/// backticks) are kept as inert text: the label is data, never interpolated. Pure.
+#[must_use]
+pub fn quoted_label(raw: &str) -> Option<String> {
+    fn stripped(c: char) -> bool {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{061C}'
+                    | '\u{200B}'..='\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2060}'..='\u{2069}'
+                    | '\u{FEFF}'
+            )
+    }
+    let clean: String = raw.chars().filter(|c| !stripped(*c)).collect();
+    let clean = clean.trim();
+    let mut out = String::with_capacity(clean.len().min(MAX_PROJECT_LABEL_BYTES));
+    for c in clean.chars() {
+        if out.len() + c.len_utf8() > MAX_PROJECT_LABEL_BYTES {
+            break;
+        }
+        out.push(c);
+    }
+    let out = out.trim_end().to_owned();
+    (!out.is_empty()).then_some(out)
+}
+
+/// ⟨M05⟩ The server-side state a pending M05 decision was created from (ADR-0011 I5: a
+/// decision's action is fixed at creation from server-side state), kept beside the record
+/// (`heimdall_store::Txn::put_decision_basis`) and never part of the record's wire form.
+/// Approval re-checks or uses exactly this; a record without its basis is refused
+/// `DECISION_STALE` and not consumed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DecisionBasis {
+    /// A `TrustWorkspace` record: the observation it was created from, which the
+    /// approval-time re-probe must still equal (root, root identity, access digest), and
+    /// the profile revision whose snapshot an empty proposal resolves to.
+    Trust {
+        /// The environment whose path namespace `root` is in.
+        environment: EnvironmentId,
+        /// The canonical workspace root.
+        root: String,
+        /// Its identity.
+        root_identity: FileIdentity,
+        /// The Git common directory's identity, when observed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        git_common_identity: Option<FileIdentity>,
+        /// The manifest's access digest; `None` for a manifest-less root.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        access_digest: Option<String>,
+        /// The profile's latest revision at creation.
+        profile_revision: u64,
+    },
+    /// A `ReconcileWorkspace` record: the observation it was created from (ADR-0011 I5).
+    /// The approval-time re-probe must still equal it, and the new workspace record is
+    /// written from it, never from a later observation.
+    Reconcile {
+        /// The environment whose path namespace `root` is in.
+        environment: EnvironmentId,
+        /// The canonical root of the moved or re-cloned checkout.
+        root: String,
+        /// Its identity.
+        root_identity: FileIdentity,
+        /// The Git common directory's identity, when observed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        git_common_identity: Option<FileIdentity>,
+    },
+    /// A `WidenPolicy{create}` record: the profile revision whose snapshot scope the new
+    /// policy takes.
+    Create {
+        /// The profile's latest revision at creation.
+        profile_revision: u64,
+    },
+    /// A `WidenPolicy{extend_scope}` record raised by requesters (ADR-0011 §4.2): the
+    /// coalescing key of every requester that raised or joined it, with its environment,
+    /// so a denial cools each of them down (§4.3).
+    Extension {
+        /// The policy revision the record was raised against.
+        revision: PolicyRevision,
+        /// Coalescing key → the requester's environment.
+        keys: std::collections::BTreeMap<String, EnvironmentId>,
+    },
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -206,5 +301,18 @@ mod tests {
         assert_eq!(serde_json::from_value::<WorkspaceMatch>(v).unwrap(), m);
         let u = serde_json::to_value(WorkspaceMatch::Untrusted).unwrap();
         assert_eq!(u, serde_json::json!({ "match": "untrusted" }));
+    }
+
+    /// ⟨M05⟩ A quoted label holds no control or bidirectional character and stays within
+    /// its bound; shell text stays inert data.
+    #[test]
+    fn quoted_label_strips_controls_and_bounds() {
+        assert_eq!(
+            quoted_label("ok $(rm -rf ~) `id`\n\u{202E}gnp.exe\u{2066}").as_deref(),
+            Some("ok $(rm -rf ~) `id`gnp.exe")
+        );
+        assert_eq!(quoted_label("\u{200F}\r\n\t "), None);
+        let long = quoted_label(&"é".repeat(200)).unwrap();
+        assert!(long.len() <= MAX_PROJECT_LABEL_BYTES && long.chars().all(|c| c == 'é'));
     }
 }

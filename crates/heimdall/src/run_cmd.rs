@@ -88,6 +88,17 @@ const ENSURE_TIMEOUT_MS: u64 = 30_000;
 
 /// Handle `run`.
 pub(crate) fn run(ctx: &Ctx, args: RunArgs) -> ExitCode {
+    run_with(ctx, args, prepare)
+}
+
+/// ⟨M05, U8⟩ [`run`] with the preparation step chosen by the caller: `run`
+/// ensures a profile ([`prepare`]); `run --parent-binding` delegates a child of a binding
+/// (`delegate_cmd::prepare`). The launch that follows is the same.
+pub(crate) fn run_with(
+    ctx: &Ctx,
+    args: RunArgs,
+    prepare: fn(&Ctx, &RunArgs, &LaunchHooks) -> Result<Prepared, Refused>,
+) -> ExitCode {
     let hooks = match testcfg::launch_hooks(&|n| std::env::var_os(n)) {
         Ok(h) => h,
         Err(m) => return launch_flow::fail(ctx, &mut None, Failure::usage(&m)),
@@ -125,26 +136,26 @@ pub(crate) fn run(ctx: &Ctx, args: RunArgs) -> ExitCode {
 }
 
 /// What a successful preparation hands to the launch.
-struct Prepared {
-    program: heimdall_launch::resolve::ResolvedProgram,
+pub(crate) struct Prepared {
+    pub(crate) program: heimdall_launch::resolve::ResolvedProgram,
     /// ⟨M03⟩ An owned launch's arguments (the pins, then the user's); `None`: the
     /// user's arguments unchanged.
-    args: Option<Vec<OsString>>,
-    delta: EnvDelta,
-    operation: Option<heimdall_contract::ids::OperationId>,
-    binding: Option<heimdall_contract::ids::BindingId>,
+    pub(crate) args: Option<Vec<OsString>>,
+    pub(crate) delta: EnvDelta,
+    pub(crate) operation: Option<heimdall_contract::ids::OperationId>,
+    pub(crate) binding: Option<heimdall_contract::ids::BindingId>,
     /// ⟨M03⟩ Windows: the contained launch of the verified `ssh` (module docs).
     #[cfg_attr(not(windows), allow(dead_code))]
-    contained: bool,
+    pub(crate) contained: bool,
 }
 
-type Ids = (
+pub(crate) type Ids = (
     Option<heimdall_contract::ids::OperationId>,
     Option<heimdall_contract::ids::BindingId>,
 );
 
 /// A failure, with the operation and binding its record names (once known).
-type Refused = (Failure, Option<Ids>);
+pub(crate) type Refused = (Failure, Option<Ids>);
 
 /// The total argument size `MAX_ARGV_BYTES` bounds: each argument's bytes and its
 /// terminating NUL, the program included.
@@ -156,7 +167,7 @@ fn argv_size(argv: &[OsString]) -> usize {
 
 /// ADR-0007 §12.15 item 7: the argument bound, checked before anything else (so
 /// before `ensure`).
-fn check_argv_bound(argv: &[OsString]) -> Result<(), Failure> {
+pub(crate) fn check_argv_bound(argv: &[OsString]) -> Result<(), Failure> {
     if argv_size(argv) > heimdall_launch::MAX_ARGV_BYTES {
         return Err(Failure::usage(
             "the argument vector is larger than 1 MiB; nothing was launched",
@@ -424,7 +435,7 @@ pub(crate) fn require_slots(
 /// managed pair (M02, unchanged); otherwise the slot check, and for an owned launch the
 /// pinned arguments. On Windows an owned launch then goes through the contained spawn
 /// ([`Prepared::contained`]).
-fn managed_checks(
+pub(crate) fn managed_checks(
     program: &heimdall_launch::resolve::ResolvedProgram,
     env: &Env,
     argv: &[OsString],

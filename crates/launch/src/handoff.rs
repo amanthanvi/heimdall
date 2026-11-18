@@ -119,6 +119,7 @@ mod tests {
         };
         let delta = EnvDelta {
             set: vec![(OsString::from("HM_U8_ADDED"), OsString::from("handoff"))],
+            unset: Vec::new(),
             overrides: Vec::new(),
         };
         let outcome = run_foreground(&sh(), &args(&["-c", script, "sh", &out]), &delta).unwrap();

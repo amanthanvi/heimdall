@@ -1,6 +1,7 @@
 # M05 plan: trusted work, quiet and concurrent
 
-**Status:** proposed, draft 1 (task M05-T00-design).
+**Status:** accepted with ADR-0011 §10's rulings; W0 done as the joint wave 0 with M04 (`main` at
+`1f72bb09`); W1 in progress (folded 2026-11-18, below).
 **Design ADR:** ADR-0011, proposed. Its rulings and the §6 answers close the design gate under
 ADR-0009 §2.8: one draft, one independent review, one ruling pass.
 **Basis:** `main` at `3e75c2f9` (M03 waves 0–5 merged). **Delivery rules:** ADR-0009.
@@ -15,6 +16,44 @@ ADR-0009 §2.8: one draft, one independent review, one ruling pass.
 **Exit evidence:** A02, A04, A05, A16, A18, A28 and A29 pass. "Zero additional same-authority
 prompts", "defaults don't redirect running work", "fresh work IDs can't evade a hard cutoff" and "a
 repository file can't become an approval instruction" each have a journey (§3).
+
+## 0a. ADR-0011 §10's rulings, folded
+
+ADR-0011 §10 wins wherever this plan differs. Each wave folds its rulings when it starts; the
+"Folded" column says where. W0 was replaced by the joint wave 0 (§10 item 10), which landed
+revision 5, migrations `0007`/`0008`, the policy-resolution rewrite (item 1), the skeletons and
+the U0b spike.
+
+| Ruling | What changes in this plan | Folded |
+|---|---|---|
+| 1 (D01) resolution by context | landed in joint wave 0 (ADR-0006 §17.3); U2 builds on `PolicyContext` | W0, W1 |
+| 2 (D02) `background_work` | U1: allowed only as the boolean `preferences.background_work`, an authority key anywhere else. U2: coverage includes lock behaviour; a workspace policy records `continue` only from an attended trust or extension; P9 case | W1 |
+| 3 (D03) the hook never prompts | U4: `activate --hook` sends no `Attend`, never prompts or decides; `hook_creates_no_decision_when_uncovered` | W2 |
+| 4 (D04) where ordinary `ssh` is hooked | U5: `Signer::identities` in `credential/src/signer.rs`, never `session_bind` or `endpoints.rs`; an expired wait returns the identities already admitted | W3 |
+| 5 (D05) one contract owner; ensure hash | landed in joint wave 0 (ADR-0006 §17.4) | W0 |
+| 6 (D06) what shared slots claim | U6 claims exactly one pair and one materializer grant, the certificate from that grant only, the slot ending with its last referencer, shorter siblings enforced on bound contexts only; "property 8 still holds" is withdrawn | W1 |
+| 7 (D07) missing proofs | U1: P11's three `gitdir` cases. U4: the idempotency property with the two extras, and the identities-path timeout case moves to U5. U4: the mixed-profile example. U7: import is one transaction | W1 (U1); W2, W3 |
+| 8 (D08) shared files | §5 gains `setup_cmd.rs`, `docs/compatibility/matrix.md`, the root `Cargo.toml` members, `Cargo.lock` and `credential/src/signer.rs`; M05 takes none of M04's projection, setup-item or issuance files | W1 |
+| 9 (D09) cuts | Q8's guard dropped (R1 stays a residual); A16's WSL/container parameters not built; U1's adversarial byte cases fold into its proptest file; U4's symlink, FIFO and swapped-manifest cases and U9's four snapshots are kept | W1 |
+| 11 answers | Q1–Q7, Q9, Q10 yes (as amended above); Q8 the residual only | W1 |
+
+**Wave-1 reassignments by the integrator (2026-11-18):**
+- `GrantOrigin.policy_id` and the binding context pin move from U6 to U2 (context is U2's).
+- U2 reaches workspace observations through an app port, `ports::WorkspaceProbe`, with a fake in
+  its tests; U4 implements it in W2 with `heimdall-project` and the runtime observer. So U2
+  does not compile against U1, and W1's four units stay independent.
+- U2 serves `create`, `extend_scope`, `narrow_scope`, `set_max_window`, `remove`,
+  `trust_workspace` and `reconcile_workspace`, the decisions, `policy_history`, cooldowns, the
+  requester path for a manifest delta (`review_m05::raise_extension`, which U4 calls), coverage
+  and `inspect policies`. Targets, `stop` and work stops stay U3's; `inspect workspace` is U4's.
+- Every CLI and TUI surface, including the final `access allow` syntax and its help goldens
+  (ADR-0006 §17.6 item 14), lands in W3 with U9. Until then the commands keep their wave-0
+  refusal.
+- The question whether `run` reuses an active grant of the same work ID (from the M03 exit
+  suite) is put to the orchestrator (`.m05-questions.md` I-1) and, if accepted, lands with U6's
+  pins after U4.
+- Workers run at most two at a time, on Sonnet 5.5 for well-specified units and Opus 5.5 for
+  authority-sensitive ones (orchestrator instruction, 2026-11-18).
 
 ## 0. Rules
 
@@ -110,7 +149,8 @@ Each unit lists its owner paths, dependencies, tests and acceptance.
 
 ### U1: `heimdall-project`, the pure crate (ADR-0011 §2.2–§2.4)
 
-- **Owns:** `crates/project/**`, `tests/model/project_pure.rs`, `tests/adversarial/manifest.rs`.
+- **Owns:** `crates/project/**`, `tests/model/project_pure.rs` (the adversarial byte cases fold in
+  here, ruling 9).
 - **Depends:** U0.
 - **Builds:**
   - the bounded manifest parser with its closed schema and authority-key rejection;
@@ -127,8 +167,10 @@ Each unit lists its owner paths, dependencies, tests and acceptance.
   - **P11:** a match requires either an equal path and equal identity, or a verified worktree
     back-link to the recorded common directory;
   - the bundle round-trips, and authority sections are refused.
-- **Adversarial:** NUL, non-UTF-8, duplicate keys, depth and size limits, `profile = "../x"`, and
-  shell metacharacters in values.
+- **Adversarial (as proptest regressions and fixed examples in the same file, ruling 9):** NUL,
+  non-UTF-8, duplicate keys, depth and size limits, `profile = "../x"`, and shell metacharacters in
+  values. P11 includes a relative `gitdir`, a `..` segment and a copied worktree whose `gitdir` text
+  names the original common (ruling 7).
 
 ### U2: Trust, standing policies and scope review (the authority core; ADR-0011 §2.1, §3.1, §3.4, §4)
 
@@ -234,7 +276,8 @@ Each unit lists its owner paths, dependencies, tests and acceptance.
   - `crates/runtime/src/default_activation.rs`;
   - the personal-default offer in `heimdall/src/setup_cmd.rs`;
   - `tests/e2e/m05_default.rs`;
-  - the single hook call in `crates/credential/src/endpoints.rs`, a shared file (§5).
+  - the single hook call in `Signer::identities` for the environment endpoint
+    (`crates/credential/src/signer.rs`), a shared file (§5; ruling 4, never `session_bind`).
 - **Depends:** U2, U3, U6, and U0b's budget.
 - **Builds:**
   - the setup offer (a `Create{default}` decision with the spec §5.2 disclosure);
@@ -262,9 +305,10 @@ Each unit lists its owner paths, dependencies, tests and acceptance.
   - slot references: a compatible bind joins (`slot_shared`); an incompatible one is still refused
     with `managed_slot_held`;
   - handover to the referencer with the latest deadline, under a new generation;
-  - the context pin on bindings, and the policy ID in the grant origin.
+  - (the context pin on bindings and the policy ID in the grant origin moved to U2, §0a).
 - **Tests:**
-  - **Model** (extends plan §6.3 properties 6 and 8). In random traces of bind, join, release,
+  - **Model** (plan §6.3 property 6, and exactly ruling 6's claim, never property 8's
+    most-restrictive clause). In random traces of bind, join, release,
     expire, revoke, cutoff and restart:
     - a materialized slot has an active, referencing materializer;
     - the slot's `valid_before` ≤ the materializer's deadline;
@@ -383,7 +427,7 @@ W4  U10 hostile input, exit suite, native runs, records
   - Windows and the devbox run the observer and the hook natively.
 - **W3** adds the two surfaces that need everything below them:
   - ordinary-`ssh` activation for the personal default, which needs the one shared hook call in
-    `credential/src/endpoints.rs` (§5);
+    `credential/src/signer.rs` (§5; ruling 4);
   - the TUI and CLI views.
 - **W4** produces the A29 suite and the exit evidence. Native runs happen at the merge candidate.
 
@@ -490,9 +534,13 @@ stays at 30 rows.
    track-owned file.
 5. **`crates/runtime/src/dispatch.rs`, `crates/ipc/src/session.rs`:** M05 adds no `Request` variant
    (§4 extends existing ones), so only the capability list changes.
-6. **`crates/credential/src/endpoints.rs`:** owned by M04, for the WSL and container binding
-   endpoints. M05 adds one `DefaultActivation` call in the environment endpoint's identities path
-   (U5, W3). Whichever track lands second rebases.
+6. **`crates/credential/src/signer.rs`** (ruling 4; `endpoints.rs` stays M04's, for the WSL and
+   container binding endpoints): M05 adds one `DefaultActivation` call in `Signer::identities` for
+   the environment endpoint (U5, W3), never in `session_bind`. Whichever track lands second
+   rebases.
+6a. **Also shared (ruling 8):** `crates/heimdall/src/setup_cmd.rs` (U5's personal-default offer),
+   `docs/compatibility/matrix.md` (U10's rows), the root `Cargo.toml` members and `Cargo.lock`.
+   M05 takes none of M04's projection, setup-item or issuance files.
 7. **`crates/heimdall/src/{run_cmd,launch_flow}.rs`:** M04 owns the WSL Mode A and Windows launch
    changes. M05 keeps its logic in `activate_cmd.rs` and changes only the profile-resolution call and
    the group split.

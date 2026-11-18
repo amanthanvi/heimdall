@@ -280,6 +280,7 @@ mod windows {
                             existing,
                             multiplexing: Default::default(),
                         },
+                        default: false,
                     },
                     false,
                 )?;

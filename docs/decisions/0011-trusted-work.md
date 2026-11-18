@@ -365,8 +365,10 @@ references.
 - **Sharing a pair:** while another binding holds the pair, a job's own deadline is enforced for its
   bound contexts (`connect`, delegated endpoints), not for ordinary aliases.
 - **Reporting:** results report `ordinary_aliases: shared_environment_default`.
-- **Plan §6.3 property 8 still holds:** the slot carries only that pair's authority, always from one
-  grant, and only for as long as some referencer holds that authority.
+- **What the slot claims** (as ruled in §10 item 6, which deleted this draft's "property 8 still
+  holds"): one pair and one materializer grant; the certificate's principals and `valid_before`
+  come from that grant only; the slot ends when the last referencer drops; shorter siblings are
+  enforced on bound contexts, not on the ordinary alias.
 
 ### 5.3 Mixed mechanisms
 

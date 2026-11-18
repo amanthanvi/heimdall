@@ -1236,6 +1236,92 @@ fn declare(
     })))
 }
 
+// --- ⟨M05⟩ U6: the default-profile catalog preference (ADR-0011 §5.1) -------------------
+
+/// ⟨M05⟩ U6: an environment's default-profile preference (ADR-0011 §5.1; spec §8.2), as
+/// [`Operations::set_default_profile`] answers it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DefaultProfile {
+    /// The environment the preference belongs to (defaults are per environment).
+    pub environment_id: heimdall_contract::ids::EnvironmentId,
+    /// The default profile, `None` when none is set.
+    pub profile_id: Option<heimdall_contract::ids::ProfileId>,
+}
+
+impl Operations {
+    /// ⟨M05⟩ U6 (ADR-0011 §5.1): set (`Some`) or clear (`None`) the default profile of
+    /// `environment` (the runtime's own when `None`), an owner-channel catalog
+    /// preference. **Not authority** (no decision, no authority generation): only a
+    /// **new** request that omits its profile reads it ([`Self::default_profile`]);
+    /// an existing binding pinned its environment, profile revision, scope, mechanism,
+    /// grant and context at activation and never reads it (R-AU-03), so changing it
+    /// redirects no running work. The profile must exist in the catalog; the
+    /// environment must be in the managed set. One transaction.
+    ///
+    /// # Errors
+    /// `CAPABILITY_UNAVAILABLE` for a caller without the owner role; `NOT_FOUND` for an
+    /// unknown profile or an environment outside the managed set (reason
+    /// `environment_removed` for a removed one); nothing is written then.
+    pub async fn set_default_profile(
+        &self,
+        caller: &Caller,
+        environment: Option<&heimdall_contract::ids::EnvironmentId>,
+        profile: Option<heimdall_contract::ids::ProfileId>,
+    ) -> OpResult<DefaultProfile> {
+        if !caller.context.is_owner() {
+            return Err(OpError::new(
+                Code::CapabilityUnavailable,
+                "the catalog needs the owner role",
+            )
+            .with_effect(EffectStatus::None));
+        }
+        let own = self.environment().clone();
+        let env = environment.cloned().unwrap_or_else(|| own.clone());
+        let set = self
+            .local_write(move |tx, _| {
+                if let Err(e) = crate::environments::admit(tx, &own, &env)? {
+                    return Ok(Err(e));
+                }
+                match &profile {
+                    Some(p) => {
+                        if tx.profile(p)?.is_none() {
+                            return Ok(Err(OpError::new(Code::NotFound, "unknown profile")
+                                .with_resource("profile", Some(p.to_string()))));
+                        }
+                        tx.set_default_profile(&env, p)?;
+                    }
+                    None => {
+                        tx.clear_default_profile(&env)?;
+                    }
+                }
+                Ok(Ok(DefaultProfile {
+                    environment_id: env,
+                    profile_id: profile,
+                }))
+            })
+            .await??;
+        Ok(Completed::ok(Code::Ok, set))
+    }
+
+    /// ⟨M05⟩ U6 (ADR-0011 §5.1): the default profile of `environment` (the runtime's own
+    /// when `None`), the preference a new request reads **only** when it omits its
+    /// profile (`run` without `--profile`, after the workspace context). `None` when
+    /// none is set. A binding never reads it.
+    ///
+    /// # Errors
+    /// `STATE_UNAVAILABLE` (store).
+    pub async fn default_profile(
+        &self,
+        environment: Option<&heimdall_contract::ids::EnvironmentId>,
+    ) -> Result<Option<heimdall_contract::ids::ProfileId>, OpError> {
+        let env = environment
+            .cloned()
+            .unwrap_or_else(|| self.environment().clone());
+        self.local_write(move |tx, _| tx.default_profile(&env))
+            .await
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
