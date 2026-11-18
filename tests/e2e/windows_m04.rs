@@ -533,13 +533,24 @@ mod native {
         }
     }
 
-    /// The `code` of the last envelope in `text` (`""` when there is none).
+    /// The `code` of the last envelope in `text` (`""` when there is none). ⟨M04 Windows
+    /// fix round 3⟩ Read from the envelope's opening, not by parsing it whole: the CLI prints
+    /// the envelope on one line after the typed `yes`, but a pseudoconsole's text of a long
+    /// line (an applied setup plan runs to thousands of characters) is not a faithful copy, so
+    /// a whole-envelope parse found nothing (`""` while the apply had succeeded). `"code"` is
+    /// among the envelope's first fields (`schema_version`, `operation_id`, `state`, `code`).
     fn envelope_code(text: &str) -> String {
-        text.lines()
-            .rev()
-            .filter_map(|l| l.find("{\"schema_version\"").map(|i| &l[i..]))
-            .find_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-            .and_then(|v| v["code"].as_str().map(str::to_owned))
+        let Some(start) = text.rfind("{\"schema_version\"") else {
+            return String::new();
+        };
+        let head: String = text[start..].chars().take(400).collect();
+        head.find("\"code\":\"")
+            .map(|i| {
+                head[i + 8..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_uppercase() || *c == '_')
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -859,6 +870,9 @@ mod native {
         let mut env = product_env(&inst);
         env.push(("HEIMDALL_WSL_HELPER".into(), helper.clone().into()));
         let _stop = StopRuntime(env.clone());
+        // `time confirm` first: a setup apply needs a confident clock (`TIME_UNCERTAIN`).
+        let (code, exit) = run_step(&env, &["time", "confirm"], Mode::Attended);
+        assert_eq!(code, "OK", "time confirm (exit {exit})");
         let enable = [
             "wsl",
             "enable",
@@ -1126,25 +1140,55 @@ mod native {
         /// `AddEnvironment` decision, and the policy that lets the environment serve the
         /// profile without a further decision. Returns the environment's ID.
         fn enable(w: &World, d: &Distro) -> String {
-            let out = w.confirm(&[
-                "wsl",
-                "enable",
-                &d.name,
-                "--account",
-                &d.account,
-                "--mode-b",
-            ]);
-            assert_eq!(
-                out.code,
-                0,
-                "wsl enable --mode-b: {}",
-                w.redact(&out.stdout)
+            let (code, text) = confirm(
+                w,
+                &[
+                    "wsl",
+                    "enable",
+                    &d.name,
+                    "--account",
+                    &d.account,
+                    "--mode-b",
+                ],
             );
+            assert_eq!(code, 0, "wsl enable --mode-b: {}", w.redact(&text));
             let item = environment(w, &d.name).expect("the Mode B environment is listed");
-            assert_eq!(item["state"], "active", "{item}");
+            // ⟨M04 Windows fix round 3⟩ Enabling starts nothing: WSL stops an idle distribution
+            // seconds after its last process exits, so the new environment reads `active` only
+            // while something keeps the distribution running, `not_running` otherwise, and its
+            // helper is not started (ADR-0010 §11 item 1). The owner's `ensure` starts both.
+            assert!(
+                item["state"] == "active" || item["state"] == "not_running",
+                "{item}"
+            );
+            assert_eq!(item["realization"]["helper"], "stopped", "{item}");
             let id = item["environment_id"].as_str().unwrap().to_owned();
             permit(w, &id);
             id
+        }
+
+        /// The world's typed confirmation on a wide pseudoconsole. ⟨M04 Windows fix round 3⟩
+        /// The prompt is matched without its trailing space: a pseudoconsole's text drops a
+        /// line's trailing spaces, so `[y/N]: ` (the world's own needle) can miss a prompt
+        /// that is on the screen. Its exit code and text.
+        fn confirm(w: &World, args: &[&str]) -> (i32, String) {
+            let mut cmd = heimdall_testkit::console::TerminalCommand::new(world::bin())
+                .args(args)
+                .size(1000, 50)
+                .current_dir(&w.home.root);
+            for (k, v) in w.env() {
+                cmd = cmd.env(k, v);
+            }
+            let mut term = cmd.spawn().expect("the pseudoconsole starts");
+            if let Err(e) = term.expect("[y/N]:", Duration::from_secs(90)) {
+                panic!("{args:?}: no prompt: {}", w.redact(&e.to_string()));
+            }
+            std::thread::sleep(Duration::from_millis(300));
+            term.send(b"yes\r").unwrap();
+            let code = term.wait(Duration::from_secs(120)).unwrap_or(-1);
+            let text = term.text();
+            heimdall_testkit::assert_no_canary(&text);
+            (code, text)
         }
 
         /// The `inspect environments` item of the Mode B distribution `name`.
