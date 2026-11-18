@@ -473,6 +473,16 @@ can still use the shared ordinary alias while another referencer holds it (R3).
   - lifting a block never revives a terminal grant.
 - **The supervisor, recovery, lazy activation and the shell hook are all activations.** None can
   resurrect paused, stopped or cut-off access (spec §13.5).
+- **Where a background activation is checked** (review M05-W3-R02): in the transaction that claims
+  the ordinary-alias slot, not only when it plans. The personal default's bind carries an internal
+  marker (the default policy and the revision it planned under), and that transaction checks time,
+  pause, stop and cutoff, the planned default at its planned revision, and the policy the binding's
+  own grant rests on. A pause that commits between the plan and the claim refuses the claim: nothing
+  is claimed and no slot file is written. A foreground bind of an existing binding is continuing use
+  and still works during a pause.
+  - **Recovery re-drives a bind claimed before a pause** (confirmed by the orchestrator): under the
+    pause the re-drive is refused and fails closed. The claim stays with no slot file written, so the
+    binding cannot serve the ordinary alias until a `resume`. That is the safe direction.
 - **Narrowing actions** are never blocked by uncertain time. Widening actions are refused while time
   is uncertain (ADR-0006 §13.6 item 6).
 
@@ -625,6 +635,13 @@ These are recorded in `RESIDUALS` and in the claims table, with probes, under AD
     - **I-15, the development guard:** a debug build of the CLI refuses the account's real home
       unless `HEIMDALL_HOME` is given or `HEIMDALL_DEV_ALLOW_ACCOUNT_HOME=1` is set. Release builds
       are unchanged.
+    - **I-20, which binding the default activation reuses** (W3 fix round): only a binding whose
+      grant rests on the *current* default policy, in the personal context, with a scope within the
+      default's covered set. Any other binding of the current `default:` work, such as the old
+      profile's after the owner moved the default, or one a client created under a wider policy
+      by naming a `default:` work ID, is left alone, and the activation starts work n+1 under the
+      current default. Running work keeps its pins (A16). Reserving the `default:` prefix for the
+      server is a contract question, not taken up.
 13. **Handed on.**
     - **Per-destination identities through `session-bind@openssh.com`,** so managed aliases can
       drop `IdentitiesOnly` and the first ordinary `ssh` logs in without the hook (I-13 option 3):

@@ -1635,6 +1635,7 @@ impl App {
                 // ⟨M03⟩ No approval for a disclosure the owner was not shown.
                 if p.verdict == Verdict::Approve
                     && let Some(why) = super::m03::approve_block(&self.catalog, listed)
+                        .or_else(|| super::m05::approve_block(listed))
                 {
                     self.status = Some(format!(
                         "approve not sent for {}: {why}; nothing was sent",
@@ -1893,6 +1894,7 @@ pub(crate) mod tests {
             expires_at: Some(t("2026-11-03T09:15:00Z")),
             expired: false,
             policies: Vec::new(),
+            scope: None,
             request: serde_json::json!({
                 "operation_id": "op_apply1",
                 "plan_digest": "a".repeat(64),
@@ -1913,6 +1915,7 @@ pub(crate) mod tests {
             expires_at: Some(t("2026-11-03T09:15:00Z")),
             expired: false,
             policies: Vec::new(),
+            scope: None,
             request: serde_json::json!({
                 "operation_id": "op_declare1",
                 "identity_id": "idn_alpha",

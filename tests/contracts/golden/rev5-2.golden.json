@@ -44,5 +44,79 @@
       "json": {"cwd": "/tmp/x", "match": "none", "provenance": "same_user_context"},
       "has_proposal": false
     }
-  ]
+  ],
+  "decision_scope": {
+    "source": "ADR-0006 revision 5.2 (section 17.10 item 22; review M05-W3-R01), transcribed from the ruling's text, never from the code under test: a pending WidenPolicy create record's inspect decisions view gains scope {profile_id, profile_revision, pairs, environments, capabilities, lock_behavior}, read from its decision basis fixed at creation (the pinned profile revision's snapshot), never a fresh catalog read. Every list is written. The key is omitted for every other record, so every existing decision view is byte-identical; a typed struct inside the untyped decision view, no schema change.",
+    "views": [
+      {
+        "what": "a pending personal default create pinned at revision 2 of dev: the scope is written, every list included",
+        "json": {
+          "decision_id": "dec_01010101010101010101010101010101",
+          "kind": "widen_policy",
+          "state": "pending",
+          "created_at": "2026-11-18T09:00:00Z",
+          "expires_at": "2026-11-18T09:15:00Z",
+          "expired": false,
+          "request": {"action": {"action": "create", "profile": "dev", "environments": ["env_01010101010101010101010101010101"], "default": true}},
+          "scope": {
+            "profile_id": "dev",
+            "profile_revision": 2,
+            "pairs": [{"destination": "h1", "account": "deploy"}, {"destination": "h3", "account": "deploy"}],
+            "environments": ["env_01010101010101010101010101010101"],
+            "capabilities": ["ssh-authentication"],
+            "lock_behavior": "continue"
+          }
+        },
+        "has_scope": true
+      },
+      {
+        "what": "a create whose pinned revision has no capability: the empty list is written, never omitted",
+        "json": {
+          "decision_id": "dec_02020202020202020202020202020202",
+          "kind": "widen_policy",
+          "state": "pending",
+          "created_at": "2026-11-18T09:00:00Z",
+          "expires_at": "2026-11-18T09:15:00Z",
+          "expired": false,
+          "request": {"action": {"action": "create", "profile": "ops", "environments": ["env_01010101010101010101010101010101"], "max_window": "2h"}},
+          "scope": {
+            "profile_id": "ops",
+            "profile_revision": 1,
+            "pairs": [{"destination": "h1", "account": "deploy"}],
+            "environments": ["env_01010101010101010101010101010101"],
+            "capabilities": [],
+            "lock_behavior": "continue"
+          }
+        },
+        "has_scope": true
+      },
+      {
+        "what": "an extend_scope record: its action is the added authority, no scope, the key is absent",
+        "json": {
+          "decision_id": "dec_03030303030303030303030303030303",
+          "kind": "widen_policy",
+          "state": "pending",
+          "created_at": "2026-11-18T09:00:00Z",
+          "expires_at": "2026-11-18T09:15:00Z",
+          "expired": false,
+          "request": {"action": {"action": "extend_scope", "policy_id": "pol", "pairs": [{"destination": "h3", "account": "deploy"}]}}
+        },
+        "has_scope": false
+      },
+      {
+        "what": "a targeted resume: its policies (revision 5.1 C1), no scope, the key is absent",
+        "json": {
+          "decision_id": "dec_04040404040404040404040404040404",
+          "kind": "widen_policy",
+          "state": "pending",
+          "created_at": "2026-11-18T09:00:00Z",
+          "expires_at": "2026-11-18T09:15:00Z",
+          "expired": false,
+          "request": {"action": {"action": "resume", "target": {"kind": "all"}}},
+          "policies": [{"policy_id": "pol", "revision": 2}]
+        },
+        "has_scope": false
+      }
+    ]
+  }
 }

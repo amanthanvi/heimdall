@@ -2749,6 +2749,7 @@ mod tests {
             expires_at: Some(crate::tui::model::tests::t("2026-11-03T09:15:00Z")),
             expired: false,
             policies: Vec::new(),
+            scope: None,
             request: serde_json::Value::Object(
                 (0..4 + extra)
                     .map(|i| (format!("field{i:02}"), serde_json::json!(i)))

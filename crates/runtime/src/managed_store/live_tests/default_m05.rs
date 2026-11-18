@@ -38,6 +38,7 @@ use super::*;
 use crate::default_activation::{ActivatingAuthority, DefaultActivator, FALLBACK_EXECUTABLE};
 use crate::supervisor::{FixedJitter, ManagedConnections, Supervisor, SupervisorConfig};
 use heimdall_app::Attendance;
+use heimdall_app::operations::DefaultOutcome;
 use heimdall_app::ports::{DefaultActivation, DefaultWait};
 use heimdall_contract::event::{EventFilter, EventType};
 use heimdall_contract::ids::PolicyId;
@@ -553,41 +554,279 @@ async fn paused_or_cut_off_default_never_activates_and_creates_no_decision() {
     }
 }
 
+/// The owner's own `ensure` of default work 1: an active binding that holds no slot (an
+/// activation whose `ensure` committed and whose bind never ran).
+async fn unslotted_work_one(w: &World) -> heimdall_contract::request::EnsureData {
+    w.p.ops
+        .ensure(
+            &caller(),
+            EnsureRequest {
+                profile: Some(ProfileId::parse("dev").unwrap()),
+                profile_revision: None,
+                scope: [w.pr.clone()].into_iter().collect(),
+                environment: None,
+                work_id: work(1),
+                until: None,
+                required_capabilities: RequiredCapabilities::default(),
+                request_id: RequestId::parse("r-work-1").unwrap(),
+                interaction: InteractionMode::Interactive,
+                wait: WaitMode::Sync { timeout_ms: 30_000 },
+                connection: None,
+                context: None,
+                covered_only: false,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message))
+        .data
+}
+
+/// An attended `action` and the owner's approval of the decision it raises.
+async fn approve(w: &World, action: PolicyAction) {
+    let e =
+        w.p.ops
+            .policy(&attended(), action)
+            .await
+            .expect_err("the action waits for its decision");
+    let d = heimdall_contract::ids::DecisionId::parse(&e.next.decision_ref.unwrap()).unwrap();
+    w.p.ops
+        .decide(
+            &attended(),
+            DecideRequest {
+                decision_id: d,
+                verdict: Verdict::Approve,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("decide: {} {}", e.code, e.message));
+}
+
+/// ⟨Ruling I-20⟩ The default activation reuses only a binding its current default stands
+/// behind. Work 1's binding exists under `pol` (active, no slot: [`unslotted_work_one`]);
+/// the owner then moves the default to another profile's policy (an attended
+/// `create {default: true}`). The next activation does not attach work 1's binding to the
+/// ordinary alias — its grant rests on `pol`, not on the current default — and starts work 2
+/// under the current default instead: work 2's binding holds the slot, its grant rests on the
+/// new default, and work 1's binding is unchanged and holds no slot reference (A16: running
+/// work keeps its pins). (Revert: accept any active binding of the current work, as before
+/// I-20, and the activation answers `Activated` for work 1.)
+#[tokio::test]
+async fn the_default_never_reuses_a_binding_of_another_policy() {
+    let w = World::plain(2 * HOUR).await;
+    let one = unslotted_work_one(&w).await;
+    w.live
+        .store
+        .transaction(|tx| {
+            tx.upsert_profile(&ProfileDefinition {
+                id: ProfileId::parse("dev2").unwrap(),
+                revision: 1,
+                scope: Scope {
+                    pairs: [w.pr.clone()].into_iter().collect(),
+                    capabilities: [Capability::SshAuthentication].into_iter().collect(),
+                },
+                label: None,
+            })
+        })
+        .unwrap();
+    approve(
+        &w,
+        PolicyAction::Create {
+            profile: ProfileId::parse("dev2").unwrap(),
+            environments: [env()].into_iter().collect(),
+            max_window: None,
+            default: true,
+        },
+    )
+    .await;
+    let default = w
+        .live
+        .store
+        .transaction(|tx| tx.policies())
+        .unwrap()
+        .into_iter()
+        .find(|q| q.default)
+        .expect("the default")
+        .id;
+    assert_ne!(default, pol(), "the default moved");
+    let original = w.bindings_of(1);
+    assert_eq!(original.len(), 1);
+    assert_eq!(original[0].id, one.binding_id);
+    let before = w.counts();
+
+    let outcome =
+        w.p.ops
+            .activate_default(&caller().context, &env(), FALLBACK_EXECUTABLE)
+            .await;
+    let DefaultOutcome::Activated {
+        policy,
+        work_id,
+        binding,
+    } = outcome
+    else {
+        panic!("the current default activates new work: {outcome:?}");
+    };
+    assert_eq!(policy, default);
+    assert_eq!(
+        work_id,
+        work(2),
+        "work 1's binding of another policy is not reused"
+    );
+    assert_eq!(w.bindings_of(1), original, "work 1's binding is unchanged");
+    let two = w.bindings_of(2);
+    assert_eq!(two.len(), 1);
+    assert_eq!(two[0].id, binding);
+    assert_eq!(
+        w.slot(),
+        SlotState::Held {
+            binding: binding.clone(),
+            generation: 1
+        },
+        "work 2's binding holds the ordinary alias's slot"
+    );
+    let refs = w
+        .live
+        .store
+        .transaction(|tx| tx.slot_references(&env(), &w.pr.destination, &w.pr.account))
+        .unwrap();
+    assert!(
+        refs.iter().all(|r| r.binding != one.binding_id),
+        "work 1's binding holds no slot reference: {refs:?}"
+    );
+    let origin = w
+        .live
+        .store
+        .transaction(|tx| tx.grant_origin(&two[0].grant))
+        .unwrap()
+        .expect("the grant's origin");
+    assert_eq!(
+        origin.policy_id,
+        Some(default),
+        "granted under the current default"
+    );
+    assert_eq!(origin.workspace, None, "personal context");
+    assert_eq!(w.counts().decisions, before.decisions, "no decision");
+    w.p.shutdown.cancel();
+}
+
 /// ADR-0011 §7.2 ("pause: background triggers refused"), at the step the pipeline does not
-/// guard: work 1's binding exists and is active but holds no slot (an activation whose
-/// `ensure` committed and whose bind never ran: the runtime stopped between the two; here the
-/// owner's own `ensure` of that work ID). The owner pauses. A pause leaves an existing
-/// binding usable, so binding it would succeed — but a background trigger under a pause does
-/// nothing: the identities request answers at once, the slot stays free and `ssh` fails. The
-/// positive control: once the owner resumes (an attended decision), the next request binds
-/// that same existing work (no new work) and `ssh` logs in. (Revert proof 2: drop the plan's
-/// pause check and the trigger attaches the binding under the pause.)
+/// guard: work 1's binding exists and is active but holds no slot ([`unslotted_work_one`]). A
+/// pause leaves an existing binding usable, so binding it would succeed — but a background
+/// trigger under a block does nothing.
+///
+/// **The block races the bind** (review M05-W3-R02). The activation plans while nothing
+/// blocks and chooses to bind work 1; at its bind's entrance (the debug scheduling seam) the
+/// owner's production actions commit:
+/// * `pause`: the default is paused;
+/// * `cutoff`: the default's cutoff passes.
+///
+/// (A default moved to another policy between the plan and the bind is refused by the same
+/// check, the planned default being gone; the activation then plans again and never reuses
+/// the other policy's binding: [`the_default_never_reuses_a_binding_of_another_policy`].)
+///
+/// Each time the bind's claiming transaction refuses: the activation answers `Blocked` with
+/// the block's reason, as a block found by the plan does; the action committed, the
+/// activation created no decision, the binding is unchanged, the slot is free and no slot
+/// file was written. (Revert proof 3: drop the bind's in-transaction check, and the `pause`
+/// case claims the slot and answers `Activated`.)
+///
+/// **The block precedes the plan.** The owner pauses: the identities request answers at
+/// once, the slot stays free and `ssh` fails. The positive control: once the owner resumes
+/// (an attended decision), the next request binds that same existing work (no new work) and
+/// `ssh` logs in. (Revert proof 2: drop the plan's pause check and the trigger attaches the
+/// binding under the pause.)
 #[tokio::test]
 async fn paused_default_never_binds_an_existing_work_to_the_alias() {
-    let w = World::plain(2 * HOUR).await;
-    let one =
-        w.p.ops
-            .ensure(
-                &caller(),
-                EnsureRequest {
-                    profile: Some(ProfileId::parse("dev").unwrap()),
-                    profile_revision: None,
-                    scope: [w.pr.clone()].into_iter().collect(),
-                    environment: None,
-                    work_id: work(1),
-                    until: None,
-                    required_capabilities: RequiredCapabilities::default(),
-                    request_id: RequestId::parse("r-work-1").unwrap(),
-                    interaction: InteractionMode::Interactive,
-                    wait: WaitMode::Sync { timeout_ms: 30_000 },
-                    connection: None,
-                    context: None,
-                    covered_only: false,
-                },
-            )
+    for how in ["pause", "cutoff"] {
+        let w = World::plain(2 * HOUR).await;
+        let one = unslotted_work_one(&w).await;
+        let original = w.bindings_of(1);
+        assert_eq!(original.len(), 1);
+        assert_eq!(original[0].id, one.binding_id);
+        assert_eq!(w.slot(), SlotState::Free { generation: 0 }, "{how}");
+        let seam = w.p.ops.debug_pause_next_default_bind();
+        let ops = w.p.ops.clone();
+        let activation = tokio::spawn(async move {
+            ops.activate_default(&caller().context, &env(), FALLBACK_EXECUTABLE)
+                .await
+        });
+        seam.reached
             .await
-            .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message))
-            .data;
+            .unwrap_or_else(|_| panic!("{how}: the activation did not plan the bind"));
+        // The owner's action commits between the plan and the bind.
+        let reason = match how {
+            "cutoff" => {
+                let at = Timestamp::from_second(w.live.clock.wall().as_second() + 5).unwrap();
+                w.act(PolicyAction::Cutoff {
+                    policy_id: Some(pol()),
+                    at,
+                    target: None,
+                })
+                .await;
+                w.live.clock.advance(Duration::from_secs(6));
+                "policy_cutoff"
+            }
+            _ => {
+                w.act(PolicyAction::Pause {
+                    policy_id: Some(pol()),
+                    target: None,
+                })
+                .await;
+                "policy_paused"
+            }
+        };
+        let committed = w
+            .live
+            .store
+            .transaction(|tx| tx.policy(&pol()))
+            .unwrap()
+            .unwrap();
+        assert!(
+            match how {
+                "cutoff" => committed.cutoff_at.is_some(),
+                _ => matches!(committed.pause, PauseState::Paused { .. }),
+            },
+            "{how}: the owner's action committed before the bind"
+        );
+        let before = w.counts();
+        let _ = seam.resume.send(());
+        let outcome = activation.await.unwrap();
+        assert_eq!(
+            outcome,
+            DefaultOutcome::Blocked {
+                policy: pol(),
+                reason: reason.to_owned(),
+            },
+            "{how}"
+        );
+        let after = w.counts();
+        assert_eq!(after.decisions, before.decisions, "{how}: no decision");
+        assert_eq!(
+            after.operations - before.operations,
+            1,
+            "{how}: one refused bind"
+        );
+        assert_eq!(
+            w.bindings_of(1),
+            original,
+            "{how}: the binding is unchanged"
+        );
+        assert!(w.bindings_of(2).is_empty(), "{how}: no new work");
+        assert_eq!(
+            w.slot(),
+            SlotState::Free { generation: 0 },
+            "{how}: the background bind claimed nothing after the owner's action"
+        );
+        let slot = files::slot_paths(&w.p.effects.slot_root().data_dir, &w.pr).unwrap();
+        assert!(
+            std::fs::read_dir(&slot.dir).map_or(true, |mut d| d.next().is_none()),
+            "{how}: no slot file was written"
+        );
+        w.p.shutdown.cancel();
+    }
+
+    // The block precedes the plan.
+    let w = World::plain(2 * HOUR).await;
+    let one = unslotted_work_one(&w).await;
     assert_eq!(w.slot(), SlotState::Free { generation: 0 }, "no slot held");
     w.act(PolicyAction::Pause {
         policy_id: Some(pol()),
@@ -610,28 +849,14 @@ async fn paused_default_never_binds_an_existing_work_to_the_alias() {
     let after = w.counts();
     assert_eq!((after.operations, after.decisions), (before.operations, 0));
     // The control: resumed, the same existing work is bound (no new work).
-    let e =
-        w.p.ops
-            .policy(
-                &attended(),
-                PolicyAction::Resume {
-                    policy_id: Some(pol()),
-                    target: None,
-                },
-            )
-            .await
-            .expect_err("a resume waits for its decision");
-    let d = heimdall_contract::ids::DecisionId::parse(&e.next.decision_ref.unwrap()).unwrap();
-    w.p.ops
-        .decide(
-            &attended(),
-            DecideRequest {
-                decision_id: d,
-                verdict: Verdict::Approve,
-            },
-        )
-        .await
-        .unwrap_or_else(|e| panic!("decide: {} {}", e.code, e.message));
+    approve(
+        &w,
+        PolicyAction::Resume {
+            policy_id: Some(pol()),
+            target: None,
+        },
+    )
+    .await;
     let _ = w.identities().await;
     w.settled().await;
     assert_eq!(

@@ -36,7 +36,7 @@ use heimdall_contract::project::{Manifest, PortableBundle};
 use heimdall_contract::request::Request;
 use heimdall_contract::schema::{project_schemas, public_schemas};
 use heimdall_contract::trust::{
-    PoliciesView, PolicyRevisionRef, PolicyTargetResult, WorkspaceView,
+    DecisionScope, PoliciesView, PolicyRevisionRef, PolicyTargetResult, WorkspaceView,
 };
 
 use crate::jsonschema_lite::validate;
@@ -595,4 +595,83 @@ fn rev5_2_workspace_proposal() {
     // `inspect workspace` stays gated on `trusted-work/1` (unchanged by this revision).
     let r: Request = exact("schemas/examples/request.inspect.workspace.json", "request");
     assert_eq!(r.required_capability(), Some(capability::TRUSTED_WORK_V1));
+}
+
+/// ⟨rev5.2⟩ ADR-0006 §17.10 item 22 (review M05-W3-R01): a pending `create` record's
+/// decision view carries `scope`, from the golden (transcribed from the contract owner's
+/// ruling). The scope round-trips byte-identically through [`DecisionScope`] with every
+/// list written (an empty one included); the key is present exactly for the pinned
+/// `create` forms and absent for the other records (an `extend_scope`, a targeted
+/// `resume`), so every earlier decision view is unchanged. It is a typed struct inside the
+/// untyped decision view: no published schema names it.
+#[test]
+fn rev5_2_decision_scope() {
+    let golden = load("tests/contracts/golden/rev5-2.golden.json");
+    let rows = golden["decision_scope"]["views"].as_array().unwrap();
+    assert_eq!(rows.len(), 4);
+    let mut kinds = BTreeSet::new();
+    for row in rows {
+        let v = &row["json"];
+        let what = row["what"].as_str().unwrap();
+        let has_scope = row["has_scope"].as_bool().unwrap();
+        assert_eq!(v.get("scope").is_some(), has_scope, "{what}");
+        assert_eq!(v["kind"], "widen_policy", "{what}");
+        let action = v["request"]["action"]["action"].as_str().unwrap();
+        assert_eq!(
+            has_scope,
+            action == "create",
+            "{what}: only a create has a scope"
+        );
+        kinds.insert((action.to_owned(), has_scope));
+        let Some(scope) = v.get("scope") else {
+            continue;
+        };
+        let typed: DecisionScope =
+            serde_json::from_value(scope.clone()).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(
+            &serde_json::to_value(&typed).unwrap(),
+            scope,
+            "{what}: exact round trip"
+        );
+        for key in [
+            "profile_id",
+            "profile_revision",
+            "pairs",
+            "environments",
+            "capabilities",
+            "lock_behavior",
+        ] {
+            assert!(scope.get(key).is_some(), "{what}: {key} is always written");
+        }
+        assert_eq!(
+            typed.profile_id.as_str(),
+            v["request"]["action"]["profile"].as_str().unwrap(),
+            "{what}"
+        );
+        // A scope missing a list is not read as an empty one.
+        let mut partial = scope.clone();
+        partial.as_object_mut().unwrap().remove("pairs");
+        assert!(
+            serde_json::from_value::<DecisionScope>(partial).is_err(),
+            "{what}: a missing list is refused"
+        );
+    }
+    assert_eq!(
+        kinds,
+        [
+            ("create".to_owned(), true),
+            ("extend_scope".to_owned(), false),
+            ("resume".to_owned(), false),
+        ]
+        .into_iter()
+        .collect()
+    );
+    for schema in public_schemas() {
+        let text = serde_json::to_string(&schema.schema).unwrap();
+        assert!(
+            !text.contains("DecisionScope"),
+            "{}: no schema changes for item 22",
+            schema.name
+        );
+    }
 }

@@ -2152,13 +2152,15 @@ revision):
 ### 17.10 Revision 5.2 (M05 wave 3)
 
 *Approved by the contract owner on 2026-11-18, with M05 wave 3 (orchestrator ruling I-14;
-M05 U9a). Additive on revisions 5 and 5.1, gated on `trusted-work/1`: every revision-5 and
+M05 U9a); item 22 ruled by the contract owner on 2026-11-18 with the wave's fix round (review
+M05-W3-R01). Additive on revisions 5 and 5.1, gated on `trusted-work/1`: every revision-5 and
 5.1 document, stored record, request hash and golden is byte-identical (see "Byte identity"
 below), the code table stays at 30 rows, and the schema major stays `"1"` (§9).*
 
 | Item | What landed | Where |
 |---|---|---|
 | 21 | **The server-built trust proposal in `inspect workspace`.** `WorkspaceView.proposal: Option<TrustProposal>` (`#[serde(default, skip_serializing_if = "Option::is_none")]`): the proposal the **runtime** builds for the working directory, the manifest's request ∩ the profile's latest snapshot, its pair, environment and capability tokens resolved against the local catalog, exactly what `policy trust_workspace` computes and compares a request's `proposal` and `access_digest` with (ADR-0011 I5). It is built by the same code (`trust_m05::manifest_proposal`, shared by the decision builder and by `inspect workspace`). Owner only, like `access_digest`. Omitted when there is none: no workspace root, no manifest, a manifest that names a profile this catalog does not have, or a request that resolves to nothing (`manifest_invalid`); a request built without a proposal then reaches the decision builder, which refuses it with its stable reason. Gated on `trusted-work/1` like the rest of `inspect workspace` (`Request::required_capability`, unchanged) | `contract::trust`, `app::operations::{context_m05, trust_m05}` (`manifest_proposal_view`), `schemas/public-api/inspect-workspace.schema.json` |
+| 22 | **The scope of a `create` decision in `inspect decisions`.** A pending `WidenPolicy{create}` record's view gains `scope: DecisionScope {profile_id, profile_revision, pairs: [AccessPairRef], environments: [EnvironmentId], capabilities: [Capability], lock_behavior}`, read from its decision basis fixed at creation (`DecisionBasis::Create`, ADR-0011 I5; the stored basis, never a fresh catalog read): the profile revision the record pinned, that revision's snapshot (its pairs and capabilities; snapshots are immutable), the record's environments and the lock behaviour approval gives the new policy. It is exactly what approval applies (`trust_m05::apply_widening` reads the same basis and snapshot). Every list is always written, so an empty one means none. **Omitted for every other record**, and for a `create` whose basis or snapshot is gone (approval refuses that one as stale). No other `WidenPolicy` kind pins a profile revision, so none carries it: `set_max_window`, the targeted `resume`, `clear_cutoff` and later `cutoff` (revision 5.1 C1's `policies`) and the M01 single-policy forms change no scope. The rule: **present for `create` (and a targeted `WidenPolicy`, if it pins a profile revision); absent for `extend_scope`, whose recorded action is the added authority** (ruling I-14's normalization; a `scope` it cannot fill honestly would be worse). Like C1, a typed struct placed inside the untyped decision view: **no schema change**. Gated on `trusted-work/1` like the `create` request that raises the record | `contract::trust` (`DecisionScope`), `app::operations` (`decision_scope`, at the `decision_view` call site in `inspect`) |
 
 **Why (ADR-0011 §2.2).** The runtime reads the manifest and the client never does. Revisions 5
 and 5.1 gave the client no way to learn the proposal before a decision record exists, so
@@ -2196,3 +2198,47 @@ the store's row counts unchanged; a manifest-less root, an unknown profile and a
 non-workspace directory carry no proposal). CLI (`e2e_cli_m05`): the `project trust` journey,
 which now goes through `inspect workspace`; and `crates/heimdall/src/` names neither
 `RealWorkspaceProbe` nor `workspace_observe`.
+
+**Item 22: why (review M05-W3-R01).** The setup offer built its personal-default disclosure
+from its own `inspect profiles` read, while the runtime pinned the profile revision current
+when the `create` arrived. An ordinary owner catalog edit between the two (profile `review`
+gaining `h2` and `h3`) gave a prompt listing only `h1` and an approval that created a
+standing default covering `h3`: a consent mismatch caused by the owner's own action
+(ADR-0009 §2.1, blocking). Revisions 5 and 5.1 gave no consent surface the pinned scope of a
+`create` record: its view held only the action (profile, environments, window, default).
+With item 22 the setup offer, the CLI's `create` review (`access allow --profile` for a
+profile without a policy, and `heimdall decide approve`) and the TUI's `create` view render
+the disclosure **from the record's `scope`**, read with the record itself, and never from a
+client read; a `create` record without a well-formed `scope` is refused before anything is
+asked (`setup_cmd::SCOPE_NOT_RECORDED`; fail closed). This is the public consumer ruling I-3
+waited for: the basis stays an internal store row, and the view exposes what it fixes.
+
+Golden: `tests/contracts/golden/rev5-2.golden.json` `decision_scope` (two pinned `create`
+views, one with an empty capability list, and two records without a scope: an
+`extend_scope` and a targeted `resume`).
+
+**Byte identity (item 22).** The key is inserted only for a pinned `create`, so every other
+decision view, every revision-5 and 5.1 document, example and golden is unchanged; the
+published schemas are unchanged (no schema names `DecisionScope`); a client built before
+this revision ignores the added key (§9).
+
+**Proofs (item 22).** Contract: `rev5::rev5_2_decision_scope` (the golden: the scope
+round-trips exactly through `DecisionScope` with every list written, a missing list is
+refused rather than read as empty, the key is present exactly for the `create` forms, and no
+public schema names the type). CLI, the reviewer's probe inverted, against the production
+`Service` in process with the debug test configuration and a real `Client`
+(`setup_cmd::tests::personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit`):
+a production `UpsertProfile` committed between the offer's profile read and its `create`
+is in the prompt (the destination line is exactly the recorded scope, `h3` included), the
+default approval creates has exactly that scope, and the `extend_scope` record raised after
+it has no `scope` key; reverting the offer to its own read makes it fail (exit 101), restored
+it passes. Fail closed: `setup_cmd::tests::personal_default_offer_without_a_recorded_scope_approves_nothing`,
+`m05_cmd::tests::a_create_review_shows_the_recorded_scope_or_refuses` and
+`tui::m05::tests::a_create_shows_its_recorded_scope_or_offers_no_approval`.
+
+**Ruled (item 22, `extend_scope`; the contract owner, 2026-11-18).** `scope` is absent for an
+`extend_scope` record. That kind pins no profile revision: its creation checks the request
+against the profile's latest definition and stores no revision, and its approval leaves the
+lock behaviour unchanged when the recorded `background_work` is absent, so `profile_revision`
+and `lock_behavior` would have no fixed value. Its recorded action is already exactly the
+authority it adds (ruling I-14), and the CLI and TUI show that action.

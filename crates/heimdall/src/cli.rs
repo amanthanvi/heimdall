@@ -2234,6 +2234,13 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
                 .find(|d| d.get("decision_id").and_then(|v| v.as_str()) == Some(decision))
                 .cloned()
         });
+    // ⟨M05⟩ Review M05-W3-R01: a `create` whose recorded scope is missing cannot show what
+    // approval applies, so it is never approved here (it can still be denied).
+    if verdict == Verdict::Approve
+        && let Some(why) = record.as_ref().and_then(crate::m05_cmd::approve_block)
+    {
+        return not_confirmed(Some(decision), operation, why);
+    }
     let verb = match verdict {
         Verdict::Approve => "Approve",
         Verdict::Deny => "Deny",

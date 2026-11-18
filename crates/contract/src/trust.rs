@@ -342,6 +342,30 @@ pub struct PolicyRevisionRef {
     pub revision: u64,
 }
 
+/// ⟨M05⟩ Revision 5.2 (§17.10 item 22; review M05-W3-R01): the scope a pending
+/// `WidenPolicy{create}` record's approval gives the new policy, read from its decision
+/// basis, fixed at creation (ADR-0011 I5): the profile revision the record pinned, that
+/// revision's snapshot (its pairs and capabilities), the environments the record names and
+/// the lock behaviour the new policy takes. A consent surface shows exactly this, never its
+/// own read of the catalog, which can be newer or older than the pinned revision. In the
+/// `inspect decisions` view as `scope`, only for such a record; every list is always
+/// written, so an empty one means none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DecisionScope {
+    /// Profile.
+    pub profile_id: ProfileId,
+    /// The profile revision the record pinned at creation.
+    pub profile_revision: u64,
+    /// That revision's pairs.
+    pub pairs: BTreeSet<AccessPairRef>,
+    /// The environments the policy covers.
+    pub environments: BTreeSet<EnvironmentId>,
+    /// That revision's capabilities.
+    pub capabilities: BTreeSet<Capability>,
+    /// The new policy's lock behaviour.
+    pub lock_behavior: crate::managed::LockBehavior,
+}
+
 /// ⟨M05⟩ Revision 5.1 (§17.9 C2): one policy of a targeted action's target, after it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PolicyTargetEntry {

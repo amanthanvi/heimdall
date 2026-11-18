@@ -22,9 +22,27 @@
 //! **Precedence** (ADR-0011 §7). The plan refuses at once, before anything is admitted,
 //! while the default policy (or any personal policy of its profile in the environment,
 //! merged fail closed) is paused — a `stop` pauses — or past its cutoff, or while time is
-//! uncertain. The pipeline checks pause and cutoff again for new work; the plan's check is
-//! what keeps a background trigger from attaching an existing binding to the ordinary
-//! alias under a pause (§7.2: background triggers are refused).
+//! uncertain. The pipeline checks pause and cutoff again for new work.
+//!
+//! **The bind is fenced in its own transaction** (review M05-W3-R02; ADR-0011 §7.2–§7.3:
+//! background triggers are refused under a pause, a stop or a cutoff). A bind validates as
+//! continuing use (`Activation::Existing`), which a pause leaves usable, so the plan's
+//! check alone left a gap: a pause committed after the plan and before the bind still let
+//! the bind claim a free ordinary-alias slot. The activation's bind therefore carries an
+//! internal marker, [`BackgroundBind`] (the default policy and revision it planned under),
+//! stored with the bind's request under [`BIND_KEY`] and hashed with it. Every pass that
+//! could claim — the first pass of `drive_bind`, whoever drives it, recovery included —
+//! re-derives the plan **in the transaction that claims the slot**
+//! ([`background_bind_refusal`]): time is the bind's own gate-certified `now`; pause and
+//! cutoff are those of the default (as the plan merges them) and of the binding's own
+//! policies; the default must still be the planned policy at the planned revision, and the
+//! binding still its current work's (not stopped, not released, its grant usable, covering
+//! the covered set). The store serializes write transactions and every pause, stop, cutoff,
+//! narrowing and environment write commits in one, so each either committed before the
+//! claim (and refuses it) or after it (and then governs later activations only: the claim
+//! made an existing binding, which a pause leaves usable). A refusal claims nothing, so no
+//! slot file is written (they are written only for a committed claim) and the binding is
+//! untouched. A foreground bind carries no marker and is unchanged.
 //!
 //! **Re-entry** (ADR-0011 §3.3). Work IDs are numbered; the current work is the highest
 //! `n` with a binding or a work stop ([`latest_work`]). While its binding is active,
@@ -55,10 +73,12 @@ use heimdall_contract::request::{
 };
 use heimdall_contract::trust::{ActivationEventKind, ActivationEventPayload};
 use heimdall_contract::{Code, Timestamp};
-use heimdall_domain::binding::BindingState;
+use heimdall_domain::binding::{BindingRecord, BindingState};
 use heimdall_domain::idempotency::{HashInput, compute_hash};
 use heimdall_domain::operation::OperationKind;
-use heimdall_domain::policy::{PauseState, PolicyContext, StandingPolicy, resolve_policy};
+use heimdall_domain::policy::{
+    ActivationBlock, PauseState, PolicyContext, StandingPolicy, resolve_policy,
+};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::scope::{AccessPair, Capability};
 use heimdall_domain::time as dtime;
@@ -75,6 +95,22 @@ use crate::error::OpError;
 /// it). Only this module writes it: a client request is stored from its decoded form, so
 /// no client field can carry it.
 pub(super) const DEFAULT_KEY: &str = "m05_default_activation";
+
+/// ⟨Review M05-W3-R02⟩ The key under which the activation's bind stores its
+/// [`BackgroundBind`] in its recovery intent's request object (and its hash's extra), as
+/// [`DEFAULT_KEY`] for the `ensure`: only this module writes it, so no client bind carries
+/// it, and every pass that drives the bind reads it from the stored request.
+pub(super) const BIND_KEY: &str = "m05_default_bind";
+
+/// ⟨Review M05-W3-R02⟩ The internal marker of the activation's bind (module docs): the
+/// default policy and its revision as planned. Never on the wire.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(super) struct BackgroundBind {
+    /// The default policy the plan chose.
+    policy: PolicyId,
+    /// Its revision then.
+    revision: u64,
+}
 
 /// The work-ID prefix of the default endpoint's work (ADR-0011 §3.3).
 pub const DEFAULT_WORK_PREFIX: &str = "default:";
@@ -257,18 +293,40 @@ fn latest_work(tx: &mut Txn<'_>, environment: &EnvironmentId) -> heimdall_store:
 
 /// The current work's binding that already serves `pairs`, if any: active, its grant
 /// usable and within its bound, covering every pair. `Ok(Some((binding, slotted)))`.
+///
+/// ⟨M05; ruling I-20⟩ Only a binding the current default stands behind: its grant rests on
+/// `policy` (the current default) in the personal context, and its scope stays within the
+/// default's covered set (`pairs`, `capabilities`). Any other binding of this work ID is
+/// left alone, so the plan starts the next work under the current default. That covers a
+/// default moved to another policy (the old profile's binding of the same work would
+/// otherwise serve the ordinary aliases after the owner changed the default) and a client
+/// that named a `default:` work under a wider policy (its pairs would otherwise surface on
+/// the environment's ordinary aliases; ADR-0011 §10 item 1). Running work keeps its pins
+/// either way (A16).
 fn current_binding(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
     work: &WorkId,
+    policy: &PolicyId,
     pairs: &BTreeSet<AccessPair>,
+    capabilities: &BTreeSet<Capability>,
     now: Timestamp,
 ) -> heimdall_store::Result<Option<(BindingId, bool)>> {
     if tx.work_stop(environment, work)?.is_some() {
         return Ok(None);
     }
     for b in tx.bindings_for_work(environment, work)? {
-        if b.state != BindingState::Active || !pairs.is_subset(&b.scope.pairs) {
+        if b.state != BindingState::Active
+            || !pairs.is_subset(&b.scope.pairs)
+            || !b.scope.pairs.is_subset(pairs)
+            || !b.scope.capabilities.is_subset(capabilities)
+        {
+            continue;
+        }
+        let ours = tx
+            .grant_origin(&b.grant)?
+            .is_some_and(|o| o.policy_id.as_ref() == Some(policy) && o.workspace.is_none());
+        if !ours {
             continue;
         }
         let Some(g) = tx.grant(&b.grant)? else {
@@ -374,7 +432,9 @@ fn plan_in(
             Ok(w) => w,
             Err(e) => return Ok(Err(e)),
         };
-        if let Some((binding, slotted)) = current_binding(tx, environment, &work, &pairs, now)? {
+        if let Some((binding, slotted)) =
+            current_binding(tx, environment, &work, &p.id, &pairs, &capabilities, now)?
+        {
             step = Some(if slotted {
                 Step::Active { work, binding }
             } else {
@@ -430,6 +490,132 @@ fn refused(policy: &PolicyId, e: &OpError) -> DefaultOutcome {
             reason: reason_of(e),
         },
     }
+}
+
+/// ⟨Review M05-W3-R02⟩ The refusal of a background bind whose planned basis no longer
+/// holds: the environment has no default now, another policy (or another revision) is the
+/// default, or the binding is no longer the current work's. `CREDENTIAL_EXPIRED` with the
+/// planned policy as its resource (what an M03 activation whose policy changed in flight
+/// answers is the same code; only this module builds it with a `policy` resource, which is
+/// how [`is_basis_changed`] tells it apart): the activation plans again.
+fn basis_changed(policy: &PolicyId) -> OpError {
+    OpError::new(
+        Code::CredentialExpired,
+        "the default policy changed while its activation was in progress",
+    )
+    .with_resource("policy", Some(policy.to_string()))
+}
+
+/// Whether `e` is [`basis_changed`]'s refusal.
+fn is_basis_changed(e: &OpError) -> bool {
+    e.code == Code::CredentialExpired && e.resource.as_ref().is_some_and(|r| r.kind == "policy")
+}
+
+/// The refusal of a pause (`paused`) or a cutoff of `policy`, as `activation_refusal`
+/// words it for a new activation (so [`refused`] reports it as the plan would).
+fn block_refusal(policy: &PolicyId, paused: bool) -> OpError {
+    if paused {
+        OpError::new(Code::PolicyPaused, "the standing policy is paused")
+    } else {
+        OpError::new(Code::PolicyCutoff, "a policy cutoff is in effect")
+    }
+    .with_resource("policy", Some(policy.to_string()))
+}
+
+/// What a settled in-transaction plan comes to as a bind refusal: a block or
+/// `not_covered` as the plan reports it, anything else (no default now) as
+/// [`basis_changed`].
+fn settled_refusal(planned: &PolicyId, o: DefaultOutcome) -> OpError {
+    match o {
+        DefaultOutcome::Blocked { policy, reason } => match reason.as_str() {
+            blocked::POLICY_PAUSED => block_refusal(&policy, true),
+            blocked::POLICY_CUTOFF => block_refusal(&policy, false),
+            _ => OpError::new(Code::TimeUncertain, "time uncertain: no new activation")
+                .with_resource("clock", None),
+        },
+        DefaultOutcome::NotCovered { .. } => OpError::new(
+            Code::InteractionRequired,
+            "nothing of the default policy is covered here now; background activation never asks",
+        )
+        .with_reason(reason::NOT_COVERED),
+        _ => basis_changed(planned),
+    }
+}
+
+/// ⟨Review M05-W3-R02⟩ The marker a stored bind request carries (module docs): `None` for
+/// every bind but the activation's; `Some(Err)` (the bind is refused, as any unreadable
+/// request) when the key is present but unreadable.
+pub(super) fn stored_background(
+    stored: &serde_json::Value,
+) -> Option<Result<BackgroundBind, OpError>> {
+    let value = stored.get(BIND_KEY)?;
+    Some(
+        serde_json::from_value(value.clone())
+            .map_err(|_| internal("the stored background activation cannot be read")),
+    )
+}
+
+/// `value` (an object: a bind's stored request or its hash's extra) with `marker` under
+/// [`BIND_KEY`].
+pub(super) fn mark(value: &mut serde_json::Value, marker: &BackgroundBind) -> Result<(), OpError> {
+    let marker = serde_json::to_value(marker)
+        .map_err(|_| internal("the background activation is not serializable"))?;
+    value
+        .as_object_mut()
+        .ok_or_else(|| internal("the request is not an object"))?
+        .insert(BIND_KEY.to_owned(), marker);
+    Ok(())
+}
+
+/// ⟨Review M05-W3-R02⟩ In the first pass of the activation's bind of `b` — the
+/// transaction that claims (or joins) its slots — at the bind's gate-certified `now`: why
+/// the background activation may not claim now (module docs), else `None`.
+///
+/// * the plan, re-derived in this transaction: no default now, a pause, stop or cutoff of
+///   the default (merged over the personal policies of its profile here, as the plan
+///   does), `not_covered` (automatic activation withdrawn, nothing covered);
+/// * the default is still `marker`'s policy at `marker`'s revision, and `b` is still the
+///   current work's binding of the covered set (or already references every covered
+///   slot: a bind interrupted after its claim, driven again, completes); otherwise
+///   [`basis_changed`], and the activation plans again;
+/// * a pause or cutoff of the policies the binding's own grant is governed by (its
+///   profile, its recorded context): a background trigger never attaches a binding whose
+///   own policy is blocked, whatever the default is now.
+///
+/// # Errors
+/// A store failure.
+pub(super) fn background_bind_refusal(
+    tx: &mut Txn<'_>,
+    marker: &BackgroundBind,
+    b: &BindingRecord,
+    now: Timestamp,
+) -> heimdall_store::Result<Option<OpError>> {
+    let plan = match plan_in(tx, &b.environment, Some(now))? {
+        Err(e) => return Ok(Some(e)),
+        Ok(Planned::Settled(o)) => return Ok(Some(settled_refusal(&marker.policy, o))),
+        Ok(Planned::Act(p)) => p,
+    };
+    let current = match &plan.step {
+        Step::Bind { binding, .. } | Step::Active { binding, .. } => *binding == b.id,
+        Step::Work(_) => false,
+    };
+    if !current || plan.policy.id != marker.policy || plan.policy.revision.0 != marker.revision {
+        return Ok(Some(basis_changed(&marker.policy)));
+    }
+    let workspace = tx.grant_origin(&b.grant)?.and_then(|o| o.workspace);
+    let own = resolve_policy(
+        &tx.policies_for(&b.profile, &b.environment)?,
+        &PolicyContext::of_recorded(workspace.as_ref()),
+    );
+    if let Some(q) = own
+        && let Some(block) = q.blocks_activation_at(now)
+    {
+        return Ok(Some(block_refusal(
+            &q.id,
+            matches!(block, ActivationBlock::Paused { .. }),
+        )));
+    }
+    Ok(None)
 }
 
 /// A fresh internal request ID (`m05-default-<32 hex>`).
@@ -557,7 +743,7 @@ impl Operations {
                     }
                 }
                 Step::Bind { work, binding } => {
-                    return match self.default_bind(&caller, binding, executable).await {
+                    match self.default_bind(&caller, &plan, binding, executable).await {
                         Ok(()) => {
                             let _ = self
                                 .record_activation_event(ActivationEventPayload {
@@ -568,14 +754,18 @@ impl Operations {
                                     reason: None,
                                 })
                                 .await;
-                            DefaultOutcome::Activated {
+                            return DefaultOutcome::Activated {
                                 policy: plan.policy.id.clone(),
                                 work_id: work.clone(),
                                 binding: binding.clone(),
-                            }
+                            };
                         }
-                        Err(e) => refused(&plan.policy.id, &e),
-                    };
+                        // ⟨Review M05-W3-R02⟩ The planned basis no longer held when the
+                        // bind would claim (nothing was claimed): plan again, so the
+                        // answer is what the plan now says (no default, new work, …).
+                        Err(e) if is_basis_changed(&e) => {}
+                        Err(e) => return refused(&plan.policy.id, &e),
+                    }
                 }
             }
         }
@@ -678,14 +868,24 @@ impl Operations {
         .map(|_| ())
     }
 
-    /// The holder-less launch bind that claims (or joins) the binding's slots.
+    /// The holder-less launch bind that claims (or joins) the binding's slots, carrying
+    /// `plan`'s [`BackgroundBind`]: its claiming transaction refuses unless the
+    /// activation may still claim then ([`background_bind_refusal`]; review M05-W3-R02).
     async fn default_bind(
         &self,
         caller: &Caller,
+        plan: &Plan,
         binding: &BindingId,
         executable: &str,
     ) -> Result<(), OpError> {
-        self.bind(
+        // ⟨Debug builds only; tests⟩ The scheduling seam between the plan and the bind.
+        #[cfg(debug_assertions)]
+        self.debug_default_bind_pause().await;
+        let marker = BackgroundBind {
+            policy: plan.policy.id.clone(),
+            revision: plan.basis.revision,
+        };
+        self.bind_with(
             caller,
             BindRequest {
                 binding_id: binding.clone(),
@@ -695,9 +895,42 @@ impl Operations {
                 }),
                 request_id: fresh_request_id()?,
             },
+            Some(&marker),
         )
         .await
         .map(|_| ())
+    }
+
+    /// ⟨Debug builds only; tests; review M05-W3-R02⟩ Pause the next default activation at
+    /// the entrance of its bind — after its plan chose `Step::Bind`, before the bind is
+    /// admitted — until the returned control's `resume` is sent or dropped, so a test can
+    /// commit an owner action in that gap. (The control is the reservation pauses'.)
+    /// Release builds have no pause.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn debug_pause_next_default_bind(&self) -> super::ReservationPauseControl {
+        let (reached_tx, reached) = tokio::sync::oneshot::channel();
+        let (resume, resume_rx) = tokio::sync::oneshot::channel();
+        *self
+            .inner
+            .default_bind_pause
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((reached_tx, resume_rx));
+        super::ReservationPauseControl { reached, resume }
+    }
+
+    #[cfg(debug_assertions)]
+    async fn debug_default_bind_pause(&self) {
+        let pause = self
+            .inner
+            .default_bind_pause
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some((reached, resume)) = pause {
+            let _ = reached.send(());
+            let _ = resume.await;
+        }
     }
 
     /// ⟨M05⟩ U5: append one `EventType::Activation` event (ADR-0006 §17 item 8). The

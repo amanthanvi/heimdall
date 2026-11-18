@@ -1050,6 +1050,7 @@ pub(crate) mod fixtures {
             expires_at: Some(t("2026-11-03T09:15:00Z")),
             expired: false,
             policies: Vec::new(),
+            scope: None,
             request: serde_json::to_value(request).unwrap(),
         }
     }

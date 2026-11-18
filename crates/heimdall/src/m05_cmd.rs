@@ -42,7 +42,12 @@
 //! only from that record, as quoted data.
 //!
 //! Every human string passes through `output::sanitize_for_terminal`; IDs, paths and labels
-//! from the runtime are data, never part of a command the CLI runs.
+//! from the runtime are data, never part of a command the CLI runs. A path or a label is
+//! shown as one quoted field (`output::quoted_field`: line breaks escaped, bidirectional and
+//! invisible formatting characters removed; review M05-W3-R03), so it can neither add a
+//! line nor reorder the text around it. A `create` review shows the scope the runtime
+//! recorded for its decision (ADR-0006 §17.10 item 22; review M05-W3-R01), and its approval
+//! is refused when there is none ([`approve_block`]).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -415,7 +420,10 @@ pub(crate) fn recorded_preview(view: &serde_json::Value, lock: Option<&str>) -> 
             out.push_str("First trust of a workspace (spec §5.2):\n  ");
             out.push_str(&first_trust_text(profile, background));
             out.push_str("Detail:\n");
-            out.push_str(&format!("  directory: {}\n", s(action, "cwd")));
+            out.push_str(&format!(
+                "  directory: {}\n",
+                output::quoted_field(s(action, "cwd"))
+            ));
             out.push_str(&format!("  profile: {profile}\n"));
             out.push_str(&format!(
                 "  pairs: {}\n",
@@ -451,7 +459,7 @@ pub(crate) fn recorded_preview(view: &serde_json::Value, lock: Option<&str>) -> 
                 // Quoted data from the repository (ADR-0011 I5): never an instruction.
                 out.push_str(&format!(
                     "  project label (repository text, shown as data): {}\n",
-                    serde_json::Value::String(label.to_owned())
+                    output::quoted_field(label)
                 ));
             }
             if acknowledges_lock(recorded) {
@@ -464,7 +472,10 @@ pub(crate) fn recorded_preview(view: &serde_json::Value, lock: Option<&str>) -> 
         }
         "reconcile_workspace" => {
             out.push_str("Reconcile a moved or re-cloned checkout with its trusted workspace (ADR-0011 §2.3):\n");
-            out.push_str(&format!("  directory: {}\n", s(action, "cwd")));
+            out.push_str(&format!(
+                "  directory: {}\n",
+                output::quoted_field(s(action, "cwd"))
+            ));
             out.push_str(&format!(
                 "  trusted workspace: {}\n",
                 s(action, "workspace")
@@ -474,16 +485,11 @@ pub(crate) fn recorded_preview(view: &serde_json::Value, lock: Option<&str>) -> 
         }
         "widen_policy" => {
             let verb = s(action, "action");
-            if verb == "extend_scope" || verb == "create" {
+            if verb == "create" {
+                out.push_str(&create_review(view, action));
+            } else if verb == "extend_scope" {
                 out.push_str("Review of a standing policy (only the added authority is listed):\n");
-                if verb == "create" {
-                    out.push_str(&format!(
-                        "  new personal policy for profile {}\n",
-                        s(action, "profile")
-                    ));
-                } else {
-                    out.push_str(&format!("  policy: {}\n", s(action, "policy_id")));
-                }
+                out.push_str(&format!("  policy: {}\n", s(action, "policy_id")));
                 // The recorded action, verbatim: approval adds what the policy lacks of it.
                 let pairs = pair_list(action.get("pairs"));
                 if !pairs.is_empty() {
@@ -521,6 +527,78 @@ pub(crate) fn recorded_preview(view: &serde_json::Value, lock: Option<&str>) -> 
         _ => {}
     }
     out
+}
+
+/// ⟨M05⟩ The review of a `create` record (`access allow --profile` for a profile with no
+/// policy; the setup offer's record too, through `heimdall decide`): the scope the runtime
+/// recorded for the record (`scope`, ADR-0006 §17.10 item 22; review M05-W3-R01), which is
+/// exactly what approval gives the new policy: the pinned profile revision's pairs and
+/// capabilities, its environments and its lock behaviour. Never the client's own read of
+/// the profile, which a catalog edit can outrun. Without a recorded scope it says so, and
+/// [`approve_block`] refuses the approval.
+fn create_review(view: &serde_json::Value, action: &serde_json::Value) -> String {
+    let mut out = String::from(
+        "Review of a new personal standing policy (the scope the runtime recorded for this decision; approval applies exactly this):\n",
+    );
+    let Some(scope) = crate::setup_cmd::recorded_scope(view) else {
+        out.push_str(&format!(
+            "  profile: {}\n  {}: approval is refused here\n",
+            s(action, "profile"),
+            crate::setup_cmd::SCOPE_NOT_RECORDED
+        ));
+        return out;
+    };
+    let none = |l: Vec<String>| {
+        if l.is_empty() {
+            "none".to_owned()
+        } else {
+            l.join(", ")
+        }
+    };
+    let words = |v: serde_json::Value| word_list(Some(&v));
+    out.push_str(&format!(
+        "  profile: {} at revision {}\n",
+        scope.profile_id, scope.profile_revision
+    ));
+    out.push_str(&format!(
+        "  pairs: {}\n",
+        none(pair_list(Some(&serde_json::json!(scope.pairs))))
+    ));
+    out.push_str(&format!(
+        "  capabilities: {}\n",
+        none(words(serde_json::json!(scope.capabilities)))
+    ));
+    out.push_str(&format!(
+        "  environments: {}\n",
+        none(words(serde_json::json!(scope.environments)))
+    ));
+    out.push_str(&format!(
+        "  lock behaviour: {}\n",
+        match scope.lock_behavior {
+            heimdall_contract::managed::LockBehavior::Continue => {
+                "work continues while the session is locked"
+            }
+            _ => "a session lock ends this access",
+        }
+    ));
+    if action.get("default").and_then(serde_json::Value::as_bool) == Some(true) {
+        out.push_str(
+            "  default: it also covers ordinary ssh to your managed aliases in those environments\n",
+        );
+    }
+    out
+}
+
+/// ⟨M05⟩ Review M05-W3-R01: why an approval of this `inspect decisions` entry is refused
+/// before anything is asked (`cli::confirm_and_decide`): a `widen_policy` `create` without a
+/// well-formed recorded `scope` (ADR-0006 §17.10 item 22), whose destinations cannot be
+/// shown. `None` for every other entry.
+#[must_use]
+pub(crate) fn approve_block(view: &serde_json::Value) -> Option<&'static str> {
+    (s(view, "kind") == "widen_policy"
+        && view["request"]["action"]["action"] == "create"
+        && crate::setup_cmd::recorded_scope(view).is_none())
+    .then_some(crate::setup_cmd::SCOPE_NOT_RECORDED)
 }
 
 // ---------------------------------------------------------------------------------
@@ -623,9 +701,11 @@ fn render_workspace(v: &serde_json::Value) -> String {
         "none" => "no workspace (personal context)",
         _ => "unknown",
     };
-    let mut out = format!("directory: {}\n", s(v, "cwd"));
+    // Review M05-W3-R03: the paths are repository and file-system text, shown as quoted
+    // data (line breaks escaped, invisible formatting characters removed).
+    let mut out = format!("directory: {}\n", output::quoted_field(s(v, "cwd")));
     if let Some(root) = v.get("root").and_then(|r| r.as_str()) {
-        out.push_str(&format!("workspace root: {root}\n"));
+        out.push_str(&format!("workspace root: {}\n", output::quoted_field(root)));
     }
     out.push_str(&format!("state: {state}\n"));
     if let Some(w) = v.get("workspace_id").and_then(|r| r.as_str()) {
@@ -1402,6 +1482,170 @@ mod tests {
         assert!(text.contains("pol (at revision 3)"), "{text}");
         let other = serde_json::json!({"kind": "approve_authority", "request": {}});
         assert!(recorded_preview(&other, None).is_empty());
+    }
+
+    const ENV: &str = "env_00112233445566778899aabbccddeeff";
+    const DEC: &str = "dec_00112233445566778899aabbccddeeff";
+
+    fn create_entry(scope: Option<serde_json::Value>) -> serde_json::Value {
+        let mut d = serde_json::json!({
+            "decision_id": DEC, "kind": "widen_policy", "state": "pending",
+            "expires_at": "2026-11-18T00:15:00Z",
+            "request": {"action": {"action": "create", "profile": "dev",
+                "environments": [ENV], "default": false}},
+        });
+        if let Some(scope) = scope {
+            d["scope"] = scope;
+        }
+        d
+    }
+
+    fn scope_of(pairs: &[&str]) -> serde_json::Value {
+        serde_json::json!({
+            "profile_id": "dev", "profile_revision": 3,
+            "pairs": pairs.iter().map(|d| serde_json::json!({"destination": d, "account": "deploy"}))
+                .collect::<Vec<_>>(),
+            "environments": [ENV], "capabilities": ["ssh-authentication"],
+            "lock_behavior": "continue",
+        })
+    }
+
+    /// A scripted owner session: `inspect` answers the decision listing, a `create` answers
+    /// that it waits on [`DEC`], `decide` succeeds; every request kind is recorded.
+    struct Owner {
+        listing: serde_json::Value,
+        sent: Vec<String>,
+    }
+
+    impl Session for Owner {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.sent.push(request.kind().to_owned());
+            match request {
+                Request::Inspect(_) => Envelope::ok(self.listing.clone()),
+                Request::Policy(_) => output::error_value(
+                    heimdall_app::OpError::new(Code::ApprovalRequired, "owner approval required")
+                        .with_decision(DEC.to_owned())
+                        .into_envelope(),
+                ),
+                _ => Envelope::ok(serde_json::json!({"decided": true})),
+            }
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            self.sent.push("attend".to_owned());
+            Envelope::ok(serde_json::json!({"attended": true}))
+        }
+    }
+
+    struct Yes(Vec<String>);
+
+    impl Prompter for Yes {
+        async fn ask(&mut self, text: &str) -> crate::prompt::Answer {
+            self.0.push(text.to_owned());
+            crate::prompt::Answer::Yes
+        }
+    }
+
+    /// ⟨M05⟩ Review M05-W3-R01 (ADR-0006 §17.10 item 22): `access allow --profile` for a
+    /// profile with no policy (`create`) shows the scope the runtime recorded for its
+    /// decision (every pair of the pinned revision, its capabilities, environments and lock
+    /// behaviour) before the typed `yes`; a record without a well-formed `scope` is refused
+    /// before anything is asked, and no `Decide` is sent. Another kind is never blocked.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn a_create_review_shows_the_recorded_scope_or_refuses() {
+        let ctx = Ctx {
+            json: false,
+            non_interactive: false,
+            home: None,
+            stdin_tty: true,
+        };
+        let create = Request::Policy(PolicyAction::Create {
+            profile: ProfileId::parse("dev").unwrap(),
+            environments: [EnvironmentId::parse(ENV).unwrap()].into_iter().collect(),
+            max_window: None,
+            default: false,
+        });
+        let run = |entry: serde_json::Value| {
+            let mut s = Owner {
+                listing: serde_json::json!({ "decisions": [entry] }),
+                sent: Vec::new(),
+            };
+            let mut p = Yes(Vec::new());
+            let env = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(owner_request(&mut s, &mut p, &ctx, create.clone(), true));
+            (env, s.sent, p.0)
+        };
+        let (env, sent, shown) = run(create_entry(Some(scope_of(&["h1", "h3"]))));
+        assert_eq!(env.code, Code::Ok, "{env:?}");
+        assert_eq!(sent, ["attend", "policy", "inspect", "decide"]);
+        let [shown] = shown.as_slice() else {
+            panic!("one prompt: {shown:?}")
+        };
+        for needle in [
+            "profile: dev at revision 3",
+            "pairs: h1:deploy, h3:deploy\n",
+            "capabilities: ssh-authentication\n",
+            &format!("environments: {ENV}\n"),
+            "lock behaviour: work continues while the session is locked",
+        ] {
+            assert!(shown.contains(needle), "missing {needle:?}: {shown}");
+        }
+        assert_eq!(approve_block(&create_entry(Some(scope_of(&[])))), None);
+        let malformed = serde_json::json!({"profile_id": "dev", "pairs": []});
+        for entry in [create_entry(None), create_entry(Some(malformed))] {
+            let text = recorded_preview(&entry, None);
+            assert!(
+                text.contains(crate::setup_cmd::SCOPE_NOT_RECORDED),
+                "{text}"
+            );
+            assert!(!text.contains("pairs:"), "no pair is guessed: {text}");
+            assert!(approve_block(&entry).is_some());
+            let (env, sent, shown) = run(entry);
+            assert_eq!(env.code, Code::InteractionRequired, "{env:?}");
+            assert_eq!(sent, ["attend", "policy", "inspect"], "no decide");
+            assert!(shown.is_empty(), "nothing is asked: {shown:?}");
+        }
+        let extension = serde_json::json!({
+            "kind": "widen_policy",
+            "request": {"action": {"action": "extend_scope", "policy_id": "pol",
+                "pairs": [{"destination": "h3", "account": "deploy"}]}},
+        });
+        assert_eq!(approve_block(&extension), None);
+    }
+
+    /// ⟨M05⟩ Review M05-W3-R03: a directory name with a line break and a bidirectional
+    /// override, in `project status`, the first-trust view and the reconcile view, is one
+    /// quoted field: no line of its own, no override, the line break escaped.
+    #[test]
+    fn workspace_paths_render_as_quoted_data() {
+        let hostile = "/w/r\nOWNER-LINE\u{202e}cba";
+        let status = render_workspace(&serde_json::json!({
+            "cwd": hostile, "root": hostile, "match": "untrusted",
+        }));
+        let trust = recorded_preview(
+            &serde_json::json!({"kind": "trust_workspace", "request": {
+                "action": {"action": "trust_workspace", "cwd": hostile, "access_digest": "ab",
+                    "proposal": {"profile": "dev"}}}}),
+            None,
+        );
+        let reconcile = recorded_preview(
+            &serde_json::json!({"kind": "reconcile_workspace", "request": {
+                "action": {"action": "reconcile_workspace", "workspace": "ws_1", "cwd": hostile},
+                "why": "same_identity_other_path"}}),
+            None,
+        );
+        let quoted = r#""/w/r\nOWNER-LINEcba" (invisible formatting characters removed)"#;
+        for text in [&status, &trust, &reconcile] {
+            assert!(!text.lines().any(|l| l.starts_with("OWNER-LINE")), "{text}");
+            assert!(!text.contains('\u{202e}'), "{text}");
+            assert!(text.contains(&format!("directory: {quoted}\n")), "{text}");
+        }
+        assert!(
+            status.contains(&format!("workspace root: {quoted}\n")),
+            "{status}"
+        );
     }
 
     /// The typed result of a targeted action renders every policy and, for `stop`, the

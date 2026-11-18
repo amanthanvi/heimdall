@@ -302,6 +302,10 @@ pub(crate) struct Decision {
     /// ⟨M05, ADR-0006 §17.9 C1⟩ For a targeted widening, the policies approval changes,
     /// fixed when the record was created (`policy_id`, `revision`); empty otherwise.
     pub policies: Vec<(String, u64)>,
+    /// ⟨M05, ADR-0006 §17.10 item 22⟩ For a `create`, the scope its approval applies, as the
+    /// runtime recorded it; `None` otherwise, and for a missing or malformed one (never a
+    /// guess: the TUI then refuses to approve it, `tui::m05::approve_block`).
+    pub scope: Option<heimdall_contract::trust::DecisionScope>,
 }
 
 impl Decision {
@@ -327,6 +331,10 @@ impl Decision {
                         .collect()
                 })
                 .unwrap_or_default(),
+            scope: v
+                .get("scope")
+                .cloned()
+                .and_then(|s| serde_json::from_value(s).ok()),
         })
     }
 

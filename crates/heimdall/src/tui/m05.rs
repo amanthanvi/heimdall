@@ -10,8 +10,10 @@
 //!   of the pairs, the environments, lock continuity and the limits ([`decision_lines`]);
 //! * **the delta review** (`widen_policy{extend_scope}`): only the added authority, never
 //!   the whole scope ([`decision_lines`]);
-//! * **reconcile** (`reconcile_workspace`), a personal policy's creation (`create`) and a
-//!   longer window (`set_max_window`), in the same readable form;
+//! * **reconcile** (`reconcile_workspace`), a personal policy's creation (`create`: the
+//!   scope the runtime recorded for the decision, ADR-0006 §17.10 item 22, and no Approve
+//!   without it, [`approve_block`]) and a longer window (`set_max_window`), in the same
+//!   readable form;
 //! * **the stop menu**: pause, stop this work, stop all for a profile, and a cutoff at a
 //!   time, four distinct actions with their own sentence ([`StopMenu`]);
 //! * **policy history** (`inspect policies`): each revision's cause and decision
@@ -80,17 +82,11 @@ fn hms(ts: Timestamp) -> String {
 
 /// A character that can reorder or hide the text around it: the bidirectional controls
 /// (marks, embeddings, overrides, isolates), the zero-width and invisible formatting
-/// characters, the soft hyphen, and the line and paragraph separators.
+/// characters (Unicode category Cf), the soft hyphen, and the line and paragraph separators.
+/// ⟨M05⟩ Review M05-W3-R03: the CLI's data fields use the same class
+/// ([`crate::output::is_invisible_format`]).
 fn is_breaker(c: char) -> bool {
-    matches!(
-        c,
-        '\u{00ad}'
-            | '\u{061c}'
-            | '\u{200b}'..='\u{200f}'
-            | '\u{2028}'..='\u{202e}'
-            | '\u{2060}'..='\u{206f}'
-            | '\u{feff}'
-    )
+    crate::output::is_invisible_format(c)
 }
 
 /// `s` as one safe row of cells: [`clean`] (controls and escape sequences gone, newlines
@@ -771,7 +767,13 @@ fn delta_lines(catalog: &Catalog, a: &Value) -> Vec<Line<'static>> {
     lines
 }
 
-fn create_lines(catalog: &Catalog, a: &Value) -> Vec<Line<'static>> {
+/// A personal policy's creation (`create`): the question, then the scope **the runtime
+/// recorded for this decision** (`Decision::scope`, ADR-0006 §17.10 item 22; review
+/// M05-W3-R01), which is exactly what approval gives the new policy: the pinned profile
+/// revision's pairs and capabilities, the environments and the lock behaviour. Never the
+/// catalog's current definition, which an edit can move past the pinned revision. Without
+/// a recorded scope the view says so and Approve is not offered ([`approve_block`]).
+fn create_lines(catalog: &Catalog, a: &Value, d: &Decision) -> Vec<Line<'static>> {
     let profile = t(a, "profile").unwrap_or_else(|| "?".to_owned());
     let mut lines = vec![
         bold(
@@ -780,14 +782,52 @@ fn create_lines(catalog: &Catalog, a: &Value) -> Vec<Line<'static>> {
         ),
         plain(PAUSE_OR_REMOVE),
         plain(""),
-        bold("Detail: a personal standing policy"),
-        plain(format!(
+        bold("Detail: a personal standing policy, as the runtime recorded this decision"),
+    ];
+    let Some(scope) = &d.scope else {
+        lines.push(plain(format!(
             "  Profile: {} ({profile})",
             profile_name(catalog, &profile)
-        )),
-        plain("  Environments:"),
-    ];
-    lines.extend(list_lines(a, "environments", "-"));
+        )));
+        lines.push(bold(format!(
+            "[!!] Approve is not offered here: {}",
+            crate::setup_cmd::SCOPE_NOT_RECORDED
+        )));
+        return lines;
+    };
+    lines.push(plain(format!(
+        "  Profile: {} ({profile}) at revision {}",
+        profile_name(catalog, &profile),
+        scope.profile_revision
+    )));
+    let recorded = serde_json::json!({
+        "pairs": scope.pairs,
+        "capabilities": scope.capabilities,
+        "environments": scope.environments,
+    });
+    for (title, key) in [
+        ("  Pairs (destination and account):", "pairs"),
+        ("  Capabilities:", "capabilities"),
+        ("  Environments:", "environments"),
+    ] {
+        lines.push(plain(title));
+        let rows = if key == "pairs" {
+            pair_lines(catalog, &recorded, key, "-")
+        } else {
+            list_lines(&recorded, key, "-")
+        };
+        if rows.is_empty() {
+            lines.push(plain("    - none"));
+        } else {
+            lines.extend(rows);
+        }
+    }
+    lines.push(plain(match scope.lock_behavior {
+        heimdall_contract::managed::LockBehavior::Continue => {
+            "  Lock behavior: work continues while your desktop and password manager are locked"
+        }
+        _ => "  Lock behavior: work ends when the session locks",
+    }));
     lines.push(plain(format!(
         "  Limits: each work session lasts at most {}",
         t(a, "max_window").map_or_else(
@@ -804,6 +844,18 @@ fn create_lines(catalog: &Catalog, a: &Value) -> Vec<Line<'static>> {
         ));
     }
     lines
+}
+
+/// ⟨M05⟩ Review M05-W3-R01: why Approve is not offered for `d` (the decision modal sends
+/// nothing): a `create` without a recorded scope, whose destinations cannot be shown.
+/// `None` for every other decision.
+#[must_use]
+pub(crate) fn approve_block(d: &Decision) -> Option<String> {
+    (d.kind == "widen_policy"
+        && text(d.request.get("action").unwrap_or(&Value::Null), "action").as_deref()
+            == Some("create")
+        && d.scope.is_none())
+    .then(|| crate::setup_cmd::SCOPE_NOT_RECORDED.to_owned())
 }
 
 fn reconcile_lines(r: &Value) -> Vec<Line<'static>> {
@@ -845,7 +897,7 @@ pub(crate) fn decision_lines(catalog: &Catalog, d: &Decision) -> Option<Vec<Line
         ("trust_workspace", _) => trust_lines(catalog, d),
         ("reconcile_workspace", _) => reconcile_lines(r),
         ("widen_policy", Some("extend_scope")) => delta_lines(catalog, a),
-        ("widen_policy", Some("create")) => create_lines(catalog, a),
+        ("widen_policy", Some("create")) => create_lines(catalog, a, d),
         // ⟨W3 integration⟩ A targeted `resume`, `clear_cutoff` or later `cutoff` (ADR-0011
         // §7.3): one decision for every affected policy, listed as the record fixed them
         // (ADR-0006 §17.9 C1).
@@ -1304,6 +1356,7 @@ pub(crate) mod fixtures {
             expires_at: Some(t("2026-11-03T09:15:00Z")),
             expired: false,
             policies: Vec::new(),
+            scope: None,
             request,
         }
     }
@@ -1505,6 +1558,67 @@ mod tests {
         let mut other = extend_decision("dec_o", "pol-ws1");
         other.request = serde_json::json!({"action": {"action": "resume", "policy_id": "pol-ws1"}});
         assert!(decision_lines(&catalog, &other).is_none());
+    }
+
+    /// ⟨M05⟩ Review M05-W3-R01 (ADR-0006 §17.10 item 22): a `create` record read from its
+    /// wire form shows the scope the runtime recorded for it (every pair of the pinned
+    /// revision, its capabilities, environments and lock behavior), and nothing from the
+    /// catalog's profile listing; one without a recorded scope (or a malformed one) says so
+    /// and Approve is not offered.
+    #[test]
+    fn a_create_shows_its_recorded_scope_or_offers_no_approval() {
+        let record = |scope: Option<serde_json::Value>| {
+            let mut d = serde_json::json!({
+                "decision_id": "dec_c1", "kind": "widen_policy", "state": "pending",
+                "expires_at": "2026-11-03T09:15:00Z",
+                "request": {"action": {"action": "create", "profile": "dev",
+                    "environments": [ENV], "default": true}},
+            });
+            if let Some(scope) = scope {
+                d["scope"] = scope;
+            }
+            let listing = serde_json::json!({ "decisions": [d] });
+            let empty = serde_json::json!({});
+            Catalog::from_answers(&empty, &empty, &empty, &empty, &listing, &empty, now())
+                .decisions
+                .remove(0)
+        };
+        let scope = serde_json::json!({
+            "profile_id": "dev", "profile_revision": 4,
+            "pairs": [{"destination": "h1", "account": "deploy"},
+                {"destination": "h3", "account": "deploy"}],
+            "environments": [ENV], "capabilities": ["ssh-authentication"],
+            "lock_behavior": "continue",
+        });
+        let d = record(Some(scope));
+        assert!(d.scope.is_some());
+        let text = flat(&decision_lines(&Catalog::default(), &d).unwrap());
+        for needle in [
+            "Use dev access automatically for your personal work?",
+            "at revision 4",
+            "- h1:deploy",
+            "- h3:deploy",
+            "- ssh-authentication",
+            ENV,
+            "work continues while your desktop and password manager are locked",
+            "ordinary ssh",
+        ] {
+            assert!(text.contains(needle), "missing {needle:?}: {text}");
+        }
+        assert_eq!(approve_block(&d), None);
+        for scope in [
+            None,
+            Some(serde_json::json!({"profile_id": "dev", "pairs": []})),
+        ] {
+            let d = record(scope);
+            assert!(d.scope.is_none());
+            let text = flat(&decision_lines(&Catalog::default(), &d).unwrap());
+            assert!(text.contains("Approve is not offered here"), "{text}");
+            assert!(!text.contains("deploy"), "no pair is guessed: {text}");
+            assert!(approve_block(&d).is_some());
+        }
+        // Any other decision is never blocked here.
+        assert_eq!(approve_block(&extend_decision("dec_e1", "pol-ws1")), None);
     }
 
     /// Every stop action is the request the CLI sends for the same command, and only a

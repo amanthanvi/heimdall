@@ -16,6 +16,9 @@
 //!   `access_targets_stop_and_allow`, `default_profile_set_show_clear`,
 //!   `export_then_import_with_the_dry_run_preview`,
 //!   `run_without_a_profile_reissues_after_the_trust_decision`.
+//! * `workspace_paths_are_quoted_and_bidi_free` (review M05-W3-R03, the reviewer's probe
+//!   inverted): `project status` in a checkout whose directory name holds a line break and
+//!   a bidirectional override prints each path as one quoted field.
 //! * `m05_help_and_shell_script_goldens`: every new command's `--help`
 //!   (`tests/contracts/golden/cli-help-m05/`: `cli-help/` is the M03 suite's, which refuses
 //!   any file it does not own; its `access.txt` lists `default-profile`) and both shell
@@ -998,6 +1001,56 @@ fn export_then_import_with_the_dry_run_preview() {
         "an import never touches a policy"
     );
     assert_eq!(b.decisions(), 0);
+}
+
+/// Review M05-W3-R03, the reviewer's probe inverted: a checkout directory whose name holds
+/// a line break and U+202E (RIGHT-TO-LEFT OVERRIDE). `project status` prints the directory
+/// and the workspace root as quoted data: no line of stdout starts with the name's second
+/// line, no override character reaches stdout, and the line break is shown as `\n`. The
+/// `--json` envelope carries the path unchanged (it is data, already escaped).
+#[cfg(unix)]
+#[test]
+fn workspace_paths_are_quoted_and_bidi_free() {
+    let rt = Rt::new();
+    let name = "r\nOWNER-LINE\u{202e}abc";
+    let cwd = rt
+        .ws
+        .init_repo(
+            name,
+            Some(&manifest("safe label", "dev", &["h1:deploy"], false)),
+        )
+        .unwrap();
+    rt.start();
+    let out = rt.run_in(&cwd, &["project", "status"]);
+    assert_eq!(out.code, 0, "{out:?}");
+    assert!(
+        !out.stdout.lines().any(|l| l.starts_with("OWNER-LINE")),
+        "a path started a line of its own: {out:?}"
+    );
+    assert_eq!(
+        out.stdout.chars().filter(|c| *c == '\u{202e}').count(),
+        0,
+        "{out:?}"
+    );
+    let shown = format!(
+        "{}\\nOWNER-LINEabc\" (invisible formatting characters removed)",
+        cwd.parent().unwrap().join("r").display()
+    );
+    for label in ["directory: \"", "workspace root: \""] {
+        assert!(
+            out.stdout.contains(&format!("{label}{shown}")),
+            "{label}: {out:?}"
+        );
+    }
+    let json = rt.run_in(&cwd, &["--json", "project", "status"]);
+    assert_eq!(json.code, 0, "{json:?}");
+    let data = &json.json()["data"];
+    for key in ["cwd", "root"] {
+        assert!(
+            data[key].as_str().is_some_and(|p| p.ends_with(name)),
+            "{key}: {data}"
+        );
+    }
 }
 
 /// `run` without `--profile` (ADR-0011 §3.2; I-9): in an untrusted workspace whose
