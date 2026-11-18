@@ -29,15 +29,19 @@ pub(crate) mod linux {
 
     pub(crate) struct Endpoints {
         writer: FrameWriter,
-    }
-
-    pub(crate) fn run_dir_path(env: &HelperEnv) -> PathBuf {
-        env.state_base.join("heimdall").join("run")
+        run: PathBuf,
     }
 
     impl Endpoints {
-        pub(crate) fn new(_env: &HelperEnv, writer: FrameWriter) -> Self {
-            Endpoints { writer }
+        pub(crate) fn new(env: &HelperEnv, writer: FrameWriter) -> Self {
+            Endpoints {
+                writer,
+                run: env.state_base.join("heimdall").join("run"),
+            }
+        }
+
+        pub(crate) fn run_dir(&self) -> String {
+            self.run.to_string_lossy().into_owned()
         }
 
         pub(crate) fn handle(&mut self, frame: WindowsFrame) -> Result<(), Broken> {

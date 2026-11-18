@@ -686,6 +686,22 @@ reading I-11.
    ancestor, as `umask 002` leaves `~/.local` on a user-private-group system, makes the
    fallback base unusable for Mode B, and so does a home reached through a link the user owns;
    `$XDG_RUNTIME_DIR` (0700, systemd) is unaffected.
+   ⟨Windows run at `56ec9a9e`; the contract owner's ruling⟩ **The base is chosen once per helper
+   session, before its hello names `<run>`:** `XDG_RUNTIME_DIR` when it is set, absolute and its
+   whole chain passes the rule; otherwise the per-user base under the account's home,
+   `<state base>/heimdall/run` (`$XDG_STATE_HOME`, else `~/.local/state`), whose missing
+   components are created 0700 and whose whole chain is checked by the same rule at the first
+   realize. Nothing Heimdall did not create has its permissions changed, and nothing is created
+   under an `XDG_RUNTIME_DIR` that failed. When the home base fails too, the refusal names both
+   (`wsl_bridge_xdg_runtime_dir_and_home_unsafe`); when `XDG_RUNTIME_DIR` is unset, the home
+   base's refusals are the ones above. A run directory that leaves no room for an endpoint's
+   socket path within `sun_path` (`proto::MAX_SOCKET_PATH`, 103 bytes, which fits both Linux's
+   108 and macOS's 104) is refused by name, `wsl_bridge_run_dir_too_long`, on both sides of the
+   channel, never truncated. Proof: `channel_tests::mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others`,
+   `…mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe` (revert
+   proof: with the choice neutralized to `XDG_RUNTIME_DIR` whenever set, both fail, exit 101;
+   restored, exit 0) and `…mode_b_refuses_a_run_dir_too_long_for_a_socket_path`; natively, the
+   A13 rows (their failure diagnostics name the chosen base and each base's verdict).
 10. **⟨Review M04-W2-R04⟩ `GIT_SSH_COMMAND` carries the configuration path as one shell word**
     (single-quoted when it holds anything outside `[A-Za-z0-9/._-]`), because Git runs it
     through `sh`. The descriptor's path fields stay raw. The container's fixed path needs no
@@ -702,6 +718,33 @@ reading I-11.
     those lines, the environment's row and the helper's run base (uid, whether
     `XDG_RUNTIME_DIR` is set, each component's mode, owner and type) when an `ensure` is
     refused.
+
+13. **⟨Windows runs at `56ec9a9e` and `98f13db9`⟩ A runtime the CLI gave up on advertises and
+    stays.** Five first commands failed `SERVICE_UNAVAILABLE` "the runtime did not become ready
+    in time" on the PC: the CLI waited 10 s, and the runtimes it started kept starting and were
+    found running afterwards, their parents gone. **The CLI now waits 30 s** for the
+    advertisement (`LauncherConfig::default`): what precedes it (the client probes, the store's
+    migrations, the session-lock reading, the issuer child's start) can legitimately take
+    longer than 10 s on a loaded host, and **the runtime logs each phase's time** when it
+    advertises ("the runtime starts", with the time before its own start; "the runtime
+    advertised its endpoints", with the store, projection, recovery, managed and advertise
+    phases and the total). A runtime that misses the wait is **not stopped**: it finishes
+    starting, advertises and stays, so once it serves it is never unseen (`service status`
+    reports it, the next command uses it, a second start loses the instance lock). The CLI
+    kills nothing it could only name by PID. **Test guards** (the exit suite's `World`, the
+    Windows suite's `StopRuntime`) stop every runtime their installation started, a runtime
+    that has not advertised yet included: `service stop` while one is alive for up to 30 s,
+    then each one still alive, recorded under the test configuration with its PID and start
+    token, is pinned, its token and `heimdall` image checked, and killed. Proof:
+    `runtime_guard_kills_a_recorded_runtime_service_stop_cannot_reach` and
+    `runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall` (`e2e_platform_m04`,
+    Unix); the Windows rows' failure messages carry the runtime's start-up timings.
+
+**Platform fact (the Windows run at `56ec9a9e`):** WSLg sets `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir`
+for the distribution's account, and that directory is mode 777 without the sticky bit (owned by
+uid 1000, under `/mnt/wslg`, mode 1777). Another Linux account could rename entries in it, so
+Mode B does not use it and uses the per-user home base (item 9). Every A13 row failed on the PC
+at `86cd513b` with `wsl_bridge_run_dir_unsafe` for this reason.
 
 **Platform fact (the Windows fix round, the PC's run at `02108f8c`):** profiles changed by
 sandboxing tools (observed: an inherited read-and-execute entry for a local sandbox group on

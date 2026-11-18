@@ -10,6 +10,15 @@
 //! 3. Wait with bounded backoff for the advertisement; give up with
 //!    `SERVICE_UNAVAILABLE` after `start_timeout`.
 //!
+//! **A late runtime** (⟨M04, the Windows readiness failures⟩). The wait (30 s) covers a
+//! slow first start on a loaded host (the client probes, the store's migrations, the
+//! session-lock reading, the issuer child's start all come before the advertisement), and
+//! the runtime logs each phase's time when it advertises ("the runtime advertised its
+//! endpoints"). A runtime the client gave up on is not stopped: it finishes starting,
+//! advertises and stays, so it is never unseen once it serves (`service status` reports
+//! it, the next command uses it, and a second start loses the instance lock). The client
+//! never kills a process it cannot name by its own handle.
+//!
 //! Pure inspection commands never trigger a start (spec §13.1).
 //!
 //! **Single child.** Only the holder of `start.lock` spawns, and it re-validates
@@ -50,7 +59,9 @@ pub struct LauncherConfig {
 impl Default for LauncherConfig {
     fn default() -> Self {
         Self {
-            start_timeout: Duration::from_secs(10),
+            // ⟨M04, the Windows readiness failures⟩ 10 s was too short for a first start on a
+            // loaded Windows host (the PC's runs at 56ec9a9e and 98f13db9).
+            start_timeout: Duration::from_secs(30),
             initial_poll: Duration::from_millis(25),
         }
     }

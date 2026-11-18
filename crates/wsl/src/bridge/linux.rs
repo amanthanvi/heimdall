@@ -108,6 +108,8 @@ struct Live {
 pub(crate) struct Endpoints {
     env: HelperEnv,
     shared: Arc<Shared>,
+    /// Where `<run>` lives, chosen once, when the session starts (its hello names it).
+    run_base: RunBase,
     live: Option<Live>,
     bindings: HashMap<String, Served>,
 }
@@ -120,12 +122,55 @@ fn xdg_runtime(env: &HelperEnv) -> Option<PathBuf> {
         .filter(|p| p.is_absolute())
 }
 
-/// `<run>`'s path for this helper (nothing is created): `$XDG_RUNTIME_DIR/heimdall`, else
-/// `<state base>/heimdall/run` (`~/.local/state/heimdall/run`).
-pub(crate) fn run_dir_path(env: &HelperEnv) -> PathBuf {
-    match xdg_runtime(env) {
-        Some(xdg) => xdg.join("heimdall"),
-        None => env.state_base.join("heimdall").join("run"),
+/// Why `<run>` is not under `XDG_RUNTIME_DIR` ([`RunBase::fallback`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum XdgVerdict {
+    /// Not set, or not an absolute path.
+    Unset,
+    /// Another principal could replace a component (or one is missing): the secure-path rule.
+    Replaceable,
+    /// Reached through a symbolic link that is not root's, or whose target is not secure.
+    Linked,
+}
+
+/// ⟨Windows run at 56ec9a9e; the contract owner's ruling⟩ Where `<run>` lives: the directory
+/// its anchor is in (`base`), `<run>` itself, and why it is not `XDG_RUNTIME_DIR`'s.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RunBase {
+    /// `XDG_RUNTIME_DIR`, or the account's state base (`$XDG_STATE_HOME`, else
+    /// `~/.local/state`).
+    pub(crate) base: PathBuf,
+    /// `<base>/heimdall` under `XDG_RUNTIME_DIR`, `<base>/heimdall/run` under the state base.
+    pub(crate) run: PathBuf,
+    /// `None`: `XDG_RUNTIME_DIR` is set and its chain passed [`secure_chain`]. `Some(why)`:
+    /// the per-user base under the account's home, because of `why`.
+    pub(crate) fallback: Option<XdgVerdict>,
+}
+
+/// ⟨Windows run at 56ec9a9e; the contract owner's ruling⟩ Choose `<run>`'s base for one
+/// helper session (nothing is created): `XDG_RUNTIME_DIR` when it is set, absolute and its
+/// whole chain passes [`secure_chain`] for `uid`; otherwise the per-user base under the
+/// account's home, `<state base>/heimdall/run`, which is created owner-only (0700) where
+/// missing and has its whole chain checked by the same rule when Mode B first realizes
+/// (`establish`). WSLg sets `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir`, writable by anyone and
+/// not sticky (ADR-0010 §11 platform fact): Mode B uses the home base there.
+pub(crate) fn choose_run_base(env: &HelperEnv, uid: u32) -> RunBase {
+    let home = |why| RunBase {
+        base: env.state_base.clone(),
+        run: env.state_base.join("heimdall").join("run"),
+        fallback: Some(why),
+    };
+    let Some(xdg) = xdg_runtime(env) else {
+        return home(XdgVerdict::Unset);
+    };
+    match secure_chain(&xdg, uid) {
+        Chain::Secure => RunBase {
+            run: xdg.join("heimdall"),
+            base: xdg,
+            fallback: None,
+        },
+        Chain::Replaceable => home(XdgVerdict::Replaceable),
+        Chain::Linked => home(XdgVerdict::Linked),
     }
 }
 
@@ -216,11 +261,13 @@ fn say(message: &str) {
 
 impl Endpoints {
     pub(crate) fn new(env: &HelperEnv, writer: FrameWriter) -> Self {
+        let uid = identity::effective_uid();
         Endpoints {
             env: env.clone(),
+            run_base: choose_run_base(env, uid),
             shared: Arc::new(Shared {
                 writer,
-                uid: identity::effective_uid(),
+                uid,
                 next_stream: AtomicU64::new(1),
                 highest: AtomicU64::new(0),
                 table: Mutex::new(HashMap::new()),
@@ -228,6 +275,11 @@ impl Endpoints {
             live: None,
             bindings: HashMap::new(),
         }
+    }
+
+    /// `<run>`, as the session's hello names it ([`choose_run_base`]).
+    pub(crate) fn run_dir(&self) -> String {
+        self.run_base.run.to_string_lossy().into_owned()
     }
 
     /// Serve one Mode B frame. A request is answered on the channel; a failure of the request
@@ -341,21 +393,24 @@ impl Endpoints {
             return Ok(());
         }
         let unsafe_dir = || fail(ErrorKind::Unavailable, "wsl_bridge_run_dir_unsafe");
-        let run_path = run_dir_path(&self.env);
+        let RunBase {
+            base,
+            run: run_path,
+            fallback,
+        } = self.run_base.clone();
         // ⟨M04-W2-R01⟩ Mode B returns paths (the socket, the `ssh_config` the owner runs `ssh
         // -F` with), so no other principal may be able to replace the anchor's directory or
         // any ancestor: otherwise it could rename the anchor aside and plant a configuration
-        // at the returned path.
-        let base = xdg_runtime(&self.env).unwrap_or_else(|| self.env.state_base.clone());
-        // `<run>` is `<xdg>/heimdall` (created owner-only like the helper's state directory), or
-        // `<state>/heimdall/run`.
-        let run = if let Some(base) = xdg_runtime(&self.env) {
+        // at the returned path. `<run>` is `<xdg>/heimdall` (created owner-only like the
+        // helper's state directory), or `<state>/heimdall/run`; what Heimdall creates is
+        // created 0700, and nothing it did not create has its permissions changed.
+        let run = if fallback.is_none() {
             let dir = crate::helper::heimdall_dir(&base)?;
             ManagedDir::open_root(&dir)
                 .map_err(|_| unsafe_dir())?
                 .ok_or_else(unsafe_dir)?
         } else {
-            let state = crate::helper::heimdall_dir(&self.env.state_base)?;
+            let state = crate::helper::heimdall_dir(&base)?;
             ManagedDir::open_root(&state)
                 .map_err(|_| unsafe_dir())?
                 .ok_or_else(unsafe_dir)?
@@ -363,13 +418,34 @@ impl Endpoints {
                 .map_err(|_| unsafe_dir())?
                 .ok_or_else(unsafe_dir)?
         };
-        match secure_chain(&base, self.shared.uid) {
-            Chain::Secure => {}
-            Chain::Replaceable => {
+        // The whole chain of the chosen base, by the same rule (`XDG_RUNTIME_DIR`'s was
+        // checked when it was chosen, and is again now).
+        match (secure_chain(&base, self.shared.uid), fallback) {
+            (Chain::Secure, _) => {}
+            // ⟨The contract owner's ruling⟩ Neither base is safe: the refusal names both.
+            (chain, Some(xdg @ (XdgVerdict::Replaceable | XdgVerdict::Linked))) => {
+                let how = |linked: bool| {
+                    if linked {
+                        "is reached through a symbolic link that is not root's, or whose target another principal can replace"
+                    } else {
+                        "can be replaced by another principal (a component writable by others and not sticky, not the account's or root's, or missing)"
+                    }
+                };
+                say(&format!(
+                    "no safe run directory for Mode B: XDG_RUNTIME_DIR {}, and the home base (the account's state directory) {}",
+                    how(xdg == XdgVerdict::Linked),
+                    how(chain == Chain::Linked)
+                ));
+                return Err(fail(
+                    ErrorKind::Unavailable,
+                    "wsl_bridge_xdg_runtime_dir_and_home_unsafe",
+                ));
+            }
+            (Chain::Replaceable, _) => {
                 say("the run directory's base or an ancestor can be replaced by another principal");
                 return Err(unsafe_dir());
             }
-            Chain::Linked => {
+            (Chain::Linked, _) => {
                 say(
                     "the run directory's base is reached through a symbolic link that is not root's, or whose target another principal can replace: set XDG_RUNTIME_DIR, or use a base without links",
                 );
@@ -422,9 +498,16 @@ impl Endpoints {
         public: &ModeBPublic,
         deadline: &str,
     ) -> Result<(String, String), Failure> {
-        let run_dir = run_dir_path(&self.env).to_string_lossy().into_owned();
-        proto::check_realize(&run_dir, tag, public, deadline)
-            .map_err(|_| fail(ErrorKind::IntentInvalid, "wsl_bridge_public_refused"))?;
+        let run_dir = self.run_dir();
+        proto::check_realize(&run_dir, tag, public, deadline).map_err(|e| match e {
+            // ⟨The contract owner's ruling⟩ Named, never truncated: the chosen run directory
+            // leaves no room for the socket path (`sun_path`).
+            proto::PublicRefused::SocketPath => {
+                say("the run directory is too long for an endpoint socket path");
+                fail(ErrorKind::Unavailable, "wsl_bridge_run_dir_too_long")
+            }
+            _ => fail(ErrorKind::IntentInvalid, "wsl_bridge_public_refused"),
+        })?;
         if self.bindings.len() >= MAX_BINDINGS && !self.bindings.contains_key(tag) {
             return Err(fail(ErrorKind::Unavailable, "wsl_bridge_too_many_bindings"));
         }

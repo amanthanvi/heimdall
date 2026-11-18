@@ -163,6 +163,9 @@ fn instance_holds_lock(state_dir: &std::path::Path) -> bool {
 
 /// `service run [--detach] [--login]`.
 pub fn run(ctx: &Ctx, detach: bool, login: bool) -> ExitCode {
+    // ⟨M04, the Windows readiness failures⟩ The start's own clock, for the runtime log's
+    // start-up timings (`serve`, `Service::start_with`).
+    let begun = std::time::Instant::now();
     // M04 U1: the login entry yields to a running instance before it touches anything.
     if login
         && let Ok(paths) = ctx.paths()
@@ -235,7 +238,7 @@ pub fn run(ctx: &Ctx, detach: bool, login: bool) -> ExitCode {
             );
         }
     };
-    match rt.block_on(serve(ctx, paths, config, detach, login)) {
+    match rt.block_on(serve(ctx, paths, config, detach, login, begun)) {
         Ok(()) => ExitCode::Success,
         Err(env) => fail(ctx, *env),
     }
@@ -247,6 +250,7 @@ async fn serve(
     config: Config,
     detach: bool,
     login: bool,
+    begun: std::time::Instant,
 ) -> Result<(), Box<Envelope<ErrorData>>> {
     #[allow(unused_mut)]
     let mut options = ServiceOptions::production().map_err(|e| {
@@ -291,6 +295,12 @@ async fn serve(
         }
     }
     let token = CancellationToken::new();
+    // ⟨M04, the Windows readiness failures⟩ What ran before the runtime's own start (the
+    // test configuration's client probes included), in milliseconds.
+    tracing::info!(
+        prestart_ms = u64::try_from(begun.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "the runtime starts"
+    );
     let service = match Service::start_with(paths, config, options, token.clone()).await {
         Ok(service) => service,
         // The login entry yields when another instance won the lock in between.

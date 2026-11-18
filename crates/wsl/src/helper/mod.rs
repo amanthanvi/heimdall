@@ -131,7 +131,9 @@ impl HelperEnv {
         })
     }
 
-    fn hello(&self) -> Hello {
+    /// The hello, naming `run_dir` (the session's Mode B run directory, chosen once:
+    /// `bridge::linux::choose_run_base`).
+    fn hello(&self, run_dir: String) -> Hello {
         Hello {
             version: VERSION.to_owned(),
             uid: self.identity.uid,
@@ -141,11 +143,7 @@ impl HelperEnv {
             append_windows_path: self.identity.append_windows_path,
             arch: std::env::consts::ARCH.to_owned(),
             helper_version: env!("CARGO_PKG_VERSION").to_owned(),
-            run_dir: Some(
-                crate::bridge::linux::run_dir_path(self)
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
+            run_dir: Some(run_dir),
         }
     }
 }
@@ -474,7 +472,10 @@ where
     R: Read + Send + 'static,
 {
     let mut rx = proto::spawn_reader::<WindowsFrame, _>(reader);
-    if writer.send(&HelperFrame::Hello(env.hello())).is_err() {
+    if writer
+        .send(&HelperFrame::Hello(env.hello(modeb.run_dir())))
+        .is_err()
+    {
         return 0;
     }
     match rx.recv_timeout(proto::HELLO_TIMEOUT) {

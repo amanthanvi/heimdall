@@ -54,6 +54,10 @@ pub struct Realized {
     pub ssh_config: String,
 }
 
+/// The longest run directory a hello may name (a path, `PATH_MAX`); its socket paths are
+/// bounded by `proto::MAX_SOCKET_PATH` at each realize.
+const MAX_RUN_DIR: usize = 4096;
+
 /// The paths a binding is realized at, from the helper's run directory (`run_dir`, from its
 /// hello): Windows renders the `ssh_config` text with them **before** it calls
 /// [`Bridge::realize`]. The helper answers the same two paths, and a different answer is a
@@ -195,13 +199,16 @@ impl Bridge {
         } = session.into_parts();
         // A helper that serves Mode B names an absolute run directory; nothing else is used to
         // build the paths Windows renders and later checks.
+        // ⟨The contract owner's ruling⟩ Its length is not bounded here: a run directory that
+        // leaves no room for a socket path is refused by name at the first realize
+        // (`wsl_bridge_run_dir_too_long`), never truncated; only an absurd one is not used.
         let run_dir = hello
             .run_dir
             .filter(|d| {
                 d.starts_with('/')
                     && !d.ends_with('/')
                     && !d.contains(['\0', '\n', '\r'])
-                    && d.len() < proto::MAX_SOCKET_PATH
+                    && d.len() <= MAX_RUN_DIR
             })
             .ok_or_else(|| SessionError::HelperUnavailable("no run directory".to_owned()))?;
 
@@ -293,9 +300,16 @@ impl Bridge {
         };
         let deadline = deadline.to_string();
         proto::check_realize(&self.inner.run_dir, binding_tag, &public, &deadline).map_err(
-            |_| SessionError::Remote {
-                kind: ErrorKind::IntentInvalid,
-                message: "wsl_bridge_public_refused".to_owned(),
+            |e| match e {
+                // ⟨The contract owner's ruling⟩ The helper's own name for it.
+                proto::PublicRefused::SocketPath => SessionError::Remote {
+                    kind: ErrorKind::Unavailable,
+                    message: "wsl_bridge_run_dir_too_long".to_owned(),
+                },
+                _ => SessionError::Remote {
+                    kind: ErrorKind::IntentInvalid,
+                    message: "wsl_bridge_public_refused".to_owned(),
+                },
             },
         )?;
         let tag = binding_tag.to_owned();

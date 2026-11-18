@@ -1230,7 +1230,8 @@ fn concurrent_start_round(round: usize, limit: Duration) {
         1,
         "round {round}: exactly one runtime process ran"
     );
-    let pid: u32 = starts.trim().parse().unwrap();
+    // `<pid> <start token>` (⟨M04⟩ the token lets a test's guard stop it by exact identity).
+    let pid: u32 = starts.split_whitespace().next().unwrap().parse().unwrap();
     assert_eq!(home.instance_pid(), Some(pid), "round {round}");
     let stop = home
         .run_bounded(&["service", "stop", "--json"], limit)

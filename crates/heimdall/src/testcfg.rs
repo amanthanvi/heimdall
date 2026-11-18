@@ -21,8 +21,10 @@
 //! fixture environment record, profile `dev` (`h1`, `h2`, `h3` as `deploy`) and
 //! policy `pol` (covers `h1` and `h2`; `h3` is added authority), and profile `ops`
 //! (`h1`) fully covered by policy `pol-ops`, once per store,
-//! and appends this process's PID to `<state>/test-service-starts` before the
-//! instance lock is taken (the single-child launcher test counts the lines). On
+//! and appends this process's PID and start token (`<pid> <token>`, ⟨M04⟩ so a test's
+//! guard can stop by exact identity a runtime that never advertised) to
+//! `<state>/test-service-starts` before the instance lock is taken (the single-child
+//! launcher test counts the lines). On
 //! Windows its pipes carry the `hmtest-` prefix before the random token.
 //!
 //! **Release builds refuse it.** Without `debug_assertions` nothing in this
@@ -1235,7 +1237,12 @@ mod enabled {
             .create(true)
             .append(true)
             .open(paths.state_dir.join(super::STARTS_FILE))?;
-        writeln!(f, "{}", std::process::id())?;
+        // ⟨M04, the Windows readiness failures⟩ With the process's start token, so a test's
+        // guard can stop by exact identity a runtime that never advertised
+        // (`tests/e2e/exit_m03/world.rs` `stop_started_runtimes`).
+        let pid = std::process::id();
+        let token = heimdall_runtime::platform::process_start_time(pid).unwrap_or_default();
+        writeln!(f, "{pid} {token}")?;
         f.sync_all()
     }
 

@@ -611,17 +611,28 @@ mod native {
         }
     }
 
-    /// Stops the scratch installation's runtime when a test ends (a no-op when none runs).
+    /// The installation's `HEIMDALL_HOME`, from its environment.
+    fn heimdall_home_of(env: &[(OsString, OsString)]) -> PathBuf {
+        env.iter()
+            .find(|(k, _)| k == "HEIMDALL_HOME")
+            .map(|(_, v)| PathBuf::from(v))
+            .expect("the installation's environment names HEIMDALL_HOME")
+    }
+
+    /// Stops the scratch installation's runtime when a test ends (a no-op when none runs),
+    /// and ⟨M04, the Windows readiness failures⟩ any runtime it started that had not
+    /// advertised yet, by exact identity (`world::stop_started_runtimes`).
     struct StopRuntime(Vec<(OsString, OsString)>);
 
     impl Drop for StopRuntime {
         fn drop(&mut self) {
-            let _ = Command::new(bin())
-                .args(["--json", "service", "stop"])
-                .env_clear()
-                .envs(self.0.iter().map(|(k, v)| (k, v)))
-                .stdin(Stdio::null())
-                .output();
+            let hh = heimdall_home_of(&self.0);
+            let killed = crate::world::stop_started_runtimes(&self.0, &hh.join("state"), &hh);
+            if killed > 0 {
+                println!(
+                    "runtime guard: {killed} runtime(s) did not stop through `service stop` and were killed by exact identity"
+                );
+            }
         }
     }
 
@@ -651,7 +662,12 @@ mod native {
                 }
                 let mut t = cmd.spawn().expect("the pseudoconsole starts");
                 t.expect("[y/N]:", Duration::from_secs(60))
-                    .unwrap_or_else(|e| panic!("{args:?}: no prompt: {e}"));
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "{args:?}: no prompt: {e}\nruntime start-up: {}",
+                            crate::world::runtime_start_log(&heimdall_home_of(env))
+                        )
+                    });
                 std::thread::sleep(Duration::from_millis(300));
                 t.send(b"yes\r").unwrap();
                 let code = t.wait(Duration::from_secs(120));
@@ -1302,16 +1318,26 @@ mod native {
             id
         }
 
-        /// ⟨M04 Windows fix round 5⟩ The helper's run base as the account sees it through
-        /// `wsl.exe --exec`, as the helper does (nonsecret facts only): the uid, whether
-        /// `XDG_RUNTIME_DIR` is set, and each component of the base from `/` down (the
-        /// run directory's anchor `<base>/heimdall` too, when it exists) with its mode,
-        /// owner uid and type, a symbolic link shown as one (never followed).
+        /// ⟨M04 Windows fix round 5; the contract owner's ruling at 56ec9a9e⟩ The helper's run
+        /// base as the account sees it through `wsl.exe --exec`, as the helper does (nonsecret
+        /// facts only): the uid; `XDG_RUNTIME_DIR` and the home base (`$XDG_STATE_HOME`, else
+        /// `~/.local/state`), each with its verdict under the helper's secure-path rule
+        /// (`secure`, or the first component that fails: `replaceable` (owner not root nor
+        /// the account, or writable by others without the sticky bit), `link` (a symbolic
+        /// link: the helper follows only root's), `absent` (the helper creates a missing home
+        /// component 0700)); which base the rule chooses and why; then each component of the
+        /// chosen base with its mode, owner uid and type (never followed). The verdicts mirror
+        /// `bridge::linux::choose_run_base` for reading a refusal; the helper's own refusal
+        /// code is in the runtime log.
         fn run_base_facts(d: &Distro) -> String {
             // One line: `wsl.exe` carries it as one argument.
             let script = [
-                r#"echo "uid=$(id -u)""#,
-                r#"if [ -n "${XDG_RUNTIME_DIR:-}" ]; then echo xdg_runtime_dir=set; b=$XDG_RUNTIME_DIR; else echo xdg_runtime_dir=unset; b=$HOME/.local/state; fi"#,
+                r#"u=$(id -u); echo "uid=$u""#,
+                r#"v() { p=; for c in $(printf '%s' "$1" | tr '/' ' '); do p=$p/$c; if [ -L "$p" ]; then echo "link:$p"; return; fi; if [ ! -e "$p" ]; then echo "absent:$p"; return; fi; o=$(stat -c %u "$p"); m=$(stat -c %a "$p"); if [ ! -d "$p" ] || { [ "$o" != 0 ] && [ "$o" != "$u" ]; } || { [ $((0$m & 022)) -ne 0 ] && [ $((0$m & 01000)) -eq 0 ]; }; then echo "replaceable:$p"; return; fi; done; echo secure; }"#,
+                r#"h=${XDG_STATE_HOME:-}; case "$h" in /*) ;; *) h=$HOME/.local/state ;; esac"#,
+                r#"x=${XDG_RUNTIME_DIR:-}; case "$x" in /*) xv=$(v "$x"); echo "xdg_runtime_dir=set verdict=$xv" ;; *) xv=unset; echo "xdg_runtime_dir=unset" ;; esac"#,
+                r#"hv=$(v "$h"); echo "home_base verdict=$hv""#,
+                r#"if [ "$xv" = secure ]; then echo "chosen=xdg_runtime_dir"; b=$x; else echo "chosen=home (XDG_RUNTIME_DIR $xv)"; b=$h; fi"#,
                 r#"f() { stat -c '%n mode=%a uid=%u type=%F' "$1" 2>/dev/null || echo "$1 absent"; }"#,
                 "f /",
                 "p=",

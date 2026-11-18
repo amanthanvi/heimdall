@@ -838,3 +838,149 @@ fn mode_b_refuses_a_run_base_reached_through_a_replaceable_link() {
         0
     );
 }
+
+/// ⟨Windows run at 56ec9a9e; the contract owner's ruling⟩ A started bridge's run directory
+/// (from its hello), the bridge, and the helper threads to join.
+fn start_bridge(env: HelperEnv) -> (Bridge, String, Arc<InProcess>) {
+    let launcher = Arc::new(InProcess {
+        env,
+        helpers: Mutex::new(Vec::new()),
+    });
+    let bridge = Bridge::start(
+        launcher.clone(),
+        &target("Ubuntu"),
+        DistributionStart::Forbidden,
+        Arc::new(CountingHandler {
+            accept: false,
+            served: AtomicUsize::new(0),
+        }),
+    )
+    .unwrap();
+    let run = bridge.run_dir().to_owned();
+    (bridge, run, launcher)
+}
+
+/// Drop `bridge`, then the helper ends cleanly (exit 0).
+fn end_bridge(bridge: Bridge, launcher: &InProcess) {
+    drop(bridge);
+    let helper = launcher.helpers.lock().unwrap().pop().unwrap();
+    assert_eq!(helper.join().unwrap(), 0);
+}
+
+/// A directory with exactly `mode` (whatever the umask), created with its parents.
+fn dir_with_mode(path: &Path, mode: u32) {
+    std::fs::create_dir_all(path).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// ⟨Windows run at 56ec9a9e; the contract owner's ruling; ADR-0010 §11 platform fact⟩ WSLg's
+/// shape: `XDG_RUNTIME_DIR` is the account's own directory but writable by anyone and not
+/// sticky (`/mnt/wslg/runtime-dir`, mode 777). Mode B does not use it: the hello names the
+/// per-user base under the account's home, `<state>/heimdall/run`; the endpoint is realized
+/// there, its directories created 0700; nothing is created under `XDG_RUNTIME_DIR`, and its
+/// mode is left as it was.
+#[test]
+fn mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others() {
+    let root = tempfile::Builder::new()
+        .prefix("hwx")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let r = root.path();
+    dir_with_mode(r, 0o755);
+    let xdg = r.join("runtime-dir");
+    dir_with_mode(&xdg, 0o777);
+    let mut env = helper_env(r, Some("Ubuntu"));
+    env.env = Env::from_vars(vec![(
+        "XDG_RUNTIME_DIR".to_owned(),
+        xdg.to_str().unwrap().to_owned(),
+    )]);
+    let state = env.state_base.clone();
+    let (bridge, run, launcher) = start_bridge(env);
+    assert_eq!(
+        Path::new(&run),
+        state.join("heimdall/run"),
+        "the hello names the home base"
+    );
+    let realized = bridge
+        .realize("b1", 1, public(&run, "b1", &[]), in_one_hour())
+        .unwrap();
+    assert!(realized.socket.starts_with(&run), "{}", realized.socket);
+    assert!(UnixStream::connect(&realized.socket).is_ok());
+    for d in [
+        state.clone(),
+        state.join("heimdall"),
+        state.join("heimdall/run"),
+    ] {
+        assert_eq!(mode(&d), 0o700, "{} is created owner-only", d.display());
+    }
+    assert!(
+        !xdg.join("heimdall").exists(),
+        "nothing is created under XDG_RUNTIME_DIR"
+    );
+    assert_eq!(mode(&xdg), 0o777, "XDG_RUNTIME_DIR is left as it was");
+    end_bridge(bridge, &launcher);
+}
+
+/// ⟨The contract owner's ruling⟩ When the home base fails the same rule too (here the
+/// account's state directory sits in a directory anyone can write, not sticky), the refusal
+/// names both bases (`wsl_bridge_xdg_runtime_dir_and_home_unsafe`); no endpoint directory is
+/// created, and neither unsafe directory has its mode changed.
+#[test]
+fn mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe() {
+    let root = tempfile::Builder::new()
+        .prefix("hwy")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let r = root.path();
+    dir_with_mode(r, 0o755);
+    let xdg = r.join("runtime-dir");
+    dir_with_mode(&xdg, 0o777);
+    let shared = r.join("shared");
+    dir_with_mode(&shared, 0o777);
+    let mut env = helper_env(r, Some("Ubuntu"));
+    env.env = Env::from_vars(vec![(
+        "XDG_RUNTIME_DIR".to_owned(),
+        xdg.to_str().unwrap().to_owned(),
+    )]);
+    env.state_base = shared.join("state");
+    let (bridge, run, launcher) = start_bridge(env);
+    assert_eq!(Path::new(&run), shared.join("state/heimdall/run"));
+    assert_eq!(
+        bridge
+            .realize("b1", 1, public(&run, "b1", &[]), in_one_hour())
+            .unwrap_err()
+            .code(),
+        "wsl_bridge_xdg_runtime_dir_and_home_unsafe"
+    );
+    assert!(!Path::new(&run).join("b").exists(), "no endpoint directory");
+    assert!(!xdg.join("heimdall").exists());
+    assert_eq!(mode(&xdg), 0o777);
+    assert_eq!(mode(&shared), 0o777);
+    end_bridge(bridge, &launcher);
+}
+
+/// ⟨The contract owner's ruling⟩ A run directory that leaves no room for the endpoint's
+/// socket path within `sun_path` (`proto::MAX_SOCKET_PATH`) is refused by name
+/// (`wsl_bridge_run_dir_too_long`), never truncated, and nothing is created.
+#[test]
+fn mode_b_refuses_a_run_dir_too_long_for_a_socket_path() {
+    let root = tempfile::Builder::new()
+        .prefix("hwz")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let r = root.path();
+    dir_with_mode(r, 0o755);
+    let mut env = helper_env(r, Some("Ubuntu"));
+    env.state_base = r.join("s".repeat(80));
+    let (bridge, run, launcher) = start_bridge(env);
+    assert!(proto::socket_path(&run, "b1").len() > proto::MAX_SOCKET_PATH);
+    assert_eq!(
+        bridge
+            .realize("b1", 1, public(&run, "b1", &[]), in_one_hour())
+            .unwrap_err()
+            .code(),
+        "wsl_bridge_run_dir_too_long"
+    );
+    assert!(!Path::new(&run).exists(), "nothing is created");
+    end_bridge(bridge, &launcher);
+}

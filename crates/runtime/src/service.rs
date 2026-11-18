@@ -646,6 +646,9 @@ impl Service {
         options: ServiceOptions,
         shutdown: CancellationToken,
     ) -> Result<Self, ServiceError> {
+        // ⟨M04, the Windows readiness failures⟩ Each phase's time to the advertisement, logged
+        // once it is written ("the runtime advertised its endpoints").
+        let phases = StartPhases::begin();
         // ⟨M03⟩ m03-plan U10 (wave-1 hand-off): process hardening first, before any key
         // exists (no core dumps; Linux: not dumpable).
         if options.managed.is_some() {
@@ -674,6 +677,7 @@ impl Service {
         let db = paths.state_dir.join(STATE_DB_FILE);
         let faults = options.store_faults.clone();
         let store = blocking(move || Store::open(&db, faults)).await??;
+        let phases = phases.mark("store_ms");
         let store = Arc::new(store);
 
         // 3. Environment identity: the recorded one, or a new random one at first
@@ -761,6 +765,7 @@ impl Service {
             ProjectionWiring::Account => account_projection(&paths).and_then(wire),
             ProjectionWiring::Config(c) => wire(*c),
         };
+        let phases = phases.mark("projection_ms");
         let mut adapters = options.adapters;
         if options.existing_access {
             adapters.extend(existing_access_adapters(
@@ -790,6 +795,7 @@ impl Service {
             projection: wired.as_ref().map(|w| Arc::clone(&w.writer)),
         })
         .await?;
+        let phases = phases.mark("recovery_ms");
         // ⟨M03⟩ U9 (R3): the `[session] lock_behavior` floor, in every runtime.
         let floor = crate::session_lock::lock_floor(&config.session);
         operations.set_session_lock_floor(floor);
@@ -866,6 +872,7 @@ impl Service {
             ),
             _ => None,
         };
+        let phases = phases.mark("managed_ms");
         // ⟨M04 U3b⟩ A WSL distribution namespace's projection resources go to its helper
         // (never starting it); the runtime's own go to the native cleaner, as before.
         let cleaner: Option<Arc<dyn ResourceCleaner>> = wired.map(|w| {
@@ -906,6 +913,7 @@ impl Service {
         };
         info.write(&paths.runtime_dir)
             .map_err(ServiceError::Advertise)?;
+        phases.mark("advertise_ms").log();
         if let Some(m) = managed.as_mut() {
             m.steps.push(start_step::INSTANCE_FILE);
         }
@@ -2140,6 +2148,53 @@ impl heimdall_app::operations::ConnectionWording for AdapterWording {
         policy: &heimdall_contract::managed::ConnectionPolicy,
     ) -> Option<heimdall_contract::managed::ConnectionPolicyReport> {
         Some(self.0.connection_policy_report(alias, policy))
+    }
+}
+
+/// ⟨M04, the Windows readiness failures⟩ The start's phases, timed: each mark is the time
+/// since the previous one, and the log line (once the advertisement is written) has every
+/// phase and the total, in milliseconds. Facts only (no path, no identity).
+struct StartPhases {
+    begun: std::time::Instant,
+    last: std::time::Instant,
+    marks: Vec<(&'static str, u64)>,
+}
+
+impl StartPhases {
+    fn begin() -> Self {
+        let now = std::time::Instant::now();
+        Self {
+            begun: now,
+            last: now,
+            marks: Vec::new(),
+        }
+    }
+
+    fn mark(mut self, phase: &'static str) -> Self {
+        let now = std::time::Instant::now();
+        let ms = u64::try_from(now.duration_since(self.last).as_millis()).unwrap_or(u64::MAX);
+        self.marks.push((phase, ms));
+        self.last = now;
+        self
+    }
+
+    fn log(self) {
+        let total = u64::try_from(self.begun.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let ms = |name: &str| {
+            self.marks
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map_or(0, |(_, v)| *v)
+        };
+        tracing::info!(
+            store_ms = ms("store_ms"),
+            projection_ms = ms("projection_ms"),
+            recovery_ms = ms("recovery_ms"),
+            managed_ms = ms("managed_ms"),
+            advertise_ms = ms("advertise_ms"),
+            total_ms = total,
+            "the runtime advertised its endpoints"
+        );
     }
 }
 
