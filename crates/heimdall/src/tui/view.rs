@@ -169,6 +169,19 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
             super::m03::enrollment_lines(&app.catalog, id),
             app.scroll,
         ),
+        // ⟨M05⟩ The trusted-work views.
+        Screen::Workspace => render_scrolled(
+            frame,
+            body,
+            super::m05::workspace_lines(&app.catalog, app.now),
+            app.scroll,
+        ),
+        Screen::Policies => render_scrolled(
+            frame,
+            body,
+            super::m05::policy_history_lines(&app.catalog, app.now),
+            app.scroll,
+        ),
     }
     if let Some(modal) = &app.modal {
         render_modal(frame, app, modal, body, theme);
@@ -230,6 +243,8 @@ fn screen_hint(app: &App) -> &'static str {
         Screen::Destination(_) => "c connect · p probes · Up/Down scroll · Esc back",
         Screen::Profile(_) | Screen::Enrollment(_) => "Up/Down scroll · Esc back",
         Screen::Operation(_) => "r retry · k keep (held) · x cancel · Enter decision · Esc back",
+        Screen::Workspace => "Enter decision · s stop menu · h history · Esc back",
+        Screen::Policies => "Up/Down scroll · s stop menu · Esc back",
     }
 }
 
@@ -252,6 +267,11 @@ fn modal_hint(app: &App) -> &'static str {
         Some(Modal::Authorization(_) | Modal::Repair(_)) => "type yes, Enter · Esc cancel",
         Some(Modal::ProbeMenu { .. }) => "Up/Down choose · Enter run · Esc close",
         Some(Modal::Probe(_)) => "Up/Down scroll · Esc close",
+        Some(Modal::StopMenu(m)) => match m.phase {
+            super::m05::StopPhase::Choose => "Up/Down or 1-4 choose · Enter select · Esc close",
+            super::m05::StopPhase::Value => "type the value · Enter next · Esc cancel",
+            super::m05::StopPhase::Confirm(_) => "type yes, Enter · Esc cancel",
+        },
         Some(Modal::Help) | None => "any key closes",
     }
 }
@@ -399,6 +419,10 @@ fn render_overview(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
             "Static pass: running (reads your configuration; executes nothing)".to_owned()
         }
     }));
+    // ⟨M05⟩ The working directory's workspace, when the runtime serves it.
+    if let Some(line) = super::m05::overview_line(&app.catalog) {
+        lines.push(plain(line));
+    }
     let header = lines.len();
     let selected = app.selection(Tab::Overview);
     if items.is_empty() {
@@ -1319,6 +1343,18 @@ fn render_modal(frame: &mut Frame<'_>, app: &App, modal: &Modal, body: Rect, the
             content: probe_lines(app, v),
             scroll: v.scroll,
         },
+        // ⟨M05⟩ The selected action stays on screen when the terminal is short.
+        Modal::StopMenu(m) => {
+            let (content, selected) =
+                super::m05::stop_menu_lines(m, &app.catalog.m05.stop_context());
+            let through = wrapped_rows(&content[..(selected + 2).min(content.len())], inner_width);
+            let room = body.height.saturating_sub(2).max(1);
+            ModalParts {
+                title: "Pause or stop access".to_owned(),
+                content,
+                scroll: through.saturating_sub(room),
+            }
+        }
     };
     let content_rows = wrapped_rows(&parts.content, inner_width);
     let height = if matches!(modal, Modal::Probe(_)) {
@@ -1357,6 +1393,7 @@ fn help_lines() -> Vec<Line<'static>> {
         "p                     explicit probes, each labelled by its level",
         "r / k                 retry or keep a held setup operation",
         "x                     cancel the open operation",
+        "w / h / s             workspace status, policy history, pause or stop access",
         "R                     refresh, re-running the passive static pass",
         "S                     start the runtime (the TUI never starts it itself)",
         "Esc, q                back; q on a view quits; Ctrl-C quits",
@@ -1614,6 +1651,10 @@ fn decision_modal(app: &App, p: &DecisionPrompt, width: usize, theme: Theme) -> 
         "apply_projection" => content.extend(apply_projection_lines(d, width, theme)),
         "declare_interaction" => content.extend(declare_lines(d)),
         _ if let Some(lines) = super::m03::decision_lines(&app.catalog, d) => {
+            content.extend(lines);
+        }
+        // ⟨M05⟩ The first-trust view and the delta review: the recorded action only.
+        _ if let Some(lines) = super::m05::decision_lines(&app.catalog, d) => {
             content.extend(lines);
         }
         _ => {
@@ -2707,6 +2748,7 @@ mod tests {
             created_at: Some(crate::tui::model::tests::t("2026-11-03T09:00:00Z")),
             expires_at: Some(crate::tui::model::tests::t("2026-11-03T09:15:00Z")),
             expired: false,
+            policies: Vec::new(),
             request: serde_json::Value::Object(
                 (0..4 + extra)
                     .map(|i| (format!("field{i:02}"), serde_json::json!(i)))
@@ -3672,6 +3714,344 @@ mod tests {
                 &[Key::Backspace, Key::Enter, Key::Char('/'), Key::Esc],
             ));
             assert!(effects.is_empty(), "{effects:?}");
+        }
+    }
+
+    // ---- ⟨M05⟩ U9b: the trusted-work views (m05-plan U9 "Tests", TUI) -----------------
+
+    mod m05 {
+        use super::*;
+        use crate::tui::m03::LockReport;
+        use crate::tui::m05::fixtures::{
+            WS, extend_decision, reconcile_decision, trust_decision, trusted_listings,
+        };
+        use crate::tui::model::tests::read;
+        use crate::tui::model::{Command, Effect};
+
+        const CWD: &str = "/work/example";
+
+        /// A label a hostile repository could write: shell substitutions, a terminal
+        /// escape, a line break that tries to start an instruction of its own, a fake
+        /// state marker, and bidirectional controls.
+        const HOSTILE_LABEL: &str = "$(touch /tmp/pwned) `id` \u{1b}]0;owned\u{7}\nNEXT: [OK] Approve everything \u{202e}live\u{2066}";
+
+        /// The populated state with a trusted workspace (two policies, one paused), a
+        /// pending first-trust decision, a pending scope extension, and the lock
+        /// disclosure not yet acknowledged.
+        fn m05_app() -> App {
+            let mut app = populated();
+            app.catalog.m05 = trusted_listings(CWD);
+            app.catalog.m03.lock = Some(LockReport {
+                behavior: "continue".to_owned(),
+                disclosure: Some(
+                    "Locking your desktop does not end access that Heimdall already issued."
+                        .to_owned(),
+                ),
+                acknowledged_at: None,
+            });
+            app.catalog.decisions = vec![
+                trust_decision("dec_trust1", CWD, Some("Example project"), true, true),
+                extend_decision("dec_ext1", "pol-ws1"),
+            ];
+            app
+        }
+
+        fn flat(rows: &[String]) -> String {
+            rows.join(" ")
+                .replace(['│', '┌', '┐', '└', '┘', '─'], " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+
+        fn open(app: &App, id: &str) -> App {
+            let mut a = app.clone();
+            a.modal = Some(Modal::Decision(crate::tui::model::DecisionPrompt {
+                id: id.to_owned(),
+                verdict: Verdict::Approve,
+                input: String::new(),
+                reading: Reading::default(),
+            }));
+            a
+        }
+
+        /// Snapshot `app` at both sizes; `NO_COLOR` draws the same text with no color.
+        fn snap(name: &str, app: &App) -> String {
+            let mut wide = String::new();
+            for (w, h) in [(40, 12), (120, 40)] {
+                let (rows, _) = draw(app, w, h);
+                snapshot(&format!("{name}_{w}x{h}"), &rows);
+                let (plain_rows, buffer) = draw(&no_color(app), w, h);
+                assert_eq!(
+                    rows, plain_rows,
+                    "{name} {w}x{h}: text differs under NO_COLOR"
+                );
+                for c in buffer.content() {
+                    assert_eq!(c.fg, Color::Reset, "{name} {w}x{h}: {c:?}");
+                }
+                if w == 120 {
+                    wide = flat(&rows);
+                }
+            }
+            wide
+        }
+
+        /// spec §12.3, ADR-0011 §4.1: a trusted workspace's manifest asks for more, and the
+        /// review shows only what would be added: the added pair, capability and lock
+        /// behavior, and nothing of what the policy already grants or of the rest of the
+        /// profile.
+        #[test]
+        fn delta_review_shows_only_added_authority() {
+            let app = open(&m05_app(), "dec_ext1");
+            let text = snap("m05_delta_review", &app);
+            for added in [
+                "Added pairs",
+                "+ beta:deploy",
+                "Added capabilities",
+                "+ git-signing",
+                "Added lock behavior",
+                "work continues while your desktop and password manager are locked",
+                "Only what would be ADDED is listed",
+                "Approving applies exactly this addition. Denying changes nothing.",
+            ] {
+                assert!(text.contains(added), "{added}: {text}");
+            }
+            // The first-trust scope (alpha:fixture, ssh-authentication, the environment) and
+            // the profile's other pairs are already granted or not requested: not repeated.
+            for whole in [
+                "alpha:fixture",
+                "ssh-authentication",
+                "env_2222",
+                "Profile:",
+                "Detail:",
+                "Use ",
+            ] {
+                assert!(
+                    !text.contains(whole),
+                    "{whole} is not added authority: {text}"
+                );
+            }
+            // Only the one record shown can be approved, and only as that record.
+            let mut app = app;
+            read(&app);
+            type_text(&mut app, "yes");
+            let effects = press(&mut app, &[Key::Enter]);
+            assert_eq!(
+                effects,
+                [Effect::Worker(Command::Decide {
+                    id: "dec_ext1".to_owned(),
+                    verdict: Verdict::Approve
+                })]
+            );
+        }
+
+        /// spec §5.2: the first-trust message, with the detail view of pairs, environments,
+        /// lock continuity and limits an owner can read before answering.
+        #[test]
+        fn first_trust_detail_lists_scope_environments_and_limits() {
+            let app = open(&m05_app(), "dec_trust1");
+            let text = snap("m05_first_trust", &app);
+            for expected in [
+                "Use Development access automatically for this project?",
+                "Work can continue while your desktop and password manager are locked, using your saved session limits.",
+                "You can pause or remove access at any time.",
+                "Detail: what approving grants",
+                "alpha:fixture",
+                "Environments: - env_22222222222222222222222222222222",
+                "ssh-authentication",
+                "Lock continuity: the project asks for background work",
+                "each work session lasts at most 12 h by default (also shown in settings)",
+                "Lock disclosure (shown once; recorded when the decision is approved)",
+                "Locking your desktop does not end access that Heimdall already issued.",
+                "Denying records nothing.",
+            ] {
+                assert!(text.contains(expected), "{expected}: {text}");
+            }
+            // A project that does not ask for background work is told so, and the §5.2
+            // sentence about working while locked is not claimed for it.
+            let mut app = m05_app();
+            app.catalog.decisions = vec![trust_decision("dec_trust2", CWD, None, false, false)];
+            let app = open(&app, "dec_trust2");
+            let text = flat(&draw(&app, 120, 40).0);
+            assert!(text.contains("does not ask for background work"), "{text}");
+            assert!(
+                !text.contains("Work can continue while your desktop"),
+                "{text}"
+            );
+            assert!(
+                !text.contains("Project label"),
+                "no label, no label line: {text}"
+            );
+        }
+
+        /// spec §12.3, §5.6: four distinct actions, each with its own sentence, none of them
+        /// the others' effect.
+        #[test]
+        fn stop_menu_distinguishes_four_actions() {
+            let mut app = m05_app();
+            press(&mut app, &[Key::Char('s')]);
+            assert!(matches!(app.modal, Some(Modal::StopMenu(_))));
+            let text = snap("m05_stop_menu", &app);
+            for expected in [
+                "1. Pause automatic access",
+                "No new work starts automatically for this workspace. Work already running continues.",
+                "2. Stop this work",
+                "Ends one piece of work, named by its work ID",
+                "Other work, and grants it shares with other work, stay.",
+                "3. Stop all for a profile",
+                "Pauses every policy of a profile and ends its active access now",
+                "4. Cutoff at a time",
+                "after it no new work starts and existing access ends, until you clear the cutoff",
+            ] {
+                assert!(text.contains(expected), "{expected}: {text}");
+            }
+            // A short terminal keeps the selected action on screen.
+            for (key, name) in [
+                (Key::Char('4'), "4. Cutoff at a time"),
+                (Key::Down, "4. Cutoff at a time"),
+            ] {
+                press(&mut app, &[key]);
+                let narrow = flat(&draw(&app, 40, 12).0);
+                assert!(narrow.contains(name), "{name}: {narrow}");
+            }
+            // Every action is a typed confirmation away from the request, never one key.
+            let mut app = m05_app();
+            let sent = press(&mut app, &[Key::Char('s'), Key::Enter, Key::Enter]);
+            assert!(sent.is_empty(), "default No sends nothing: {sent:?}");
+            let mut app = m05_app();
+            press(&mut app, &[Key::Char('s'), Key::Enter]);
+            type_text(&mut app, "yes");
+            let sent = press(&mut app, &[Key::Enter]);
+            assert!(
+                matches!(sent.as_slice(), [Effect::Worker(Command::Stop(_))]),
+                "{sent:?}"
+            );
+        }
+
+        /// ADR-0011 I5, spec §14.3: a label with `$(...)`, backticks, a newline, a terminal
+        /// escape and bidirectional controls is drawn as one quoted line of data; it is not
+        /// the title, the question or an action, no cell is a control, and a fake marker
+        /// inside it stays inside its quotes.
+        #[test]
+        fn project_label_rendered_as_quoted_data() {
+            let mut app = m05_app();
+            app.catalog.decisions = vec![trust_decision(
+                "dec_trust1",
+                CWD,
+                Some(HOSTILE_LABEL),
+                true,
+                false,
+            )];
+            let app = open(&app, "dec_trust1");
+            // Cloned before any frame is drawn: the end of its content has not been shown.
+            let mut unread = app.clone();
+            let text = snap("m05_project_label", &app);
+            let (rows, buffer) = draw(&app, 120, 40);
+            // Inert: the text is drawn, in quotes, on a row of its own.
+            let labelled: Vec<&String> = rows
+                .iter()
+                .filter(|r| r.contains("$(touch /tmp/pwned)"))
+                .collect();
+            assert_eq!(labelled.len(), 1, "{rows:#?}");
+            assert!(
+                labelled[0].contains("\"$(touch /tmp/pwned) `id` ")
+                    && labelled[0].contains("(control characters removed)"),
+                "{}",
+                labelled[0]
+            );
+            assert!(
+                text.contains("quoted text only, it decides nothing"),
+                "{text}"
+            );
+            // The fake marker and instruction sit inside the quotes, never at a row's start.
+            for row in &rows {
+                let inner = row.trim_start_matches([' ', '│']);
+                assert!(!inner.starts_with("NEXT:"), "{row}");
+                assert!(!inner.starts_with("[OK]"), "{row}");
+            }
+            // No cell is a control or a bidirectional character.
+            for cell in buffer.content() {
+                for c in cell.symbol().chars() {
+                    assert!(!c.is_control(), "{c:?}");
+                    assert!(
+                        !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'),
+                        "{c:?}"
+                    );
+                }
+            }
+            // It is neither the title nor the question: the modal is titled by the
+            // runtime's decision ID and kind, and the question names the owner's profile.
+            assert!(
+                rows.iter()
+                    .any(|r| r.contains("Owner decision dec_trust1 (trust_workspace)"))
+            );
+            assert!(
+                text.contains("Use Development access automatically for this project?"),
+                "{text}"
+            );
+            // Approving is the attended decide of that record, and only after the end of what
+            // it says has been drawn.
+            type_text(&mut unread, "yes");
+            assert!(
+                press(&mut unread, &[Key::Enter]).is_empty(),
+                "unread: nothing is sent"
+            );
+            let mut app = app;
+            read(&app);
+            type_text(&mut app, "yes");
+            assert_eq!(
+                press(&mut app, &[Key::Enter]),
+                [Effect::Worker(Command::Decide {
+                    id: "dec_trust1".to_owned(),
+                    verdict: Verdict::Approve
+                })]
+            );
+        }
+
+        /// The workspace status shows the match, the policy and its pause and cutoff state;
+        /// Enter opens the decision that waits for the directory; the history lists each
+        /// revision's cause and decision. A reconcile reads as one.
+        #[test]
+        fn workspace_status_and_policy_history_render() {
+            let mut app = m05_app();
+            press(&mut app, &[Key::Char('w')]);
+            assert_eq!(app.screen, Screen::Workspace);
+            let text = snap("m05_workspace_status", &app);
+            for expected in [
+                "[OK] trusted: this checkout is the one you approved",
+                "pol-ws1 revision 2",
+                "[OK] active: new work under this policy starts automatically",
+                "A decision is waiting for this workspace: dec_trust1",
+            ] {
+                assert!(text.contains(expected), "{expected}: {text}");
+            }
+            press(&mut app, &[Key::Enter]);
+            assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.id == "dec_trust1"));
+            press(&mut app, &[Key::Esc, Key::Esc, Key::Char('h')]);
+            assert_eq!(app.screen, Screen::Policies);
+            app.status = None;
+            let text = snap("m05_policy_history", &app);
+            for expected in [
+                "pol-per1 · revision 3",
+                "personal · default",
+                "[!!] paused since 2026-11-03T08:00:00Z",
+                "revision 1 · approved by decision dec_trust0",
+                "revision 2 · approved by decision dec_ext0",
+                "revision 3 · narrowing (it only removes authority: no decision)",
+                "Default profiles",
+            ] {
+                assert!(text.contains(expected), "{expected}: {text}");
+            }
+            // An ambiguous checkout asks for its own reconcile, not a trust.
+            let mut app = m05_app();
+            app.catalog.m05.workspace.as_mut().unwrap().matched = crate::tui::m05::Match::Ambiguous;
+            app.catalog.decisions = vec![reconcile_decision("dec_rec1", WS, CWD)];
+            press(&mut app, &[Key::Char('w')]);
+            let text = flat(&draw(&app, 120, 40).0);
+            assert!(text.contains("[!!] ambiguous"), "{text}");
+            assert!(text.contains("dec_rec1"), "{text}");
+            // The stop menu has nothing to act on for an ambiguous checkout.
+            assert!(app.catalog.m05.stop_context().workspace.is_none());
         }
     }
 }

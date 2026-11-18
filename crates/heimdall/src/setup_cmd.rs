@@ -41,9 +41,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use heimdall_contract::envelope::{EffectStatus, Envelope, NextAction, Warning, reason};
-use heimdall_contract::ids::{DecisionId, OperationId, RequestId};
+use heimdall_contract::ids::{DecisionId, EnvironmentId, OperationId, ProfileId, RequestId};
 use heimdall_contract::request::{
-    DecideRequest, InspectRequest, InspectSubject, ObserveRequest, Request, Verdict,
+    DecideRequest, InspectRequest, InspectSubject, ObserveRequest, PolicyAction, Request, Verdict,
 };
 use heimdall_contract::setup::{
     ConflictKind, PlanDigest, PreviewIntent, ProjectionItem, RepairResolution, SetupRequest,
@@ -396,6 +396,177 @@ async fn settle<S: Session>(
     env
 }
 
+// --- ⟨M05⟩ U5: the personal-default offer ----------------------------------------------
+
+/// ⟨M05⟩ U5: the disclosure of a personal default (spec §5.2's first-trust message, for
+/// ordinary `ssh`; ADR-0011 §3.3's re-entry sentence; the scope it covers), shown before
+/// the owner approves the `create {default: true}` decision.
+pub(crate) fn personal_default_disclosure(profile: &str, pairs: &[String]) -> String {
+    let scope = if pairs.is_empty() {
+        "none listed".to_owned()
+    } else {
+        pairs.join(", ")
+    };
+    format!(
+        "Use {profile} access automatically for ordinary ssh in this environment?\n\
+         Work can continue while your desktop and password manager are locked, using your saved session limits (each use gets one bounded session window, 12 hours at most).\n\
+         Access starts again automatically when you next use it, within your saved limits; pause or set a stop time to end it.\n\
+         You can pause or remove access at any time.\n\
+         Destinations and accounts: {scope}\n\
+         Environment: this one only\n"
+    )
+}
+
+/// The `error.message` of a refused envelope, else its code.
+fn refusal_text(env: &Envelope<serde_json::Value>) -> String {
+    env.data
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .map_or_else(|| env.code.to_string(), str::to_owned)
+}
+
+/// A pair of `inspect profiles` as `destination:account`.
+fn pair_text(v: &serde_json::Value) -> Option<String> {
+    let d = v.get("destination")?.as_str()?;
+    let a = v.get("account")?.as_str()?;
+    Some(format!("{d}:{a}"))
+}
+
+/// ⟨M05⟩ U5 (ADR-0011 §3.1, §3.3, §3.4 "personal default at setup: 1 decision"; spec
+/// §5.2; m05-plan U5): after a successful `setup apply`, **on an interactive TTY only**,
+/// offer this environment a personal default: the owner `create {profile, environments:
+/// [this one], default: true}` decision, confirmed through [`confirm_and_decide`] with
+/// [`personal_default_disclosure`] and the exact recorded request (ADR-0006 §3.1).
+/// Nothing is sent unattended or without a TTY, and nothing is offered when:
+/// * the runtime does not serve the trusted-work forms (`inspect policies` refused);
+/// * this environment already has a personal default;
+/// * no profile is evident: this environment's default-profile preference, else the
+///   catalog's only profile;
+/// * a personal policy for that profile already applies here (`create` would refuse it).
+///
+/// The setup result and its exit status are never changed: the returned note (for stderr)
+/// says what happened, `None` when nothing was offered. A refusal or anything but a typed
+/// `yes` creates nothing (the pending decision expires on its own).
+pub(crate) async fn offer_personal_default<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+) -> Option<String> {
+    if !ctx.interactive() {
+        return None;
+    }
+    let policies = inspect(s, InspectSubject::Policies).await.ok()?;
+    let own = inspect(s, InspectSubject::Environments)
+        .await
+        .ok()?
+        .get("environment_id")
+        .and_then(|v| v.as_str())
+        .and_then(|v| EnvironmentId::parse(v).ok())?;
+    let items = policies
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let personal_here = |q: &serde_json::Value| {
+        q.get("workspace_id").is_none_or(serde_json::Value::is_null)
+            && q.get("environments")
+                .and_then(|e| e.as_array())
+                .is_some_and(|e| e.iter().any(|x| x.as_str() == Some(own.as_str())))
+    };
+    if items.iter().any(|q| {
+        personal_here(q) && q.get("default").and_then(serde_json::Value::as_bool) == Some(true)
+    }) {
+        return None;
+    }
+    let preferred = policies
+        .get("default_profiles")
+        .and_then(|v| v.as_array())
+        .and_then(|d| {
+            d.iter()
+                .find(|x| x.get("environment_id").and_then(|e| e.as_str()) == Some(own.as_str()))
+        })
+        .and_then(|x| x.get("profile_id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let listed = inspect(s, InspectSubject::Profiles)
+        .await
+        .ok()?
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let chosen = match &preferred {
+        Some(id) => listed
+            .iter()
+            .find(|x| x.get("profile_id").and_then(|v| v.as_str()) == Some(id.as_str())),
+        None if listed.len() == 1 => listed.first(),
+        None => None,
+    };
+    let Some(chosen) = chosen else {
+        return (!listed.is_empty()).then(|| {
+            "No personal default was offered: choose this environment's default profile first, then run setup again.".to_owned()
+        });
+    };
+    let profile = chosen
+        .get("profile_id")
+        .and_then(|v| v.as_str())
+        .and_then(|v| ProfileId::parse(v).ok())?;
+    if items.iter().any(|q| {
+        personal_here(q) && q.get("profile").and_then(|v| v.as_str()) == Some(profile.as_str())
+    }) {
+        return Some(format!(
+            "No personal default was offered: a personal policy for {profile} already applies in this environment."
+        ));
+    }
+    let pairs: Vec<String> = chosen
+        .get("pairs")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(pair_text).collect())
+        .unwrap_or_default();
+    if let Err(refused) = attend_first(s, ctx).await {
+        return Some(format!(
+            "No personal default was offered: {}",
+            refusal_text(&refused)
+        ));
+    }
+    let env = s
+        .request(Request::Policy(PolicyAction::Create {
+            profile: profile.clone(),
+            environments: [own].into_iter().collect(),
+            max_window: None,
+            default: true,
+        }))
+        .await;
+    let Some(decision) = pending_decision(&env) else {
+        return Some(format!(
+            "No personal default was created: {}",
+            refusal_text(&env)
+        ));
+    };
+    let preface = personal_default_disclosure(profile.as_str(), &pairs);
+    let decided = confirm_and_decide(
+        s,
+        p,
+        ctx,
+        &decision,
+        &preface,
+        None,
+        env.operation_id.clone(),
+    )
+    .await;
+    Some(if decided.code == Code::Ok {
+        format!(
+            "Personal default created: ordinary ssh in this environment uses {profile} access automatically, within its saved limits."
+        )
+    } else {
+        format!(
+            "No personal default was created: {}",
+            refusal_text(&decided)
+        )
+    })
+}
+
 // --- setup ------------------------------------------------------------------------------
 
 /// Handle `setup` (module docs). Without an action, `apply`.
@@ -518,6 +689,13 @@ async fn effect(ctx: &Ctx, intent: PreviewIntent, given: Option<String>) -> Outc
         Err(o) => return o,
     };
     let out = setup_flow(&mut client, &mut TerminalPrompt, ctx, &intent, rid).await;
+    // ⟨M05⟩ U5: the one personal-default offer step, after a successful apply.
+    if matches!(intent, PreviewIntent::Apply { .. })
+        && out.exit == ExitCode::Success
+        && let Some(note) = offer_personal_default(&mut client, &mut TerminalPrompt, ctx).await
+    {
+        output::diagnostic(&note);
+    }
     finish_repair(ctx, &intent, out)
 }
 
@@ -1655,5 +1833,127 @@ mod tests {
             serde_json::to_value(request_conflict_explained(ok.clone(), &rid())).ok(),
             serde_json::to_value(ok).ok()
         );
+    }
+
+    // --- ⟨M05⟩ U5: the personal-default offer ---------------------------------------------
+
+    const ENV: &str = "env_00112233445566778899aabbccddeeff";
+
+    fn no_policies() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"items": []}))
+    }
+
+    fn own_environment() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"environment_id": ENV, "enrolled": true}))
+    }
+
+    fn one_profile() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"items": [{
+            "profile_id": "dev", "revision": 1, "label": null,
+            "pairs": [{"destination": "lab", "account": "deploy"}],
+            "capabilities": ["ssh-authentication"],
+        }]}))
+    }
+
+    fn create_listing() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"decisions": [{
+            "decision_id": DEC, "kind": "widen_policy", "state": "pending",
+            "expires_at": "2026-11-18T00:15:00Z",
+            "request": {"action": {"action": "create", "profile": "dev", "environments": [ENV], "default": true}},
+        }]}))
+    }
+
+    fn offer(s: &mut Recorder, p: &mut Script, ctx: &Ctx) -> Option<String> {
+        block_on(offer_personal_default(s, p, ctx))
+    }
+
+    /// ⟨M05⟩ U5 (ADR-0011 §3.1, §3.3; spec §5.2): on an attended TTY, with no personal default
+    /// and one evident profile, setup sends one `create {profile, environments: [this one],
+    /// default: true}` and shows the disclosure — including "access starts again automatically
+    /// when you next use it, within your saved limits; pause or set a stop time to end it" —
+    /// with the exact recorded request; only a typed `yes` sends `Decide`, exactly once.
+    #[test]
+    fn personal_default_offer_shows_the_disclosure_and_creates_only_on_yes() {
+        let mut s = Recorder::new()
+            .answer("inspect", no_policies())
+            .answer("inspect", own_environment())
+            .answer("inspect", one_profile())
+            .answer("other", approval(Code::ApprovalRequired))
+            .answer("inspect", create_listing());
+        let mut p = script(&[Answer::Yes]);
+        let note = offer(&mut s, &mut p, &tty()).unwrap_or_default();
+        assert_eq!(
+            s.sent,
+            [
+                "inspect", "inspect", "inspect", "attend", "policy", "inspect", "decide"
+            ]
+        );
+        assert!(note.starts_with("Personal default created"), "{note}");
+        assert_eq!(p.shown.len(), 1);
+        let shown = &p.shown[0];
+        for needle in [
+            "Use dev access automatically for ordinary ssh in this environment?",
+            "Access starts again automatically when you next use it, within your saved limits; pause or set a stop time to end it.",
+            "Destinations and accounts: lab:deploy",
+            "\"default\": true",
+            "Approve exactly this request?",
+        ] {
+            assert!(shown.contains(needle), "missing {needle:?} in {shown}");
+        }
+        // Anything but `yes`: no `Decide`; nothing is created.
+        let mut s = Recorder::new()
+            .answer("inspect", no_policies())
+            .answer("inspect", own_environment())
+            .answer("inspect", one_profile())
+            .answer("other", approval(Code::ApprovalRequired))
+            .answer("inspect", create_listing());
+        let mut p = script(&[Answer::No]);
+        let note = offer(&mut s, &mut p, &tty()).unwrap_or_default();
+        assert!(!s.sent.iter().any(|k| k == "decide"), "{:?}", s.sent);
+        assert!(
+            note.starts_with("No personal default was created"),
+            "{note}"
+        );
+    }
+
+    /// ⟨M05⟩ U5: attended only, and never twice: without a TTY (or with `--non-interactive`)
+    /// nothing is sent at all; with a personal default already in this environment, or a
+    /// runtime that does not serve the trusted-work forms, only the reads are sent, with no
+    /// `Attend`, no `create` and no prompt.
+    #[test]
+    fn personal_default_offer_is_never_made_unattended_or_twice() {
+        for ctx in [
+            Ctx {
+                stdin_tty: false,
+                ..tty()
+            },
+            Ctx {
+                non_interactive: true,
+                ..tty()
+            },
+        ] {
+            let mut s = Recorder::new();
+            let mut p = script(&[]);
+            assert_eq!(offer(&mut s, &mut p, &ctx), None);
+            assert!(s.sent.is_empty(), "{:?}", s.sent);
+        }
+        let existing = Envelope::ok(serde_json::json!({"items": [{
+            "policy_id": "pol-default", "revision": 1, "profile": "dev",
+            "environments": [ENV], "default": true,
+        }]}));
+        let mut s = Recorder::new()
+            .answer("inspect", existing)
+            .answer("inspect", own_environment());
+        let mut p = script(&[]);
+        assert_eq!(offer(&mut s, &mut p, &tty()), None);
+        assert_eq!(s.sent, ["inspect", "inspect"]);
+        let refused = output::error_value(
+            heimdall_app::OpError::new(Code::SchemaUnsupported, "trusted-work/1 is not offered")
+                .into_envelope(),
+        );
+        let mut s = Recorder::new().answer("inspect", refused);
+        let mut p = script(&[]);
+        assert_eq!(offer(&mut s, &mut p, &tty()), None);
+        assert_eq!(s.sent, ["inspect"]);
     }
 }

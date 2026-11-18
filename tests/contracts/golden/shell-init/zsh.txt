@@ -1,0 +1,47 @@
+# Heimdall shell integration for zsh (`heimdall shell init zsh`; ADR-0011 §3.2).
+#
+# This text is static: it holds only Heimdall's code, never anything read from a
+# repository, and it evaluates nothing it is given. On each directory change, and when
+# the access it activated is due again, it runs `heimdall activate --hook`, which never
+# prompts, never asks for an owner decision, activates only what your saved policy
+# already covers and gives up after one second. Heimdall prints one status line when
+# the state changes (untrusted, paused, needs review).
+#
+# Enable it in ~/.zshrc with:  eval "$(heimdall shell init zsh)"
+
+__heimdall_hook() {
+  emulate -L zsh
+  command -v heimdall >/dev/null 2>&1 || return 0
+  local out state rest seq recheck
+  out="$(command heimdall activate --hook --cwd "$PWD" --shell-pid "$$" \
+    --seq "${__heimdall_seq:-0}" --last "${__heimdall_state:-none}" </dev/null)"
+  state="${out%% *}"
+  rest="${out#* }"
+  seq="${rest%% *}"
+  recheck="${rest#* }"
+  case "$state" in
+    active|untrusted|paused|needs_review|none) ;;
+    *) return 0 ;;
+  esac
+  case "$seq" in ''|*[!0-9]*|0?*|??????????*) return 0 ;; esac
+  case "$recheck" in ''|*[!0-9]*|0?*|??????????*) return 0 ;; esac
+  __heimdall_state="$state"
+  __heimdall_seq="$seq"
+  if [ "$recheck" -gt 0 ]; then
+    __heimdall_due=$(( SECONDS + recheck ))
+  else
+    __heimdall_due=0
+  fi
+}
+
+__heimdall_due_check() {
+  emulate -L zsh
+  if [ "${__heimdall_due:-0}" -gt 0 ] && [ "$SECONDS" -ge "${__heimdall_due:-0}" ]; then
+    __heimdall_hook
+  fi
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd __heimdall_hook
+add-zsh-hook precmd __heimdall_due_check
+__heimdall_hook

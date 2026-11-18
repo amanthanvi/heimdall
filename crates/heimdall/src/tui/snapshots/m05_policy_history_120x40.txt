@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+Policy history
+
+pol-ws1 · revision 2 · profile Development (dev) · workspace ws_11111111111111111111111111111111
+  Environments: env_22222222222222222222222222222222
+  [OK] active: new work under this policy starts automatically within your saved limits
+  Applied revisions, oldest first:
+    revision 1 · approved by decision dec_trust0 · 2026-11-02T08:00:00Z
+    revision 2 · approved by decision dec_ext0 · 2026-11-02T09:30:00Z
+
+pol-per1 · revision 3 · profile Development (dev) · personal · default
+  Environments: env_22222222222222222222222222222222
+  [!!] paused since 2026-11-03T08:00:00Z: no new work starts automatically; resuming needs your decision
+  Applied revisions, oldest first:
+    revision 1 · approved by decision dec_per0 · 2026-11-01T08:00:00Z
+    revision 3 · narrowing (it only removes authority: no decision) · 2026-11-03T08:00:00Z
+
+Default profiles (a preference, never authority)
+  env_22222222222222222222222222222222: Development
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down scroll · s stop menu · Esc back

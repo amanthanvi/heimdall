@@ -697,6 +697,107 @@ async fn restart_never_reprobes_an_admitted_context_request() {
 }
 
 // =================================================================================
+// ADR-0006 revision 5.2 item 21: the server-built trust proposal
+// =================================================================================
+
+/// `inspect workspace`'s `proposal` is exactly what `trust_workspace` accepts (the client
+/// never reads the manifest, ADR-0011 §2.2): a request built only from the inspect answer
+/// raises the trust decision, whose recorded action is that proposal; a request built from
+/// an answer that went stale (the manifest changed after the inspect) is refused
+/// `USAGE_ERROR` with nothing written. A manifest-less root, a root whose manifest names an
+/// unknown profile and a non-workspace directory carry no proposal.
+#[tokio::test]
+async fn the_inspected_proposal_is_what_trust_workspace_accepts() {
+    let w = world(None, &["fake_agent"]).await;
+    let repo =
+        w.s.init_repo(
+            "infra",
+            Some(&manifest("infra", "dev", &["h1:deploy"], true)),
+        )
+        .unwrap();
+    let cwd = repo.to_str().unwrap().to_owned();
+    let request = |v: &WorkspaceView| PolicyAction::TrustWorkspace {
+        cwd: cwd.clone(),
+        access_digest: v.access_digest.clone().unwrap_or_default(),
+        proposal: v
+            .proposal
+            .clone()
+            .expect("a manifest root carries a proposal"),
+    };
+
+    let view = w.inspect(&repo).await;
+    assert_eq!(view.matched, WorkspaceMatchView::Untrusted);
+    let proposal = view.proposal.clone().unwrap();
+    assert_eq!(proposal.profile, dev());
+    assert_eq!(proposal.pairs.len(), 1);
+    assert!(proposal.background_work);
+    assert!(view.access_digest.is_some());
+
+    // The manifest changes after the inspect: the stale request is refused, nothing written.
+    write_manifest(
+        &repo,
+        &manifest("infra", "dev", &["h1:deploy", "h2:deploy"], true),
+    )
+    .unwrap();
+    let before = w.store.transaction(|tx| tx.table_counts()).unwrap();
+    let stale = w.ops.policy(&attended(), request(&view)).await.unwrap_err();
+    assert_eq!(stale.code, Code::UsageError, "{stale:?}");
+    assert!(
+        stale.message.contains("changed since it was reviewed"),
+        "{stale:?}"
+    );
+    assert_eq!(
+        w.store.transaction(|tx| tx.table_counts()).unwrap(),
+        before,
+        "a stale proposal writes nothing"
+    );
+    assert_eq!(w.decisions(), 0);
+
+    // A fresh inspect: its proposal differs, and a request built only from it is accepted.
+    let fresh = w.inspect(&repo).await;
+    let fresh_proposal = fresh.proposal.clone().unwrap();
+    assert_ne!(fresh_proposal, proposal);
+    assert_eq!(fresh_proposal.pairs.len(), 2);
+    let raised = w
+        .ops
+        .policy(&attended(), request(&fresh))
+        .await
+        .unwrap_err();
+    assert_eq!(raised.code, Code::ApprovalRequired, "{raised:?}");
+    assert_eq!(w.decisions(), 1);
+    let DecisionKind::TrustWorkspace { action, .. } = w.kind_of(&decision_of(&raised)) else {
+        panic!("a trust decision");
+    };
+    let PolicyAction::TrustWorkspace {
+        proposal: recorded, ..
+    } = action
+    else {
+        panic!("a trust action");
+    };
+    assert_eq!(
+        recorded, fresh_proposal,
+        "the record is the inspected proposal"
+    );
+
+    // No proposal: no manifest, an unknown profile, no workspace.
+    let bare = w.s.init_repo("bare", None).unwrap();
+    let v = w.inspect(&bare).await;
+    assert_eq!(v.matched, WorkspaceMatchView::Untrusted);
+    assert!(v.proposal.is_none() && v.access_digest.is_none());
+    let other =
+        w.s.init_repo("other", Some(&manifest("other", "nosuch", &[], false)))
+            .unwrap();
+    let v = w.inspect(&other).await;
+    assert!(v.access_digest.is_some(), "the manifest was read");
+    assert!(v.proposal.is_none(), "an unknown profile has no proposal");
+    let outside = w.s.path("not-a-workspace");
+    std::fs::create_dir_all(&outside).unwrap();
+    let v = w.inspect(&outside).await;
+    assert_eq!(v.matched, WorkspaceMatchView::None);
+    assert!(v.proposal.is_none());
+}
+
+// =================================================================================
 // A18: copies, clones, worktrees, symlinks, moves and submodules (ADR-0011 §2.3)
 // =================================================================================
 

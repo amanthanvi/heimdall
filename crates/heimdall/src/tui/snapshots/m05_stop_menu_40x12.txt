@@ -1,0 +1,12 @@
+[1 Over] 2 Dest  3 Prof  4 Acti  [!!]
+[┌Pause or stop access────────────────┐
+R│Four different actions; pick one:   │
+S│                                    │
+W│> 1. Pause automatic access         │·
+>│     No new work starts             │l
+ │automatically for this workspace.   │e
+ │Work already running continues.     │e
+ │Resuming needs your decision.       │
+ │  2. Stop this work                 │
+ └────────────────────────────────────┘
+Up/Down or 1-4 choose · Enter select · E

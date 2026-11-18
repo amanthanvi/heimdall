@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[!!] ┌Owner decision dec_ext1 (widen_policy)──────────────────────────────────────────────────────────────────────┐
+Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+Stati│Exactly what approve applies to:                                                                            │
+Works│Review: more access for a workspace you already trust                                                       │
+> [!!│Policy pol-ws1                                                                                              │
+  [!!│Only what would be ADDED is listed. Access the policy already grants stays as it is and is not repeated     │
+  [!!│here.                                                                                                       │
+  [..│                                                                                                            │
+  [ !│  Added pairs (destination and account):                                                                    │
+     │    + beta:deploy                                                                                           │
+  r r│  Added capabilities:                                                                                       │
+  k k│    + git-signing                                                                                           │
+     │  Added lock behavior:                                                                                      │
+     │    + work continues while your desktop and password manager are locked                                     │
+     │                                                                                                            │
+     │Approving applies exactly this addition. Denying changes nothing.                                           │
+     │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │Tab: deny · Esc: send nothing                                                                               │
+     │Approve? Type yes to confirm [y/N]: _                                                                       │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+type yes, Enter · Tab approve/deny · Esc cancel

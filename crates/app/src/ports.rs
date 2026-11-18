@@ -859,6 +859,15 @@ pub trait SignatureAuthority: Send + Sync {
         &self,
         facts: &SignatureRequestFacts,
     ) -> Result<crate::managed::SignPermit, SignRefusal>;
+
+    /// ⟨M05⟩ U5 (ADR-0011 §3.2 (a), §10 item 4): the ordinary-`ssh` activation the
+    /// environment endpoint's `Signer::identities` calls before it lists, when the
+    /// runtime wired one ([`DefaultActivation`]). `None` (the default, and every M03
+    /// authority): the identities path is exactly M03's. Additive; no M03 implementor
+    /// changes.
+    fn default_activation(&self) -> Option<&dyn DefaultActivation> {
+        None
+    }
 }
 
 /// Which issuance table an entry lives in.
@@ -1405,4 +1414,66 @@ pub enum ProbeError {
     },
     /// The working directory could not be read.
     Io,
+}
+
+// ---------------------------------------------------------------------------------
+// ⟨M05⟩ Ordinary-`ssh` activation (ADR-0011 §3.1–§3.3, §10 item 4; M05 U5)
+// ---------------------------------------------------------------------------------
+
+/// ⟨M05⟩ The identities path's wait budget (ADR-0011 §3.2 (a); the U0b spike, m05-plan
+/// §1 U0b: `ssh` and Git received a delayed identities answer at 0.5, 1, 2, 5, 10 and
+/// 30 s on macOS, the devbox and Windows, so 2 s is far inside every observed bound).
+pub const DEFAULT_ACTIVATION_WAIT: Duration = Duration::from_secs(2);
+
+/// ⟨M05⟩ What one wait of [`DefaultActivation::ensure_default`] found. Nonsecret:
+/// stable reason words only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DefaultWait {
+    /// No personal `default` policy applies to the environment: nothing to activate.
+    NoDefault,
+    /// The covered scope was already active (returned at once).
+    Active,
+    /// The covered scope was activated within the wait.
+    Activated,
+    /// A pause (a `stop` pauses), a cutoff or uncertain time refused it at once; nothing
+    /// was started.
+    Blocked {
+        /// The stable reason (`policy_paused`, `policy_cutoff`, `time_uncertain`).
+        reason: String,
+    },
+    /// The policy covers nothing activatable here; no decision was created.
+    NotCovered,
+    /// The activation was refused or failed. Like a `NotCovered` one, it is remembered
+    /// against its basis (the policy, its revision, the authority generation): the
+    /// next requests of that basis get this answer at once until the retry interval
+    /// passes.
+    Failed {
+        /// The stable reason (an error reason, else its code).
+        reason: String,
+    },
+    /// The wait expired. The activation continues and, once committed, stays applied:
+    /// the next request uses it (ADR-0011 §10 item 7; a caller timeout is not a
+    /// cancellation).
+    Pending,
+}
+
+/// ⟨M05⟩ "Ensure the environment's default personal policy's covered scope is active,
+/// within this wait" (ADR-0011 §3.2 (a); m05-plan U5). The runtime implements it over
+/// `Operations` (`heimdall_runtime::default_activation`); the environment endpoint's
+/// `Signer::identities` calls it once per identities request through
+/// [`SignatureAuthority::default_activation`], then lists what is admitted by then.
+///
+/// **Contract.** Covered-or-nothing: it never creates a decision record and never
+/// activates anything a policy does not already cover; a pause, cutoff, stop or uncertain
+/// time refuses it before anything is started. It never fails the agent request: a wait
+/// that expires returns [`DefaultWait::Pending`] and the identities already admitted are
+/// listed. Concurrent calls for one environment share one activation (single-flight), and
+/// dropping the returned future never cancels it.
+pub trait DefaultActivation: Send + Sync {
+    /// Ensure the covered scope is active, waiting at most `wait` for it.
+    fn ensure_default(
+        &self,
+        wait: Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = DefaultWait> + Send + '_>>;
 }

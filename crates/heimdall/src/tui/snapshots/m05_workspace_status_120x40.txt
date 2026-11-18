@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+Workspace status
+Directory: /work/example
+Workspace root: /work/example
+[OK] trusted: this checkout is the one you approved (same path, same directory identity)
+Manifest access digest: abababababababab... (what a review is checked against)
+The directory is a same-user claim: any program you run can name any directory.
+
+Policy
+pol-ws1 revision 2 · profile Development (dev)
+Environments: env_22222222222222222222222222222222
+[OK] active: new work under this policy starts automatically within your saved limits
+
+[!!] A decision is waiting for this workspace: dec_trust1 (Enter to review it)
+
+s pause or stop access · h policy history · Esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter decision · s stop menu · h history · Esc back

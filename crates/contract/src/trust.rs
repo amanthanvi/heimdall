@@ -255,6 +255,14 @@ pub struct WorkspaceView {
     /// The manifest's access digest (lowercase hex), when a manifest was read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_digest: Option<String>,
+    /// ⟨M05⟩ Revision 5.2 (§17.10 item 21): the proposal the server builds for this working
+    /// directory: the manifest's request ∩ the profile's latest snapshot, exactly what a
+    /// `trust_workspace` request is compared with (ADR-0011 §2.2, I5), so a client echoes
+    /// it and never reads the manifest. Owner-only, like the digest; omitted when there is
+    /// none (no root, no manifest, an unknown profile, or a request that does not resolve),
+    /// so every earlier document is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal: Option<TrustProposal>,
     /// Provenance.
     pub provenance: ContextProvenance,
 }

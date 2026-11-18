@@ -1092,6 +1092,9 @@ mod live_tests {
 
     /// ⟨R3-C1⟩ ADR-0008 §17.22 items 4, 9, 10 (`managed_store/live_tests/cleanup.rs`).
     mod cleanup;
+    /// ⟨M05⟩ U5: ordinary-`ssh` activation of the personal default
+    /// (`managed_store/live_tests/default_m05.rs`).
+    mod default_m05;
     /// ⟨M05, U8⟩ A28 on real loopback sshds: delegation and the narrower binding
     /// (`managed_store/live_tests/delegation_m05.rs`).
     mod delegation_m05;

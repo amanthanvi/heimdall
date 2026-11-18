@@ -299,6 +299,9 @@ pub(crate) struct Decision {
     pub expired: bool,
     /// The exact recorded request.
     pub request: Value,
+    /// ⟨M05, ADR-0006 §17.9 C1⟩ For a targeted widening, the policies approval changes,
+    /// fixed when the record was created (`policy_id`, `revision`); empty otherwise.
+    pub policies: Vec<(String, u64)>,
 }
 
 impl Decision {
@@ -310,6 +313,20 @@ impl Decision {
             expires_at: time(v, "expires_at"),
             expired: v.get("expired").and_then(Value::as_bool) == Some(true),
             request: v.get("request").cloned().unwrap_or(Value::Null),
+            policies: v
+                .get("policies")
+                .and_then(Value::as_array)
+                .map(|ps| {
+                    ps.iter()
+                        .filter_map(|p| {
+                            Some((
+                                text(p, "policy_id")?,
+                                p.get("revision").and_then(Value::as_u64)?,
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 
@@ -340,6 +357,8 @@ pub(crate) struct Catalog {
     pub read_at: Option<Timestamp>,
     /// ⟨M03⟩ The M03 listings and conditions of the same refresh.
     pub m03: super::m03::Listings,
+    /// ⟨M05⟩ The trusted-work listings of the same refresh (workspace status, policies).
+    pub m05: super::m05::Listings,
 }
 
 impl Catalog {
@@ -389,6 +408,7 @@ impl Catalog {
             projection_generation: generation,
             read_at: Some(read_at),
             m03: super::m03::Listings::default(),
+            m05: super::m05::Listings::default(),
         }
     }
 

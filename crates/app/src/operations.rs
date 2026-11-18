@@ -267,6 +267,11 @@ mod uninstall_fence_m03;
 // so the track never edits this list (each answers `driver_unavailable` until filled).
 mod context_m05;
 mod default_activation_m05;
+// ⟨M05⟩ U5: the ordinary-`ssh` activation's outcome types, for the runtime's port.
+pub use default_activation_m05::{
+    DEFAULT_WORK_PREFIX, DefaultBasis, DefaultOutcome, DefaultState, blocked as default_blocked,
+    default_work_id,
+};
 // ⟨M05⟩ U7: `pub(crate)` so the catalog driver applies an import in its own transaction.
 pub(crate) mod portable_m05;
 // ⟨M05⟩ U7: the bundle file's parse for the CLI's import (wave 3).
@@ -6231,6 +6236,8 @@ impl Operations {
                 .request()
                 .and_then(|r| WorkSpec::from_request(&r, &st.op.environment))
                 .and_then(|s| context_m05::overlay(s, &st.intent.request))
+                // ⟨M05⟩ U5: the internal default activation's covered-only resolution.
+                .and_then(|s| default_activation_m05::overlay(s, &st.intent.request))
             else {
                 return Err(internal("the stored request cannot be read"));
             };
@@ -9084,6 +9091,8 @@ impl Operations {
                         heimdall_contract::ipc::capability::ENROLLMENT_V1,
                         heimdall_contract::ipc::capability::MANAGED_CREDENTIALS_V1,
                         heimdall_contract::ipc::capability::CONNECTIONS_V1,
+                        // ⟨M05⟩ W3: offered once every trusted-work form is served.
+                        heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
                     ],
                     "schemas": heimdall_contract::schema::public_schemas()
                         .iter()

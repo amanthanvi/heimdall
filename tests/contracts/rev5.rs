@@ -11,7 +11,10 @@
 //!   exactly through its type and validates against its generated public schema;
 //! * `rev5_capabilities_declared_not_offered_and_required`: `environments/1` and
 //!   `trusted-work/1` exist, are what the new request forms require, and the M01–M03
-//!   forms still require nothing new;
+//!   forms still require nothing new. ⟨M05 W3⟩ The offer itself is the runtime's, not the
+//!   contract's: `trusted-work/1` is offered since M05 W3 and `environments/1` is not yet
+//!   (`heimdall_ipc::session::tests::trusted_work_is_offered_and_environments_is_not_yet`);
+//!   the name is kept because ADR-0006 §17.7 cites it;
 //! * `rev5_m01_m03_forms_unchanged`: every pre-revision-5 example decodes into the
 //!   extended types and re-encodes byte-identically, and none uses a revision-5 form.
 //!
@@ -173,10 +176,21 @@ fn rev5_examples_round_trip_and_validate() {
         "inspect-environments",
     );
     assert_eq!(envs.items.len(), 3);
-    let _: WorkspaceView = exact(
+    let plain: WorkspaceView = exact(
         "schemas/examples/inspect.workspace.json",
         "inspect-workspace",
     );
+    assert!(plain.proposal.is_none(), "revision 5: no proposal key");
+    // ⟨rev5.2⟩ ADR-0006 §17.10 item 21: the server-built trust proposal.
+    let with_proposal: WorkspaceView = exact(
+        "schemas/examples/inspect.workspace.proposal.json",
+        "inspect-workspace",
+    );
+    let proposal = with_proposal
+        .proposal
+        .expect("the example carries a proposal");
+    assert_eq!(proposal.profile.as_str(), "homelab-dev");
+    assert!(proposal.background_work && proposal.pairs.len() == 1);
     let _: PoliciesView = exact("schemas/examples/inspect.policies.json", "inspect-policies");
     // ⟨rev5.1⟩ The default-profile list is omitted when empty, so the document above is
     // unchanged; with one set it round-trips and validates.
@@ -212,6 +226,9 @@ fn rev5_examples_round_trip_and_validate() {
     );
 }
 
+/// The revision-5 capabilities and what requires them. Whether the runtime offers each is
+/// pinned in `heimdall-ipc` (module docs): `trusted-work/1` since M05 W3, `environments/1`
+/// not yet.
 #[test]
 fn rev5_capabilities_declared_not_offered_and_required() {
     assert_eq!(capability::ENVIRONMENTS_V1, "environments/1");
@@ -522,4 +539,60 @@ fn rev5_1_dry_run_closed_bundle_and_typed_results() {
     let listed = &golden["decision_policies"]["json"];
     let policies: Vec<PolicyRevisionRef> = serde_json::from_value(listed.clone()).unwrap();
     assert_eq!(&serde_json::to_value(&policies).unwrap(), listed);
+}
+
+/// ⟨rev5.2⟩ ADR-0006 §17.10 item 21 (orchestrator ruling I-14, M05 wave 3):
+/// `WorkspaceView.proposal`, from the golden (transcribed from the contract owner's delta).
+/// Each view round-trips byte-identically and validates against the generated
+/// `inspect-workspace` schema; the proposal is written when present and its key is absent
+/// otherwise, so every earlier `inspect workspace` document is unchanged; the field is part
+/// of the schema, optional, and the same `inspect workspace` needs `trusted-work/1`.
+#[test]
+fn rev5_2_workspace_proposal() {
+    let golden = load("tests/contracts/golden/rev5-2.golden.json");
+    assert_eq!(golden["capability"], capability::TRUSTED_WORK_V1);
+    let doc = public_schemas()
+        .into_iter()
+        .find(|s| s.name == golden["subject"].as_str().unwrap())
+        .unwrap();
+    let doc = serde_json::to_value(&doc.schema).unwrap();
+    let rows = golden["views"].as_array().unwrap();
+    assert_eq!(rows.len(), 4);
+    for row in rows {
+        let v = &row["json"];
+        let what = row["what"].as_str().unwrap();
+        let view: WorkspaceView =
+            serde_json::from_value(v.clone()).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(
+            &serde_json::to_value(&view).unwrap(),
+            v,
+            "{what}: exact round trip"
+        );
+        if let Err(e) = validate(&doc, v) {
+            panic!("{what} against inspect-workspace: {e:?}");
+        }
+        assert_eq!(
+            view.proposal.is_some(),
+            row["has_proposal"].as_bool().unwrap(),
+            "{what}"
+        );
+        assert_eq!(
+            v.get("proposal").is_some(),
+            view.proposal.is_some(),
+            "{what}: the key is written exactly when there is a proposal"
+        );
+    }
+    // The field is optional in the schema: a revision-5 document still validates.
+    assert!(
+        !doc["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|k| k == "proposal"),
+        "proposal is not required"
+    );
+    assert!(doc["properties"].get("proposal").is_some());
+    // `inspect workspace` stays gated on `trusted-work/1` (unchanged by this revision).
+    let r: Request = exact("schemas/examples/request.inspect.workspace.json", "request");
+    assert_eq!(r.required_capability(), Some(capability::TRUSTED_WORK_V1));
 }

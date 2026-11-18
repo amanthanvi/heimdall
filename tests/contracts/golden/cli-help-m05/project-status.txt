@@ -1,0 +1,10 @@
+Show the workspace, its trust state and its policy (read-only)
+
+Usage: heimdall project status [OPTIONS]
+
+Options:
+      --cwd <PATH>       The directory (default the working directory)
+      --json             Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --non-interactive  Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --home <DIR>       Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+  -h, --help             Print help

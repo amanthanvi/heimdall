@@ -1,0 +1,21 @@
+{
+ "name": "M05 W3 U5: the default activation's internal ensure loses its covered-only resolution (in `default_ensure`, the `map.insert(DEFAULT_KEY, <covered-only resolution>)` replaced by `let _ = stored;`)",
+ "file": "crates/app/src/operations/default_activation_m05.rs",
+ "observed_by": "the worker in its own worktree at base 28d54e3b (its DONE.md §5); sources restored byte-identical (checked with cmp)",
+ "command": "TMPDIR=<short scratch dir> cargo test -p heimdall-runtime --lib default_m05::a_narrowing -- --test-threads=2",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "a_narrowing_racing_the_activation_fails_not_covered_without_a_decision ... FAILED",
+   "assertion left == right failed: no decision record / left: 1 / right: 0 (an ApproveAuthority record was created)"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed"
+  ]
+ }
+}

@@ -1,0 +1,48 @@
+{
+  "source": "ADR-0006 revision 5.2 (section 17.10 item 21; M05 wave 3, orchestrator ruling I-14), transcribed from the ruling's text, never from the code under test: WorkspaceView.proposal is the trust proposal the server builds for the working directory (the manifest's request intersected with the profile's latest snapshot). It is omitted when there is none, so every earlier inspect workspace document is unchanged.",
+  "capability": "trusted-work/1",
+  "subject": "inspect-workspace",
+  "field": "proposal",
+  "views": [
+    {
+      "what": "an untrusted manifest root: the proposal is written, with the manifest's access digest",
+      "json": {
+        "cwd": "/w/app",
+        "root": "/w",
+        "match": "untrusted",
+        "access_digest": "ab00000000000000000000000000000000000000000000000000000000000001",
+        "proposal": {
+          "profile": "dev",
+          "pairs": [{"destination": "lab-db", "account": "deploy"}],
+          "environments": ["env_01010101010101010101010101010101"],
+          "capabilities": ["ssh-authentication"],
+          "background_work": true
+        },
+        "provenance": "same_user_context"
+      },
+      "has_proposal": true
+    },
+    {
+      "what": "the smallest proposal: the whole profile (empty lists are omitted, background_work false is omitted)",
+      "json": {
+        "cwd": "/w",
+        "root": "/w",
+        "match": "untrusted",
+        "access_digest": "ab00000000000000000000000000000000000000000000000000000000000002",
+        "proposal": {"profile": "dev"},
+        "provenance": "same_user_context"
+      },
+      "has_proposal": true
+    },
+    {
+      "what": "a manifest-less root: no proposal, the key is absent",
+      "json": {"cwd": "/w", "root": "/w", "match": "untrusted", "provenance": "same_user_context"},
+      "has_proposal": false
+    },
+    {
+      "what": "no workspace root: no proposal, the key is absent",
+      "json": {"cwd": "/tmp/x", "match": "none", "provenance": "same_user_context"},
+      "has_proposal": false
+    }
+  ]
+}

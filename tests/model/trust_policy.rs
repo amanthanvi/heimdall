@@ -959,6 +959,51 @@ async fn trust_approval_refuses_a_changed_observation_without_consuming() {
     assert_eq!(w.snap(), before, "nothing applied");
 }
 
+/// ⟨W3, from U9a⟩ An owner `extend_scope` records only the authority the policy lacks
+/// (spec §12.3: a review shows the added authority, never the whole scope). A request
+/// naming a pair the policy already has and one it lacks gets a record listing only the
+/// missing pair, and approving it widens exactly that (ADR-0011 I5: the action is fixed
+/// from server state when the record is created).
+#[tokio::test]
+async fn an_owner_extension_records_only_the_added_authority() {
+    let w = World::new().await;
+    let d = decision_ref(&w.policy(true, create(false)).await.unwrap_err());
+    w.decide(true, &d, Verdict::Approve).await.unwrap();
+    let pid = w.snap().policies.keys().next().unwrap().clone();
+    w.policy(
+        true,
+        PolicyAction::NarrowScope {
+            policy_id: pid.clone(),
+            pairs: hosts(0b1100),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(w.snap().policies[&pid].scope.pairs, hosts(0b0011));
+    let e = w
+        .policy(
+            true,
+            PolicyAction::ExtendScope {
+                policy_id: pid.clone(),
+                pairs: hosts(0b0101),
+                capabilities: BTreeSet::new(),
+                environments: BTreeSet::new(),
+                background_work: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    let id = decision_ref(&e);
+    match w.decision(&id).kind {
+        DecisionKind::WidenPolicy {
+            action: PolicyAction::ExtendScope { pairs, .. },
+        } => assert_eq!(pairs, hosts(0b0100), "only the missing pair"),
+        other => panic!("{other:?}"),
+    }
+    w.decide(true, &id, Verdict::Approve).await.unwrap();
+    assert_eq!(w.snap().policies[&pid].scope.pairs, hosts(0b0111));
+}
+
 /// `ReconcileWorkspace`: a re-clone at the same path is ambiguous; the decision, approved
 /// against an unchanged re-probe, marks the old record `stale`, writes a new record (new
 /// ID) and moves the policy to it (its revision and history row). A re-probe that no
