@@ -730,7 +730,22 @@ async fn an_approved_create_resumes_the_covered_waiter_without_a_second_decision
 // TrustWorkspace and ReconcileWorkspace
 // =================================================================================
 
-const REPO: &str = "/w/repo";
+/// ⟨W1 Windows fix⟩ A working directory is an absolute path by **this platform's** rule
+/// (`WorkContext::validate`): `/w/...` is not absolute on Windows, which has no drive there,
+/// so every fixture directory is written in the platform's absolute form.
+fn wdir(name: &str) -> String {
+    if cfg!(windows) {
+        format!(r"C:\w\{name}")
+    } else {
+        format!("/w/{name}")
+    }
+}
+
+const REPO: &str = if cfg!(windows) {
+    r"C:\w\repo"
+} else {
+    "/w/repo"
+};
 
 fn repo(ino: u64, man: Man) -> Dir {
     Dir {
@@ -874,11 +889,22 @@ async fn trust_approval_refuses_a_changed_observation_without_consuming() {
     let d = decision_ref(&w.policy(true, req).await.unwrap_err());
     let honest = w.probe.get(REPO).unwrap();
     let before = w.snap();
-    // A re-clone at the same path (identity flip), then a manifest edit (digest flip).
+    // A re-clone at the same path (identity flip), then a manifest edit (digest flip), then
+    // (review M05-W1-R01) the Git common directory replaced, reinitialized or removed while
+    // the root and the manifest stay as reviewed: a common-only flip, its disappearance,
+    // and (from a root reviewed without one) its appearance.
     for flipped in [
         repo(900, honest.manifest.clone()),
         Dir {
             manifest: manifest(7, 0b0001, false, None),
+            ..honest.clone()
+        },
+        Dir {
+            git: Some(ident(999)),
+            ..honest.clone()
+        },
+        Dir {
+            git: None,
             ..honest.clone()
         },
     ] {
@@ -888,9 +914,49 @@ async fn trust_approval_refuses_a_changed_observation_without_consuming() {
         assert_eq!(w.decision(&d).state, DecisionState::Pending, "not consumed");
         assert_eq!(w.snap(), before, "nothing applied");
     }
-    w.probe.set(REPO, honest);
+    w.probe.set(REPO, honest.clone());
     w.decide(true, &d, Verdict::Approve).await.unwrap();
-    assert_eq!(w.snap().workspaces.len(), 1);
+    let snap = w.snap();
+    assert_eq!(snap.workspaces.len(), 1);
+    assert_eq!(
+        snap.workspaces.values().next().unwrap().git_common_identity,
+        honest.git,
+        "the record keeps the reviewed common directory"
+    );
+
+    // A root reviewed with no Git common directory: one appearing before approval is not
+    // what was reviewed either.
+    let other = if cfg!(windows) {
+        r"C:\w\plain"
+    } else {
+        "/w/plain"
+    };
+    let plain = Dir {
+        git: None,
+        ..repo(300, manifest(3, 0b0001, false, None))
+    };
+    w.probe.set(other, plain.clone());
+    let d2 = decision_ref(
+        &w.policy(true, trust_request(other, &plain))
+            .await
+            .unwrap_err(),
+    );
+    let before = w.snap();
+    w.probe.set(
+        other,
+        Dir {
+            git: Some(ident(777)),
+            ..plain.clone()
+        },
+    );
+    let e = w.decide(true, &d2, Verdict::Approve).await.unwrap_err();
+    assert_eq!(e.code, Code::DecisionStale);
+    assert_eq!(
+        w.decision(&d2).state,
+        DecisionState::Pending,
+        "not consumed"
+    );
+    assert_eq!(w.snap(), before, "nothing applied");
 }
 
 /// `ReconcileWorkspace`: a re-clone at the same path is ambiguous; the decision, approved
@@ -1005,7 +1071,7 @@ mod p9 {
     const DIRS: usize = 3;
 
     fn cwd(i: u8) -> String {
-        format!("/w/d{}", usize::from(i) % DIRS)
+        wdir(&format!("d{}", usize::from(i) % DIRS))
     }
 
     /// Hostile labels: shell text, newlines, bidirectional and zero-width controls.
@@ -1019,7 +1085,8 @@ mod p9 {
     #[derive(Debug, Clone)]
     enum Step {
         /// A request immediately followed by its attended approval (`flip` mutates the
-        /// probe in between: 0 none, 1 identity, 2 digest).
+        /// probe in between: 0 none, 1 identity, 2 digest, 3 the Git common directory
+        /// replaced, 4 it removed; review M05-W1-R01).
         Approved {
             which: u8,
             arg: u8,
@@ -1064,6 +1131,15 @@ mod p9 {
             tamper: u8,
             attended: bool,
         },
+        /// ⟨W1 Windows fix⟩ A trust or reconcile request whose working directory is not
+        /// absolute by this platform's rule (`form`: relative, rooted without a drive on
+        /// Windows, empty, too long): `USAGE_ERROR` before anything is read or written.
+        BadCwd {
+            dir: u8,
+            form: u8,
+            reconcile: bool,
+            attended: bool,
+        },
         Reconcile {
             dir: u8,
             ws: u8,
@@ -1104,7 +1180,7 @@ mod p9 {
 
     fn step() -> impl Strategy<Value = Step> {
         prop_oneof![
-            8 => (0u8..6, any::<u8>(), prop_oneof![6 => Just(0u8), 1 => Just(1u8), 1 => Just(2u8)])
+            8 => (0u8..6, any::<u8>(), prop_oneof![6 => Just(0u8), 1 => Just(1u8), 1 => Just(2u8), 1 => Just(3u8), 1 => Just(4u8)])
                 .prop_map(|(which, arg, flip)| Step::Approved { which, arg, flip }),
             3 => (any::<bool>(), 0u8..3).prop_map(|(default, window)| Step::Create { default, window }),
             2 => (any::<u8>(), 1u8..16, prop::option::of(any::<bool>()))
@@ -1118,6 +1194,9 @@ mod p9 {
             1 => (any::<u8>(), any::<bool>()).prop_map(|(p, keep)| Step::Lock { p, keep }),
             4 => (any::<u8>(), 0u8..4, any::<bool>())
                 .prop_map(|(dir, tamper, attended)| Step::Trust { dir, tamper, attended }),
+            1 => (any::<u8>(), 0u8..4, any::<bool>(), any::<bool>()).prop_map(
+                |(dir, form, reconcile, attended)| Step::BadCwd { dir, form, reconcile, attended }
+            ),
             2 => (any::<u8>(), any::<u8>()).prop_map(|(dir, ws)| Step::Reconcile { dir, ws }),
             6 => (any::<u8>(), any::<bool>(), any::<bool>())
                 .prop_map(|(pick, attended, approve)| Step::Decide { pick, attended, approve }),
@@ -1138,12 +1217,15 @@ mod p9 {
     #[derive(Debug, Clone, PartialEq)]
     struct Seen {
         identity: Option<FileIdentity>,
+        /// The Git common directory's identity (review M05-W1-R01).
+        git: Option<FileIdentity>,
         digest: Option<String>,
     }
 
     fn seen(d: &Dir) -> Seen {
         Seen {
             identity: d.identity.clone(),
+            git: d.git.clone(),
             digest: match &d.manifest {
                 Man::Valid { digest, .. } => Some(digest.clone()),
                 _ => None,
@@ -1325,7 +1407,7 @@ mod p9 {
                 manifest(i as u64 + 1, 0b0011, i == 1, Some(label))
             };
             w.probe
-                .set(&format!("/w/d{i}"), repo(100 * (i as u64 + 1), man));
+                .set(&wdir(&format!("d{i}")), repo(100 * (i as u64 + 1), man));
         }
         let mut trust_seen: BTreeMap<DecisionId, (String, Seen)> = BTreeMap::new();
         let mut consumed: Vec<DecisionId> = Vec::new();
@@ -1360,7 +1442,7 @@ mod p9 {
                                     continue;
                                 }
                                 for i in 0..DIRS {
-                                    let c = format!("/w/d{i}");
+                                    let c = wdir(&format!("d{i}"));
                                     if let Some(d) = w.probe.get(&c)
                                         && let Some(id) = &d.identity
                                         && ((r.root == c) != r.root_identity.same_file(id))
@@ -1428,6 +1510,10 @@ mod p9 {
                                 2 => w.probe.edit(c, |d| {
                                     d.manifest = manifest(n, 0b0110, false, None);
                                 }),
+                                // Review M05-W1-R01: the Git common directory replaced
+                                // (or reinitialized), then removed, root and manifest kept.
+                                3 => w.probe.edit(c, |d| d.git = Some(ident(5000 + n))),
+                                4 => w.probe.edit(c, |d| d.git = None),
                                 _ => {}
                             }
                         }
@@ -1634,6 +1720,53 @@ mod p9 {
                             )
                             .await;
                     }
+                }
+                Step::BadCwd {
+                    dir,
+                    form,
+                    reconcile,
+                    attended,
+                } => {
+                    let good = cwd(dir);
+                    let Some(d) = w.probe.get(&good) else {
+                        continue;
+                    };
+                    let name = format!("d{}", usize::from(dir) % DIRS);
+                    let bad = match form {
+                        // Relative everywhere.
+                        0 => format!("w/{name}"),
+                        // Rooted but drive-less: absolute on Unix, not on Windows.
+                        1 if cfg!(windows) => format!("/w/{name}"),
+                        1 => format!("./w/{name}"),
+                        2 => String::new(),
+                        _ => format!("{good}{}", "/x".repeat(2100)),
+                    };
+                    let req = if reconcile {
+                        let Some(id) = before.workspaces.keys().next().cloned() else {
+                            continue;
+                        };
+                        PolicyAction::ReconcileWorkspace {
+                            workspace: id,
+                            cwd: bad,
+                        }
+                    } else {
+                        trust_request(&bad, &d)
+                    };
+                    let r = w.policy(attended, req).await;
+                    let after = w.snap();
+                    let e = match r {
+                        Ok(v) => {
+                            return Err(TestCaseError::fail(format!(
+                                "a working directory that is not absolute was accepted: {v:?}"
+                            )));
+                        }
+                        Err(e) => e,
+                    };
+                    prop_assert_eq!(e.code, Code::UsageError);
+                    prop_assert!(e.next.decision_ref.is_none(), "no record");
+                    prop_assert_eq!(&after.pending, &before.pending, "no record");
+                    prop_assert_eq!(&after.workspaces, &before.workspaces);
+                    prop_assert_eq!(&after.policies, &before.policies);
                 }
                 Step::Trust {
                     dir,
@@ -1888,6 +2021,24 @@ mod p9 {
             check_i1(&before, &after, approved.as_ref())?;
         }
         Ok(())
+    }
+
+    /// ⟨W1 Windows fix⟩ The minimal input P9 failed with on Windows at `22dfb168` (the
+    /// fixture's `/w/...` directories were not absolute there), kept as a fixed case so every
+    /// platform replays it through the same trace runner and invariant checks: a hostile
+    /// manifest, then an unattended trust request for that directory.
+    #[test]
+    fn p9_windows_minimal_input_hostile_then_unattended_trust() {
+        if let Err(e) = block(run(vec![
+            Step::Hostile { dir: 54, which: 0 },
+            Step::Trust {
+                dir: 3,
+                tamper: 0,
+                attended: false,
+            },
+        ])) {
+            panic!("{e}");
+        }
     }
 
     proptest! {

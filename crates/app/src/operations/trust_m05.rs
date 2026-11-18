@@ -1402,9 +1402,9 @@ fn check_trust(
         environment,
         root,
         root_identity,
+        git_common_identity,
         access_digest,
         profile_revision,
-        ..
     }) = tx.decision_basis(&d.id)?
     else {
         return Ok(Err(stale(
@@ -1416,11 +1416,20 @@ fn check_trust(
         Err(e) => return Ok(Err(e)),
     };
     // The approval-time re-probe must still equal what the record was created from: the
-    // root, its identity, and the access digest (ADR-0011 I5).
+    // root, its identity, the Git common directory's identity (present or absent alike;
+    // review M05-W1-R01: a replaced or reinitialized `.git` would otherwise hand its own
+    // linked worktrees membership the owner never reviewed, ADR-0011 §2.3), and the
+    // access digest (ADR-0011 I5).
+    let same_common = match (&git_common_identity, &o.git_common_identity) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.same_file(b),
+        _ => false,
+    };
     let same = o.root.as_deref() == Some(root.as_str())
         && o.root_identity
             .as_ref()
             .is_some_and(|i| i.same_file(&root_identity))
+        && same_common
         && o.manifest.as_ref().map(|m| &m.access_digest) == access_digest.as_ref()
         && environment == m05.own;
     if !same {
@@ -1736,17 +1745,15 @@ fn apply_trust(
     let Some(snapshot) = tx.profile_snapshot(&proposal.profile, profile_revision)? else {
         return Ok(Err(stale("the profile revision is unknown")));
     };
-    let observed_git = m05
-        .observed
-        .as_ref()
-        .and_then(|o| o.as_ref().ok())
-        .and_then(|o| o.git_common_identity.clone());
+    // Review M05-W1-R01: the record carries exactly the Git common-directory identity the
+    // decision was created from (and that `check_trust` found unchanged), never a later
+    // observation.
     let ws = WorkspaceRecord {
         id: ids.1.clone(),
         environment: environment.clone(),
         root,
         root_identity,
-        git_common_identity: observed_git.or(git_common_identity),
+        git_common_identity,
         decision: record.id.clone(),
         created_at: now,
         state: WorkspaceState::Active,

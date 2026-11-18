@@ -96,8 +96,21 @@ impl MemFs {
 
     fn put(&mut self, path: &str, node: Node) {
         let id = self.fresh_identity(1);
-        self.nodes.insert(PathBuf::from(path), node);
-        self.ids.insert(PathBuf::from(path), id);
+        // A pointer file's absolute paths are written the way Git writes them on this
+        // platform (`git_text`).
+        let node = match node {
+            Node::File(bytes)
+                if matches!(
+                    Path::new(path).file_name().and_then(|n| n.to_str()),
+                    Some(".git" | "gitdir")
+                ) =>
+            {
+                Node::File(git_text(&bytes))
+            }
+            other => other,
+        };
+        self.nodes.insert(PathBuf::from(p(path)), node);
+        self.ids.insert(PathBuf::from(p(path)), id);
     }
 
     fn dir(&mut self, path: &str) -> &mut Self {
@@ -109,6 +122,12 @@ impl MemFs {
         self
     }
     fn symlink(&mut self, path: &str, target: &str) -> &mut Self {
+        // An absolute target is a fixture path (`p`); a relative one stays relative.
+        let target = if target.starts_with('/') {
+            p(target)
+        } else {
+            target.to_owned()
+        };
         self.put(path, Node::Symlink(PathBuf::from(target)));
         self
     }
@@ -120,8 +139,8 @@ impl MemFs {
     /// `cp -R`: every entry under `from` copied under `to` with fresh identities (on the
     /// device `dev`); symlinks are copied as links.
     fn copy_tree(&mut self, from: &str, to: &str, dev: u64) {
-        let from = PathBuf::from(from);
-        let to = PathBuf::from(to);
+        let from = PathBuf::from(p(from));
+        let to = PathBuf::from(p(to));
         let entries: Vec<(PathBuf, Node)> = self
             .nodes
             .iter()
@@ -138,15 +157,15 @@ impl MemFs {
 
     /// `rm -r`.
     fn remove_tree(&mut self, path: &str) {
-        let path = PathBuf::from(path);
+        let path = PathBuf::from(p(path));
         self.nodes.retain(|p, _| !p.starts_with(&path));
         self.ids.retain(|p, _| !p.starts_with(&path));
     }
 
     /// `mv` within one filesystem: identities travel with the entries.
     fn rename_tree(&mut self, from: &str, to: &str) {
-        let from = PathBuf::from(from);
-        let to = PathBuf::from(to);
+        let from = PathBuf::from(p(from));
+        let to = PathBuf::from(p(to));
         let moved: Vec<PathBuf> = self
             .nodes
             .keys()
@@ -163,13 +182,13 @@ impl MemFs {
     }
 
     fn id_of(&self, path: &str) -> FileIdentity {
-        self.ids[&PathBuf::from(path)].clone()
+        self.ids[&PathBuf::from(p(path))].clone()
     }
 
     fn read_count(&self, path: &str) -> usize {
         self.reads
             .borrow()
-            .get(&PathBuf::from(path))
+            .get(&PathBuf::from(p(path)))
             .copied()
             .unwrap_or(0)
     }
@@ -178,7 +197,7 @@ impl MemFs {
     fn resolve(&self, path: &Path) -> io::Result<PathBuf> {
         let not_found = || io::Error::from(io::ErrorKind::NotFound);
         let mut queue: Vec<String> = components(path).into_iter().rev().collect();
-        let mut resolved = PathBuf::from("/");
+        let mut resolved = root_of(path).ok_or_else(not_found)?;
         let mut hops = 0;
         while let Some(part) = queue.pop() {
             match part.as_str() {
@@ -196,7 +215,7 @@ impl MemFs {
                                 return Err(io::Error::other("symlink loop"));
                             }
                             if target.is_absolute() {
-                                resolved = PathBuf::from("/");
+                                resolved = root_of(target).ok_or_else(not_found)?;
                             }
                             queue.extend(components(target).into_iter().rev());
                         }
@@ -220,7 +239,7 @@ impl MemFs {
             return Ok(Some(self.resolve(path)?));
         };
         let Some(parent) = path.parent() else {
-            return Ok(Some(PathBuf::from("/")));
+            return Ok(root_of(path));
         };
         match self.resolve(parent) {
             Ok(p) => {
@@ -230,6 +249,80 @@ impl MemFs {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         }
+    }
+}
+
+/// ⟨W1 Windows fix⟩ A fixture path, written Unix-style in these tests, in the form this
+/// platform's canonical paths take. Unix: unchanged. Windows: the verbatim form
+/// `std::fs::canonicalize` returns (`/work/proj` → `\\?\C:\work\proj`), so fixture keys
+/// and observed roots are what the runtime's real `FsView` produces there.
+fn p(unix: &str) -> String {
+    if cfg!(windows) && unix.starts_with('/') {
+        format!(
+            r"\\?\C:\{}",
+            unix.trim_start_matches('/').replace('/', "\\")
+        )
+    } else {
+        unix.to_owned()
+    }
+}
+
+/// A working directory as a caller passes it: on Windows drive-qualified and not
+/// canonical (`C:\work\proj`), so every test also proves the canonicalization to `p`'s
+/// form. Anything not starting with `/` is passed through unchanged.
+fn cwd_arg(unix: &str) -> String {
+    if cfg!(windows) && unix.starts_with('/') {
+        format!(r"C:\{}", unix.trim_start_matches('/').replace('/', "\\"))
+    } else {
+        unix.to_owned()
+    }
+}
+
+/// Pointer-file text (`.git`, `<entry>/gitdir`) with absolute paths written the way Git
+/// writes them on this platform: Git for Windows writes `C:/work/...` (a drive letter and
+/// forward slashes). An absolute path is one starting at the text's start or right after a
+/// space or a newline; relative paths (`../.git/modules/sub`) are unchanged.
+fn git_text(bytes: &[u8]) -> Vec<u8> {
+    if !cfg!(windows) {
+        return bytes.to_vec();
+    }
+    let mut out = Vec::with_capacity(bytes.len() + 8);
+    for (i, &b) in bytes.iter().enumerate() {
+        let starts = i == 0 || matches!(bytes[i - 1], b' ' | b'\n');
+        if b == b'/' && starts {
+            out.extend_from_slice(b"C:");
+        }
+        out.push(b);
+    }
+    out
+}
+
+/// The root of an absolute path as this platform's canonical form has it: `/` on Unix; on
+/// Windows the verbatim drive or UNC root (`\\?\C:\`, `\\?\UNC\server\share\`), whatever
+/// form the input used, as `std::fs::canonicalize` returns. `None` for a relative path.
+fn root_of(path: &Path) -> Option<PathBuf> {
+    use std::path::{Component, Prefix};
+    let mut comps = path.components();
+    match comps.next()? {
+        Component::RootDir if cfg!(unix) => Some(PathBuf::from("/")),
+        Component::Prefix(pre) => {
+            if comps.next() != Some(Component::RootDir) {
+                return None;
+            }
+            let root = match pre.kind() {
+                Prefix::Disk(l) | Prefix::VerbatimDisk(l) => {
+                    format!(r"\\?\{}:\", char::from(l).to_ascii_uppercase())
+                }
+                Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => format!(
+                    r"\\?\UNC\{}\{}\",
+                    server.to_string_lossy(),
+                    share.to_string_lossy()
+                ),
+                _ => return None,
+            };
+            Some(PathBuf::from(root))
+        }
+        _ => None,
     }
 }
 
@@ -1073,7 +1166,7 @@ fn base_fs() -> MemFs {
 }
 
 fn observe(fs: &MemFs, cwd: &str) -> WorkspaceObservation {
-    observe_workspace(fs, &env(), cwd)
+    observe_workspace(fs, &env(), &cwd_arg(cwd))
         .unwrap_or_else(|e| panic!("observe {cwd}: {e:?}"))
         .unwrap_or_else(|| panic!("observe {cwd}: personal context"))
 }
@@ -1098,7 +1191,7 @@ fn record(id: u8, obs: &WorkspaceObservation) -> WorkspaceRecord {
 fn the_manifest_is_read_once_and_the_bytes_hashed_are_the_bytes_parsed() {
     let fs = base_fs();
     let obs = observe(&fs, "/work/proj/src");
-    assert_eq!(obs.root, "/work/proj");
+    assert_eq!(obs.root, p("/work/proj"));
     assert_eq!(fs.read_count("/work/proj/.heimdall.toml"), 1);
     let parsed = obs.manifest.unwrap().unwrap();
     assert_eq!(parsed.access_digest, ok(MANIFEST).access_digest);
@@ -1128,7 +1221,7 @@ fn a_nonregular_manifest_is_manifest_invalid_and_an_oversized_one_is_a_parse_ref
                 fs.dir("/work/proj/.heimdall.toml");
             }
         }
-        let err = observe_workspace(&fs, &env(), "/work/proj").unwrap_err();
+        let err = observe_workspace(&fs, &env(), &cwd_arg("/work/proj")).unwrap_err();
         assert_eq!(err, ObserveError::ManifestNotRegular);
         assert_eq!(err.manifest_reason(), Some(MANIFEST_INVALID));
     }
@@ -1152,7 +1245,7 @@ fn a_symlinked_manifest_is_still_the_root_marker_and_is_never_followed() {
         .file("/elsewhere", b"x")
         .symlink("/w/p/.heimdall.toml", "/elsewhere");
     assert_eq!(
-        observe_workspace(&fs, &env(), "/w/p").unwrap_err(),
+        observe_workspace(&fs, &env(), &cwd_arg("/w/p")).unwrap_err(),
         ObserveError::ManifestNotRegular
     );
 }
@@ -1231,15 +1324,18 @@ fn every_row_of_the_adr_0011_table() {
     assert_eq!(matches(&cross, "/mnt/proj"), WorkspaceMatch::Untrusted);
 
     // Parent directory of a trusted root: discovery never finds the child.
-    assert_eq!(observe_workspace(&fs, &env(), "/work").unwrap(), None);
-    assert_eq!(observe_workspace(&fs, &env(), "/").unwrap(), None);
+    assert_eq!(
+        observe_workspace(&fs, &env(), &cwd_arg("/work")).unwrap(),
+        None
+    );
+    assert_eq!(observe_workspace(&fs, &env(), &cwd_arg("/")).unwrap(), None);
 
     // A nested manifest inside a trusted tree is its own root, never trusted by the parent.
     fs.dir("/work/proj/pkg")
         .file("/work/proj/pkg/.heimdall.toml", MANIFEST.as_bytes());
     fs.dir("/work/proj/pkg/deep");
     let nested = observe(&fs, "/work/proj/pkg/deep");
-    assert_eq!(nested.root, "/work/proj/pkg");
+    assert_eq!(nested.root, p("/work/proj/pkg"));
     assert_eq!(
         match_workspace(&nested, &records),
         WorkspaceMatch::Untrusted
@@ -1256,7 +1352,7 @@ fn a_submodule_and_a_nested_repository_are_their_own_workspaces() {
     fs.dir("/work/proj/sub")
         .file("/work/proj/sub/.git", b"gitdir: ../.git/modules/sub\n");
     let sub = observe(&fs, "/work/proj/sub");
-    assert_eq!(sub.root, "/work/proj/sub");
+    assert_eq!(sub.root, p("/work/proj/sub"));
     assert!(matches!(
         sub.git,
         Some(GitObservation::LinkedWorktree {
@@ -1293,7 +1389,7 @@ fn a_submodule_and_a_nested_repository_are_their_own_workspaces() {
         .dir("/work/proj/nested/.git")
         .dir("/work/proj/nested/x");
     let nested = observe(&fs, "/work/proj/nested/x");
-    assert_eq!(nested.root, "/work/proj/nested");
+    assert_eq!(nested.root, p("/work/proj/nested"));
     assert_eq!(match_workspace(&nested, &[rec]), WorkspaceMatch::Untrusted);
 }
 
@@ -1356,16 +1452,16 @@ fn discovery_rejects_a_bad_working_directory() {
     let fs = base_fs();
     for cwd in ["", "/work/proj\0x"] {
         assert_eq!(
-            observe_workspace(&fs, &env(), cwd).unwrap_err(),
+            observe_workspace(&fs, &env(), &cwd_arg(cwd)).unwrap_err(),
             ObserveError::BadCwd
         );
     }
     assert!(matches!(
-        observe_workspace(&fs, &env(), "/work/nope").unwrap_err(),
+        observe_workspace(&fs, &env(), &cwd_arg("/work/nope")).unwrap_err(),
         ObserveError::Io(_)
     ));
     assert_eq!(
-        observe_workspace(&fs, &env(), "/work/proj/.heimdall.toml").unwrap_err(),
+        observe_workspace(&fs, &env(), &cwd_arg("/work/proj/.heimdall.toml")).unwrap_err(),
         ObserveError::BadCwd
     );
 }
@@ -1392,7 +1488,7 @@ fn a_verified_linked_worktree_is_a_member() {
     let obs = observe(&fs, "/work/wt");
     assert!(matches!(
         &obs.git,
-        Some(GitObservation::LinkedWorktree { verified: true, common: Some(c), common_identity: Some(_) }) if c == "/work/proj/.git"
+        Some(GitObservation::LinkedWorktree { verified: true, common: Some(c), common_identity: Some(_) }) if *c == p("/work/proj/.git")
     ));
     assert_eq!(
         match_workspace(&obs, &[rec]),
@@ -1400,6 +1496,62 @@ fn a_verified_linked_worktree_is_a_member() {
     );
 }
 
+/// ⟨W1 Windows fix⟩ Windows path forms (ADR-0011 §2.3 on Windows): a working directory
+/// given drive-qualified, verbatim, with forward slashes or with a lower-case drive letter
+/// observes one canonical root, the verbatim form `std::fs::canonicalize` returns, and
+/// matches the same record; a linked worktree whose pointer files Git for Windows wrote
+/// (`C:/...`) verifies; a UNC share is its own canonical namespace. The comparisons stay
+/// exact string and identity equality on canonical forms, never on what a caller typed.
+#[cfg(windows)]
+#[test]
+fn windows_drive_verbatim_forward_slash_and_unc_forms_observe_one_canonical_root() {
+    let fs = worktree_fs();
+    let rec = recorded_main(&fs);
+    assert_eq!(rec.root, r"\\?\C:\work\proj");
+    for cwd in [
+        r"C:\work\proj\src",
+        r"\\?\C:\work\proj\src",
+        "C:/work/proj/src",
+        r"c:\work\proj\src",
+    ] {
+        let obs = observe_workspace(&fs, &env(), cwd)
+            .unwrap()
+            .expect("a workspace root");
+        assert_eq!(obs.root, r"\\?\C:\work\proj", "{cwd}");
+        assert_eq!(
+            match_workspace(&obs, std::slice::from_ref(&rec)),
+            WorkspaceMatch::Trusted { workspace: ws(1) },
+            "{cwd}"
+        );
+    }
+    let wt = observe_workspace(&fs, &env(), r"C:\work\wt")
+        .unwrap()
+        .expect("the worktree root");
+    assert!(matches!(
+        &wt.git,
+        Some(GitObservation::LinkedWorktree { verified: true, common: Some(c), .. })
+            if c == r"\\?\C:\work\proj\.git"
+    ));
+    assert_eq!(
+        match_workspace(&wt, std::slice::from_ref(&rec)),
+        WorkspaceMatch::Member { workspace: ws(1) }
+    );
+
+    let mut unc = MemFs::new();
+    unc.dir(r"\\?\UNC\server\share\")
+        .dir(r"\\?\UNC\server\share\proj")
+        .dir(r"\\?\UNC\server\share\proj\.git")
+        .dir(r"\\?\UNC\server\share\proj\src");
+    let obs = observe_workspace(&unc, &env(), r"\\server\share\proj\src")
+        .unwrap()
+        .expect("a workspace root on the share");
+    assert_eq!(obs.root, r"\\?\UNC\server\share\proj");
+    // A record made on the drive never matches the share, however the paths look alike.
+    assert_eq!(
+        match_workspace(&obs, std::slice::from_ref(&rec)),
+        WorkspaceMatch::Untrusted
+    );
+}
 #[test]
 fn a_copied_worktree_whose_gitdir_still_names_the_original_is_untrusted() {
     let mut fs = worktree_fs();

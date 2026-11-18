@@ -55,6 +55,22 @@ the U0b spike.
 - Workers run at most two at a time, on Sonnet 5.5 for well-specified units and Opus 5.5 for
   authority-sensitive ones (orchestrator instruction, 2026-11-18).
 
+**Wave-2 assignments (2026-11-18, with W1 at `22dfb168`):**
+- **Server behaviour only.** W2 builds the server behaviour of U3, U4 and U7, proven in
+  process. Every M05 command and flag, including `activate --hook`, `shell init`,
+  `run` without `--profile` on the client side, and `export`/`import`, lands in W3 with U9,
+  together with offering `trusted-work/1`. The capability stays declared and not offered until
+  then, as revision 5 says. Ruling 3's server half (`covered_only` never creates a decision)
+  is proven in W2; its client half (the hook never prompts) in W3.
+- **Orchestrator rulings placed in W2:**
+  - I-1, `ensure` reuses a work ID's active grant when every pin matches: U3, with work stops.
+  - I-4, `manifest_basis`, and I-5, a denied trust starts a cooldown: U4.
+  - I-6, the revision-5.1 `CatalogRequest::SetDefaultProfile` draft: U7, for the contract
+    owner's approval at W2's ready point.
+  - I-2, approving a default policy sets the default-profile preference: U5 in W3.
+- **Fixture rule.** Every brief requires `HEIMDALL_HOME` and `HOME` in scratch for every
+  `heimdall` invocation, one-off checks included.
+
 ## 0. Rules
 
 - **Writing:** each unit writes only its owner paths and its own test files.
