@@ -1332,6 +1332,7 @@ dependencies = [
  "heimdall-ipc",
  "heimdall-issuer",
  "heimdall-localenv",
+ "heimdall-project",
  "heimdall-sshconf",
  "heimdall-store",
  "heimdall-testkit",

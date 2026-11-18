@@ -15,6 +15,10 @@
 #   lock_harness_post_unlock_checks_follow_remaining_deadline
 #   lock_harness_runs_the_p1_signal_test_across_the_lock, lock_harness_starts_one_driver_process,
 #   lock_harness_fails_on_a_failed_preparation, lock_harness_fails_on_a_failed_driver_test
+#   lock_harness_ends_cleanly_when_the_unlock_never_comes (the 12 h bound's path, shortened)
+#   lock_harness_survives_a_signal_to_its_process_group (the driver in its own session)
+#   lock_harness_stops_what_a_driver_left_without_its_cleanup (group, runtime, kept reasons)
+#   lock_harness_never_passes_a_rehearsal_to_the_driver
 #   windows_lock_run_is_release_profile_on_dpapi_store   (lock-windows.ps1 -SelfTest; skip without pwsh)
 #   wsl_harness_unregisters_only_its_distribution        (tests/native/m02/selftest.sh's
 #       D11/D12 run against tests/native/m03/run-wsl-distro.sh; reported there)
@@ -50,7 +54,9 @@ skip() { echo "skip $1 ($2)"; }
 # handshake (lock-lib.sh): `ready` (or `prepare-failed`), then `locked` or `abort` from the
 # harness, `locked-done`, then `unlocked` (with `expect`) or `abort`; it writes the files
 # the real driver writes and prints libtest lines (an `aborted:` reason for a skipped test).
-# SCENARIO: good, misattributed, late-r, failed-test, prepare-blocked, prepare-failed.
+# SCENARIO: good, misattributed, late-r, failed-test, prepare-blocked, prepare-failed,
+# never-unlocks (the session stays locked), dies-locked (a locked step fails, a child is
+# left in its process group, then the driver is killed: no cleanup, no `done`).
 world() {
     W="$T/$1"
     B="$W/bin"
@@ -80,6 +86,7 @@ EOF
     cat >"$W/heimdall" <<EOF
 #!/bin/sh
 echo "heimdall \$*" >>"$L"
+[ -n "\${HEIMDALL_HOME:-}" ] && echo "heimdall-home \${HEIMDALL_HOME##*/}" >>"$L"
 [ "\$*" = "--json service stop" ] && exit 0
 [ "\$*" = "--json internal session-lock-state" ] || exit 2
 printf '{"state":"OK","code":"OK","data":{"state":"%s","source":"platform","signal":"macos_screen_lock"}}\n' "\$(cat "$ST")"
@@ -103,6 +110,7 @@ fails=""
 # fail TEST WHY (WHY without spaces: underscores print as spaces)
 fail() { res "\$1" FAILED; fails="\$fails \$1|\$2"; }
 finish() {
+    rm -f "\$s/runtime-home.txt"
     res a03_lock_cleanup ok; log cleanup; flag done
     if [ -n "\$fails" ]; then
         printf '\nfailures:\n'
@@ -118,6 +126,9 @@ finish() {
 }
 LOCKED="a03_fresh_logins_while_locked_continue a03_new_grant_while_locked_under_standing_policy a03_lock_revokes_ends_grant_and_fresh_login_fails a03_vault_stand_in_locked_agent_does_not_matter"
 log "start \$*"
+log "rehearsal=\${HM_LOCK_REHEARSAL:-unset}"
+log "pgid \$(ps -o pgid= -p \$\$ | tr -d ' ') pid \$\$ harness-pgid \$(ps -o pgid= -p "\$HM_LOCK_HARNESS_PID" | tr -d ' ')"
+mkdir -p "\$TMPDIR/hh" && printf '%s\n' "\$TMPDIR/hh" >"\$s/runtime-home.txt"
 now=\$(date +%s)
 case "\$scenario" in
     prepare-blocked)
@@ -154,6 +165,13 @@ printf '%s\tlocked\t3\tN\theimdall:env:gn:1\taccepted\n' "\$now" >>"\$s/logins.t
 printf '%s\trevoked\tR\n' "\$now" >>"\$s/events.tsv"
 if [ "\$scenario" = late-r ]; then r=accepted; k=heimdall:env:gr:1; else r=refused; k=-; fi
 printf '%s\tlocked\t2\tR\t%s\t%s\n' \$((now + 1)) "\$k" "\$r" >>"\$s/logins.tsv"
+if [ "\$scenario" = dies-locked ]; then
+    res a03_lock_revokes_ends_grant_and_fresh_login_fails FAILED
+    printf '%s\n' "a03_lock_revokes_ends_grant_and_fresh_login_fails: R is revoked within 120 s: reads revoking (stub)" >"\$s/failure-a03_lock_revokes_ends_grant_and_fresh_login_fails.txt"
+    sleep 300 &
+    log "child \$!"
+    kill -KILL \$\$
+fi
 for t in \$LOCKED; do
     if [ "\$scenario" = failed-test ] && [ "\$t" = a03_new_grant_while_locked_under_standing_policy ]; then
         fail "\$t" "a_stub_failure"
@@ -161,7 +179,7 @@ for t in \$LOCKED; do
         res "\$t" ok
     fi
 done
-echo unlocked >"$ST"
+[ "\$scenario" = never-unlocks ] || echo unlocked >"$ST"
 flag locked-done
 f=\$(await abort unlocked)
 if [ "\$f" != unlocked ]; then
@@ -181,7 +199,24 @@ EOF
 # lock: run lock-macos.sh in the current world; sets rc.
 lock() {
     env PATH="$B:$PATH" HM_LOCK_DRIVER="$W/driver" HEIMDALL_E2E_BIN="$W/heimdall" HM_LOCK_SIGNAL_TEST="$W/signal" HM_LOCK_VERIFY_S=4 \
-        HM_LOCK_WAIT_UNLOCK_S=60 bash "$here/lock-macos.sh" "$O" >"$W/harness.log" 2>&1 </dev/null
+        HM_LOCK_WAIT_UNLOCK_S="${WAIT_UNLOCK:-60}" bash "$here/lock-macos.sh" "$O" >"$W/harness.log" 2>&1 </dev/null
+    rc=$?
+    [ "${HM_SELFTEST_VERBOSE:-0}" = 1 ] && { echo "--- lock-macos.sh exit $rc"; cat "$W/harness.log" "$O/commands.txt"; }
+}
+
+# lock_signalled: run lock-macos.sh in a process group of its own (as a terminal would),
+# send TERM to that whole group once the driver has its `locked`, and wait; sets rc.
+lock_signalled() {
+    local hpid n=0
+    python3 -I -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+        env PATH="$B:$PATH" HM_LOCK_DRIVER="$W/driver" HEIMDALL_E2E_BIN="$W/heimdall" HM_LOCK_SIGNAL_TEST="$W/signal" \
+        HM_LOCK_VERIFY_S=4 HM_LOCK_WAIT_UNLOCK_S=60 bash "$here/lock-macos.sh" "$O" >"$W/harness.log" 2>&1 </dev/null &
+    hpid=$!
+    while ! grep -q "^driver locked" "$L" && [ "$n" -lt 200 ]; do sleep 0.2; n=$((n + 1)); done
+    sleep 1
+    echo "harness-pgid $hpid" >>"$L"
+    kill -TERM -- "-$hpid" 2>/dev/null
+    wait "$hpid"
     rc=$?
     [ "${HM_SELFTEST_VERBOSE:-0}" = 1 ] && { echo "--- lock-macos.sh exit $rc"; cat "$W/harness.log" "$O/commands.txt"; }
 }
@@ -224,7 +259,7 @@ check "lock_harness_fails_on_a_failed_preparation: prepare-failed: failed: ... -
 
 # --- lock_harness_uses_disjoint_pairs_and_attributes_by_key_id -----------------------------
 world good 1000 1000 1 good
-lock
+HM_LOCK_REHEARSAL=1 lock
 check "lock_harness_runs_the_p1_signal_test_across_the_lock: started before pmset, its result in tests.txt" \
     bash -c 'grep -q "^signal-test --exact macos_lock_signal_observed --ignored" "$2" && grep -q "^test macos_lock_signal_observed ... ok" "$1/tests.txt" &&
         [ "$(grep -n "^signal-test" "$2" | cut -d: -f1)" -lt "$(grep -n "^pmset" "$2" | cut -d: -f1)" ]' _ "$T/good/out" "$T/good/calls.log"
@@ -234,6 +269,8 @@ check "lock_harness_starts_one_driver_process: one start (lock:: filter, 16 thre
         l=$(grep -n "^driver locked" "$1" | cut -d: -f1) && p=$(grep -n "^driver post" "$1" | cut -d: -f1) &&
         c=$(grep -n "^driver cleanup" "$1" | cut -d: -f1) &&
         [ "$r" -lt "$m" ] && [ "$m" -lt "$l" ] && [ "$l" -lt "$p" ] && [ "$p" -lt "$c" ]' _ "$T/good/calls.log"
+check "lock_harness_never_passes_a_rehearsal_to_the_driver: HM_LOCK_REHEARSAL=1 in the harness's environment is unset for the driver" \
+    bash -c 'grep -q "^driver rehearsal=unset$" "$1"' _ "$T/good/calls.log"
 check "lock_harness_uses_disjoint_pairs_and_attributes_by_key_id: correct key IDs on their own hosts -> exit 0" \
     bash -c '[ "$1" = 0 ] && grep -q "^attribution-misattributed=0" "$2/lock.txt" && grep -q "^attribution-r-accepted-after-revocation=0" "$2/lock.txt" &&
         grep -q "^test lock::a03_fresh_logins_while_locked_continue ... ok" "$2/tests.txt" && [ ! -e "$2/blocked.txt" ] &&
@@ -250,6 +287,40 @@ world failedtest 1000 1000 1 failed-test
 lock
 check "lock_harness_fails_on_a_failed_driver_test: one locked test FAILED (not aborted) -> exit 1" \
     bash -c '[ "$1" = 1 ] && grep -q "^exit 1: driver test lock::a03_new_grant_while_locked_under_standing_policy: FAILED" "$2/commands.txt"' _ "$rc" "$O"
+
+# --- lock_harness_ends_cleanly_when_the_unlock_never_comes ---------------------------------
+world nounlock 1000 1000 1 never-unlocks
+WAIT_UNLOCK=3 lock
+check "lock_harness_ends_cleanly_when_the_unlock_never_comes: exit 3 unlock_not_observed; abort; the driver cleaned up by itself; bundle written; scratch removed" \
+    bash -c '[ "$1" = 3 ] && grep -q "unlock_not_observed" "$2/blocked.txt" && grep -q "^driver abort unlock_not_observed" "$3" &&
+        grep -q "^driver cleanup" "$3" && grep -q "^exit 0: the lock driver ended by itself" "$2/commands.txt" &&
+        grep -q "^exit 3: driver test lock::a03_post_unlock_follows_remaining_deadline: FAILED" "$2/commands.txt" &&
+        ! grep -q "service stop" "$3" && ! grep -q "own process group" "$2/commands.txt" &&
+        grep -q "^### e2e_exit_m03 exit=101" "$2/tests.txt" && [ -s "$2/lock.txt" ] &&
+        grep -q "^exit 0: remove exactly the run.s scratch directory" "$2/commands.txt" && ! grep -q "^exit 1: " "$2/commands.txt"' _ "$rc" "$O" "$L"
+
+# --- lock_harness_survives_a_signal_to_its_process_group -----------------------------------
+world signalled 1000 1000 1 never-unlocks
+lock_signalled
+check "lock_harness_survives_a_signal_to_its_process_group: the driver runs in its own process group (not the harness's)" \
+    bash -c 'set -- $(grep "^driver pgid" "$1"); [ "$3" = "$5" ] && [ "$3" != "$7" ] && [ -n "$7" ]' _ "$L"
+check "lock_harness_survives_a_signal_to_its_process_group: TERM to the harness's group -> exit 3 harness_interrupted; the driver aborted and cleaned up by itself; bundle written" \
+    bash -c '[ "$1" = 3 ] && grep -q "harness_interrupted: SIGTERM" "$2/blocked.txt" && grep -q "^driver abort harness_ended" "$3" &&
+        grep -q "^driver cleanup" "$3" && grep -q "^exit 0: the lock driver ended by itself" "$2/commands.txt" &&
+        ! grep -q "service stop" "$3" && grep -q "^### e2e_exit_m03 exit=" "$2/tests.txt" && [ -s "$2/lock.txt" ] &&
+        grep -q "^exit 0: remove exactly the run.s scratch directory" "$2/commands.txt" && ! grep -q "^exit 1: " "$2/commands.txt"' _ "$rc" "$O" "$L"
+
+# --- lock_harness_stops_what_a_driver_left_without_its_cleanup -----------------------------
+world died 1000 1000 1 dies-locked
+lock
+check "lock_harness_stops_what_a_driver_left_without_its_cleanup: its group's leftover stopped by exact PID; the fallback service stop in its home; the kept reason recorded; exit 1" \
+    bash -c '[ "$1" = 1 ] && c=$(sed -n "s/^driver child //p" "$3") && [ -n "$c" ] && ! kill -0 "$c" 2>/dev/null &&
+        grep -q "^exit 0: the driver ended without its cleanup: processes left in its own process group stopped by exact PID: 1 sleep$" "$2/commands.txt" &&
+        grep -q "^heimdall --json service stop" "$3" && grep -q "^heimdall-home hh$" "$3" &&
+        grep -q "^exit 0: heimdall service stop in the driver.s scratch Heimdall home (fallback; exit 0; no advertised PID)" "$2/commands.txt" &&
+        grep -q "^step-failure=a03_lock_revokes_ends_grant_and_fresh_login_fails: .*reads revoking (stub)" "$2/lock.txt" &&
+        grep -q "^---- failure-a03_lock_revokes_ends_grant_and_fresh_login_fails (the reason the driver kept" "$2/tests.txt" &&
+        grep -q "^exit 1: driver test lock::a03_lock_cleanup: no result" "$2/commands.txt"' _ "$rc" "$O" "$L"
 
 # --- lock_harness_post_unlock_checks_follow_remaining_deadline -----------------------------
 check "lock_harness_post_unlock_checks_follow_remaining_deadline: C with 13 h left usable, N past its deadline expired, R terminal (the expect file)" \

@@ -271,9 +271,12 @@ def build_inventory(index, lister, host, scans=None, digest=None):
                     problems.append(f"{sid}: {target}::{item} is ambiguous ({len(hit)} tests)")
                 got.update(hit)
             out[target] = sorted(got)
+            macro = {k.split("::", 1)[1]: e for k, e in (index.get("macro_tests") or {}).items()
+                     if k.split("::", 1)[0] == target}
             for plat, rep in scans.items():
-                extra = (rep.get(target) or {}).get("extra", [])
-                add = sorted(n for n in extra if n not in names and any(is_pattern(i) and matches(i, n) for i in items))
+                extra = list((rep.get(target) or {}).get("extra", []))
+                extra += [n for n, e in macro.items() if plat in e.get("platforms", [])]
+                add = sorted(set(n for n in extra if n not in names and any(is_pattern(i) and matches(i, n) for i in items)))
                 if add:
                     inv["platform_extra"].setdefault(sid, {}).setdefault(plat, {})[target] = add
         inv[kind][sid] = {"tests": out}
@@ -318,12 +321,20 @@ def check_index(index):
     declares."""
     problems = []
     plats = index.get("platforms", {})
-    cargo = {p for p, m in plats.items() if m.get("runs") == "cargo"}
+    # ⟨M03 wave 6⟩ A `procedure` platform (a native procedure such as the lock runs) runs
+    # cargo test binaries too, only the tests the case index names for it (`applicable`).
+    cargo = {p for p, m in plats.items() if m.get("runs") in ("cargo", "procedure")}
     scenario = index.get("scenario_targets", {})
     for key, entry in sorted((index.get("platform_only") or {}).items()):
-        if not isinstance(entry, dict) or set(entry) != {"platforms", "rationale"}:
-            problems.append(f"platform_only {key}: needs exactly platforms and rationale")
+        # ⟨M03 wave 6⟩ `ignored_elsewhere: true`: the test is compiled on the platforms the
+        # entry leaves out but `#[ignore]`d there (a Docker or lock-procedure case that only
+        # its own run executes), so an `ignored` result there is expected, never stale.
+        keys = set(entry) if isinstance(entry, dict) else set()
+        if not isinstance(entry, dict) or not ({"platforms", "rationale"} <= keys <= {"platforms", "rationale", "ignored_elsewhere"}):
+            problems.append(f"platform_only {key}: needs exactly platforms and rationale (and optionally ignored_elsewhere)")
             continue
+        if "ignored_elsewhere" in entry and entry["ignored_elsewhere"] is not True:
+            problems.append(f"platform_only {key}: ignored_elsewhere, when present, is true")
         where = entry["platforms"]
         if not isinstance(where, list) or not where or not all(isinstance(p, str) for p in where) \
                 or len(set(where)) != len(where) or not set(where) <= cargo:
@@ -332,6 +343,19 @@ def check_index(index):
             problems.append(f"platform_only {key}: the rationale is empty")
     if "platform_only_rationale" in index:
         problems.append("platform_only_rationale is withdrawn: each platform_only entry carries its rationale")
+    # ⟨M03 wave 6⟩ macro_tests: a test a macro generates (invisible to the source scan that
+    # finds platform-only tests), named exactly, with the platforms it exists on.
+    for key, entry in sorted((index.get("macro_tests") or {}).items()):
+        if "::" not in key or is_pattern(key.split("::", 1)[1]):
+            problems.append(f"macro_tests {key}: needs an exact <target>::<test> name")
+        if not isinstance(entry, dict) or set(entry) != {"platforms", "rationale"}:
+            problems.append(f"macro_tests {key}: needs exactly platforms and rationale")
+            continue
+        where = entry["platforms"]
+        if not isinstance(where, list) or not where or not set(where) <= cargo:
+            problems.append(f"macro_tests {key}: platforms must be cargo platforms of the index")
+        if not isinstance(entry["rationale"], str) or not entry["rationale"].strip():
+            problems.append(f"macro_tests {key}: the rationale is empty")
     for kind, sid, _, sec in sections(index):
         req = sec.get("platform_required")
         if req is None:
@@ -507,21 +531,42 @@ def most_specific(entries, target, name):
 
 
 def platform_only_lookup(index, inv, target, name):
-    """The platforms the most specific platform_only entry allows, or None (case-index
-    entries override inventory entries with the same key)."""
-    entries = dict(inv.get("platform_only", {}))
-    entries.update(index_platform_only(index))
-    return most_specific(entries, target, name)[1]
+    """The platforms a test applies on, or None (everywhere).
+
+    Two sources, each by its most specific entry: the case index says where a test
+    *runs* (a policy, with a rationale), the inventory's scan where it *compiles* (a fact,
+    for the build host and the scanned platforms only). ⟨M03 wave 6⟩ A test applies where
+    both allow it: the case index's platforms, less those the scan knows and leaves out.
+    So a scan entry more specific than a case-index module entry can never widen it, and
+    a platform the scan does not cover (a lock procedure, a scenario) is the index's alone.
+    With only one source, that source decides."""
+    _, by_index = most_specific(index_platform_only(index), target, name)
+    _, by_scan = most_specific(dict(inv.get("platform_only", {})), target, name)
+    if by_scan is None:
+        return by_index
+    if by_index is None:
+        return by_scan
+    known = set(inv.get("scanned_platforms") or [])
+    host = inv.get("build_host") or index.get("build_host")
+    if known and host:
+        known.add(host)
+    return [p for p in by_index if p not in known or p in by_scan]
 
 
 def applicable(index, inv, target, name, platform):
     scenario = index.get("scenario_targets", {})
     if target in scenario:
         return platform in scenario[target].get("platforms", [])
-    if index.get("platforms", {}).get(platform, {}).get("runs") != "cargo":
+    runs = index.get("platforms", {}).get(platform, {}).get("runs")
+    if runs not in ("cargo", "procedure"):
         return False
     if f"{target}::{name}" in index.get("child_entries", {}):
         return False
+    if runs == "procedure":
+        # ⟨M03 wave 6⟩ A native procedure (the lock runs) executes only its own tests: a
+        # test applies there only when the case index's most specific entry names it.
+        _, by_index = most_specific(index_platform_only(index), target, name)
+        return by_index is not None and platform in by_index
     plats = platform_only_lookup(index, inv, target, name)
     return True if plats is None else platform in plats
 
@@ -567,7 +612,8 @@ def coverage_guard(index, inv, kind, sid, platform, logs):
                 if key is not None and platform not in where:
                     out["by_rationale"][key] = out["by_rationale"].get(key, 0) + 1
                     result = logs.get(target, {}).get(n)
-                    if result is not None:
+                    expected_ignored = result == "ignored" and (index.get("platform_only") or {}).get(key, {}).get("ignored_elsewhere") is True
+                    if result is not None and not expected_ignored:
                         out["stale"].append((key, qual, result))
                 else:
                     out["unjustified"].append(qual)
@@ -939,6 +985,12 @@ def evaluate(cfg, index, inv):
         nonlocal rc
         rows = []
         for pname, (p, logs) in plats.items():
+            # ⟨M03 wave 6⟩ A procedure's row (a lock run) belongs only to the sections that
+            # declare that procedure: two procedures sharing their tests (the macOS and the
+            # Windows lock runs) never lend a row to each other's record.
+            if (index.get("platforms", {}).get(pname, {}).get("runs") == "procedure"
+                    and declared and pname not in declared):
+                continue
             tests = required(index, inv, kind, sid, pname)
             guard = coverage_guard(index, inv, kind, sid, pname, logs)
             for key, qual, result in guard["stale"]:

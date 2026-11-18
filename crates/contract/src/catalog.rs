@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{AccountName, DestinationId, IdentityId, ProfileId, RequestId};
+use crate::ids::{AccountName, DestinationId, EnvironmentId, IdentityId, ProfileId, RequestId};
 use crate::managed::PreferredMechanism;
 use crate::provider::EndpointRef;
 use crate::request::AccessPairRef;
@@ -221,10 +221,32 @@ pub enum CatalogRequest {
     },
     /// ⟨M05⟩ Revision 5 (m05-plan §4 item 4): apply a portable bundle's catalog intent in
     /// one journaled reconciliation (owner only, no decision: it creates no authority;
-    /// ADR-0011 I4). Joint wave 0 refuses it `driver_unavailable`.
+    /// ADR-0011 I4). Served from M05 U7 (ADR-0006 §17.9): it adds the destinations and
+    /// profiles the catalog lacks and reports every other entry, never overwriting one.
     ApplyImport {
         /// The bundle.
         bundle: crate::project::PortableBundle,
+        /// ⟨M05⟩ Revision 5.1 (§17.9): validate the bundle as a real import does, compute
+        /// the plan and answer it marked as a dry run, **writing nothing** (no catalog row,
+        /// operation, idempotency, event or journal record: a read). Owner only and gated
+        /// on `trusted-work/1`, as a real import. Omitted when false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dry_run: bool,
+        /// Idempotency request ID (not consulted by a dry run).
+        request_id: RequestId,
+    },
+    /// ⟨M05⟩ Revision 5.1 (ADR-0006 §17.9; orchestrator ruling I-6): set or clear an
+    /// environment's default-profile **preference** (ADR-0011 §5.1). Owner only, no
+    /// decision (a preference is never authority: only a new request that omits its
+    /// profile reads it, and a running binding never does), journaled under `catalog`.
+    /// Needs `trusted-work/1`.
+    SetDefaultProfile {
+        /// The environment the preference belongs to; absent: the runtime's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        environment: Option<EnvironmentId>,
+        /// The default profile; `null` clears the preference. Always written.
+        #[serde(default)]
+        profile: Option<ProfileId>,
         /// Idempotency request ID.
         request_id: RequestId,
     },
@@ -268,6 +290,7 @@ impl CatalogRequest {
             CatalogRequest::WithdrawDeclaration { .. } => "withdraw_declaration",
             CatalogRequest::SetPreference { .. } => "set_preference",
             CatalogRequest::ApplyImport { .. } => "apply_import",
+            CatalogRequest::SetDefaultProfile { .. } => "set_default_profile",
         }
     }
 
@@ -284,7 +307,8 @@ impl CatalogRequest {
             | CatalogRequest::DeclareInteraction { request_id, .. }
             | CatalogRequest::WithdrawDeclaration { request_id, .. }
             | CatalogRequest::SetPreference { request_id, .. }
-            | CatalogRequest::ApplyImport { request_id, .. } => request_id,
+            | CatalogRequest::ApplyImport { request_id, .. }
+            | CatalogRequest::SetDefaultProfile { request_id, .. } => request_id,
         }
     }
 
@@ -313,7 +337,8 @@ impl CatalogRequest {
             | CatalogRequest::DeclareInteraction { .. }
             | CatalogRequest::WithdrawDeclaration { .. }
             | CatalogRequest::SetPreference { .. }
-            | CatalogRequest::ApplyImport { .. } => Ok(()),
+            | CatalogRequest::ApplyImport { .. }
+            | CatalogRequest::SetDefaultProfile { .. } => Ok(()),
         }
     }
 }

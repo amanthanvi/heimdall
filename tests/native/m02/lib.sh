@@ -133,6 +133,13 @@ m02_cargo_build() {
                 cargo test --target "$triple" --profile "$profile" --workspace --no-run --locked \
                 --message-format=json-render-diagnostics >"$work/build.json" 2>"$log" ;;
         x86_64-pc-windows-gnu)
+            # ⟨M03 wave 6⟩ lld writes no COFF symbol table, so a Windows binary without debug
+            # information has no Rust symbols, and platform-tests.py could not see which tests
+            # it contains. The lean profile keeps limited debug information (function names)
+            # for this target: line tables alone name none of the workspace's functions.
+            local lt=()
+            [ "$profile" = native-test ] && lt=(CARGO_PROFILE_NATIVE_TEST_DEBUG=limited)
+            env ${lt[@]+"${lt[@]}"} \
             PATH="$s:$PATH" CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$s/zigcc-win.sh" \
             CC_x86_64_pc_windows_gnu="$s/zigcc-win-cc.sh" AR_x86_64_pc_windows_gnu="$s/zigar.sh" \
                 cargo test --target "$triple" --profile "$profile" --workspace --no-run --locked \

@@ -600,6 +600,55 @@ class Applicability(unittest.TestCase):
         index = {"platform_only": {"t::a::c": ["windows"]}}
         self.assertEqual(ev.platform_only_lookup(index, self.INV, "t", "a::c"), ["windows"])
 
+    def test_a_more_specific_scan_entry_never_widens_a_case_index_entry(self):
+        # The scan: Unix-only (compiled on macOS and Linux, not Windows), per test. The case
+        # index: the module runs on macOS only (a Docker phase), and a lock procedure.
+        inv = {"build_host": "macos", "scanned_platforms": ["linux", "windows"],
+               "platform_only": {"t::d::x": ["linux", "macos"], "t::w": ["windows"]}}
+        index = {"platform_only": {"t::d::": {"platforms": ["macos"], "rationale": "r"},
+                                   "t::l::": {"platforms": ["macos-lock", "windows-lock"], "rationale": "r"},
+                                   "t::w": {"platforms": ["windows", "windows-lock"], "rationale": "r"}}}
+        self.assertEqual(ev.platform_only_lookup(index, inv, "t", "d::x"), ["macos"], "never the devbox")
+        self.assertEqual(ev.platform_only_lookup(index, inv, "t", "l::y"), ["macos-lock", "windows-lock"])
+        self.assertEqual(ev.platform_only_lookup(index, inv, "t", "w"), ["windows", "windows-lock"],
+                         "an unscanned platform is the index's alone")
+        index["platform_only"]["t::d::"]["platforms"] = ["macos", "windows"]
+        self.assertEqual(ev.platform_only_lookup(index, inv, "t", "d::x"), ["macos"],
+                         "nor run where the scan shows it is not compiled")
+        self.assertEqual(ev.platform_only_lookup({}, inv, "t", "d::x"), ["linux", "macos"], "the scan alone")
+
+    def test_a_procedure_platform_row_appears_only_where_declared(self):
+        index = copy(INDEX)
+        index["platforms"]["lock"] = {"runs": "procedure"}
+        index["platform_only"] = {"t_exact::e1": {"platforms": ["macos", "linux", "windows", "lock"], "rationale": "r"}}
+        index["groups"]["G2"]["declared_platforms"] = ["macos", "linux", "windows", "lock"]
+        s = Scratch(self, index=index)
+        (s.dir / "lock.log").write_text(log_text({"t_exact": {"e1": "ok"}}, "harness"))
+        (s.dir / "lock.commands").write_text("exit 0: the procedure\n")
+        (s.dir / "lock.facts").write_text("os=synthetic\n")
+        s.cfg["platforms"]["lock"] = {"label": "lock-synthetic", "logs": ["lock.log"], "commands_logs": ["lock.commands"],
+                                      "facts": ["lock.facts"], "artifact_digest": "n/a"}
+        (s.dir / "runs.json").write_text(json.dumps(s.cfg))
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row_status(summary, "G2", "lock-"), "verified")
+        self.assertEqual([r for r in summary["groups"]["G1"]["rows"] if r["platform"].startswith("lock-")], [],
+                         "G1 does not declare the procedure, so it has no row for it")
+
+    def test_a_procedure_platform_requires_only_the_tests_the_index_names_for_it(self):
+        index = {"build_host": "macos",
+                 "platforms": {"macos": {"runs": "cargo"}, "macos-lock": {"runs": "procedure"}},
+                 "platform_only": {"t::lock::": {"platforms": ["macos-lock"], "rationale": "r"},
+                                   "t::sig": {"platforms": ["macos-lock"], "rationale": "r"}},
+                 "groups": {}, "exit_claims": {}}
+        inv = {"platform_only": {}}
+        self.assertTrue(ev.applicable(index, inv, "t", "lock::a", "macos-lock"))
+        self.assertTrue(ev.applicable(index, inv, "t", "sig", "macos-lock"))
+        self.assertFalse(ev.applicable(index, inv, "t", "plain", "macos-lock"), "an unrestricted test is not the procedure's")
+        self.assertTrue(ev.applicable(index, inv, "t", "plain", "macos"))
+        self.assertFalse(ev.applicable(index, inv, "t", "lock::a", "macos"))
+        self.assertEqual(ev.check_index(index), [], "an entry may name a procedure platform")
+
     def test_applicable_follows_the_inventory_platform_only_entries(self):
         inv = make_inventory()
         inv["platform_only"] = {"t_exact::e1": ["macos", "linux"]}
@@ -772,6 +821,26 @@ class CoverageGuard(unittest.TestCase):
         win = self.row(summary, "G1", "windows")
         self.assertEqual(win["status"], "verified", "an undeclared row is evidence, not a claim")
         self.assertEqual(win["excluded_on_this_platform"], 0)
+
+    def test_an_ignored_elsewhere_exclusion_accepts_only_ignored_results(self):
+        """M03 wave 6: a platform_only entry marked ignored_elsewhere (a Docker or lock
+        case compiled everywhere but run only by its own harness) treats an `ignored`
+        result on a left-out platform as expected; one that ran (`ok`) is still stale."""
+        index = copy(INDEX)
+        index["platform_only"] = {"t_wild::w2": {"platforms": ["macos", "linux"], "rationale": "synthetic",
+                                                 "ignored_elsewhere": True}}
+        logs = full_logs()
+        logs["t_wild"]["w2"] = "ignored"
+        rc, summary, err = self.scratch(index=index, windows_logs=logs).run()
+        self.assertNotIn("leaves out windows", err)
+        win = self.row(summary, "G1", "windows")
+        self.assertNotIn("platform_only_stale", win)
+        rc, summary, err = self.scratch(index=index).run()
+        self.assertEqual(rc, 1)
+        self.assertIn("platform_only t_wild::w2 leaves out windows, but t_wild::w2 ran there (ok)", err)
+        bad = copy(INDEX)
+        bad["platform_only"] = {"t_wild::w2": {"platforms": ["macos"], "rationale": "x", "ignored_elsewhere": "yes"}}
+        self.assertTrue(any("ignored_elsewhere" in p for p in ev.check_index(bad)))
 
     def test_a_stale_case_index_exclusion_is_an_error(self):
         # The case index says t_wild::w2 does not exist on Windows, but it ran there (a unit
@@ -1528,6 +1597,42 @@ class PlatformTests(unittest.TestCase):
             + self.sym("othercrate", ["mod_a", "test_two"]) + b"\0_RNvCsXX_5alien4junk\0"
         paths = pt.function_paths(data, "mycrate")
         self.assertEqual(paths, {("mod_a", "test_one"), ("test_top",)})
+
+    def test_a_binary_without_symbols_of_its_crate_is_unreadable_not_absent(self):
+        with tempfile.TemporaryDirectory(prefix="m02scan") as d:
+            d = Path(d)
+            (d / "listed").mkdir()
+            (d / "listed" / "t.txt").write_text("a\nm::b\n")
+            (d / "u.txt").write_text("u\n")
+            (d / "listed" / "u.txt").write_text("u\n")
+            (d / "t.exe").write_bytes(b"\0no symbols here, only the name a and m::b as strings\0")
+            (d / "u.exe").write_bytes(b"\0" + self.sym("u", ["main"]) + b"\0")
+            arts = {"t": ("t", str(d / "t.exe")), "u": ("u", str(d / "u.exe"))}
+            report = pt.analyse(arts, d / "listed", d)
+            self.assertTrue(report["t"].get("unreadable"))
+            self.assertEqual(report["t"]["present"], 0)
+            self.assertNotIn("unreadable", report["u"], "a crate symbol (libtest's main) is readable; u is cfg-gated off")
+            self.assertEqual(report["u"]["absent"], ["u"])
+            self.assertEqual(pt.unreadable(report), ["t"])
+
+    def test_an_extra_is_a_test_of_the_binarys_own_sources_only(self):
+        with tempfile.TemporaryDirectory(prefix="m02own") as d:
+            d = Path(d)
+            (d / "tests" / "integration" / "reg").mkdir(parents=True)
+            (d / "crates").mkdir()
+            (d / "tests" / "integration" / "reg.rs").write_text("mod rows;\n")
+            (d / "tests" / "integration" / "reg" / "linux.rs").write_text("#[test]\nfn linux_only() {}\n")
+            # Another target's test shares its name with reg's helper rows::helper_row.
+            (d / "tests" / "integration" / "other.rs").write_text("#[test]\nfn helper_row() {}\n")
+            (d / "listed").mkdir()
+            (d / "listed" / "reg.txt").write_text("")
+            exe = d / "reg.bin"
+            exe.write_bytes(b"\0" + self.sym("reg", ["rows", "helper_row"]) + b"\0" + self.sym("reg", ["linux", "linux_only"]) + b"\0")
+            report = pt.analyse({"reg": ("reg", str(exe), str(d / "tests" / "integration" / "reg.rs"))}, d / "listed", d)
+            self.assertEqual(report["reg"]["extra"], ["linux::linux_only"], "rows::helper_row is no test of reg")
+            # Without a source path, every test name in the tree counts (the previous reading).
+            report = pt.analyse({"reg": ("reg", str(exe))}, d / "listed", d)
+            self.assertEqual(report["reg"]["extra"], ["linux::linux_only", "rows::helper_row"])
 
     def test_source_test_names_find_test_functions_only(self):
         with tempfile.TemporaryDirectory(prefix="m02src") as d:

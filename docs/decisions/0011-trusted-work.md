@@ -456,6 +456,12 @@ An explicit deny and every block outrank allow (spec §6.2).
 | Pause | refused (`POLICY_PAUSED`) | a new binding is refused; existing bindings stay usable; a same-key replay returns its recorded result | continue to their deadline | continues | refused | attended `Resume` |
 | Expiry | new work allowed under policy | refused (`CREDENTIAL_EXPIRED`) | that grant ends | refused | start new work (§3.3) | n/a |
 
+**A work stop on a shared grant** (settled by the orchestrator, 2026-11-18, after the W2
+review's signature probe): A work stop on a shared grant releases the work's references. New
+signatures on its bindings are refused at once, and a signature already admitted on one of them
+may complete within its permit's bound (the permit's expiry, ADR-0008 D2). The work's processes
+can still use the shared ordinary alias while another referencer holds it (R3).
+
 ### 7.3 Rules
 
 - **Targets:** narrowing actions accept a target: a policy, a profile (every policy for it), a

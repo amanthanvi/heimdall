@@ -280,6 +280,57 @@ pub enum DecisionBasis {
         /// Coalescing key → the requester's environment.
         keys: std::collections::BTreeMap<String, EnvironmentId>,
     },
+    /// ⟨M05 U3⟩ A `WidenPolicy` record of a targeted `resume`, `clear_cutoff` or later
+    /// `cutoff` (ADR-0011 §7.3 "Targets"): every policy the target resolved to that the
+    /// action widens, each with its revision when the record was created. The record
+    /// lists exactly this set (I5); approval applies the action to it and nothing else,
+    /// and a policy removed or revised since makes the record stale (`DECISION_STALE`,
+    /// not consumed).
+    Targeted {
+        /// Policy → its revision at creation.
+        policies: std::collections::BTreeMap<PolicyId, PolicyRevision>,
+    },
+}
+
+/// ⟨M05⟩ U4: the `decision_cooldowns.policy` value of a **trust** cooldown row (ruling I-5):
+/// a denied `TrustWorkspace` has no policy yet, so its row names this sentinel, which no
+/// real policy ID takes (production policy IDs are `pol_<32 hex>`). Its revision is always
+/// 0, so `record_change` (which drops a policy's cooldowns of other revisions) and a
+/// policy's removal never touch it.
+pub const TRUST_COOLDOWN_POLICY: &str = "m05_trust_workspace";
+
+/// ⟨M05⟩ U4: the cooldown key of a requester-raised trust (ruling I-5): lowercase-hex
+/// SHA-256 of a canonical encoding of the workspace's identity (its environment and its
+/// root's [`FileIdentity`]) and the server-computed proposal. A copy, a clone or another
+/// proposal (an edited manifest request) is another key. Pure.
+#[must_use]
+pub fn trust_cooldown_key(
+    environment: &EnvironmentId,
+    root_identity: &FileIdentity,
+    proposal: &heimdall_contract::trust::TrustProposal,
+) -> String {
+    use sha2::Digest as _;
+    #[derive(Serialize)]
+    struct Canonical<'a> {
+        v: &'static str,
+        environment: &'a EnvironmentId,
+        root_identity: &'a FileIdentity,
+        proposal: &'a heimdall_contract::trust::TrustProposal,
+    }
+    let bytes = serde_json::to_vec(&Canonical {
+        v: "heimdall-trust-cooldown/1",
+        environment,
+        root_identity,
+        proposal,
+    })
+    .unwrap_or_default();
+    let digest = sha2::Sha256::digest(&bytes);
+    let mut out = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
 
 #[cfg(test)]

@@ -82,7 +82,14 @@ pub struct ManifestPreferences {
 /// A portable bundle (ADR-0011 I4; `inspect export`, `catalog apply_import`): catalog
 /// intent only. Never policies, workspace records, environment permissions, grants,
 /// decisions, enrollments, socket or home paths, or private material.
+///
+/// ⟨M05⟩ Revision 5.1 (ADR-0006 §17.9): a **closed** file format (this type and the three
+/// it contains, `deny_unknown_fields`), as the manifest is: a request that carries a bundle
+/// with an unknown or authority-bearing key at any level fails to decode, as the file path
+/// (`heimdall_project::parse_bundle`) already refuses it. Public requests otherwise tolerate
+/// unknown fields (§9); the bundle is a file format that travels inside one (ADR-0011 I4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PortableBundle {
     /// [`PORTABLE_BUNDLE_SCHEMA`].
     pub schema: String,
@@ -108,6 +115,7 @@ pub struct PortableBundle {
 
 /// A destination in a bundle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PortableDestination {
     /// Destination ID.
     pub id: DestinationId,
@@ -130,6 +138,7 @@ pub struct PortableDestination {
 
 /// An identity reference in a bundle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PortableIdentity {
     /// `SHA256:` public-key fingerprint.
     pub fingerprint: String,
@@ -139,6 +148,7 @@ pub struct PortableIdentity {
 
 /// A profile in a bundle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PortableProfile {
     /// Profile ID.
     pub id: ProfileId,

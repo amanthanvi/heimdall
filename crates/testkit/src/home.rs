@@ -326,6 +326,9 @@ impl std::error::Error for FixtureUnsafe {}
 pub struct GuardScope {
     roots: Vec<PathBuf>,
     canonical_root: PathBuf,
+    /// ⟨M03 wave 6⟩ Exact Windows pipe agents also accepted ([`GuardScope::with_agents`]),
+    /// lowercased, in `\\.\pipe\<name>` form.
+    agents: Vec<String>,
 }
 
 impl GuardScope {
@@ -342,7 +345,27 @@ impl GuardScope {
         Ok(GuardScope {
             roots,
             canonical_root,
+            agents: Vec::new(),
         })
+    }
+
+    /// ⟨M03 wave 6⟩ Also accept these exact Windows pipe agents: the pipes a test's own
+    /// scratch runtime rendered into the projection (its binding and slot endpoints, named
+    /// `\\.\pipe\heimdall-…`, which no scratch path can hold). Only a pipe named
+    /// `heimdall-…` (never the system agent's pipe, never a name with a separator after
+    /// the prefix) is taken; anything else is ignored, so the guard never widens to it.
+    #[must_use]
+    pub fn with_agents(mut self, agents: &[String]) -> GuardScope {
+        self.agents = agents
+            .iter()
+            .filter_map(|a| normalized_pipe(a))
+            .filter(|n| {
+                n.strip_prefix(r"\\.\pipe\heimdall-").is_some_and(|rest| {
+                    !rest.is_empty() && !rest.contains(['\\', '/']) && !rest.contains("..")
+                })
+            })
+            .collect();
+        self
     }
 
     /// Whether an `IdentityFile` argument (as written) is a scratch path: no `%` or
@@ -384,7 +407,18 @@ impl GuardScope {
                     crate::agent::is_fixture_pipe_name(&format!(r"\\.\pipe\{name}"))
                 })
             || self.is_scratch_path(arg)
+            || normalized_pipe(arg).is_some_and(|n| self.agents.contains(&n))
     }
+}
+
+/// A Windows pipe locator (`\\.\pipe\x` or `//./pipe/x`, any case) as lowercase
+/// `\\.\pipe\x`; `None` for anything else.
+fn normalized_pipe(arg: &str) -> Option<String> {
+    let lower = arg.to_ascii_lowercase();
+    let name = lower
+        .strip_prefix(r"\\.\pipe\")
+        .or_else(|| lower.strip_prefix("//./pipe/"))?;
+    (!name.is_empty()).then(|| format!(r"\\.\pipe\{name}"))
 }
 
 /// The guard's decision over one static evaluation (pure apart from resolving scratch
@@ -728,13 +762,29 @@ impl ScratchHome {
     /// # Errors
     /// [`FixtureUnsafe`]: the first refusal, in that order.
     pub fn check_alias(&self, alias: &str) -> Result<(), FixtureUnsafe> {
+        self.check_alias_with_agents(alias, &[])
+    }
+
+    /// ⟨M03 wave 6⟩ [`check_alias`](Self::check_alias), also accepting the exact Windows
+    /// pipe agents in `agents` ([`GuardScope::with_agents`]): the endpoints a test's own
+    /// scratch runtime rendered into the projection.
+    ///
+    /// # Errors
+    /// As [`check_alias`](Self::check_alias).
+    pub fn check_alias_with_agents(
+        &self,
+        alias: &str,
+        agents: &[String],
+    ) -> Result<(), FixtureUnsafe> {
         if alias.is_empty()
             || alias.starts_with('-')
             || alias.chars().any(|c| c.is_whitespace() || c.is_control())
         {
             return Err(FixtureUnsafe::BadAlias);
         }
-        let scope = GuardScope::new(&self.root).map_err(|_| FixtureUnsafe::Unreadable)?;
+        let scope = GuardScope::new(&self.root)
+            .map_err(|_| FixtureUnsafe::Unreadable)?
+            .with_agents(agents);
         let mut env = BTreeMap::new();
         if let Some(sock) = self.decoy.endpoint().locator().to_str() {
             env.insert("SSH_AUTH_SOCK".to_owned(), sock.to_owned());
@@ -1254,5 +1304,14 @@ mod rendered_fixture_pipe_guard {
         assert!(!scope.is_fixture_agent("//./pipe/heimdall-hmtest-x/../openssh-ssh-agent"));
         assert!(!scope.is_fixture_agent(r"//./pipe/heimdall-hmtest-x\..\openssh-ssh-agent"));
         assert!(!scope.is_fixture_agent(r"\\.\pipe\heimdall-hmtest-x\..\openssh-ssh-agent"));
+        // ⟨M03 wave 6⟩ A test's own runtime's pipes, exactly; never the system agent.
+        let own = scope.clone().with_agents(&[
+            r"\\.\pipe\heimdall-0123abcd-b-x".to_owned(),
+            r"\\.\pipe\openssh-ssh-agent".to_owned(),
+            r"\\.\pipe\heimdall-x\..\openssh-ssh-agent".to_owned(),
+        ]);
+        assert!(own.is_fixture_agent("//./pipe/heimdall-0123abcd-b-x"));
+        assert!(!own.is_fixture_agent(r"\\.\pipe\openssh-ssh-agent"));
+        assert!(!own.is_fixture_agent(r"\\.\pipe\heimdall-0123abcd-b-y"));
     }
 }

@@ -1,0 +1,21 @@
+{
+ "name": "M05 W2 U4: `covered_only` falls through to the decision path (in `plan_in`, `if req.covered_only {` replaced by `if false {`)",
+ "file": "crates/app/src/operations/context_m05.rs",
+ "observed_by": "the worker in its own worktree at base 22dfb168 (its DONE.md §5); sources restored byte-identical (checked with diff)",
+ "command": "TMPDIR=<short scratch dir> cargo test -p heimdall-runtime --test e2e_context_m05 covered_only_creates_no_decision_when_uncovered",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "covered_only_creates_no_decision_when_uncovered ... FAILED",
+   "left: Some(\"workspace_untrusted\") right: Some(\"not_covered\") (a TrustWorkspace record was raised)"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed"
+  ]
+ }
+}

@@ -83,6 +83,11 @@ pub struct EquivalenceKey {
     pub mechanism: String,
     /// Effective deadline (RFC 3339 UTC).
     pub deadline: String,
+    /// ⟨M05⟩ The policy context the work resolved in: the workspace, or `None` for
+    /// personal work (ADR-0011 §5.1, §10 item 1). Work of two contexts is never
+    /// equivalent: a follower attached to another context's grant would pin that context,
+    /// so a stop, pause or cutoff of one context would end the other's work.
+    pub workspace: Option<heimdall_contract::ids::WorkspaceId>,
 }
 
 /// Handle to an in-flight or completed ensure shared across coalesced callers.

@@ -55,6 +55,18 @@
 # harness format "### e2e_exit_m03" ... "exit=N", and the signal test's), commands.txt (one
 # line per driver test), host.txt, blocked.txt when blocked. Exit: 0 every test passed with
 # a verified lock; 3 blocked; 1 a check failed; 2 usage.
+#
+# Ending cleanly. The driver runs in a session of its own (lock-lib.sh lock_driver_start),
+# so a signal to this harness's process group never reaches it. TERM, HUP or INT end the
+# harness through its cleanup: the run is blocked (harness_interrupted) unless a check
+# already failed, the driver is asked to `abort` and waited for (it cleans up and writes
+# `done`), and the bundle is written. A driver that ended without `done` leaves what it
+# started in its own process group (stopped by exact PID) and its runtime (the fallback
+# `service stop` in the home named by runtime-home.txt, then its exact advertised PID);
+# the step failures it kept (failure-<test>.txt) become `step-failure=` facts and, when
+# its libtest summary is missing, part of tests.txt. The unlock wait's bound (12 h) ends
+# the same way, blocked (unlock_not_observed). Only SIGKILL skips the bundle; the driver
+# then still ends by itself once it sees the harness gone.
 
 set -euo pipefail
 
@@ -80,6 +92,9 @@ case "$verify_s" in '' | *[!0-9]*) echo "bad HM_LOCK_VERIFY_S" >&2; exit 2 ;; es
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 unset CARGO_TARGET_DIR
+# A rehearsal (lock.rs: the test session-lock source, flipped by the driver) is never run
+# by this harness, whose runs are evidence: the variable never reaches the driver.
+unset HM_LOCK_REHEARSAL
 export HM_LOCK_PLATFORM=macos
 commands="$out/commands.txt"
 : >"$commands"
@@ -96,17 +111,26 @@ mkdir -m 700 "$state"
 sampler=""
 driver_pid=""
 driver_rc=""
+interrupted=""
 # shellcheck disable=SC2329  # invoked by the EXIT trap
 cleanup() {
-    local rc=$?
+    local rc=$? keep=0 line
     set +e
+    # Signals no longer end the harness: the cleanup below is bounded and must finish.
+    trap '' TERM HUP INT
     [ -n "$sampler" ] && kill "$sampler" 2>/dev/null && wait "$sampler" 2>/dev/null
     # The signal test ends by itself (its wait is bounded at 120 s): wait for it, never signal it.
     [ -n "${signal_pid:-}" ] && wait "$signal_pid" 2>/dev/null
+    if [ -n "$interrupted" ]; then
+        # The run never verified what it set out to: blocked, unless a check already failed.
+        lock_blocked "$out" "harness_interrupted: SIG$interrupted before the procedure finished; the driver, in its own session, was asked to abort and clean up"
+        m02_record "$commands" "the harness was signalled (SIG$interrupted) before the procedure finished" 3
+        rc=3
+    fi
     if [ -n "$driver_pid" ]; then
         # The driver always cleans up after an `abort` (and after `unlocked`): ask, then
-        # wait for it; it is stopped by its exact PID (this shell's child) only if it
-        # outlives every bound, and then its runtime through the product's own stop.
+        # wait for it. Only if it outlives every bound is it stopped, with what is left in
+        # its own process group, each by its exact PID.
         if kill -0 "$driver_pid" 2>/dev/null && [ ! -e "$state/unlocked" ] && [ ! -e "$state/abort" ]; then
             lock_flag abort "harness_ended: the harness stopped before the procedure finished"
         fi
@@ -116,12 +140,20 @@ cleanup() {
             kill "$driver_pid" 2>/dev/null
             wait "$driver_pid" 2>/dev/null
             m02_record "$commands" "the lock driver outlived its bounds and was stopped by its exact PID" 1
-            if [ -s "$state/runtime-home.txt" ]; then
-                HEIMDALL_HOME=$(cat "$state/runtime-home.txt") "$HEIMDALL_E2E_BIN" --json service stop >/dev/null 2>&1 </dev/null
-                m02_record "$commands" "heimdall service stop in the driver's scratch Heimdall home (fallback)" "$?"
-            fi
         fi
-        printf '### e2e_exit_m03\n%s\n### e2e_exit_m03 exit=%s\n' "$(cat "$scratch/driver.out" 2>/dev/null)" "${driver_rc:-killed}" >>"$tests_raw"
+        # A driver that ended without its cleanup (no `done`: killed, or it crashed) left
+        # what it started: its own process group, then its runtime (which detaches).
+        if [ ! -e "$state/done" ]; then
+            line=$(lock_group_stop "$driver_pid")
+            m02_record "$commands" "the driver ended without its cleanup: processes left in its own process group stopped by exact PID: $line" 0
+        fi
+        line=$(lock_runtime_stop)
+        case $? in
+            0) [ -n "$line" ] && m02_record "$commands" "$line" 0 ;;
+            *) m02_record "$commands" "$line" 1; keep=1 ;;
+        esac
+        lock_failure_facts >>"$facts"
+        printf '### e2e_exit_m03\n%s\n%s\n### e2e_exit_m03 exit=%s\n' "$(cat "$scratch/driver.out" 2>/dev/null)" "$(lock_kept_failures)" "${driver_rc:-killed}" >>"$tests_raw"
         lock_driver_results "$scratch/driver.out" macos "$commands"
         [ -s "$state/store-kind.txt" ] &&
             echo "store-kind-recorded-by-product=$(head -1 "$state/store-kind.txt") (the CA record's label; the issuer child reads the scratch test store)" >>"$facts"
@@ -130,9 +162,15 @@ cleanup() {
     # "### <name> exit=N" line); `lock_procedure` is the harness, never a cargo target.
     [ -s "$tests_raw" ] || printf '### lock_procedure\n(no driver started)\n### lock_procedure exit=%s\n' "$rc" >"$tests_raw"
     lock_finish "$out" "$scratch"
-    rm -rf -- "$scratch"
-    [ ! -e "$scratch" ]
-    m02_record "$commands" "remove exactly the run's scratch directory, then check it is absent" "$?"
+    if [ "$keep" = 1 ]; then
+        # A runtime the fallback could not stop still has its home here: kept for recovery
+        # (`HEIMDALL_HOME=<it> heimdall service stop`), never deleted under it.
+        m02_record "$commands" "the run's scratch directory kept: a runtime of the driver is still running in it" 1
+    else
+        rm -rf -- "$scratch"
+        [ ! -e "$scratch" ]
+        m02_record "$commands" "remove exactly the run's scratch directory, then check it is absent" "$?"
+    fi
     # A failed driver test (other than one not run because the run is blocked), a failed
     # owner-digest, canary or leak check fails a run that would otherwise have passed or
     # been blocked.
@@ -140,6 +178,11 @@ cleanup() {
     exit "$rc"
 }
 trap cleanup EXIT
+# A signal (a terminal's or a session's teardown) ends the run through the cleanup above:
+# blocked (harness_interrupted), the bundle written, the driver asked to abort.
+trap 'interrupted=TERM; exit 143' TERM
+trap 'interrupted=HUP; exit 129' HUP
+trap 'interrupted=INT; exit 130' INT
 
 # The driver and the binary: given, or built here (debug profile, test store: mechanism
 # evidence only on macOS).
@@ -164,6 +207,10 @@ echo "store-kind=scratch_test (the test store; the login-keychain product row is
 echo "lock-driver-sha256=$(shasum -a 256 "$HM_LOCK_DRIVER" | cut -d' ' -f1)" >>"$facts"
 echo "heimdall-sha256=$(shasum -a 256 "$HEIMDALL_E2E_BIN" | cut -d' ' -f1)" >>"$facts"
 echo "lock-driver-protocol=one process (e2e_exit_m03 --ignored --test-threads=16 lock::), handshake files" >>"$facts"
+# The tree the driver and the binary were built from: the commit, and any uncommitted change
+# to tracked sources (names and one digest; repository-relative, nothing else).
+echo "build-commit=$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)" >>"$facts"
+echo "build-tree-changes=$(git -C "$repo" diff --name-only HEAD -- crates tests tools Cargo.toml Cargo.lock 2>/dev/null | tr '\n' ' ')(git diff sha256 $(git -C "$repo" diff HEAD -- crates tests tools Cargo.toml Cargo.lock 2>/dev/null | shasum -a 256 | cut -c1-16))" >>"$facts"
 lock_facts_common "$facts"
 echo "os=$(sw_vers -productName 2>/dev/null) $(sw_vers -productVersion 2>/dev/null) ($(sw_vers -buildVersion 2>/dev/null)) $(uname -m)" >>"$facts"
 echo "screen-lock-delay=$(sysadminctl -screenLock status 2>&1 | sed -n 's/.*screenLock delay is //p' | head -1)" >>"$facts"
@@ -193,7 +240,7 @@ m02_record "$commands" "heimdall internal session-lock-state before the lock rea
 # 3. The driver: start once, wait for its preparation.
 lock_driver_start
 set +e
-flag=$(lock_await_flag "$PREPARE_S" ready prepare-failed)
+lock_await_flag "$PREPARE_S" ready prepare-failed
 frc=$?
 set -e
 case "$frc:$flag" in
@@ -255,7 +302,7 @@ m02_record "$commands" "integration_session_lock macos_lock_signal_observed acro
 
 # 6. While locked: the driver's locked steps.
 set +e
-flag=$(lock_await_flag "$LOCKED_STEPS_S" locked-done)
+lock_await_flag "$LOCKED_STEPS_S" locked-done
 frc=$?
 set -e
 locked_end=$(date +%s)

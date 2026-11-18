@@ -1,0 +1,21 @@
+{
+  "target": {"kind": "profile", "profile": "homelab-dev"},
+  "changed": true,
+  "policies": [
+    {
+      "policy_id": "personal-default",
+      "revision": 3,
+      "paused": true,
+      "cutoff_at": null,
+      "changed": true
+    },
+    {
+      "policy_id": "ws-example-infrastructure",
+      "revision": 1,
+      "paused": false,
+      "cutoff_at": "2026-11-18T18:00:00Z",
+      "changed": false
+    }
+  ],
+  "revoked": ["grant_01010101010101010101010101010101"]
+}

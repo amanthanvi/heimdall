@@ -1,0 +1,7 @@
+{
+  "op": "catalog",
+  "action": "set_default_profile",
+  "environment": "env_01010101010101010101010101010101",
+  "profile": "homelab-dev",
+  "request_id": "req-0502"
+}

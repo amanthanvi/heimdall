@@ -301,11 +301,70 @@ pub struct PolicyView {
     pub history: Vec<PolicyRevisionView>,
 }
 
+/// ⟨M05⟩ Revision 5.1 (§17.9): one environment's default-profile preference
+/// (`catalog set_default_profile`; ADR-0011 §5.1). A preference, never authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DefaultProfileView {
+    /// The environment.
+    pub environment_id: EnvironmentId,
+    /// Its default profile.
+    pub profile_id: ProfileId,
+}
+
 /// `inspect policies` data.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PoliciesView {
     /// Every standing policy.
     pub items: Vec<PolicyView>,
+    /// ⟨M05⟩ Revision 5.1 (§17.9): the default-profile preference of each managed
+    /// environment that has one, ordered by environment ID. Omitted when none is set,
+    /// so every revision-5 document is unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_profiles: Vec<DefaultProfileView>,
+}
+
+/// ⟨M05⟩ Revision 5.1 (§17.9 C1): one policy a targeted widening lists, fixed at the
+/// decision's creation (ADR-0011 I5): approval applies exactly these, each at this
+/// revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PolicyRevisionRef {
+    /// Policy.
+    pub policy_id: PolicyId,
+    /// The revision at creation.
+    pub revision: u64,
+}
+
+/// ⟨M05⟩ Revision 5.1 (§17.9 C2): one policy of a targeted action's target, after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PolicyTargetEntry {
+    /// Policy.
+    pub policy_id: PolicyId,
+    /// Its revision after the action.
+    pub revision: u64,
+    /// Whether it is paused.
+    pub paused: bool,
+    /// Its hard cutoff; `null` when none.
+    #[serde(default)]
+    pub cutoff_at: Option<Timestamp>,
+    /// Whether this action changed it (a widening part waiting for a decision is not a
+    /// change).
+    pub changed: bool,
+}
+
+/// ⟨M05⟩ Revision 5.1 (§17.9 C2): the typed result of a targeted policy action (`pause`,
+/// `resume`, `cutoff`, `clear_cutoff` with a `target`, and `stop`; ADR-0011 §7.3). The
+/// single-policy `policy_id` form keeps M01's result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PolicyTargetResult {
+    /// The target the action named.
+    pub target: PolicyTarget,
+    /// Whether anything changed (a policy, or, for `stop`, a grant revoked).
+    pub changed: bool,
+    /// Every policy of the target after the action.
+    pub policies: Vec<PolicyTargetEntry>,
+    /// `stop` only: the grants it revoked, cascade included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked: Option<Vec<crate::ids::GrantId>>,
 }
 
 #[cfg(test)]

@@ -1,0 +1,59 @@
+{
+  "source": "ADR-0006 revision 5.1 (section 17.9; orchestrator ruling I-6, M05 wave 2 U7): CatalogRequest::SetDefaultProfile, transcribed from the ruling's text, never from the code under test. `environment` is omitted when absent (the runtime's own); `profile` is always written and null clears.",
+  "capability": "trusted-work/1",
+  "action": "set_default_profile",
+  "kind": "catalog",
+  "requests": [
+    {
+      "what": "set, the runtime's own environment",
+      "json": {"op": "catalog", "action": "set_default_profile", "profile": "homelab-dev", "request_id": "r-1"}
+    },
+    {
+      "what": "set, a named environment",
+      "json": {"op": "catalog", "action": "set_default_profile", "environment": "env_01010101010101010101010101010101", "profile": "homelab-dev", "request_id": "r-2"}
+    },
+    {
+      "what": "clear, the runtime's own environment",
+      "json": {"op": "catalog", "action": "set_default_profile", "profile": null, "request_id": "r-3"}
+    },
+    {
+      "what": "clear, a named environment",
+      "json": {"op": "catalog", "action": "set_default_profile", "environment": "env_01010101010101010101010101010101", "profile": null, "request_id": "r-4"}
+    }
+  ],
+  "view": {
+    "what": "inspect policies carries default_profiles only when one is set; an empty list is omitted",
+    "empty": {"items": []},
+    "set": {"items": [], "default_profiles": [{"environment_id": "env_01010101010101010101010101010101", "profile_id": "homelab-dev"}]}
+  },
+  "dry_run": {
+    "source": "ADR-0006 revision 5.1 (section 17.9): CatalogRequest::ApplyImport.dry_run, transcribed from the contract owner's delta (item 1). Omitted when false, so every earlier apply_import document is unchanged; required capability trusted-work/1 either way.",
+    "bundle": {"schema": "heimdall-portable/1", "created_at": "2026-11-18T09:00:00Z", "destinations": [{"id": "lab-db", "alias": "lab-db"}]},
+    "requests": [
+      {"what": "a real import writes no dry_run key", "dry_run": false, "json": {"op": "catalog", "action": "apply_import", "bundle": {"schema": "heimdall-portable/1", "created_at": "2026-11-18T09:00:00Z", "destinations": [{"id": "lab-db", "alias": "lab-db"}]}, "request_id": "r-6"}},
+      {"what": "a dry run", "dry_run": true, "json": {"op": "catalog", "action": "apply_import", "bundle": {"schema": "heimdall-portable/1", "created_at": "2026-11-18T09:00:00Z", "destinations": [{"id": "lab-db", "alias": "lab-db"}]}, "dry_run": true, "request_id": "r-7"}}
+    ]
+  },
+  "closed_bundle": {
+    "source": "ADR-0006 revision 5.1 (section 17.9), item 2: the four bundle types are closed (deny_unknown_fields). Each path is a key added at that level of the dry-run bundle above; every one makes the request undecodable.",
+    "unknown_keys": [
+      {"at": "bundle", "key": "policies", "value": []},
+      {"at": "bundle", "key": "trust", "value": {"workspace": "/w"}},
+      {"at": "destination", "key": "grants", "value": []},
+      {"at": "identity", "key": "trusted", "value": true},
+      {"at": "profile", "key": "policy", "value": {"max_window": "30d"}}
+    ]
+  },
+  "policy_target_result": {
+    "source": "ADR-0006 revision 5.1 (section 17.9) C2: the result of a targeted policy action, transcribed from U3's published result (crates/app/src/operations/stop_m05.rs targeted_view before the typed form). cutoff_at is always written (null when none); revoked only for stop.",
+    "results": [
+      {"what": "pause of a profile", "json": {"target": {"kind": "profile", "profile": "homelab-dev"}, "changed": true, "policies": [{"policy_id": "pol-dev", "revision": 2, "paused": true, "cutoff_at": null, "changed": true}]}},
+      {"what": "stop of a policy, nothing to revoke", "json": {"target": {"kind": "policy", "policy_id": "pol-dev"}, "changed": false, "policies": [{"policy_id": "pol-dev", "revision": 2, "paused": true, "cutoff_at": "2026-11-18T18:00:00Z", "changed": false}], "revoked": []}},
+      {"what": "stop of everything", "json": {"target": {"kind": "all"}, "changed": true, "policies": [{"policy_id": "pol-dev", "revision": 3, "paused": true, "cutoff_at": null, "changed": true}], "revoked": ["grant_01010101010101010101010101010101"]}}
+    ]
+  },
+  "decision_policies": {
+    "source": "ADR-0006 revision 5.1 (section 17.9) C1: the policies a targeted widening's decision view lists, as {policy_id, revision}.",
+    "json": [{"policy_id": "pol-dev", "revision": 2}, {"policy_id": "pol-ops", "revision": 1}]
+  }
+}

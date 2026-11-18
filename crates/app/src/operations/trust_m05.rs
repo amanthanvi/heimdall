@@ -18,8 +18,9 @@
 //! unchanged inside it (`DECISION_STALE`, not consumed, otherwise).
 //!
 //! The requests served here: `create`, `extend_scope`, `narrow_scope`, `set_max_window`,
-//! `remove`, `trust_workspace`, `reconcile_workspace`. U3's (targets, `stop`) stay refused
-//! `driver_unavailable` in `operations.rs`.
+//! `remove`, `trust_workspace`, `reconcile_workspace`. U3's (targets, `stop`) are
+//! `stop_m05`'s, and so are the `WidenPolicy` records of a targeted action ([`precheck`]
+//! and [`apply`] hand them over).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -32,7 +33,7 @@ use heimdall_contract::ids::{
 };
 use heimdall_contract::request::{AccessPairRef, Capability, PolicyAction, Verdict};
 use heimdall_contract::trust::{
-    PoliciesView, PolicyRevisionView, PolicyView, TrustProposal, WorkContext,
+    DefaultProfileView, PoliciesView, PolicyRevisionView, PolicyView, TrustProposal, WorkContext,
 };
 use heimdall_contract::{Code, GrantState, OperationState, Timestamp};
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
@@ -46,8 +47,8 @@ use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::scope::Scope;
 use heimdall_domain::time as dtime;
 use heimdall_domain::workspace::{
-    BindingContext, DecisionBasis, PolicyChangeCause, PolicyHistoryEntry, WorkspaceMatch,
-    WorkspaceRecord, WorkspaceState, quoted_label,
+    BindingContext, DecisionBasis, DecisionCooldown, PolicyChangeCause, PolicyHistoryEntry,
+    WorkspaceMatch, WorkspaceRecord, WorkspaceState, quoted_label,
 };
 use heimdall_store::Txn;
 
@@ -66,7 +67,7 @@ use crate::timegate::uncertain;
 // Gating and wiring
 // ---------------------------------------------------------------------------------
 
-/// Whether this unit serves `action` (U3's targeted forms and `stop` stay refused).
+/// Whether this unit serves `action` (U3's targeted forms and `stop` are `stop_m05`'s).
 pub(super) fn serves(action: &PolicyAction) -> bool {
     matches!(
         action,
@@ -91,7 +92,7 @@ pub(super) fn serves_widening(action: &PolicyAction) -> bool {
 }
 
 /// The refusal of a workspace request or decision when no [`WorkspaceProbe`] is set.
-fn no_probe() -> OpError {
+pub(super) fn no_probe() -> OpError {
     OpError::driver_unavailable("workspace trust is not available in this runtime")
 }
 
@@ -99,11 +100,11 @@ fn stale(msg: &str) -> OpError {
     OpError::new(Code::DecisionStale, msg.to_owned())
 }
 
-fn usage(msg: &str) -> OpError {
+pub(super) fn usage(msg: &str) -> OpError {
     OpError::new(Code::UsageError, msg.to_owned())
 }
 
-fn changed_since_review() -> OpError {
+pub(super) fn changed_since_review() -> OpError {
     usage("the workspace changed since it was reviewed; review it again")
         .with_effect(heimdall_contract::envelope::EffectStatus::None)
 }
@@ -143,12 +144,12 @@ impl Operations {
         self.inner.workspace_probe.set(probe).is_ok()
     }
 
-    fn workspace_probe(&self) -> Option<Arc<dyn WorkspaceProbe>> {
+    pub(super) fn workspace_probe(&self) -> Option<Arc<dyn WorkspaceProbe>> {
         self.inner.workspace_probe.get().cloned()
     }
 
     /// Run the probe outside any transaction (it performs file I/O).
-    async fn probe_workspace(
+    pub(super) async fn probe_workspace(
         &self,
         probe: Arc<dyn WorkspaceProbe>,
         environment: EnvironmentId,
@@ -161,13 +162,13 @@ impl Operations {
     }
 
     /// The environment's active workspace records, in one transaction.
-    async fn active_records(&self) -> Result<Vec<WorkspaceRecord>, OpError> {
+    pub(super) async fn active_records(&self) -> Result<Vec<WorkspaceRecord>, OpError> {
         let own = self.environment().clone();
         self.write(move |tx, _| active_records(tx, &own)).await
     }
 }
 
-fn active_records(
+pub(super) fn active_records(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
 ) -> heimdall_store::Result<Vec<WorkspaceRecord>> {
@@ -178,7 +179,7 @@ fn active_records(
         .collect())
 }
 
-fn probe_error(e: ProbeError) -> OpError {
+pub(super) fn probe_error(e: ProbeError) -> OpError {
     match e {
         ProbeError::IdentityUnavailable => OpError::new(
             Code::CapabilityUnavailable,
@@ -295,7 +296,7 @@ fn move_default(
 }
 
 /// The first policy (by ID) of a workspace: production creates one.
-fn workspace_policy(
+pub(super) fn workspace_policy(
     tx: &mut Txn<'_>,
     workspace: &WorkspaceId,
 ) -> heimdall_store::Result<Option<StandingPolicy>> {
@@ -338,7 +339,7 @@ fn admit_all(
 }
 
 /// The profile's current definition (its latest snapshot), or `NOT_FOUND`.
-fn latest_profile(
+pub(super) fn latest_profile(
     tx: &mut Txn<'_>,
     profile: &heimdall_contract::ids::ProfileId,
 ) -> heimdall_store::Result<Result<ProfileDefinition, OpError>> {
@@ -816,7 +817,7 @@ impl Operations {
 // ---------------------------------------------------------------------------------
 
 /// What a workspace request comes to.
-enum Built {
+pub(super) enum Built {
     /// Already trusted (or a member) with a workspace policy: no new record.
     Existing(Box<StandingPolicy>),
     /// The record to create, with its basis.
@@ -852,7 +853,7 @@ fn resolve_environment(
 /// against the local catalog. A list the manifest names of which nothing resolves is
 /// refused (`manifest_invalid`): an empty list would mean "the whole profile" or "this
 /// environment", which the manifest did not ask for.
-fn manifest_proposal(
+pub(super) fn manifest_proposal(
     tx: &mut Txn<'_>,
     own: &EnvironmentId,
     m: &crate::ports::ProbedManifest,
@@ -918,7 +919,7 @@ fn digest_ok(d: &str) -> bool {
 }
 
 #[allow(clippy::too_many_lines)]
-fn build_trust(
+pub(super) fn build_trust(
     tx: &mut Txn<'_>,
     own: &EnvironmentId,
     action: &PolicyAction,
@@ -1028,7 +1029,7 @@ fn build_trust(
     )))
 }
 
-fn build_reconcile(
+pub(super) fn build_reconcile(
     tx: &mut Txn<'_>,
     own: &EnvironmentId,
     action: &PolicyAction,
@@ -1173,36 +1174,148 @@ impl Operations {
             if let Err(u) = &assessed {
                 return Ok(Err(uncertain(u)));
             }
-            let current = tx.authority_generation()?;
-            let (reuse, superseded) =
-                pending_workspace_record(tx, &kind, basis.as_ref(), now, current)?;
-            if let Some(id) = reuse {
-                return Ok(Ok(PolicyOutcome::Decision(id)));
+            // ⟨M05⟩ U4, ruling I-5: an owner-initiated trust always creates (or shares) its
+            // record and clears the requester cooldown of its key.
+            if let Some(key) = trust_cooldown_key_of(&kind, basis.as_ref()) {
+                tx.delete_decision_cooldown(&key)?;
             }
-            for id in superseded {
-                let withdrawn = tx.withdraw_decision(&id)?;
-                tx.delete_decision_basis(&id)?;
-                emit.decision(tx, &withdrawn, None)?;
-            }
-            let d = DecisionRecord {
-                id: decision_id,
-                kind,
-                generation: current,
-                created_at: now,
-                expires_at: plus(now, lifetime),
-                state: DecisionState::Pending,
-                decided_at: None,
-            };
-            tx.prune_decision_bases()?;
-            tx.insert_decision(&d)?;
-            if let Some(b) = &basis {
-                tx.put_decision_basis(&d.id, b)?;
-            }
-            emit.decision(tx, &d, None)?;
-            Ok(Ok(PolicyOutcome::Decision(d.id)))
+            let id = write_workspace_record(tx, emit, kind, basis, now, decision_id, lifetime)?;
+            Ok(Ok(PolicyOutcome::Decision(id)))
         })
         .await?
     }
+}
+
+/// ⟨M05⟩ Write (or reuse) the pending `TrustWorkspace` / `ReconcileWorkspace` record for
+/// `kind` with its `basis`, at safe time `now`, in the caller's transaction: an equal
+/// pending record (same action, same basis, unexpired, current generation) is reused; a
+/// pending record of the same action over another observation is withdrawn (one pending
+/// record per action). Shared by the owner channel (`policy`) and the requester path
+/// (`ensure` with `context`, `context_m05`).
+pub(super) fn write_workspace_record(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    kind: DecisionKind,
+    basis: Option<DecisionBasis>,
+    now: Timestamp,
+    decision_id: DecisionId,
+    lifetime: Duration,
+) -> heimdall_store::Result<DecisionId> {
+    let current = tx.authority_generation()?;
+    let (reuse, superseded) = pending_workspace_record(tx, &kind, basis.as_ref(), now, current)?;
+    if let Some(id) = reuse {
+        return Ok(id);
+    }
+    for id in superseded {
+        let withdrawn = tx.withdraw_decision(&id)?;
+        tx.delete_decision_basis(&id)?;
+        emit.decision(tx, &withdrawn, None)?;
+    }
+    let d = DecisionRecord {
+        id: decision_id,
+        kind,
+        generation: current,
+        created_at: now,
+        expires_at: plus(now, lifetime),
+        state: DecisionState::Pending,
+        decided_at: None,
+    };
+    tx.prune_decision_bases()?;
+    tx.insert_decision(&d)?;
+    if let Some(b) = &basis {
+        tx.put_decision_basis(&d.id, b)?;
+    }
+    emit.decision(tx, &d, None)?;
+    Ok(d.id)
+}
+
+// ---------------------------------------------------------------------------------
+// ⟨M05⟩ U4: the trust cooldown (orchestrator ruling I-5)
+// ---------------------------------------------------------------------------------
+
+/// The cooldown key of a `TrustWorkspace` record built over `basis` (the workspace's
+/// environment and root identity, and the server-computed proposal;
+/// `heimdall_domain::workspace::trust_cooldown_key`). `None` for any other kind.
+pub(super) fn trust_cooldown_key_of(
+    kind: &DecisionKind,
+    basis: Option<&DecisionBasis>,
+) -> Option<String> {
+    let (
+        DecisionKind::TrustWorkspace {
+            action: PolicyAction::TrustWorkspace { proposal, .. },
+            ..
+        },
+        Some(DecisionBasis::Trust {
+            environment,
+            root_identity,
+            ..
+        }),
+    ) = (kind, basis)
+    else {
+        return None;
+    };
+    Some(heimdall_domain::workspace::trust_cooldown_key(
+        environment,
+        root_identity,
+        proposal,
+    ))
+}
+
+/// The sentinel policy ID of a trust cooldown row
+/// (`heimdall_domain::workspace::TRUST_COOLDOWN_POLICY`).
+fn trust_cooldown_policy() -> Result<PolicyId, OpError> {
+    PolicyId::parse(heimdall_domain::workspace::TRUST_COOLDOWN_POLICY)
+        .map_err(|_| internal("the trust cooldown sentinel is not a policy ID"))
+}
+
+/// Ruling I-5: a **denied** `TrustWorkspace` cools its key down for the policy's default
+/// window (P04: 12 h, never above the runtime's maximum `max`), from the denial. The row
+/// names the sentinel policy at revision 0 and the denied record. Runs in the denial's
+/// transaction, before the record's basis is deleted. A record without its basis (it
+/// cannot be keyed) records nothing.
+fn record_trust_cooldown(
+    tx: &mut Txn<'_>,
+    record: &DecisionRecord,
+    max: Duration,
+    now: Timestamp,
+) -> heimdall_store::Result<Result<(), OpError>> {
+    let basis = tx.decision_basis(&record.id)?;
+    let Some(key) = trust_cooldown_key_of(&record.kind, basis.as_ref()) else {
+        return Ok(Ok(()));
+    };
+    let Some(DecisionBasis::Trust { environment, .. }) = basis else {
+        return Ok(Ok(()));
+    };
+    let policy = match trust_cooldown_policy() {
+        Ok(p) => p,
+        Err(e) => return Ok(Err(e)),
+    };
+    tx.put_decision_cooldown(&DecisionCooldown {
+        key,
+        policy,
+        revision: PolicyRevision(0),
+        environment,
+        decision: record.id.clone(),
+        until: plus(now, DEFAULT_MAX_WINDOW.min(max)),
+    })?;
+    Ok(Ok(()))
+}
+
+/// Ruling I-5, the requester side: the live cooldown of a requester-raised trust of
+/// `key` at `now` (the denied record and when it ends); an elapsed row is deleted.
+pub(super) fn trust_cooldown(
+    tx: &mut Txn<'_>,
+    key: &str,
+    now: Timestamp,
+) -> heimdall_store::Result<Option<(DecisionId, Timestamp)>> {
+    let Some(c) = tx.decision_cooldown(key)? else {
+        return Ok(None);
+    };
+    if now < c.until {
+        return Ok(Some((c.decision, c.until)));
+    }
+    tx.delete_decision_cooldown(key)?;
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------------
@@ -1294,12 +1407,16 @@ pub(super) fn precheck(
     verdict: Verdict,
     m05: &DecideM05,
 ) -> heimdall_store::Result<Result<(), OpError>> {
-    if let DecisionKind::WidenPolicy { action } = &d.kind
-        && !serves_widening(action)
-    {
-        return Ok(Err(OpError::driver_unavailable(
-            "this decision kind is not available in this build",
-        )));
+    if let DecisionKind::WidenPolicy { action } = &d.kind {
+        // ⟨M05 U3⟩ A targeted block action's record is `stop_m05`'s.
+        if super::stop_m05::serves_widening(action) {
+            return super::stop_m05::precheck(tx, d, verdict);
+        }
+        if !serves_widening(action) {
+            return Ok(Err(OpError::driver_unavailable(
+                "this decision kind is not available in this build",
+            )));
+        }
     }
     if verdict == Verdict::Deny {
         return Ok(Ok(()));
@@ -1535,6 +1652,12 @@ pub(super) fn apply(
     m05: &DecideM05,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<Vec<OperationId>, OpError>> {
+    // ⟨M05 U3⟩ A targeted block action's record is `stop_m05`'s.
+    if let DecisionKind::WidenPolicy { action } = &record.kind
+        && super::stop_m05::serves_widening(action)
+    {
+        return super::stop_m05::apply(tx, emit, record, action, verdict, now);
+    }
     let cause = PolicyChangeCause::Decision {
         decision: record.id.clone(),
     };
@@ -1572,11 +1695,13 @@ pub(super) fn apply(
         (DecisionKind::ReconcileWorkspace { action, .. }, Verdict::Approve) => {
             apply_reconcile(tx, emit, record, action, m05, &ids.1, cause, now)?
         }
-        // No cooldown is specified for a denied trust or reconcile decision (open
-        // question in DONE.md): nothing is recorded.
-        (DecisionKind::TrustWorkspace { .. } | DecisionKind::ReconcileWorkspace { .. }, _) => {
-            Ok(false)
+        // ⟨M05⟩ U4, ruling I-5: a denied trust cools its key down (requester-raised trusts
+        // of the same workspace identity and proposal get `decision_cooldown`, no record).
+        (DecisionKind::TrustWorkspace { .. }, _) => {
+            record_trust_cooldown(tx, record, m05.max, now)?.map(|()| false)
         }
+        // No cooldown is specified for a denied reconcile decision: nothing is recorded.
+        (DecisionKind::ReconcileWorkspace { .. }, _) => Ok(false),
         _ => Err(internal("not an M05 decision")),
     };
     tx.delete_decision_basis(&record.id)?;
@@ -1981,7 +2106,10 @@ pub(super) fn pin_binding_context(
 
 /// ⟨M05⟩ `inspect policies` (ADR-0011 §4.4): every standing policy with its personal
 /// `default` flag, pause, cutoff and applied revisions (cause, decision, time).
-pub(super) fn policies_view(tx: &mut Txn<'_>) -> heimdall_store::Result<PoliciesView> {
+pub(super) fn policies_view(
+    tx: &mut Txn<'_>,
+    own: &heimdall_contract::ids::EnvironmentId,
+) -> heimdall_store::Result<PoliciesView> {
     let mut items = Vec::new();
     for p in tx.policies()? {
         let history = tx
@@ -2015,5 +2143,18 @@ pub(super) fn policies_view(tx: &mut Txn<'_>) -> heimdall_store::Result<Policies
             history,
         });
     }
-    Ok(PoliciesView { items })
+    // ⟨M05⟩ Revision 5.1 (§17.9): the default-profile preferences of the managed set.
+    let mut default_profiles = Vec::new();
+    for environment in crate::environments::members(tx, own)? {
+        if let Some(profile) = tx.default_profile(&environment)? {
+            default_profiles.push(DefaultProfileView {
+                environment_id: environment,
+                profile_id: profile,
+            });
+        }
+    }
+    Ok(PoliciesView {
+        items,
+        default_profiles,
+    })
 }

@@ -172,7 +172,10 @@ pub(super) fn start(
     let mut cmd = TerminalCommand::new(&exe)
         .args(entry)
         .current_dir(dir)
-        .size(200, 50)
+        // ⟨M03 wave 6⟩ Wide enough that no shown line wraps: a pseudoconsole repaints the
+        // character at a wrap (a disclosure read "… To\no stop it …" at 200 columns), which
+        // no text comparison can undo.
+        .size(1000, 50)
         .env(ARGV, serde_json::to_string(&argv_text).unwrap())
         .env(ENVS, serde_json::to_string(&vars).unwrap())
         .env(STDOUT, &stdout);

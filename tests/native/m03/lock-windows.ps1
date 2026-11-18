@@ -489,6 +489,7 @@ function Invoke-LockRun([hashtable]$P, [hashtable]$H) {
         if ($RS.Exit -eq 0) { $RS.Exit = 1 }
         Add-Fact 'stopped' ($_.Exception.Message)
     } finally {
+        $runtimeLeft = $false
         if ($null -ne $RS.Driver) {
             # The driver always cleans up after an `abort` (and after `unlocked`): ask, then wait
             # for it; stopped through its handle only if it outlives every bound, and then its
@@ -499,12 +500,34 @@ function Invoke-LockRun([hashtable]$P, [hashtable]$H) {
             if (Wait-Driver 900) { Add-Command 0 "the lock driver ended by itself (exit $($RS.DriverRc))" }
             else {
                 $RS.Driver.Kill($true); $RS.Driver.WaitForExit()
-                Add-Command 1 'the lock driver outlived its bounds and was stopped through its handle'
-                $hh = (Read-State 'runtime-home.txt').Trim()
-                if ($hh) { $r = Invoke-Bounded $P.Product @('--json', 'service', 'stop') @{ HEIMDALL_HOME = $hh } $run 120; Add-Command $(if ($r.Code -in @(0, 5)) { 0 } else { 1 }) 'heimdall service stop in the driver''s scratch Heimdall home (fallback)' }
+                Add-Command 1 'the lock driver outlived its bounds and was stopped through its handle (its whole process tree)'
+            }
+            # The driver removes runtime-home.txt only after its cleanup's own `service stop`:
+            # still there, its runtime may be running (it ended without its cleanup), so the
+            # product's own stop runs in that home, which must lie inside this run's directory.
+            $hh = (Read-State 'runtime-home.txt').Trim()
+            if ($hh) {
+                $full = [IO.Path]::GetFullPath($hh)
+                $sep = [IO.Path]::DirectorySeparatorChar; $runRoot = [IO.Path]::GetFullPath($run).TrimEnd($sep) + $sep
+                if (-not $full.StartsWith($runRoot, [StringComparison]::OrdinalIgnoreCase)) { Add-Command 1 'runtime-home.txt names a path outside the run directory: not used' }
+                elseif (-not (Test-Path -LiteralPath $full -PathType Container)) { Add-Command 0 'the driver''s scratch Heimdall home is already gone (its world removed it after stopping its runtime)' }
+                else {
+                    $r = Invoke-Bounded $P.Product @('--json', 'service', 'stop') @{ HEIMDALL_HOME = $full } $run 120
+                    Add-Command $(if ($r.Code -in @(0, 5)) { 0 } else { 1 }) "heimdall service stop in the driver's scratch Heimdall home (fallback; exit $($r.Code))"
+                    # A runtime the fallback could not stop keeps its home (and the run directory).
+                    if ($r.Code -notin @(0, 5)) { $runtimeLeft = $true }
+                }
+            }
+            # The step failures the driver kept as each failed (lock.rs keep_failure).
+            $kept = ''
+            foreach ($f in @(Get-ChildItem -LiteralPath $state -Filter 'failure-*.txt' -File -ErrorAction SilentlyContinue)) {
+                $text = (Get-Content -LiteralPath $f.FullName -Raw) -replace "`r", ''
+                Add-Fact 'step-failure' (($text -replace "[`n`t]", ' ').Trim())
+                $kept += "`n---- $($f.BaseName) (the reason the driver kept as the step failed; its run ended before the libtest summary) ----`n$text"
             }
             $dout = (($RS.DriverOut.Result + $RS.DriverErr.Result) -replace "`r`n", "`n")
-            [void]$tests.Append("### e2e_exit_m03`n$dout`n### e2e_exit_m03 exit=$(if ($null -ne $RS.DriverRc) { $RS.DriverRc } else { 'killed' })`n")
+            if ($dout -match '(?m)^failures:$') { $kept = '' }
+            [void]$tests.Append("### e2e_exit_m03`n$dout$kept`n### e2e_exit_m03 exit=$(if ($null -ne $RS.DriverRc) { $RS.DriverRc } else { 'killed' })`n")
             foreach ($t in Get-DriverResults $dout) { Add-Command $t.Rc "driver test lock::$($t.Name): $($t.What)" }
         }
         if ($null -ne $RS.Sshds) { Add-Fact 'fixture-sshds-at-end' (& $H.StopSshds $RS.Sshds.State) }
@@ -516,8 +539,9 @@ function Invoke-LockRun([hashtable]$P, [hashtable]$H) {
         # rollback kept its scratch Heimdall home (under this run's TEMP) for recovery: the run
         # directory is then kept too, and the run fails; it is never reported as clean.
         $driverText = $tests.ToString()
-        $keepRun = ($driverText -match 'kept for recovery') -or ($driverText -match 'test lock::a03_lock_cleanup \.\.\. FAILED')
-        if ($keepRun) {
+        $keepRun = ($driverText -match 'kept for recovery') -or ($driverText -match 'test lock::a03_lock_cleanup \.\.\. FAILED') -or $runtimeLeft
+        if ($runtimeLeft) { Add-Fact 'runtime-left' 'kept: a runtime of the driver may still run in its scratch Heimdall home; the run directory under TEMP is kept (service stop from that home)' }
+        if ($keepRun -and -not $runtimeLeft) {
             Add-Fact 'recovery-state' 'kept: the driver could not complete the projection rollback; the run directory under TEMP is kept for recovery (setup rollback from its Heimdall home)'
             Add-Command 1 'projection rollback completed and verified by the driver cleanup'
         }
@@ -598,6 +622,7 @@ function Invoke-SelfTest {
         [IO.File]::WriteAllText($stubHeimdall, @'
 $w = Split-Path -Parent $PSCommandPath
 Add-Content -LiteralPath (Join-Path $w 'calls.log') -Value ("heimdall " + ($args -join ' '))
+if ($env:HEIMDALL_HOME) { Add-Content -LiteralPath (Join-Path $w 'calls.log') -Value ("heimdall-home " + (Split-Path -Leaf $env:HEIMDALL_HOME)) }
 $a = $args -join ' '
 if ($a -eq '--json service stop') { exit 0 }
 if ($a -ne '--json internal session-lock-state') { exit 2 }
@@ -626,6 +651,7 @@ $fails = [System.Collections.Generic.List[string]]::new()
 function Res([string]$t, [string]$r) { "test lock::$t ... $r" }
 function Fail([string]$t, [string]$why) { Res $t 'FAILED'; $fails.Add("$t|$why") }
 function Finish {
+    Remove-Item -LiteralPath (Join-Path $s 'runtime-home.txt') -Force -ErrorAction SilentlyContinue
     Res 'a03_lock_cleanup' 'ok'; Log 'cleanup'; Flag 'done'
     if ($fails.Count -gt 0) { ''; 'failures:'; foreach ($f in $fails) { $t, $why = $f -split '\|', 2; ''; "---- lock::$t stdout ----"; "${t}: $why" }; 'test result: FAILED.'; exit 101 }
     'test result: ok.'; exit 0
@@ -634,6 +660,8 @@ $locked = @('a03_fresh_logins_while_locked_continue', 'a03_new_grant_while_locke
 Log ("start " + ($args -join ' '))
 Log ("env HEIMDALL_TEST=" + @(Get-ChildItem env: | Where-Object { $_.Name -like 'HEIMDALL_TEST_*' }).Count + " sshd1port=" + $env:HM_LOCK_SSHD_1_PORT + " bin=" + [bool]$env:HEIMDALL_E2E_BIN)
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$hh = Join-Path $env:TEMP 'hh'; [void][System.IO.Directory]::CreateDirectory($hh)
+[IO.File]::WriteAllText((Join-Path $s 'runtime-home.txt'), "$hh`n")
 if ($scenario -eq 'prepare-blocked') {
     Flag 'prepare-failed' 'blocked: owner_ssh_in_scope: stub'; Log 'prepare-failed'
     Fail 'a03_lock_prepare' 'blocked: owner_ssh_in_scope: stub'
@@ -655,6 +683,13 @@ Tsv 'grants.tsv' "N`tgn`t3`t$($now - 5)"
 Tsv 'logins.tsv' "$now`tlocked`t3`tN`theimdall:env:gn:1`taccepted"
 Tsv 'events.tsv' "$now`trevoked`tR"
 Tsv 'logins.tsv' "$($now + 1)`tlocked`t2`tR`t-`trefused"
+if ($scenario -eq 'dies-locked') {
+    # A locked step fails, then the driver ends without its cleanup (no `done`).
+    Res 'a03_lock_revokes_ends_grant_and_fresh_login_fails' 'FAILED'
+    [IO.File]::WriteAllText((Join-Path $s 'failure-a03_lock_revokes_ends_grant_and_fresh_login_fails.txt'), "a03_lock_revokes_ends_grant_and_fresh_login_fails: R reads active (stub)`n")
+    Log 'died'
+    exit 137
+}
 foreach ($t in $locked) { Res $t 'ok' }
 Set-Content -LiteralPath (Join-Path $w 'lock-state') -Value 'unlocked'
 Flag 'locked-done'
@@ -734,6 +769,17 @@ Finish
         $x = & $scenarioRun 'prepblocked' 'release' @(1000) $true 'prepare-blocked'
         Check 'windows_lock_run_records_a_blocked_preparation: prepare-failed blocked: owner_ssh_in_scope -> exit 3, never locked' (
             $x.Rc -eq 3 -and (& $read $x.Out 'host.txt') -match 'prepare_blocked: owner_ssh_in_scope' -and $x.Calls -notmatch '(?m)^lock$')
+        $x = & $scenarioRun 'died' 'release' @(1000) $true 'dies-locked'
+        $cmds = & $read $x.Out 'commands.txt'
+        if ($env:HM_SELFTEST_VERBOSE -eq '1') { $x.Calls; $cmds }
+        Check 'windows_lock_run_stops_what_a_driver_left_without_its_cleanup: the fallback service stop in its home, the kept reason recorded, exit 1' (
+            $x.Rc -eq 1 -and $x.Calls -match '(?m)^heimdall --json service stop' -and $x.Calls -match '(?m)^heimdall-home hh$' -and
+            $cmds -match '(?m)^exit 0: heimdall service stop in the driver''s scratch Heimdall home \(fallback; exit 0\)' -and
+            (& $read $x.Out 'host.txt') -match '(?m)^step-failure=a03_lock_revokes_ends_grant_and_fresh_login_fails: R reads active \(stub\)' -and
+            (& $read $x.Out 'tests.txt') -match '(?m)^---- failure-a03_lock_revokes_ends_grant_and_fresh_login_fails \(the reason the driver kept' -and
+            $cmds -match '(?m)^exit 1: driver test lock::a03_lock_cleanup: no result')
+        Check 'windows_lock_run_stops_what_a_driver_left_without_its_cleanup: a driver that cleaned up leaves no fallback stop' (
+            (& $scenarioRun 'clean' 'release' @(1000) $true 'good').Calls -notmatch '(?m)^heimdall --json service stop')
     } finally {
         Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
     }

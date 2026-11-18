@@ -42,8 +42,10 @@
 #   m03_wsl_logins_attributed_to_the_grant_certificate   every login the servers accepted during
 #       those clients is a certificate whose key ID names the pair's grant, signed by this run's
 #       CA, and none is the existing-access key;
-#   m03_wsl_strictmodes_refuses_a_group_writable_registry   (WSL) the same certificate is refused
-#       ("bad ownership or modes") while ~/.ssh/authorized_keys is group-writable;
+#   m03_wsl_strictmodes_refuses_a_world_writable_registry   (WSL) the same certificate is refused
+#       ("bad ownership or modes") while ~/.ssh/authorized_keys is world-writable. A group-writable
+#       registry is tried too and only recorded: Debian's and Ubuntu's OpenSSH (the user-group-modes
+#       patch) accept a group-writable file whose group is the owner's private group;
 #   m03_wsl_revoke_on_lock_refused_lock_signal_unavailable   (Linux) `access lock-behavior
 #       --policy … revoke-on-lock` is refused, `lock_signal_unavailable`;
 #   m03_wsl_revoke_then_fresh_login_refused   `access revoke` of each grant, then fresh ordinary
@@ -216,7 +218,7 @@ on_pty() {
     python3 -I "$lib/pty-answer.py" "$out" yes 180 -- env HEIMDALL_HOME="$HH" HEIMDALL_TEST_SECRET_STORE=scratch \
         HEIMDALL_TEST_SSH_HOME="$H" "$HM" --json "$@"
 }
-WSL_ONLY="m03_wsl_account_form_registry_is_the_default_path m03_wsl_strictmodes_refuses_a_group_writable_registry"
+WSL_ONLY="m03_wsl_account_form_registry_is_the_default_path m03_wsl_strictmodes_refuses_a_world_writable_registry"
 wsl_step() {
     # wsl_step NAME RC: a step only the disposable distribution can show (not printed when isolated).
     [ "$isolated" = 1 ] || step "$@"
@@ -749,17 +751,31 @@ echo "fact attributed-logins=account form $a_ok of $a_n (plain publickey $a_plai
 [ "$a_n" -ge 6 ] && [ "$a_ok" = "$a_n" ] && [ "$a_plain" = 0 ] && [ "$s_n" -ge 1 ] && [ "$s_ok" = "$s_n" ] && [ "$s_plain" = 0 ]
 step m03_wsl_logins_attributed_to_the_grant_certificate "$?"
 
-# StrictModes on the root sshd: the registry made group-writable refuses the same certificate.
+# StrictModes on the root sshd: the registry made world-writable refuses the same certificate.
+# Group-writable is tried first and only recorded: Debian's and Ubuntu's OpenSSH carry the
+# user-group-modes patch, which accepts a group-writable file whose group is the owner's private
+# group (its only member), so that case depends on the group, not on StrictModes alone.
 if [ "$isolated" != 1 ]; then
-    chmod g+w "$REGISTRY"
-    m=$(wc -l <"$ACCT_LOG" | tr -d ' ')
-    ssh -o BatchMode=yes "$ACCT_ALIAS" true </dev/null >/dev/null 2>&1
-    src=$?
-    chmod 600 "$REGISTRY"
-    bad=$(tail -n +"$((m + 1))" "$ACCT_LOG" | grep -c "bad ownership or modes")
-    echo "fact strictmodes-control=exit $src, refusals logged $bad"
-    [ "$src" = 255 ] && [ "$bad" -ge 1 ]
-    wsl_step m03_wsl_strictmodes_refuses_a_group_writable_registry "$?"
+    group=$(id -gn)
+    members=$(getent group "$group" | cut -d: -f4)
+    kind=$([ "$group" = "$(id -un)" ] && [ -z "$members" ] && echo private || echo shared)
+    strict_try() {
+        # strict_try MODE: one login while the registry has MODE added; "<exit> <refusals logged>".
+        local m src bad
+        chmod "$1" "$REGISTRY"
+        m=$(wc -l <"$ACCT_LOG" | tr -d ' ')
+        ssh -o BatchMode=yes "$ACCT_ALIAS" true </dev/null >/dev/null 2>&1
+        src=$?
+        chmod 600 "$REGISTRY"
+        bad=$(tail -n +"$((m + 1))" "$ACCT_LOG" | grep -c "bad ownership or modes")
+        echo "$src $bad"
+    }
+    read -r g_src g_bad <<<"$(strict_try g+w)"
+    echo "fact strictmodes-group-writable=exit $g_src, refusals logged $g_bad (registry group: $kind; recorded, not asserted)"
+    read -r w_src w_bad <<<"$(strict_try o+w)"
+    echo "fact strictmodes-world-writable=exit $w_src, refusals logged $w_bad"
+    [ "$w_src" = 255 ] && [ "$w_bad" -ge 1 ] && [ "$(stat -c %a "$REGISTRY")" = 600 ]
+    wsl_step m03_wsl_strictmodes_refuses_a_world_writable_registry "$?"
 fi
 unset SSH_AUTH_SOCK
 
@@ -816,6 +832,12 @@ for e in $ids; do
     grep -qF "$e" "$S/uninstall.json" && listed=$((listed + 1))
 done
 echo "fact uninstall=$(jget "$S/uninstall.json" code) (exit $rc), enrollments named $listed of $known"
+# A refusal names its reason, effect and message (one line; paths, the user and the host masked).
+if [ "$rc" != 0 ]; then
+    echo "fact uninstall-reason=$(jget "$S/uninstall.json" data error reason), effect $(jget "$S/uninstall.json" data error effect_status)"
+    echo "fact uninstall-message=$(jget "$S/uninstall.json" data error message | tr '\n' ' ' | cut -c1-600 |
+        sed -e "s#$S#<scratch>#g" -e "s#$H#<home>#g" -e "s#$HOME#<home>#g" -e "s#$(id -un)#<user>#g" -e "s#$(hostname)#<host>#g")"
+fi
 echo "fact user-config-sha256-after-uninstall=$final"
 [ "$rc" = 0 ] && [ "$known" -ge 2 ] && [ "$listed" = "$known" ]
 step m03_wsl_uninstall_lists_the_remote_enrollments "$?"

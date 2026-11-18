@@ -585,9 +585,11 @@ local_world=0
 harness() {
     local r=$1 script=$2
     shift 2
-    local unset_env=() ssh_env=(HM_SSH_CONFIG=/dev/null HM_HOST="$HOST")
+    # A milestone harness's configuration never leaks into a fake-world run (M03 wave 6).
+    local unset_env=(-u HM_HARNESS_DIR -u HM_EVIDENCE -u HM_RUN_PREFIX -u HM_EXTRA_REMOTE -u HM_SCENARIO
+        -u HM_SCENARIO_FILES -u HM_ROOT_PHASES) ssh_env=(HM_SSH_CONFIG=/dev/null HM_HOST="$HOST")
     if [ "$local_world" = 1 ]; then
-        unset_env=(-u HM_SSH_CONFIG -u HM_HOST)
+        unset_env+=(-u HM_SSH_CONFIG -u HM_HOST)
         ssh_env=(WSL_DISTRO_NAME="${HM_ST_CONTROLLER:-}")
     fi
     env ${unset_env[@]+"${unset_env[@]}"} HOME="$H" TMPDIR="$S/tmp" PATH="$B:$PATH" \

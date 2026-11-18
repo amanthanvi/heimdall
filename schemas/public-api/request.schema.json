@@ -629,7 +629,7 @@
           ]
         },
         {
-          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 4): apply a portable bundle's catalog intent in\none journaled reconciliation (owner only, no decision: it creates no authority;\nADR-0011 I4). Joint wave 0 refuses it `driver_unavailable`.",
+          "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 4): apply a portable bundle's catalog intent in\none journaled reconciliation (owner only, no decision: it creates no authority;\nADR-0011 I4). Served from M05 U7 (ADR-0006 §17.9): it adds the destinations and\nprofiles the catalog lacks and reports every other entry, never overwriting one.",
           "type": "object",
           "properties": {
             "action": {
@@ -640,6 +640,52 @@
               "description": "The bundle.",
               "$ref": "#/$defs/PortableBundle"
             },
+            "dry_run": {
+              "description": "⟨M05⟩ Revision 5.1 (§17.9): validate the bundle as a real import does, compute\nthe plan and answer it marked as a dry run, **writing nothing** (no catalog row,\noperation, idempotency, event or journal record: a read). Owner only and gated\non `trusted-work/1`, as a real import. Omitted when false.",
+              "type": "boolean"
+            },
+            "request_id": {
+              "description": "Idempotency request ID (not consulted by a dry run).",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "bundle",
+            "request_id"
+          ]
+        },
+        {
+          "description": "⟨M05⟩ Revision 5.1 (ADR-0006 §17.9; orchestrator ruling I-6): set or clear an\nenvironment's default-profile **preference** (ADR-0011 §5.1). Owner only, no\ndecision (a preference is never authority: only a new request that omits its\nprofile reads it, and a running binding never does), journaled under `catalog`.\nNeeds `trusted-work/1`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_default_profile"
+            },
+            "environment": {
+              "description": "The environment the preference belongs to; absent: the runtime's own.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EnvironmentId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "profile": {
+              "description": "The default profile; `null` clears the preference. Always written.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProfileId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "request_id": {
               "description": "Idempotency request ID.",
               "$ref": "#/$defs/RequestId"
@@ -647,7 +693,6 @@
           },
           "required": [
             "action",
-            "bundle",
             "request_id"
           ]
         }
@@ -2863,7 +2908,7 @@
       ]
     },
     "PortableBundle": {
-      "description": "A portable bundle (ADR-0011 I4; `inspect export`, `catalog apply_import`): catalog\nintent only. Never policies, workspace records, environment permissions, grants,\ndecisions, enrollments, socket or home paths, or private material.",
+      "description": "A portable bundle (ADR-0011 I4; `inspect export`, `catalog apply_import`): catalog\nintent only. Never policies, workspace records, environment permissions, grants,\ndecisions, enrollments, socket or home paths, or private material.\n\n⟨M05⟩ Revision 5.1 (ADR-0006 §17.9): a **closed** file format (this type and the three\nit contains, `deny_unknown_fields`), as the manifest is: a request that carries a bundle\nwith an unknown or authority-bearing key at any level fails to decode, as the file path\n(`heimdall_project::parse_bundle`) already refuses it. Public requests otherwise tolerate\nunknown fields (§9); the bundle is a file format that travels inside one (ADR-0011 I4).",
       "type": "object",
       "properties": {
         "created_at": {
@@ -2908,6 +2953,7 @@
           "type": "string"
         }
       },
+      "additionalProperties": false,
       "required": [
         "schema",
         "created_at"
@@ -2961,6 +3007,7 @@
           "minimum": 0
         }
       },
+      "additionalProperties": false,
       "required": [
         "id",
         "alias"
@@ -2979,6 +3026,7 @@
           "type": "string"
         }
       },
+      "additionalProperties": false,
       "required": [
         "fingerprint",
         "provider"
@@ -3000,6 +3048,7 @@
           }
         }
       },
+      "additionalProperties": false,
       "required": [
         "id",
         "pairs"

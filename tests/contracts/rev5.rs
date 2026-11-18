@@ -31,8 +31,10 @@ use heimdall_contract::environment::EnvironmentsView;
 use heimdall_contract::ipc::capability;
 use heimdall_contract::project::{Manifest, PortableBundle};
 use heimdall_contract::request::Request;
-use heimdall_contract::schema::public_schemas;
-use heimdall_contract::trust::{PoliciesView, WorkspaceView};
+use heimdall_contract::schema::{project_schemas, public_schemas};
+use heimdall_contract::trust::{
+    PoliciesView, PolicyRevisionRef, PolicyTargetResult, WorkspaceView,
+};
 
 use crate::jsonschema_lite::validate;
 use crate::{assert_clean, repo_root};
@@ -151,6 +153,9 @@ fn rev5_examples_round_trip_and_validate() {
         "schemas/examples/request.environment.container-add.json",
         "schemas/examples/request.environment.container-remove.json",
         "schemas/examples/request.catalog.apply-import.json",
+        // ⟨rev5.1⟩ ADR-0006 §17.9 (U7, ruling I-6; `dry_run`).
+        "schemas/examples/request.catalog.set-default-profile.json",
+        "schemas/examples/request.catalog.apply-import.dry-run.json",
         "schemas/examples/request.ensure.context.json",
         "schemas/examples/request.revoke.work.json",
         "schemas/examples/request.policy.pause-target.json",
@@ -173,6 +178,19 @@ fn rev5_examples_round_trip_and_validate() {
         "inspect-workspace",
     );
     let _: PoliciesView = exact("schemas/examples/inspect.policies.json", "inspect-policies");
+    // ⟨rev5.1⟩ The default-profile list is omitted when empty, so the document above is
+    // unchanged; with one set it round-trips and validates.
+    let with_default: PoliciesView = exact(
+        "schemas/examples/inspect.policies.default-profile.json",
+        "inspect-policies",
+    );
+    assert_eq!(with_default.default_profiles.len(), 1);
+    // ⟨rev5.1⟩ C2: the typed result of a targeted policy action.
+    let target: PolicyTargetResult = exact(
+        "schemas/examples/policy-target-result.json",
+        "policy-target-result",
+    );
+    assert_eq!(target.policies.len(), 2);
     // The trusted-work file formats (`schemas/project/`): exact round trips; the
     // manifest's closed schema is checked in `schema_export`.
     let v = load("schemas/examples/project-manifest.json");
@@ -214,6 +232,8 @@ fn rev5_capabilities_declared_not_offered_and_required() {
     }
     for path in [
         "schemas/examples/request.catalog.apply-import.json",
+        "schemas/examples/request.catalog.apply-import.dry-run.json",
+        "schemas/examples/request.catalog.set-default-profile.json",
         "schemas/examples/request.ensure.context.json",
         "schemas/examples/request.revoke.work.json",
         "schemas/examples/request.policy.pause-target.json",
@@ -298,6 +318,8 @@ fn rev5_m01_m03_forms_unchanged() {
         let rev5 = name.starts_with("request.environment.")
             || [
                 "request.catalog.apply-import.json",
+                "request.catalog.apply-import.dry-run.json",
+                "request.catalog.set-default-profile.json",
                 "request.ensure.context.json",
                 "request.revoke.work.json",
                 "request.policy.pause-target.json",
@@ -329,4 +351,175 @@ fn rev5_m01_m03_forms_unchanged() {
         checked >= 40,
         "only {checked} pre-revision-5 request examples"
     );
+}
+
+/// ⟨rev5.1⟩ ADR-0006 §17.9 (orchestrator ruling I-6, M05 wave 2 U7): `catalog
+/// set_default_profile`. Each golden request decodes, re-encodes byte-identically (an
+/// absent environment is omitted; `profile` is always written, `null` clearing), validates
+/// against the generated public schema, is a journaled `catalog` action, and needs
+/// `trusted-work/1`; `inspect policies` carries the preference only when one is set.
+#[test]
+fn rev5_1_set_default_profile_forms() {
+    use heimdall_contract::request::Admission;
+    let golden = load("tests/contracts/golden/rev5-1.golden.json");
+    assert_eq!(golden["capability"], capability::TRUSTED_WORK_V1);
+    let schema = public_schemas()
+        .into_iter()
+        .find(|s| s.name == "request")
+        .unwrap();
+    let schema = serde_json::to_value(&schema.schema).unwrap();
+    let rows = golden["requests"].as_array().unwrap();
+    assert_eq!(rows.len(), 4);
+    for row in rows {
+        let v = &row["json"];
+        let what = row["what"].as_str().unwrap();
+        let r: Request =
+            serde_json::from_value(v.clone()).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(
+            &serde_json::to_value(&r).unwrap(),
+            v,
+            "{what}: exact round trip"
+        );
+        if let Err(e) = validate(&schema, v) {
+            panic!("{what} against the request schema: {e:?}");
+        }
+        let Request::Catalog(c) = &r else {
+            panic!("{what}: not a catalog request");
+        };
+        assert_eq!(c.action(), golden["action"].as_str().unwrap(), "{what}");
+        assert_eq!(r.kind(), golden["kind"].as_str().unwrap(), "{what}");
+        assert_eq!(r.admission(), Admission::Journaled("catalog"), "{what}");
+        assert_eq!(
+            r.required_capability(),
+            Some(capability::TRUSTED_WORK_V1),
+            "{what}"
+        );
+        assert!(r.is_effectful() && !r.requires_attended_session(), "{what}");
+        assert!(
+            !r.is_widening_policy_action(),
+            "{what}: a preference is not authority"
+        );
+    }
+    // A missing `profile` clears, as `null` does (never a decode error that hides the
+    // owner's intent), and the clear is written out explicitly.
+    let missing: Request = serde_json::from_value(
+        serde_json::json!({"op": "catalog", "action": "set_default_profile", "request_id": "r-5"}),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&missing).unwrap()["profile"],
+        Value::Null
+    );
+    // The view.
+    let view = &golden["view"];
+    let empty: PoliciesView = serde_json::from_value(view["empty"].clone()).unwrap();
+    assert!(empty.default_profiles.is_empty());
+    assert_eq!(serde_json::to_value(&empty).unwrap(), view["empty"]);
+    let set: PoliciesView = serde_json::from_value(view["set"].clone()).unwrap();
+    assert_eq!(serde_json::to_value(&set).unwrap(), view["set"]);
+}
+
+/// ⟨rev5.1⟩ ADR-0006 §17.9 items `dry_run`, the closed bundle, C1 and C2, from the golden
+/// (transcribed from the contract owner's delta): `dry_run` is omitted when false (an
+/// earlier `apply_import` is unchanged) and written when true, and either way needs
+/// `trusted-work/1`; an unknown key at any of the four bundle levels makes the request
+/// undecodable, and the published `portable` schema is closed at each; the targeted-action
+/// result and the decision view's policy list round-trip exactly and the result validates
+/// against its published schema.
+#[test]
+fn rev5_1_dry_run_closed_bundle_and_typed_results() {
+    let golden = load("tests/contracts/golden/rev5-1.golden.json");
+    let request_schema = {
+        let s = public_schemas()
+            .into_iter()
+            .find(|s| s.name == "request")
+            .unwrap();
+        serde_json::to_value(&s.schema).unwrap()
+    };
+    let dry = &golden["dry_run"];
+    for row in dry["requests"].as_array().unwrap() {
+        let v = &row["json"];
+        let what = row["what"].as_str().unwrap();
+        let r: Request =
+            serde_json::from_value(v.clone()).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(&serde_json::to_value(&r).unwrap(), v, "{what}: round trip");
+        if let Err(e) = validate(&request_schema, v) {
+            panic!("{what} against the request schema: {e:?}");
+        }
+        let Request::Catalog(heimdall_contract::catalog::CatalogRequest::ApplyImport {
+            dry_run,
+            ..
+        }) = &r
+        else {
+            panic!("{what}: not apply_import");
+        };
+        assert_eq!(*dry_run, row["dry_run"].as_bool().unwrap(), "{what}");
+        assert_eq!(
+            v.get("dry_run").is_some(),
+            *dry_run,
+            "{what}: omitted when false"
+        );
+        assert_eq!(
+            r.required_capability(),
+            Some(capability::TRUSTED_WORK_V1),
+            "{what}"
+        );
+    }
+    // Closed: a key added at each level of the bundle is refused by the type and the
+    // request; the published file schema says so at every level.
+    let portable = project_schemas()
+        .into_iter()
+        .find(|s| s.name == "portable")
+        .unwrap();
+    let portable = serde_json::to_value(&portable.schema).unwrap();
+    let closed = |node: &Value| node["additionalProperties"] == Value::Bool(false);
+    assert!(closed(&portable), "PortableBundle");
+    for def in ["PortableDestination", "PortableIdentity", "PortableProfile"] {
+        assert!(closed(&portable["$defs"][def]), "{def}");
+    }
+    let mut base = dry["requests"][1]["json"].clone();
+    base["bundle"]["identities"] = serde_json::json!([{
+        "fingerprint": format!("SHA256:{}", "B".repeat(43)), "provider": "native_agent"
+    }]);
+    base["bundle"]["profiles"] = serde_json::json!([{"id": "dev", "pairs": ["lab-db:deploy"]}]);
+    assert!(
+        serde_json::from_value::<Request>(base.clone()).is_ok(),
+        "control: every level exists and decodes"
+    );
+    for row in golden["closed_bundle"]["unknown_keys"].as_array().unwrap() {
+        let mut v = base.clone();
+        let at = match row["at"].as_str().unwrap() {
+            "bundle" => "/bundle",
+            "destination" => "/bundle/destinations/0",
+            "identity" => "/bundle/identities/0",
+            "profile" => "/bundle/profiles/0",
+            other => panic!("{other}"),
+        };
+        v.pointer_mut(at).unwrap()[row["key"].as_str().unwrap()] = row["value"].clone();
+        assert!(
+            serde_json::from_value::<Request>(v).is_err(),
+            "{row}: an unknown key is refused"
+        );
+    }
+    // C2 and C1.
+    let target_schema = public_schemas()
+        .into_iter()
+        .find(|s| s.name == "policy-target-result")
+        .unwrap();
+    let target_schema = serde_json::to_value(&target_schema.schema).unwrap();
+    for row in golden["policy_target_result"]["results"]
+        .as_array()
+        .unwrap()
+    {
+        let v = &row["json"];
+        let what = row["what"].as_str().unwrap();
+        let t: PolicyTargetResult = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(&serde_json::to_value(&t).unwrap(), v, "{what}");
+        if let Err(e) = validate(&target_schema, v) {
+            panic!("{what}: {e:?}");
+        }
+    }
+    let listed = &golden["decision_policies"]["json"];
+    let policies: Vec<PolicyRevisionRef> = serde_json::from_value(listed.clone()).unwrap();
+    assert_eq!(&serde_json::to_value(&policies).unwrap(), listed);
 }
