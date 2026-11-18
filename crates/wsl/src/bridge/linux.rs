@@ -129,30 +129,78 @@ pub(crate) fn run_dir_path(env: &HelperEnv) -> PathBuf {
     }
 }
 
-/// ⟨M04 W2 review, M04-W2-R01⟩ Whether no other principal can replace any component of
-/// `base`, the directory the run directory's anchor lives in, or any of its ancestors, by
-/// OpenSSH's secure-path rule: each directory is owned by root or `uid` and is not writable by
-/// group or others unless it is sticky. The rule reads the mode bits, which on a directory
-/// with a POSIX ACL carry the ACL's mask in the group bits, so an ACL entry granting another
-/// principal write access shows as group-writable and is refused. Both chains are checked: the
-/// path as given (a symlink component must be owned by root or `uid`; its directory is checked
-/// as the component before it) and the path it resolves to. A missing component is refused.
-fn secure_chain(base: &Path, uid: u32) -> bool {
+/// What [`secure_chain`] found about the run directory's base.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Chain {
+    /// No other principal can replace any component.
+    Secure,
+    /// A directory another principal could replace an entry of, a missing component, or one
+    /// that is not a directory.
+    Replaceable,
+    /// ⟨M04 fix re-check, M04-FX-RC01⟩ A symbolic link that is not root's, or whose target is
+    /// not itself secure.
+    Linked,
+}
+
+/// ⟨M04 W2 review, M04-W2-R01; fix re-check M04-FX-RC01⟩ Whether no other principal can
+/// replace any component of `base`, the directory the run directory's anchor lives in, or of
+/// anything the walk to it passes through, by OpenSSH's secure-path rule: each directory is
+/// owned by root or `uid` and is not writable by group or others unless it is sticky. The
+/// rule reads the mode bits, which on a directory with a POSIX ACL carry the ACL's mask in
+/// the group bits, so an ACL entry granting another principal write access shows as
+/// group-writable and is refused.
+///
+/// Every component from `/` down is checked as it is reached. A symbolic link is refused
+/// unless root owns it and its target's own chain passes the same walk (recursively, at most
+/// eight links deep; a target with `.` or `..` is refused), so a link through a directory
+/// another principal can write, at any depth, is caught: resolving the path first would
+/// erase an intermediate link and its directory from the check.
+fn secure_chain(base: &Path, uid: u32) -> Chain {
+    chain_of(base, uid, 0)
+}
+
+fn chain_of(path: &Path, uid: u32, depth: u32) -> Chain {
+    use std::path::Component;
+    if depth > 8
+        || !path.is_absolute()
+        || path
+            .components()
+            .any(|c| matches!(c, Component::CurDir | Component::ParentDir))
+    {
+        return Chain::Linked;
+    }
     let dir_ok = |m: &std::fs::Metadata| {
-        (m.uid() == 0 || m.uid() == uid) && (m.mode() & 0o022 == 0 || m.mode() & 0o1000 != 0)
+        m.is_dir()
+            && (m.uid() == 0 || m.uid() == uid)
+            && (m.mode() & 0o022 == 0 || m.mode() & 0o1000 != 0)
     };
-    let lexical = base
-        .ancestors()
-        .all(|p| match std::fs::symlink_metadata(p) {
-            Ok(m) if m.file_type().is_symlink() => m.uid() == 0 || m.uid() == uid,
-            Ok(m) => m.is_dir() && dir_ok(&m),
-            Err(_) => false,
-        });
-    lexical
-        && std::fs::canonicalize(base).is_ok_and(|real| {
-            real.ancestors()
-                .all(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir() && dir_ok(&m)))
-        })
+    let mut prefix = PathBuf::new();
+    for component in path.components() {
+        prefix.push(component);
+        let Ok(meta) = std::fs::symlink_metadata(&prefix) else {
+            return Chain::Replaceable;
+        };
+        if meta.file_type().is_symlink() {
+            if meta.uid() != 0 {
+                return Chain::Linked;
+            }
+            let Ok(target) = std::fs::read_link(&prefix) else {
+                return Chain::Linked;
+            };
+            let target = if target.is_absolute() {
+                target
+            } else {
+                prefix.parent().unwrap_or(Path::new("/")).join(target)
+            };
+            match chain_of(&target, uid, depth + 1) {
+                Chain::Secure => {}
+                Chain::Replaceable | Chain::Linked => return Chain::Linked,
+            }
+        } else if !dir_ok(&meta) {
+            return Chain::Replaceable;
+        }
+    }
+    Chain::Secure
 }
 
 /// ⟨M04 W2 review, M04-W2-R01⟩ Whether `path` names exactly the directory `pinned` (device,
@@ -315,9 +363,18 @@ impl Endpoints {
                 .map_err(|_| unsafe_dir())?
                 .ok_or_else(unsafe_dir)?
         };
-        if !secure_chain(&base, self.shared.uid) {
-            say("the run directory's base or an ancestor can be replaced by another principal");
-            return Err(unsafe_dir());
+        match secure_chain(&base, self.shared.uid) {
+            Chain::Secure => {}
+            Chain::Replaceable => {
+                say("the run directory's base or an ancestor can be replaced by another principal");
+                return Err(unsafe_dir());
+            }
+            Chain::Linked => {
+                say(
+                    "the run directory's base is reached through a symbolic link that is not root's, or whose target another principal can replace: set XDG_RUNTIME_DIR, or use a base without links",
+                );
+                return Err(fail(ErrorKind::Unavailable, "wsl_bridge_run_dir_linked"));
+            }
         }
         let held =
             lock::acquire(&run_path.join(BRIDGE_LOCK), self.env.lock_wait).map_err(

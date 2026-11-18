@@ -346,6 +346,9 @@ impl BridgeRegistry {
             return Ok(b);
         }
         let target = self.target_of(environment, any_state)?;
+        if start == DistributionStart::Forbidden {
+            self.admit_background_start(environment, &target)?;
+        }
         let streams: Arc<dyn StreamHandler> = Arc::new(Streams {
             inner: Arc::downgrade(&self.inner),
             environment: environment.clone(),
@@ -443,22 +446,43 @@ impl BridgeRegistry {
         Ok(still)
     }
 
-    /// ⟨M04-W2-R03⟩ Whether a lost helper may be relaunched in the background now: not
-    /// blocked by a stopped listing, and a listing at least one re-check ago already showed
-    /// the distribution running (this one being the second). The first such listing is
-    /// recorded here.
-    fn relaunch_due(&self, environment: &EnvironmentId) -> bool {
+    /// ⟨M04-W2-R03, M04-FX-RC02⟩ No background start of `environment`'s helper until the
+    /// owner's next `ensure` naming it (a listing showed it stopped, absent or unreadable).
+    fn block_relaunch(&self, environment: &EnvironmentId) {
+        let mut g = self.inner.lock();
+        let st = g.entry(environment.clone()).or_default();
+        st.relaunch_blocked = true;
+        st.running_since = None;
+    }
+
+    /// ⟨M04-W2-R03, M04-FX-RC02⟩ The admission of a background (`Forbidden`) helper start,
+    /// checked at the one boundary every non-owner start passes through (`ensure_bridge`):
+    /// the supervisor's relaunch, endpoint creation and recovery alike. It lists the
+    /// distribution now: not running blocks (until the owner's `ensure`); otherwise the start
+    /// is admitted only when not blocked and when a listing at least one re-check ago already
+    /// showed it running (the first such listing is recorded here, and the start deferred).
+    fn admit_background_start(
+        &self,
+        environment: &EnvironmentId,
+        target: &DistributionTarget,
+    ) -> Result<(), AdapterError> {
+        let running = self.inner.host.running(&target.guid);
         let now = std::time::Instant::now();
         let mut g = self.inner.lock();
         let st = g.entry(environment.clone()).or_default();
+        if running != RunningState::Running {
+            st.relaunch_blocked = true;
+            st.running_since = None;
+        }
         if st.relaunch_blocked {
-            return false;
+            return Err(unavailable("wsl_distribution_not_running"));
         }
         match st.running_since {
-            Some(t) => now.duration_since(t) >= self.inner.recheck,
+            Some(t) if now.duration_since(t) >= self.inner.recheck => Ok(()),
+            Some(_) => Err(unavailable("wsl_helper_relaunch_deferred")),
             None => {
                 st.running_since = Some(now);
-                false
+                Err(unavailable("wsl_helper_relaunch_deferred"))
             }
         }
     }
@@ -498,6 +522,11 @@ impl BridgeRegistry {
         let host = Arc::clone(&self.inner.host);
         let Ok(Ok(listed)) = tokio::task::spawn_blocking(move || host.discover()).await else {
             // WSL itself is unavailable: nothing can be said of any distribution.
+            // ⟨M04-FX-RC02⟩ An unreadable listing blocks every background relaunch until the
+            // owner's next `ensure`.
+            for (environment, _) in &rows {
+                self.block_relaunch(environment);
+            }
             return;
         };
         for (environment, guid) in rows {
@@ -516,6 +545,8 @@ impl BridgeRegistry {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .insert(environment.clone());
+                // ⟨M04-FX-RC02⟩ An absent listing blocks the background relaunch too.
+                self.block_relaunch(&environment);
                 if !confirmed {
                     continue;
                 }
@@ -538,9 +569,7 @@ impl BridgeRegistry {
                 // ⟨M04-W2-R03⟩ A lost helper is relaunched in the background only after two
                 // consecutive listings, at least one re-check apart, show the distribution
                 // running, and never after one showed it stopped (until the owner's `ensure`).
-                if self.live_bridge(&environment).is_none() && !self.relaunch_due(&environment) {
-                    continue;
-                }
+
                 // Respawn, never starting a distribution: it runs (`Forbidden`). A live helper
                 // realizes the current generations again (idempotent for the helper), which
                 // recreates an endpoint whose socket was deleted (m04-plan U4,
@@ -561,10 +590,7 @@ impl BridgeRegistry {
                 let _ = self.live_bridge(&environment);
                 // ⟨M04-W2-R03⟩ Stopped, absent or unreadable: no background relaunch until the
                 // owner's next `ensure` naming the environment.
-                let mut g = self.inner.lock();
-                let st = g.entry(environment.clone()).or_default();
-                st.relaunch_blocked = true;
-                st.running_since = None;
+                self.block_relaunch(&environment);
             }
         }
     }

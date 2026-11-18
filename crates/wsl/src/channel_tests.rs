@@ -769,3 +769,72 @@ fn mode_b_answers_paths_only_through_a_verified_unreplaced_tree() {
         0
     );
 }
+
+/// ⟨M04 fix re-check, M04-FX-RC01⟩ The re-check's probe, inverted: a run base reached through
+/// a symbolic link that is not root's (here `<root>/link -> <shared>/pivot -> <root>/good`,
+/// `<shared>` writable by anyone and not sticky) is refused before anything is created, with
+/// its own reason, so a later swap of the intermediate link can never redirect an answered
+/// `ssh_config`. (A root-owned link whose target chain is secure passes: on macOS every
+/// fixture here sits under `/tmp`, a root-owned link to `/private/tmp`.)
+#[test]
+fn mode_b_refuses_a_run_base_reached_through_a_replaceable_link() {
+    use std::os::unix::fs::symlink;
+    let root = tempfile::Builder::new()
+        .prefix("hwl")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let r = root.path();
+    for (name, mode) in [
+        ("", 0o755),
+        ("shared", 0o777),
+        ("good", 0o755),
+        ("good/state", 0o755),
+    ] {
+        let d = r.join(name);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    let pivot = r.join("shared/pivot");
+    symlink(r.join("good"), &pivot).unwrap();
+    symlink(&pivot, r.join("link")).unwrap();
+    let mut env = helper_env(r, Some("Ubuntu"));
+    env.state_base = r.join("link/state");
+    let launcher = Arc::new(InProcess {
+        env,
+        helpers: Mutex::new(Vec::new()),
+    });
+    let bridge = Bridge::start(
+        launcher.clone(),
+        &target("Ubuntu"),
+        DistributionStart::Forbidden,
+        Arc::new(CountingHandler {
+            accept: false,
+            served: AtomicUsize::new(0),
+        }),
+    )
+    .unwrap();
+    let run = bridge.run_dir().to_owned();
+    assert_eq!(
+        bridge
+            .realize("b1", 1, public(&run, "b1", &[]), in_one_hour())
+            .unwrap_err()
+            .code(),
+        "wsl_bridge_run_dir_linked"
+    );
+    assert!(
+        !r.join("good/state/heimdall/run/b").exists(),
+        "nothing created behind the link"
+    );
+    drop(bridge);
+    assert_eq!(
+        launcher
+            .helpers
+            .lock()
+            .unwrap()
+            .pop()
+            .unwrap()
+            .join()
+            .unwrap(),
+        0
+    );
+}

@@ -620,7 +620,11 @@ reading I-11.
    re-check (10 s) apart, show the distribution running, and a fresh listing is made
    immediately before each `wsl.exe` call of the launch (the `wslpath` resolution and the
    helper). Any stopped, absent or unreadable listing cancels the relaunch until the owner's
-   next `ensure` naming the environment, which is the explicit start. A stop that begins after
+   next `ensure` naming the environment, which is the explicit start. ⟨Fix re-check
+   M04-FX-RC02⟩ The admission is checked at the one boundary every non-owner helper start
+   passes through, so the supervisor's relaunch, endpoint creation and recovery are gated
+   alike, and it lists the distribution itself; an absent distribution in a discovery, or an
+   unreadable discovery, sets the block as a stopped listing does. A stop that begins after
    the final pre-launch listing can still be raced, because `wsl.exe` offers no launch that
    refuses a stopped distribution; the window is the time from that listing to `wsl.exe`'s
    start. Recorded as a residual.
@@ -651,17 +655,22 @@ reading I-11.
    to end through the real binary on macOS and Linux. It's mechanism evidence; the A13 rows are
    native.
 
-9. **⟨Review M04-W2-R01⟩ Mode B answers paths only through a tree no other principal can
-   replace.** The run base (`$XDG_RUNTIME_DIR`, or the state base) and every ancestor, both as
-   given and as resolved, must pass OpenSSH's secure-path rule: owned by root or the user,
-   and not writable by group or others unless sticky. The mode bits carry a POSIX ACL's mask,
+9. **⟨Review M04-W2-R01; fix re-check M04-FX-RC01⟩ Mode B answers paths only through a tree
+   no other principal can replace.** Every component of the run base (`$XDG_RUNTIME_DIR`, or
+   the state base), from `/` down, as it is reached, must pass OpenSSH's secure-path rule:
+   owned by root or the user, and not writable by group or others unless sticky. A symbolic
+   link is accepted only when root owns it and its target's own chain passes the same walk
+   (at most eight links deep); any other link is refused as `wsl_bridge_run_dir_linked`, with
+   a message naming `XDG_RUNTIME_DIR` or a base without links. Resolving the path first would
+   erase an intermediate link and the directory it sits in from the check. The mode bits carry a POSIX ACL's mask,
    so an ACL granting another principal write access is refused too. A base that fails is
    refused (`wsl_bridge_run_dir_unsafe`) before anything is created. Each realization also
    checks that the binding's path names the directory its files are written through (device
    and inode of the pinned handle), before writing and again after binding the socket; on a
-   mismatch the binding is withdrawn and nothing is answered. **Consequence:** a group-writable
+   mismatch the binding is withdrawn and nothing is answered. **Consequences:** a group-writable
    ancestor, as `umask 002` leaves `~/.local` on a user-private-group system, makes the
-   fallback base unusable for Mode B; `$XDG_RUNTIME_DIR` (0700, systemd) is unaffected.
+   fallback base unusable for Mode B, and so does a home reached through a link the user owns;
+   `$XDG_RUNTIME_DIR` (0700, systemd) is unaffected.
 10. **⟨Review M04-W2-R04⟩ `GIT_SSH_COMMAND` carries the configuration path as one shell word**
     (single-quoted when it holds anything outside `[A-Za-z0-9/._-]`), because Git runs it
     through `sh`. The descriptor's path fields stay raw. The container's fixed path needs no
@@ -698,6 +707,11 @@ neutralized, it fails, exit 101; restored, exit 0),
 `wsl_mode_b_lost_helper_relaunches_only_after_two_running_listings` (R03),
 `wsl_mode_b_withdrawal_during_a_relaunch_leaves_no_endpoint` (R02), and
 `wsl_mode_b::git_ssh_command_carries_a_config_path_with_spaces_as_one_argument` (R04).
+The fix re-check's (`39f48be8`): `mode_b_refuses_a_run_base_reached_through_a_replaceable_link`
+(RC01; revert proof: with the walk reverted it fails, exit 101; restored, exit 0) and
+`wsl_mode_b_absent_or_unreadable_listings_and_endpoint_starts_respect_the_relaunch_block`
+(RC02); the Mode B harness's own self-test covers RC03 (an import recorded before it runs,
+and install directories kept until their distribution is known gone).
 
 **Residuals:**
 - **A stop racing the last pre-launch listing** (item 1): `wsl.exe` has no launch that refuses

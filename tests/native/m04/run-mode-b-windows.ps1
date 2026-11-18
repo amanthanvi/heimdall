@@ -139,6 +139,15 @@ function Select-RemovableDistributions([string[]]$Created, [string[]]$Before, [s
         })
 }
 
+# ⟨M04 fix re-check, M04-FX-RC03⟩ Which install directories of the run's attempted imports are
+# kept after cleanup: one whose name is still registered, or every one when the listing after
+# cleanup could not be read ($Now is $null). A directory is removed only once its distribution
+# is known to be unregistered.
+function Select-KeptInstallDirectories([string[]]$Attempted, $Now) {
+    if ($null -eq $Now) { return @($Attempted) }
+    return @($Attempted | Where-Object { $Now -contains $_ })
+}
+
 # Whether two registered sets are equal (order and case of the listing aside).
 function Test-SameSet([string[]]$A, [string[]]$B) {
     $x = @($A | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
@@ -260,6 +269,12 @@ function Invoke-SelfTest {
     $rm = @(Select-RemovableDistributions @('hm-m04-0a1b2c3d-1', 'hm-m04-0a1b2c3d-2', 'Ubuntu', 'hm-m04-99999999-1') $before $now)
     Check 'C01 cleanup removes only a created name of the pattern, absent before, registered now' (($rm -join ',') -ceq 'hm-m04-0a1b2c3d-1')
     Check 'C02 a created name already gone (the unregister row removed it) is not unregistered again' (@(Select-RemovableDistributions @('hm-m04-0a1b2c3d-1') @() @('Ubuntu')).Count -eq 0)
+    Check 'C04 an import recorded only as attempted (its listing failed, or Ctrl-C landed before it was recorded) is still unregistered when it is registered' (
+        (@(Select-RemovableDistributions @('hm-m04-0a1b2c3d-1') @('Ubuntu') @('Ubuntu', 'hm-m04-0a1b2c3d-1')) -join ',') -ceq 'hm-m04-0a1b2c3d-1')
+    Check 'C05 an install directory is kept while its distribution is registered, and all are kept when the listing is unreadable' (
+        ((Select-KeptInstallDirectories @('hm-m04-0a1b2c3d-1', 'hm-m04-0a1b2c3d-2') @('Ubuntu', 'hm-m04-0a1b2c3d-2')) -join ',') -ceq 'hm-m04-0a1b2c3d-2' -and
+        ((Select-KeptInstallDirectories @('hm-m04-0a1b2c3d-1', 'hm-m04-0a1b2c3d-2') $null) -join ',') -ceq 'hm-m04-0a1b2c3d-1,hm-m04-0a1b2c3d-2' -and
+        @(Select-KeptInstallDirectories @('hm-m04-0a1b2c3d-1') @('Ubuntu')).Count -eq 0)
     Check 'C03 the registered set compares as a set' ((Test-SameSet @('Ubuntu', 'Debian') @('debian', 'Ubuntu')) -and -not (Test-SameSet @('Ubuntu') @('Ubuntu', 'hm-m04-0a1b2c3d-1')))
     $verbose = "  NAME                 STATE           VERSION`r`n* OwnersBox            Running         2`r`n  hm-m04-0a1b2c3d-1    Stopped         2`r`n  Personal-Name        Stopped         2`r`n"
     $facts = Get-DistributionFacts $verbose @('hm-m04-0a1b2c3d-1', 'hm-m04-0a1b2c3d-2')
@@ -399,6 +414,8 @@ $skipped = [System.Text.StringBuilder]::new()
 $distFacts = [System.Text.StringBuilder]::new()
 $overall = 0
 $created = [System.Collections.Generic.List[string]]::new()
+# ⟨M04-FX-RC03⟩ Every name an import was started for, recorded before the import runs.
+$attempted = [System.Collections.Generic.List[string]]::new()
 $before = @()
 $names = @()
 $sshdProc = $null
@@ -464,6 +481,12 @@ function Invoke-InDistro([string]$Name, [string]$Account, [string]$Script, [stri
     return Invoke-Bounded $wslExe (@('-d', $Name, '-u', $Account, '--exec', '/bin/bash', '-s', '--') + $ScriptArgs) $wslEnv $run $Seconds $Script
 }
 function Get-Registered { return ConvertFrom-WslList (Invoke-WslExe @('--list', '--quiet') 120).Output }
+# ⟨M04-FX-RC03⟩ The registered names, or $null when the listing failed.
+function Get-RegisteredOrNull {
+    $r = Invoke-WslExe @('--list', '--quiet') 120
+    if ($r.Code -ne 0) { return $null }
+    return , @(ConvertFrom-WslList $r.Output)
+}
 function Add-DistributionFacts([string]$When) {
     $v = Invoke-WslExe @('--list', '--verbose') 120
     $f = Get-DistributionFacts $v.Output $names
@@ -567,9 +590,17 @@ try {
     foreach ($n in $names) {
         $dir = Join-Path $distroRoot $n
         [void][System.IO.Directory]::CreateDirectory($dir)
-        $r = Invoke-WslExe @('--import', $n, $dir, $image, '--version', '2') 1800
-        # Recorded as this run's as soon as it is registered, whatever the exit code said.
-        if ((Get-Registered) -contains $n) { $created.Add($n) }
+        # ⟨M04-FX-RC03⟩ Attempted before the import runs, so the outer cleanup considers this
+        # name whatever happens next (a failed listing, Ctrl-C); reconciled in this finally.
+        $attempted.Add($n)
+        $r = $null
+        try {
+            $r = Invoke-WslExe @('--import', $n, $dir, $image, '--version', '2') 1800
+        } finally {
+            # Recorded as this run's as soon as it is registered, whatever the exit code said.
+            $listed = Get-RegisteredOrNull
+            if ($null -ne $listed -and ($listed -contains $n) -and -not ($created -contains $n)) { $created.Add($n) }
+        }
         Add-Command $r.Code "wsl --import $n (into the run directory, WSL 2)"
         if ($r.Code -ne 0 -or -not ($created -contains $n)) { throw "the import of $n failed" }
         $r = Invoke-InDistro $n 'root' $scripts['root-phase'] @($files, $n, 'no-systemd') 600
@@ -697,9 +728,9 @@ try {
         }
     } catch { Add-Command 1 "stopping the harness sshd: $($_.Exception.Message)"; if ($overall -eq 0) { $overall = 1 } }
     try {
-        if ($created.Count -gt 0) {
+        if ($attempted.Count -gt 0) {
             $now = @(Get-Registered)
-            foreach ($n in @(Select-RemovableDistributions $created.ToArray() $before $now)) {
+            foreach ($n in @(Select-RemovableDistributions $attempted.ToArray() $before $now)) {
                 [void](Invoke-WslExe @('--terminate', $n) 120)
                 $r = Invoke-WslExe @('--unregister', $n) 600
                 Add-Command $r.Code "wsl --unregister $n (this run's, by exact name)"
@@ -707,6 +738,12 @@ try {
             }
             foreach ($n in $created) {
                 if (-not ($now -contains $n)) { Add-Command 0 "$n was already unregistered (the unregister row)" }
+            }
+            # ⟨M04-FX-RC03⟩ Keep the install directory of any distribution not known to be gone.
+            $kept = @(Select-KeptInstallDirectories $attempted.ToArray() (Get-RegisteredOrNull))
+            foreach ($n in $kept) {
+                Add-Command 1 "$n may still be registered: its install directory under the run directory is kept (unregister it by this exact name, then remove the directory)"
+                if ($overall -eq 0) { $overall = 1 }
             }
         }
         if ($names.Count -gt 0) {
@@ -718,10 +755,19 @@ try {
             if (-not $same -and $overall -eq 0) { $overall = 1 }
         }
     } catch { Add-Command 1 "unregistering this run's distributions: $($_.Exception.Message)"; if ($overall -eq 0) { $overall = 1 } }
-    foreach ($d in @($src, $tools, $wtmp, $files, $distroRoot, $sshdDir, $githome, (Join-Path $run 'ubuntu-24.04.5-wsl-amd64.wsl'))) {
+    foreach ($d in @($src, $tools, $wtmp, $files, $sshdDir, $githome, (Join-Path $run 'ubuntu-24.04.5-wsl-amd64.wsl'))) {
         if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    $gone = -not ((Test-Path -LiteralPath $src) -or (Test-Path -LiteralPath $tools) -or (Test-Path -LiteralPath $distroRoot))
+    # The distributions' install directories: each removed only when its distribution is known
+    # to be unregistered (⟨M04-FX-RC03⟩); the directory root goes when nothing is kept.
+    if (-not (Test-Path variable:kept)) { $kept = @(Select-KeptInstallDirectories $attempted.ToArray() (Get-RegisteredOrNull)) }
+    foreach ($n in $attempted) {
+        if ($kept -contains $n) { continue }
+        $d = Join-Path $distroRoot $n
+        if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    if ($kept.Count -eq 0 -and (Test-Path -LiteralPath $distroRoot)) { Remove-Item -LiteralPath $distroRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    $gone = -not ((Test-Path -LiteralPath $src) -or (Test-Path -LiteralPath $tools) -or ($kept.Count -eq 0 -and (Test-Path -LiteralPath $distroRoot)))
     Add-Command $(if ($gone) { 0 } else { 1 }) 'remove the clone, the toolchain, the build and the distributions'' directories, then check they are absent'
     if (-not $gone -and $overall -eq 0) { $overall = 1 }
 

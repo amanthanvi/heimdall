@@ -1102,3 +1102,58 @@ async fn wsl_mode_b_withdrawal_during_a_relaunch_leaves_no_endpoint() {
     assert!(!bridge.realized().unwrap().contains(&(tag_a, 1)));
     p.shutdown.cancel();
 }
+
+/// ⟨M04 fix re-check, M04-FX-RC02⟩ The re-check's two probes, inverted.
+/// 1. **An absent listing blocks.** A lost helper's first running listing is recorded; one
+///    discovery that omits the distribution, then the same distribution listed running again,
+///    a re-check apart: nothing is relaunched in the background, however many running listings
+///    follow, until the owner's `ensure`. (An unreadable discovery takes the same blocking path
+///    in the supervisor; the fake host has no failing listing.)
+/// 2. **Every background start passes the same admission.** With the block set by a stopped
+///    listing and the distribution running again, the `Forbidden` endpoint entry point
+///    (`WslRealizer::run_dir`, which endpoint creation and recovery use) starts nothing either.
+#[tokio::test]
+async fn wsl_mode_b_absent_or_unreadable_listings_and_endpoint_starts_respect_the_relaunch_block() {
+    use heimdall_credential::endpoints::wsl::WslRealizer;
+    let recheck = std::time::Duration::from_millis(120);
+    let w = Live::new();
+    let (p, host, factory) = process(&w, true).await;
+    let (id, _) = approved(&p).await;
+    permit_ensures(&w, &id);
+    ensure_in(&p, &id, "w-a", "r-a").await.unwrap();
+    let supervisor = p.bridge.clone().unwrap();
+    let spawned = || factory.spawned.load(Ordering::SeqCst);
+
+    // 1. Absent once, then listed again.
+    factory.bridge().alive.store(false, Ordering::SeqCst);
+    supervisor.tick(&p.ops).await;
+    let listed = host.listed.lock().unwrap().clone();
+    host.unregister();
+    supervisor.tick(&p.ops).await;
+    *host.listed.lock().unwrap() = listed;
+    for _ in 0..3 {
+        tokio::time::sleep(recheck).await;
+        supervisor.tick(&p.ops).await;
+    }
+    assert_eq!(spawned(), 1, "no relaunch after an absent listing");
+    ensure_in(&p, &id, "w-b", "r-b").await.unwrap();
+    assert_eq!(spawned(), 2, "the owner's ensure is the explicit start");
+    assert_eq!(factory.starts().last(), Some(&DistributionStart::Allowed));
+
+    // 2. A stopped listing sets the block; the distribution runs again; the endpoint entry
+    //    point starts nothing.
+    factory.bridge().alive.store(false, Ordering::SeqCst);
+    host.set_running(RunningState::NotRunning);
+    supervisor.tick(&p.ops).await;
+    host.set_running(RunningState::Running);
+    tokio::time::sleep(recheck).await;
+    assert!(WslRealizer::run_dir(&supervisor, &id).is_err());
+    tokio::time::sleep(recheck).await;
+    assert!(WslRealizer::run_dir(&supervisor, &id).is_err());
+    assert_eq!(
+        spawned(),
+        2,
+        "no background start through the endpoint entry point"
+    );
+    p.shutdown.cancel();
+}
