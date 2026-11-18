@@ -193,7 +193,7 @@ pub struct BoundedReport {
 
 /// Whether `o` is a `bounded_by_expiry` obligation that has settled
 /// (`bounded_complete` or `nominally_expired`).
-fn settled_bounded(o: &RemoteObligation) -> bool {
+pub(super) fn settled_bounded(o: &RemoteObligation) -> bool {
     matches!(
         &o.kind,
         ObligationKind::BoundedByExpiry {

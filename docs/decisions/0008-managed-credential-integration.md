@@ -4824,6 +4824,41 @@ Wave 5 merges under §17.33 item 6. From wave 6 on, delivery follows ADR-0009.
    - a revoked managed grant reads `revoking` until its certificates' residual passes, then `revoked` (I-11);
    - on Windows, the live runtime's empty `service.lock` cannot be read by another process, and the A33 and A10 scans record it as a locked empty file.
 
+### 17.42 Exit build E5: the managed residual settles (2026-11-18)
+
+**Source:** the E4 macOS lock run. The owner unlocked after about 6 hours, and grant R still read
+`revoking` about 4 hours after its certificates' latest `valid_before`. D7 item 3's
+`bounded_by_expiry` settlement existed (`settle_bounded_obligations`), but no product path created
+the obligation: a managed revocation's residual stayed `needs_remote_action`, its retry rounds
+stopped after the cap, and the grant never reached `revoked`. Earlier lock runs had all ended inside
+the residual, so none could see it. This is a product gap from wave 0, not an E4 regression.
+
+1. **The ruling (orchestrator, I-12): fixed as a product change.** When the managed adapter's
+   `revoke()` answers with a residual still pending, the round's completion replaces that obligation
+   with one `bounded_by_expiry` obligation per pair:
+   - its `latest_valid_before` is the pair's latest reserved or published certificate's;
+   - its clock basis is the latest enrollment measurement while `fresh_until > now`, otherwise
+     `unmeasured` (which settles as `nominally_expired`, the record kept).
+
+   After a key-only restore the obligation stays `needs_remote_action`, as at E4. A grant with no
+   counted issuance entry clears. `owes()` counts only `needs_remote_action` obligations, and a
+   settled bounded obligation no longer keeps its grant `revoking`, so §17.41 item 5's
+   "`revoking` until the residual passes, then `revoked`" now holds end to end.
+2. **Uninstall.** §17.41 item 1's plain-path fence still compares an obligation's kind exactly. So a
+   residual that settles between the owner's confirmation and the fence refuses the plain uninstall
+   with `uninstall_inventory_changed`, as a changed `needs_remote_action` obligation does. The window
+   is seconds long, and the owner confirms again. Proof: `plain_uninstall_fence_compares_bounded_obligations`.
+3. **Proof:** two `managed_adapter` regressions and the mixed-order `runtime_m03` regression, each
+   failing against E4's code and passing with the fix. The end-to-end
+   `managed_revoke_reaches_revoked_once_the_residual_passes` (a 90 s certificate, through the real
+   binary) runs on every platform, and in WSL as the M03 scenario step of the same name.
+4. **The lock run is shortened.** R's window and certificate validity, and N's window, are 600 s,
+   with a 120 s residual margin. The post-unlock check therefore sees `revoked` inside a lock of
+   about 15–25 minutes, not hours.
+5. **Test-only:** A33's `k_ca` needles are the PEM lines that carry private-seed bytes. The
+   ed25519 key's second line holds only a checkint byte and the CA's public key, which a
+   certificate signed by that CA could match about once in 256 runs.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

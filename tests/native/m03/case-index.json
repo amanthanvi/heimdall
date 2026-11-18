@@ -664,13 +664,16 @@
           "stale_approval_cannot_reactivate_after_revoke",
           "slow_server_clock_residual_bounded_by_measurement",
           "unmeasured_residual_reported_nominally_expired_never_cleared",
-          "revoke_destroys_keys_under_exclusive_gate"
+          "revoke_destroys_keys_under_exclusive_gate",
+          "managed_revoke_records_bounded_obligations_and_reaches_revoked",
+          "managed_revoke_with_stale_measurement_is_nominally_expired"
         ],
         "integration_runtime_m03": [
           "bounded_obligation_completes_after_measured_bound_on_safe_time",
           "unmeasured_obligation_becomes_nominally_expired_never_cleared",
           "bounded_obligation_never_moves_on_uncertain_time",
-          "bounded_obligation_consumes_no_attempt"
+          "bounded_obligation_consumes_no_attempt",
+          "mixed_obligations_revoke_with_the_last_confirmation"
         ],
         "model_lock_behavior": [
           "lock_revocation_between_reserve_and_publish_voids"
@@ -702,10 +705,12 @@
         ],
         "wsl_managed_ssh": [
           "m03_wsl_access_ensure_signed_by_the_real_issuer_child",
-          "m03_wsl_revoke_then_fresh_login_refused"
+          "m03_wsl_revoke_then_fresh_login_refused",
+          "m03_wsl_managed_revoke_revoked_once_the_residual_passes"
         ],
         "e2e_exit_m03": [
-          "real_issuer_activation_reissue_revocation_with_fresh_logins"
+          "real_issuer_activation_reissue_revocation_with_fresh_logins",
+          "managed_revoke_reaches_revoked_once_the_residual_passes"
         ]
       },
       "blocked_rows": [
@@ -1496,6 +1501,7 @@
         "m03_wsl_strictmodes_refuses_a_world_writable_registry": "with ~/.ssh/authorized_keys made world-writable, the same managed login is refused (exit 255), the root sshd logs bad ownership or modes, and the mode is restored to 600; a group-writable registry is tried first and only recorded, since Debian's and Ubuntu's OpenSSH (the user-group-modes patch) accept a group-writable file whose group is the owner's private group",
         "m03_wsl_revoke_on_lock_refused_lock_signal_unavailable": "access lock-behavior --policy <policy> revoke-on-lock is refused: lock_signal_unavailable (no lock signal in the distribution)",
         "m03_wsl_revoke_then_fresh_login_refused": "access revoke of each grant; fresh ordinary logins to both aliases fail and neither sshd accepts any login afterwards",
+        "m03_wsl_managed_revoke_revoked_once_the_residual_passes": "E5 (ruling I-12): a managed grant whose certificate is valid for 90 s (access ensure --for 90s), revoked at once, reads revoking; once its residual has passed (valid_before plus the pair's measured bound) it reads revoked or is no longer listed, never earlier",
         "m03_wsl_uninstall_lists_the_remote_enrollments": "uninstall (typed yes) names every enrollment enroll status listed (at least 2); nothing remote is removed",
         "m03_wsl_uninstall_restores_the_users_config_bytes": "the user's ~/.ssh/config is byte-identical to its bytes before the first setup apply"
       }

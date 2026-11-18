@@ -50,6 +50,9 @@
 #       --policy … revoke-on-lock` is refused, `lock_signal_unavailable`;
 #   m03_wsl_revoke_then_fresh_login_refused   `access revoke` of each grant, then fresh ordinary
 #       logins fail and the servers accept nothing more;
+#   m03_wsl_managed_revoke_revoked_once_the_residual_passes   (E5, ruling I-12) a grant whose
+#       certificate is valid for 90 s, revoked at once, reads `revoking`, then `revoked` (or is no
+#       longer listed) once its residual has passed, never earlier;
 #   m03_wsl_uninstall_lists_the_remote_enrollments   `uninstall` (typed yes) names every enrollment
 #       `enroll status` listed (Heimdall removes nothing remote);
 #   m03_wsl_uninstall_restores_the_users_config_bytes   ~/.ssh/config is byte-identical to the
@@ -617,21 +620,23 @@ step m03_wsl_setup_apply_projects_the_managed_aliases "$?"
 
 # Activation: one ensure per pair, each signed by the runtime's issuer child.
 ensure_pair() {
-    # ensure_pair TAG DEST: access ensure of (DEST, ACCOUNT). When it needs owner authority, the
-    # decision is approved on the pty and the same operation is waited for; OUT then holds its result.
-    local out="$S/ensure-$1.json" d op rc
-    hmcli "$out" access ensure --profile "$PROFILE" --pair "$2:$ACCOUNT" --work-id "w-$1" --request-id "r-$1"
+    # ensure_pair TAG DEST [ARGS...]: access ensure of (DEST, ACCOUNT), with ARGS (e.g. `--for 90s`).
+    # When it needs owner authority, the decision is approved on the pty and the same operation is
+    # waited for; OUT then holds its result.
+    local out="$S/ensure-$1.json" tag=$1 dest=$2 d op rc
+    shift 2
+    hmcli "$out" access ensure --profile "$PROFILE" --pair "$dest:$ACCOUNT" --work-id "w-$tag" --request-id "r-$tag" "$@"
     rc=$?
     d=$(jget "$out" next decision_ref)
     op=$(jget "$out" next operation_id)
     if [ "$rc" = 3 ] && [ -n "$d" ] && [ -n "$op" ]; then
-        on_pty "$S/approve-$1.txt" decision approve "$d"
+        on_pty "$S/approve-$tag.txt" decision approve "$d"
         rc=$?
-        echo "fact ensure-$1-decision=$(jget "$S/approve-$1.txt" data state) (exit $rc), operation $(jget "$S/approve-$1.txt" data operation_state)"
+        echo "fact ensure-$tag-decision=$(jget "$S/approve-$tag.txt" data state) (exit $rc), operation $(jget "$S/approve-$tag.txt" data operation_state)"
         hmcli "$out" operation wait "$op" --timeout-ms 60000
         rc=$?
     fi
-    echo "fact ensure-$1=$(jget "$out" code) (exit $rc), operation $(jget "$out" data state), $(jget "$out" data code)$(reason "$out")"
+    echo "fact ensure-$tag=$(jget "$out" code) (exit $rc), operation $(jget "$out" data state), $(jget "$out" data code)$(reason "$out")"
     return "$rc"
 }
 grant_of() {
@@ -816,6 +821,53 @@ hold_pid=""
 unset SSH_AUTH_SOCK
 [ "$rrc" = 0 ] && [ -n "$SYS_GRANT" ] && [ "$s_after" != 0 ] && [ "$a_after" != 0 ] && [ "$acc" = 0 ]
 step m03_wsl_revoke_then_fresh_login_refused "$?"
+
+# E5 (ruling I-12; ADR-0008 D7 item 3): a managed grant whose certificate is valid for 90 s,
+# revoked at once, reads `revoking` while its residual is pending and `revoked` once it has
+# passed (this pair's enrollment measured the destination clock, so the bound is a few seconds
+# after valid_before): listed `revoked`, or no longer listed (ended, with nothing pending).
+grant_view() {
+    # grant_view FILE GRANT: "<state> <expires_at epoch seconds>" of GRANT in an `inspect grants`
+    # result; "absent -" when it is not listed, "unreadable -" when the result cannot be read.
+    python3 -I - "$1" "$2" <<'PY'
+import datetime, json, sys
+out = "absent -"
+try:
+    lines = [l for l in open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines() if l.strip()]
+    for g in json.loads(lines[-1]).get("data", {}).get("grants", []):
+        if g.get("grant_id") == sys.argv[2]:
+            t = datetime.datetime.fromisoformat(str(g.get("expires_at", "")).replace("Z", "+00:00"))
+            out = "%s %d" % (g.get("state", ""), int(t.timestamp()))
+except (OSError, ValueError, IndexError):
+    out = "unreadable -"
+print(out)
+PY
+}
+RES_GRANT=""
+ensure_pair residual "$SYS_DEST" --for 90s && RES_GRANT=$(grant_of "$S/ensure-residual.json")
+res_ok=1
+if [ -n "$RES_GRANT" ]; then
+    hmcli "$S/revoke-residual.json" access revoke "$RES_GRANT"
+    r=$?
+    revoked_at=$(date +%s)
+    hmcli "$S/grants-residual-0.json" inspect grants
+    read -r at_revoke until_s <<<"$(grant_view "$S/grants-residual-0.json" "$RES_GRANT")"
+    final=$at_revoke
+    changed_at=""
+    if [ "$until_s" != - ]; then
+        while [ "$(date +%s)" -lt $((until_s + 180)) ]; do
+            hmcli "$S/grants-residual.json" inspect grants
+            read -r final _ <<<"$(grant_view "$S/grants-residual.json" "$RES_GRANT")"
+            [ "$final" = revoking ] || { changed_at=$(date +%s); break; }
+            sleep 2
+        done
+    fi
+    echo "fact residual-grant=revoke exit $r, $at_revoke at the revocation, valid_before $([ "$until_s" != - ] && echo "$((until_s - revoked_at)) s later" || echo unknown)"
+    echo "fact residual-grant-after=$final$([ -n "$changed_at" ] && echo " at valid_before+$((changed_at - until_s)) s")"
+    [ "$r" = 0 ] && [ "$at_revoke" = revoking ] && [ -n "$changed_at" ] && [ "$changed_at" -ge "$until_s" ] &&
+        { [ "$final" = revoked ] || [ "$final" = absent ]; } && res_ok=0
+fi
+step m03_wsl_managed_revoke_revoked_once_the_residual_passes "$res_ok"
 
 # Uninstall: the remote enrollments are listed (Heimdall removes nothing remote here), and the
 # account's configuration is restored byte for byte.
