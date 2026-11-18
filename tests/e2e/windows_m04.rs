@@ -8,6 +8,11 @@
 //!   `spawn_with_handle_list` and in the issuer child path (the spawner the runtime injects
 //!   into the issuer client), and **present** in a child of a plain inheritable `Command`
 //!   spawn (the positive control, so the assertion can fail).
+//! * `cli_started_runtime_keeps_no_handle_of_its_caller` (⟨M04, the M03 E5 hang⟩ ADR-0010 §1
+//!   item 6, the CLI → runtime path): a pipe the CLI inherited from its caller reaches end of
+//!   file once the CLI exits, as do the CLI's own stdout and stderr, while the runtime it
+//!   started on demand still runs; a plain-spawned holder keeps such a pipe open (the
+//!   control).
 //! * `a14_no_global_agent_takeover_inventory_identical` (A14): the real binary's product
 //!   steps, run on a scratch installation, leave the owner's global agent pipe, `ssh-agent`
 //!   service (configuration, state and SDDL, read with `sc.exe`, read-only), `HKCU\Environment`
@@ -88,6 +93,9 @@ mod native {
     const PROBE_HANDLE: &str = "HM_U2_PROBE_HANDLE";
     const PROBE_MARKER: &str = "HM_U2_PROBE_MARKER";
     const PROBE_PREFIX: &str = "HM_U2_PROBE=";
+    /// ⟨M04, the M03 E5 hang⟩ With this set (milliseconds), the probe only stays alive that
+    /// long: the holder of the CLI-path test's positive control.
+    const PROBE_HOLD_MS: &str = "HM_U2_PROBE_HOLD_MS";
 
     /// The tiny FFI the native tests need. `unsafe_code` is denied workspace-wide and listed in
     /// the overview §9 inventory for production modules; this test-only module opts in for
@@ -147,6 +155,10 @@ mod native {
     /// the variables are set.
     #[test]
     fn handle_probe_child() {
+        if let Ok(ms) = std::env::var(PROBE_HOLD_MS) {
+            std::thread::sleep(Duration::from_millis(ms.parse().unwrap()));
+            return;
+        }
         let (Some(handle), Some(marker)) = (
             std::env::var(PROBE_HANDLE).ok(),
             std::env::var(PROBE_MARKER).ok(),
@@ -292,6 +304,121 @@ mod native {
         }
         assert_eq!(verdict(&text), "absent", "{text}");
         drop(marker);
+    }
+
+    /// `reader` read to its end on a thread of its own: its bytes once every write end of the
+    /// pipe is closed (a receiver, so the wait can be bounded).
+    fn read_to_eof(
+        mut reader: impl Read + Send + 'static,
+    ) -> std::sync::mpsc::Receiver<std::io::Result<Vec<u8>>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = tx.send(reader.read_to_end(&mut buf).map(|_| buf));
+        });
+        rx
+    }
+
+    /// ⟨M04, the M03 E5 hang; ADR-0010 §1 item 6⟩ The CLI → runtime path. A caller holds an
+    /// inheritable pipe that is not one of its standard handles (as a test harness's output
+    /// pipes are to the test binary it starts) and runs the real CLI with a plain spawn, so the
+    /// CLI inherits the pipe; the command starts the runtime on demand. Once the CLI exits, the
+    /// pipe reaches end of file, and so do the CLI's own stdout and stderr, while the runtime
+    /// still runs: the detached start (`launcher::spawn_detached`, an explicit handle list of
+    /// three `NUL` handles) passed none of the caller's handles on. The positive control: a
+    /// plain-spawned process holding the same kind of handle keeps the pipe open.
+    #[test]
+    fn cli_started_runtime_keeps_no_handle_of_its_caller() {
+        // The control: an inheritable pipe reaches a plain-spawned child, which holds it open.
+        let (reader, writer) = std::io::pipe().unwrap();
+        ffi::make_inheritable(writer.as_raw_handle());
+        let mut holder = Command::new(std::env::current_exe().unwrap())
+            .args(probe_args())
+            .env(PROBE_HOLD_MS, "4000")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        drop(writer);
+        let control = read_to_eof(reader);
+        assert!(
+            control.recv_timeout(Duration::from_secs(2)).is_err(),
+            "control: a plain-spawned child must hold its parent's inheritable pipe, or this test proves nothing"
+        );
+        holder.wait().unwrap();
+
+        let scratch = Scratch::new().unwrap();
+        let inst = SecondInstallation::new(&scratch).unwrap();
+        let env = product_env(&inst);
+        let _login_root = DeleteLoginRoot(login_root(&inst));
+        let _stop = StopRuntime(env.clone());
+        let (reader, writer) = std::io::pipe().unwrap();
+        ffi::make_inheritable(writer.as_raw_handle());
+        // `destination prefer` of an unknown destination: the runtime starts on demand and
+        // answers NOT_FOUND (the A14 inventory's on-demand step).
+        let mut cli = Command::new(bin())
+            .args([
+                "--json",
+                "--non-interactive",
+                "destination",
+                "prefer",
+                "nosuch",
+                "managed",
+            ])
+            .env_clear()
+            .envs(env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        // The test's own write end: only the CLI's inherited copy (and any process it passed
+        // it on to) keeps the pipe open now.
+        drop(writer);
+        let stdout = read_to_eof(cli.stdout.take().unwrap());
+        let stderr = read_to_eof(cli.stderr.take().unwrap());
+        let marker = read_to_eof(reader);
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let code = loop {
+            if let Some(status) = cli.try_wait().unwrap() {
+                break status.code().unwrap_or(-1);
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the CLI did not exit within 120 s"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        let bound = Duration::from_secs(30);
+        let out = stdout.recv_timeout(bound).map_or_else(
+            |_| panic!("the CLI exited ({code}) but its stdout did not reach end of file within 30 s: another process holds it"),
+            |r| String::from_utf8_lossy(&r.unwrap()).into_owned(),
+        );
+        heimdall_testkit::assert_no_canary(&out);
+        assert!(
+            stderr.recv_timeout(bound).is_ok(),
+            "the CLI exited ({code}) but its stderr did not reach end of file within 30 s: another process holds it"
+        );
+        assert_eq!(envelope_code(&out), "NOT_FOUND", "exit {code}: {out}");
+        let held = marker.recv_timeout(bound);
+        assert!(
+            matches!(&held, Ok(Ok(bytes)) if bytes.is_empty()),
+            "the pipe the CLI inherited did not reach end of file within 30 s after the CLI exited: the on-demand runtime (or a child of it) holds a handle of the CLI's caller"
+        );
+        // While the runtime still runs.
+        let status = Command::new(bin())
+            .args(["--json", "--non-interactive", "service", "status"])
+            .env_clear()
+            .envs(env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+        assert_eq!(
+            status["data"]["running"], true,
+            "the CLI started the runtime and it still runs: {status}"
+        );
     }
 
     // --- the A14 inventory ---------------------------------------------------------------

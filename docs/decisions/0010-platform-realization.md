@@ -61,6 +61,14 @@ probe IDs P-…), **[I]** inference to be proved by the M04 tests named in the p
    only an explicit handle list (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`).
    - This closes the inheritable-handle residual (ADR-0006 §13.9).
    - It is also what makes the §3 channel private.
+   - The CLI's on-demand start of the runtime uses the same list, holding only three `NUL`
+     handles (`launcher::spawn_detached`), so a handle the CLI inherited from its caller (a
+     script's pipe, a test harness's output) never reaches the long-lived runtime or its
+     issuer child, and a piped `heimdall` command reaches end of file when the CLI exits.
+     ⟨The M03 E5 hang (2026-11-18)⟩ Proof: `cli_started_runtime_keeps_no_handle_of_its_caller`
+     (Windows, with a positive control); on Unix, M01's
+     `on_demand_runtime_keeps_no_descriptor_inherited_through_its_client` and
+     `runtime_closes_every_descriptor_inherited_at_startup` (ADR-0006 §13.8 item 7).
 7. **The state directory** must have a protected owner-only DACL, checked at start. Anything else is
    refused as `state_dir_unsafe` and never repaired. This closes ADR-0006 §13.12 item 4.
 
