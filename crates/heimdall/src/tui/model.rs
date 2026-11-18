@@ -97,6 +97,10 @@ pub(crate) enum Screen {
     Operation(String),
     /// ⟨M03⟩ One enrollment record's detail, by ID.
     Enrollment(String),
+    /// ⟨M05⟩ The working directory's workspace status (`w`).
+    Workspace,
+    /// ⟨M05⟩ Every policy with each revision's cause and decision (`h`).
+    Policies,
 }
 
 /// The two repairs of a held setup operation (ADR-0007 §5.7).
@@ -183,6 +187,9 @@ pub(crate) enum Command {
         /// The repair.
         repair: HeldRepair,
     },
+    /// ⟨M05⟩ A narrowing action of the stop menu, sent as the CLI sends it
+    /// ([`super::m05::StopAction::request`]).
+    Stop(super::m05::StopAction),
     /// Attend, then submit a previewed repair by its plan digest.
     SubmitRepair {
         /// The held operation.
@@ -525,6 +532,8 @@ pub(crate) enum Modal {
     Repair(RepairPrompt),
     /// A probe's result.
     Probe(ProbeView),
+    /// ⟨M05⟩ The stop menu: pause, stop this work, stop all for a profile, cutoff.
+    StopMenu(super::m05::StopMenu),
 }
 
 /// The immediate search of a list view.
@@ -1122,6 +1131,13 @@ impl App {
                 self.modal = Some(Modal::Help);
                 return Vec::new();
             }
+            // ⟨M05⟩ The trusted-work views: workspace status, policy history, the stop menu.
+            Key::Char('w') => return self.open_m05(Screen::Workspace),
+            Key::Char('h') => return self.open_m05(Screen::Policies),
+            Key::Char('s') => {
+                self.modal = Some(Modal::StopMenu(super::m05::StopMenu::default()));
+                return Vec::new();
+            }
             Key::Char('R') => {
                 self.status = Some("refreshing".to_owned());
                 return vec![Effect::Worker(Command::Refresh { doctor: true })];
@@ -1156,6 +1172,47 @@ impl App {
             Screen::Profile(_) => self.detail_key(key),
             Screen::Operation(id) => self.operation_key(&id, key),
             Screen::Enrollment(_) => self.detail_key(key),
+            Screen::Workspace => self.workspace_key(key),
+            Screen::Policies => self.detail_key(key),
+        }
+    }
+
+    /// ⟨M05⟩ Open a trusted-work view, re-reading the listings first.
+    fn open_m05(&mut self, screen: Screen) -> Vec<Effect> {
+        self.screen = screen;
+        self.scroll = 0;
+        vec![Effect::Worker(Command::Refresh { doctor: false })]
+    }
+
+    /// ⟨M05⟩ The workspace status: Enter opens the decision that waits for it, if any.
+    fn workspace_key(&mut self, key: Key) -> Vec<Effect> {
+        if key == Key::Enter {
+            return match super::m05::pending_decision(&self.catalog, self.now) {
+                Some(id) => self.open_decision(id),
+                None => Vec::new(),
+            };
+        }
+        self.detail_key(key)
+    }
+
+    /// ⟨M05⟩ One key in the stop menu: it only narrows, and sends only after a typed yes.
+    fn stop_menu_key(
+        &mut self,
+        mut menu: super::m05::StopMenu,
+        key: Key,
+    ) -> (Option<Modal>, Vec<Effect>) {
+        use super::m05::StopStep;
+        let ctx = self.catalog.m05.stop_context();
+        match menu.key(key, &ctx) {
+            StopStep::Stay => (Some(Modal::StopMenu(menu)), Vec::new()),
+            StopStep::Close(text) => {
+                self.status = Some(text);
+                (None, Vec::new())
+            }
+            StopStep::Send(action) => {
+                self.status = Some(format!("sending {}", action.what()));
+                (None, vec![Effect::Worker(Command::Stop(action))])
+            }
         }
     }
 
@@ -1469,6 +1526,7 @@ impl App {
             Modal::ProbeMenu { alias, selected } => Self::probe_menu_key(alias, selected, key),
             Modal::Authorization(p) => self.authorization_key(p, key),
             Modal::Repair(p) => self.repair_key(p, key),
+            Modal::StopMenu(m) => self.stop_menu_key(m, key),
             Modal::Probe(mut v) => match key {
                 Key::Up => {
                     v.scroll = v.scroll.saturating_sub(1);
@@ -1577,6 +1635,7 @@ impl App {
                 // ⟨M03⟩ No approval for a disclosure the owner was not shown.
                 if p.verdict == Verdict::Approve
                     && let Some(why) = super::m03::approve_block(&self.catalog, listed)
+                        .or_else(|| super::m05::approve_block(listed))
                 {
                     self.status = Some(format!(
                         "approve not sent for {}: {why}; nothing was sent",
@@ -1834,6 +1893,8 @@ pub(crate) mod tests {
             created_at: Some(t("2026-11-03T09:00:00Z")),
             expires_at: Some(t("2026-11-03T09:15:00Z")),
             expired: false,
+            policies: Vec::new(),
+            scope: None,
             request: serde_json::json!({
                 "operation_id": "op_apply1",
                 "plan_digest": "a".repeat(64),
@@ -1853,6 +1914,8 @@ pub(crate) mod tests {
             created_at: Some(t("2026-11-03T09:00:00Z")),
             expires_at: Some(t("2026-11-03T09:15:00Z")),
             expired: false,
+            policies: Vec::new(),
+            scope: None,
             request: serde_json::json!({
                 "operation_id": "op_declare1",
                 "identity_id": "idn_alpha",
@@ -2014,6 +2077,7 @@ pub(crate) mod tests {
             projection_generation: Some(3),
             read_at: Some(t("2026-11-03T09:00:25Z")),
             m03: Default::default(),
+            m05: Default::default(),
         };
         app.doctor = Some(Doctor {
             report: report(),

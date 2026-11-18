@@ -85,6 +85,78 @@ pub fn sanitize_for_terminal(s: &str) -> String {
     out
 }
 
+/// Whether `c` can reorder or hide the text around it: a Unicode format character
+/// (general category Cf: the bidirectional marks, embeddings, overrides and isolates
+/// U+200E–U+200F, U+202A–U+202E and U+2066–U+2069, the zero-width and invisible
+/// characters, the soft hyphen, the Arabic and other prepended number signs, the
+/// interlinear annotation and tag characters), or the line and paragraph separators
+/// U+2028 and U+2029. ⟨M05⟩ Review M05-W3-R03: the one character class of inert data text,
+/// for the CLI's [`quoted_field`] and the TUI's `tui::m05::{safe, quoted}`.
+#[must_use]
+pub(crate) fn is_invisible_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00ad}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061c}'
+            | '\u{06dd}'
+            | '\u{070f}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08e2}'
+            | '\u{180e}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{feff}'
+            | '\u{fff9}'..='\u{fffb}'
+            | '\u{110bd}'
+            | '\u{110cd}'
+            | '\u{13430}'..='\u{1343f}'
+            | '\u{1bca0}'..='\u{1bca3}'
+            | '\u{1d173}'..='\u{1d17a}'
+            | '\u{e0001}'
+            | '\u{e0020}'..='\u{e007f}'
+    )
+}
+
+/// ⟨M05⟩ Review M05-W3-R03: a human **data** field (a path, a repository label: text the
+/// file system or a repository chose) as one inert quoted token, so it can neither start a
+/// line of its own nor reorder the text around it. Between double quotes, `"` and `\` are
+/// escaped and every line break and control character is written as its escape (`\n`,
+/// `\r`, `\t`, `\u2028`, `\u2029`, `\u00XX`), as in JSON; a bidirectional or invisible
+/// formatting character ([`is_invisible_format`]) is removed, and a note then says so.
+/// Heimdall's own prose and layout never pass through it; `--json` output is data and is
+/// unchanged.
+#[must_use]
+pub(crate) fn quoted_field(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len() + 2);
+    let mut removed = false;
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{2028}' | '\u{2029}' => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+            c if is_invisible_format(c) => removed = true,
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    if removed {
+        out.push_str(" (invisible formatting characters removed)");
+    }
+    out
+}
+
 /// Convert an error envelope to the generic value form.
 #[must_use]
 pub fn error_value(env: Envelope<ErrorData>) -> Envelope<serde_json::Value> {
@@ -867,6 +939,42 @@ mod tests {
     #[test]
     fn sanitizer_drops_escapes() {
         assert_eq!(sanitize_for_terminal("ok\u{1b}[31mred\u{7}"), "okred");
+    }
+
+    /// ⟨M05⟩ Review M05-W3-R03: a data field is one quoted token on one line: line breaks
+    /// and controls are escapes, quotes and backslashes are escaped, every bidirectional and
+    /// invisible formatting character is removed (and a note says so), and what is left is
+    /// unchanged by the terminal sanitizer. Plain text is just quoted, as JSON quotes it.
+    #[test]
+    fn a_data_field_is_one_inert_quoted_token() {
+        let hostile = "/w/r\nOWNER-LINE\u{202e}cba\r\t\u{2028}\u{2029}\u{1b}[31m\u{85}\"\\\u{200b}\u{2066}x\u{2069}\u{e0041}\u{ad}";
+        let shown = quoted_field(hostile);
+        assert_eq!(
+            shown,
+            r#""/w/r\nOWNER-LINEcba\r\t\u2028\u2029\u001b[31m\u0085\"\\x" (invisible formatting characters removed)"#
+        );
+        assert_eq!(
+            sanitize_for_terminal(&shown),
+            shown,
+            "nothing left to strip"
+        );
+        assert!(!shown.contains('\n') && !shown.chars().any(is_invisible_format));
+        for plain in ["/home/me/project", "x\n$(touch y)", "naïve ☃ 日本"] {
+            assert_eq!(
+                quoted_field(plain),
+                serde_json::Value::String(plain.to_owned()).to_string(),
+                "{plain:?}"
+            );
+        }
+        for c in [
+            '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}',
+            '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}', '\u{feff}', '\u{061c}',
+        ] {
+            assert!(is_invisible_format(c), "{:04x}", u32::from(c));
+        }
+        for c in ['a', ' ', 'é', '\u{05d0}', '\u{0627}', '\u{2603}'] {
+            assert!(!is_invisible_format(c), "{:04x}", u32::from(c));
+        }
     }
 
     // ---- ⟨M03⟩ wave 5 (U12): the access renderings ---------------------------------------

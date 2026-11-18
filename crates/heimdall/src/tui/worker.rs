@@ -37,6 +37,7 @@ use heimdall_contract::request::{
 use heimdall_contract::setup::{
     ConflictKind, PlanDigest, PreviewIntent, RepairResolution, SetupPlan, SetupRequest,
 };
+use heimdall_contract::trust::WorkContext;
 use heimdall_contract::{Code, Timestamp};
 use heimdall_localenv::clients::{ClientKind, ClientsConfig, resolve_clients};
 use heimdall_localenv::doctor::{CatalogAlias, CatalogIdentity, DoctorRequest, LocalContext};
@@ -213,6 +214,12 @@ struct State {
     doctored_aliases: Option<BTreeSet<String>>,
     doctor_running: Arc<AtomicBool>,
     op: Option<OpEvents>,
+    /// ⟨M05⟩ The working directory the workspace status is read for (a same-user claim,
+    /// ADR-0011 R2; `inspect` is read-only).
+    cwd: Option<String>,
+    /// ⟨M05⟩ The runtime answered an M05 `inspect` as unsupported on this connection: it does
+    /// not offer `trusted-work/1`, so it is not asked again until the next connection.
+    m05_unavailable: bool,
 }
 
 /// What one refresh reads, in order: only `inspect` subjects (read-only, passive;
@@ -351,6 +358,11 @@ impl State {
             doctored_aliases: None,
             doctor_running: Arc::new(AtomicBool::new(false)),
             op: None,
+            cwd: std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+                .filter(|c| WorkContext { cwd: c.clone() }.validate().is_ok()),
+            m05_unavailable: false,
         }
     }
 
@@ -377,6 +389,7 @@ impl State {
             {
                 Ok(c) => {
                     self.client = Some(c);
+                    self.m05_unavailable = false;
                     self.set_runtime(Runtime::Connected);
                 }
                 Err(env) => {
@@ -480,6 +493,14 @@ impl State {
                     outcome: result,
                 });
             }
+            Command::Stop(action) => {
+                let what = action.what();
+                let result = self.stop(&action).await;
+                self.send(Update::Done {
+                    what,
+                    outcome: result,
+                });
+            }
             Command::PrepareProbe { alias, level } => self.prepare_probe(alias, level),
             Command::Probe {
                 alias,
@@ -536,6 +557,8 @@ impl State {
                 // lock report, and the time warning any answer carried.
                 self.catalog.m03 =
                     super::m03::Listings::of(&answers[6], &answers[7], &answers[8], &warnings);
+                // ⟨M05⟩ The policies and the working directory's workspace.
+                self.catalog.m05 = self.read_m05().await;
                 self.send(Update::Catalog(Box::new(self.catalog.clone())));
             }
         } else {
@@ -562,6 +585,69 @@ impl State {
         if doctor || self.doctored_aliases.as_ref() != Some(&aliases) {
             self.doctored_aliases = Some(aliases);
             self.run_doctor();
+        }
+    }
+
+    /// ⟨M05⟩ `inspect policies` and `inspect workspace` for the working directory. A runtime
+    /// that does not offer `trusted-work/1` answers `SCHEMA_UNSUPPORTED` (or
+    /// `CAPABILITY_UNAVAILABLE`): that reads as "not available" and is not asked again on this
+    /// connection. Both are read-only and contact nothing outside the runtime.
+    async fn read_m05(&mut self) -> super::m05::Listings {
+        if self.m05_unavailable {
+            return super::m05::Listings::default();
+        }
+        let unserved = |env: &Envelope<Value>| {
+            matches!(
+                env.code,
+                Code::SchemaUnsupported | Code::CapabilityUnavailable
+            )
+        };
+        let mut policies = Value::Null;
+        let mut workspace = Value::Null;
+        match self.request(inspect(InspectSubject::Policies)).await {
+            Some(env) if env.code.is_success() => policies = env.data,
+            Some(env) if unserved(&env) => {
+                self.m05_unavailable = true;
+                return super::m05::Listings::default();
+            }
+            _ => {}
+        }
+        if let Some(cwd) = self.cwd.clone() {
+            let request = Request::Inspect(InspectRequest {
+                subject: InspectSubject::Workspace,
+                preview: None,
+                cwd: Some(cwd),
+                redact: false,
+            });
+            match self.request(request).await {
+                Some(env) if env.code.is_success() => workspace = env.data,
+                Some(env) if unserved(&env) => self.m05_unavailable = true,
+                _ => {}
+            }
+        }
+        super::m05::Listings::of(&policies, &workspace)
+    }
+
+    /// ⟨M05⟩ Send one narrowing action of the stop menu as the CLI sends it; a cutoff
+    /// attends first (it may become a widening record), `pause`, `stop` and a work stop never
+    /// do (they create no decision).
+    async fn stop(&mut self, action: &super::m05::StopAction) -> Outcome {
+        if action.attends()
+            && let Err(refused) = self.attend().await
+        {
+            return refused;
+        }
+        let Ok(request_id) = crate::cli::fresh_request_id() else {
+            return Outcome {
+                ok: false,
+                code: Code::InternalError.to_string(),
+                message: "randomness unavailable; nothing was sent".to_owned(),
+                decision_ref: None,
+            };
+        };
+        match self.request(action.request(request_id)).await {
+            Some(env) => outcome(&env),
+            None => not_sent(),
         }
     }
 

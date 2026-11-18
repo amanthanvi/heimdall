@@ -1,0 +1,21 @@
+{
+ "name": "M05-W3-R02: the in-transaction check of the default activation's bind removed (the `if !slots_ready && let Some(marker) = &background { … }` block in `drive_bind_pass`)",
+ "file": "crates/app/src/operations.rs",
+ "observed_by": "the fix-round worker in its own worktree at base 6be57b61 (its DONE.md §5), on the final code; sources restored byte-identical (checked with sha256)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --lib managed_store::live_tests::default_m05::paused_default_never_binds_an_existing_work_to_the_alias",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "paused_default_never_binds_an_existing_work_to_the_alias ... FAILED",
+   "assertion 'left == right' failed: pause / left: Activated { policy: PolicyId(\"pol\"), … } / right: Blocked { policy: PolicyId(\"pol\"), reason: \"policy_paused\" }"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out"
+  ]
+ }
+}

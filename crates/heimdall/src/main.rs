@@ -16,12 +16,15 @@ mod connections_cmd;
 mod container_cmd;
 // ⟨M05⟩ U8: `run --parent-binding` (ADR-0011 §6).
 mod delegate_cmd;
+// ⟨M05⟩ W3 (ruling I-15): the debug-build guard against the account's real home.
+mod dev_home_guard;
 mod doctor_cmd;
 mod enroll_cmd;
 mod issuer_cmd;
 mod launch_flow;
 mod m03_cmd;
-// ⟨M05⟩ joint wave 0 (ADR-0011 §10 item 10): refusals until the M05 handlers land.
+// ⟨M05⟩ U9a (ADR-0011 §2–§7): `project`, `access allow|stop|default-profile` and the
+// targets of `access pause|resume|cutoff`.
 mod m05_cmd;
 mod output;
 mod portable_cmd;
@@ -29,6 +32,8 @@ mod prompt;
 // ⟨ADR-0008 §17.33 items 4-5⟩ The purge's anchored deletion.
 mod purge_sweep;
 mod run_cmd;
+// ⟨M05⟩ U9a: `run` without `--profile` (ADR-0011 §3.2, §5.3).
+mod run_m05;
 mod service_cmd;
 mod setup_cmd;
 mod testcfg;

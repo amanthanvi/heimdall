@@ -267,6 +267,11 @@ mod uninstall_fence_m03;
 // so the track never edits this list (each answers `driver_unavailable` until filled).
 mod context_m05;
 mod default_activation_m05;
+// ⟨M05⟩ U5: the ordinary-`ssh` activation's outcome types, for the runtime's port.
+pub use default_activation_m05::{
+    DEFAULT_WORK_PREFIX, DefaultBasis, DefaultOutcome, DefaultState, blocked as default_blocked,
+    default_work_id,
+};
 // ⟨M05⟩ U7: `pub(crate)` so the catalog driver applies an import in its own transaction.
 pub(crate) mod portable_m05;
 // ⟨M05⟩ U7: the bundle file's parse for the CLI's import (wave 3).
@@ -722,6 +727,15 @@ struct Inner {
     /// ⟨M05⟩ U2: the workspace observer, set once (`Operations::set_workspace_probe`);
     /// without one the requests and decisions that need it fail closed (`trust_m05`).
     workspace_probe: std::sync::OnceLock<Arc<dyn crate::ports::WorkspaceProbe>>,
+    /// ⟨Debug builds only; tests; review M05-W3-R02⟩ The one-shot pause at the entrance of
+    /// the default activation's bind (`Operations::debug_pause_next_default_bind`).
+    #[cfg(debug_assertions)]
+    default_bind_pause: Mutex<
+        Option<(
+            tokio::sync::oneshot::Sender<()>,
+            tokio::sync::oneshot::Receiver<()>,
+        )>,
+    >,
 }
 
 /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: marks one operation's preparation as running in
@@ -5532,6 +5546,54 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
     })
 }
 
+/// ⟨M05⟩ Revision 5.2 (§17.10 item 22; review M05-W3-R01): the scope a pending
+/// `WidenPolicy{create}` record's approval applies, read from its decision basis
+/// (`DecisionBasis::Create`, fixed at creation, ADR-0011 I5), never from the catalog's
+/// latest definition: the profile snapshot at the pinned revision (immutable once
+/// written), the record's environments and the lock behaviour approval gives the new
+/// policy (`trust_m05::apply_widening`, which reads the same basis and snapshot). `None`
+/// for every other record, and for a `create` whose basis or snapshot is gone (approval
+/// then refuses it as stale), so its view is unchanged and a consent surface refuses to
+/// approve what it cannot show. No other `WidenPolicy` kind pins a profile revision: a
+/// `set_max_window` or a targeted record changes no scope, and an `extend_scope` record,
+/// whose action is already exactly the authority it adds, is left out pending the contract
+/// owner's answer to item 22's question.
+///
+/// # Errors
+/// A store failure.
+fn decision_scope(
+    tx: &mut Txn<'_>,
+    d: &DecisionRecord,
+) -> heimdall_store::Result<Option<heimdall_contract::trust::DecisionScope>> {
+    let DecisionKind::WidenPolicy {
+        action:
+            PolicyAction::Create {
+                profile,
+                environments,
+                ..
+            },
+    } = &d.kind
+    else {
+        return Ok(None);
+    };
+    let Some(heimdall_domain::workspace::DecisionBasis::Create { profile_revision }) =
+        tx.decision_basis(&d.id)?
+    else {
+        return Ok(None);
+    };
+    let Some(snapshot) = tx.profile_snapshot(profile, profile_revision)? else {
+        return Ok(None);
+    };
+    Ok(Some(heimdall_contract::trust::DecisionScope {
+        profile_id: profile.clone(),
+        profile_revision,
+        pairs: snapshot.scope.pairs,
+        environments: environments.clone(),
+        capabilities: snapshot.scope.capabilities,
+        lock_behavior: heimdall_contract::managed::LockBehavior::default(),
+    }))
+}
+
 /// Facts the issuer supplies with a certificate request (ADR-0005 §3.5 refusal
 /// list items it alone knows). Used at reserve and again at publish. The
 /// permitted extensions are **not** a caller fact: they are derived inside the
@@ -5606,6 +5668,8 @@ impl Operations {
             managed_ops: managed_state_m03::ManagedOpsState::default(),
             uninstall_fence: Arc::default(),
             workspace_probe: std::sync::OnceLock::new(),
+            #[cfg(debug_assertions)]
+            default_bind_pause: Mutex::new(None),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -6231,6 +6295,8 @@ impl Operations {
                 .request()
                 .and_then(|r| WorkSpec::from_request(&r, &st.op.environment))
                 .and_then(|s| context_m05::overlay(s, &st.intent.request))
+                // ⟨M05⟩ U5: the internal default activation's covered-only resolution.
+                .and_then(|s| default_activation_m05::overlay(s, &st.intent.request))
             else {
                 return Err(internal("the stored request cannot be read"));
             };
@@ -9084,6 +9150,8 @@ impl Operations {
                         heimdall_contract::ipc::capability::ENROLLMENT_V1,
                         heimdall_contract::ipc::capability::MANAGED_CREDENTIALS_V1,
                         heimdall_contract::ipc::capability::CONNECTIONS_V1,
+                        // ⟨M05⟩ W3: offered once every trusted-work form is served.
+                        heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
                     ],
                     "schemas": heimdall_contract::schema::public_schemas()
                         .iter()
@@ -9347,6 +9415,13 @@ impl Operations {
                                     && let serde_json::Value::Object(map) = &mut view
                                 {
                                     map.insert("policies".to_owned(), serde_json::json!(policies));
+                                }
+                                // ⟨M05⟩ Revision 5.2 (§17.10 item 22): a `create` record
+                                // shows the scope its approval applies.
+                                if let Some(scope) = decision_scope(tx, d)?
+                                    && let serde_json::Value::Object(map) = &mut view
+                                {
+                                    map.insert("scope".to_owned(), serde_json::json!(scope));
                                 }
                                 decisions.push(view);
                             }
@@ -9737,6 +9812,20 @@ impl Operations {
     /// `bind` (materialize only in M01; launch is the CLI's job after ensure).
     /// Authorized by binding ownership or owner role.
     pub async fn bind(&self, caller: &Caller, req: BindRequest) -> OpResult<EnsureData> {
+        self.bind_with(caller, req, None).await
+    }
+
+    /// [`Self::bind`]; ⟨M05; review M05-W3-R02⟩ with `background`, the personal default's
+    /// background activation's bind (`default_activation_m05`): its marker is stored with
+    /// the request and hashed with it, so whichever pass would claim the slots refuses in
+    /// that transaction unless the activation may still claim then. `None` (every client
+    /// bind) is exactly the M03 bind.
+    async fn bind_with(
+        &self,
+        caller: &Caller,
+        req: BindRequest,
+        background: Option<&default_activation_m05::BackgroundBind>,
+    ) -> OpResult<EnsureData> {
         // ⟨M02⟩ U0b row 3 (m02-plan §5 items 5 and 16): a launch binding names an
         // absolute executable and, optionally, its holder process; `argv` never
         // crosses IPC. The holder is delivery metadata and stays out of the hash, so
@@ -9755,6 +9844,10 @@ impl Operations {
         };
         let safe = self.inner.timegate.check().await?;
         let own = self.inner.config.environment.clone();
+        let mut extra = serde_json::json!({ "binding_id": req.binding_id, "form": form_hashed });
+        if let Some(marker) = background {
+            default_activation_m05::mark(&mut extra, marker)?;
+        }
         let hash = compute_hash(
             OperationKind::Bind,
             &HashInput {
@@ -9766,7 +9859,7 @@ impl Operations {
                 work_id: None,
                 required_capabilities: &RequiredCapabilities::default(),
                 parent_binding: None,
-                extra: serde_json::json!({ "binding_id": req.binding_id, "form": form_hashed }),
+                extra,
             },
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
@@ -9807,8 +9900,11 @@ impl Operations {
             BindForm::Launch(launch) => Some(launch.holder.clone()),
             BindForm::Materialize => None,
         };
-        let request_json = serde_json::to_value(Request::Bind(req))
+        let mut request_json = serde_json::to_value(Request::Bind(req))
             .map_err(|_| internal("request is not serializable"))?;
+        if let Some(marker) = background {
+            default_activation_m05::mark(&mut request_json, marker)?;
+        }
         let outcome = self
             .admit(
                 key,
@@ -9933,6 +10029,9 @@ impl Operations {
         let Some(Request::Bind(req)) = st.request() else {
             return Err(internal("the stored request cannot be read"));
         };
+        // ⟨M05; review M05-W3-R02⟩ The personal default's background bind carries its
+        // marker in the stored request (`default_activation_m05::BIND_KEY`).
+        let background = default_activation_m05::stored_background(&st.intent.request);
         let gate = self.inner.timegate.in_txn();
         let id2 = id.clone();
         let env = self.inner.config.environment.clone();
@@ -10001,6 +10100,22 @@ impl Operations {
                             .with_resource("binding", None),
                     );
                 };
+                // ⟨M05; review M05-W3-R02⟩ The personal default's background bind is a
+                // background activation (ADR-0011 §7.2–§7.3), not continuing use: in the
+                // transaction that would claim its slots (this first pass), at this
+                // gate-certified `now`, it refuses unless the activation may still claim
+                // (pause, stop, cutoff, the planned default and the current work). A
+                // refusal claims nothing, writes no slot file and leaves the binding and
+                // its grant as they are; a client bind carries no marker.
+                if !slots_ready && let Some(marker) = &background {
+                    let refusal = match marker {
+                        Ok(m) => default_activation_m05::background_bind_refusal(tx, m, &b, now)?,
+                        Err(e) => Some(e.clone()),
+                    };
+                    if let Some(e) = refusal {
+                        return fail(tx, emit, &mut op, e);
+                    }
+                }
                 if b.state != BindingState::Active {
                     // ⟨M02⟩ ADR-0007 §12.26 item 3(a): a released binding names its
                     // reason.

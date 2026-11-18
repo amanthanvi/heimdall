@@ -874,13 +874,23 @@ impl Operations {
         };
         let owner = caller.context.is_owner();
         let ws = workspace.clone();
-        let policy_id = match ws {
-            Some(w) if owner => {
-                self.write(move |tx, _| Ok(workspace_policy(tx, &w)?.map(|p| p.id)))
-                    .await?
-            }
-            _ => None,
-        };
+        // ⟨rev5.2 item 21⟩ The owner's view of the manifest's proposal: the one
+        // `trust_workspace` compares against, built by the same code (`trust_m05`).
+        let manifest = observed.manifest.clone().filter(|_| owner);
+        let own = self.environment().clone();
+        let (policy_id, proposal) = self
+            .write(move |tx, _| {
+                let policy_id = match &ws {
+                    Some(w) if owner => workspace_policy(tx, w)?.map(|p| p.id),
+                    _ => None,
+                };
+                let proposal = match &manifest {
+                    Some(m) => trust_m05::manifest_proposal_view(tx, &own, m)?,
+                    None => None,
+                };
+                Ok((policy_id, proposal))
+            })
+            .await?;
         Ok(WorkspaceView {
             cwd,
             root: observed.root.clone(),
@@ -892,6 +902,7 @@ impl Operations {
                 .as_ref()
                 .map(|m| m.access_digest.clone())
                 .filter(|_| owner),
+            proposal,
             provenance: ContextProvenance::SameUserContext,
         })
     }

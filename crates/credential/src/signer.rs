@@ -442,6 +442,16 @@ impl ManagedSigner {
 #[async_trait]
 impl Signer for ManagedSigner {
     async fn identities(&self, _session: &SigningSession) -> Vec<(Vec<u8>, String)> {
+        // ⟨M05⟩ U5 (ADR-0011 §3.2 (a), §10 item 4): on the environment endpoint only, the
+        // ordinary-`ssh` activation, bounded by its budget whatever the implementation
+        // does; an expired wait lists what is admitted by then and never fails the
+        // request. `session_bind` never waits on it.
+        if matches!(self.endpoint, SignerEndpoint::Environment)
+            && let Some(activation) = self.authority.default_activation()
+        {
+            let wait = heimdall_app::ports::DEFAULT_ACTIVATION_WAIT;
+            let _ = tokio::time::timeout(wait, activation.ensure_default(wait)).await;
+        }
         self.table.list(&self.endpoint)
     }
 

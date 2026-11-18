@@ -48,6 +48,7 @@
 mod data;
 mod keys;
 mod m03;
+mod m05;
 mod model;
 mod term;
 mod view;

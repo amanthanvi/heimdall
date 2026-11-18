@@ -14,6 +14,7 @@ Commands:
   connection-policy  Choose what happens to owned connections at the deadline, and whether Heimdall owns a multiplex master (M03)
   allow              Owner-initiated review that may widen a workspace's, profile's or policy's standing scope; always creates its own decision (M05; ADR-0011 §4.3)
   stop               Stop now: end one work's access, or a policy's, a profile's, a workspace's or all (M05; ADR-0011 §7)
+  default-profile    The profile a new request without one uses: show, set or clear this environment's preference; never authority (M05; ADR-0011 §5.1)
   help               Print this message or the help of the given subcommand(s)
 
 Options:

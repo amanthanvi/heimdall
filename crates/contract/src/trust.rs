@@ -255,6 +255,14 @@ pub struct WorkspaceView {
     /// The manifest's access digest (lowercase hex), when a manifest was read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_digest: Option<String>,
+    /// ⟨M05⟩ Revision 5.2 (§17.10 item 21): the proposal the server builds for this working
+    /// directory: the manifest's request ∩ the profile's latest snapshot, exactly what a
+    /// `trust_workspace` request is compared with (ADR-0011 §2.2, I5), so a client echoes
+    /// it and never reads the manifest. Owner-only, like the digest; omitted when there is
+    /// none (no root, no manifest, an unknown profile, or a request that does not resolve),
+    /// so every earlier document is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal: Option<TrustProposal>,
     /// Provenance.
     pub provenance: ContextProvenance,
 }
@@ -332,6 +340,30 @@ pub struct PolicyRevisionRef {
     pub policy_id: PolicyId,
     /// The revision at creation.
     pub revision: u64,
+}
+
+/// ⟨M05⟩ Revision 5.2 (§17.10 item 22; review M05-W3-R01): the scope a pending
+/// `WidenPolicy{create}` record's approval gives the new policy, read from its decision
+/// basis, fixed at creation (ADR-0011 I5): the profile revision the record pinned, that
+/// revision's snapshot (its pairs and capabilities), the environments the record names and
+/// the lock behaviour the new policy takes. A consent surface shows exactly this, never its
+/// own read of the catalog, which can be newer or older than the pinned revision. In the
+/// `inspect decisions` view as `scope`, only for such a record; every list is always
+/// written, so an empty one means none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DecisionScope {
+    /// Profile.
+    pub profile_id: ProfileId,
+    /// The profile revision the record pinned at creation.
+    pub profile_revision: u64,
+    /// That revision's pairs.
+    pub pairs: BTreeSet<AccessPairRef>,
+    /// The environments the policy covers.
+    pub environments: BTreeSet<EnvironmentId>,
+    /// That revision's capabilities.
+    pub capabilities: BTreeSet<Capability>,
+    /// The new policy's lock behaviour.
+    pub lock_behavior: crate::managed::LockBehavior,
 }
 
 /// ⟨M05⟩ Revision 5.1 (§17.9 C2): one policy of a targeted action's target, after it.

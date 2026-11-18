@@ -380,8 +380,10 @@ fn create_window(text: Option<&String>, max: Duration) -> Result<Duration, OpErr
 /// How an action relates to the stored policy, read in the committing transaction.
 enum Class {
     Unchanged(Box<StandingPolicy>),
-    /// A widening: a decision record (with its basis, when it has one).
-    Widening(Option<DecisionBasis>),
+    /// A widening: a decision record (with its basis, when it has one), recording the
+    /// replacement action when there is one (an owner `extend_scope` records only what it
+    /// adds, spec §12.3), else the request's action verbatim.
+    Widening(Option<DecisionBasis>, Option<Box<PolicyAction>>),
     Narrowing(Box<StandingPolicy>, Narrow),
 }
 
@@ -434,9 +436,12 @@ fn classify(
                     "a personal policy for this profile already applies in that environment; extend it instead"
                 ));
             }
-            Class::Widening(Some(DecisionBasis::Create {
-                profile_revision: def.revision,
-            }))
+            Class::Widening(
+                Some(DecisionBasis::Create {
+                    profile_revision: def.revision,
+                }),
+                None,
+            )
         }
         PolicyAction::ExtendScope {
             policy_id,
@@ -463,7 +468,24 @@ fn classify(
             let narrows =
                 *background_work == Some(false) && p.lock_behavior == LockBehavior::Continue;
             if adds {
-                Class::Widening(None)
+                // Review shows only the added authority (spec §12.3; W3, from U9a): the
+                // record carries what the policy lacks, never what it already has. The
+                // action is still fixed from server state at creation (ADR-0011 I5), and a
+                // `background_work: false` part is kept as requested (applied whole).
+                let added = PolicyAction::ExtendScope {
+                    policy_id: policy_id.clone(),
+                    pairs: pairs.difference(&p.scope.pairs).cloned().collect(),
+                    capabilities: capabilities
+                        .difference(&p.scope.capabilities)
+                        .copied()
+                        .collect(),
+                    environments: environments.difference(&p.environments).cloned().collect(),
+                    background_work: match background_work {
+                        Some(true) if p.lock_behavior == LockBehavior::Continue => None,
+                        other => *other,
+                    },
+                };
+                Class::Widening(None, Some(Box::new(added)))
             } else if narrows {
                 Class::Narrowing(Box::new(p), Narrow::RevokeOnLock)
             } else {
@@ -492,7 +514,7 @@ fn classify(
             // Widening iff longer than the stored window, compared here, in the
             // transaction that writes (as a cutoff is).
             match w.cmp(&p.max_window) {
-                std::cmp::Ordering::Greater => Class::Widening(None),
+                std::cmp::Ordering::Greater => Class::Widening(None, None),
                 std::cmp::Ordering::Equal => Class::Unchanged(Box::new(p)),
                 std::cmp::Ordering::Less => Class::Narrowing(Box::new(p), Narrow::Window(w)),
             }
@@ -753,10 +775,11 @@ impl Operations {
                         Class::Unchanged(p) => {
                             Ok(Ok((PolicyOutcome::Applied(p, false), Ended::default())))
                         }
-                        Class::Widening(basis) => {
+                        Class::Widening(basis, replacement) => {
                             if let Err(u) = &assessed {
                                 return Ok(Err(uncertain(u)));
                             }
+                            let action = replacement.map_or_else(|| action.clone(), |a| *a);
                             let current = tx.authority_generation()?;
                             if let Some(existing) = pending_widening(tx, &action, now, current)? {
                                 return Ok(Ok((
@@ -912,6 +935,22 @@ pub(super) fn manifest_proposal(
         capabilities,
         background_work: m.background_work,
     }))
+}
+
+/// ⟨rev5.2 item 21⟩ The proposal `inspect workspace` shows an owner for a manifest root:
+/// exactly what [`build_trust`] computes and compares a `trust_workspace` request with
+/// (the same [`manifest_proposal`] over the manifest's profile's latest snapshot). `None`
+/// when the manifest names an unknown profile or asks for something that does not resolve:
+/// the request then reaches [`build_trust`], which refuses it with its stable reason.
+pub(super) fn manifest_proposal_view(
+    tx: &mut Txn<'_>,
+    own: &EnvironmentId,
+    m: &crate::ports::ProbedManifest,
+) -> heimdall_store::Result<Option<TrustProposal>> {
+    let Some(def) = tx.profile(&m.profile)? else {
+        return Ok(None);
+    };
+    Ok(manifest_proposal(tx, own, m, &def)?.ok())
 }
 
 fn digest_ok(d: &str) -> bool {
@@ -1762,6 +1801,15 @@ fn apply_widening(
             move_default(tx, emit, &p, &record.id, now)?;
             for e in environments {
                 allow_automatic_activation(tx, e)?;
+            }
+            // ⟨M05⟩ Ruling I-2 (U5): an empty default-profile preference takes this
+            // profile; an existing one is kept; no binding is touched.
+            if *default {
+                super::default_activation_m05::default_profile_on_create(
+                    tx,
+                    profile,
+                    environments,
+                )?;
             }
         }
         PolicyAction::ExtendScope {

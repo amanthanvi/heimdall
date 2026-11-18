@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[!!] Needs attention
+Runtime: connected; listings read 09:00:25Z (5s ago)
+Static pass: 09:00:20Z (10s ago); 2 destinations, 1 profiles, 1 identities
+Workspace: trusted (w details · s stop · h history)
+> [!!] held: setup.apply op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
+  [!!] decision waiting: trust_workspace dec_trust1 (Enter to review)
+  [!!] decision waiting: widen_policy dec_ext1 (Enter to review)
+  [..] working: ensure op_run1 running
+  [ !] identity_selection_not_exclusive (beta): identity_selection_not_exclusive message
+
+  r retry: after you put the file back, Heimdall continues the held operation's own recovery under its approval
+  k k┌Pause or stop access────────────────────────────────────────────────────────────────────────────────────────┐
+     │Four different actions; pick one:                                                                           │
+     │                                                                                                            │
+     │> 1. Pause automatic access                                                                                 │
+     │     No new work starts automatically for this workspace. Work already running continues. Resuming needs    │
+     │your decision.                                                                                              │
+     │  2. Stop this work                                                                                         │
+     │     Ends one piece of work, named by its work ID: grants only it uses are revoked now and the work ID      │
+     │cannot start again. Other work, and grants it shares with other work, stay.                                 │
+     │  3. Stop all for a profile                                                                                 │
+     │     Pauses every policy of a profile and ends its active access now, including work already running.       │
+     │Starting again needs your decision.                                                                         │
+     │  4. Cutoff at a time                                                                                       │
+     │     A hard stop at a time you choose (RFC 3339 with an offset): after it no new work starts and existing   │
+     │access ends, until you clear the cutoff (clearing needs your decision).                                     │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+Up/Down or 1-4 choose · Enter select · Esc close

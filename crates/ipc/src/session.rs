@@ -123,6 +123,8 @@ pub fn server_capabilities() -> BTreeSet<String> {
     ]
     .into_iter()
     .chain(capability::M03_DECLARED)
+    // ⟨M05⟩ W3 (ADR-0006 §17.8; m05-plan §4 item 10): every trusted-work form is served.
+    .chain([capability::TRUSTED_WORK_V1])
     .map(str::to_owned)
     .collect()
 }
@@ -1481,6 +1483,25 @@ mod tests {
         assert_eq!(bad_schema.unwrap_err().code, Code::SchemaUnsupported);
         let bad_cap = negotiate(&hello(PROTOCOL_VERSION, "1", &["nope/9"]), p, env(), srv());
         assert_eq!(bad_cap.unwrap_err().code, Code::SchemaUnsupported);
+    }
+
+    /// ⟨M05⟩ W3 (ADR-0006 §17.8; m05-plan §4 item 10): `trusted-work/1` is offered now that
+    /// every trusted-work form is served, and a hello requiring it negotiates it;
+    /// `environments/1` stays declared and not offered until M04 wires it.
+    #[test]
+    fn trusted_work_is_offered_and_environments_is_not_yet() {
+        let offered = server_capabilities();
+        assert!(offered.contains(capability::TRUSTED_WORK_V1));
+        assert!(!offered.contains(capability::ENVIRONMENTS_V1));
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        let h = hello(PROTOCOL_VERSION, "1", &[capability::TRUSTED_WORK_V1]);
+        let ok = negotiate(&h, p.clone(), env(), srv()).unwrap();
+        assert!(ok.capabilities.contains(capability::TRUSTED_WORK_V1));
+        let h = hello(PROTOCOL_VERSION, "1", &[capability::ENVIRONMENTS_V1]);
+        assert_eq!(
+            negotiate(&h, p, env(), srv()).unwrap_err().code,
+            Code::SchemaUnsupported
+        );
     }
 
     /// Review F10: `required` must be within the negotiated set, not merely the

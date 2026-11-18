@@ -473,6 +473,16 @@ can still use the shared ordinary alias while another referencer holds it (R3).
   - lifting a block never revives a terminal grant.
 - **The supervisor, recovery, lazy activation and the shell hook are all activations.** None can
   resurrect paused, stopped or cut-off access (spec §13.5).
+- **Where a background activation is checked** (review M05-W3-R02): in the transaction that claims
+  the ordinary-alias slot, not only when it plans. The personal default's bind carries an internal
+  marker (the default policy and the revision it planned under), and that transaction checks time,
+  pause, stop and cutoff, the planned default at its planned revision, and the policy the binding's
+  own grant rests on. A pause that commits between the plan and the claim refuses the claim: nothing
+  is claimed and no slot file is written. A foreground bind of an existing binding is continuing use
+  and still works during a pause.
+  - **Recovery re-drives a bind claimed before a pause** (confirmed by the orchestrator): under the
+    pause the re-drive is refused and fails closed. The claim stays with no slot file written, so the
+    binding cannot serve the ordinary alias until a `resume`. That is the safe direction.
 - **Narrowing actions** are never blocked by uncertain time. Widening actions are refused while time
   is uncertain (ADR-0006 §13.6 item 6).
 
@@ -494,6 +504,11 @@ These are recorded in `RESIDUALS` and in the claims table, with probes, under AD
 - **R5. Re-entry makes the window a usability bound** (§3.3). Pause and cutoff are the stops.
 - **R6. Workspace identity on filesystems without a stable identity is refused**, not approximated
   (§2.3).
+- **R7. A restart while a context request is still queued is covered by construction, not by a
+  test** (W2, accepted by the orchestrator 2026-11-18). The resolution (context, profile, scope,
+  access digest) is persisted with the operation at admission, so recovery never re-probes the
+  filesystem. No test crashes the runtime between admission and resolution; W4's exit suite adds
+  one only if it is cheap there.
 
 ## 9. Consequences and reopen conditions
 
@@ -570,3 +585,68 @@ These are recorded in `RESIDUALS` and in the claims table, with probes, under AD
     - **Q8:** the residual only.
     - **Q9:** yes.
     - **Q10:** yes, with item 2. Covering "the whole request" includes lock behaviour.
+12. **The track's questions, ruled (2026-11-18; `.m05-questions.md` I-1 to I-12).**
+    - **I-1, reusing a work ID's grant:** an `ensure` whose work ID holds an active, usable grant
+      with every pin equal attaches to it as a separate reference. Any differing pin gets a
+      separate grant, capped at the work's first deadline (W2, `stop_m05`).
+    - **I-2, the two defaults:** approving a `create {default: true}` also sets each of its
+      environments' default-profile preference when none is set (W3, U5).
+    - **I-3, the decision basis:** it stays an internal store row (`m05_decision_basis:`). It moves
+      into the records only if a public consumer needs it.
+    - **I-4, `manifest_basis`:** not added; no behaviour needs it.
+    - **I-5, cooldowns:** a denied **trust** decision starts a cooldown keyed by the workspace's
+      identity and the proposal digest, for the policy's default window; an owner-initiated trust
+      clears it. The other W1 readings stand.
+    - **I-6, the default profile on the wire:** `CatalogRequest::SetDefaultProfile`, revision 5.1
+      (ADR-0006 §17.9).
+    - **I-7, the uncovered lock preference:** `EnsureData.uncovered` cannot name an uncovered lock
+      preference. It is a known gap for the M05 exit record, and the field joins M07-T03's
+      stable-JSON list. Nothing changes now.
+    - **I-8, an `ensure` with neither profile nor context:** `USAGE_ERROR`, before anything is
+      written.
+    - **I-9, trust and reconcile before admission:** a foreground request in an untrusted or
+      ambiguous workspace raises its decision without admitting an operation, and the caller
+      re-issues the same request after approving. While the decision is pending, a re-issue
+      shares it and never creates a second one (`model_decision_budget`'s trust property). After
+      approval, the re-issue is an ordinary new admission (`e2e_context_m05`).
+    - **I-10, stop and precedence readings:**
+      - when a pause and a cutoff both apply, the pause is reported first, as in M01;
+      - "one generation bump" means one transaction;
+      - a denied **targeted** widening starts no cooldown: it is an explicit owner command, unlike
+        a trust request that a working directory or the hook triggers.
+    - **I-11, portable bundles:** `dry_run` on import, closed bundle types, and the decision view
+      and typed result of targeted actions (revision 5.1).
+    - **I-12, the host-key hint:** the fingerprint is the destination's SSH host-key fingerprint, a
+      hint and never trust. Using it at first connect is deferred to M07, because it changes the
+      attended host-trust flow.
+    - **I-13, the first ordinary `ssh` after a free-slot period:** it activates the default but
+      cannot log in itself, because OpenSSH loads the slot's `IdentityFile` before it asks the
+      agent; the next `ssh` logs in. This is a known limitation of ordinary-`ssh` activation:
+      spec §5.4 and §10.3 hold from the second use, and with the shell integration from the first.
+      The shell hook warms the personal default: it sends the environment endpoint one identities
+      request, the same covered-only default activation the next `ssh` would trigger (R4). It
+      never creates a decision, never prompts, shares the hook's 1 s budget, and fails silently.
+      It runs in every context, because ordinary aliases are environment-level. Native Windows has
+      no hook and keeps the limitation. `run` and `ensure` are unaffected.
+    - **I-14, the server-built proposal:** `inspect workspace` returns the trust proposal the
+      server builds (ADR-0006 revision 5.2, item 21). The CLI echoes it and no longer runs a
+      manifest reader, which restores §2.2. An owner's `extend_scope` records only the authority
+      the policy lacks; `PolicyView.scope` joins M07-T03's list.
+    - **I-15, the development guard:** a debug build of the CLI refuses the account's real home
+      unless `HEIMDALL_HOME` is given or `HEIMDALL_DEV_ALLOW_ACCOUNT_HOME=1` is set. Release builds
+      are unchanged.
+    - **I-20, which binding the default activation reuses** (W3 fix round): only a binding whose
+      grant rests on the *current* default policy, in the personal context, with a scope within the
+      default's covered set. Any other binding of the current `default:` work, such as the old
+      profile's after the owner moved the default, or one a client created under a wider policy
+      by naming a `default:` work ID, is left alone, and the activation starts work n+1 under the
+      current default. Running work keeps its pins (A16). Reserving the `default:` prefix for the
+      server is a contract question, not taken up.
+13. **Handed on.**
+    - **Per-destination identities through `session-bind@openssh.com`,** so managed aliases can
+      drop `IdentitiesOnly` and the first ordinary `ssh` logs in without the hook (I-13 option 3):
+      a later per-destination ADR. It changes M03's projection and slot design.
+    - **The exported host-key hint at first connect (I-12):** M07.
+    - **`EnsureData.uncovered_lock_behavior` (I-7) and `PolicyView.scope` (I-14):** M07-T03's
+      stable-JSON list.
+

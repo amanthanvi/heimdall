@@ -2337,6 +2337,23 @@ impl ManagedParts {
     ) -> Result<ManagedRuntime, ServiceError> {
         let mut steps = Vec::new();
         let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(ops.clone());
+        // ⟨M05⟩ U5 (ADR-0011 §3.2 (a)): the environment endpoint's identities path activates
+        // the personal default (covered only, single-flight, bounded wait).
+        let activation = crate::default_activation::DefaultActivator::new(
+            ops.clone(),
+            ops.environment().clone(),
+            crate::default_activation::owner_context(&owner),
+            crate::default_activation::launch_executable(
+                wired
+                    .and_then(|w| w.config.clients.selected(ClientKind::Ssh))
+                    .map(|c| c.path.as_path()),
+                crate::default_activation::FALLBACK_EXECUTABLE,
+            ),
+            stop.clone(),
+        );
+        let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(
+            crate::default_activation::ActivatingAuthority::new(authority, Arc::new(activation)),
+        );
         let registry = EndpointRegistry::new(
             self.layout.clone(),
             owner,

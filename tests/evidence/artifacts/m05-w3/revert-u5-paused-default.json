@@ -1,0 +1,21 @@
+{
+ "name": "M05 W3 U5: the default activates while paused (in `plan_in`, the `if paused(&p) || merged.…paused { return Blocked(policy_paused) }` check removed)",
+ "file": "crates/app/src/operations/default_activation_m05.rs",
+ "observed_by": "the worker in its own worktree at base 28d54e3b (its DONE.md §5); sources restored byte-identical (checked with cmp)",
+ "command": "TMPDIR=<short scratch dir> cargo test -p heimdall-runtime --lib default_m05::paused -- --test-threads=2",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "paused_default_never_binds_an_existing_work_to_the_alias ... FAILED (assert_eq!(w.identities().await, 0): left: 1, right: 0)",
+   "paused_or_cut_off_default_never_activates_and_creates_no_decision ... FAILED (pause: nothing admitted, no decision / left: (4, 0, 0) / right: (0, 0, 0))"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "2 passed"
+  ]
+ }
+}

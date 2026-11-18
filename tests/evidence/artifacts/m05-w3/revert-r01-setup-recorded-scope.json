@@ -1,0 +1,21 @@
+{
+ "name": "M05-W3-R01: the setup offer renders its disclosure from its own profile read again (in `offer_personal_default`'s preface, `personal_default_disclosure(&scope, &own)` replaced by the same call with `pairs` taken from the offer's `inspect profiles` answer)",
+ "file": "crates/heimdall/src/setup_cmd.rs",
+ "observed_by": "the fix-round worker in its own worktree at base 6be57b61 (its DONE.md §5), on the final code; sources restored byte-identical (checked with cmp and sha256)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall --bin heimdall -- personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "setup_cmd::tests::personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit ... FAILED",
+   "the disclosure is the recorded scope, h3 included (the prompt held `Destinations and accounts: h1:deploy`)"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed; 0 failed; 0 ignored; 0 measured; 290 filtered out"
+  ]
+ }
+}

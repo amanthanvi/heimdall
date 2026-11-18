@@ -15471,10 +15471,14 @@ mod wave0_fail_closed {
         }
     }
 
-    /// Every capability the server serves except `setup/1`.
+    /// Every capability the server serves except `setup/1` and ⟨M05⟩ `trusted-work/1`,
+    /// which the catalog's revision-5 actions (`apply_import`, `set_default_profile`)
+    /// require since M05 W3 offers it: a session that negotiated neither may send no Setup
+    /// and no Catalog request.
     pub(super) fn without_setup() -> BTreeSet<String> {
         let mut c = server_capabilities();
         c.remove(capability::SETUP_V1);
+        c.remove(capability::TRUSTED_WORK_V1);
         c
     }
 
