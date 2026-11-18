@@ -85,7 +85,8 @@ fn service_error(e: &ServiceError) -> Envelope<ErrorData> {
 fn load_config(paths: &Paths) -> Result<Config, ConfigError> {
     use std::io::Read as _;
     let path = paths.config_dir.join("config.toml");
-    let file = match std::fs::File::open(&path) {
+    // ⟨M05; review M05-W4-R02⟩ A regular file only, opened without waiting (a FIFO refuses).
+    let file = match crate::input_file::open_regular(&path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
         Err(e) => return Err(e.into()),

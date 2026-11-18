@@ -1,0 +1,212 @@
+{
+  "$comment": "Configuration of the M05 native runs (m05-plan §3) for m05-evidence.py (tests/native/m02/m02-evidence.py with the M05 constants). TEMPLATE: no native run has happened yet. The native-run step sets build_commit, started_at, artifacts_root (one directory per build, e.g. tests/evidence/artifacts/m05/exit-<commit>), environment, artifact digests and commands, regenerates tests/native/m05/required-inventory.json at that commit (tests/native/m05/refresh-inventory.sh: with fresh Linux and Windows scans, which add the platform-only tests the build host cannot list), and only then runs --write. Every logs, commands_logs and facts path below is relative to artifacts_root; a missing file stops the generator before anything is written. The wsl-distro row is the hook run inside one disposable distribution (tests/native/m05/wsl-hook-journeys.sh, wired into the Mode B distribution harness by the integrator).",
+  "case_index": "tests/native/m05/case-index.json",
+  "required_inventory": "tests/native/m05/required-inventory.json",
+  "summary_out": "tests/evidence/artifacts/m05/exit-PENDING/case-summary.json",
+  "artifacts_root": "tests/evidence/artifacts/m05/exit-PENDING",
+  "build_commit": null,
+  "artifact_digest": null,
+  "started_at": null,
+  "environment": {},
+  "commands": [
+    "tests/native/m05/refresh-inventory.sh (regenerates tests/native/m05/required-inventory.json at the exit commit, with the Linux and Windows scans)",
+    "tests/native/m05/run-macos.sh <artifacts_root>/macos (check.sh: every workspace test, then the observation pass)",
+    "tests/native/m05/run-linux.sh <artifacts_root>/linux <linuxhost>",
+    "on the PC, by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m05/run-windows-local.ps1 -Commit <exit commit> -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <report> --label <artifacts_root name> --commit <exit commit> --artifacts-root tests/evidence/artifacts/m05 --config <artifacts_root>/runs.json",
+    "on the PC, in one disposable distribution created by the Mode B harness (a hm-m05-<8 hex> name, unregistered by exact name): tests/native/m05/wsl-hook-journeys.sh <scratch> <bindir> as the non-root user against the Linux build; its output is the wsl-distro bundle",
+    "python3 -I tests/native/m05/m05-evidence.py --config <artifacts_root>/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "evidence_paths": [
+    "tests/native/m05/case-index.json",
+    "tests/native/m05/runs.json",
+    "tests/native/m05/required-inventory.json",
+    "tests/native/m05/m05-evidence.py",
+    "tests/native/m05/refresh-inventory.sh",
+    "tests/native/m05/run-macos.sh",
+    "tests/native/m05/run-linux.sh",
+    "tests/native/m05/run-windows-local.ps1",
+    "tests/native/m05/wsl-hook-journeys.sh",
+    "tests/native/m05/selftest.sh",
+    "tests/evidence/m05-g05-agent-context.json",
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows-local.ps1",
+    "tests/native/m02/import-windows-bundle.py",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/m02-evidence.py"
+  ],
+  "common_limitations": [
+    "Status discipline (m05-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m05-plan §7: B2, B7, B9, B12) keeps its record blocked, and no claim is widened to cover it.",
+    "Linux and Windows binaries are cross-built on the macOS host with zig and run natively on the hosts (Windows: built and run natively on the PC); tests that read the repository at its compile-time path read it through HM_REPO_ROOT, which the harnesses set.",
+    "Two environments, one OS user: A16 runs two native environments in scratch homes on each platform; the WSL and container pairs are M04's exit (plan Q9).",
+    "The hook journeys need a Unix shell: native Windows has no shell integration (owner question Q6) and uses run and ordinary ssh; the WSL row runs bash and zsh inside one disposable distribution (ruling I-19).",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration and Heimdall homes, a disposable WSL distribution; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64 (build host)",
+      "logs": [
+        "macos/check.txt",
+        "macos/observations.txt"
+      ],
+      "commands_logs": [
+        "macos/commands.txt"
+      ],
+      "facts": [
+        "macos/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "linux": {
+      "label": "linux-x86_64 (devbox, headless)",
+      "logs": [
+        "linux/tests.txt"
+      ],
+      "commands_logs": [
+        "linux/commands.txt"
+      ],
+      "facts": [
+        "linux/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows": {
+      "label": "windows-11-x86_64",
+      "logs": [
+        "windows/tests.txt"
+      ],
+      "commands_logs": [
+        "windows/commands.txt"
+      ],
+      "facts": [
+        "windows/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "wsl-distro": {
+      "label": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+      "logs": [
+        "wsl-distro/tests.txt"
+      ],
+      "commands_logs": [
+        "wsl-distro/commands.txt"
+      ],
+      "facts": [
+        "wsl-distro/host.txt"
+      ],
+      "artifact_digest": null
+    }
+  },
+  "extra_rows": {},
+  "records": {
+    "A02": {
+      "case_id": "A02",
+      "path": "tests/evidence/m05-a02-trusted-week.json",
+      "requirement_ids": [
+        "R-UX-02"
+      ],
+      "summary": "A normal working week after one project trust: re-enter, three shells through the hook, Git, ssh and scp, a re-issue within a grant, the endpoint recovered after its runtime is stopped, expiry and re-entry; decisions, attended prompts and provider prompts all count 0 (R-UX-02). The default's ordinary-ssh rows. Windows uses run and ordinary ssh with no shell hook; WSL runs the hook journeys in a disposable distribution.",
+      "limitations": [
+        "Blocked: the step comparison with the G01 baseline worksheet (B7, ADR-0001 §6; the human walkthrough is M09's), a reboot or logout inside the window (B12; M04-T04), the arm64 rows (B9).",
+        "Per ADR-0011 I-13 the first plain ssh on a free slot may fail once without the hook's warm-up; the record shows the per-platform outcome as an observation, never as a pass criterion."
+      ]
+    },
+    "A04": {
+      "case_id": "A04",
+      "path": "tests/evidence/m05-a04-access-changes.json",
+      "requirement_ids": [
+        "R-UX-06",
+        "R-AU-03"
+      ],
+      "summary": "Access changes: edits and branch switches make no decision; an added destination makes one decision showing only that pair; two live bindings stay unchanged; changing the default or the profile never redirects a live binding.",
+      "limitations": [
+        "Blocked: the arm64 rows (B9)."
+      ]
+    },
+    "A05": {
+      "case_id": "A05",
+      "path": "tests/evidence/m05-a05-expiry-cutoff.json",
+      "requirement_ids": [
+        "R-AU-02"
+      ],
+      "summary": "Expiry and the hard cutoff: the same work ID is refused after expiry, distinct work proceeds with no decision, and after a cutoff fresh work IDs, a restarted runtime, the hook and default activation are all refused; clearing needs an attended decision (R-AU-02).",
+      "limitations": [
+        "Blocked: the arm64 rows (B9)."
+      ]
+    },
+    "A16": {
+      "case_id": "A16",
+      "path": "tests/evidence/m05-a16-concurrent.json",
+      "requirement_ids": [
+        "R-AU-03"
+      ],
+      "summary": "Concurrent environments: defaults do not redirect running work; stopping one job leaves the other; cleanup leaves no binding or slot (R-AU-03). Two native environments in scratch homes, labelled two environments, one OS user.",
+      "limitations": [
+        "deferred_with_decision to M04's exit (m05-plan Q9): the WSL pair and the container pair.",
+        "Blocked: the arm64 rows (B9)."
+      ]
+    },
+    "A18": {
+      "case_id": "A18",
+      "path": "tests/evidence/m05-a18-portable-trust.json",
+      "requirement_ids": [
+        "R-EN-07"
+      ],
+      "summary": "Portable trust: copy, clone, worktree, symlink, move and submodule identity; an export carries no authority or secrets; an import on a second installation creates intent only (R-EN-07).",
+      "limitations": [
+        "Blocked: the arm64 rows (B9)."
+      ]
+    },
+    "A28": {
+      "case_id": "A28",
+      "path": "tests/evidence/m05-a28-delegation.json",
+      "requirement_ids": [
+        "R-AU-07",
+        "R-SE-03"
+      ],
+      "summary": "Delegation: the child is server-enforced to its subset, a broader or longer child is refused, the child handle has no owner functions, the parent's end cascades and the child's next login fails (R-AU-07, R-SE-03). The managed rows.",
+      "limitations": [
+        "deferred_with_decision to M04's exit (m05-plan Q9): A28's forwarding and container rows.",
+        "Blocked: the arm64 rows (B9)."
+      ]
+    },
+    "A29": {
+      "case_id": "A29",
+      "path": "tests/evidence/m05-a29-hostile-input.json",
+      "requirement_ids": [
+        "R-SE-01",
+        "R-SE-02",
+        "R-RT-03"
+      ],
+      "summary": "Hostile input: a repository file cannot become an approval instruction. A program without a terminal cannot decide, repository decision references find nothing, claims in names change nothing, self-authorizing manifests get nothing, hostile manifests, bundles, working directories and hook environments are refused or inert; M01's A29-local rows re-run by name (ruling I-18).",
+      "limitations": [
+        "Blocked: the cross-user rows (B2) and the arm64 rows (B9).",
+        "Findings A29-F1 (a FIFO import bundle) and A29-F2 (pre-set hook state variables), and the W4 review's M05-W4-R01 (a duplicate bundle key) and M05-W4-R02 (other FIFO input files), were fixed in W4; their tests run unignored. Bundle refusal at any depth holds for the raw input because a repeated key is refused before the walk.",
+        "A29 tests are same-user: a same-user program that speaks the control protocol and declares itself interactive can attend (ADR-0011 R1); the claim is that repository, manifest and request content never becomes consent."
+      ]
+    },
+    "M05 exit cases (m05-plan §3)": {
+      "case_id": "m05-exit-claims",
+      "path": "tests/evidence/m05-exit-claims.json",
+      "requirement_ids": [
+        "R-UX-02",
+        "R-UX-06",
+        "R-AU-02",
+        "R-AU-03",
+        "R-AU-07",
+        "R-EN-07",
+        "R-SE-01",
+        "R-SE-02",
+        "R-SE-03",
+        "R-RT-03"
+      ],
+      "summary": "m05-plan §3: every M05 exit case per platform, all rows from one build. G05 (tests/evidence/m05-g05-agent-context.json) is the cited hand-written gate record. Blocked while any owner-input row (B2, B7, B9, B12) is blocked (the lowest-row rule).",
+      "limitations": []
+    }
+  }
+}

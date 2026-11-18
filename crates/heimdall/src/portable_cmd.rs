@@ -158,22 +158,16 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Outcome> {
 
 /// Read a bundle file: a regular file of at most [`MAX_BUNDLE_FILE_BYTES`].
 fn read_bundle(path: &Path) -> Result<Vec<u8>, Outcome> {
-    // ⟨M05; finding A29-F1⟩ Never wait on a special file: anything but a regular file is
-    // refused before it is opened, and on Unix the open itself never blocks (a FIFO swapped in
-    // after the check opens at once and fails the regular-file check below).
+    // ⟨M05; finding A29-F1, review M05-W4-R02⟩ Never wait on a special file: a regular file
+    // only, refused before it is opened and opened without blocking (`input_file`).
     let unreadable = |e: std::io::Error| usage(&format!("the bundle cannot be read: {}", e.kind()));
-    if !std::fs::metadata(path).map_err(unreadable)?.is_file() {
-        return Err(usage("the bundle is not a regular file"));
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options
-            .custom_flags(i32::try_from(rustix::fs::OFlags::NONBLOCK.bits()).unwrap_or_default());
-    }
-    let f = options.open(path).map_err(unreadable)?;
+    let f = crate::input_file::open_regular(path).map_err(|e| {
+        if crate::input_file::is_not_regular(&e) {
+            usage("the bundle is not a regular file")
+        } else {
+            unreadable(e)
+        }
+    })?;
     let meta = f
         .metadata()
         .map_err(|e| usage(&format!("the bundle cannot be read: {}", e.kind())))?;

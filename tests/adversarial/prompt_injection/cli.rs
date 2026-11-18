@@ -461,11 +461,43 @@ impl Drop for RuntimeGuard {
     }
 }
 
+impl Rt {
+    /// ⟨Review M05-W4-R03⟩ The runtime this scratch home advertises, alive now, as a guard: for
+    /// a runtime a command started on demand, or a [`Rt::start`] that failed before its guard
+    /// was set. Its exact-PID fallback still verifies the executable before any signal.
+    fn adopt_advertised(&self) -> Option<RuntimeGuard> {
+        let info = heimdall_runtime::instance::InstanceInfo::read_file(&self.home.join("run"))
+            .ok()
+            .flatten()?;
+        let token = heimdall_runtime::platform::process_start_time(info.pid)?;
+        Some(RuntimeGuard {
+            started: Started {
+                pid: info.pid,
+                token,
+            },
+            env: self.env(),
+            root: self.ws.root().to_path_buf(),
+        })
+    }
+}
+
 impl Drop for Rt {
     fn drop(&mut self) {
         // The runtime goes first, while its scratch home still exists (the fields drop
-        // after this, the scratch directory with them).
-        drop(self.guard.take());
+        // after this, the scratch directory with them). ⟨Review M05-W4-R03⟩ Cleanup is armed
+        // from the first command: without a guard, an advertised runtime is adopted and stopped
+        // the same way, and a home with no advertisement still gets a `service stop` (a runtime
+        // that has not advertised yet).
+        if let Some(guard) = self.guard.take().or_else(|| self.adopt_advertised()) {
+            drop(guard);
+        } else if self.home.exists() {
+            let _ = self
+                .command(&bin())
+                .args(["--json", "service", "stop"])
+                .current_dir(self.ws.root())
+                .stdin(Stdio::null())
+                .output();
+        }
     }
 }
 
@@ -1234,9 +1266,15 @@ fn a29_cli_hook_stays_silent_with_hostile_state_variables() {
 /// did not return (the child this test spawned is then killed through its own handle).
 fn import_within(rt: &Rt, path: &Path, limit: Duration) -> Option<Out> {
     let p = typed(path);
+    run_within(rt, &["--json", "import", "--yes", &p], limit)
+}
+
+/// `heimdall <args>` in the scratch root with stdin closed, or `None` (and the child killed
+/// through its own handle) when it does not return within `limit`.
+fn run_within(rt: &Rt, args: &[&str], limit: Duration) -> Option<Out> {
     let mut child = rt
         .command(&bin())
-        .args(["--json", "import", "--yes", &p])
+        .args(args)
         .current_dir(rt.ws.root())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1252,12 +1290,13 @@ fn import_within(rt: &Rt, path: &Path, limit: Duration) -> Option<Out> {
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    Some(checked(&["import", &p], &child.wait_with_output().unwrap()))
+    Some(checked(args, &child.wait_with_output().unwrap()))
 }
 
 /// Row 7, bundles (ruling I-18): `import` reads one bounded regular file, so a bundle the
-/// agent leaves for the owner that is oversized (1 MiB and one byte), malformed JSON, a
-/// directory, or (Unix) a link to a device is `USAGE_ERROR` (exit 2), returned within a
+/// agent leaves for the owner that is oversized (1 MiB and one byte), malformed JSON, one with a
+/// repeated key hiding an authority section (review M05-W4-R01), a directory, or (Unix) a link
+/// to a device is `USAGE_ERROR` (exit 2), returned within a
 /// bound, before any runtime is contacted (no state directory appears). A FIFO is
 /// [`a29_cli_a_fifo_bundle_is_refused_without_waiting`] (finding A29-F1). Bundles carrying
 /// authority sections, trust, grants or a host key as trust are the parser's and are cited:
@@ -1284,11 +1323,20 @@ fn a29_cli_bundle_files_are_bounded_before_any_runtime_contact() {
     std::fs::write(&malformed, format!("{valid},\"profiles\":[{{\"id\":")).unwrap();
     let directory = dir.join("directory.json");
     std::fs::create_dir_all(&directory).unwrap();
+    // ⟨Review M05-W4-R01⟩ The reviewer's input: an authority-bearing `profiles` shadowed by a
+    // repeated, empty one. A value tree keeps only the last; the raw bundle is refused.
+    let shadowed = dir.join("shadowed.json");
+    std::fs::write(
+        &shadowed,
+        r#"{"schema":"heimdall-portable/1","created_at":"2026-11-18T09:00:00Z","redacted":false,"destinations":[],"identities":[],"profiles":[{"policy":{"approve":true}}],"profiles":[],"reestablish":[]}"#,
+    )
+    .unwrap();
     #[allow(unused_mut)]
     let mut cases: Vec<(&str, PathBuf)> = vec![
         ("oversized", oversized),
         ("malformed", malformed),
         ("directory", directory),
+        ("duplicate key", shadowed),
     ];
     #[cfg(unix)]
     {
@@ -1323,4 +1371,72 @@ fn a29_cli_a_fifo_bundle_is_refused_without_waiting() {
     assert_eq!(out.code, 2, "{out:?}");
     assert_eq!(out.json()["code"], "USAGE_ERROR");
     assert!(!rt.home.join("state").exists(), "no runtime was contacted");
+}
+
+/// ⟨Review M05-W4-R02⟩ The other input files the CLI reads from a path the user names, or from
+/// its own configuration directory, refuse a FIFO with no writer at once (`input_file`), as the
+/// import bundle does: `identity adopt --pub <FIFO>` (a key file the agent leaves for the owner)
+/// is `USAGE_ERROR` before anything is adopted, and `service run` with a FIFO at
+/// `config/config.toml` fails instead of blocking before it starts.
+#[cfg(unix)]
+#[test]
+fn a29_cli_fifo_input_files_are_refused_without_waiting() {
+    let rt = Rt::new();
+    let key = rt.ws.path("key.pub");
+    heimdall_testkit::workspace::make_fifo(&key).unwrap();
+    let out = run_within(
+        &rt,
+        &["--json", "identity", "adopt", "--pub", &typed(&key)],
+        Duration::from_secs(10),
+    )
+    .expect("`identity adopt --pub <FIFO>` returns within 10 s");
+    assert_eq!(out.code, 2, "{out:?}");
+    assert_eq!(out.json()["code"], "USAGE_ERROR", "{out:?}");
+
+    let rt = Rt::new();
+    let config = rt.home.join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    heimdall_testkit::workspace::make_fifo(&config.join("config.toml")).unwrap();
+    let out = run_within(&rt, &["--json", "service", "run"], Duration::from_secs(10))
+        .expect("`service run` with a FIFO configuration returns within 10 s");
+    assert_ne!(out.code, 0, "{out:?}");
+    assert!(
+        rt.adopt_advertised().is_none(),
+        "no runtime started: {out:?}"
+    );
+}
+
+/// ⟨Review M05-W4-R03⟩ A runtime a command started on demand is stopped when its `Rt` unwinds,
+/// even though no guard was set (as when a startup assertion fails before [`Rt::start`] sets
+/// it): `Rt`'s drop adopts the advertised runtime and stops it by `service stop`, with the
+/// verified exact-PID fallback, before its scratch home goes.
+#[test]
+fn a29_cli_a_runtime_started_before_its_guard_is_still_stopped() {
+    let seen = std::sync::Mutex::new(None);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let rt = Rt::new();
+        let out = rt.run(&["--json", "access", "default-profile", "--clear"]);
+        assert_eq!(out.code, 0, "{out:?}");
+        let info = heimdall_runtime::instance::InstanceInfo::read_file(&rt.home.join("run"))
+            .unwrap()
+            .expect("the runtime advertises itself");
+        let token = heimdall_runtime::platform::process_start_time(info.pid)
+            .expect("the advertised runtime is alive");
+        *seen.lock().unwrap() = Some((info.pid, token));
+        panic!("a startup assertion fails before the guard is set");
+    }));
+    assert!(unwound.is_err(), "the closure panicked");
+    let (pid, token) = seen
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("the runtime was observed");
+    // Checked at once: the guard waits for the process to be gone before the unwinding goes
+    // on, so a runtime still alive here is one nothing stopped (it may notice its deleted home
+    // later by itself, which is not cleanup).
+    assert_ne!(
+        heimdall_runtime::platform::process_start_time(pid).as_deref(),
+        Some(token.as_str()),
+        "runtime pid {pid} outlived its Rt"
+    );
 }

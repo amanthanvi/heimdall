@@ -2,7 +2,7 @@ Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attenti
 [!!] ┌Owner decision dec_trust1 (trust_workspace)─────────────────────────────────────────────────────────────────┐
 Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
 Stati│Exactly what approve applies to:                                                                            │
-Works│Use Development access automatically for this project?                                                      │
+Works│Use dev access automatically for this project?                                                              │
 > [!!│Work can continue while your desktop and password manager are locked, using your saved session limits.      │
   [!!│You can pause or remove access at any time.                                                                 │
   [..│                                                                                                            │
@@ -11,7 +11,7 @@ Works│Use Development access automatically for this project?                  
   r r│    characters)                                                                                             │
   k k│                                                                                                            │
      │Detail: what approving grants                                                                               │
-     │  Profile: Development (dev)                                                                                │
+     │  Profile: dev (label "Development")                                                                        │
      │  Workspace: /work/example                                                                                  │
      │  Pairs (destination and account):                                                                          │
      │    - alpha:fixture                                                                                         │

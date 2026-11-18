@@ -69,8 +69,9 @@ param(
     [string]$ArgvDump = '',
     [string]$Label = 'windows-11-x86_64 (native msvc, local mode)',
     # ⟨M03 wave 6⟩ The milestone run (tests/native/m03/run-windows-local.ps1 passes m03): the run
-    # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3).
-    [ValidateSet('m02', 'm03')][string]$Milestone = 'm02',
+    # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3). ⟨M05⟩
+    # tests/native/m05/run-windows-local.ps1 passes m05 (the run directory prefix only).
+    [ValidateSet('m02', 'm03', 'm05')][string]$Milestone = 'm02',
     [switch]$SelfTest,
     [string]$Out = ''
 )

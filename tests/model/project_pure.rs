@@ -1622,6 +1622,35 @@ fn the_back_link_must_match_by_identity_as_well_as_by_path() {
     assert_eq!(match_workspace(&obs, &[rec]), WorkspaceMatch::Untrusted);
 }
 
+/// ⟨M05; review M05-W4-R01⟩ A key repeated in one object, at any depth and however it is
+/// escaped, refuses the raw input: a value tree keeps only the last occurrence, so the
+/// overwritten one (here an authority section) would never reach the walk.
+#[test]
+fn a_duplicate_key_refuses_the_raw_bundle() {
+    let head = r#"{"schema":"heimdall-portable/1","created_at":"2026-11-18T09:00:00Z","redacted":false,"destinations":[],"identities":[],"#;
+    for body in [
+        // The reviewer's input: an authority-bearing `profiles` shadowed by an empty one.
+        r#""profiles":[{"policy":{"approve":true}}],"profiles":[],"reestablish":[]}"#,
+        // The same, with the second key escaped.
+        r#""profiles":[{"policy":{"approve":true}}],"\u0070rofiles":[],"reestablish":[]}"#,
+        // Nested: a repeated key inside an item.
+        r#""profiles":[{"id":"p","id":"q","pairs":[]}],"reestablish":[]}"#,
+    ] {
+        let raw = format!("{head}{body}");
+        assert_eq!(
+            parse_bundle(raw.as_bytes()),
+            Err(BundleError::DuplicateKey),
+            "{raw}"
+        );
+    }
+    // Without the shadow, the authority section is refused as before.
+    let plain = format!(r#"{head}"profiles":[{{"policy":{{"approve":true}}}}],"reestablish":[]}}"#);
+    assert!(matches!(
+        parse_bundle(plain.as_bytes()),
+        Err(BundleError::AuthoritySection(_))
+    ));
+}
+
 #[test]
 fn malformed_pointers_are_unverified_never_errors() {
     for git_file in [

@@ -642,6 +642,19 @@ These are recorded in `RESIDUALS` and in the claims table, with probes, under AD
       by naming a `default:` work ID, is left alone, and the activation starts work n+1 under the
       current default. Running work keeps its pins (A16). Reserving the `default:` prefix for the
       server is a contract question, not taken up.
+    - **I-21, the profile in a decision's question** (W4): the TUI's first-trust and `create`
+      questions name the profile by its ID, as the CLI does; the owner's label appears only as
+      quoted data on the detail line (`Profile: dev (label "Development")`). Spec §5.2's
+      `<profile>` is the ID: a label is catalog text a same-user program can set without a
+      decision.
+    - **I-22, two readings of the exit suite** (W4):
+      - **A16's default change:** the default moves in two ways mid-work, through `access
+        default-profile` and through an attended `access allow --policy` that widens the default
+        profile's own policy into a new revision. Either way running bindings keep their pins and
+        never widen; that is the claim.
+      - **A02's "re-issue within the grant":** both the same-work-ID attach (I-1) and recovery's
+        certificate re-issue after the runtime is killed by exact PID, each with 0 decisions and
+        0 prompts.
 13. **Handed on.**
     - **Per-destination identities through `session-bind@openssh.com`,** so managed aliases can
       drop `IdentitiesOnly` and the first ordinary `ssh` logs in without the hook (I-13 option 3):

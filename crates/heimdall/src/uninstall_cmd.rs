@@ -1371,7 +1371,8 @@ fn check_bundle(
 ) -> Result<(), (String, &'static str)> {
     use std::io::Read as _;
     let required = |why: &str| Err((why.to_owned(), reason::BUNDLE_REQUIRED));
-    let Ok(file) = std::fs::File::open(path) else {
+    // ⟨M05; review M05-W4-R02⟩ A regular file only, opened without waiting (a FIFO refuses).
+    let Ok(file) = crate::input_file::open_regular(path) else {
         return required("the bundle file cannot be read");
     };
     let mut bytes = Vec::new();

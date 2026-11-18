@@ -337,7 +337,14 @@ pub(crate) async fn declare<S: Session, P: Prompter>(
 /// The one `.pub` line of `path` (bounded; never private material).
 fn read_public_key(path: &Path) -> Result<String, Outcome> {
     use std::io::Read as _;
-    let file = std::fs::File::open(path).map_err(|_| usage("the --pub file cannot be read"))?;
+    // ⟨M05; review M05-W4-R02⟩ A regular file only, opened without waiting (a FIFO refuses).
+    let file = crate::input_file::open_regular(path).map_err(|e| {
+        usage(if crate::input_file::is_not_regular(&e) {
+            "the --pub file is not a regular file"
+        } else {
+            "the --pub file cannot be read"
+        })
+    })?;
     let mut text = String::new();
     file.take(MAX_PUBLIC_KEY_BYTES as u64 + 1)
         .read_to_string(&mut text)

@@ -27,6 +27,8 @@
 #
 #   M03  tests/native/m03/selftest.sh (the lock harness, the Windows lock harness's
 #        -SelfTest and the Linux wrapper; listed in that file's header).
+#   M05  tests/native/m05/selftest.sh (the evidence generator over synthetic logs, the wrappers and the
+#        WSL hook run's script in a fake world; listed in that file's header).
 #   M02  tests/native/m02/selftest.sh (its own checks, listed in that file's header: the
 #        helpers, run-linux/macos/windows/wsl-distro with stubs and a fake host tree, the
 #        scenario in its isolated mode when a debug heimdall and a sshd exist) and
@@ -432,6 +434,28 @@ if [ -f "$m03_dir/selftest.sh" ]; then
     fi
 else
     check "M03 selftest: tests/native/m03/selftest.sh exists" false
+fi
+
+# --- M05 harnesses (m05-plan U10 "evidence harness") --------------------------------------------
+
+m05_dir="$root/tests/native/m05"
+if [ -f "$m05_dir/selftest.sh" ]; then
+    bash "$m05_dir/selftest.sh" >"$T/m05-selftest.out" 2>&1 </dev/null
+    m05_rc=$?
+    cat "$T/m05-selftest.out"
+    m05_line=$(grep '^m05-selftest: ' "$T/m05-selftest.out" | tail -1)
+    m05_pass=$(printf '%s\n' "$m05_line" | sed -n 's/^m05-selftest: \([0-9][0-9]*\) passed.*/\1/p')
+    m05_fail=$(printf '%s\n' "$m05_line" | sed -n 's/^m05-selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+    if [ -n "$m05_pass" ] && [ -n "$m05_fail" ]; then
+        passes=$((passes + m05_pass))
+        fails=$((fails + m05_fail))
+        check "M05 selftest: its exit code agrees with its totals ($m05_pass passed, $m05_fail failed)" \
+            exit_agrees "$m05_rc" "$m05_fail"
+    else
+        check "M05 selftest: it ran to its summary line" false
+    fi
+else
+    check "M05 selftest: tests/native/m05/selftest.sh exists" false
 fi
 
 echo "native-harness-selftest: $passes passed, $fails failed"
