@@ -187,3 +187,10 @@ path = "../../tests/integration/workspace_observe.rs"
 [[test]]
 name = "e2e_context_m05"
 path = "../../tests/e2e/m05_context.rs"
+
+# ⟨M05⟩ U10 (spec A29; m05-plan U10): the A29 hostile-input suite in process: a
+# prompt-injected agent with no terminal obeys a scratch Git repository's planted
+# instructions against the production `Operations` and the real workspace observer.
+[[test]]
+name = "adversarial_prompt_injection"
+path = "../../tests/adversarial/prompt_injection.rs"

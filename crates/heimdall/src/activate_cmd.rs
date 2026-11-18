@@ -47,7 +47,11 @@
 //! the hook on each directory change (zsh `chpwd`, bash `PROMPT_COMMAND` when `$PWD`
 //! changed) and when the activated access is due again, passes `"$PWD"` as one quoted
 //! argument, and treats Heimdall's answer as data: three fields, each checked against a
-//! fixed pattern, never evaluated.
+//! fixed pattern, never evaluated. ⟨M05; finding A29-F2⟩ Its own state variables
+//! (`__heimdall_seq`, `__heimdall_state`, `__heimdall_due`) are checked against the same
+//! patterns before each use, falling back to their initial values, so a value a
+//! repository's tooling exported into the environment can neither make the hook print an
+//! error on every prompt nor stop it activating.
 //!
 //! **`activate` without `--hook`** is a foreground activation by working directory, as
 //! `run` without `--profile` is: `ensure` with `context`, the attended decision flow on a
@@ -593,9 +597,13 @@ pub(crate) const ZSH_SCRIPT: &str = r#"# Heimdall shell integration for zsh (`he
 __heimdall_hook() {
   emulate -L zsh
   command -v heimdall >/dev/null 2>&1 || return 0
-  local out state rest seq recheck
+  local out state rest seq recheck prev last
+  prev="${__heimdall_seq:-0}"
+  case "$prev" in ''|*[!0-9]*|0?*|??????????*) prev=0 ;; esac
+  last="${__heimdall_state:-none}"
+  case "$last" in active|untrusted|paused|needs_review|none) ;; *) last=none ;; esac
   out="$(command heimdall activate --hook --cwd "$PWD" --shell-pid "$$" \
-    --seq "${__heimdall_seq:-0}" --last "${__heimdall_state:-none}" </dev/null)"
+    --seq "$prev" --last "$last" </dev/null)"
   state="${out%% *}"
   rest="${out#* }"
   seq="${rest%% *}"
@@ -617,7 +625,9 @@ __heimdall_hook() {
 
 __heimdall_due_check() {
   emulate -L zsh
-  if [ "${__heimdall_due:-0}" -gt 0 ] && [ "$SECONDS" -ge "${__heimdall_due:-0}" ]; then
+  local due="${__heimdall_due:-0}"
+  case "$due" in ''|*[!0-9]*|0?*|???????????*) due=0 ;; esac
+  if [ "$due" -gt 0 ] && [ "$SECONDS" -ge "$due" ]; then
     __heimdall_hook
   fi
 }
@@ -642,9 +652,13 @@ pub(crate) const BASH_SCRIPT: &str = r#"# Heimdall shell integration for bash (`
 
 __heimdall_hook() {
   command -v heimdall >/dev/null 2>&1 || return 0
-  local out state rest seq recheck
+  local out state rest seq recheck prev last
+  prev="${__heimdall_seq:-0}"
+  case "$prev" in ''|*[!0-9]*|0?*|??????????*) prev=0 ;; esac
+  last="${__heimdall_state:-none}"
+  case "$last" in active|untrusted|paused|needs_review|none) ;; *) last=none ;; esac
   out="$(command heimdall activate --hook --cwd "$PWD" --shell-pid "$$" \
-    --seq "${__heimdall_seq:-0}" --last "${__heimdall_state:-none}" </dev/null)"
+    --seq "$prev" --last "$last" </dev/null)"
   state="${out%% *}"
   rest="${out#* }"
   seq="${rest%% *}"
@@ -665,11 +679,12 @@ __heimdall_hook() {
 }
 
 __heimdall_prompt() {
-  local __heimdall_rc=$?
+  local __heimdall_rc=$? due="${__heimdall_due:-0}"
+  case "$due" in ''|*[!0-9]*|0?*|???????????*) due=0 ;; esac
   if [ "${__heimdall_pwd-}" != "$PWD" ]; then
     __heimdall_pwd="$PWD"
     __heimdall_hook
-  elif [ "${__heimdall_due:-0}" -gt 0 ] && [ "$SECONDS" -ge "${__heimdall_due:-0}" ]; then
+  elif [ "$due" -gt 0 ] && [ "$SECONDS" -ge "$due" ]; then
     __heimdall_hook
   fi
   return "$__heimdall_rc"

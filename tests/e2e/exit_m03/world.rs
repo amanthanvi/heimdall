@@ -160,7 +160,9 @@ pub struct Pair {
     pub alias: String,
     pub destination: String,
     pub account: String,
-    pub sshd: LoopbackSshd,
+    /// ⟨M05⟩ Shared, so several pairs or worlds can name one server
+    /// ([`WorldOptions::shared_servers`]); used only through `&self`, as before.
+    pub sshd: Arc<LoopbackSshd>,
 }
 
 impl Pair {
@@ -222,6 +224,23 @@ pub struct WorldOptions {
     /// ⟨W6-R01, the regression only⟩ Make the rollback fail without running it, so the
     /// kept-recovery-state branch is exercised.
     pub fail_rollback: bool,
+    /// ⟨M05 exit suite⟩ Servers shared with other pairs or worlds, one per pair (the same
+    /// server may be named for several pairs; the world never stops one, its last holder
+    /// does): instead of [`WorldOptions::servers`] and of one `LoopbackSshd` per pair.
+    /// Each pair still gets its own principal's line, so pairs on one server stay
+    /// distinct; two worlds on one server are two environments of one OS user (the
+    /// Windows harness leases one account-form server per test thread).
+    pub shared_servers: Vec<Arc<LoopbackSshd>>,
+    /// ⟨M05 exit suite⟩ The personal default through the product's own path (ADR-0011
+    /// §3.1, §3.4 "personal default at setup: 1"; m05-plan U5): no standing policy is
+    /// seeded for [`PROFILE`]; before `setup apply` the environment's default-profile
+    /// preference is set to it (`access default-profile`: the offer names the preferred
+    /// profile when the catalog has several, as the debug test configuration's `dev` and
+    /// `ops` make it), and `setup apply` answers `yes` twice: to its plan, then to the
+    /// personal-default offer that follows it on a terminal (`create {default: true}` for
+    /// `exit`, the owner's attended decision). [`World::personal_default`] names the
+    /// policy it created.
+    pub personal_default: bool,
 }
 
 /// ⟨W6-R01⟩ Where the world's projection stands: whether a rollback is owed.
@@ -307,6 +326,11 @@ pub struct World {
     own_projection_rollback: bool,
     fail_after_apply: bool,
     fail_rollback: bool,
+    /// ⟨M05 exit suite⟩ [`WorldOptions::personal_default`].
+    want_personal_default: bool,
+    /// ⟨M05 exit suite⟩ The policy the setup's personal-default offer created
+    /// ([`WorldOptions::personal_default`]; `None` otherwise).
+    pub personal_default: Option<PolicyId>,
     /// ⟨W6-R01⟩ The projection's state.
     pub projection: Projection,
     pub transcript: Mutex<Transcript>,
@@ -344,22 +368,31 @@ impl World {
         let ca_public = ca.public_openssh().unwrap();
 
         // The servers, each trusting the CA for its own pair's principal only.
-        let servers = if o.servers.is_empty() {
+        let servers: Vec<Arc<LoopbackSshd>> = if !o.shared_servers.is_empty() {
+            assert!(o.servers.is_empty(), "servers or shared servers, not both");
+            assert_eq!(o.shared_servers.len(), o.pairs, "one server per pair");
+            std::mem::take(&mut o.shared_servers)
+        } else if o.servers.is_empty() {
             (0..o.pairs)
                 .map(|_| {
-                    LoopbackSshd::start(
-                        home.scratch(),
-                        SshdConfig {
-                            registry_seed: Some(Vec::new()),
-                            ..SshdConfig::default()
-                        },
+                    Arc::new(
+                        LoopbackSshd::start(
+                            home.scratch(),
+                            SshdConfig {
+                                registry_seed: Some(Vec::new()),
+                                ..SshdConfig::default()
+                            },
+                        )
+                        .unwrap_or_else(|e| panic!("{e}")),
                     )
-                    .unwrap_or_else(|e| panic!("{e}"))
                 })
                 .collect::<Vec<_>>()
         } else {
             assert_eq!(o.servers.len(), o.pairs, "one server per pair");
             std::mem::take(&mut o.servers)
+                .into_iter()
+                .map(Arc::new)
+                .collect()
         };
         let mut pairs = Vec::new();
         for (i, sshd) in servers.into_iter().enumerate() {
@@ -407,6 +440,8 @@ impl World {
             own_projection_rollback: o.product || o.own_projection_rollback,
             fail_after_apply: o.fail_after_apply,
             fail_rollback: o.fail_rollback,
+            want_personal_default: o.personal_default,
+            personal_default: None,
             projection: Projection::NotApplied,
             transcript: Mutex::new(Transcript::default()),
             started,
@@ -539,6 +574,7 @@ impl World {
             }
         }
         let (fp, public) = (self.ca_fingerprint.clone(), self.ca_public.clone());
+        let want_default = self.want_personal_default;
         let environment = self
             .open_store()
             .transaction(|tx| {
@@ -574,6 +610,10 @@ impl World {
                         scope: scope.clone(),
                         label: None,
                     })?;
+                    // ⟨M05⟩ The personal default is the owner's decision at setup, below.
+                    if want_default && profile.as_str() == PROFILE {
+                        continue;
+                    }
                     tx.upsert_policy(
                         &StandingPolicy {
                             id: PolicyId::parse(policy).unwrap(),
@@ -623,7 +663,17 @@ impl World {
         if self.own_projection_rollback {
             self.projection = Projection::MayBeApplied;
         }
-        let applied = self.confirm(&["setup", "apply"]);
+        // ⟨M05⟩ With the personal default wanted, the offer that follows the apply on a
+        // terminal names the preferred profile and is answered `yes` too.
+        if self.want_personal_default {
+            let preferred = self.cli(&["--json", "access", "default-profile", PROFILE]);
+            assert_eq!(preferred.code, 0, "{preferred:?}");
+        }
+        let applied = if self.want_personal_default {
+            self.confirm_answers(&["setup", "apply"], &["yes", "yes"])
+        } else {
+            self.confirm(&["setup", "apply"])
+        };
         assert!(
             !self.fail_after_apply,
             "injected failure after setup apply (W6-R01 regression)"
@@ -651,6 +701,14 @@ impl World {
             "time confirm: {}",
             self.redact(&confirmed.stdout)
         );
+        if self.want_personal_default {
+            self.personal_default = Some(self.default_policy().unwrap_or_else(|| {
+                panic!(
+                    "the setup offer created no personal default: {}",
+                    self.redact(&applied.stdout)
+                )
+            }));
+        }
         // The default-identity guard over P for every alias: each one's identity list
         // is certainly the projection's scratch files, never the account's defaults.
         // ⟨M03 wave 6⟩ On Windows the projection's agent is this world's own runtime's pipe
@@ -715,11 +773,16 @@ impl World {
     /// Run the binary (cleared environment, stdin closed, the scratch root as working
     /// directory); the output joins the transcript.
     pub fn cli(&self, args: &[&str]) -> Out {
+        self.cli_in(&self.home.root, args)
+    }
+
+    /// ⟨M05⟩ [`World::cli`] with `cwd` as the working directory (a workspace's).
+    pub fn cli_in(&self, cwd: &Path, args: &[&str]) -> Out {
         let out = Command::new(bin())
             .args(args)
             .env_clear()
             .envs(self.env())
-            .current_dir(&self.home.root)
+            .current_dir(cwd)
             .stdin(Stdio::null())
             .output()
             .expect("spawn heimdall");
@@ -756,6 +819,60 @@ impl World {
             stdout: text,
             stderr: String::new(),
         }
+    }
+
+    /// ⟨M05⟩ Run the binary on a terminal and type the next of `answers` at each new
+    /// `[y/N]: ` prompt it shows (`no` once they run out, which the caller's assertions
+    /// then see), until it exits.
+    pub fn confirm_answers(&self, args: &[&str], answers: &[&str]) -> Out {
+        let mut cmd = TerminalCommand::new(bin())
+            .args(args)
+            .current_dir(&self.home.root);
+        for (k, v) in self.env() {
+            cmd = cmd.env(k, v);
+        }
+        let mut term = cmd.spawn().unwrap_or_else(|e| {
+            panic!("blocked: a terminal (script(1) on Unix, ConPTY on Windows) is needed: {e}")
+        });
+        let start = Instant::now();
+        let mut answered = 0;
+        let code = loop {
+            if term.try_wait().is_some() {
+                break term.wait(Duration::from_secs(10)).unwrap_or(-1);
+            }
+            if term.text().matches("[y/N]: ").count() > answered {
+                let answer = answers.get(answered).copied().unwrap_or("no");
+                term.send(format!("{answer}\r").as_bytes()).unwrap();
+                answered += 1;
+            }
+            if start.elapsed() > Duration::from_secs(180) {
+                let _ = term.wait(Duration::ZERO);
+                panic!("{args:?}: did not exit: {}", self.redact(&term.text()));
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        };
+        let text = term.text();
+        self.record(args, &text, "");
+        Out {
+            code,
+            stdout: text,
+            stderr: String::new(),
+        }
+    }
+
+    /// ⟨M05⟩ The personal policy marked `default` for [`PROFILE`] in this environment
+    /// (`inspect policies`), if any.
+    pub fn default_policy(&self) -> Option<PolicyId> {
+        let out = self.cli(&["--json", "inspect", "policies"]);
+        let env = out.json();
+        env["data"]["items"]
+            .as_array()?
+            .iter()
+            .find(|p| {
+                p["default"] == true && p["workspace_id"].is_null() && p["profile"] == PROFILE
+            })
+            .and_then(|p| p["policy_id"].as_str())
+            .and_then(|id| PolicyId::parse(id).ok())
     }
 
     fn record(&self, args: &[&str], stdout: &str, stderr: &str) {
@@ -1065,6 +1182,24 @@ impl World {
         request: &str,
         tasks: Vec<Value>,
     ) -> Worker {
+        self.spawn_run(
+            &self.home.root,
+            &[
+                "--profile",
+                profile,
+                "--work-id",
+                work,
+                "--request-id",
+                request,
+            ],
+            tasks,
+        )
+    }
+
+    /// ⟨M05⟩ [`World::spawn_worker_on`] with `run_args` as `run`'s own arguments (before
+    /// `--`) and `cwd` as its working directory: `run` without `--profile` in a workspace
+    /// (ADR-0011 §3.2), or with `--parent-binding` (§6).
+    pub fn spawn_run(&self, cwd: &Path, run_args: &[&str], tasks: Vec<Value>) -> Worker {
         let dir = self.subdir("worker");
         let instructions = dir.join("instructions.json");
         let result = dir.join("result.json");
@@ -1083,31 +1218,24 @@ impl World {
         let (err_reader, err_writer) = std::io::pipe().unwrap();
         let (err_writer, stderr_identity) = pipe_identity(err_writer);
         let mut cmd = Command::new(bin());
-        cmd.args([
-            "run",
-            "--profile",
-            profile,
-            "--work-id",
-            work,
-            "--request-id",
-            request,
-            "--",
-        ])
-        .arg(&exe)
-        .args([
-            "--exact",
-            "worker_process_entry",
-            "--nocapture",
-            "--test-threads=1",
-            "-q",
-        ])
-        .env_clear()
-        .envs(self.env())
-        .env(WORKER_ENV, &instructions)
-        .current_dir(&self.home.root)
-        .stdin(Stdio::null())
-        .stdout(writer)
-        .stderr(err_writer);
+        cmd.arg("run")
+            .args(run_args)
+            .arg("--")
+            .arg(&exe)
+            .args([
+                "--exact",
+                "worker_process_entry",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ])
+            .env_clear()
+            .envs(self.env())
+            .env(WORKER_ENV, &instructions)
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(writer)
+            .stderr(err_writer);
         let child = cmd.spawn().expect("spawn heimdall run");
         // This process's copies of the write ends go with the command, so the readers
         // see the streams end when the worker ends.
