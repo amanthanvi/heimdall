@@ -108,11 +108,18 @@ fn service_error(e: &ServiceError) -> Envelope<ErrorData> {
 
 /// `STATE_UNAVAILABLE`, reason `state_dir_unsafe` (ADR-0010 §1 item 7): the Windows state
 /// directory is not protected owner-only. Refused, never repaired.
-fn state_dir_unsafe(e: &ConfigError) -> Envelope<ErrorData> {
+pub(crate) fn state_dir_unsafe(e: &ConfigError) -> Envelope<ErrorData> {
+    // ⟨M04 review-fix round⟩ A pre-M04 directory never reaches this: it is narrowed to
+    // owner-only at start (`heimdall_runtime::paths`). What does is a directory that grants
+    // someone else, which Heimdall never changes: the message says how to fix it without
+    // losing the state.
     heimdall_app::OpError::new(
         Code::StateUnavailable,
         format!(
-            "{e}; Heimdall does not change a state directory it did not create: move or delete it, and start again"
+            "{e}; Heimdall never changes a state directory that grants access to anyone but \
+             you, SYSTEM and Administrators: remove the other entries from its access-control \
+             list (your state is kept), or move the directory aside to start a new \
+             installation, then run the command again"
         ),
     )
     .with_reason(heimdall_contract::envelope::reason::STATE_DIR_UNSAFE)

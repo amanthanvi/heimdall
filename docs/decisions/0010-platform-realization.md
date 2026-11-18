@@ -432,10 +432,12 @@ This ADR is reopened when any of these happens:
     - **Q5:** as item 9.
     - **Q6:** yes. Recipe A and hardware working keys are deferred again, to be reopened only for an observed target without certificate support.
 
-## 10. Wave 1: the integrator's decisions (2026-11-18; pending the wave's review)
+## 10. Wave 1: the integrator's decisions (2026-11-18; review fixes M04-W1-R01, R02 in items 5 and 6)
 
-**Source:** M04 wave 1 (U1, U2, U3a/U3b, U5, U6). Readings put to the contract owner are in
-`.m04-questions.md` (I-1 to I-10); the track builds on them provisionally.
+**Source:** M04 wave 1 (U1, U2, U3a/U3b, U5, U6), committed as `806ab489`. The readings below
+were put to the contract owner as I-1 to I-10. **Ruled on 2026-11-18:** I-1 to I-8 and I-10
+are confirmed as built. I-9 is answered: the M04 doctor finding codes become a `finding::M04`
+list with a golden, an additive revision-5 delta in ADR-0006 §17 (the review-fix round).
 
 **The provisional readings built on:**
 - **I-1, the decision kind:** adding a container (or, in wave 2, a Mode B distribution) is
@@ -450,7 +452,10 @@ This ADR is reopened when any of these happens:
   namespace that is never in the managed set. `inspect environments` lists it under that
   namespace.
 - **I-7, results:** a completed environment request answers `{"environment": <EnvironmentView>}`.
-- **I-8, the login entry:** it is attended but not journaled.
+- **I-8, the login entry:** it is attended but not journaled. Ownership is the byte-for-byte
+  re-render of its data, so a missing journal can never make a foreign entry look owned: a crash
+  during install leaves at worst an **owned** entry with no resource row, which `service
+  autostart disable` and uninstall find by its data and remove.
 - **I-10, container bindings:** in a container environment, a same-work `ensure` takes the stable
   directory over.
 
@@ -479,6 +484,89 @@ This ADR is reopened when any of these happens:
      `SystemDrive`, from the known-folder APIs, but only when the child would lack them.
    - Nothing else is added, and a present value is never changed.
 
+5. **The Windows state directory has one upgrade path** (the review-fix round, on the
+   orchestrator's instruction that an upgrade is never silently refused). A state directory a
+   build before M04 created has the profile's inherited list: owned by the user, not
+   protected, granting only the user, `SYSTEM` and `BUILTIN\Administrators` (`Verdict::
+   LegacyInherited`).
+   - At the first start of an M04 build it is narrowed, once, to the protected owner-only DACL
+     `D:P(A;OICI;GA;;;<user>)`. The narrowing goes through one `READ_CONTROL | WRITE_DAC`
+     handle whose own descriptor must judge `LegacyInherited` again. It only removes access
+     (`SYSTEM`, Administrators and the inheritance, all outside §1's claims) and keeps the
+     content. Files already inside keep what they inherited, which names no other principal.
+   - Every other shape stays refused as `state_dir_unsafe` and is never changed: a foreign
+     owner, a deny ACE, any other principal, inherited or protected. The refusal now says how
+     to fix it without losing the state, and the CLI's on-demand start names it as such
+     instead of a generic start failure.
+   - §1 item 7's "never repaired" is narrowed to exactly this: no widening, and no rewrite of
+     a list that grants someone else.
+   - **Proof:** `windows_state_dir_not_owner_only_is_refused` (Windows native: legacy narrowed
+     and started twice, an inherited Everyone grant and a protected Everyone grant refused
+     unchanged), and the pure table in `platform::state_dir_acl_tests`.
+   - **Undo on such a directory (review finding M04-W1-R02):** the CLI's own start
+     (`client::connect_as`) narrows it the same way, so `setup rollback` and `uninstall` run
+     on an installation from before M04. A directory that stays refused answers
+     `STATE_UNAVAILABLE`, reason `state_dir_unsafe`, with the same message as `service run`,
+     instead of a reasonless `SERVICE_UNAVAILABLE`. The owner fixes the list as the message
+     says, keeping the state, and runs the command again; Heimdall does not run rollback or
+     uninstall around the runtime. **Proof:** `inherited_state_dir_then_setup_rollback_and_uninstall`
+     (Windows native: `setup apply` and the login entry, the state directory given the
+     pre-M04 inherited list, then `setup rollback` removes the managed include and
+     `uninstall` the login entry).
+
+6. **Verification never leaves the direct route; a changed final key is a host-key change
+   through any route** (review finding M04-W1-R01, blocking).
+   - **The defect:** the supervisor's re-verification pass and `enroll verify` compared only a
+     direct evaluation. For a routed enrollment whose final host's key changed, the pass did
+     nothing (the record stayed `verified`, its grants active), and `enroll verify` minted the
+     verification certificates and ran a **direct** `ssh` to the approved host, around the
+     approved jump.
+   - **A changed final key** (`app::enrollment::host_key_changed`): a determined evaluation
+     of the pair's alias that names the approved `HostName`, `Port` and `User` but not exactly
+     the approved key is a host-key change **whatever the route**: direct, the catalog's
+     jump, or any other. Both paths use it, so the record is `held` (`host_key_changed`) from
+     the evaluation alone, with no session or certificate, and the pair's grants under its CA
+     are degraded, as in the direct case. A route change alone (another `HostName`, `Port` or
+     `User`) is still not one: the next remote step refuses it as `route_changed`, and the
+     evidence is invalidated at once.
+   - **No session outside the direct route; chosen: end `inconclusive`.** A verification's
+     `ssh` pins the approved host directly. So a verification opens a session only when the
+     alias evaluates direct, or, with no evaluator wired, when the catalog names no jump
+     (`verification_may_connect`). Otherwise it mints nothing, opens nothing and ends
+     `inconclusive`. **Not chosen:** verification through the approved hop, because §5 item 5
+     and §9 item 4 keep verification through a jump `route_unsupported` until M06-T03.
+     **Consequence:** a routed enrollment's evidence isn't renewed while it is routed. It
+     lapses at `fresh_until`, and the workaround of §5 item 5 applies: verify while the
+     destination is reached directly.
+   - **The jump hop's key** (reading I-12, ruled 2026-11-18 as built): a managed jump's pair is enrolled with
+     direct evidence of its own (§5 item 2). A change of its key holds **that** enrollment
+     and degrades every grant whose scope holds the jump pair, which is every grant that
+     reaches a final host through it. The final enrollment is not held for it: its own key is
+     unchanged, so `--approve-target-change` would have nothing to approve. A jump on existing
+     access has no approved key before catalog-pinned host identity (M06-T03, §9 item 3). The
+     use-time rule (reading I-4) then withholds the evidence while the hop has no single key.
+   - **Releasing a held routed enrollment** goes through the direct route too: remove the
+     jump, `enroll verify --approve-target-change` while the destination is reached directly,
+     then route it again; or `enroll remove`.
+   - **Proof:** `routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route`
+     (`e2e_enroll_m03`: no session, certificate or login, the pass holds it, the grant is
+     degraded) and `a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key`
+     (`e2e_route_m04`, the real binary: neither hop sees a login, `ex2` is held and the grant
+     degraded). Both are the review's probes. **Revert proof:** with the fix reverted, both
+     fail (exit 101): the first verification ran a direct session (fake ports: a host-key
+     mismatch observed through a login; the real binary: `verified` through a direct login).
+     Restored, both pass (exit 0). The pure rule is `enrollment::tests::route_matches_via_table`.
+   - **Two route tests changed with it** (found by the devbox run). The supervisor now holds a
+     routed enrollment within one pass of a final-key change, and a hold outlasts the key
+     coming back.
+     - `a15_proxyjump_through_managed_bastion` now expects the restored key to stay refused.
+       The test waits for the `host_key_changed` hold.
+     - `a15_proxyjump_substituted_host_keys_fail_before_authentication` (D03) puts its
+       substitutions in the **client's** copies of the configuration and known-hosts file. The
+       runtime keeps evaluating the originals, so the client's own lookup at each hop is still
+       what's tested, without racing the pass. That race already existed for the jump hop's
+       direct enrollment. The test also checks that nothing was held.
+
 **Residuals (ADR-0009 §2.1; probes named):**
 - **The spawn-lock window.** A concurrent std `Command::spawn` can inherit a listed spawn's
   three child-side pipe ends during one `CreateProcessW`. It stays open until the remaining
@@ -493,5 +581,8 @@ This ADR is reopened when any of these happens:
   `~/.ssh/agent/`, and the fixture sshd runs as the owner. So `a15_forwarded_endpoint_bounded_to_binding`
   runs where the sshd uses `/tmp` (the devbox's 9.6p1), or with an explicit scratch-account
   opt-in.
+- **Known gap: no per-pair route status.** A routed pair's unsatisfied route dependency shows
+  only as a lost `destination_scope`, not as a status with its reason. A per-pair route-status
+  field is deferred to M07-T03 (stable JSON and codes), unless an exit claim needs it first.
 - **The login entry shows a console window briefly.** `service run --login` detaches from the
   console the Run value opens (`FreeConsole`), so a window may still flash at login.

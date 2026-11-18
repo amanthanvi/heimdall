@@ -246,13 +246,27 @@ mod fx {
             alias: &str,
             remote: Option<&str>,
         ) -> Out {
+            self.run_ssh_isolated(work, extra, alias, remote, self.w.home.isolation_args())
+        }
+
+        /// [`Self::run_ssh`] with the client's isolation arguments `isolation` (its `-F`
+        /// configuration and trust files) instead of the scratch home's.
+        pub fn run_ssh_isolated(
+            &self,
+            work: &str,
+            extra: &[&str],
+            alias: &str,
+            remote: Option<&str>,
+            isolation: Vec<std::ffi::OsString>,
+        ) -> Out {
             let mut last = Out {
                 code: -1,
                 stdout: String::new(),
                 stderr: String::new(),
             };
             for _ in 0..30 {
-                let mut cmd = self.run_ssh_command(work, extra, alias, remote);
+                let mut cmd =
+                    self.run_ssh_command_isolated(work, extra, alias, remote, isolation.clone());
                 last = world::run_bounded(&mut cmd, Duration::from_secs(90));
                 // An earlier `run`'s binding releases its slots when the runtime notices its
                 // holder is gone (every few seconds): retry while that is all that refuses.
@@ -307,6 +321,17 @@ mod fx {
             alias: &str,
             remote: Option<&str>,
         ) -> Command {
+            self.run_ssh_command_isolated(work, extra, alias, remote, self.w.home.isolation_args())
+        }
+
+        fn run_ssh_command_isolated(
+            &self,
+            work: &str,
+            extra: &[&str],
+            alias: &str,
+            remote: Option<&str>,
+            isolation: Vec<std::ffi::OsString>,
+        ) -> Command {
             self.release_pending();
             let meta = self.meta_path();
             let mut cmd = Command::new(world::bin());
@@ -323,7 +348,7 @@ mod fx {
             .arg(&meta)
             .arg("--")
             .arg(world::openssh("ssh"))
-            .args(self.w.home.isolation_args())
+            .args(isolation)
             .args(extra)
             .arg(alias);
             if let Some(r) = remote {
@@ -834,16 +859,142 @@ fn a15_proxyjump_through_managed_bastion() {
         })
         .collect();
     std::fs::write(&r.w.home.known_hosts, &swapped).unwrap();
+    // ⟨M04-W1-R01⟩ A changed final key through the route is a host-key change: refused at
+    // once (the evidence no longer holds), or, once the supervisor's pass has seen it,
+    // because the enrollment is held. The hold outlasts the key's return: only an approved
+    // target change releases it, as in the direct case.
+    let refused = |o: &Out| o.code != 0 && (unmet(o) || o.stdout.contains("pair_not_enrolled"));
     let key_changed = r.ensure_verified("w-key", "req-key", &[]);
-    assert_ne!(
-        key_changed.code, 0,
-        "a changed final host key invalidates the evidence"
+    assert!(
+        refused(&key_changed),
+        "a changed final host key invalidates the evidence: {}",
+        text(&key_changed)
     );
-    assert!(unmet(&key_changed), "{}", text(&key_changed));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let held = loop {
+        let status = r.cli_ok(&["--json", "--non-interactive", "enroll", "status"]);
+        let e = status["data"]["enrollments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["destination_id"] == "ex2")
+            .cloned()
+            .unwrap();
+        if e["state"] == "held" || std::time::Instant::now() > deadline {
+            break e;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    };
+    assert_eq!(held["hold"]["reason"], "host_key_changed", "{held}");
     std::fs::write(&r.w.home.known_hosts, &known).unwrap();
     let back = r.ensure_verified("w-key-back", "req-key-back", &[]);
-    assert_eq!(back.code, 0, "{}", text(&back));
+    assert!(refused(&back), "still held: {}", text(&back));
     let _ = final_port;
+}
+
+/// ⟨M04 W1 review, M04-W1-R01; ADR-0010 §5 item 5, §10⟩ A routed enrollment through the real
+/// binary: `ex2` is verified directly, then routed through `ex1` (`setup apply`), with an
+/// active grant requiring verified server principals.
+/// 1. **No verification around the route.** `enroll verify` of `ex2` with the approved keys
+///    reaches neither server (its `ssh` would pin the final host directly, around the jump):
+///    it ends `verification_inconclusive`, `ex2` stays `verified`, and the grant stays
+///    active.
+/// 2. **A changed final key is a host-key change through the route.** With the final host's
+///    key replaced in `known_hosts`, `enroll verify` (or the supervisor's pass, whichever
+///    comes first) holds `ex2` as `host_key_changed` and degrades the grant, again without
+///    reaching either server. Before the fix the verification ran a direct session and
+///    ended `inconclusive`, `ex2` stayed `verified` and the grant active (the review's
+///    probe).
+#[cfg(unix)]
+#[test]
+fn a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key() {
+    use fx::*;
+    let r = route_world(false);
+    let final_port = r.w.pairs[FINAL].sshd.port;
+    r.verify_all();
+    let added = r.define_final(true);
+    assert_eq!(added.code, 0, "{}", r.w.redact(&text(&added)));
+    r.apply();
+    let routed = r.ensure_verified("w-r01", "req-r01", &[]);
+    assert_eq!(routed.code, 0, "{}", r.w.redact(&text(&routed)));
+    let grant = data(&routed)["grant_id"].as_str().unwrap().to_owned();
+    assert_eq!(r.w.grant_state(&grant), "active");
+    let status_of = |dest: &str| -> Value {
+        let status = r.cli_ok(&["--json", "--non-interactive", "enroll", "status"]);
+        status["data"]["enrollments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["destination_id"] == dest)
+            .cloned()
+            .unwrap_or_else(|| panic!("no enrollment of {dest}: {status}"))
+    };
+    let id = status_of("ex2")["enrollment_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // 1. The approved keys: no session anywhere.
+    let marks = r.marks();
+    let out =
+        r.w.cli(&["--json", "--non-interactive", "enroll", "verify", &id]);
+    assert_ne!(out.code, 0, "{}", r.w.redact(&text(&out)));
+    assert_eq!(
+        reason(&out),
+        "verification_inconclusive",
+        "{}",
+        r.w.redact(&text(&out))
+    );
+    assert_eq!(status_of("ex2")["state"], "verified");
+    assert_eq!(r.w.grant_state(&grant), "active");
+    assert!(
+        r.accepted(JUMP, marks[0]).is_empty() && r.accepted(FINAL, marks[1]).is_empty(),
+        "no verification login at either hop"
+    );
+
+    // 2. The final host's key changes.
+    let known = std::fs::read_to_string(&r.w.home.known_hosts).unwrap();
+    let wrong = heimdall_testkit::agent::FixtureKey::generate();
+    let swapped: String = known
+        .lines()
+        .map(|l| {
+            if l.starts_with(&format!("[127.0.0.1]:{final_port} ")) {
+                format!(
+                    "[127.0.0.1]:{final_port} {}\n",
+                    wrong.public_line_without_comment()
+                )
+            } else {
+                format!("{l}\n")
+            }
+        })
+        .collect();
+    assert_ne!(swapped, known);
+    std::fs::write(&r.w.home.known_hosts, &swapped).unwrap();
+    let marks = r.marks();
+    // The supervisor's pass may hold it first; the verification then finds it held.
+    let out =
+        r.w.cli(&["--json", "--non-interactive", "enroll", "verify", &id]);
+    assert_ne!(
+        reason(&out),
+        "verification_inconclusive",
+        "{}",
+        r.w.redact(&text(&out))
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let held = loop {
+        let e = status_of("ex2");
+        if e["state"] == "held" || std::time::Instant::now() > deadline {
+            break e;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    };
+    assert_eq!(held["state"], "held", "{held}");
+    assert_eq!(held["hold"]["reason"], "host_key_changed", "{held}");
+    assert_eq!(r.w.grant_state(&grant), "degraded");
+    assert!(
+        r.accepted(JUMP, marks[0]).is_empty() && r.accepted(FINAL, marks[1]).is_empty(),
+        "no verification login at either hop"
+    );
 }
 
 /// ⟨A15; ADR-0010 §5 item 2, §9 item 8⟩ A non-jump pair cannot open forwarding channels; the
@@ -914,6 +1065,14 @@ fn a15_non_jump_pair_cannot_open_forwarding() {
 /// the isolation arguments and the user configuration. The oracle is the client's `-v` output
 /// and the fixture sshds' logs: the substituted hop's server logs no publickey attempt, and
 /// (for the final hop) the client never reports authenticating to it.
+///
+/// ⟨M04-W1-R01⟩ The substitutions go into the **client's** copy of the user configuration
+/// and known-hosts file (`-F` and `UserKnownHostsFile` name the copies; the jump hop's `ssh`
+/// gets the same `-F`). The runtime keeps evaluating the originals. Otherwise its supervisor
+/// sees the changed key within a pass, holds the enrollment of the substituted hop, and the
+/// launch is refused before any client runs (a stronger refusal, proven by
+/// `a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key`),
+/// so this proof of the client's own lookup would race the pass.
 #[cfg(unix)]
 #[test]
 fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
@@ -924,6 +1083,44 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     r.apply();
     let (jump_port, final_port) = (r.w.pairs[JUMP].sshd.port, r.w.pairs[FINAL].sshd.port);
     let known = std::fs::read_to_string(&r.w.home.known_hosts).unwrap();
+    // The client's copies of the user configuration and known-hosts file.
+    let client_known = r.w.home.root.join("client_known_hosts");
+    let client_config = r.w.home.root.join("client_config");
+    let original_config = std::fs::read_to_string(&r.w.home.user_config).unwrap();
+    let kh = heimdall_testkit::home::ssh_option_path(&r.w.home.known_hosts);
+    let ckh = heimdall_testkit::home::ssh_option_path(&client_known);
+    assert!(original_config.contains(&format!("UserKnownHostsFile {kh}")));
+    let client_isolation = || -> Vec<std::ffi::OsString> {
+        r.w.home
+            .isolation_args()
+            .into_iter()
+            .map(|a| {
+                let t = a.to_string_lossy();
+                if a == r.w.home.user_config.as_os_str() {
+                    client_config.clone().into_os_string()
+                } else if t.starts_with("UserKnownHostsFile=") {
+                    format!("UserKnownHostsFile={ckh}").into()
+                } else {
+                    a
+                }
+            })
+            .collect()
+    };
+    let client_config_with = |extra: &str| {
+        std::fs::write(
+            &client_config,
+            format!(
+                "{}{extra}",
+                original_config.replace(
+                    &format!("UserKnownHostsFile {kh}"),
+                    &format!("UserKnownHostsFile {ckh}")
+                )
+            ),
+        )
+        .unwrap();
+    };
+    client_config_with("");
+    std::fs::write(&client_known, &known).unwrap();
     let line_of = |port: u16| format!("[127.0.0.1]:{port} ");
     let wrong = || heimdall_testkit::agent::FixtureKey::generate().public_line_without_comment();
     let with = |port: u16, key: Option<String>| -> String {
@@ -951,7 +1148,13 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
 
     // The control: the unsubstituted configuration passes (and shows what a pass looks like).
     let marks = r.marks();
-    let ok = r.run_ssh("w-d03-ok", &["-v"], "exit2", Some("echo hm-d03-ok"));
+    let ok = r.run_ssh_isolated(
+        "w-d03-ok",
+        &["-v"],
+        "exit2",
+        Some("echo hm-d03-ok"),
+        client_isolation(),
+    );
     assert!(
         ok.code == 0 && ok.stdout.contains("hm-d03-ok"),
         "{}",
@@ -970,9 +1173,15 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     assert!(ok.stderr.contains("(via proxy) using"), "{}", ok.stderr);
 
     // A. the bastion's key substituted.
-    std::fs::write(&r.w.home.known_hosts, with(jump_port, Some(wrong()))).unwrap();
+    std::fs::write(&client_known, with(jump_port, Some(wrong()))).unwrap();
     let marks = r.marks();
-    let out = r.run_ssh("w-d03-a", &["-v"], "exit2", Some("echo hm-d03-a"));
+    let out = r.run_ssh_isolated(
+        "w-d03-a",
+        &["-v"],
+        "exit2",
+        Some("echo hm-d03-a"),
+        client_isolation(),
+    );
     assert_ne!(out.code, 0, "{}", text(&out));
     assert!(
         out.stderr.contains("Host key verification failed"),
@@ -999,9 +1208,15 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     assert!(!out.stderr.contains("Authenticated to"), "{}", out.stderr);
 
     // B. the final host's key substituted (the bastion's restored).
-    std::fs::write(&r.w.home.known_hosts, with(final_port, Some(wrong()))).unwrap();
+    std::fs::write(&client_known, with(final_port, Some(wrong()))).unwrap();
     let marks = r.marks();
-    let out = r.run_ssh("w-d03-b", &["-v"], "exit2", Some("echo hm-d03-b"));
+    let out = r.run_ssh_isolated(
+        "w-d03-b",
+        &["-v"],
+        "exit2",
+        Some("echo hm-d03-b"),
+        client_isolation(),
+    );
     assert_ne!(out.code, 0, "{}", text(&out));
     assert!(
         out.stderr.contains("Host key verification failed"),
@@ -1026,7 +1241,7 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
     assert!(!out.stdout.contains("hm-d03-b"));
 
     // C. an inherited KnownHostsCommand as the bastion's key source (no file entry for it).
-    std::fs::write(&r.w.home.known_hosts, with(jump_port, None)).unwrap();
+    std::fs::write(&client_known, with(jump_port, None)).unwrap();
     let script = r.w.home.root.join("khc-wrong");
     std::fs::write(
         &script,
@@ -1040,14 +1255,15 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let original = std::fs::read_to_string(&r.w.home.user_config).unwrap();
-    std::fs::write(
-        &r.w.home.user_config,
-        format!("{original}\nKnownHostsCommand {} %H\n", script.display()),
-    )
-    .unwrap();
+    client_config_with(&format!("\nKnownHostsCommand {} %H\n", script.display()));
     let marks = r.marks();
-    let out = r.run_ssh("w-d03-c", &["-v"], "exit2", Some("echo hm-d03-c"));
+    let out = r.run_ssh_isolated(
+        "w-d03-c",
+        &["-v"],
+        "exit2",
+        Some("echo hm-d03-c"),
+        client_isolation(),
+    );
     assert_ne!(out.code, 0, "{}", text(&out));
     assert!(
         out.stderr.contains("Host key verification failed"),
@@ -1060,6 +1276,12 @@ fn a15_proxyjump_substituted_host_keys_fail_before_authentication() {
         "no publickey attempt: the command's key is not the bastion's"
     );
     assert!(!out.stderr.contains("Authenticated to"), "{}", out.stderr);
+    // The runtime evaluated the unchanged originals throughout: nothing was held, so every
+    // refusal above was the client's own.
+    let status = r.cli_ok(&["--json", "--non-interactive", "enroll", "status"]);
+    for e in status["data"]["enrollments"].as_array().unwrap() {
+        assert_eq!(e["state"], "verified", "{e}");
+    }
 }
 
 /// ⟨A27⟩ A binary round trip through the jump: 3 MiB of non-text bytes through `ssh exit2 cat`

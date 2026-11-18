@@ -61,6 +61,7 @@
 //! | Windows | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)` / `GetProcessTimes` / `GetExitCodeProcess` / `CloseHandle` | handle checked non-null, closed exactly once |
 //! | Windows | `GetSecurityInfo(dir handle, SE_FILE_OBJECT, OWNER \| DACL, ...)` / `GetSecurityDescriptorControl` / `GetAclInformation` / `GetAce` / `ConvertSidToStringSidW` / `LocalFree` (`win_acl::read_facts`) | the handle is an open `READ_CONTROL` directory handle that outlives the call; every out-pointer valid; the ACL, ACE and SID pointers are read only while the `LocalFree`-owned descriptor is alive; the ACE index is below the reported count; the SID-string scan is bounded |
 //! | Windows | `ConvertStringSecurityDescriptorToSecurityDescriptorW` / `CreateDirectoryW(path, &SECURITY_ATTRIBUTES)` / `LocalFree` (`win_acl::create_dir_with_sddl`) | NUL-terminated UTF-16 strings and a descriptor that outlive the call; the directory is created exclusively with the protected owner-only DACL |
+//! | Windows | ⟨M04 review-fix⟩ `ConvertStringSecurityDescriptorToSecurityDescriptorW` / `GetSecurityDescriptorDacl` / `SetSecurityInfo(dir handle, SE_FILE_OBJECT, DACL \| PROTECTED_DACL, …)` / `LocalFree` (`win_acl::narrow_legacy`) | one `READ_CONTROL \| WRITE_DAC` handle on the directory itself (a final reparse point opened as the link); the descriptor read through it must judge `LegacyInherited` before the call; the new DACL points into a descriptor that outlives the call; owner, group and SACL are not set |
 //! | Windows | `FreeConsole()` (⟨M04⟩ U1, [`detach_console`], `service run --login` only) | no arguments; a failure (no console) is ignored |
 //! | Windows | `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` | this process's own standard handle as std holds it (null skipped); only the inherit flag changes, the handle stays open and valid; a failure is ignored |
 //! | Linux | `adjtimex(&mut tx)` with `tx` zeroed (`modes = 0`) | read-only query: valid, aligned, writable out-pointer; a negative return is an error, never a reading |
@@ -1212,7 +1213,18 @@ pub mod state_dir_acl {
         ForeignAce,
         /// No ACE: the user would have no access.
         NoAccess,
+        /// ⟨M04 review-fix round⟩ The access-control list a Heimdall build before M04 gave
+        /// the directory: owned by the user, not protected, and inherited from the profile,
+        /// granting only the user, `SYSTEM` and `BUILTIN\Administrators` (the principals
+        /// ADR-0010 §1 already excludes from its claims). [`migrate_legacy`] narrows it to
+        /// the protected owner-only DACL once; nothing wider is ever accepted or changed.
+        LegacyInherited,
     }
+
+    /// `SYSTEM` (`S-1-5-18`).
+    pub const SYSTEM_SID: &str = "S-1-5-18";
+    /// `BUILTIN\Administrators` (`S-1-5-32-544`).
+    pub const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 
     impl Verdict {
         /// A fixed sentence for the refusal (no SID, no path).
@@ -1229,6 +1241,9 @@ pub mod state_dir_acl {
                     "the state directory grants access to another principal or denies one"
                 }
                 Verdict::NoAccess => "the state directory's access-control list grants no access",
+                Verdict::LegacyInherited => {
+                    "the state directory has the inherited access-control list of a build before M04"
+                }
             }
         }
     }
@@ -1240,7 +1255,19 @@ pub mod state_dir_acl {
             return Verdict::NoDacl;
         }
         if !facts.protected {
-            return Verdict::NotProtected;
+            // A pre-M04 directory: the profile's inherited list, nobody but the user, SYSTEM
+            // and Administrators, the user among them.
+            let legacy = facts.owner_sid == user_sid
+                && facts.aces.iter().any(|a| a.sid == user_sid)
+                && facts.aces.iter().all(|a| {
+                    a.kind == AceKind::Allow
+                        && (a.sid == user_sid || a.sid == SYSTEM_SID || a.sid == ADMINISTRATORS_SID)
+                });
+            return if legacy {
+                Verdict::LegacyInherited
+            } else {
+                Verdict::NotProtected
+            };
         }
         if facts.owner_sid != user_sid {
             return Verdict::ForeignOwner;
@@ -1285,6 +1312,22 @@ pub mod state_dir_acl {
         let user = heimdall_ipc::windows::current_user_sid()?;
         super::win_acl::create_dir_with_sddl(dir, &format!("O:{user}D:P(A;OICI;GA;;;{user})"))
     }
+
+    /// ⟨M04 review-fix round⟩ Narrow a [`Verdict::LegacyInherited`] directory to the protected
+    /// owner-only DACL `D:P(A;OICI;GA;;;<user>)`, through a handle opened on the directory
+    /// itself (`READ_CONTROL | WRITE_DAC`, a final reparse point opened as the link), after
+    /// judging that same handle's descriptor again: only that exact shape is changed, and
+    /// the change only removes access (`SYSTEM`, Administrators and the inheritance). Files
+    /// already inside keep what they inherited, which names no other principal.
+    ///
+    /// # Errors
+    /// The directory is no longer the legacy shape (`PermissionDenied`, nothing changed), or
+    /// its descriptor cannot be read or set.
+    #[cfg(windows)]
+    pub fn migrate_legacy(dir: &Path) -> std::io::Result<()> {
+        let user = heimdall_ipc::windows::current_user_sid()?;
+        super::win_acl::narrow_legacy(dir, &user, &format!("D:P(A;OICI;GA;;;{user})"))
+    }
 }
 
 #[cfg(windows)]
@@ -1300,13 +1343,13 @@ mod win_acl {
     use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HANDLE, LocalFree};
     use windows_sys::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-        GetSecurityInfo, SDDL_REVISION_1, SE_FILE_OBJECT,
+        GetSecurityInfo, SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
     };
     use windows_sys::Win32::Security::{
         ACCESS_ALLOWED_ACE, ACL, ACL_SIZE_INFORMATION, AclSizeInformation,
         DACL_SECURITY_INFORMATION, GetAce, GetAclInformation, GetSecurityDescriptorControl,
-        OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED,
-        SECURITY_ATTRIBUTES,
+        GetSecurityDescriptorDacl, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+        PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
     };
     use windows_sys::Win32::Storage::FileSystem::{
         CreateDirectoryW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -1317,6 +1360,8 @@ mod win_acl {
 
     /// `READ_CONTROL`: read the owner and the DACL.
     const READ_CONTROL: u32 = 0x0002_0000;
+    /// `WRITE_DAC`: replace the DACL (the legacy narrowing only).
+    const WRITE_DAC: u32 = 0x0004_0000;
     /// `ACCESS_ALLOWED_ACE_TYPE`.
     const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
     /// Longest SID string accepted (the ipc module's bound).
@@ -1371,11 +1416,97 @@ mod win_acl {
     /// opened on the directory itself (backup semantics for a directory; a final reparse
     /// point is opened as the link, not followed).
     pub(super) fn read_facts(dir: &Path) -> io::Result<DaclFacts> {
-        let handle = std::fs::OpenOptions::new()
-            .access_mode(READ_CONTROL)
+        let handle = open_dir(dir, READ_CONTROL)?;
+        facts_of(&handle)
+    }
+
+    /// The directory `dir` itself (backup semantics; a final reparse point opened as the
+    /// link, not followed), with `access`.
+    fn open_dir(dir: &Path, access: u32) -> io::Result<std::fs::File> {
+        std::fs::OpenOptions::new()
+            .access_mode(access)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
-            .open(dir)?;
+            .open(dir)
+    }
+
+    /// ⟨M04 review-fix round⟩ `state_dir_acl::migrate_legacy`: through one `READ_CONTROL |
+    /// WRITE_DAC` handle, judge the descriptor again and, only when it is the legacy shape,
+    /// set the protected DACL of `sddl` (`DACL_SECURITY_INFORMATION |
+    /// PROTECTED_DACL_SECURITY_INFORMATION`; the owner is not touched).
+    pub(super) fn narrow_legacy(dir: &Path, user: &str, sddl: &str) -> io::Result<()> {
+        let handle = open_dir(dir, READ_CONTROL | WRITE_DAC)?;
+        let facts = facts_of(&handle)?;
+        if super::state_dir_acl::judge(&facts, user)
+            != super::state_dir_acl::Verdict::LegacyInherited
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "the state directory is not the pre-M04 shape any more; nothing was changed",
+            ));
+        }
+        let wide: Vec<u16> = OsStr::new(sddl).encode_wide().chain(Some(0)).collect();
+        let mut descriptor: *mut c_void = ptr::null_mut();
+        // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call;
+        // `descriptor` is a valid out-pointer; the size out-pointer may be null.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                wide.as_ptr(),
+                SDDL_REVISION_1,
+                &raw mut descriptor,
+                ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let descriptor = LocalAllocation(descriptor);
+        let mut present: windows_sys::core::BOOL = 0;
+        let mut defaulted: windows_sys::core::BOOL = 0;
+        let mut dacl: *mut ACL = ptr::null_mut();
+        // SAFETY: `descriptor` is the valid descriptor converted above (alive until this
+        // function returns, and `dacl` points into it); the out-pointers are valid.
+        if unsafe {
+            GetSecurityDescriptorDacl(
+                descriptor.0,
+                &raw mut present,
+                &raw mut dacl,
+                &raw mut defaulted,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if present == 0 || dacl.is_null() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "no DACL in the descriptor",
+            ));
+        }
+        // SAFETY: `handle` is an open directory handle with `WRITE_DAC`; `dacl` is a valid ACL
+        // inside the descriptor that outlives the call; owner, group and SACL are not set
+        // (null with their flags absent).
+        let rc = unsafe {
+            SetSecurityInfo(
+                handle.as_raw_handle() as HANDLE,
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                dacl,
+                ptr::null(),
+            )
+        };
+        if rc != ERROR_SUCCESS {
+            return Err(io::Error::from_raw_os_error(
+                i32::try_from(rc).unwrap_or(i32::MAX),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The owner and DACL behind an open directory handle.
+    fn facts_of(handle: &std::fs::File) -> io::Result<DaclFacts> {
         let mut owner: PSID = ptr::null_mut();
         let mut dacl: *mut ACL = ptr::null_mut();
         let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
@@ -1638,7 +1769,8 @@ mod state_dir_acl_tests {
             judge(&facts(true, ME, vec![allow(ME), allow(ME)]), ME),
             Verdict::OwnerOnly
         );
-        // The default inherited ACL: not protected, SYSTEM and Administrators present.
+        // The default inherited ACL of a pre-M04 directory: not protected, the user, SYSTEM
+        // and Administrators. The one shape the upgrade narrows (`migrate_legacy`).
         assert_eq!(
             judge(
                 &facts(
@@ -1648,8 +1780,34 @@ mod state_dir_acl_tests {
                 ),
                 ME
             ),
-            Verdict::NotProtected
+            Verdict::LegacyInherited
         );
+        // ⟨M04 review-fix round⟩ Any other inherited list is refused, never narrowed: one
+        // granting Everyone or Users, one owned by someone else, one with a deny ACE, one
+        // without the user.
+        let deny_ace = AceFacts {
+            kind: AceKind::Other(1),
+            sid: "S-1-5-18".to_owned(),
+        };
+        for (what, f) in [
+            (
+                "everyone",
+                facts(false, ME, vec![allow(ME), allow("S-1-1-0")]),
+            ),
+            (
+                "users",
+                facts(false, ME, vec![allow(ME), allow("S-1-5-32-545")]),
+            ),
+            (
+                "another owner",
+                facts(false, "S-1-5-32-544", vec![allow(ME)]),
+            ),
+            ("a deny ace", facts(false, ME, vec![allow(ME), deny_ace])),
+            ("not the user", facts(false, ME, vec![allow("S-1-5-18")])),
+            ("empty", facts(false, ME, vec![])),
+        ] {
+            assert_eq!(judge(&f, ME), Verdict::NotProtected, "{what}");
+        }
         // Protected, but granting SYSTEM or Everyone as well.
         for other in ["S-1-5-18", "S-1-1-0", "S-1-5-32-544"] {
             assert_eq!(

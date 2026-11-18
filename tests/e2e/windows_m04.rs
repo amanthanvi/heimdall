@@ -18,6 +18,9 @@
 //! * `a14_git_bundled_client_reported_not_claimed` (A14): with Git for Windows' bundled `ssh`
 //!   as Git's effective client the doctor reports `git_client_cannot_reach_pipe`; once an
 //!   override names the in-box `ssh.exe` (the M02 Git item's result) it does not.
+//! * `inherited_state_dir_then_setup_rollback_and_uninstall` (M04-W1-R02; ADR-0010 §10
+//!   item 5): a state directory with the inherited list of a build before M04 is narrowed
+//!   once, and `setup rollback` and `uninstall` both run on it.
 //!
 //! **Not added here:** `a14_managed_alias_never_contacts_inherited_ssh_auth_sock` is already
 //! asserted on Windows by `e2e_enroll_m03`'s
@@ -538,6 +541,102 @@ mod native {
             "the finished step list leaves no Heimdall pipe behind"
         );
         assert_eq!(after, before);
+    }
+
+    // --- ⟨M04 W1 review, M04-W1-R02⟩ the state directory a build before M04 left ----------
+
+    /// Whether the scratch login root holds a `Heimdall-…` value (read with `reg.exe`).
+    fn login_value_present(inst: &SecondInstallation) -> bool {
+        let out = Command::new(system32("reg.exe"))
+            .args(["query", &format!("HKCU\\{}", login_root(inst))])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).contains("Heimdall-")
+    }
+
+    /// `std::fs::rename`, retried for a while: the stopped runtime's last handles close
+    /// asynchronously.
+    fn rename_settled(from: &Path, to: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            match std::fs::rename(from, to) {
+                Ok(()) => return,
+                Err(e) if Instant::now() < deadline => {
+                    let _ = e;
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => panic!("rename {}: {e}", from.display()),
+            }
+        }
+    }
+
+    /// ⟨ADR-0010 §10 item 5⟩ An installation whose state directory has the inherited list a
+    /// build before M04 left can still undo what it changed. After `setup apply` and the
+    /// login entry, the state directory is given that list again (its content moved into a
+    /// directory `create_dir_all` made, as M01–M03 did). `setup rollback` and `uninstall`
+    /// then both run: the first command narrows the directory once to the protected
+    /// owner-only list, the rollback removes the managed include from the user file, and
+    /// uninstall removes the login entry. Before the fix both answered a reasonless
+    /// `SERVICE_UNAVAILABLE` and changed nothing.
+    #[test]
+    fn inherited_state_dir_then_setup_rollback_and_uninstall() {
+        use heimdall_runtime::platform::state_dir_acl::{Verdict, check_owner_only};
+        let scratch = Scratch::new().unwrap();
+        let inst = SecondInstallation::new(&scratch).unwrap();
+        let env = product_env(&inst);
+        let _login_root = DeleteLoginRoot(login_root(&inst));
+        let _stop = StopRuntime(env.clone());
+        let config = inst.ssh_home().join(".ssh").join("config");
+        let managed = |p: &Path| {
+            std::fs::read_to_string(p)
+                .unwrap_or_default()
+                .contains("# >>> heimdall managed include")
+        };
+        for (args, mode) in [
+            (&["time", "confirm"][..], Mode::Attended),
+            (&["setup", "apply"][..], Mode::Attended),
+            (&["service", "autostart", "enable"][..], Mode::Attended),
+            (&["service", "stop"][..], Mode::Plain),
+        ] {
+            let (code, exit) = run_step(&env, args, mode);
+            assert_eq!(code, "OK", "{args:?} (exit {exit})");
+        }
+        assert!(managed(&config), "setup apply wrote the managed include");
+        assert!(login_value_present(&inst), "the login entry is installed");
+        // The list a build before M04 left: the content moved into a plain directory.
+        let state = inst.state_dir();
+        assert_eq!(check_owner_only(&state).unwrap(), Verdict::OwnerOnly);
+        let aside = inst.root().join("state-aside");
+        rename_settled(&state, &aside);
+        std::fs::create_dir_all(&state).unwrap();
+        for e in std::fs::read_dir(&aside).unwrap() {
+            let e = e.unwrap();
+            rename_settled(&e.path(), &state.join(e.file_name()));
+        }
+        std::fs::remove_dir(&aside).unwrap();
+        assert_eq!(
+            check_owner_only(&state).unwrap(),
+            Verdict::LegacyInherited,
+            "the inherited list of an installation from before M04"
+        );
+        let (code, exit) = run_step(&env, &["setup", "rollback"], Mode::Attended);
+        assert_eq!(code, "OK", "setup rollback (exit {exit})");
+        assert_eq!(
+            check_owner_only(&state).unwrap(),
+            Verdict::OwnerOnly,
+            "narrowed once, at the first command"
+        );
+        assert!(
+            !managed(&config),
+            "the rollback removed the managed include"
+        );
+        let (code, exit) = run_step(&env, &["uninstall"], Mode::Plain);
+        assert_eq!(code, "OK", "uninstall (exit {exit})");
+        assert!(
+            !login_value_present(&inst),
+            "uninstall removed the login entry"
+        );
     }
 
     // --- ⟨M04 U3b⟩ WSL Mode A in a disposable distribution (A12) ---------------------------

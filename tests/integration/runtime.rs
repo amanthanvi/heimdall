@@ -3604,11 +3604,12 @@ echo "$r" > "$1.tmp" && mv "$1.tmp" "$1""#;
 // ⟨M04 U1⟩ The Windows state directory (ADR-0010 §1 item 7; ADR-0006 §13.12 item 4)
 // =================================================================================
 
-/// An existing state directory that is not protected owner-only is refused
-/// `state_dir_unsafe` and **never repaired**: the directory `create_dir_all` makes under
-/// `%TEMP%` (inherited ACL), and a protected one that also grants Everyone (`icacls`).
-/// Only a directory that already has the protected owner-only DACL passes. Windows native
-/// (the PC); the pure rule is `platform::state_dir_acl_tests`.
+/// ADR-0010 §1 item 7 with the upgrade path (M04 review-fix round): an existing state
+/// directory with the inherited list a build before M04 left (created under `%TEMP%`, as
+/// one under `%LOCALAPPDATA%` is: the user, SYSTEM, Administrators) is narrowed once to the
+/// protected owner-only DACL, keeping its content, and starts. A directory granting anyone
+/// else, inherited or protected, is refused `state_dir_unsafe` and left exactly as it was.
+/// Windows native (the PC); the pure rule is `platform::state_dir_acl_tests`.
 #[cfg(windows)]
 #[test]
 fn windows_state_dir_not_owner_only_is_refused() {
@@ -3617,28 +3618,55 @@ fn windows_state_dir_not_owner_only_is_refused() {
         Verdict, check_owner_only, create_protected_dir,
     };
 
+    // The pre-M04 directory: narrowed, content kept, and idempotent on the next start.
     let tmp = tempfile::tempdir().unwrap();
     let layout = Paths::under(&tmp.path().join("hh"));
     std::fs::create_dir_all(&layout.state_dir).unwrap();
     std::fs::write(layout.state_dir.join("marker"), b"mine").unwrap();
     assert_eq!(
         check_owner_only(&layout.state_dir).unwrap(),
-        Verdict::NotProtected,
-        "the inherited ACL is what a pre-M04 installation has"
+        Verdict::LegacyInherited,
+        "the inherited list is what a pre-M04 installation has"
     );
-    let err = layout.ensure().expect_err("an inherited ACL is refused");
-    assert!(is_state_dir_unsafe(&err), "{err}");
+    layout
+        .ensure()
+        .expect("a pre-M04 state directory is narrowed and starts");
     assert_eq!(
         check_owner_only(&layout.state_dir).unwrap(),
-        Verdict::NotProtected,
-        "never repaired"
+        Verdict::OwnerOnly
     );
     assert_eq!(
         std::fs::read(layout.state_dir.join("marker")).unwrap(),
         b"mine"
     );
+    layout.ensure().expect("and starts again");
 
-    // Protected, owner-owned, but Everyone may read.
+    // An inherited list that also grants Everyone: refused, unchanged.
+    let wide = tmp.path().join("wide");
+    std::fs::create_dir_all(&wide).unwrap();
+    let granted = std::process::Command::new("icacls")
+        .arg(&wide)
+        .args(["/grant", "*S-1-1-0:(OI)(CI)R"])
+        .output()
+        .unwrap();
+    assert!(granted.status.success(), "{granted:?}");
+    let wide_layout = Paths::under(&wide.join("hh"));
+    std::fs::create_dir_all(&wide_layout.state_dir).unwrap();
+    assert_eq!(
+        check_owner_only(&wide_layout.state_dir).unwrap(),
+        Verdict::NotProtected
+    );
+    let err = wide_layout
+        .ensure()
+        .expect_err("a wider inherited list is refused");
+    assert!(is_state_dir_unsafe(&err), "{err}");
+    assert_eq!(
+        check_owner_only(&wide_layout.state_dir).unwrap(),
+        Verdict::NotProtected,
+        "never repaired"
+    );
+
+    // Protected, owner-owned, but Everyone may read: refused, unchanged.
     let loose = Paths::under(&tmp.path().join("loose"));
     std::fs::create_dir_all(loose.state_dir.parent().unwrap()).unwrap();
     create_protected_dir(&loose.state_dir).unwrap();

@@ -37,7 +37,7 @@ use heimdall_contract::doctor::{
     GitSshClassification, GitValueObservation, ProbeOutcome, ProbeRecord, ProjectionObservation,
     ProjectionState, finding,
 };
-use heimdall_contract::envelope::{NextAction, ResourceRef, reason};
+use heimdall_contract::envelope::{NextAction, ResourceRef};
 use heimdall_contract::provider::{
     EvidenceBasis, IdentityBacking, IdentitySelection, InteractionKind, ProbeLevel,
     ProviderAvailability, ProviderStatus,
@@ -1532,7 +1532,7 @@ impl Doctor<'_> {
         // all (P-W03): no Git claim is made for this configuration.
         if git_client_cannot_reach_pipe(ctx.platform, selection.classification) {
             self.add(
-                reason::GIT_CLIENT_CANNOT_REACH_PIPE,
+                heimdall_contract::doctor::finding::GIT_CLIENT_CANNOT_REACH_PIPE,
                 FindingSeverity::Info,
                 subject("executable", Some("git")),
                 ProbeLevel::Static,

@@ -122,6 +122,43 @@ fn rev5_reason_golden() {
             .iter()
             .all(|w| !m03_warning::ALL.contains(&w.as_str()))
     );
+    // ⟨M04; ruling I-9⟩ The M04 finding codes and their sub-reasons, both ways; distinct
+    // from M02's and M03's findings, snake_case, and each sub-reason refines an M04 finding.
+    let m04_findings: BTreeSet<String> = heimdall_contract::doctor::finding::M04
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    let want: BTreeSet<String> =
+        serde_json::from_value(golden["m04_doctor_findings"].clone()).unwrap();
+    assert_eq!(m04_findings, want, "M04 doctor findings");
+    for f in &m04_findings {
+        assert!(
+            f.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+            "{f}"
+        );
+        assert!(
+            !heimdall_contract::doctor::finding::ALL.contains(&f.as_str())
+                && !heimdall_contract::doctor::finding::M03.contains(&f.as_str()),
+            "{f} repeats an earlier finding"
+        );
+    }
+    let reasons: BTreeSet<(String, String)> = golden["m04_finding_reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["reason"].as_str().unwrap().to_owned(),
+                r["finding"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let in_code: BTreeSet<(String, String)> = heimdall_contract::doctor::finding::M04_REASONS
+        .iter()
+        .map(|(r, f)| ((*r).to_owned(), (*f).to_owned()))
+        .collect();
+    assert_eq!(in_code, reasons, "M04 finding sub-reasons");
+    assert!(in_code.iter().all(|(_, f)| m04_findings.contains(f)));
     assert_eq!(Code::all().len(), 30, "the code table is unchanged");
 }
 

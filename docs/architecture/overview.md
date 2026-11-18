@@ -378,7 +378,10 @@ four more (4–7 below; ADR-0008 §18, ⟨r7⟩ §17.17 item 5 for the fourth):
    `GetSecurityDescriptorControl`, `GetAclInformation`, `GetAce`,
    `ConvertSidToStringSidW` and `LocalFree` to read it; the SDDL conversion and
    `CreateDirectoryW` with a `SECURITY_ATTRIBUTES` to create the directory with the
-   protected owner-only DACL exclusively).
+   protected owner-only DACL exclusively; ⟨M04 review-fix round⟩ `GetSecurityDescriptorDacl`
+   and `SetSecurityInfo(DACL | PROTECTED_DACL)` on one `READ_CONTROL | WRITE_DAC` handle to
+   narrow a pre-M04 directory, only after that handle's descriptor judged
+   `LegacyInherited`).
 
 3. `crates/localenv/src/sys.rs` (`#![allow(unsafe_code)]`; M02, m02-plan U0, U3, U4).
    Wave 0 declares the module and its safe wrappers with no `unsafe` block yet; U3

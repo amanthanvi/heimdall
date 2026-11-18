@@ -7559,6 +7559,131 @@ async fn evidence_invalidated_on_host_key_or_client_change() {
     );
 }
 
+/// ⟨M04 W1 review, M04-W1-R01⟩ (ADR-0010 §5 item 5, §10) A routed enrollment: the
+/// catalog names a jump for the destination, its alias evaluates `ProxyJump <the jump's
+/// alias>`, and the record is `verified` with fresh evidence.
+/// 1. **No verification around the route.** `enroll verify` with the approved key opens
+///    no verification session, mints no certificate and logs in nowhere (its `ssh` pins
+///    the approved host directly, around the jump): it ends `inconclusive`, and the
+///    record stays `verified` with the approved target.
+/// 2. **A changed final key through the route is a host-key change.** The supervisor's
+///    pass records the mismatch from the evaluation alone (no session, no certificate),
+///    the record is `held` (`host_key_changed`, not evidence-based), and the grants under
+///    its CA for the pair are degraded. Before the fix both paths compared only a direct
+///    evaluation: the pass did nothing, and `enroll verify` ran a direct session.
+// Unix only: the system form (as `evidence_invalidated_on_host_key_or_client_change`).
+#[cfg(unix)]
+#[tokio::test]
+async fn routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route() {
+    use heimdall_domain::catalog::DestinationDefinition;
+    use heimdall_domain::enrollment::ProxyRoute;
+    use std::sync::atomic::Ordering::SeqCst;
+    let w = World::with(system_world_options()).await;
+    let version = w.host.version.lock().unwrap().clone();
+    let token = version
+        .split([',', ' '])
+        .next()
+        .unwrap()
+        .rsplit('_')
+        .next()
+        .unwrap()
+        .to_owned();
+    let now = Timestamp::now();
+    let evidence = heimdall_domain::enrollment::EnrollmentEvidence {
+        client: format!("{} portable {token}", system_ssh().display()),
+        server: "SSH-2.0-OpenSSH".into(),
+        operation: OperationId::from_random_bytes(rand16()),
+        verified_at: Timestamp::from_second(now.as_second() - 3600).unwrap(),
+        fresh_until: Timestamp::from_second(now.as_second() + 80 * 86400).unwrap(),
+        clock: None,
+    };
+    let e2 = evidence.clone();
+    let (record, old) = held_host_key_world_record_with(&w, EnrollmentState::Verified, move |r| {
+        r.verified_at = Some(e2.verified_at);
+        r.evidence = Some(e2);
+    });
+    let ca = record.ca_fingerprint.clone();
+    // The route: a second managed destination is the catalog's jump.
+    let jump = w.add_destination_with(2, EnrollmentForm::System);
+    let jump_alias = w.tx(|tx| tx.destination(&jump.destination)).unwrap().alias;
+    let main = w.destination.clone();
+    let via = jump.destination.clone();
+    w.tx(move |tx| {
+        let mut d = tx.destination(&main)?.unwrap();
+        if let DestinationDefinition::Managed { jump, .. } = &mut d.definition {
+            *jump = Some(via);
+        }
+        d.revision += 1;
+        tx.upsert_destination(&d)
+    });
+    let served = w.target.evaluation.lock().unwrap().clone();
+    let routed = |keys: Vec<heimdall_domain::enrollment::RawHostKey>| {
+        let mut e = served.clone();
+        e.proxy = ProxyRoute::Jump;
+        e.proxy_jump = Some(jump_alias.clone());
+        e.host_keys = keys;
+        e
+    };
+    let (kt, kb) = (old.host_key.algorithm.clone(), old.host_key.key.clone());
+    *w.target.evaluation.lock().unwrap() = routed(vec![raw_key(&kt, &kb)]);
+    let grant = w.seed_grant_under(&ca, 3);
+    let counters = || {
+        (
+            w.endpoints.created.load(SeqCst),
+            w.issuer.signed.load(SeqCst),
+            w.sshd.accepted_certificates().len(),
+        )
+    };
+    // Control: the approved key through the approved route is fresh evidence.
+    assert!(
+        w.ops.reverify_pass().await.unwrap().is_empty(),
+        "fresh, the approved key, the catalog's route"
+    );
+    // 1. No verification around the route.
+    let before = counters();
+    let e = w
+        .verify(&record.id, "req_routed", VerifyMode::Presence)
+        .await
+        .expect_err("inconclusive");
+    assert_eq!(
+        e.reason.as_deref(),
+        Some("verification_inconclusive"),
+        "{e:?}"
+    );
+    assert_eq!(
+        counters(),
+        before,
+        "no verification session, no certificate, no login"
+    );
+    let r = w.record(&record.id);
+    assert_eq!(r.state, EnrollmentState::Verified, "{r:?}");
+    assert_eq!(r.target, old);
+    assert_eq!(w.tx(|tx| tx.grant_degradation(&grant)), None);
+    // 2. The final host's key changes; the route is still the catalog's.
+    *w.target.evaluation.lock().unwrap() = served.clone();
+    let new_key = w.target.evaluation.lock().unwrap().host_keys.clone();
+    assert_ne!(w.served_target().host_key, old.host_key);
+    *w.target.evaluation.lock().unwrap() = routed(new_key);
+    let before = counters();
+    let done = w.ops.reverify_pass().await.unwrap();
+    assert_eq!(done, vec![record.id.clone()], "the pass holds it");
+    assert_eq!(counters(), before, "from the evaluation alone");
+    let r = w.record(&record.id);
+    assert_eq!(r.state, EnrollmentState::Held, "{r:?}");
+    assert_eq!(
+        r.hold.map(|h| (h.reason, h.evidence_based)),
+        Some((
+            heimdall_domain::enrollment::HoldReason::HostKeyChanged,
+            false
+        ))
+    );
+    assert_eq!(r.target, old, "the new key is never accepted automatically");
+    assert_eq!(
+        w.tx(|tx| tx.grant_degradation(&grant)),
+        Some(heimdall_domain::grant::DegradedReason::PairUnenrolled)
+    );
+}
+
 // =====================================================================================
 // Round 3 (R3-A): ADR-0008 §17.22 items 1, 2 and 7
 // =====================================================================================

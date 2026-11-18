@@ -181,6 +181,11 @@ pub async fn connect_as(
     let paths = ctx.paths()?;
     if allow_start {
         paths.ensure().map_err(|e| {
+            // ⟨M04 review-fix round⟩ An unsafe state directory is named as such, with how
+            // to fix it, never as a generic start failure.
+            if heimdall_runtime::paths::is_state_dir_unsafe(&e) {
+                return Box::new(crate::service_cmd::state_dir_unsafe(&e));
+            }
             Box::new(error(
                 Code::ServiceUnavailable,
                 &format!("cannot prepare the runtime directories: {e}"),

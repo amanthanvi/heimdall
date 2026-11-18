@@ -117,7 +117,8 @@ impl Operations {
     /// `enrollment.verify` (presence) that changes nothing remotely.
     ///
     /// ⟨round 3⟩ **A host-key change** (the `TargetEvaluator` now finds another key for
-    /// the approved `HostName`, `Port` and `User`; D5 §6.5, ADR-0008 §17.22 item 7)
+    /// the approved `HostName`, `Port` and `User`, ⟨M04-W1-R01⟩ through whatever route
+    /// the alias takes, the catalog's jump included; D5 §6.5, ADR-0008 §17.22 item 7)
     /// already invalidated the evidence at the comparison (`ensure`'s managed report
     /// reads `destination_scope: unknown`). It **never triggers a login**: the pass
     /// opens the record's `enrollment.verify` at once, and that operation records the

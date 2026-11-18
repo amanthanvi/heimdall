@@ -389,7 +389,7 @@ impl Operations {
             },
             unaffected_names_checked: 0,
             findings: vec![Finding {
-                code: "login_entry".to_owned(),
+                code: heimdall_contract::doctor::finding::LOGIN_ENTRY.to_owned(),
                 severity,
                 subject: ResourceRef {
                     kind: "login_entry".to_owned(),
@@ -536,7 +536,7 @@ fn describe(action: Action, o: &Observed) -> (FindingSeverity, String, Option<&'
         return (
             FindingSeverity::Warning,
             "this host has no user session manager: no login entry is possible, and the runtime starts on demand".to_owned(),
-            Some("on_demand"),
+            Some(heimdall_contract::doctor::finding::LOGIN_ENTRY_ON_DEMAND),
         );
     }
     match (action, o.state) {

@@ -34,10 +34,13 @@
 //! the per-user ACL. The **state** directory (database, backups, instance lock) is
 //! created with an explicit protected, owner-only DACL
 //! ([`platform::state_dir_acl::create_protected_dir`]), so a fresh installation starts.
-//! An **existing** one must already have that shape: anything else (the inherited ACL
-//! of an installation from before M04 included) is refused as [`StateDirUnsafe`]
-//! (`state_dir_unsafe`, [`is_state_dir_unsafe`]) and is **never repaired**: Heimdall
-//! does not rewrite an ACL it did not create. Unix keeps its `fchmod` tightening, which
+//! An **existing** one must already have that shape, with one upgrade path: the list a
+//! build **before M04** gave it (owned by the user, inherited from the profile, granting
+//! only the user, `SYSTEM` and Administrators) is narrowed once to the protected owner-only
+//! DACL (`platform::state_dir_acl::migrate_legacy`), which only removes access. Anything
+//! else is refused as [`StateDirUnsafe`] (`state_dir_unsafe`, [`is_state_dir_unsafe`]) and
+//! is **never repaired**: Heimdall does not widen, or rewrite to its liking, an ACL that
+//! grants someone else. Unix keeps its `fchmod` tightening, which
 //! is an owner-only narrowing of a directory the user owns.
 
 use std::ffi::OsString;
@@ -274,7 +277,18 @@ fn ensure_owner_only_dir(dir: &Path, state: bool) -> Result<(), ConfigError> {
     }
     #[cfg(windows)]
     if state {
-        let verdict = platform::state_dir_acl::check_owner_only(dir)?;
+        let mut verdict = platform::state_dir_acl::check_owner_only(dir)?;
+        // ⟨M04 review-fix round⟩ The upgrade path: a state directory a build before M04
+        // created has the profile's inherited list (the user, SYSTEM, Administrators). It is
+        // narrowed once to the protected owner-only DACL, which only removes access; any
+        // other shape is refused and never changed (module docs).
+        if verdict == platform::state_dir_acl::Verdict::LegacyInherited {
+            platform::state_dir_acl::migrate_legacy(dir)?;
+            tracing::info!(
+                "the state directory's inherited access-control list was narrowed to owner-only"
+            );
+            verdict = platform::state_dir_acl::check_owner_only(dir)?;
+        }
         if verdict != platform::state_dir_acl::Verdict::OwnerOnly {
             return Err(Error::new(
                 ErrorKind::PermissionDenied,
