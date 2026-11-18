@@ -3165,6 +3165,7 @@ mod pair_source_tests {
                                 existing: ExistingConnectionsMode::Graceful,
                                 multiplexing: *multiplexing,
                             },
+                            default: false,
                         },
                         false,
                     )?;

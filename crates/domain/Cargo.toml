@@ -32,3 +32,8 @@ heimdall-testkit = { workspace = true, default-features = false }
 [[test]]
 name = "model_managed_domain"
 path = "../../tests/model/managed_domain.rs"
+
+# M05 wave 1 (U6): the slot-accounting model (ADR-0011 §5.2, ruling D06).
+[[test]]
+name = "model_slot_accounting"
+path = "../../tests/model/slot_accounting.rs"

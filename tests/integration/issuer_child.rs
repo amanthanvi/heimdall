@@ -185,6 +185,7 @@ fn policy(pause: PauseState, cutoff_at: Option<Timestamp>, revision: u64) -> Sta
         source: PolicySource::SetupDefault,
         lock_behavior: LockBehavior::Continue,
         connection: ConnectionPolicy::default(),
+        default: false,
     }
 }
 

@@ -332,6 +332,7 @@ pub(crate) mod tests {
         };
         let delta = EnvDelta {
             set: vec![(OsString::from("HM_U8_ADDED"), OsString::from("added-value"))],
+            unset: Vec::new(),
             overrides: vec![git_local()],
         };
         let marker = dir.join("marker").into_os_string().into_string().unwrap();

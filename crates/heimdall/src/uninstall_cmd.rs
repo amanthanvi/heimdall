@@ -5300,6 +5300,8 @@ mod tests {
             include_str!("../../store/src/lib.rs"),
             include_str!("../../store/src/ext.rs"),
             include_str!("../../store/src/ext_m03.rs"),
+            // ⟨M05⟩ The trusted-work accessors' meta keys (decision bases, preferences).
+            include_str!("../../store/src/ext_m05.rs"),
         ];
         let mut keys = Vec::new();
         for src in sources {

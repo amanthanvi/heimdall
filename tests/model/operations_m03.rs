@@ -228,6 +228,7 @@ fn standing_policy(id: &str, lock: LockBehavior, connection: ConnectionPolicy) -
         source: PolicySource::SetupDefault,
         lock_behavior: lock,
         connection,
+        default: false,
     }
 }
 

@@ -1,0 +1,21 @@
+{
+ "name": "M05 W1 U2: the approval-time re-probe comparison of a TrustWorkspace record (ADR-0011 I5) removed",
+ "file": "crates/app/src/operations/trust_m05.rs (check_trust)",
+ "observed_by": "the U2 worker in its own worktree at base 1f72bb09 (DONE.md §5); sources restored byte-identical",
+ "command": "TMPDIR=/tmp cargo test --locked -p heimdall-runtime --test model_trust_policy",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "trust_approval_refuses_a_changed_observation_without_consuming ... FAILED",
+   "p9_authority_is_created_or_widened_only_by_an_applied_attended_decision ... FAILED: approved only against the observation it was created from (ino: 1100 vs ino: 100)"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "7 passed"
+  ]
+ }
+}

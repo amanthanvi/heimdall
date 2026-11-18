@@ -813,6 +813,7 @@ pub(super) mod world {
                 source: PolicySource::SetupDefault,
                 lock_behavior: lock,
                 connection: Default::default(),
+                default: false,
             };
             self.tx(|tx| {
                 tx.upsert_profile(&ProfileDefinition {

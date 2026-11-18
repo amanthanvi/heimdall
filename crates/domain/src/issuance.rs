@@ -734,6 +734,7 @@ mod predicate_tests {
                 source: PolicySource::SetupDefault,
                 lock_behavior: Default::default(),
                 connection: Default::default(),
+                default: false,
             };
             let p = pair("web", "deploy");
             let anchor = TimeAnchor {

@@ -210,6 +210,7 @@ fn standing(id: PolicyId, profile: ProfileId, lock: LockBehavior) -> StandingPol
         source: PolicySource::SetupDefault,
         lock_behavior: lock,
         connection: Default::default(),
+        default: false,
     }
 }
 

@@ -603,6 +603,7 @@ mod world {
                             // M03 wave 0 (A1): fail closed until U0b
                             lock_behavior: Default::default(),
                             connection: Default::default(),
+                            default: false,
                         },
                         false,
                     )

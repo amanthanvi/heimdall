@@ -239,6 +239,7 @@ impl Fixture {
                 // M03 wave 0 (A1): fail closed until U0b
                 lock_behavior: Default::default(),
                 connection: Default::default(),
+                default: false,
             }),
             generation: AuthorityGeneration(7),
             environment,
@@ -450,6 +451,7 @@ prop_compose! {
             // M03 wave 0 (A1): fail closed until U0b
             lock_behavior: Default::default(),
             connection: Default::default(),
+            default: false,
         });
         let generation = AuthorityGeneration(generation);
         let parent = parent.map(|p| GrantSnapshot {

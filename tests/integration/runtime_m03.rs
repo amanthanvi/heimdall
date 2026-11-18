@@ -232,6 +232,7 @@ fn seed(store: &Store) {
                     source: PolicySource::SetupDefault,
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )?;
@@ -4628,6 +4629,7 @@ mod issuer_crash {
                         source: PolicySource::SetupDefault,
                         lock_behavior: LockBehavior::Continue,
                         connection: ConnectionPolicy::default(),
+                        default: false,
                     },
                     false,
                 )?;
@@ -6423,10 +6425,12 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             Request::Ensure(ensure_with_context),
             Code::CapabilityUnavailable,
         ),
+        // ⟨M05 U2⟩ ADR-0006 §17.6 R5-Q1: `covered_only` without `context` is a usage
+        // error, before anything is read or written.
         (
             "ensure covered_only",
             Request::Ensure(covered_only),
-            Code::CapabilityUnavailable,
+            Code::UsageError,
         ),
         (
             "ensure without profile",
@@ -6493,9 +6497,11 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             example("request.inspect.workspace.json"),
             Code::CapabilityUnavailable,
         ),
+        // ⟨M05 U2⟩ `inspect policies` is served (`model_trust_policy`); with `cwd` it is
+        // still refused.
         (
-            "inspect policies",
-            request(serde_json::json!({"op": "inspect", "subject": "policies"})),
+            "inspect policies with cwd",
+            request(serde_json::json!({"op": "inspect", "subject": "policies", "cwd": "/w"})),
             Code::CapabilityUnavailable,
         ),
         (

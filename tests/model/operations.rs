@@ -236,6 +236,7 @@ fn seed(store: &Store) {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )?;
@@ -2768,6 +2769,7 @@ async fn g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant() {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )
@@ -3322,6 +3324,7 @@ fn r136_second_policy(w: &World, id: &str) -> PolicyId {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )
@@ -4618,6 +4621,7 @@ fn r139_unrelated_policy(w: &World, revision: u64) {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )
@@ -15983,6 +15987,7 @@ fn workspace_policy_first() -> StandingPolicy {
         source: PolicySource::SetupDefault,
         lock_behavior: Default::default(),
         connection: Default::default(),
+        default: false,
     }
 }
 

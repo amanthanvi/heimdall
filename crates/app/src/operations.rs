@@ -269,11 +269,15 @@ mod context_m05;
 mod default_activation_m05;
 mod portable_m05;
 mod review_m05;
+// ⟨M05⟩ U2: the requester path's outcome (`Operations::raise_extension_for_test`).
+pub use review_m05::Extension;
 mod slots_m05;
 mod stop_m05;
 mod trust_m05;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
+// ⟨M05⟩ U6: the handover the runtime's slot cleanup commits (ADR-0011 §5.2).
+pub use slots_m05::{SlotHandover, slot_files_removed_or_hand_over_in};
 pub use uninstall_fence_m03::{
     ACQUIRE_WAIT as UNINSTALL_FENCE_ACQUIRE_WAIT, FenceAcquired, FenceAdmission, FenceLease,
     RELEASE_STUCK_NEXT_COMMAND as UNINSTALL_FENCE_RELEASE_STUCK_NEXT_COMMAND,
@@ -712,6 +716,9 @@ struct Inner {
     managed_ops: managed_state_m03::ManagedOpsState,
     /// ⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence (`uninstall_fence_m03`).
     uninstall_fence: Arc<uninstall_fence_m03::UninstallFence>,
+    /// ⟨M05⟩ U2: the workspace observer, set once (`Operations::set_workspace_probe`);
+    /// without one the requests and decisions that need it fail closed (`trust_m05`).
+    workspace_probe: std::sync::OnceLock<Arc<dyn crate::ports::WorkspaceProbe>>,
 }
 
 /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: marks one operation's preparation as running in
@@ -1214,7 +1221,8 @@ fn origin_of(r: &ResolvedIntent, caller: &CallerContext) -> Option<GrantOrigin> 
         lock_behavior: None,
         connection: None,
         // ⟨M05⟩ The context the intent was resolved in (personal: absent); the policy
-        // the authority rests on is recorded by M05 (U2/U6).
+        // the authority rests on is added for a standing-policy grant where the grant is
+        // created (`trust_m05::with_policy_id`); absent for a one-off approval.
         workspace: r.workspace.clone(),
         policy_id: None,
     })
@@ -5245,7 +5253,7 @@ fn ensure_data(
         offline_until: facts.offline_until.min(end),
         refresh_dependency: facts.refresh_dependency,
         credential_mechanism: binding.mechanism.clone(),
-        enforcement: facts.enforcement.clone(),
+        enforcement: narrowing::child_enforcement(binding.parent.is_some(), &facts.enforcement),
         consumer: facts.integration.clone(),
         credential_availability: facts.availability,
         provider: facts.provider.clone(),
@@ -5543,6 +5551,7 @@ impl Operations {
             narrowing: narrowing::NarrowingState::default(),
             managed_ops: managed_state_m03::ManagedOpsState::default(),
             uninstall_fence: Arc::default(),
+            workspace_probe: std::sync::OnceLock::new(),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -7086,6 +7095,14 @@ impl Operations {
                                 &intent.request,
                                 floor,
                             )?;
+                            // ⟨M05⟩ ADR-0011 §5.1: a standing-policy grant records the
+                            // policy its authority rests on.
+                            let origin =
+                                if matches!(g.source, AuthorizationSource::StandingPolicy { .. }) {
+                                    trust_m05::with_policy_id(tx, &op.environment, origin)?
+                                } else {
+                                    origin
+                                };
                             tx.set_grant_origin(&gid, &origin)?;
                         }
                         if let Some(rr) = intent.resolved.as_mut() {
@@ -8226,7 +8243,10 @@ impl Operations {
                 if g.state == GrantState::Preparing {
                     grant_to(&mut g, GrantEvent::Prepared)?;
                     g.enforcement = EnforcementEvidence {
-                        report: facts.enforcement.clone(),
+                        report: narrowing::child_enforcement(
+                            g.parent.is_some(),
+                            &facts.enforcement,
+                        ),
                         evidence: Vec::new(),
                     };
                     put_grant(tx, emit, &g, Some(&id))?;
@@ -8267,6 +8287,8 @@ impl Operations {
                     state: BindingState::Active,
                 };
                 tx.insert_binding(&binding)?;
+                // ⟨M05⟩ ADR-0011 §5.1: the binding pins its context once.
+                trust_m05::pin_binding_context(tx, &binding_id, &gid)?;
                 // ADR-0006 §13.5 ruling 1: a delegated child holds an
                 // ownership-aware reference on its parent, owned by the child grant
                 // (keyed by the child's binding; dropped in `put_grant` when the
@@ -8815,7 +8837,11 @@ impl Operations {
         // ⟨M05⟩ Revision 5's subjects (`workspace`, `policies`, `export`) and its `cwd` and
         // `redact` parameters are M05's (U2, U4, U7); joint wave 0 refuses them before
         // anything is read, on any subject (W0-R04).
-        if req.uses_m05_form() {
+        // ⟨M05⟩ U2 serves `inspect policies` (without `cwd` or `redact`); the other
+        // revision-5 forms stay U4's and U7's.
+        let policies_only =
+            req.subject == InspectSubject::Policies && req.cwd.is_none() && !req.redact;
+        if req.uses_m05_form() && !policies_only {
             return Err(OpError::driver_unavailable(
                 "this inspect subject is not available in this build",
             ));
@@ -9241,8 +9267,21 @@ impl Operations {
                         })?
                     }
                 }
+                // ⟨M05⟩ U2: `inspect policies` (ADR-0011 §4.4), owner role only, like the
+                // other owner-sensitive subjects (decisions, enrollments).
+                InspectSubject::Policies => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "items": [] })
+                    } else {
+                        let view = self
+                            .write(move |tx, _| trust_m05::policies_view(tx))
+                            .await?;
+                        serde_json::to_value(view)
+                            .map_err(|_| internal("the policies could not be rendered"))?
+                    }
+                }
                 // ⟨M05⟩ Refused at the top (`is_m05`).
-                InspectSubject::Workspace | InspectSubject::Policies | InspectSubject::Export => {
+                InspectSubject::Workspace | InspectSubject::Export => {
                     return Err(OpError::driver_unavailable(
                         "this inspect subject is not available in this build",
                     ));
@@ -9382,6 +9421,14 @@ impl Operations {
                 Code::UsageError,
                 "too many destination/account pairs",
             ));
+        }
+        // ⟨M05⟩ ADR-0006 §17.6 R5-Q1 (U2): `covered_only` requires `context`, refused
+        // before anything is read or written.
+        if req.covered_only && req.context.is_none() {
+            return Err(
+                OpError::new(Code::UsageError, "covered_only requires a context")
+                    .with_effect(EffectStatus::None),
+            );
         }
         // ⟨M04, M05⟩ Revision 5 forms (`context`, `covered_only`, no `profile`) are
         // M05's; joint wave 0 refuses them before anything is read or written.
@@ -9555,6 +9602,8 @@ impl Operations {
         };
         // ⟨M03 wave 5⟩ U9-Q3 (a), as for `ensure`.
         self.label_grant_lock(&mut done, &grant).await;
+        // ⟨M05⟩ U6: a bind that joined a shared slot says so (ADR-0011 §5.2).
+        slots_m05::label_shared(&mut done);
         Ok(done)
     }
 
@@ -9816,7 +9865,12 @@ impl Operations {
                 // eligibility, in this settling transaction.
                 let facts = Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
                     .with_eligibility(tx, now)?;
-                let data = ensure_data(&b, &g, &facts, bound);
+                let mut data = ensure_data(&b, &g, &facts, bound);
+                // ⟨M05⟩ U6: a managed launch that joined a shared slot is labelled
+                // `ordinary_aliases: shared_environment_default` (ADR-0011 §5.2).
+                if matches!(req.form, BindForm::Launch(_)) && b.mechanism == MANAGED_CERTIFICATE {
+                    slots_m05::label_shared_in(tx, &b.id, &mut data)?;
+                }
                 let value = serde_json::to_value(&data)?;
                 // ⟨M02⟩ U0b row 4: the launch binding's holder, when given. ADR-0007
                 // §12.25 item 4 (T04): checked and registered in this settling
@@ -11013,6 +11067,11 @@ impl Operations {
             ));
         }
         if req.is_m05() {
+            // ⟨M05⟩ U2's actions (`trust_m05`); U3's targeted forms and `stop` stay
+            // refused here.
+            if trust_m05::serves(&req) {
+                return self.policy_m05(caller, req).await;
+            }
             return Err(OpError::driver_unavailable(
                 "this policy action is not available in this build",
             ));
@@ -11118,6 +11177,13 @@ impl Operations {
                 p.source = PolicySource::OwnerDecision { decided_at: now };
                 tx.upsert_policy(&p, true)?;
                 emit.policy(tx, &p)?;
+                // ⟨M05⟩ ADR-0011 §4.4: every applied change appends its history row.
+                trust_m05::record_change(
+                    tx,
+                    &p,
+                    heimdall_domain::workspace::PolicyChangeCause::Narrowing,
+                    now,
+                )?;
                 Ok(Ok(PolicyOutcome::Applied(Box::new(p), true)))
             })
             .await??;
@@ -11197,6 +11263,11 @@ impl Operations {
             Verdict::Approve => None,
             Verdict::Deny => Some(self.narrowing_now().await),
         };
+        // ⟨M05⟩ U2: an M05 record's preparation outside the transaction (the approval-time
+        // re-probe of a workspace decision; I/O never inside it).
+        let m05 = self
+            .decide_m05_prepare(&req.decision_id, req.verdict)
+            .await?;
         let gate = self.inner.timegate.in_txn();
         let env = self.inner.config.environment.clone();
         let adapters = self.adapter_infos();
@@ -11256,21 +11327,22 @@ impl Operations {
                             }
                         }
                     }
-                    // ⟨M05⟩ Revision 5: a revision-5 widening action, and the two new
-                    // kinds, are refused before completion (not consumed) until M05
-                    // U2 lands their driver (the M03 wave-0 pattern).
+                    // ⟨M05⟩ U2: a revision-5 widening action and the two workspace kinds
+                    // are checked before completion (`trust_m05::precheck`); a refusal
+                    // writes nothing, so the record stays pending, not consumed. U3's
+                    // actions are still refused there (the M03 wave-0 pattern).
                     DecisionKind::WidenPolicy { action } if action.is_m05() => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "this decision kind is not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
+                        if let Err(e) = trust_m05::precheck(tx, &d, verdict, &m05)? {
+                            return Ok(Err(e.with_resource("decision", Some(did.to_string()))));
+                        }
+                        None
                     }
                     DecisionKind::TrustWorkspace { .. }
                     | DecisionKind::ReconcileWorkspace { .. } => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "this decision kind is not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
+                        if let Err(e) = trust_m05::precheck(tx, &d, verdict, &m05)? {
+                            return Ok(Err(e.with_resource("decision", Some(did.to_string()))));
+                        }
+                        None
                     }
                     DecisionKind::WidenPolicy { .. } => None,
                     DecisionKind::ConfirmTime { .. } => {
@@ -11455,8 +11527,21 @@ impl Operations {
                             settle_failed(tx, emit, &mut op, &err, now, retention)?;
                         }
                     }
+                    // ⟨M05⟩ U2: exactly the recorded M05 action (approval), or a denial's
+                    // cooldown; the waiters the widening now covers resume with no further
+                    // decision. A refusal rolls the transaction back (nothing consumed).
+                    (DecisionKind::WidenPolicy { action }, _) if action.is_m05() => {
+                        match trust_m05::apply(tx, emit, &record, verdict, &m05, now)? {
+                            Ok(more) => resume.extend(more),
+                            Err(e) => {
+                                *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) =
+                                    Some(e);
+                                return Err(conflict("m05 decision refused by its driver"));
+                            }
+                        }
+                    }
                     (DecisionKind::WidenPolicy { action }, Verdict::Approve) => {
-                        if let Err(e) = apply_widening(tx, emit, action, now)? {
+                        if let Err(e) = apply_widening(tx, emit, action, &record.id, now)? {
                             return Ok(Err(e));
                         }
                     }
@@ -11544,19 +11629,19 @@ impl Operations {
                         DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
                         _,
                     ) => {}
-                    // ⟨M05⟩ Unreachable (refused before completion above); a backstop
-                    // that rolls the transaction back, so nothing is consumed.
+                    // ⟨M05⟩ U2: the workspace kinds' driver, in this transaction; a refusal
+                    // rolls it back (nothing consumed).
                     (
                         DecisionKind::TrustWorkspace { .. }
                         | DecisionKind::ReconcileWorkspace { .. },
                         _,
-                    ) => {
-                        *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) =
-                            Some(OpError::driver_unavailable(
-                                "this decision kind is not available in this build",
-                            ));
-                        return Err(conflict("m05 decision kind refused"));
-                    }
+                    ) => match trust_m05::apply(tx, emit, &record, verdict, &m05, now)? {
+                        Ok(more) => resume.extend(more),
+                        Err(e) => {
+                            *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) = Some(e);
+                            return Err(conflict("m05 decision refused by its driver"));
+                        }
+                    },
                     // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver, in this
                     // transaction. A refusal here rolls the whole transaction back
                     // (nothing consumed): it is returned as a store-level conflict
@@ -12667,6 +12752,7 @@ fn apply_widening(
     tx: &mut Txn<'_>,
     emit: &mut Emit,
     action: &PolicyAction,
+    decision: &heimdall_contract::ids::DecisionId,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<(), OpError>> {
     // ⟨M05⟩ A revision-5 action is never applied here: its decision kind is refused
@@ -12701,6 +12787,15 @@ fn apply_widening(
     p.source = PolicySource::OwnerDecision { decided_at: now };
     tx.upsert_policy(&p, false)?;
     emit.policy(tx, &p)?;
+    // ⟨M05⟩ ADR-0011 §4.4: the history row, cause the decision.
+    trust_m05::record_change(
+        tx,
+        &p,
+        heimdall_domain::workspace::PolicyChangeCause::Decision {
+            decision: decision.clone(),
+        },
+        now,
+    )?;
     Ok(Ok(()))
 }
 

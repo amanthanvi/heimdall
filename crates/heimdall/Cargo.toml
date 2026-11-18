@@ -153,3 +153,9 @@ path = "../../tests/e2e/exit_m03.rs"
 [[test]]
 name = "e2e_cli_m04_m05"
 path = "../../tests/e2e/cli_m04_m05.rs"
+
+# ⟨M05⟩ U8 (m05-plan U8; ADR-0011 §6): `run --parent-binding` through the real binary on two
+# loopback servers (the exit suite's world).
+[[test]]
+name = "e2e_delegation_m05"
+path = "../../tests/e2e/m05_delegation.rs"

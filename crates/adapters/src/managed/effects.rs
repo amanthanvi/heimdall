@@ -895,7 +895,10 @@ impl ManagedEffectsImpl {
     }
 
     /// Each pair's environment slot for `binding`, at **its own** store generation
-    /// (U6-Q4), re-validated under the slot's lock (§17.20 item 1).
+    /// (U6-Q4), re-validated under the slot's lock (§17.20 item 1). ⟨M05⟩ A slot the
+    /// binding only references (it joined a slot another binding materializes, or waits
+    /// for its handover; ADR-0011 §5.2) is not its to write and is skipped; any other
+    /// slot it does not hold refuses, as in M03.
     fn write_slots(
         &self,
         binding: &BindingId,
@@ -911,6 +914,7 @@ impl ManagedEffectsImpl {
                     binding: holder,
                     generation,
                 } if &holder == binding => generation,
+                _ if self.slot_store.references(&env, pair, binding)? => continue,
                 _ => return Err(AdapterError::Protocol(SLOT_HOLDER_CHANGED.to_owned())),
             };
             written.extend(self.write_slot_locked(
@@ -1093,6 +1097,23 @@ pub trait SlotStore: Send + Sync {
     > {
         let _ = (environment, pair, binding);
         Err(AdapterError::Unavailable(SLOT_STORE_UNAVAILABLE.to_owned()))
+    }
+
+    /// ⟨M05⟩ Whether `binding` references `pair`'s slot (ADR-0011 §5.2: it joined the
+    /// slot, `slot_references`). A slots-only write skips such a slot when another
+    /// binding holds it. The default knows no reference (`false`: the write refuses as
+    /// in M03, fail closed).
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn references(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+        pair: &AccessPair,
+        binding: &BindingId,
+    ) -> Result<bool, AdapterError> {
+        let _ = (environment, pair, binding);
+        Ok(false)
     }
 
     /// ⟨M04⟩ The environment `binding` is pinned to (ADR-0010 §9 item 1), so a slot
