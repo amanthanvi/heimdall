@@ -92,9 +92,11 @@ const DB_SUFFIXES: [&str; 4] = ["", "-wal", "-shm", "-journal"];
 const STATE_TREES: [&str; 2] = ["backups", "managed"];
 
 /// The trees under `<run>` the purge deletes: the binding directories
-/// (`heimdall_credential::endpoints::BINDING_DIR`) and the stable multiplex paths
+/// (`heimdall_credential::endpoints::BINDING_DIR`), ⟨M04⟩ the container environments' stable
+/// directories (`CONTAINER_DIR`: owned resources of the container recipe, ADR-0010 §4 item 1,
+/// removed by identity like the rest) and the stable multiplex paths
 /// (`heimdall_localenv::projection::content::managed_mux_path`).
-const RUN_TREES: [&str; 2] = ["b", "mux"];
+const RUN_TREES: [&str; 3] = ["b", "c", "mux"];
 
 /// The lock file runtime start-up locks (`heimdall_runtime::instance`).
 #[cfg(unix)]

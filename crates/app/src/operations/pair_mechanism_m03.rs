@@ -92,6 +92,15 @@ pub(super) fn resolve_pairs(
     tx: &mut Txn<'_>,
     pairs: &BTreeSet<AccessPair>,
 ) -> heimdall_store::Result<Result<PairsResolution, OpError>> {
+    // ⟨M04 U6; ADR-0010 §5 item 2⟩ A routed pair's jump hop must be a managed pair in
+    // this scope or existing access: `route_dependency_out_of_scope` before anything
+    // is admitted.
+    let routes = crate::catalog::route_view(tx)?;
+    for p in pairs {
+        if let Err(e) = super::pair_route(&routes, p, pairs) {
+            return Ok(Err(e));
+        }
+    }
     let mut managed = false;
     let mut pending_projection = false;
     let mut existing = BTreeSet::new();

@@ -157,6 +157,7 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
             let flow = ManagedConnect {
                 alias: &alias,
                 pair,
+                route: known.route.clone(),
                 program: &program,
                 interaction,
                 check,
@@ -205,6 +206,38 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
 struct Known {
     definition: Definition,
     managed: Option<AccessPairRef>,
+    /// ⟨M04 U6⟩ The jump hop of the destination's single-hop route, when it has one.
+    route: Option<RouteDep>,
+}
+
+/// ⟨M04 U6; ADR-0010 §5 item 2⟩ A destination's jump hop: its pair (the jump
+/// destination and its managed account) and whether that pair prefers
+/// `managed_certificate` (then it must be in the same ensure scope) or existing access
+/// (the hop uses its adopted identity: `connect` ensures the final pair only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteDep {
+    jump_pair: AccessPairRef,
+    managed: bool,
+}
+
+/// The route of a listed destination: its `jump` (a destination ID) looked up in the
+/// same listing, for the jump's account and preference.
+fn route_of(item: &serde_json::Value, listing: &[serde_json::Value]) -> Option<RouteDep> {
+    let jump = item.get("jump")?.as_str()?;
+    let hop = listing
+        .iter()
+        .find(|d| d.get("destination_id").and_then(|v| v.as_str()) == Some(jump))?;
+    Some(RouteDep {
+        jump_pair: AccessPairRef {
+            destination: serde_json::from_value(hop.get("destination_id")?.clone()).ok()?,
+            account: serde_json::from_value(hop.get("account")?.clone()).ok()?,
+        },
+        managed: hop
+            .get("preference")
+            .and_then(|p| p.get("mechanism"))
+            .and_then(|m| m.as_str())
+            == Some(launch_flow::MANAGED_CERTIFICATE),
+    })
 }
 
 /// The pair of a listed destination whose preference is `managed_certificate` with its
@@ -241,6 +274,7 @@ struct ManagedLaunch {
 struct ManagedConnect<'a> {
     alias: &'a str,
     pair: AccessPairRef,
+    route: Option<RouteDep>,
     program: &'a heimdall_launch::resolve::ResolvedProgram,
     interaction: heimdall_contract::request::InteractionMode,
     check: bool,
@@ -253,15 +287,31 @@ impl ManagedConnect<'_> {
         client: &mut Client,
         hooks: &testcfg::LaunchHooks,
     ) -> Result<ManagedLaunch, Failure> {
-        // 2. The covering profile, then `ensure` for the single pair.
-        let profile = covering_profile(client, &self.pair).await?;
+        // 2. The covering profile, then `ensure` for the pair. ⟨M04 U6; ADR-0010 §9
+        // item 4⟩ A managed jump hop joins the ensure only when the selected profile
+        // covers it; otherwise `connect` refuses and never adds scope outside the
+        // profile. An existing-access jump needs nothing here: the hop uses its adopted
+        // identity.
+        let (profile, covered) = covering_profile(client, &self.pair).await?;
+        let mut scope: std::collections::BTreeSet<AccessPairRef> =
+            std::iter::once(self.pair.clone()).collect();
+        if let Some(route) = self.route.as_ref().filter(|r| r.managed) {
+            if !covered.contains(&route.jump_pair) {
+                return Err(Failure::new(
+                    Code::CapabilityUnavailable,
+                    "the destination is reached through a bastion whose managed access is not in the covering profile; add the bastion's pair to the profile, or prefer existing access for it",
+                    Some(heimdall_contract::envelope::reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE),
+                ));
+            }
+            scope.insert(route.jump_pair.clone());
+        }
         let request_id = fresh_request_id().map_err(|d| Failure::of(d.env))?;
         let work_id =
             WorkId::parse(request_id.as_str()).map_err(|_| Failure::usage("invalid work ID"))?;
         let request = EnsureRequest {
             profile: Some(profile),
             profile_revision: None,
-            scope: std::iter::once(self.pair.clone()).collect(),
+            scope,
             environment: None,
             work_id,
             until: None,
@@ -343,8 +393,12 @@ impl ManagedConnect<'_> {
     }
 }
 
-/// The one profile of the environment whose scope contains `pair` (module docs).
-async fn covering_profile(client: &mut Client, pair: &AccessPairRef) -> Result<ProfileId, Failure> {
+/// The one profile of the environment whose scope contains `pair` (module docs), with
+/// that profile's pairs (⟨M04 U6⟩ the scope a managed jump hop must be in).
+async fn covering_profile(
+    client: &mut Client,
+    pair: &AccessPairRef,
+) -> Result<(ProfileId, Vec<AccessPairRef>), Failure> {
     let listed = client
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Profiles,
@@ -356,7 +410,20 @@ async fn covering_profile(client: &mut Client, pair: &AccessPairRef) -> Result<P
     if !listed.code.is_success() {
         return Err(Failure::of(listed));
     }
-    choose_covering(&listed_items(&listed.data), pair)
+    let profiles = listed_items(&listed.data);
+    let chosen = choose_covering(&profiles, pair)?;
+    let pairs = profiles
+        .iter()
+        .find(|p| {
+            p.get("profile_id")
+                .and_then(|v| serde_json::from_value::<ProfileId>(v.clone()).ok())
+                .as_ref()
+                == Some(&chosen)
+        })
+        .and_then(|p| p.get("pairs"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    Ok((chosen, pairs))
 }
 
 /// The one profile among `profiles` (an `inspect profiles` listing) whose scope pairs
@@ -458,6 +525,20 @@ fn managed_launch_args(
         .map(std::ffi::OsString::from)
         .collect();
     args.extend(options.into_iter().map(std::ffi::OsString::from));
+    // ⟨M04 U6; ADR-0010 §5 item 4⟩ With the grant's `agent-forwarding` capability the
+    // pair reports `agent_forwarding`, and only then this launch carries `ForwardAgent
+    // <this binding's endpoint>`: never `yes`, `SSH_AUTH_SOCK` or a personal agent.
+    if bound.consumer.pairs.iter().any(|p| {
+        p.destination == pair.destination && p.account == pair.account && p.agent_forwarding
+    }) {
+        let forward = heimdall_sshconf::render::forward_agent_options(&files.endpoint, files.style)
+            .map_err(|_| {
+                launch_flow::managed_unavailable(
+                    "agent forwarding to this binding endpoint (unsupported here)",
+                )
+            })?;
+        args.extend(forward.into_iter().map(std::ffi::OsString::from));
+    }
     args.push(std::ffi::OsString::from(alias));
     Ok(args)
 }
@@ -567,13 +648,15 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Kn
     if !listed.code.is_success() {
         return Err(Failure::of(listed));
     }
-    if let Some(item) = listed_items(&listed.data)
+    let items = listed_items(&listed.data);
+    if let Some(item) = items
         .iter()
         .find(|d| d.get("alias").and_then(|a| a.as_str()) == Some(alias))
     {
         return Ok(Some(Known {
             definition: definition_of(item),
             managed: managed_pair_of(item),
+            route: route_of(item, &items),
         }));
     }
     let record = launch_flow::projection_record(client).await?;
@@ -584,6 +667,7 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Kn
         .then_some(Known {
             definition: Definition::Managed,
             managed: None,
+            route: None,
         }))
 }
 

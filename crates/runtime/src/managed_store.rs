@@ -47,8 +47,11 @@ use heimdall_contract::GrantState;
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{BindingId, CaFingerprint, EnvironmentId, GrantId};
 use heimdall_contract::managed::{ConnectionKind, LockBehavior};
+use heimdall_credential::endpoints::EndpointPlacement;
 use heimdall_credential::table::{InstallRefusal, InstallView};
-use heimdall_domain::enrollment::EnrollmentRecord;
+use heimdall_domain::catalog::DestinationDefinition;
+use heimdall_domain::enrollment::{EnrollmentRecord, EnrollmentState};
+use heimdall_domain::environment::{EnvironmentRealization, ManagedEnvironment};
 use heimdall_domain::issuance::IssuanceEntry;
 use heimdall_domain::managed::{OwnedConnection, SlotRefusal, SlotState};
 use heimdall_domain::scope::AccessPair;
@@ -265,6 +268,89 @@ impl GrantScopes for StoreSources {
             })
             .ok()
             .flatten()
+    }
+
+    /// ⟨M04⟩ U5 (design §4): a grant pinned to a container environment puts its binding
+    /// endpoint in that environment's stable directory; every other grant keeps the native
+    /// random per-binding path. A store failure creates nothing (fail closed).
+    fn placement(&self, grant: &GrantId) -> Result<EndpointPlacement, AdapterError> {
+        self.store
+            .transaction(|tx| {
+                let Some(g) = tx.grant(grant)? else {
+                    return Ok(EndpointPlacement::Native);
+                };
+                Ok(match tx.managed_environment(&g.environment)? {
+                    Some(ManagedEnvironment {
+                        realization: EnvironmentRealization::Container { dir_tag, .. },
+                        ..
+                    }) => EndpointPlacement::Container { dir_tag },
+                    _ => EndpointPlacement::Native,
+                })
+            })
+            .map_err(|_| AdapterError::Unavailable("store".to_owned()))
+    }
+
+    /// ⟨M04⟩ U5 (design §5): each pair's alias, `HostName`, `Port` and `User` as the native
+    /// managed alias renders them (the catalog destination), and the host key its newest
+    /// `verified` enrollment approved. A pair with no verified enrollment, or whose
+    /// destination no longer names the enrolled host and port, refuses the whole binding
+    /// (a container has no other trust source).
+    fn container_pairs(
+        &self,
+        grant: &GrantId,
+        pairs: &[AccessPair],
+    ) -> Result<Vec<heimdall_localenv::container::ContainerPair>, AdapterError> {
+        let _ = grant;
+        let unavailable = || {
+            AdapterError::Unavailable(
+                heimdall_adapters::managed::effects::CONTAINER_CONFIG_UNAVAILABLE.to_owned(),
+            )
+        };
+        self.store
+            .transaction(|tx| {
+                let mut out = Vec::with_capacity(pairs.len());
+                for pair in pairs {
+                    let Some(dest) = tx.destination(&pair.destination)? else {
+                        return Ok(None);
+                    };
+                    let DestinationDefinition::Managed {
+                        hostname,
+                        port,
+                        account,
+                        ..
+                    } = &dest.definition
+                    else {
+                        return Ok(None);
+                    };
+                    if *account != pair.account {
+                        return Ok(None);
+                    }
+                    let enrollment = tx
+                        .enrollments_for_pair(pair)?
+                        .into_iter()
+                        .filter(|e| e.state == EnrollmentState::Verified)
+                        .max_by_key(|e| e.verified_at);
+                    let Some(e) = enrollment else {
+                        return Ok(None);
+                    };
+                    let port = port.unwrap_or(22);
+                    if !e.target.hostname.eq_ignore_ascii_case(hostname) || e.target.port != port {
+                        return Ok(None);
+                    }
+                    out.push(heimdall_localenv::container::ContainerPair {
+                        destination: pair.destination.clone(),
+                        alias: dest.alias.clone(),
+                        hostname: hostname.clone(),
+                        port,
+                        user: account.as_str().to_owned(),
+                        host_key_algorithm: e.target.host_key.algorithm.clone(),
+                        host_key: e.target.host_key.key.clone(),
+                    });
+                }
+                Ok(Some(out))
+            })
+            .map_err(|_| AdapterError::Unavailable("store".to_owned()))?
+            .ok_or_else(unavailable)
     }
 }
 
@@ -1073,6 +1159,10 @@ mod live_tests {
 
     /// ⟨R3-C1⟩ ADR-0008 §17.22 items 4, 9, 10 (`managed_store/live_tests/cleanup.rs`).
     mod cleanup;
+    /// ⟨M04 U5⟩ ADR-0010 §4 (`managed_store/live_tests/container.rs`): the container
+    /// environment's decision, one binding per environment, the stable directory and its
+    /// teardown, engine-free.
+    mod container;
     /// ⟨Y-S, round 5⟩ W4-C02: a follower's own scope evidence
     /// (`managed_store/live_tests/follower_scope.rs`).
     mod follower_scope;
@@ -1382,9 +1472,20 @@ mod live_tests {
             binding: &BindingId,
             generation: u64,
         ) -> Result<EndpointRef, AdapterError> {
+            self.create_binding_endpoint_at(binding, generation, &EndpointPlacement::Native)
+        }
+        fn create_binding_endpoint_at(
+            &self,
+            binding: &BindingId,
+            generation: u64,
+            placement: &EndpointPlacement,
+        ) -> Result<EndpointRef, AdapterError> {
             self.get()
                 .ok_or_else(|| AdapterError::Unavailable("no registry".into()))?
-                .create_binding_endpoint(binding, generation)
+                .create_binding_endpoint_at(binding, generation, placement)
+        }
+        fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
+            self.get().map_or(0, |r| r.remove_container(dir_tag))
         }
         fn remove_binding_endpoint(
             &self,
@@ -1590,6 +1691,7 @@ mod live_tests {
                 port: 22,
                 user: p.account.as_str().to_owned(),
                 proxy: heimdall_domain::enrollment::ProxyRoute::None,
+                proxy_jump: None,
                 determinism: heimdall_domain::enrollment::Determinism::Determined,
                 host_keys: vec![heimdall_domain::enrollment::RawHostKey {
                     key_type: "ssh-ed25519".into(),
@@ -1703,6 +1805,10 @@ mod live_tests {
         /// ⟨M04⟩ The slot roots of further managed environments
         /// (`ManagedEffectsImpl::with_slot_root`; ADR-0010 §9 item 1).
         slot_roots: Vec<SlotRoot>,
+        /// ⟨M04 U5⟩ The test switch of the container recipe's host rule
+        /// (`ManagedEffectsImpl::with_test_container_host`): container environments are
+        /// realized although this host is not Linux.
+        container_host: bool,
     }
 
     impl Live {
@@ -1788,6 +1894,7 @@ mod live_tests {
                 hold,
                 wrap,
                 slot_roots,
+                container_host,
             } = opts;
             let sources = StoreSources::new(self.store.clone(), env());
             let table = SignerTable::new(Arc::new(KeyVault::new()));
@@ -1807,6 +1914,11 @@ mod live_tests {
             let effects = slot_roots
                 .into_iter()
                 .fold(effects, ManagedEffectsImpl::with_slot_root);
+            let effects = if container_host {
+                effects.with_test_container_host()
+            } else {
+                effects
+            };
             // ⟨X-M⟩ The adapter reads the store through the harness's equivalent of the
             // runtime's `Observing` and evidence feed (empty unless a test sets them).
             let read: Arc<dyn ManagedSourceRead> =

@@ -123,7 +123,8 @@ use crate::operations::{
     local_settle_succeeded,
 };
 use crate::ports::{
-    HeldStep, ItemOutcome, PreviewError, ProjectionWriter, ReconcileError, SinkError, StageSink,
+    DistributionStart, HeldStep, ItemOutcome, PreviewError, ProjectionWriter, ReconcileError,
+    SinkError, StageSink,
 };
 
 /// The mechanism of every local setup receipt's adapter identity
@@ -640,8 +641,10 @@ async fn unresolved(ops: &Operations, op: &OperationRecord, why: &str) -> Result
 /// Heimdall's configuration directory and is named by the key's fingerprint,
 /// `heimdall_localenv::materialize::key_file_path`), and the runtime's writer fills
 /// it before rendering.
-async fn load_spec(ops: &Operations) -> Result<ProjectionSpec, OpError> {
-    let environment = ops.environment().clone();
+async fn load_spec(ops: &Operations, t: &ProjectionTarget) -> Result<ProjectionSpec, OpError> {
+    let environment = t.namespace.clone();
+    // ⟨M04 U3b⟩ A distribution's Mode A item renders no alias: only Git's SSH selection.
+    let with_aliases = t.distribution.is_none();
     ops.local_write(move |tx, _| {
         let identities: BTreeMap<IdentityId, IdentityRecord> = tx
             .identities()?
@@ -649,13 +652,19 @@ async fn load_spec(ops: &Operations) -> Result<ProjectionSpec, OpError> {
             .map(|i| (i.id.clone(), i))
             .collect();
         let mut aliases = Vec::new();
-        for d in tx.destinations()? {
+        let destinations = tx.destinations()?;
+        // ⟨M04 U6⟩ A route's jump alias, for `ProxyJump` (ADR-0010 §5 item 1).
+        let alias_of: BTreeMap<_, _> = destinations
+            .iter()
+            .map(|d| (d.id.clone(), d.alias.clone()))
+            .collect();
+        for d in destinations.into_iter().filter(|_| with_aliases) {
             if let DestinationDefinition::Managed {
                 hostname,
                 port,
                 account,
                 identity,
-                ..
+                jump,
             } = d.definition
             {
                 let endpoint = identities
@@ -670,6 +679,7 @@ async fn load_spec(ops: &Operations) -> Result<ProjectionSpec, OpError> {
                     identity,
                     endpoint,
                     key_file: String::new(),
+                    jump_alias: jump.and_then(|j| alias_of.get(&j).cloned()),
                 });
             }
         }
@@ -700,6 +710,185 @@ async fn load_spec(ops: &Operations) -> Result<ProjectionSpec, OpError> {
     .await
 }
 
+// --- ⟨M04 U3b⟩ where an intent's files are -----------------------------------------------
+
+/// ⟨M04 U3b⟩ Where a setup intent's files are (ADR-0010 §2, §9 item 2): the writer that
+/// edits them and the projection namespace their record, receipts' adapter and resources
+/// are keyed by. The native session's is the runtime's own writer and environment; a WSL
+/// distribution's (an intent naming `distribution`) is its helper's writer and the
+/// namespace its [`heimdall_domain::environment::WslDistributionRecord`] minted. The
+/// operation itself always stays in the runtime's own environment (R5-Q11).
+#[derive(Clone)]
+pub(crate) struct ProjectionTarget {
+    writer: Arc<dyn ProjectionWriter>,
+    namespace: EnvironmentId,
+    distribution: Option<heimdall_contract::environment::DistributionGuid>,
+    start: DistributionStart,
+}
+
+/// ⟨M04 U3b⟩ The distribution a revision-5 intent names, when it is a form this build
+/// serves: `apply` or `rollback` of exactly `distribution_git` naming a distribution
+/// (Mode A). `Ok(None)`: not a distribution form (the native session's, or another
+/// revision-5 form the caller refuses). `distribution_projection` is Mode B's (wave 2).
+///
+/// # Errors
+/// `USAGE_ERROR` for a `distribution_*` item without a distribution, or a distribution
+/// with anything but its own items; `driver_unavailable` for `distribution_projection`.
+pub(crate) fn distribution_form(
+    intent: &PreviewIntent,
+) -> Result<Option<heimdall_contract::environment::DistributionGuid>, OpError> {
+    let (items, distribution, include_git) = match intent {
+        PreviewIntent::Apply {
+            items,
+            distribution,
+            include_git,
+        } => (items, distribution, *include_git),
+        PreviewIntent::Rollback {
+            items,
+            distribution,
+            ..
+        } => (items, distribution, false),
+        _ => return Ok(None),
+    };
+    let names_dist_item = items.iter().any(|i| {
+        matches!(
+            i,
+            ProjectionItem::DistributionGit | ProjectionItem::DistributionProjection
+        )
+    });
+    let Some(guid) = distribution else {
+        if names_dist_item {
+            return Err(OpError::new(
+                Code::UsageError,
+                "a distribution item names its distribution",
+            )
+            .with_effect(EffectStatus::None));
+        }
+        return Ok(None);
+    };
+    if items.contains(&ProjectionItem::DistributionProjection) {
+        return Err(OpError::driver_unavailable(
+            "the distribution projection (WSL Mode B) is not available in this build",
+        ));
+    }
+    if include_git || items.len() != 1 || !items.contains(&ProjectionItem::DistributionGit) {
+        return Err(OpError::new(
+            Code::UsageError,
+            "an intent naming a distribution names exactly its distribution_git item",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    Ok(Some(guid.clone()))
+}
+
+/// The stable reason an `Unavailable` text of the WSL host names, when it names one.
+pub(crate) fn unavailable_reason(why: &str) -> &'static str {
+    [
+        reason::WSL_DISTRIBUTION_NOT_RUNNING,
+        reason::WSL_HELPER_UNAVAILABLE,
+        reason::WSL_INTEROP_DISABLED,
+        reason::WSL_UNAVAILABLE,
+    ]
+    .into_iter()
+    .find(|r| why.contains(r))
+    .unwrap_or(reason::DRIVER_UNAVAILABLE)
+}
+
+/// The refusal of a WSL host's `Unavailable` text, by the reason it names.
+fn wsl_refusal(why: &str) -> OpError {
+    let r = unavailable_reason(why);
+    let code = if r == reason::WSL_DISTRIBUTION_NOT_RUNNING {
+        Code::ServiceUnavailable
+    } else {
+        Code::CapabilityUnavailable
+    };
+    OpError::new(
+        code,
+        format!("the distribution's files cannot be reached: {why}"),
+    )
+    .with_reason(r)
+    .with_effect(EffectStatus::None)
+}
+
+/// ⟨M04 U3b⟩ The [`ProjectionTarget`] of `intent`. A distribution intent needs the WSL
+/// host, the distribution's record with its account and namespace (Mode A enabled, for an
+/// apply), and its helper; `start` says whether a stopped distribution may be started.
+///
+/// # Errors
+/// [`distribution_form`]'s; `driver_unavailable` without a writer; `NOT_FOUND`
+/// (`wsl_distribution_unknown`) for a distribution without a record; `CONFIG_CONFLICT`
+/// for an apply while Mode A is not enabled; the host's refusal
+/// (`wsl_distribution_not_running`, `wsl_helper_unavailable`, `wsl_unavailable`).
+pub(crate) async fn target_for(
+    ops: &Operations,
+    intent: &PreviewIntent,
+    start: DistributionStart,
+) -> Result<ProjectionTarget, OpError> {
+    let Some(guid) = distribution_form(intent)? else {
+        let writer = ops.local_projection().ok_or_else(|| {
+            OpError::driver_unavailable(
+                "setup is not available in this runtime: no projection writer is configured",
+            )
+        })?;
+        return Ok(ProjectionTarget {
+            writer,
+            namespace: ops.environment().clone(),
+            distribution: None,
+            start,
+        });
+    };
+    let host = ops.distribution_host().ok_or_else(|| {
+        OpError::new(
+            Code::CapabilityUnavailable,
+            "WSL is not available to this runtime",
+        )
+        .with_reason(reason::WSL_UNAVAILABLE)
+        .with_effect(EffectStatus::None)
+    })?;
+    let apply = matches!(intent, PreviewIntent::Apply { .. });
+    let g = guid.clone();
+    let rec = ops
+        .local_write(move |tx, _| tx.wsl_distribution(&g))
+        .await?
+        .ok_or_else(|| {
+            OpError::new(
+                Code::NotFound,
+                "Heimdall does not serve this WSL distribution",
+            )
+            .with_reason(reason::WSL_DISTRIBUTION_UNKNOWN)
+            .with_effect(EffectStatus::None)
+        })?;
+    if apply && (!rec.mode_a || rec.cleanup_pending) {
+        return Err(OpError::new(
+            Code::ConfigConflict,
+            "Mode A is not enabled for this distribution: run `heimdall wsl enable` first",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    let target = crate::operations::wsl_m04::mode_a_target(&rec).ok_or_else(|| {
+        OpError::new(
+            Code::ConfigConflict,
+            "Mode A was never enabled for this distribution",
+        )
+        .with_effect(EffectStatus::None)
+    })?;
+    let namespace = target.namespace.clone();
+    let writer = blocking(move || host.writer(&target, start))
+        .await?
+        .map_err(|e| match e {
+            crate::ports::AdapterError::Unavailable(why) => wsl_refusal(&why),
+            other => OpError::driver_unavailable(&format!(
+                "the distribution's writer is not available: {other}"
+            )),
+        })?;
+    Ok(ProjectionTarget {
+        writer,
+        namespace,
+        distribution: Some(guid),
+        start,
+    })
+}
+
 /// A recomputed plan and, for a held repair, the operation it names.
 struct Planned {
     plan: ProjectionPlan,
@@ -709,21 +898,21 @@ struct Planned {
 /// Recompute the plan of `intent` from the files and the store as they are now.
 async fn plan_for(
     ops: &Operations,
-    writer: &Arc<dyn ProjectionWriter>,
+    t: &ProjectionTarget,
     intent: &PreviewIntent,
 ) -> Result<Planned, OpError> {
     intent
         .validate()
         .map_err(|e| OpError::new(Code::UsageError, e.to_string()))?;
     if let Some((_, target)) = held_repair(intent) {
-        let plan = held_plan(ops, writer, intent, target).await?;
+        let plan = held_plan(ops, t.start, intent, target).await?;
         return Ok(Planned {
             plan,
             repair_target: Some(target.clone()),
         });
     }
-    let spec = load_spec(ops).await?;
-    let w = Arc::clone(writer);
+    let spec = load_spec(ops, t).await?;
+    let w = Arc::clone(&t.writer);
     let i = intent.clone();
     // The writer lists `include_target_glob` as its own manual reason (ADR-0007 §12.22
     // item 8), so the plan is used as previewed.
@@ -781,7 +970,7 @@ fn held_digest(
 /// `ProjectionWriter::observe_held` (passive). No decision is ever needed (QR12).
 async fn held_plan(
     ops: &Operations,
-    writer: &Arc<dyn ProjectionWriter>,
+    start: DistributionStart,
     intent: &PreviewIntent,
     target: &OperationId,
 ) -> Result<ProjectionPlan, OpError> {
@@ -808,7 +997,9 @@ async fn held_plan(
     {
         return Err(not_held());
     }
-    let steps = observe_held(writer, &held, &receipts).await?;
+    // ⟨M04 U3b⟩ The held operation's own files: its intent names their writer.
+    let ht = target_for(ops, &held.intent, start).await?;
+    let steps = observe_held(&ht.writer, &held, &receipts).await?;
     let digest = held_digest(intent, target, &held, &steps)?;
     let findings = steps
         .iter()
@@ -886,31 +1077,44 @@ impl Operations {
                     .with_effect(EffectStatus::None),
             );
         }
+        // ⟨M04⟩ U1: the login entry is its own setup item (preview, apply, rollback; module
+        // `operations::login_entry_m04`). It needs no projection writer, so it is answered
+        // before the writer check; every other request falls through.
+        if let Some(answer) = self.login_entry_setup(caller, &req).await {
+            return answer;
+        }
         let Some(writer) = self.local_projection() else {
             return Err(OpError::driver_unavailable(
                 "setup is not available in this runtime: no projection writer is configured",
             ));
         };
-        // ⟨M04⟩ ADR-0006 revision 5 (joint wave 0): the login entry and the WSL
-        // distribution items are M04's (U1, U3, U4); an intent naming one is refused
-        // before anything is planned or written. (An effectful action names a digest of
-        // a plan only a preview produces, so the preview is the one gate.)
+        // ⟨M04⟩ ADR-0006 revision 5 (joint wave 0): the WSL distribution items are M04's
+        // (U3, U4); an intent naming one is refused before anything is planned or written.
+        // (An effectful action names a digest of a plan only a preview produces, so the
+        // preview is the one gate.) The login entry (U1) was answered above.
+        //
+        // ⟨M04 U3b⟩ The `distribution_git` item naming a distribution is served (Mode A,
+        // through the distribution's helper); every other revision-5 form still is not.
         if let SetupRequest::Preview { intent } = &req
             && intent.uses_m04_form()
+            && distribution_form(intent)?.is_none()
         {
             return Err(OpError::driver_unavailable(
                 "this setup item is not available in this build",
             ));
         }
+        drop(writer);
         match &req {
-            SetupRequest::Preview { intent } => self.setup_preview(&writer, intent).await,
+            SetupRequest::Preview { intent } => {
+                let t = target_for(self, intent, DistributionStart::Allowed).await?;
+                self.setup_preview(&t, intent).await
+            }
             SetupRequest::Apply {
                 plan_digest,
                 request_id,
             } => {
                 self.setup_effect(
                     caller,
-                    &writer,
                     OperationKind::SetupApply,
                     plan_digest,
                     request_id,
@@ -924,7 +1128,6 @@ impl Operations {
             } => {
                 self.setup_effect(
                     caller,
-                    &writer,
                     OperationKind::SetupRollback,
                     plan_digest,
                     request_id,
@@ -938,7 +1141,6 @@ impl Operations {
             } => {
                 self.setup_effect(
                     caller,
-                    &writer,
                     OperationKind::SetupRepair,
                     plan_digest,
                     request_id,
@@ -956,10 +1158,10 @@ impl Operations {
     /// Read-only preview (journals nothing).
     async fn setup_preview(
         &self,
-        writer: &Arc<dyn ProjectionWriter>,
+        t: &ProjectionTarget,
         intent: &PreviewIntent,
     ) -> OpResult<serde_json::Value> {
-        let planned = plan_for(self, writer, intent).await?;
+        let planned = plan_for(self, t, intent).await?;
         remember(self.environment(), &planned.plan.view.plan_digest, intent);
         let data = serde_json::to_value(&planned.plan.view)
             .map_err(|_| internal("the plan cannot be rendered"))?;
@@ -970,7 +1172,6 @@ impl Operations {
     async fn setup_effect(
         &self,
         caller: &Caller,
-        writer: &Arc<dyn ProjectionWriter>,
         kind: OperationKind,
         digest: &PlanDigest,
         request_id: &RequestId,
@@ -993,7 +1194,7 @@ impl Operations {
                     .unwrap_or_else(|| internal("unexpected idempotency outcome")));
             }
         }
-        let planned = self.find_plan(writer, kind, digest).await?;
+        let planned = self.find_plan(kind, digest).await?;
         // ADR-0007 §12.30 item 6: a plan that reports a conflict but changes nothing
         // is refused before admission; nothing is journaled or written. While another
         // setup operation is open (a held one above all), admission's
@@ -1034,10 +1235,14 @@ impl Operations {
         let IdempotencyOutcome::Replay(id) = outcome else {
             return Err(internal("unexpected idempotency outcome"));
         };
-        if let Some(Err(e)) = self
+        // ⟨M04 U3b⟩ The owner's own request: its driver may start a stopped WSL
+        // distribution its intent names (ADR-0010 §9 item 2); a restart's may not.
+        let allowed = self.allow_distribution_start(std::slice::from_ref(&id));
+        let led = self
             .local_lead_bounded(&id, LocalDriver::Setup, self.limits().max_wait)
-            .await
-        {
+            .await;
+        drop(allowed);
+        if let Some(Err(e)) = led {
             return Err(e);
         }
         self.setup_respond(&id, caller).await
@@ -1065,13 +1270,13 @@ impl Operations {
     /// The recomputed plan whose digest is `digest`, or "preview is stale".
     async fn find_plan(
         &self,
-        writer: &Arc<dyn ProjectionWriter>,
         kind: OperationKind,
         digest: &PlanDigest,
     ) -> Result<Planned, OpError> {
         let environment = self.environment().clone();
         if let Some(intent) = recall(&environment, digest).filter(|i| kind_of(i) == Some(kind)) {
-            let planned = plan_for(self, writer, &intent).await?;
+            let t = target_for(self, &intent, DistributionStart::Allowed).await?;
+            let planned = plan_for(self, &t, &intent).await?;
             if planned.plan.view.plan_digest == *digest {
                 return Ok(planned);
             }
@@ -1081,8 +1286,14 @@ impl Operations {
         if kind == OperationKind::SetupRepair {
             intents.extend(self.held_candidates().await?);
         }
+        // The fallback intents are the native ones only: a distribution's plan must be the
+        // one this runtime previewed (finding it otherwise would start every
+        // distribution), so after a restart it is "preview is stale".
         for intent in intents {
-            if let Ok(planned) = plan_for(self, writer, &intent).await
+            let Ok(t) = target_for(self, &intent, DistributionStart::Forbidden).await else {
+                continue;
+            };
+            if let Ok(planned) = plan_for(self, &t, &intent).await
                 && planned.plan.view.plan_digest == *digest
             {
                 return Ok(planned);
@@ -1283,25 +1494,46 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
     if st.op.state.is_settled() {
         return Ok(());
     }
-    let Some(writer) = ops.local_projection() else {
+    if ops.local_projection().is_none() {
         return unresolved(ops, &st.op, reason::DRIVER_UNAVAILABLE).await;
-    };
+    }
     let Some(intent) = st.intent.clone() else {
         return unresolved(ops, &st.op, INTENT_UNREADABLE).await;
     };
     let Some(receipts) = st.receipts.clone() else {
         return unresolved(ops, &st.op, UNREADABLE_RECEIPTS).await;
     };
+    // ⟨M04 U3b⟩ The intent names its writer and namespace. Only the owner's request or
+    // decision may start a stopped distribution (ADR-0010 §9 item 2); a restart's or the
+    // supervisor's drive may not. Nothing written yet: the operation fails with the
+    // refusal (effect `none`). Something written: it stays unresolved, a retained
+    // obligation reconciled when the writer is reachable again (never a second `apply`).
+    let start = if ops.distribution_start_allowed(id) {
+        DistributionStart::Allowed
+    } else {
+        DistributionStart::Forbidden
+    };
+    let t = match target_for(ops, &intent.intent, start).await {
+        Ok(t) => t,
+        Err(e) if attempt_token(&receipts).is_none() && e.code != Code::InternalError => {
+            return fail_unwritten(ops, &st.op.id, e.with_effect(EffectStatus::None)).await;
+        }
+        Err(e) => {
+            let why = e
+                .reason
+                .clone()
+                .unwrap_or_else(|| reason::DRIVER_UNAVAILABLE.to_owned());
+            return unresolved(ops, &st.op, &why).await;
+        }
+    };
     if let Some((resolution, target)) = held_repair(&intent.intent) {
-        return drive_held_repair(ops, &writer, &st.op, &intent, resolution, target).await;
+        return drive_held_repair(ops, &t, &st.op, &intent, resolution, target).await;
     }
     match (st.op.state, attempt_token(&receipts)) {
-        (_, Some(token)) => reconcile_op(ops, &writer, &st.op, &intent, &token).await,
-        (OperationState::AwaitingApproval, None) => {
-            ensure_decision(ops, &writer, &st.op, &intent).await
-        }
+        (_, Some(token)) => reconcile_op(ops, &t, &st.op, &intent, &token).await,
+        (OperationState::AwaitingApproval, None) => ensure_decision(ops, &t, &st.op, &intent).await,
         (OperationState::Queued | OperationState::Running, None) => {
-            prepare_and_apply(ops, &writer, &st.op, &intent).await
+            prepare_and_apply(ops, &t, &st.op, &intent).await
         }
         _ => unresolved(ops, &st.op, INTENT_UNREADABLE).await,
     }
@@ -1327,11 +1559,11 @@ async fn fail_unwritten(ops: &Operations, id: &OperationId, e: OpError) -> Resul
 /// §5.4 step 1 and M2-R07, then the decision or the single `apply`.
 async fn prepare_and_apply(
     ops: &Operations,
-    writer: &Arc<dyn ProjectionWriter>,
+    t: &ProjectionTarget,
     op: &OperationRecord,
     intent: &SetupIntent,
 ) -> Result<(), OpError> {
-    let planned = match plan_for(ops, writer, &intent.intent).await {
+    let planned = match plan_for(ops, t, &intent.intent).await {
         Ok(p) => p,
         Err(e) if e.code == Code::InternalError => return Err(e),
         Err(e) => return fail_unwritten(ops, &op.id, e.with_effect(EffectStatus::None)).await,
@@ -1370,8 +1602,8 @@ async fn prepare_and_apply(
         }
     }
     let token = crate::ids::new_effect_token()?;
-    start_attempt(ops, &op.id, &token).await?;
-    execute(ops, writer, &op.id, intent, &token).await
+    start_attempt(ops, &op.id, &token, &t.namespace).await?;
+    execute(ops, t, &op.id, intent, &token).await
 }
 
 /// An `awaiting_approval` operation keeps waiting while a pending, unexpired decision
@@ -1382,7 +1614,7 @@ async fn prepare_and_apply(
 /// digest, as M01 does for a stale record.
 async fn ensure_decision(
     ops: &Operations,
-    writer: &Arc<dyn ProjectionWriter>,
+    t: &ProjectionTarget,
     op: &OperationRecord,
     intent: &SetupIntent,
 ) -> Result<(), OpError> {
@@ -1396,7 +1628,7 @@ async fn ensure_decision(
     if expire_awaiting(ops, &op.id, now).await? {
         return Ok(());
     }
-    let planned = match plan_for(ops, writer, &intent.intent).await {
+    let planned = match plan_for(ops, t, &intent.intent).await {
         Ok(p) => p,
         Err(e) if e.code == Code::InternalError => return Err(e),
         Err(e) => return fail_unwritten(ops, &op.id, e.with_effect(EffectStatus::None)).await,
@@ -1483,10 +1715,15 @@ fn plus(t: Timestamp, d: std::time::Duration) -> Timestamp {
 
 /// Start the operation and record its effect token (`setup.attempt`, `Attempted`)
 /// in one transaction, before the writer's first call.
-async fn start_attempt(ops: &Operations, id: &OperationId, token: &str) -> Result<(), OpError> {
+async fn start_attempt(
+    ops: &Operations,
+    id: &OperationId,
+    token: &str,
+    namespace: &EnvironmentId,
+) -> Result<(), OpError> {
     let id = id.clone();
     let token = token.to_owned();
-    let environment = ops.environment().clone();
+    let environment = namespace.clone();
     let now = ops.local_narrowing_now().await;
     ops.local_write(move |tx, emit| {
         let Some(mut op) = tx.operation(&id)? else {
@@ -1519,13 +1756,13 @@ async fn start_attempt(ops: &Operations, id: &OperationId, token: &str) -> Resul
 /// The one `apply` of an operation.
 async fn execute(
     ops: &Operations,
-    writer: &Arc<dyn ProjectionWriter>,
+    t: &ProjectionTarget,
     id: &OperationId,
     intent: &SetupIntent,
     token: &str,
 ) -> Result<(), OpError> {
-    let sink = StoreSink::new(ops, id, intent, token);
-    let w = Arc::clone(writer);
+    let sink = StoreSink::new(ops, id, intent, token, &t.namespace);
+    let w = Arc::clone(&t.writer);
     let i = intent.clone();
     let (result, wrote) = blocking(move || {
         let mut sink = sink;
@@ -1534,7 +1771,7 @@ async fn execute(
     })
     .await?;
     match result {
-        Ok(receipt) => settle(ops, id, intent, receipt.items).await,
+        Ok(receipt) => settle(ops, &t.namespace, id, intent, receipt.items).await,
         Err(ReconcileError::IntentInvalid(_)) if !wrote => {
             fail_unwritten(
                 ops,
@@ -1563,7 +1800,7 @@ async fn execute(
 /// `apply`.
 async fn reconcile_op(
     ops: &Operations,
-    writer: &Arc<dyn ProjectionWriter>,
+    t: &ProjectionTarget,
     op: &OperationRecord,
     intent: &SetupIntent,
     token: &str,
@@ -1572,8 +1809,8 @@ async fn reconcile_op(
     let Some(receipts) = st.receipts else {
         return unresolved(ops, &st.op, UNREADABLE_RECEIPTS).await;
     };
-    let sink = StoreSink::new(ops, &op.id, intent, token);
-    let w = Arc::clone(writer);
+    let sink = StoreSink::new(ops, &op.id, intent, token, &t.namespace);
+    let w = Arc::clone(&t.writer);
     let i = intent.clone();
     let r = local_only(&receipts);
     let result = blocking(move || {
@@ -1582,7 +1819,7 @@ async fn reconcile_op(
     })
     .await?;
     match result {
-        Ok(rec) => settle(ops, &op.id, intent, rec.items).await,
+        Ok(rec) => settle(ops, &t.namespace, &op.id, intent, rec.items).await,
         Err(ReconcileError::UnreadableReceipt(_)) => {
             unresolved(ops, &st.op, UNREADABLE_RECEIPTS).await
         }
@@ -1593,6 +1830,12 @@ async fn reconcile_op(
         )
         .with_effect(EffectStatus::Unknown)
         .with_operation(op.id.clone())),
+        // ⟨M04 U3b⟩ A distribution's writer that is not reachable now (stopped, its helper
+        // unavailable) keeps the operation unresolved with that reason: a retained
+        // obligation, reconciled when it is reachable again.
+        Err(ReconcileError::Unavailable(why)) if t.distribution.is_some() => {
+            unresolved(ops, &st.op, unavailable_reason(&why)).await
+        }
         Err(_) => unresolved(ops, &st.op, reason::DRIVER_UNAVAILABLE).await,
     }
 }
@@ -1740,8 +1983,18 @@ fn setup_result(
                 state,
             });
         }
+        // ⟨M04 U3b⟩ Inside a distribution's namespace the writer's item is `git` (its
+        // record and receipts); the caller asked for, and is answered with,
+        // `distribution_git`.
+        let wire_item = if item == ProjectionItem::Git
+            && matches!(distribution_form(&intent.intent), Ok(Some(_)))
+        {
+            ProjectionItem::DistributionGit
+        } else {
+            item
+        };
         items.push(heimdall_contract::setup::ItemOutcome {
-            item,
+            item: wire_item,
             outcome: kind,
             files,
         });
@@ -1838,13 +2091,14 @@ fn wire_name<T: serde::Serialize>(v: &T) -> Option<String> {
 /// and publish one `resource_changed` per item (one transaction).
 async fn settle(
     ops: &Operations,
+    namespace: &EnvironmentId,
     id: &OperationId,
     intent: &SetupIntent,
     outcomes: Vec<ItemOutcome>,
 ) -> Result<(), OpError> {
     let id = id.clone();
     let intent = intent.clone();
-    let environment = ops.environment().clone();
+    let environment = namespace.clone();
     let retention = ops.local_retention();
     let now = ops.local_narrowing_now().await;
     ops.local_write(move |tx, emit| {
@@ -2029,7 +2283,7 @@ fn hand_to_cleaner(
 /// a decision.
 async fn drive_held_repair(
     ops: &Operations,
-    writer: &Arc<dyn ProjectionWriter>,
+    t: &ProjectionTarget,
     repair: &OperationRecord,
     intent: &SetupIntent,
     resolution: RepairResolution,
@@ -2047,22 +2301,35 @@ async fn drive_held_repair(
     else {
         return finish_repair(ops, &repair.id, Err(stored_error(&held.op))).await;
     };
+    // ⟨M04 U3b⟩ The held operation's own writer and namespace (its intent names them).
+    let ht = match target_for(ops, &held_intent.intent, t.start).await {
+        Ok(ht) => ht,
+        Err(e) => return finish_repair(ops, &repair.id, Err(e)).await,
+    };
     if !held.op.state.is_settled() {
         match resolution {
             RepairResolution::RetryHeld => {
                 let token = attempt_token(&held_receipts).unwrap_or_default();
-                reconcile_op(ops, writer, &held.op, &held_intent, &token).await?;
+                reconcile_op(ops, &ht, &held.op, &held_intent, &token).await?;
             }
             _ => {
                 if !is_held(&held.op, &held_receipts) {
                     return finish_repair(ops, &repair.id, Err(stale())).await;
                 }
-                let steps = observe_held(writer, &held_intent, &held_receipts).await?;
+                let steps = observe_held(&ht.writer, &held_intent, &held_receipts).await?;
                 if held_digest(&intent.intent, target, &held_intent, &steps)? != intent.plan_digest
                 {
                     return finish_repair(ops, &repair.id, Err(stale())).await;
                 }
-                keep(ops, &held.op, &held_intent, &held_receipts, steps).await?;
+                keep(
+                    ops,
+                    &ht.namespace,
+                    &held.op,
+                    &held_intent,
+                    &held_receipts,
+                    steps,
+                )
+                .await?;
             }
         }
     }
@@ -2177,6 +2444,7 @@ async fn finish_repair(
 /// entry it left in `remaining`. No file moves; nothing goes to the cleaner.
 async fn keep(
     ops: &Operations,
+    namespace: &EnvironmentId,
     held: &OperationRecord,
     intent: &SetupIntent,
     receipts: &[StageReceipt],
@@ -2224,7 +2492,7 @@ async fn keep(
             .collect();
         outcomes.push(ItemOutcome::Held { item, steps: mine });
     }
-    let mut sink = StoreSink::new(ops, &held.id, intent, &token);
+    let mut sink = StoreSink::new(ops, &held.id, intent, &token, namespace);
     blocking(move || closing.iter().try_for_each(|r| sink.append(r)))
         .await?
         .map_err(|e| {
@@ -2238,7 +2506,7 @@ async fn keep(
     let id = held.id.clone();
     let retention = ops.local_retention();
     let now = ops.local_narrowing_now().await;
-    let environment = ops.environment().clone();
+    let environment = namespace.clone();
     let generation = intent.generation;
     ops.local_write(move |tx, emit| {
         let Some(mut op) = tx.operation(&id)? else {
@@ -2286,12 +2554,18 @@ pub(crate) struct StoreSink {
 }
 
 impl StoreSink {
-    fn new(ops: &Operations, operation: &OperationId, intent: &SetupIntent, token: &str) -> Self {
+    fn new(
+        ops: &Operations,
+        operation: &OperationId,
+        intent: &SetupIntent,
+        token: &str,
+        namespace: &EnvironmentId,
+    ) -> Self {
         Self {
             store: ops.local_store(),
             clock: ops.local_clock(),
             operation: operation.clone(),
-            environment: ops.environment().clone(),
+            environment: namespace.clone(),
             intent: intent.clone(),
             token: token.to_owned(),
             wrote: false,

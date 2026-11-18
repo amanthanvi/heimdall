@@ -151,6 +151,11 @@ pub(crate) fn child_command(
     for (name, value) in &delta.set {
         command.env(name, value);
     }
+    // ⟨M04 U2⟩ An OpenSSH client gets what OpenSSH for Windows needs to start, from the OS,
+    // when the caller's environment lacks it; any other program is left as it is.
+    if heimdall_localenv::sys::openssh_env::is_ssh_program(program.path.as_os_str()) {
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment(&mut command, true);
+    }
     command
 }
 

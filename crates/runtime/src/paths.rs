@@ -27,14 +27,43 @@
 //! other permission bits on such a directory are removed through the handle
 //! (`fchmod`), never through the path. A directory owned by another user, or a
 //! symlink at a leaf, is refused. Parents (`~/.config`, `$XDG_RUNTIME_DIR`) are not
-//! modified. **Windows:** directories are created under `%LOCALAPPDATA%`, which
-//! inherits the per-user ACL; explicit DACL hardening is M04 work (native
-//! evidence).
+//! modified.
+//!
+//! **Windows state directory** (ADR-0010 §1 item 7; ADR-0006 §13.12 item 4). The
+//! config, runtime and log directories are created under `%LOCALAPPDATA%` and inherit
+//! the per-user ACL. The **state** directory (database, backups, instance lock) is
+//! created with an explicit protected, owner-only DACL
+//! ([`platform::state_dir_acl::create_protected_dir`]), so a fresh installation starts.
+//! An **existing** one must already have that shape: anything else (the inherited ACL
+//! of an installation from before M04 included) is refused as [`StateDirUnsafe`]
+//! (`state_dir_unsafe`, [`is_state_dir_unsafe`]) and is **never repaired**: Heimdall
+//! does not rewrite an ACL it did not create. Unix keeps its `fchmod` tightening, which
+//! is an owner-only narrowing of a directory the user owns.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::config::ConfigError;
+#[cfg(windows)]
+use crate::platform;
+
+/// The state directory exists and is not protected owner-only (Windows; ADR-0010 §1
+/// item 7). Carried inside an [`std::io::Error`] of kind `PermissionDenied`, so it
+/// travels as [`ConfigError::Io`]; [`is_state_dir_unsafe`] recovers it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("state_dir_unsafe: {0}")]
+pub struct StateDirUnsafe(pub &'static str);
+
+/// Whether `err` is the refusal of an unsafe state directory.
+#[must_use]
+pub fn is_state_dir_unsafe(err: &ConfigError) -> bool {
+    match err {
+        ConfigError::Io(e) => e
+            .get_ref()
+            .is_some_and(|inner| inner.downcast_ref::<StateDirUnsafe>().is_some()),
+        _ => false,
+    }
+}
 
 /// Environment variable that relocates every directory under one root.
 pub const HOME_ENV: &str = "HEIMDALL_HOME";
@@ -108,7 +137,7 @@ impl Paths {
             &self.runtime_dir,
             &self.log_dir,
         ] {
-            ensure_owner_only_dir(dir)?;
+            ensure_owner_only_dir(dir, dir == &self.state_dir)?;
         }
         Ok(())
     }
@@ -154,9 +183,11 @@ impl Paths {
     }
 }
 
-/// Create `dir` owner-only or verify an existing one (module docs).
+/// Create `dir` owner-only or verify an existing one (module docs). `state` marks the
+/// state directory, which Windows protects with an explicit DACL; Unix treats every
+/// directory alike.
 #[cfg(unix)]
-fn ensure_owner_only_dir(dir: &Path) -> Result<(), ConfigError> {
+fn ensure_owner_only_dir(dir: &Path, _state: bool) -> Result<(), ConfigError> {
     use std::io::{Error, ErrorKind};
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 
@@ -203,12 +234,36 @@ fn ensure_owner_only_dir(dir: &Path) -> Result<(), ConfigError> {
     Ok(())
 }
 
-/// Windows: create under `%LOCALAPPDATA%` (per-user inherited ACL) and require a
-/// real directory, not a reparse point.
+/// Windows: the config, runtime and log directories are created under
+/// `%LOCALAPPDATA%` (per-user inherited ACL) and must be real directories, not reparse
+/// points. The state directory (`state`) is created with an explicit protected
+/// owner-only DACL, and an existing one must already have it (module docs).
 #[cfg(not(unix))]
-fn ensure_owner_only_dir(dir: &Path) -> Result<(), ConfigError> {
+fn ensure_owner_only_dir(dir: &Path, state: bool) -> Result<(), ConfigError> {
     use std::io::{Error, ErrorKind};
-    std::fs::create_dir_all(dir)?;
+    if state {
+        match std::fs::symlink_metadata(dir) {
+            Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                if let Some(parent) = dir.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                #[cfg(windows)]
+                match platform::state_dir_acl::create_protected_dir(dir) {
+                    Ok(()) => {}
+                    // Created by someone since the check: the existing-directory check
+                    // below decides.
+                    Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(e.into()),
+                }
+                #[cfg(not(windows))]
+                std::fs::create_dir_all(dir)?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    } else {
+        std::fs::create_dir_all(dir)?;
+    }
     let meta = std::fs::symlink_metadata(dir)?;
     if !meta.file_type().is_dir() || meta.file_type().is_symlink() {
         return Err(Error::new(
@@ -216,6 +271,17 @@ fn ensure_owner_only_dir(dir: &Path) -> Result<(), ConfigError> {
             "a heimdall directory path is not a real directory",
         )
         .into());
+    }
+    #[cfg(windows)]
+    if state {
+        let verdict = platform::state_dir_acl::check_owner_only(dir)?;
+        if verdict != platform::state_dir_acl::Verdict::OwnerOnly {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                StateDirUnsafe(verdict.describe()),
+            )
+            .into());
+        }
     }
     Ok(())
 }

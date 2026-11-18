@@ -431,3 +431,67 @@ This ADR is reopened when any of these happens:
     - **Q4:** as item 6.
     - **Q5:** as item 9.
     - **Q6:** yes. Recipe A and hardware working keys are deferred again, to be reopened only for an observed target without certificate support.
+
+## 10. Wave 1: the integrator's decisions (2026-11-18; pending the wave's review)
+
+**Source:** M04 wave 1 (U1, U2, U3a/U3b, U5, U6). Readings put to the contract owner are in
+`.m04-questions.md` (I-1 to I-10); the track builds on them provisionally.
+
+**The provisional readings built on:**
+- **I-1, the decision kind:** adding a container (or, in wave 2, a Mode B distribution) is
+  decision-recorded as `AddEnvironment {environment, realization, disclosures}`.
+- **I-2, removals:** `container remove` and `wsl disable` take authority away and execute for
+  the owner, with no decision.
+- **I-3, non-Linux hosts:** a host that is not Linux refuses `container add` as
+  `driver_unavailable`.
+- **I-4, I-5, routes:** the jump must be a managed-definition destination with no route of its
+  own. Verified-scope evidence holds through exactly the catalog's current single-hop jump.
+- **I-6, Mode A listing:** a Mode A distribution's items are recorded under a projection
+  namespace that is never in the managed set. `inspect environments` lists it under that
+  namespace.
+- **I-7, results:** a completed environment request answers `{"environment": <EnvironmentView>}`.
+- **I-8, the login entry:** it is attended but not journaled.
+- **I-10, container bindings:** in a container environment, a same-work `ensure` takes the stable
+  directory over.
+
+**Authority decisions:**
+1. **The store admits a commit into a WSL namespace only from its own environment.** A projection
+   item may be committed into a namespace other than the operation's environment only when a WSL
+   distribution record of the same store holds that namespace, and the operation belongs to the
+   store's own environment (`Txn::commit_projection_item`). Every other cross-environment commit
+   is refused, as before.
+   - **Test:** the existing store commit test was extended with the refusals.
+   - **Mutation check:** dropping the own-environment condition fails it (exit 101); restored, it
+     passes (exit 0).
+2. **Only the owner's own request may start a stopped distribution.** A setup operation's driver
+   may start a stopped distribution only while the owner's own setup request, or the attended
+   approval of its `ApplyProjection` decision, leads it.
+   - Restart recovery, the supervisor and the cleanup executor never start one.
+   - A distribution operation they cannot reach stays unresolved: a retained obligation, driven
+     again when the host is wired and at the owner's next `wsl enable` or `wsl disable` (§9
+     item 2).
+3. **Uninstall never starts a distribution.** A stopped Mode A distribution keeps its rollback as
+   an obligation, and uninstall then stays incomplete, so the state store that holds the
+   obligation is kept.
+4. **What OpenSSH for Windows needs to start is filled from the OS** (the M03 exit suite's
+   Windows diagnosis).
+   - Every product launch of `ssh.exe` gets `ProgramData`, `ALLUSERSPROFILE`, `windir` and
+     `SystemDrive`, from the known-folder APIs, but only when the child would lack them.
+   - Nothing else is added, and a present value is never changed.
+
+**Residuals (ADR-0009 §2.1; probes named):**
+- **The spawn-lock window.** A concurrent std `Command::spawn` can inherit a listed spawn's
+  three child-side pipe ends during one `CreateProcessW`. It stays open until the remaining
+  spawn sites are converted: the owned `ssh` master and its `-O` calls, enrollment
+  verification, and the CLI-side children.
+  - **Probe:** `runtime_child_inherits_only_listed_handles`.
+- **The sub-uid row's container user can't traverse the 0700 directory,** so the peer-uid check
+  is exercised alone only by rootful root.
+  - **Probe:** `a15_container_mounted_flow`'s errno record.
+- **The forwarded-agent case runs only where the sshd keeps the socket outside the account's
+  `~/.ssh`.** OpenSSH 10.1 and later put a forwarded agent's listener under the account's
+  `~/.ssh/agent/`, and the fixture sshd runs as the owner. So `a15_forwarded_endpoint_bounded_to_binding`
+  runs where the sshd uses `/tmp` (the devbox's 9.6p1), or with an explicit scratch-account
+  opt-in.
+- **The login entry shows a console window briefly.** `service run --login` detaches from the
+  console the Run value opens (`FreeConsole`), so a window may still flash at login.

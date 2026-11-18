@@ -11,7 +11,10 @@
 //!   exactly through its type and validates against its generated public schema;
 //! * `rev5_capabilities_declared_not_offered_and_required`: `environments/1` and
 //!   `trusted-work/1` exist, are what the new request forms require, and the M01–M03
-//!   forms still require nothing new;
+//!   forms still require nothing new. ⟨M04 U5⟩ `environments/1` is now **offered** (the
+//!   container requests are served); the offered set is pinned where `heimdall-ipc` is
+//!   reachable, `ipc::session::tests::the_revision_5_offer_is_environments_only`, and
+//!   `trusted-work/1` stays declared and not offered until M05;
 //! * `rev5_m01_m03_forms_unchanged`: every pre-revision-5 example decodes into the
 //!   extended types and re-encodes byte-identically, and none uses a revision-5 form.
 //!

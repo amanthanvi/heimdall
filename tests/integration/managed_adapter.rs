@@ -356,6 +356,7 @@ fn prepare_pairs(pairs: &[AccessPair]) -> Vec<PreparePair> {
             account: p.account.clone(),
             identity: identity_record(),
             alias: Some(p.destination.as_str().to_owned()),
+            route: None,
         })
         .collect()
 }
@@ -391,6 +392,7 @@ fn approved_eval(p: &AccessPair) -> TargetEvaluation {
         port: 22,
         user: p.account.as_str().to_owned(),
         proxy: ProxyRoute::None,
+        proxy_jump: None,
         determinism: Determinism::Determined,
         host_keys: vec![RawHostKey {
             key_type: "ssh-ed25519".into(),

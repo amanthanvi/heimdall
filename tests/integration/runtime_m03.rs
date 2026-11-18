@@ -4257,6 +4257,7 @@ mod round2 {
                 updated_at: t0(),
             },
             alias: Some(format!("{dest}-alias")),
+            route: None,
         }
     }
 
@@ -6387,30 +6388,21 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             Code::CapabilityUnavailable,
         ),
         (
-            "wsl_disable",
-            example("request.environment.wsl-disable.json"),
-            Code::CapabilityUnavailable,
-        ),
-        (
             "container_add",
             example("request.environment.container-add.json"),
             Code::CapabilityUnavailable,
         ),
+        // ⟨M04 U5⟩ `container_remove` is served: the example names an environment this
+        // runtime does not manage, which is `NOT_FOUND` (nothing written). `container_add`
+        // above still answers `driver_unavailable` here: this world wires no effects, so its
+        // host check (a Linux-native runtime with the container effects) refuses first.
         (
             "container_remove",
             example("request.environment.container-remove.json"),
-            Code::CapabilityUnavailable,
+            Code::NotFound,
         ),
-        (
-            "upsert_destination with a jump",
-            request(serde_json::json!({
-                "op": "catalog", "action": "upsert_destination", "request_id": "rev5-jump",
-                "destination": {"id": "lab-db", "alias": "lab-db", "definition": {
-                    "kind": "managed", "hostname": "db.example.invalid", "account": "deploy",
-                    "identity": "idn_00112233445566778899aabbccddeeff", "jump": "bastion"}}
-            })),
-            Code::CapabilityUnavailable,
-        ),
+        // ⟨M04 U6⟩ `upsert_destination` with a jump is built (route rules in the upsert's own
+        // transaction); its row left this table. Covered by `e2e_route_m04`.
         (
             "setup preview of a login entry",
             request(serde_json::json!({"op": "setup", "action": "preview",
@@ -6527,6 +6519,17 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
                 assert_driver_unavailable(&env, what);
             }
         }
+    }
+    // ⟨M04 U3b⟩ `wsl_disable` is served now: a runtime without WSL refuses it
+    // `wsl_unavailable`, before anything is read or written. (`wsl_enable` above names Mode
+    // B, which stays `driver_unavailable` until U4.)
+    for caller in [attended(ClientRole::Owner), unattended(ClientRole::Owner)] {
+        let env = d
+            .handle_as(&caller, example("request.environment.wsl-disable.json"))
+            .await;
+        assert_fail_closed(&env, "wsl_disable without WSL");
+        assert_eq!(env.code, Code::CapabilityUnavailable, "{:?}", env.data);
+        assert_eq!(reason_of(&env), Some("wsl_unavailable"));
     }
     // An environment request from a non-owner: the role refusal, no driver reason.
     let env = d

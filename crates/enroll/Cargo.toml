@@ -17,6 +17,10 @@ heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
 heimdall-registry = { workspace = true }
 heimdall-app = { workspace = true }
+# ⟨M04 U2⟩ The environment OpenSSH for Windows needs to start (`sys::openssh_env`), filled
+# into the verification and remote-step `ssh` launches (the M03 exit suite's Windows
+# diagnosis). A production edge enroll -> localenv; no cycle (localenv never reaches enroll).
+heimdall-localenv = { workspace = true }
 thiserror = { workspace = true }
 # M03 wave 1 (U5-io; already pinned in [workspace.dependencies]): the Verifier's
 # bounded client runs (tokio `process`, `io-util`, `time`) and its

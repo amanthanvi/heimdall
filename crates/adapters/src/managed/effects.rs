@@ -52,7 +52,9 @@ use heimdall_contract::ids::{
     BindingId, DestinationId, EnvironmentId, GrantId, IssuanceId, ResourceId,
 };
 use heimdall_contract::provider::EndpointRef;
-use heimdall_credential::endpoints::{EndpointError, EndpointRegistry, endpoint_resource};
+use heimdall_credential::endpoints::{
+    EndpointError, EndpointPlacement, EndpointRegistry, EndpointTag, endpoint_resource,
+};
 use heimdall_credential::table::{InstallRefusal, SignerTable};
 use heimdall_domain::issuance::IssuanceEntry;
 use heimdall_domain::resource::ResourceGeneration;
@@ -69,6 +71,34 @@ pub trait GrantScopes: Send + Sync {
     fn pairs(&self, grant: &GrantId) -> Option<Vec<AccessPair>> {
         let _ = grant;
         None
+    }
+
+    /// ⟨M04⟩ U5 (design §4): where `grant`'s binding endpoint goes, from the grant's
+    /// environment and its realization. The default is the native placement (every M03
+    /// store); the runtime's store source names a container environment's stable directory.
+    ///
+    /// # Errors
+    /// [`AdapterError`] when the store cannot say: nothing is created (fail closed).
+    fn placement(&self, grant: &GrantId) -> Result<EndpointPlacement, AdapterError> {
+        let _ = grant;
+        Ok(EndpointPlacement::Native)
+    }
+
+    /// ⟨M04⟩ U5 (design §5): what a container binding's `ssh_config` and `known_hosts` are
+    /// rendered from, for `pairs` of `grant`: each pair's alias, `HostName`, `Port`, `User`
+    /// and approved host key. The default has none: a container binding is then refused.
+    ///
+    /// # Errors
+    /// [`AdapterError`]; the default is `container_config_unavailable`.
+    fn container_pairs(
+        &self,
+        grant: &GrantId,
+        pairs: &[AccessPair],
+    ) -> Result<Vec<heimdall_localenv::container::ContainerPair>, AdapterError> {
+        let _ = (grant, pairs);
+        Err(AdapterError::Unavailable(
+            CONTAINER_CONFIG_UNAVAILABLE.to_owned(),
+        ))
     }
 }
 
@@ -104,6 +134,33 @@ pub trait BindingEndpoints: Send + Sync {
         ))
     }
 
+    /// ⟨M04⟩ U5 (design §4): [`Self::create_binding_endpoint`] at `placement`. The default
+    /// serves the native placement through the method above, and refuses a container
+    /// placement (an implementor that does not realize containers creates none).
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn create_binding_endpoint_at(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+        placement: &EndpointPlacement,
+    ) -> Result<EndpointRef, AdapterError> {
+        match placement {
+            EndpointPlacement::Native => self.create_binding_endpoint(binding, generation),
+            EndpointPlacement::Container { .. } => Err(AdapterError::Unavailable(
+                BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+            )),
+        }
+    }
+
+    /// ⟨M04⟩ U5: stop whatever serves container environment `dir_tag`'s stable endpoint
+    /// (every binding and generation at that path); returns how many were stopped.
+    fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
+        let _ = dir_tag;
+        0
+    }
+
     /// Stop and remove `binding`'s endpoint of exactly `generation` (its socket and
     /// private directory), when it runs; another generation is untouched. Returns
     /// whether one was removed. The default removes nothing.
@@ -130,6 +187,15 @@ impl BindingEndpoints for EndpointRegistry {
         binding: &BindingId,
         generation: u64,
     ) -> Result<EndpointRef, AdapterError> {
+        self.create_binding_endpoint_at(binding, generation, &EndpointPlacement::Native)
+    }
+
+    fn create_binding_endpoint_at(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+        placement: &EndpointPlacement,
+    ) -> Result<EndpointRef, AdapterError> {
         let at = ResourceGeneration(generation);
         for _ in 0..2 {
             if let Some((e, g)) = EndpointRegistry::binding_endpoint(self, binding)
@@ -137,7 +203,7 @@ impl BindingEndpoints for EndpointRegistry {
             {
                 return Ok(e);
             }
-            match self.create_binding(binding, at) {
+            match self.create_binding_at(binding, at, placement) {
                 Ok(e) => return Ok(e),
                 // Created concurrently at this generation: read it back.
                 Err(EndpointError::AlreadyRunning) => {}
@@ -151,6 +217,10 @@ impl BindingEndpoints for EndpointRegistry {
         Err(AdapterError::Unavailable(
             BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
         ))
+    }
+
+    fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
+        self.remove_container(dir_tag)
     }
 
     fn remove_binding_endpoint(
@@ -185,6 +255,9 @@ pub const DEFAULT_CALL_TIMEOUT: Duration = heimdall_app::ports::DEFAULT_ADAPTER_
 pub const GRANT_SCOPE_UNAVAILABLE: &str = "grant_scope_unavailable";
 /// The `AdapterError::Unavailable` text when the binding has no endpoint.
 pub const BINDING_ENDPOINT_UNAVAILABLE: &str = "binding_endpoint_unavailable";
+/// ⟨M04⟩ The `AdapterError::Unavailable` text when a container binding's pairs cannot be
+/// rendered (no enrollment, no approved host key, or no store source).
+pub const CONTAINER_CONFIG_UNAVAILABLE: &str = "container_config_unavailable";
 /// ⟨§17.21 item 2⟩ The `AdapterError::Protocol` text of a slots-only `materialize`
 /// for a binding this instance did not materialize.
 pub const BINDING_NOT_MATERIALIZED: &str = "binding_not_materialized";
@@ -267,6 +340,10 @@ pub struct ManagedEffectsImpl {
     state: Arc<Mutex<State>>,
     slot_locks: SlotLocks,
     slot_store: Arc<dyn SlotStore>,
+    /// ⟨M04⟩ **Test switch** ([`Self::with_test_container_host`]): treat this host as one that
+    /// realizes container environments, so the engine-free cases run off Linux. Never set in
+    /// production wiring except by the debug-build test configuration.
+    test_container_host: bool,
 }
 
 impl std::fmt::Debug for ManagedEffectsImpl {
@@ -324,7 +401,17 @@ impl ManagedEffectsImpl {
             state: Arc::new(Mutex::new(State::default())),
             slot_locks: Arc::default(),
             slot_store: Arc::new(NoSlotStore),
+            test_container_host: false,
         }
+    }
+
+    /// ⟨M04⟩ **Test switch:** realize container environments on this host although it is not
+    /// Linux (ADR-0010 §4 item 7 refuses that in production), so the engine-free container
+    /// cases run on a developer machine. It changes nothing on Linux.
+    #[must_use]
+    pub fn with_test_container_host(mut self) -> Self {
+        self.test_container_host = true;
+        self
     }
 
     /// With the store side of the slot table that a slot write re-validates against
@@ -738,11 +825,13 @@ impl ManagedEffects for ManagedEffectsImpl {
                 "one_certificate_per_pair".to_owned(),
             ));
         }
+        // ⟨M04⟩ U5 (design §4): where the grant's environment puts the endpoint.
+        let placement = self.scopes.placement(&grant)?;
         // The endpoint first (it lists nothing until the binding is attached below).
         let created = if self.endpoints.binding_endpoint(binding).is_none() {
             Some(
                 self.endpoints
-                    .create_binding_endpoint(binding, spec.generation)?,
+                    .create_binding_endpoint_at(binding, spec.generation, &placement)?,
             )
         } else {
             None
@@ -765,15 +854,37 @@ impl ManagedEffects for ManagedEffectsImpl {
             .iter()
             .map(|c| (c.pair.destination.clone(), c.certificate.clone()))
             .collect();
-        let mut written =
-            match files::write_binding_files(&files, binding, spec.generation, &public_key, &certs)
-            {
-                Ok(w) => w,
-                Err(e) => {
-                    undo();
-                    return Err(adapter_from_files(&e));
+        let written = match &placement {
+            EndpointPlacement::Native => {
+                files::write_binding_files(&files, binding, spec.generation, &public_key, &certs)
+            }
+            // ⟨M04⟩ A container's directory also holds the in-container `ssh_config` and
+            // the approved `known_hosts` of the binding's pairs (design §5).
+            EndpointPlacement::Container { .. } => {
+                let rendered = self.container_files(&grant, &certificates);
+                match rendered {
+                    Ok((ssh_config, known_hosts)) => files::write_container_files(
+                        &files,
+                        binding,
+                        spec.generation,
+                        &public_key,
+                        &certs,
+                        (&ssh_config, &known_hosts),
+                    ),
+                    Err(e) => {
+                        undo();
+                        return Err(e);
+                    }
                 }
-            };
+            }
+        };
+        let mut written = match written {
+            Ok(w) => w,
+            Err(e) => {
+                undo();
+                return Err(adapter_from_files(&e));
+            }
+        };
         // The files exist: now the endpoint lists the grant's certificates.
         if attached.is_none() {
             self.table.attach_binding(binding, &grant);
@@ -841,9 +952,65 @@ impl ManagedEffects for ManagedEffectsImpl {
         }
         Ok(())
     }
+
+    fn container_host_supported(&self) -> bool {
+        cfg!(target_os = "linux") || self.test_container_host
+    }
+
+    fn container_directory(&self, dir_tag: &str) -> Option<PathBuf> {
+        let tag = EndpointTag::parse(dir_tag)?;
+        Some(
+            self.runtime_dir
+                .join(heimdall_credential::endpoints::CONTAINER_DIR)
+                .join(tag.as_str()),
+        )
+    }
+
+    #[cfg(unix)]
+    fn container_directory_create(&self, dir_tag: &str) -> Result<PathBuf, AdapterError> {
+        let tag = EndpointTag::parse(dir_tag)
+            .ok_or_else(|| AdapterError::Protocol("container_directory_tag".to_owned()))?;
+        files::ensure_container_dir(&self.runtime_dir, &tag).map_err(|e| adapter_from_files(&e))
+    }
+
+    #[cfg(unix)]
+    fn container_directory_remove(
+        &self,
+        dir_tag: &str,
+    ) -> Result<heimdall_app::ports::ContainerRemoval, AdapterError> {
+        let tag = EndpointTag::parse(dir_tag)
+            .ok_or_else(|| AdapterError::Protocol("container_directory_tag".to_owned()))?;
+        // What serves the path stops first; then the directory's own entries go.
+        self.endpoints.remove_container_endpoints(tag.as_str());
+        let r = files::remove_container_dir(&self.runtime_dir, &tag)
+            .map_err(|e| adapter_from_files(&e))?;
+        // Forget the bindings' remembered files: they no longer exist.
+        self.lock()
+            .bindings
+            .retain(|_, f| !f.directory.ends_with(tag.as_str()));
+        Ok(heimdall_app::ports::ContainerRemoval {
+            removed: r.removed,
+            left: r.left,
+            directory_gone: r.directory_gone,
+        })
+    }
 }
 
 impl ManagedEffectsImpl {
+    /// ⟨M04⟩ The `ssh_config` and `known_hosts` of a container binding's `certificates`
+    /// (one per pair), from the grant's enrollments' approved targets.
+    fn container_files(
+        &self,
+        grant: &GrantId,
+        certificates: &[MaterializedCertificate],
+    ) -> Result<(String, String), AdapterError> {
+        let pairs: Vec<AccessPair> = certificates.iter().map(|c| c.pair.clone()).collect();
+        let sources = self.scopes.container_pairs(grant, &pairs)?;
+        heimdall_localenv::container::render(&sources)
+            .map(|f| (f.ssh_config, f.known_hosts))
+            .map_err(|e| AdapterError::Protocol(format!("{CONTAINER_CONFIG_UNAVAILABLE}: {e}")))
+    }
+
     /// The grant whose live K_env, generated through this instance, is `public_key`.
     fn grant_of_key(&self, public_key: &str) -> Option<GrantId> {
         let wanted = public_key.trim_end();

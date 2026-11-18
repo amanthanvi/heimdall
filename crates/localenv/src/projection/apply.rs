@@ -144,6 +144,7 @@ pub fn apply(
     intent
         .validate()
         .map_err(|e| ReconcileError::IntentInvalid(e.to_string()))?;
+    check_distribution(config, intent)?;
     let mut run = Run::new(config, intent, Some(sink), Vec::new())?;
     let items = run.apply_all()?;
     run.tidy();
@@ -163,11 +164,34 @@ pub fn reconcile(
     intent
         .validate()
         .map_err(|e| ReconcileError::IntentInvalid(e.to_string()))?;
+    check_distribution(config, intent)?;
     let mut run = Run::new(config, intent, Some(sink), receipts.to_vec())?;
     run.content_check()?;
     let items = run.reconcile_all()?;
     run.tidy();
     Ok(ProjectionReconcile { items })
+}
+
+/// ⟨M04⟩ Design §3.2a: the native writer refuses an intent naming a distribution, and a
+/// distribution's writer refuses one naming another and any file step outside the Git
+/// item (a distribution's SSH files are never touched in Mode A). Nothing is written.
+fn check_distribution(
+    config: &ProjectionConfig,
+    intent: &SetupIntent,
+) -> Result<(), ReconcileError> {
+    super::plan::distribution_rule(config, &intent.intent)
+        .map_err(|r| ReconcileError::IntentInvalid(r.to_owned()))?;
+    if config.distribution.is_some()
+        && intent
+            .files
+            .iter()
+            .any(|s| s.role.item() != ProjectionItem::Git)
+    {
+        return Err(ReconcileError::IntentInvalid(
+            "a distribution's writer serves the Git item only".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// The held steps of `intent` (passive: nothing is moved or written).
@@ -179,6 +203,7 @@ pub(super) fn held_steps(
     intent
         .validate()
         .map_err(|e| ReconcileError::IntentInvalid(e.to_string()))?;
+    check_distribution(config, intent)?;
     let mut run = Run::new(config, intent, None, receipts.to_vec())?;
     let mut out = Vec::new();
     for item in items_of(intent) {

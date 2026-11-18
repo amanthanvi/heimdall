@@ -156,7 +156,7 @@ M02 adapters are both known callers; no plugin framework exists.
 | `heimdall-credential` (M03) | The B1 signer: key vault with memory protection, certificates, purpose parsing, `session-bind`, the signer and its grant, environment and verification endpoints (ADR-0008 D1, D2; U1, U2) | Authorization (asks `SignatureAuthority`), the store, K_ca | app (ports, managed), ipc, domain, contract, ssh-key, zeroize | `vault`, `cert`, `purpose`, `signer`, `endpoints`, `sys` |
 | `heimdall-issuer` (M03) | The issuer child (no listener) and `heimdall-issuer/1`, its client (`IssuerPort`), the `SecretStore` trait and the product stores, the D5 backup, ceremonies and the recovery bundle (ADR-0008 D3, D4; U3, U4) | A listener of any kind, issuing without a store reservation, writing the store (it opens it read-only) | credential, app (issuance_ro, ports), store, domain, contract | `protocol`, `child`, `client`, `store`, `backup`, `ceremony`, `bundle`, `sys` |
 | `heimdall-enroll` (M03) | Enrollment I/O: the CLI-side `SshStepRunner` (client-executed remote steps) and the runtime-side `Verifier` (`VerificationRunner`, the independent fresh login) (ADR-0008 D5 §6.3, §6.5; U5) | Deciding anything the pure `heimdall-registry` decides; contacting the signer of a managed binding during maintenance | registry, app (ports), domain, contract | `remote`, `verify` |
-| `heimdall-wsl` (M04, skeleton) | WSL distribution discovery, the `heimdall-wsl/1` helper channel and Mode A/B (ADR-0010 §2–§3) | Being imported by `app` (it implements `app` ports; the runtime wires it) | contract, domain now; credential, localenv, ipc, app (ports) planned | none yet |
+| `heimdall-wsl` (M04) | WSL distribution discovery, the `heimdall-wsl/1` helper channel and Mode A/B (ADR-0010 §2–§3) | Being imported by `app` (it implements `app` ports; the runtime wires it) | contract, domain, app (ports), localenv (U3a; credential and ipc planned with the later units) | `proto`, `discover`, `helper`, `client`, `spawn`, `host`; `DistributionHost` is implemented by `WslHost` |
 | `heimdall-project` (M05, skeleton) | The pure manifest parser, access digest, discovery over an `FsView`, `match_workspace` and the portable bundle (ADR-0011 §2.2–§2.4) | Any I/O of its own, any workspace crate but `contract` and `domain` | domain, contract | none yet |
 
 ## 3. Process model (spec §13.1, §13.2, P01)
@@ -369,7 +369,16 @@ four more (4–7 below; ADR-0008 §18, ⟨r7⟩ §17.17 item 5 for the fourth):
    partial scan (review round 3, S04). Unit tests only (`platform::fds::tests`,
    never in a release build): `fcntl(F_DUPFD)` and `OwnedFd::from_raw_fd` for the
    S04 fallback test's descriptor. The module's own table lists each call with
-   its invariant.
+   its invariant. ⟨M04 U1; ADR-0010 §6 item 3, §1 item 7⟩ It also holds two new
+   groups: the read-only time-synchronization queries (`adjtimex` on Linux,
+   `ntp_adjtime` on macOS, both with `modes = 0` on a zeroed `timex`, a negative
+   return an error; they feed `observe_time_sync` for diagnostics only and never the
+   time gate), and, on Windows, the state directory's DACL (`win_acl`:
+   `GetSecurityInfo(OWNER | DACL)` on a `READ_CONTROL` directory handle,
+   `GetSecurityDescriptorControl`, `GetAclInformation`, `GetAce`,
+   `ConvertSidToStringSidW` and `LocalFree` to read it; the SDDL conversion and
+   `CreateDirectoryW` with a `SECURITY_ATTRIBUTES` to create the directory with the
+   protected owner-only DACL exclusively).
 
 3. `crates/localenv/src/sys.rs` (`#![allow(unsafe_code)]`; M02, m02-plan U0, U3, U4).
    Wave 0 declares the module and its safe wrappers with no `unsafe` block yet; U3
@@ -404,6 +413,13 @@ four more (4–7 below; ADR-0008 §18, ⟨r7⟩ §17.17 item 5 for the fourth):
    | `ProcessPin`/`VerifiedProcess` (macOS): `kill` (rustix, safe), `proc_pidpath` | the path length returned is checked before any read; a signal only after the start-token and image match; the window between that check and `kill` is disclosed (D8 item 2) |
    | `ProcessPin`/`VerifiedProcess` (Windows): `OpenProcess(PROCESS_TERMINATE \| PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes`, `GetExitCodeProcess`, `QueryFullProcessImageNameW`, `TerminateProcess` | the creation time and image are read on the handle `TerminateProcess` uses, which pins the process |
 
+   ⟨M04⟩ U2 (ADR-0010 §1 item 6; m04-plan U2) adds `sys/spawn.rs`, the explicit handle-list spawn:
+
+   | Call | Invariant |
+   |---|---|
+   | `spawn::spawn_with_handle_list`, `spawn::spawn_listed`, `ListedChild` (Windows): `CreatePipe` (no security attributes), `SetHandleInformation(HANDLE_FLAG_INHERIT)` on the child's end only, `CreateFileW("NUL")` with an inheritable `SECURITY_ATTRIBUTES`, `InitializeProcThreadAttributeList`, `UpdateProcThreadAttribute(PROC_THREAD_ATTRIBUTE_HANDLE_LIST)`, `CreateProcessW(bInheritHandles = TRUE, EXTENDED_STARTUPINFO_PRESENT \| CREATE_UNICODE_ENVIRONMENT)` with a `STARTUPINFOEXW`, `DeleteProcThreadAttributeList`, `WaitForSingleObject`, `GetExitCodeProcess`, `TerminateProcess` | the list holds exactly the three child-side stream handles, which are also the `STARTUPINFOEXW` standard handles, so no other inheritable handle of this process reaches the child (closing ADR-0006 §13.9); the parent's pipe end is never inheritable, the child's end is marked inheritable only under the spawn lock and is closed when `CreateProcessW` returns; strings, the environment block and the handle array outlive the call; the attribute list is in a pointer-aligned buffer deleted once; process and thread handles are `OwnedHandle`s closed once; `TerminateProcess` runs on the child's own handle, never by PID. A concurrent std `Command::spawn` takes no part in the lock (disclosed residual until every runtime child starts here). Unix: std's spawn, no `unsafe`. |
+   | ⟨M04⟩ `openssh_env::fill_openssh_environment` (Windows; the M03 exit suite's diagnosis): `SHGetKnownFolderPath(FOLDERID_ProgramData \| FOLDERID_Windows, KF_FLAG_DEFAULT, null, &mut path)`, `CoTaskMemFree(path)` | a valid GUID and out-pointer; the shell-allocated wide string is read only up to its NUL (a bounded scan) and freed exactly once with `CoTaskMemFree`, also when the call fails; the values fill only `ProgramData`, `ALLUSERSPROFILE`, `windir` and `SystemDrive`, and only when the child would lack them |
+
    Only a `VerifiedProcess` can be signalled, and only `ProcessPin::verify` makes one:
    from a start token read after the pin and compared by the caller with the persisted
    one (Unix: `platform.rs`'s `process_start_time`, the writer's source; Windows: the
@@ -420,6 +436,17 @@ four more (4–7 below; ADR-0008 §18, ⟨r7⟩ §17.17 item 5 for the fourth):
    Invariant: every level below the anchor is opened relative to its verified parent; a
    symlink or reparse point is refused, an existing directory that is not owner-only is
    refused (`managed_dir_unsafe`) and never repaired, and a directory is never removed.
+
+   ⟨M04⟩ `sys/lxss.rs` (ADR-0010 §2; m04-plan U3; Windows only) adds `lxss::read_entries`,
+   the **read-only** read of `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`:
+   `RegOpenKeyExW` with `KEY_READ` only (never write access), `RegEnumKeyExW`,
+   `RegGetValueW` (`RRF_RT_REG_SZ` for `DistributionName`, `RRF_RT_REG_DWORD` for
+   `Version`, `DefaultUid`, `State`; no other value is read) and `RegCloseKey`.
+   Invariants: the key handle is owned by one `Key` and closed exactly once; every buffer is
+   writable for the byte length passed with that length stated; strings are
+   NUL-terminated for the call; an absent key is an empty list. What an entry *is* (the
+   GUID identity, a missing name) is decided by the pure
+   `heimdall_wsl::discover::parse_lxss_entry`, never here.
 
 ⟨M03⟩ Three more modules may opt in (ADR-0008 §18; m03-plan U0). Wave 0 declares none
 of them: each is created, with its `#![allow(unsafe_code)]` and its own table, by the
@@ -502,6 +529,14 @@ ADR-0007 §12.48 item 2):
   * **How a copy picks its role:** the initializer reads the copy's own file stem. A copy
     therefore never runs libtest, and the original test executable returns from the
     initializer at once.
+
+* ⟨M04 U1⟩ `crates/runtime/src/autostart/windows.rs` (`#![allow(unsafe_code)]`, Windows
+  only): the per-user Run value (ADR-0010 §1 item 2). `RegOpenKeyExW`,
+  `RegCreateKeyExW`, `RegQueryValueExW` (type and size first, then the data into a
+  bounded buffer), `RegSetValueExW` (`REG_SZ`, NUL-terminated UTF-16), `RegDeleteValueW`,
+  `RegCloseKey` (a `Key` guard closes each handle exactly once) and, for test cleanup
+  only, `RegDeleteKeyW` (refused outside `Software\HeimdallTest\`). Every name is a
+  NUL-terminated UTF-16 buffer that outlives its call.
 
 Each call is wrapped in a safe function with its invariants documented; no `unsafe`
 leaves any of these modules. Unix IPC needs none (tokio provides `peer_cred`; std

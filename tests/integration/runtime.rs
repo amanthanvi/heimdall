@@ -3599,3 +3599,97 @@ echo "$r" > "$1.tmp" && mv "$1.tmp" "$1""#;
         );
     }
 }
+
+// =================================================================================
+// ⟨M04 U1⟩ The Windows state directory (ADR-0010 §1 item 7; ADR-0006 §13.12 item 4)
+// =================================================================================
+
+/// An existing state directory that is not protected owner-only is refused
+/// `state_dir_unsafe` and **never repaired**: the directory `create_dir_all` makes under
+/// `%TEMP%` (inherited ACL), and a protected one that also grants Everyone (`icacls`).
+/// Only a directory that already has the protected owner-only DACL passes. Windows native
+/// (the PC); the pure rule is `platform::state_dir_acl_tests`.
+#[cfg(windows)]
+#[test]
+fn windows_state_dir_not_owner_only_is_refused() {
+    use heimdall_runtime::paths::is_state_dir_unsafe;
+    use heimdall_runtime::platform::state_dir_acl::{
+        Verdict, check_owner_only, create_protected_dir,
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = Paths::under(&tmp.path().join("hh"));
+    std::fs::create_dir_all(&layout.state_dir).unwrap();
+    std::fs::write(layout.state_dir.join("marker"), b"mine").unwrap();
+    assert_eq!(
+        check_owner_only(&layout.state_dir).unwrap(),
+        Verdict::NotProtected,
+        "the inherited ACL is what a pre-M04 installation has"
+    );
+    let err = layout.ensure().expect_err("an inherited ACL is refused");
+    assert!(is_state_dir_unsafe(&err), "{err}");
+    assert_eq!(
+        check_owner_only(&layout.state_dir).unwrap(),
+        Verdict::NotProtected,
+        "never repaired"
+    );
+    assert_eq!(
+        std::fs::read(layout.state_dir.join("marker")).unwrap(),
+        b"mine"
+    );
+
+    // Protected, owner-owned, but Everyone may read.
+    let loose = Paths::under(&tmp.path().join("loose"));
+    std::fs::create_dir_all(loose.state_dir.parent().unwrap()).unwrap();
+    create_protected_dir(&loose.state_dir).unwrap();
+    assert_eq!(
+        check_owner_only(&loose.state_dir).unwrap(),
+        Verdict::OwnerOnly
+    );
+    let granted = std::process::Command::new("icacls")
+        .arg(&loose.state_dir)
+        .args(["/grant", "*S-1-1-0:(OI)(CI)R"])
+        .output()
+        .unwrap();
+    assert!(granted.status.success(), "{granted:?}");
+    assert_eq!(
+        check_owner_only(&loose.state_dir).unwrap(),
+        Verdict::ForeignAce
+    );
+    let err = loose.ensure().expect_err("an extra grant is refused");
+    assert!(is_state_dir_unsafe(&err), "{err}");
+    assert_eq!(
+        check_owner_only(&loose.state_dir).unwrap(),
+        Verdict::ForeignAce
+    );
+}
+
+/// The positive case (m04 design review T01/A14): a **fresh** installation starts. The
+/// state directory Heimdall creates has the protected owner-only DACL, so the check at
+/// start passes now and on every restart, and a file created inside inherits it. Windows
+/// native; the real runtime start on a fresh home is `e2e_platform_m04` (`service_login`).
+#[cfg(windows)]
+#[test]
+fn windows_fresh_state_dir_is_created_protected_and_passes_the_start_check() {
+    use heimdall_runtime::platform::state_dir_acl::{Verdict, check_owner_only};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = Paths::under(&tmp.path().join("fresh"));
+    layout.ensure().unwrap();
+    assert_eq!(
+        check_owner_only(&layout.state_dir).unwrap(),
+        Verdict::OwnerOnly
+    );
+    // A restart (the check on the directory it created) and a file inside.
+    std::fs::write(layout.state_dir.join("state.db"), b"db").unwrap();
+    layout.ensure().unwrap();
+    assert_eq!(
+        check_owner_only(&layout.state_dir).unwrap(),
+        Verdict::OwnerOnly
+    );
+    assert_eq!(
+        check_owner_only(&layout.state_dir.join("state.db")).unwrap_or(Verdict::OwnerOnly),
+        Verdict::OwnerOnly,
+        "what is created inside inherits the same owner-only DACL"
+    );
+}

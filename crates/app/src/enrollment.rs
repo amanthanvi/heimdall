@@ -30,7 +30,7 @@ use heimdall_contract::enrollment::{
 use heimdall_contract::ids::{DecisionId, EnrollmentId, ForeignRemovalId};
 use heimdall_contract::provider::{EndpointKind, EndpointRef};
 use heimdall_contract::setup::PlanDigest;
-use heimdall_domain::catalog::IdentitySource;
+use heimdall_domain::catalog::{ApprovedRoute, IdentitySource};
 use heimdall_domain::enrollment::{
     Determinism, EnrollmentRecord, ProxyRoute, ReverifyFrom, TargetEvaluation,
 };
@@ -621,10 +621,49 @@ pub fn known_hosts_line(tag: &str, target: &ApprovedTarget) -> String {
 /// Whether a fresh evaluation is the approved target (D5 §6.3 "Route re-evaluation
 /// before every dispatch"): determined, direct, the same `HostName`, `Port` and
 /// `User`, and exactly the approved host key among the non-revoked known keys.
+/// Direct only: the enrollment steps never go through a jump (`route_unsupported`,
+/// ADR-0010 §5 item 5).
 #[must_use]
 pub fn route_matches(approved: &ApprovedTarget, eval: &TargetEvaluation) -> bool {
-    if eval.determinism != Determinism::Determined || eval.proxy != ProxyRoute::None {
+    route_matches_via(approved, eval, None)
+}
+
+/// ⟨M04 U6; reading I-5, ADR-0010 §9 item 4⟩ [`route_matches`] over a route the
+/// **current catalog** approves (`expected`: the final destination's `Managed.jump`
+/// mapped to that destination's alias).
+/// 1. the evaluation must be `determined`;
+/// 2. direct: exactly [`route_matches`]' rule, whatever the catalog says (direct is
+///    the enrolled target);
+/// 3. a jump: only when `expected` names it and the evaluated `ProxyJump` is exactly
+///    that alias, one hop (no comma, no `user@`, no `:port`, no `%` token, no
+///    whitespace);
+/// 4. a `ProxyCommand` (dynamic), or any other proxy: never.
+///
+/// In every case that does not fail early, the `HostName`, `Port`, `User` and exactly
+/// the approved host key are today's, unchanged. Whether the jump hop itself is
+/// usable is a separate question ([`jump_hop_usable`]): an approved jump whose own host
+/// key changed leaves the evidence in place.
+#[must_use]
+pub fn route_matches_via(
+    approved: &ApprovedTarget,
+    eval: &TargetEvaluation,
+    expected: Option<&ApprovedRoute>,
+) -> bool {
+    if eval.determinism != Determinism::Determined {
         return false;
+    }
+    match eval.proxy {
+        ProxyRoute::None => {}
+        ProxyRoute::Jump => {
+            let (Some(route), Some(jump)) = (expected, eval.proxy_jump.as_deref()) else {
+                return false;
+            };
+            if jump != route.jump_alias || !single_hop_alias(jump) {
+                return false;
+            }
+        }
+        // `ProxyCommand` is dynamic; a proxy this build does not know is not approved.
+        _ => return false,
     }
     if eval.hostname != approved.hostname
         || eval.port != approved.port
@@ -641,6 +680,29 @@ pub fn route_matches(approved: &ApprovedTarget, eval: &TargetEvaluation) -> bool
         && live.iter().all(|k| {
             k.key_type == approved.host_key.algorithm && k.key_b64 == approved.host_key.key
         })
+}
+
+/// A `ProxyJump` value that is one plain hop: a literal alias, with no `,` (multi-hop),
+/// `@` (`user@`), `:` (`:port`), `%` (token), `/`, `[`, whitespace or control
+/// character.
+fn single_hop_alias(jump: &str) -> bool {
+    !jump.is_empty()
+        && jump
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// ⟨M04 U6; reading I-4⟩ The jump hop is usable: the jump alias's static evaluation is
+/// determined, direct, and has exactly one live host key (ADR-0010 §5 item 1's "one
+/// approved host key", checked at use time; catalog-pinned host identity is M06-T03's).
+#[must_use]
+pub fn jump_hop_usable(jump_eval: &TargetEvaluation) -> bool {
+    jump_eval.determinism == Determinism::Determined && jump_eval.proxy == ProxyRoute::None && {
+        let mut live = jump_eval.host_keys.iter().filter(|k| !k.revoked);
+        live.next().is_some_and(|first| {
+            live.all(|k| k.key_type == first.key_type && k.key_b64 == first.key_b64)
+        })
+    }
 }
 
 /// The version token of a client version line: `OpenSSH_10.5p1, LibreSSL …` →
@@ -670,12 +732,32 @@ pub fn evidence_client_current(evidence_client: &str, current: Option<&str>) -> 
 /// change is not one).
 #[must_use]
 pub fn host_key_changed(approved: &ApprovedTarget, eval: &TargetEvaluation) -> bool {
+    host_key_changed_via(approved, eval, None)
+}
+
+/// ⟨M04 U6⟩ [`host_key_changed`] over the route the current catalog approves
+/// ([`route_matches_via`]): the approved route is not a route change, so a different
+/// final host key through it is a host-key change.
+#[must_use]
+pub fn host_key_changed_via(
+    approved: &ApprovedTarget,
+    eval: &TargetEvaluation,
+    expected: Option<&ApprovedRoute>,
+) -> bool {
+    let route_ok = match eval.proxy {
+        ProxyRoute::None => true,
+        ProxyRoute::Jump => {
+            expected.is_some_and(|r| eval.proxy_jump.as_deref() == Some(r.jump_alias.as_str()))
+                && eval.proxy_jump.as_deref().is_some_and(single_hop_alias)
+        }
+        _ => false,
+    };
     eval.determinism == Determinism::Determined
-        && eval.proxy == ProxyRoute::None
+        && route_ok
         && eval.hostname == approved.hostname
         && eval.port == approved.port
         && eval.user == approved.user.as_str()
-        && !route_matches(approved, eval)
+        && !route_matches_via(approved, eval, expected)
 }
 
 /// ⟨wave 4, round 3⟩ ADR-0008 §17.22 item 7 (D5 §6.5 freshness): the comparison
@@ -693,11 +775,12 @@ pub fn evidence_holds(
     record: &EnrollmentRecord,
     eval: Option<&TargetEvaluation>,
     client_version: Option<&str>,
+    expected: Option<&ApprovedRoute>,
 ) -> bool {
     let Some(e) = &record.evidence else {
         return false;
     };
-    eval.is_some_and(|ev| route_matches(&record.target, ev))
+    eval.is_some_and(|ev| route_matches_via(&record.target, ev, expected))
         && evidence_client_current(&e.client, client_version)
 }
 
@@ -899,6 +982,7 @@ mod tests {
             port: 2222,
             user: "deploy".into(),
             proxy: ProxyRoute::None,
+            proxy_jump: None,
             determinism: Determinism::Determined,
             host_keys: keys
                 .iter()
@@ -937,6 +1021,81 @@ mod tests {
         assert_eq!(p.hostname, t.hostname);
         assert!(proposed_target(&t, &eval(&[("AAAA", false)])).is_none());
         assert!(proposed_target(&t, &eval(&[("BBBB", false), ("CCCC", false)])).is_none());
+    }
+
+    /// ⟨M04 U6; reading I-5⟩ The route-aware comparison: direct is the enrolled target
+    /// whatever the catalog says; a jump holds only as exactly the catalog's jump alias,
+    /// one plain hop; every other form (an unapproved or changed jump, multi-hop,
+    /// `user@`, `:port`, `%`, `ProxyCommand`, an undetermined evaluation) fails closed;
+    /// and the final host's key, name, port and account are compared in every case.
+    #[test]
+    fn route_matches_via_table() {
+        let t = target("AAAA");
+        let route = ApprovedRoute {
+            jump: heimdall_contract::ids::DestinationId::parse("bastion").unwrap(),
+            jump_alias: "bastion".into(),
+            jump_pair: heimdall_domain::scope::AccessPair {
+                destination: heimdall_contract::ids::DestinationId::parse("bastion").unwrap(),
+                account: AccountName::parse("jump").unwrap(),
+            },
+        };
+        let via = |jump: Option<&str>, proxy: ProxyRoute, expected: Option<&ApprovedRoute>| {
+            let mut e = eval(&[("AAAA", false)]);
+            e.proxy = proxy;
+            e.proxy_jump = jump.map(str::to_owned);
+            route_matches_via(&t, &e, expected)
+        };
+        // Direct: the enrolled target, with or without a catalog route.
+        assert!(via(None, ProxyRoute::None, None));
+        assert!(via(None, ProxyRoute::None, Some(&route)));
+        // The approved jump, exactly.
+        assert!(via(Some("bastion"), ProxyRoute::Jump, Some(&route)));
+        // Not approved by the catalog, or another jump.
+        assert!(!via(Some("bastion"), ProxyRoute::Jump, None));
+        assert!(!via(Some("other"), ProxyRoute::Jump, Some(&route)));
+        assert!(!via(None, ProxyRoute::Jump, Some(&route)));
+        // Multi-hop and the user@ / :port / % / whitespace forms.
+        for bad in [
+            "bastion,other",
+            "other,bastion",
+            "jump@bastion",
+            "bastion:2222",
+            "%h",
+            "bastion other",
+            "bastion%h",
+            "",
+        ] {
+            assert!(!via(Some(bad), ProxyRoute::Jump, Some(&route)), "{bad:?}");
+        }
+        // Even a catalog alias with a token is not a single plain hop.
+        let odd = ApprovedRoute {
+            jump_alias: "bast:ion".into(),
+            ..route.clone()
+        };
+        assert!(!via(Some("bast:ion"), ProxyRoute::Jump, Some(&odd)));
+        // ProxyCommand is dynamic.
+        assert!(!via(None, ProxyRoute::Command, Some(&route)));
+        assert!(!via(Some("bastion"), ProxyRoute::Command, Some(&route)));
+        // Undetermined.
+        let mut undetermined = eval(&[("AAAA", false)]);
+        undetermined.determinism = Determinism::Undetermined { reason: "x".into() };
+        assert!(!route_matches_via(&t, &undetermined, None));
+        // The final host is compared through the route: a changed key is a host-key
+        // change there, not a route change.
+        let mut changed = eval(&[("BBBB", false)]);
+        changed.proxy = ProxyRoute::Jump;
+        changed.proxy_jump = Some("bastion".into());
+        assert!(!route_matches_via(&t, &changed, Some(&route)));
+        assert!(host_key_changed_via(&t, &changed, Some(&route)));
+        assert!(!host_key_changed_via(&t, &changed, None));
+        // The jump hop: determined, direct, exactly one live key.
+        assert!(jump_hop_usable(&eval(&[("JJJJ", false)])));
+        assert!(!jump_hop_usable(&eval(&[("JJJJ", false), ("KKKK", false)])));
+        assert!(!jump_hop_usable(&eval(&[])));
+        assert!(!jump_hop_usable(&eval(&[("JJJJ", true)])));
+        let mut hop = eval(&[("JJJJ", false)]);
+        hop.proxy = ProxyRoute::Jump;
+        assert!(!jump_hop_usable(&hop));
     }
 
     /// ⟨round 5, Y-W⟩ A foreign removal's endpoint is the catalog endpoint's concrete

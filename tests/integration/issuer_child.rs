@@ -1938,6 +1938,77 @@ mod process {
         assert!(!alive(id.pid));
     }
 
+    /// A std child as an injected spawner's process (what the Windows runtime supplies
+    /// with a handle-list child); dropping it ends the child, as `kill_on_drop` does.
+    struct StdProcess(std::process::Child);
+
+    impl heimdall_issuer::client::ChildProcess for StdProcess {
+        fn id(&self) -> Option<u32> {
+            Some(self.0.id())
+        }
+        fn try_wait(&mut self) -> std::io::Result<bool> {
+            Ok(self.0.try_wait()?.is_some())
+        }
+        fn start_kill(&mut self) -> std::io::Result<()> {
+            self.0.kill()
+        }
+    }
+
+    impl Drop for StdProcess {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// ⟨M04 U2⟩ The injected spawner seam (`ClientConfig::spawner`, the Windows runtime's
+    /// handle-list start): the real issuer child started through it signs, reports its exact
+    /// identity, and is ended and reaped by `stop`, over the pumped pipes.
+    #[tokio::test]
+    async fn client_through_an_injected_spawner_signs_and_stops() {
+        let w = World::new().await;
+        let k = w.key();
+        let entry = w.reserve(&k).await;
+        let spawns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut config = ClientConfig::new(command(&w, false), Arc::new(start_token));
+        let counted = Arc::clone(&spawns);
+        config.spawner = Some(Arc::new(move |c: &ChildCommand| {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut cmd = std::process::Command::new(&c.program);
+            cmd.args(&c.args)
+                .envs(c.env.iter().map(|(k, v)| (k, v)))
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+            let mut child = cmd.spawn()?;
+            let stdin = child.stdin.take().map(std::os::fd::OwnedFd::from).unwrap();
+            let stdout = child.stdout.take().map(std::os::fd::OwnedFd::from).unwrap();
+            Ok(heimdall_issuer::client::SpawnedChild {
+                process: Box::new(StdProcess(child)),
+                stdin: File::from(stdin),
+                stdout: File::from(stdout),
+            })
+        }));
+        let issuer = ChildIssuer::new(config);
+        issuer.start().await.unwrap();
+        assert_eq!(issuer.state(), IssuerState::Ready);
+        let id = issuer.identity().unwrap();
+        assert_eq!(
+            start_token(id.pid),
+            id.start_token,
+            "exact PID + start token"
+        );
+        let cert = issuer
+            .sign(grant_ref(&entry), &k.openssh_line)
+            .await
+            .unwrap();
+        let cert = ssh_key::Certificate::from_openssh(&cert).unwrap();
+        validate_installed(&cert, &entry.bounds, &k.fingerprint, &w.ca).unwrap();
+        issuer.stop().await;
+        assert!(!alive(id.pid));
+        assert_eq!(spawns.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
     #[tokio::test]
     async fn late_reply_after_drop_is_discarded_and_nothing_published() {
         let w = World::new().await;

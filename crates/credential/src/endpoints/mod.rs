@@ -11,6 +11,7 @@
 //! | environment | `<runtime_dir>/signing.sock` | `\\.\pipe\heimdall-<installation token>-signing` | the Unix path; `//./pipe/heimdall-<token>-signing` |
 //! | binding | `<runtime_dir>/b/<16 hex>/agent.sock` (dir 0700, socket 0600) | `\\.\pipe\heimdall-<token>-b<16 hex>` | — |
 //! | verification | `<runtime_dir>/v/<16 hex>/agent.sock` | `\\.\pipe\heimdall-<token>-v<16 hex>` | — |
+//! | ⟨M04⟩ container binding | `<runtime_dir>/c/<16 hex>/agent.sock` (the environment's **stable** directory, 0700) | — (Linux-native only) | — |
 //!
 //! The 16 hex characters are random ([`EndpointTag::generate`], the OS CSPRNG) and
 //! never derived from an ID or a label (g03 §3.1 N2). The Windows token is the stable
@@ -75,6 +76,9 @@ pub const ENVIRONMENT_SOCKET: &str = "signing.sock";
 pub const BINDING_DIR: &str = "b";
 /// The verification endpoints' directory under the runtime directory.
 pub const VERIFICATION_DIR: &str = "v";
+/// ⟨M04⟩ U5: the container environments' stable directories under the runtime directory
+/// (ADR-0010 §4 item 1).
+pub const CONTAINER_DIR: &str = "c";
 /// A binding or verification endpoint's socket file name.
 pub const AGENT_SOCKET: &str = "agent.sock";
 /// The Windows pipe-name prefix.
@@ -124,6 +128,22 @@ impl std::fmt::Display for EndpointTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
     }
+}
+
+/// ⟨M04⟩ U5 (design §4): where a binding's endpoint goes, resolved from the binding's
+/// environment. A new realization adds its variant here, so every `match` on it is a compile
+/// error until it is written (the type is closed inside the workspace).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndpointPlacement {
+    /// A native session: today's fresh random per-binding path (`<runtime_dir>/b/<tag>/`).
+    Native,
+    /// A container environment's stable directory `<runtime_dir>/c/<dir_tag>/` (Linux-native
+    /// only): the socket path is the same for every binding of the environment, so a running
+    /// container sees a replacement binding at the path it already mounted.
+    Container {
+        /// The 16-hex directory tag of the environment's realization.
+        dir_tag: String,
+    },
 }
 
 /// Whether `token` may name Windows pipes: 1 to [`MAX_PIPE_TOKEN`] ASCII letters or
@@ -261,6 +281,21 @@ impl EndpointLayout {
             EndpointLayout::Windows { token } => {
                 Self::pipe_ref(format!("{PIPE_PREFIX}{token}-b{tag}"))
             }
+        }
+    }
+
+    /// ⟨M04⟩ A container environment's endpoint for its directory `tag`; `None` on Windows
+    /// (containers are Linux-native).
+    #[must_use]
+    pub fn container(&self, tag: &EndpointTag) -> Option<EndpointRef> {
+        match self {
+            EndpointLayout::Unix { runtime_dir } => Some(Self::unix_ref(
+                &runtime_dir
+                    .join(CONTAINER_DIR)
+                    .join(tag.as_str())
+                    .join(AGENT_SOCKET),
+            )),
+            EndpointLayout::Windows { .. } => None,
         }
     }
 
@@ -487,6 +522,10 @@ struct Running {
     stop: CancellationToken,
     task: tokio::task::JoinHandle<()>,
     dir: Option<PathBuf>,
+    /// ⟨M04⟩ `(st_dev, st_ino)` of the socket this instance bound (Unix): a stop removes the
+    /// socket file only while the path still names that socket, so a replacement already
+    /// listening at the same (stable) path is never unlinked (R-RT-04).
+    identity: Option<(u64, u64)>,
 }
 
 impl Running {
@@ -495,15 +534,30 @@ impl Running {
     fn stop(self) {
         self.stop.cancel();
         self.task.abort();
-        remove_endpoint_files(&self.endpoint, self.dir.as_deref());
+        remove_endpoint_files(&self.endpoint, self.dir.as_deref(), self.identity);
     }
 }
 
 #[cfg(unix)]
-fn remove_endpoint_files(endpoint: &EndpointRef, dir: Option<&Path>) {
-    use std::os::unix::fs::FileTypeExt;
+fn socket_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path)
+        .ok()
+        .map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(windows)]
+fn socket_identity(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
+#[cfg(unix)]
+fn remove_endpoint_files(endpoint: &EndpointRef, dir: Option<&Path>, identity: Option<(u64, u64)>) {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let path = Path::new(&endpoint.locator);
-    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_socket()) {
+    if std::fs::symlink_metadata(path).is_ok_and(|m| {
+        m.file_type().is_socket() && identity.is_none_or(|i| i == (m.dev(), m.ino()))
+    }) {
         let _ = std::fs::remove_file(path);
     }
     if let Some(dir) = dir {
@@ -513,7 +567,11 @@ fn remove_endpoint_files(endpoint: &EndpointRef, dir: Option<&Path>) {
 }
 
 #[cfg(windows)]
-fn remove_endpoint_files(_endpoint: &EndpointRef, _dir: Option<&Path>) {
+fn remove_endpoint_files(
+    _endpoint: &EndpointRef,
+    _dir: Option<&Path>,
+    _identity: Option<(u64, u64)>,
+) {
     // Pipe instances end with their handles (the aborted accept loop).
 }
 
@@ -582,14 +640,39 @@ impl RegistryInner {
         } else {
             None
         };
+        let identity = socket_identity(Path::new(&endpoint.locator));
         Ok(Running {
             endpoint,
             signer,
             stop,
             task,
             dir,
+            identity,
         })
     }
+}
+
+/// ⟨M04⟩ Remove and return every running binding endpoint whose locator is `locator`
+/// (a stable container path), dropping bindings left with none.
+fn take_serving(
+    bindings: &mut HashMap<BindingId, BTreeMap<ResourceGeneration, Running>>,
+    locator: &str,
+) -> Vec<Running> {
+    let mut out = Vec::new();
+    bindings.retain(|_, gens| {
+        let at: Vec<ResourceGeneration> = gens
+            .iter()
+            .filter(|(_, r)| r.endpoint.locator == locator)
+            .map(|(g, _)| *g)
+            .collect();
+        for g in at {
+            if let Some(r) = gens.remove(&g) {
+                out.push(r);
+            }
+        }
+        !gens.is_empty()
+    });
+    out
 }
 
 /// The runtime's signing endpoints (ADR-0008 D2 item 2): the environment endpoint,
@@ -730,6 +813,87 @@ impl EndpointRegistry {
     /// # Errors
     /// [`EndpointError`]; nothing runs.
     pub fn create_binding(
+        &self,
+        binding: &BindingId,
+        generation: ResourceGeneration,
+    ) -> Result<EndpointRef, EndpointError> {
+        self.create_binding_at(binding, generation, &EndpointPlacement::Native)
+    }
+
+    /// ⟨M04⟩ [`Self::create_binding`] at `placement` (design §4). `Native` is exactly
+    /// `create_binding`'s fresh random path. `Container` is the environment's stable
+    /// `<runtime_dir>/c/<dir_tag>/agent.sock`: any instance already serving that path (an
+    /// older binding or generation of the same environment, which one active binding per
+    /// environment makes the predecessor) is stopped first, its socket removed by identity,
+    /// and the new instance binds in its place; the directory itself is never removed here.
+    ///
+    /// # Errors
+    /// [`EndpointError`]; nothing runs (`Unsupported` for a container on Windows or a tag
+    /// that is not 16 hex characters).
+    pub fn create_binding_at(
+        &self,
+        binding: &BindingId,
+        generation: ResourceGeneration,
+        placement: &EndpointPlacement,
+    ) -> Result<EndpointRef, EndpointError> {
+        match placement {
+            EndpointPlacement::Native => self.create_binding_native(binding, generation),
+            EndpointPlacement::Container { dir_tag } => {
+                self.create_binding_container(binding, generation, dir_tag)
+            }
+        }
+    }
+
+    fn create_binding_container(
+        &self,
+        binding: &BindingId,
+        generation: ResourceGeneration,
+        dir_tag: &str,
+    ) -> Result<EndpointRef, EndpointError> {
+        let tag = EndpointTag::parse(dir_tag).ok_or(EndpointError::Unsupported)?;
+        let endpoint = self
+            .inner
+            .layout
+            .container(&tag)
+            .ok_or(EndpointError::Unsupported)?;
+        let signer = self.inner.signer(SignerEndpoint::Binding(binding.clone()));
+        let mut s = self.inner.lock();
+        if s.bindings
+            .get(binding)
+            .is_some_and(|g| g.contains_key(&generation))
+        {
+            return Err(EndpointError::AlreadyRunning);
+        }
+        for old in take_serving(&mut s.bindings, &endpoint.locator) {
+            old.stop();
+        }
+        let running = self.inner.start(endpoint.clone(), signer, false)?;
+        s.bindings
+            .entry(binding.clone())
+            .or_default()
+            .insert(generation, running);
+        Ok(endpoint)
+    }
+
+    /// ⟨M04⟩ Stop whatever serves container environment `dir_tag`'s endpoint (every binding
+    /// and generation at that path), removing its socket by identity. Returns how many
+    /// instances were stopped. The directory is left to the caller.
+    #[must_use]
+    pub fn remove_container(&self, dir_tag: &str) -> usize {
+        let Some(endpoint) =
+            EndpointTag::parse(dir_tag).and_then(|t| self.inner.layout.container(&t))
+        else {
+            return 0;
+        };
+        let stopped = take_serving(&mut self.inner.lock().bindings, &endpoint.locator);
+        let n = stopped.len();
+        for r in stopped {
+            r.stop();
+        }
+        n
+    }
+
+    fn create_binding_native(
         &self,
         binding: &BindingId,
         generation: ResourceGeneration,

@@ -737,6 +737,11 @@ fn enrollment(n: u8, state: EnrollmentState) -> EnrollmentRecord {
 fn seed_state(home: &Path, states: &[EnrollmentState]) -> PathBuf {
     let state_dir = home.join("state");
     std::fs::create_dir_all(&state_dir).unwrap();
+    // ⟨M04 U1; ADR-0010 §1 item 7⟩ A runtime started on this home refuses a Windows state
+    // directory that is not protected owner-only (`state_dir_unsafe`), and never repairs
+    // one: the fixture gives its directory the protected DACL, as a fresh install has.
+    #[cfg(windows)]
+    heimdall_testkit::win::set_owner_only(&state_dir).unwrap();
     let db = state_dir.join("state.db");
     let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
     store

@@ -177,8 +177,15 @@ pub fn preview(
         .unwrap_or(0)
         .checked_add(1)
         .ok_or_else(|| PreviewError::Unavailable("generation overflow".to_owned()))?;
+    let distribution_git = distribution_git_only(config, intent)?;
     let mut b = Builder::new(config, spec, generation);
+    b.distribution_git = distribution_git;
     match intent {
+        // ⟨M04⟩ Mode A (ADR-0010 §2 item 2; design §3.2a): a distribution's item is the
+        // Git item alone. No B, no P, no key files: a distribution's Linux SSH
+        // configuration is never touched.
+        PreviewIntent::Apply { .. } if distribution_git => b.plan_git_apply()?,
+        PreviewIntent::Rollback { .. } if distribution_git => b.plan_git_rollback()?,
         PreviewIntent::Apply { include_git, .. } => {
             b.plan_ssh_apply()?;
             if *include_git {
@@ -240,7 +247,82 @@ pub fn preview(
     b.finish(intent.clone())
 }
 
+/// ⟨M04⟩ The distribution rule of a writer (design §3.2a), shared by `preview`, `apply`
+/// and `reconcile`: whether `intent` plans or runs the Mode A Git item.
+///
+/// * A native writer (`config.distribution == None`) refuses any intent naming a
+///   distribution: the setup driver routes those intents to a helper, and a wrong route
+///   must not edit the Windows user's files.
+/// * A distribution's writer refuses an `apply` or `rollback` that does not name its own
+///   distribution, and any item but `distribution_git` (Mode B is a later unit's).
+///
+/// Returns `Ok(true)` for the distribution's Git-only plan.
+///
+/// # Errors
+/// [`PreviewError::Unavailable`] with a fixed, nonsecret reason.
+fn distribution_git_only(
+    config: &ProjectionConfig,
+    intent: &PreviewIntent,
+) -> Result<bool, PreviewError> {
+    if config.distribution.is_some() && matches!(intent, PreviewIntent::Repair { .. }) {
+        return Err(PreviewError::Unavailable(
+            "a distribution's repair is not previewed by this writer".to_owned(),
+        ));
+    }
+    distribution_rule(config, intent).map_err(|r| PreviewError::Unavailable(r.to_owned()))
+}
+
+/// [`distribution_git_only`] with its fixed reasons, for the execution paths too.
+pub(super) fn distribution_rule(
+    config: &ProjectionConfig,
+    intent: &PreviewIntent,
+) -> Result<bool, &'static str> {
+    let (items, named) = match intent {
+        PreviewIntent::Apply {
+            items,
+            distribution,
+            ..
+        }
+        | PreviewIntent::Rollback {
+            items,
+            distribution,
+            ..
+        } => (Some(items), distribution.as_ref()),
+        _ => (None, None),
+    };
+    match (&config.distribution, named) {
+        (None, None)
+            if items.is_some_and(|i| {
+                i.contains(&ProjectionItem::DistributionGit)
+                    || i.contains(&ProjectionItem::DistributionProjection)
+            }) =>
+        {
+            Err("a native writer does not serve a distribution's items")
+        }
+        (None, None) => Ok(false),
+        (None, Some(_)) => Err("a native writer does not serve a distribution's items"),
+        (Some(_), None) if items.is_none() => Ok(false),
+        (Some(_), None) => Err("this writer serves a distribution: the intent names none"),
+        (Some(mine), Some(theirs)) if mine != theirs => {
+            Err("the intent names another distribution")
+        }
+        (Some(_), Some(_)) => {
+            let items = items.ok_or("the intent names no distribution item")?;
+            if items.contains(&ProjectionItem::DistributionProjection)
+                || items.contains(&ProjectionItem::LoginEntry)
+                || !items.contains(&ProjectionItem::DistributionGit)
+            {
+                return Err("only the distribution Git item is served in this build");
+            }
+            Ok(true)
+        }
+    }
+}
+
 struct Builder<'a> {
+    /// ⟨M04⟩ Mode A: the Git item applies whatever Git's default SSH is (the item points
+    /// Git at the Windows in-box `ssh.exe` on purpose).
+    distribution_git: bool,
     config: &'a ProjectionConfig,
     spec: &'a ProjectionSpec,
     generation: u64,
@@ -290,6 +372,7 @@ struct Builder<'a> {
 impl<'a> Builder<'a> {
     fn new(config: &'a ProjectionConfig, spec: &'a ProjectionSpec, generation: u64) -> Self {
         Self {
+            distribution_git: false,
             config,
             spec,
             generation,
@@ -422,11 +505,14 @@ impl<'a> Builder<'a> {
         let mut disclosures = Vec::new();
         for (a, m) in self.spec.aliases.iter().zip(&managed) {
             if let Some(m) = m {
-                sections.push(self.managed_certificate(a, m)?);
+                sections.push(Self::routed(a, self.managed_certificate(a, m)?)?);
                 disclosures.push(slot_free_disclosure(&a.alias, &a.destination));
                 continue;
             }
-            sections.push(Section::ExistingAccess(self.managed_alias(a)?));
+            sections.push(Self::routed(
+                a,
+                Section::ExistingAccess(self.managed_alias(a)?),
+            )?);
             let key = self.key_bytes(a)?;
             if key.bytes().len() > bounds::KEY_FILE_MAX {
                 return Err(PreviewError::TooLarge);
@@ -1090,7 +1176,7 @@ impl<'a> Builder<'a> {
             return Ok(());
         }
         let msys = matches!(obs.default_ssh, DefaultGitSsh::BundledMsys(_));
-        if !msys && !self.config.test.git_item_any_default {
+        if !msys && !self.config.test.git_item_any_default && !self.distribution_git {
             self.git = Some(not_applicable("git_default_not_bundled_msys", before));
             return Ok(());
         }
@@ -1609,6 +1695,20 @@ impl<'a> Builder<'a> {
     }
 
     // --- steps ------------------------------------------------------------------------
+
+    /// ⟨M04 U6; ADR-0010 §5 item 1⟩ `section` reached through the destination's single
+    /// jump (`ProxyJump <jump alias>`), when the spec names one; the renderer takes the
+    /// jump as a literal alias, so no multi-hop or host-trust form can be expressed.
+    fn routed(a: &ManagedAliasSpec, section: Section) -> Result<Section, PreviewError> {
+        let Some(jump) = &a.jump_alias else {
+            return Ok(section);
+        };
+        Ok(Section::Routed {
+            jump: AliasName::parse(jump)
+                .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?,
+            section: Box::new(section),
+        })
+    }
 
     fn managed_alias(&self, a: &ManagedAliasSpec) -> Result<ManagedAlias, PreviewError> {
         let refused = |e: render::RenderError| PreviewError::Unavailable(format!("render: {e}"));

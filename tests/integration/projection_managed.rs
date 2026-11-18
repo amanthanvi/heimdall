@@ -193,6 +193,8 @@ impl Fx {
                 .to_str()
                 .unwrap()
                 .to_owned(),
+
+            jump_alias: None,
         }
     }
 

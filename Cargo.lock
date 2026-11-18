@@ -1080,6 +1080,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "windows-sys",
 ]
 
 [[package]]
@@ -1405,8 +1406,17 @@ dependencies = [
 name = "heimdall-wsl"
 version = "0.1.0-m01"
 dependencies = [
+ "async-trait",
+ "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
+ "heimdall-localenv",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

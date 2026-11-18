@@ -567,6 +567,7 @@ pub(super) mod world {
                 port: sshd.port,
                 user: account_name.clone(),
                 proxy: ProxyRoute::None,
+                proxy_jump: None,
                 determinism: Determinism::Determined,
                 host_keys: vec![raw_key(&kt, &kb)],
             })));

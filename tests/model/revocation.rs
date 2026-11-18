@@ -1506,13 +1506,22 @@ async fn a07_permitted_extensions_come_from_the_grant_snapshot_not_the_caller() 
     let g = w.ready("req-px", "work-px", &["h1"], None).await;
     let grant = w.grant(&g.grant_id);
     assert_eq!(
-        heimdall_app::operations::permitted_extensions(&grant, &pair("h1", "deploy")),
+        heimdall_app::operations::permitted_extensions(
+            &grant,
+            &pair("h1", "deploy"),
+            &BTreeSet::new(),
+        ),
         ["permit-pty".to_owned()]
             .into_iter()
             .collect::<BTreeSet<_>>()
     );
     assert!(
-        heimdall_app::operations::permitted_extensions(&grant, &pair("h9", "deploy")).is_empty(),
+        heimdall_app::operations::permitted_extensions(
+            &grant,
+            &pair("h9", "deploy"),
+            &BTreeSet::new()
+        )
+        .is_empty(),
         "a pair outside the snapshot permits nothing"
     );
     for outside in [

@@ -82,8 +82,8 @@ use heimdall_contract::ids::CaFingerprint;
 use heimdall_contract::issuer::{IssuerState, IssuerStatus};
 use heimdall_contract::managed::IssuerIsolation;
 use heimdall_credential::vault::SystemRng;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::process::{Child, Command};
 use tokio::time::Instant;
 use zeroize::Zeroize;
 
@@ -156,6 +156,139 @@ pub type StartToken = Arc<dyn Fn(u32) -> Option<String> + Send + Sync>;
 /// ⟨§17.33 item 2⟩ Reads a process's executable image by PID (`None`: not readable).
 pub type ImageReader = Arc<dyn Fn(u32) -> Option<PathBuf> + Send + Sync>;
 
+/// ⟨M04 U2; ADR-0010 §1 item 6⟩ A running issuer child as the client drives it: only these
+/// four operations, so the child can be started by something other than `tokio::process`
+/// (the Windows runtime starts it with an explicit inherited-handle list).
+pub trait ChildProcess: Send {
+    /// The child's PID (`None` once it has been reaped).
+    fn id(&self) -> Option<u32>;
+    /// Whether the child has exited (and is reaped by this call, if it has).
+    ///
+    /// # Errors
+    /// The status could not be read.
+    fn try_wait(&mut self) -> std::io::Result<bool>;
+    /// Ask the OS to end the child through this handle (never by PID lookup).
+    ///
+    /// # Errors
+    /// The signal or termination failed.
+    fn start_kill(&mut self) -> std::io::Result<()>;
+    /// Wait for the child to exit. Cancel-safe. The default polls [`ChildProcess::try_wait`]
+    /// every [`CHILD_POLL`]; `tokio::process::Child` overrides it with its own wait.
+    ///
+    /// # Errors
+    /// The wait failed.
+    fn wait(&mut self) -> BoxFuture<'_, std::io::Result<()>> {
+        Box::pin(async move {
+            while !self.try_wait()? {
+                tokio::time::sleep(CHILD_POLL).await;
+            }
+            Ok(())
+        })
+    }
+}
+
+/// How often the default [`ChildProcess::wait`] asks whether the child has exited.
+pub const CHILD_POLL: Duration = Duration::from_millis(20);
+
+/// A boxed, sendable future (the return of [`ChildProcess::wait`]).
+pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+impl ChildProcess for Child {
+    fn id(&self) -> Option<u32> {
+        Child::id(self)
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<bool> {
+        Ok(Child::try_wait(self)?.is_some())
+    }
+
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        Child::start_kill(self)
+    }
+
+    fn wait(&mut self) -> BoxFuture<'_, std::io::Result<()>> {
+        Box::pin(async move { Child::wait(self).await.map(drop) })
+    }
+}
+
+/// ⟨M04 U2⟩ A child started by an injected [`ChildSpawner`]: its process and the parent's
+/// ends of its stdin and stdout pipes. The client adapts the files to async I/O itself.
+pub struct SpawnedChild {
+    /// The process. Dropping it must end the child (the `kill_on_drop` of the default
+    /// spawn).
+    pub process: Box<dyn ChildProcess>,
+    /// The parent's end of the child's stdin.
+    pub stdin: std::fs::File,
+    /// The parent's end of the child's stdout.
+    pub stdout: std::fs::File,
+}
+
+/// ⟨M04 U2⟩ Starts the child described by a [`ChildCommand`] (`ClientConfig::spawner`;
+/// `None`: `tokio::process`). The runtime injects one that starts the child with an explicit
+/// inherited-handle list on Windows.
+pub type ChildSpawner = Arc<dyn Fn(&ChildCommand) -> std::io::Result<SpawnedChild> + Send + Sync>;
+
+/// How much of the child's output or input the pump keeps in flight.
+const PUMP_BUFFER: usize = 64 * 1024;
+
+/// The child's stdout as async input: a thread reads the blocking file into an in-memory
+/// duplex pipe until end of file or until the reader is dropped.
+fn pump_stdout(
+    mut file: std::fs::File,
+    handle: &tokio::runtime::Handle,
+) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>> {
+    use std::io::Read as _;
+    let (reader, mut writer) = tokio::io::duplex(PUMP_BUFFER);
+    let handle = handle.clone();
+    std::thread::Builder::new()
+        .name("hm-issuer-out".into())
+        .spawn(move || {
+            let mut chunk = [0u8; 4096];
+            loop {
+                match file.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let Some(bytes) = chunk.get(..n) else { break };
+                        if handle.block_on(writer.write_all(bytes)).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            chunk.zeroize();
+        })?;
+    Ok(Box::new(reader))
+}
+
+/// The child's stdin as async output: a thread copies a duplex pipe into the blocking file
+/// and closes the file (the child's EOF) when the writer is dropped or a write fails.
+fn pump_stdin(
+    mut file: std::fs::File,
+    handle: &tokio::runtime::Handle,
+) -> std::io::Result<Box<dyn AsyncWrite + Send + Unpin>> {
+    use std::io::Write as _;
+    let (mut reader, writer) = tokio::io::duplex(PUMP_BUFFER);
+    let handle = handle.clone();
+    std::thread::Builder::new()
+        .name("hm-issuer-in".into())
+        .spawn(move || {
+            let mut chunk = [0u8; 4096];
+            loop {
+                match handle.block_on(reader.read(&mut chunk)) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let Some(bytes) = chunk.get(..n) else { break };
+                        if file.write_all(bytes).and_then(|()| file.flush()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            chunk.zeroize();
+        })?;
+    Ok(Box::new(writer))
+}
+
 /// The exact identity of the running child.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChildIdentity {
@@ -221,6 +354,9 @@ pub struct ClientConfig {
     /// ⟨§17.33 item 2⟩ The image reader the exact-child check uses before a signal
     /// (`None`: the check is PID and start token only).
     pub child_image: Option<ImageReader>,
+    /// ⟨M04 U2⟩ Starts the child (`None`: `tokio::process`, stdin and stdout piped, stderr
+    /// null, `kill_on_drop`).
+    pub spawner: Option<ChildSpawner>,
 }
 
 impl ClientConfig {
@@ -236,6 +372,7 @@ impl ClientConfig {
             load_gate: None,
             request_hold: None,
             child_image: None,
+            spawner: None,
         }
     }
 }
@@ -267,9 +404,9 @@ struct View {
 
 /// The live link to one child.
 struct Link {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: ChildStdout,
+    child: Box<dyn ChildProcess>,
+    stdin: Box<dyn AsyncWrite + Send + Unpin>,
+    stdout: Box<dyn AsyncRead + Send + Unpin>,
     /// Bytes read but not yet consumed as frames (survives a dropped request).
     buf: Vec<u8>,
     /// Replies owed for requests whose callers stopped waiting.
@@ -278,6 +415,13 @@ struct Link {
     dirty: bool,
     /// ⟨§17.33 item 2⟩ The child's identity, as spawned (image filled after `hello_ack`).
     identity: ChildIdentity,
+}
+
+/// A child just started, with its pipes adapted to async I/O.
+struct Started {
+    child: Box<dyn ChildProcess>,
+    stdin: Box<dyn AsyncWrite + Send + Unpin>,
+    stdout: Box<dyn AsyncRead + Send + Unpin>,
 }
 
 /// A broken link (EOF, a malformed frame, a write that failed).
@@ -354,7 +498,7 @@ impl Drop for Indeterminate<'_> {
                 // No runtime to await the exit on: signal the verified child now and
                 // keep the admissions held (never released unconfirmed).
                 if let Some(mut link) = link {
-                    signal_exact(&verifier, &mut link.child, &link.identity);
+                    signal_exact(&verifier, link.child.as_mut(), &link.identity);
                     std::mem::forget(link);
                 }
                 std::mem::forget(permits);
@@ -372,8 +516,12 @@ impl Drop for Indeterminate<'_> {
 /// Linux the non-dumpable issuer child's image is never readable ([`ChildIdentity::image`]),
 /// and requiring it made every exact-child signal on Linux impossible. Never by name or
 /// pattern. Returns whether the signal was sent.
-fn signal_exact(verifier: &Verifier, child: &mut Child, identity: &ChildIdentity) -> bool {
-    if matches!(child.try_wait(), Ok(Some(_))) {
+fn signal_exact(
+    verifier: &Verifier,
+    child: &mut dyn ChildProcess,
+    identity: &ChildIdentity,
+) -> bool {
+    if matches!(child.try_wait(), Ok(true)) {
         return false;
     }
     if child.id() != Some(identity.pid) {
@@ -410,7 +558,7 @@ async fn end_child(verifier: Verifier, link: Option<Link>, permits: Vec<Box<dyn 
         return;
     };
     buf.zeroize();
-    signal_exact(&verifier, &mut child, &identity);
+    signal_exact(&verifier, child.as_mut(), &identity);
     drop(stdin);
     drop(stdout);
     match tokio::time::timeout(STOP_TIMEOUT, child.wait()).await {
@@ -648,6 +796,39 @@ impl Inner {
         }
     }
 
+    /// Start the child: through the injected [`ChildSpawner`] when there is one, otherwise
+    /// `tokio::process` with piped stdin and stdout, a null stderr and `kill_on_drop`. `None`
+    /// when it could not be started or its pipes could not be taken (a child that did start
+    /// is ended by its drop).
+    fn spawn_child(&self) -> Option<Started> {
+        let c = &self.config.command;
+        if let Some(spawner) = &self.config.spawner {
+            let handle = tokio::runtime::Handle::try_current().ok()?;
+            let spawned = spawner(c).ok()?;
+            let stdin = pump_stdin(spawned.stdin, &handle).ok()?;
+            let stdout = pump_stdout(spawned.stdout, &handle).ok()?;
+            return Some(Started {
+                child: spawned.process,
+                stdin,
+                stdout,
+            });
+        }
+        let mut cmd = Command::new(&c.program);
+        cmd.args(&c.args)
+            .envs(c.env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = cmd.spawn().ok()?;
+        let (stdin, stdout) = (child.stdin.take()?, child.stdout.take()?);
+        Some(Started {
+            child: Box::new(child),
+            stdin: Box::new(stdin),
+            stdout: Box::new(stdout),
+        })
+    }
+
     /// Spawn, hello, load: one start attempt (`starting → loading → ready |
     /// store_unavailable`) for `lifecycle`; a stopped or superseded lifecycle spawns
     /// nothing (§17.19 item 3).
@@ -666,25 +847,19 @@ impl Inner {
         };
         end_child(self.verifier(), slot.take(), Vec::new()).await;
         self.set_state(IssuerState::Starting, None);
-        let c = &self.config.command;
-        let mut cmd = Command::new(&c.program);
-        cmd.args(&c.args)
-            .envs(c.env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        let spawned = cmd.spawn();
-        let Ok(mut child) = spawned else {
+        let Some(Started {
+            mut child,
+            stdin,
+            stdout,
+        }) = self.spawn_child()
+        else {
             self.set_state(
                 IssuerState::Crashed,
                 Some(reason::ISSUER_UNAVAILABLE.into()),
             );
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
         };
-        let (Some(stdin), Some(stdout), Some(pid)) =
-            (child.stdin.take(), child.stdout.take(), child.id())
-        else {
+        let Some(pid) = child.id() else {
             // The child spawned a moment ago, on its own unreaped handle (it has spoken no
             // protocol and holds no key): nothing else can carry this handle.
             let _ = child.start_kill();
@@ -994,7 +1169,7 @@ impl ChildIssuer {
                 .is_err()
             {
                 // ⟨§17.33 item 2⟩ Only the re-verified exact child is signalled.
-                signal_exact(&self.inner.verifier(), &mut link.child, &link.identity);
+                signal_exact(&self.inner.verifier(), link.child.as_mut(), &link.identity);
                 let _ = link.child.wait().await;
             }
             link.buf.zeroize();

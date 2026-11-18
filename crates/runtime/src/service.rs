@@ -156,7 +156,74 @@ pub fn issuer_client_config(
             .flatten()
             .and_then(|p| p.image())
     }));
+    // ⟨M04 U2; ADR-0010 §1 item 6⟩ On Windows the child inherits only its three standard
+    // stream handles (an explicit handle list), never another inheritable handle of this
+    // process.
+    #[cfg(windows)]
+    {
+        config.spawner = Some(listed_issuer_spawner());
+    }
     config
+}
+
+/// ⟨M04 U2⟩ The spawner [`issuer_client_config`] injects on Windows (public so the native
+/// handle-inheritance test drives the same function the runtime uses).
+#[cfg(windows)]
+#[must_use]
+pub fn listed_issuer_spawner() -> heimdall_issuer::client::ChildSpawner {
+    Arc::new(listed_issuer_child)
+}
+
+/// ⟨M04 U2⟩ The issuer child as a handle-list child: its stdin and stdout piped, its stderr
+/// null, the command's environment on top of this process's.
+#[cfg(windows)]
+fn listed_issuer_child(c: &ChildCommand) -> std::io::Result<heimdall_issuer::client::SpawnedChild> {
+    use heimdall_localenv::sys::spawn::{ListedSpawn, ListedStdio, spawn_listed};
+    let mut cmd = std::process::Command::new(&c.program);
+    cmd.args(&c.args).envs(c.env.iter().map(|(k, v)| (k, v)));
+    let options = ListedSpawn {
+        stderr: ListedStdio::Null,
+        ..ListedSpawn::piped()
+    };
+    let mut child = spawn_listed(&cmd, &options).map_err(std::io::Error::other)?;
+    let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(std::io::Error::other("the issuer child has no pipes"));
+    };
+    Ok(heimdall_issuer::client::SpawnedChild {
+        process: Box::new(ListedIssuerProcess(child)),
+        stdin,
+        stdout,
+    })
+}
+
+/// ⟨M04 U2⟩ A handle-list child as the issuer client's process. Dropping it ends and reaps
+/// the child, as the default spawn's `kill_on_drop` does.
+#[cfg(windows)]
+struct ListedIssuerProcess(heimdall_localenv::sys::spawn::ListedChild);
+
+#[cfg(windows)]
+impl heimdall_issuer::client::ChildProcess for ListedIssuerProcess {
+    fn id(&self) -> Option<u32> {
+        Some(self.0.id())
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<bool> {
+        Ok(self.0.try_wait()?.is_some())
+    }
+
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        self.0.kill()
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ListedIssuerProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// File name of the state database inside `Paths::state_dir`.
@@ -305,6 +372,20 @@ pub struct ServiceOptions {
     /// answers `driver_unavailable`). With it, [`Self::signer`] is not used: the
     /// environment endpoint is the managed signer's.
     pub managed: Option<ManagedOptions>,
+    /// ⟨M04⟩ U1: the login entry's port (`Operations::set_login_entry`): the setup item
+    /// `login_entry` and `inspect capabilities` → `login_start`. `None` (the default of
+    /// [`Self::with_clock`]): the item answers `driver_unavailable` and `login_start`
+    /// reads `none`. `service run` wires the host's own
+    /// ([`crate::autostart::port::HostLoginPort`]).
+    pub login_entry: Option<Arc<dyn heimdall_app::ports::LoginEntryPort>>,
+    /// ⟨M04 U3b⟩ The WSL host (`Operations::set_distribution_host`; ADR-0010 §2): `None`
+    /// (the default) is the platform's own, [`heimdall_wsl::WslHost::platform`] with
+    /// [`Self::wsl_helper`]: Lxss, `wsl.exe` and the bundled helper on Windows, none
+    /// elsewhere (every WSL request then answers `wsl_unavailable`). A test injects its own.
+    pub wsl_host: Option<Arc<dyn heimdall_app::ports::DistributionHost>>,
+    /// ⟨M04 U3b⟩ The Windows path of the Linux helper binary, when not the one beside
+    /// `heimdall.exe` (the debug-only test configuration's `HEIMDALL_WSL_HELPER`).
+    pub wsl_helper: Option<std::path::PathBuf>,
 }
 
 /// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
@@ -423,6 +504,9 @@ impl ServiceOptions {
             projection: ProjectionWiring::Disabled,
             existing_access: false,
             managed: None,
+            login_entry: None,
+            wsl_host: None,
+            wsl_helper: None,
         }
     }
 }
@@ -702,6 +786,29 @@ impl Service {
         // ⟨M03⟩ U9 (R3): the `[session] lock_behavior` floor, in every runtime.
         let floor = crate::session_lock::lock_floor(&config.session);
         operations.set_session_lock_floor(floor);
+        // ⟨M04⟩ U1: the login entry's port (setup item, `inspect capabilities`).
+        if let Some(port) = options.login_entry {
+            operations.set_login_entry(port);
+        }
+        // ⟨M04 U3b⟩ The WSL host: the platform's own unless a test injects one. Off Windows
+        // the platform's has no WSL, so it is not wired and WSL requests answer
+        // `wsl_unavailable`.
+        let wsl_host: Option<Arc<dyn heimdall_app::ports::DistributionHost>> =
+            options.wsl_host.clone().or_else(|| {
+                cfg!(windows).then(|| {
+                    let h: Arc<dyn heimdall_app::ports::DistributionHost> =
+                        Arc::new(heimdall_wsl::WslHost::platform(options.wsl_helper.clone()));
+                    h
+                })
+            });
+        if let Some(h) = &wsl_host {
+            operations.set_distribution_host(Arc::clone(h));
+            // Restart recovery ran before the host was wired: a setup operation of a
+            // distribution's items it left unresolved is driven again now, in the
+            // background, never starting a distribution (ADR-0010 §9 item 2).
+            let ops = operations.clone();
+            tokio::spawn(async move { ops.redrive_distribution_setups(None, false).await });
+        }
         // ⟨M03; ADR-0008 §17.25 item 19⟩ `inspect destinations`' D8 wording: the managed
         // adapter's own (`connection_policy_report`), so the destination view and the
         // ensure result say the same sentence. Without the managed wiring, none.
@@ -736,8 +843,16 @@ impl Service {
             ),
             _ => None,
         };
+        // ⟨M04 U3b⟩ A WSL distribution namespace's projection resources go to its helper
+        // (never starting it); the runtime's own go to the native cleaner, as before.
         let cleaner: Option<Arc<dyn ResourceCleaner>> = wired.map(|w| {
-            let c: Arc<dyn ResourceCleaner> = w.cleaner;
+            let native: Arc<dyn ResourceCleaner> = w.cleaner;
+            let c: Arc<dyn ResourceCleaner> = Arc::new(crate::wsl_wiring::NamespaceCleaner::new(
+                native,
+                environment.clone(),
+                store.clone(),
+                wsl_host.clone(),
+            ));
             c
         });
 
@@ -1738,13 +1853,31 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
         binding: &heimdall_contract::ids::BindingId,
         generation: u64,
     ) -> Result<EndpointRef, heimdall_app::ports::AdapterError> {
+        self.create_binding_endpoint_at(
+            binding,
+            generation,
+            &heimdall_credential::endpoints::EndpointPlacement::Native,
+        )
+    }
+
+    /// ⟨M04⟩ U5: the same creation at a placement (a container's stable directory).
+    fn create_binding_endpoint_at(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+        placement: &heimdall_credential::endpoints::EndpointPlacement,
+    ) -> Result<EndpointRef, heimdall_app::ports::AdapterError> {
         self.get()
             .ok_or_else(|| {
                 heimdall_app::ports::AdapterError::Unavailable(
                     heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
                 )
             })?
-            .create_binding_endpoint(binding, generation)
+            .create_binding_endpoint_at(binding, generation, placement)
+    }
+
+    fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
+        self.get().map_or(0, |r| r.remove_container(dir_tag))
     }
 
     fn remove_binding_endpoint(
@@ -2924,12 +3057,18 @@ impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
             .client
             .as_ref()
             .ok_or_else(|| fail("no verified client"))?;
-        let mut child = std::process::Command::new(client)
-            .args(heimdall_app::enrollment::effective_config_args(step))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
+        // ⟨M04 U2; ADR-0010 §1 item 6⟩ Started with an explicit inherited-handle list: only
+        // its three standard streams (stdin and stderr null, stdout a pipe) reach the client.
+        let mut cmd = std::process::Command::new(client);
+        cmd.args(heimdall_app::enrollment::effective_config_args(step));
+        // ⟨M04 U2⟩ What OpenSSH for Windows needs to start, from the OS, when missing.
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment(&mut cmd, true);
+        let options = heimdall_localenv::sys::spawn::ListedSpawn {
+            stdin: heimdall_localenv::sys::spawn::ListedStdio::Null,
+            stderr: heimdall_localenv::sys::spawn::ListedStdio::Null,
+            ..heimdall_localenv::sys::spawn::ListedSpawn::piped()
+        };
+        let mut child = heimdall_localenv::sys::spawn::spawn_listed(&cmd, &options)
             .map_err(|_| fail("the client could not run"))?;
         let mut stdout = child.stdout.take().ok_or_else(|| fail("no output"))?;
         let reader = std::thread::spawn(move || {
@@ -2956,7 +3095,7 @@ impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
             return Err(fail("the effective-configuration check timed out"));
         };
         let out = reader.join().map_err(|_| fail("no output"))?;
-        if !status.success() {
+        if status != 0 {
             return Err(fail("the effective-configuration check failed"));
         }
         String::from_utf8(out).map_err(|_| fail("the output is not UTF-8"))
@@ -3114,6 +3253,7 @@ mod pair_source_tests {
             identity: IdentityId::from_random_bytes([0x41; 16]),
             endpoint: None,
             key_file: "/k/lab.pub".into(),
+            jump_alias: None,
         }
     }
 

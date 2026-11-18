@@ -293,6 +293,13 @@ async fn stages_after_key(
     let valid_after = validity_start(now, grant.starts_at)
         .ok_or_else(|| AdapterError::Protocol("validity_start_out_of_range".to_owned()))?;
     let mut published: Vec<(IssuanceEntry, String)> = Vec::new();
+    // ⟨M04 U6; ADR-0010 §5 item 2⟩ The pairs whose certificate carries
+    // `permit-port-forwarding`: the in-scope pairs another in-scope pair uses as its
+    // managed jump, read here and again, in its own transaction, by the issuance check.
+    let jump_pairs = ops
+        .jump_pairs_for(grant.scope.pairs.clone())
+        .await
+        .map_err(|e| adapter_error_of(&e))?;
     for pair in &grant.scope.pairs {
         // 2. reserve (a transaction; the CA is selected inside it, D4 item 3).
         let request = IssuanceRequest {
@@ -301,7 +308,7 @@ async fn stages_after_key(
             principal: principal_for(pair),
             valid_after,
             valid_before: grant.deadline.effective,
-            extensions: extension_profile(grant, pair),
+            extensions: extension_profile(grant, pair, &jump_pairs),
             subject_fingerprint: key.fingerprint.clone(),
             facts: facts.clone(),
         };

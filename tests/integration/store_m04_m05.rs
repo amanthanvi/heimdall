@@ -263,6 +263,8 @@ fn wsl_record(n: u8) -> WslDistributionRecord {
         mode_a: true,
         mode_b: Some(env_id(n)),
         cleanup_pending: false,
+        account: None,
+        namespace: None,
         updated_at: t0(),
     }
 }

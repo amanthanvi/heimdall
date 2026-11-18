@@ -1124,6 +1124,12 @@ impl ConnectionSupervisor {
                 cmd.env(k, v);
             }
         }
+        // ⟨M04 U2⟩ What OpenSSH for Windows needs to start, from the OS, when the child would
+        // lack it (a no-op elsewhere).
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment(
+            &mut cmd,
+            self.config.client_env.is_none(),
+        );
         cmd
     }
 

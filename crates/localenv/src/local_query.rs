@@ -201,6 +201,11 @@ pub(crate) fn run_contained(spec: &Spec<'_>) -> Result<Finished, RunError> {
     if let Some(cwd) = spec.cwd {
         cmd.current_dir(cwd);
     }
+    // ⟨M04 U2⟩ An OpenSSH client gets what OpenSSH for Windows needs to start, from the OS,
+    // when its environment lacks it (a no-op elsewhere).
+    if crate::sys::openssh_env::is_ssh_program(spec.program.as_os_str()) {
+        crate::sys::openssh_env::fill_openssh_environment(&mut cmd, spec.env.is_none());
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -335,6 +340,66 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(5));
         std::thread::sleep(Duration::from_millis(1500));
         assert!(!marker.exists(), "a group member survived the kill");
+    }
+
+    /// ⟨M04 U2⟩ The M03 exit suite's Windows diagnosis: the in-box `ssh.exe` started with a
+    /// stripped environment (the variables below only) exits 255 without output. Through the
+    /// product's launch path (`run_contained`, which fills what OpenSSH for Windows needs from
+    /// the operating system) `ssh -G` succeeds from the same stripped environment; the
+    /// control, a plain launch with exactly those variables, shows the test can fail.
+    #[cfg(windows)]
+    #[test]
+    fn ssh_g_from_a_stripped_environment_succeeds_through_the_product_launch_path() {
+        let system_root = std::env::var_os("SystemRoot").expect("SystemRoot");
+        let ssh = std::path::PathBuf::from(&system_root)
+            .join("System32")
+            .join("OpenSSH")
+            .join("ssh.exe");
+        assert!(ssh.is_file(), "the in-box ssh.exe (blocked without it)");
+        let stripped: Vec<(String, String)> = [
+            "SSH_AUTH_SOCK",
+            "HOME",
+            "SystemRoot",
+            "PATH",
+            "TEMP",
+            "TMP",
+            "USERNAME",
+            "USERPROFILE",
+        ]
+        .into_iter()
+        .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_owned(), v)))
+        .collect();
+        // The control: exactly the stripped variables, no fill.
+        let control = std::process::Command::new(&ssh)
+            .args(["-G", "localhost"])
+            .env_clear()
+            .envs(stripped.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            !control.status.success(),
+            "the stripped environment alone fails (the diagnosis): {:?}",
+            control.status
+        );
+        let env = Env::from_vars(stripped.iter().map(|(k, v)| (k.as_str(), v.clone())));
+        let out = run_contained(&Spec {
+            program: &ssh,
+            args: vec!["-G".into(), "localhost".into()],
+            env: Some(&env),
+            cwd: None,
+            timeout: LOCAL_QUERY_TIMEOUT,
+            max_output: LOCAL_QUERY_OUTPUT_BYTES,
+        })
+        .unwrap();
+        assert!(!out.timed_out);
+        assert!(
+            out.status.unwrap().success(),
+            "ssh -G through the product's launch path: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let text = String::from_utf8_lossy(&out.stdout).to_ascii_lowercase();
+        assert!(text.lines().any(|l| l == "hostname localhost"), "{text}");
     }
 
     #[cfg(unix)]

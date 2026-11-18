@@ -334,11 +334,17 @@ fn check_ca(input: &IssuanceCheck<'_>) -> Result<(), IssuanceRefusal> {
 /// ⟨M03⟩ The extensions a grant's certificate for `pair` carries (ADR-0008 D6 item
 /// 1; ADR-0005 §3.4): `permit-pty` for every pair of the grant's scope, and
 /// `permit-agent-forwarding` only with the `agent-forwarding` capability.
-/// `permit-port-forwarding` (no route data until M04), `permit-user-rc` and
-/// `permit-X11-forwarding` never. A pair outside the scope gets nothing. Identical
-/// to M01's `permitted_extensions` for every M01 grant.
+/// ⟨M04 U6; ADR-0010 §5 item 2⟩ `permit-port-forwarding` **iff** `pair` is in
+/// `jump_pairs` (the in-scope pairs another in-scope pair uses as its managed jump,
+/// [`crate::catalog::jump_pairs_in_scope`]); no other pair ever gets it.
+/// `permit-user-rc` and `permit-X11-forwarding` never. A pair outside the scope gets
+/// nothing. Identical to M01's `permitted_extensions` for every grant without a route.
 #[must_use]
-pub fn extension_profile(grant: &GrantSnapshot, pair: &AccessPair) -> BTreeSet<String> {
+pub fn extension_profile(
+    grant: &GrantSnapshot,
+    pair: &AccessPair,
+    jump_pairs: &BTreeSet<AccessPair>,
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     if !grant.scope.pairs.contains(pair) {
         return out;
@@ -351,8 +357,15 @@ pub fn extension_profile(grant: &GrantSnapshot, pair: &AccessPair) -> BTreeSet<S
     {
         out.insert(EXTENSION_AGENT_FORWARDING.to_owned());
     }
+    if jump_pairs.contains(pair) {
+        out.insert(EXTENSION_PORT_FORWARDING.to_owned());
+    }
     out
 }
+
+/// `permit-port-forwarding`: only a managed jump pair's certificate (ADR-0010 §5
+/// item 2).
+pub const EXTENSION_PORT_FORWARDING: &str = "permit-port-forwarding";
 
 /// `permit-pty` (ADR-0005 §3.4).
 pub const EXTENSION_PTY: &str = "permit-pty";
@@ -1168,22 +1181,50 @@ mod predicate_tests {
         let mut w = World::new();
         let p = pair("web", "deploy");
         assert_eq!(
-            extension_profile(&w.grant, &p),
+            extension_profile(&w.grant, &p, &BTreeSet::new()),
             [EXTENSION_PTY.to_owned()].into()
         );
-        assert!(extension_profile(&w.grant, &pair("mail", "root")).is_empty());
+        assert!(extension_profile(&w.grant, &pair("mail", "root"), &BTreeSet::new()).is_empty());
         w.grant
             .scope
             .capabilities
             .insert(Capability::AgentForwarding);
         assert_eq!(
-            extension_profile(&w.grant, &p),
+            extension_profile(&w.grant, &p, &BTreeSet::new()),
             [
                 EXTENSION_PTY.to_owned(),
                 EXTENSION_AGENT_FORWARDING.to_owned()
             ]
             .into()
         );
+    }
+
+    /// ADR-0010 §5 item 2: `permit-port-forwarding` is the jump pair's alone, and only
+    /// while it is in the grant's scope; no other pair, and nothing outside the scope,
+    /// ever gets it.
+    #[test]
+    fn extension_profile_port_forwarding_only_for_jump_pairs_in_scope() {
+        let w = World::new();
+        let p = pair("web", "deploy");
+        let jump: BTreeSet<AccessPair> = [p.clone()].into();
+        assert_eq!(
+            extension_profile(&w.grant, &p, &jump),
+            [
+                EXTENSION_PTY.to_owned(),
+                EXTENSION_PORT_FORWARDING.to_owned()
+            ]
+            .into()
+        );
+        // A pair that is in the scope but is not a jump pair: no port forwarding.
+        assert!(
+            !extension_profile(&w.grant, &p, &BTreeSet::new()).contains(EXTENSION_PORT_FORWARDING)
+        );
+        // A jump pair outside the grant's scope gets nothing at all.
+        let outside = pair("mail", "root");
+        let outside_jump: BTreeSet<AccessPair> = [outside.clone()].into();
+        assert!(extension_profile(&w.grant, &outside, &outside_jump).is_empty());
+        // The forwarding extension of the agent is independent of the route.
+        assert!(!extension_profile(&w.grant, &p, &jump).contains(EXTENSION_AGENT_FORWARDING));
     }
 
     #[test]

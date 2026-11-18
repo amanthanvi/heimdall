@@ -10,8 +10,9 @@
 //!
 //! The same test pins that the forms the new flags extend are unchanged: the policy-ID form of
 //! `access pause|resume|cutoff` still reaches its own validation (an invalid ID is an ordinary
-//! usage error, not the refusal), and `service run` without `--login` is not refused.
-//! Each track deletes the rows of the commands it builds.
+//! usage error, not the refusal). Each track deletes the rows of the commands it builds
+//! (M04 U1: `service autostart enable|disable|status` and `service run --login`, now
+//! `service_login_m04`'s).
 //!
 //! **Isolation.** A cleared environment, a scratch `HOME` and a Heimdall home that does not
 //! exist, stdin closed; synthetic arguments only (no owner key, agent or keychain).
@@ -93,31 +94,7 @@ fn run(home: &Path, account: &Path, args: &[&str]) -> Out {
 
 /// Every new M04 command line and flag (ADR-0010 §9 item 9; the m04-plan units), with the
 /// stream its envelope is on.
-const M04: &[&[&str]] = &[
-    &["wsl", "enable", "Debian"],
-    &["wsl", "enable", "Debian", "--account", "dev", "--mode-a"],
-    &["wsl", "enable", "Debian", "--mode-b"],
-    &["wsl", "disable", "Debian"],
-    &["wsl", "disable", "Debian", "--start"],
-    &["wsl", "status"],
-    &["container", "add", "lab"],
-    &["container", "remove", "lab"],
-    &["container", "mount-args", "lab"],
-    &["service", "autostart", "enable"],
-    &["service", "autostart", "disable"],
-    &["service", "autostart", "status"],
-    &["service", "run", "--login"],
-    &[
-        "destination",
-        "add",
-        "lab",
-        "--hostname",
-        "h.example.invalid",
-        "--jump",
-        "bastion",
-    ],
-    &["internal", "wsl-helper"],
-];
+const M04: &[&[&str]] = &[];
 
 /// Every new M05 command line and flag (ADR-0011 §10 item 10; the m05-plan units).
 const M05: &[&[&str]] = &[
@@ -204,8 +181,7 @@ fn m04_m05_new_commands_refuse_as_not_available_without_a_runtime() {
 
     // The forms the new flags extend are unchanged: an invalid policy ID is the existing
     // `USAGE_ERROR` (before any runtime contact), not the refusal; a target and a policy ID
-    // together, or neither, is a parse error; `--login` on `service run` is the only
-    // difference to `service run`.
+    // together, or neither, is a parse error.
     let home = scratch.path().join("home-existing");
     for line in [
         &["access", "pause", "not a policy id"][..],

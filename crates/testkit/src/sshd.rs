@@ -128,6 +128,17 @@ pub struct SshdConfig {
     /// ⟨M03⟩ `SetEnv PATH=<dir>:/usr/bin:/bin:/usr/sbin:/sbin` for sessions
     /// ([`LaggingClock`]).
     pub session_path: Option<PathBuf>,
+    /// ⟨M04 U6; ADR-0010 §9 item 8⟩ `AllowTcpForwarding yes` with one `PermitOpen` per
+    /// entry (`host:port`), the administrative limit of a bastion. `None`: `AllowTcpForwarding
+    /// no`, as every other fixture. The authorized-keys lines then drop `restrict`'s
+    /// forwarding prohibition (`restrict,port-forwarding`), so the positive control is
+    /// never prohibited by its own fixture; a certificate's forwarding is still decided
+    /// by its `permit-port-forwarding` extension.
+    pub tcp_forwarding_permit_open: Option<Vec<String>>,
+    /// ⟨M04 U6⟩ `AllowAgentForwarding yes` (and `agent-forwarding` on the authorized-keys
+    /// lines). A certificate's agent forwarding is still decided by its
+    /// `permit-agent-forwarding` extension.
+    pub agent_forwarding: bool,
 }
 
 impl Default for SshdConfig {
@@ -143,6 +154,8 @@ impl Default for SshdConfig {
             authorized_principals_command: None,
             max_startups: None,
             session_path: None,
+            tcp_forwarding_permit_open: None,
+            agent_forwarding: false,
         }
     }
 }
@@ -160,6 +173,10 @@ impl SshdConfig {
             Some("MaxStartups")
         } else if self.session_path.is_some() {
             Some("SetEnv PATH")
+        } else if self.tcp_forwarding_permit_open.is_some() {
+            Some("AllowTcpForwarding")
+        } else if self.agent_forwarding {
+            Some("AllowAgentForwarding")
         } else {
             None
         }
@@ -1160,11 +1177,19 @@ fn append_line(path: &Path, line: &str) -> io::Result<()> {
 }
 
 fn authorized_keys_text(config: &SshdConfig) -> Vec<u8> {
-    let options = if config.allow_pty {
-        "restrict,pty"
-    } else {
-        "restrict"
-    };
+    let mut options = String::from("restrict");
+    if config.allow_pty {
+        options.push_str(",pty");
+    }
+    // ⟨M04 U6⟩ A fixture that needs forwarding must not be prohibited by its own
+    // authorized-keys options (`restrict` alone forbids both).
+    if config.tcp_forwarding_permit_open.is_some() {
+        options.push_str(",port-forwarding");
+    }
+    if config.agent_forwarding {
+        options.push_str(",agent-forwarding");
+    }
+    let options = options.as_str();
     let mut out = config.registry_seed.clone().unwrap_or_default();
     if out.last().is_some_and(|&b| b != b'\n') {
         out.push(b'\n');
@@ -1264,8 +1289,8 @@ fn sshd_config_text(
          PermitRootLogin no\n\
          PermitUserRC no\n\
          PermitUserEnvironment no\n\
-         AllowAgentForwarding no\n\
-         AllowTcpForwarding no\n\
+         AllowAgentForwarding {}\n\
+         AllowTcpForwarding {}\n\
          X11Forwarding no\n\
          UseDNS no\n\
          MaxAuthTries {}\n\
@@ -1273,6 +1298,12 @@ fn sshd_config_text(
          Subsystem sftp internal-sftp\n",
         config_path(host_key),
         config_path(authorized),
+        if config.agent_forwarding { "yes" } else { "no" },
+        if config.tcp_forwarding_permit_open.is_some() {
+            "yes"
+        } else {
+            "no"
+        },
         config.max_auth_tries,
         if config.log_level_verbose {
             "VERBOSE"
@@ -1301,6 +1332,9 @@ fn sshd_config_text(
     }
     if let Some(value) = &config.max_startups {
         text.push_str(&format!("MaxStartups {value}\n"));
+    }
+    for target in config.tcp_forwarding_permit_open.iter().flatten() {
+        text.push_str(&format!("PermitOpen {target}\n"));
     }
     if let Some(dir) = &config.session_path {
         text.push_str(&format!(

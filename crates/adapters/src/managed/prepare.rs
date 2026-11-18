@@ -41,6 +41,7 @@ use heimdall_domain::scope::AccessPair;
 use super::report::{
     self, ManagedReport, PairEvidence, ReportContext, SelectionClass, current_platform,
 };
+use super::route;
 
 /// The terms of a grant the report needs (its origin's lock behaviour and the
 /// effective connection policy; U6-Q5).
@@ -269,17 +270,28 @@ pub fn invalidate_evidence(
     let client = sources.client_version();
     let mut evaluations: BTreeMap<(String, String), Option<TargetEvaluation>> = BTreeMap::new();
     for e in enrollments.iter_mut().filter(|e| e.evidence.is_some()) {
-        let alias = pairs
+        let pair = pairs
             .iter()
-            .find(|p| p.destination == e.destination && p.account == e.account)
-            .and_then(|p| p.alias.clone());
-        let eval = alias.and_then(|a| {
+            .find(|p| p.destination == e.destination && p.account == e.account);
+        let alias = pair.and_then(|p| p.alias.clone());
+        let mut evaluate = |a: &str| {
             evaluations
-                .entry((e.destination.as_str().to_owned(), a.clone()))
-                .or_insert_with(|| sources.evaluate_target(&a))
+                .entry((e.destination.as_str().to_owned(), a.to_owned()))
+                .or_insert_with(|| sources.evaluate_target(a))
                 .clone()
-        });
-        if !heimdall_app::enrollment::evidence_holds(e, eval.as_ref(), client.as_deref()) {
+        };
+        let eval = alias.as_deref().and_then(&mut evaluate);
+        // ⟨M04 U6; reading I-5⟩ The route the catalog approves, and the jump hop's own
+        // evaluation (a jump alias is a managed alias of its own).
+        let route = pair.and_then(|p| p.route.as_ref());
+        let jump_eval = route.and_then(|r| evaluate(&r.approved.jump_alias));
+        if !route::evidence_survives(
+            e,
+            route,
+            eval.as_ref(),
+            jump_eval.as_ref(),
+            client.as_deref(),
+        ) {
             e.evidence = None;
         }
     }
@@ -548,6 +560,7 @@ pub fn pair_integrations(
     endpoint: Option<&EndpointRef>,
     observations: &[AliasObservation],
     now: Timestamp,
+    agent_forwarding: bool,
 ) -> Vec<PairIntegration> {
     pairs
         .iter()
@@ -585,8 +598,14 @@ pub fn pair_integrations(
             },
             eligibility_checked_at: now,
             identity_selection_report: report,
-            agent_forwarding: false,
-            route: None,
+            // ⟨M04 U6⟩ The grant's `agent-forwarding` capability, for a Unix socket
+            // endpoint (a named pipe's `ForwardAgent` stays `unsupported`); the commit
+            // recomputes both from the catalog and the grant.
+            agent_forwarding: agent_forwarding
+                && endpoint.is_some_and(|e| {
+                    e.kind == heimdall_contract::provider::EndpointKind::UnixSocket
+                }),
+            route: route::route_view(p),
         })
         .collect()
 }
@@ -677,13 +696,25 @@ pub fn outcome(
         // ⟨§17.21 item 11⟩ D10 item 6's classification, weakest over the pairs.
         selection: selection_class(req.pairs, &sources.observations),
     };
-    let report = report::compute(req.grant, prepared, &managed.claims, &ctx, &evidence);
+    let mut report = report::compute(req.grant, prepared, &managed.claims, &ctx, &evidence);
+    // ⟨M04 U6⟩ A routed pair's readiness: the route dependency, and the weaker hop's
+    // lock continuity (before the minimums that read it).
+    route::apply_to_report(&mut report, req.pairs);
     check_minimums(req, &report, terms, capabilities)
         .map_err(ManagedRefusal::into_adapter_error)?;
     let endpoint = binding_endpoint(prepared, layout);
     let integration = ConsumerIntegration {
         signing_endpoint: endpoint.as_ref().map(|e| e.locator.clone()),
-        pairs: pair_integrations(req.pairs, endpoint.as_ref(), &sources.observations, req.now),
+        pairs: pair_integrations(
+            req.pairs,
+            endpoint.as_ref(),
+            &sources.observations,
+            req.now,
+            req.grant
+                .scope
+                .capabilities
+                .contains(&heimdall_contract::request::Capability::AgentForwarding),
+        ),
         ..ConsumerIntegration::default()
     };
     let outcome = PrepareOutcome {
