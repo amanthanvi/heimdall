@@ -732,10 +732,14 @@ impl World {
         out
     }
 
-    /// Run the binary on a terminal and type `yes` at its `[y/N]: ` prompt.
+    /// Run the binary on a terminal and type `yes` at its `[y/N]: ` prompt. ⟨M03 E6⟩ The
+    /// prompt is matched without its trailing space, on a terminal wide enough that its line
+    /// cannot wrap: a pseudoconsole's text drops a line's trailing spaces (as M04's
+    /// `windows_m04.rs` found).
     pub fn confirm(&self, args: &[&str]) -> Out {
         let mut cmd = TerminalCommand::new(bin())
             .args(args)
+            .size(1000, 50)
             .current_dir(&self.home.root);
         for (k, v) in self.env() {
             cmd = cmd.env(k, v);
@@ -743,9 +747,10 @@ impl World {
         let mut term = cmd.spawn().unwrap_or_else(|e| {
             panic!("blocked: a terminal (script(1) on Unix, ConPTY on Windows) is needed: {e}")
         });
-        if let Err(e) = term.expect("[y/N]: ", Duration::from_secs(90)) {
+        if let Err(e) = term.expect("[y/N]:", Duration::from_secs(90)) {
             panic!("{args:?}: no prompt: {}", self.redact(&e.to_string()));
         }
+        std::thread::sleep(Duration::from_millis(300));
         term.send(b"yes\r").unwrap();
         let code = term.wait(Duration::from_secs(120)).unwrap_or(-1);
         let text = term.text();

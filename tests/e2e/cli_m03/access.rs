@@ -285,17 +285,44 @@ impl Rt {
 impl Drop for Rt {
     fn drop(&mut self) {
         // The runtime this test started, in this test's own home (a no-op when none ran).
+        // ⟨M03 E6⟩ In the environment `run()` gives every command (on Windows `SystemRoot`,
+        // `PATH`, `TEMP` and `TMP`), and checked: a runtime left running outlives the test,
+        // and on Windows it holds the test binary's output pipes (it inherited them through
+        // the CLI that started it).
         let env = self.env();
         let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let _ = std::process::Command::new(bin())
-            .args(["--json", "service", "stop"])
+        let mut cmd = std::process::Command::new(bin());
+        cmd.args(["--json", "service", "stop"])
             .env_clear()
             .env("HEIMDALL_HOME", &self.home)
             .env("HOME", &self.account)
-            .env("PATH", "/usr/bin:/bin")
-            .envs(env)
-            .stdin(std::process::Stdio::null())
-            .output();
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .stdin(std::process::Stdio::null());
+        if cfg!(windows) {
+            for k in ["SystemRoot", "PATH", "TEMP", "TMP"] {
+                if let Some(v) = std::env::var_os(k) {
+                    cmd.env(k, v);
+                }
+            }
+        } else {
+            cmd.env("PATH", "/usr/bin:/bin");
+        }
+        cmd.envs(env);
+        let out = cmd.output();
+        // Never a panic here while the test is already panicking: the envelope is read
+        // without `Out::json`.
+        let stopped = out.as_ref().is_ok_and(|o| {
+            o.status.success()
+                && String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .rev()
+                    .find_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+                    .is_some_and(|v| v["data"]["running"] == false)
+        });
+        if !stopped && !std::thread::panicking() {
+            let code = out.as_ref().map_or(-1, |o| o.status.code().unwrap_or(-1));
+            panic!("`service stop` did not stop this test's runtime (exit {code})");
+        }
         let _ = &self.scratch;
     }
 }
