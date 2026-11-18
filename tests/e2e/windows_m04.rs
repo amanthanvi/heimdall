@@ -1672,21 +1672,24 @@ mod native {
             assert_eq!(list(&d, &socket), (0, 1), "the agent protocol still works");
         }
 
-        /// ⟨M04 Windows run at 2675e2ff⟩ The agent identities reachable from inside a
-        /// distribution: every Unix socket in its `/proc/net/unix` it can connect to (an
-        /// abstract one, which the shared network namespace makes visible to every WSL 2
-        /// distribution, or a path one that exists in its own file system) is asked for its
-        /// identities with the agent protocol (`REQUEST_IDENTITIES`), and each answer's key
-        /// fingerprints are compared with `want`. Prints `checked=<n> reached=<m>`; `reached`
-        /// counts the sockets whose answer names one of `want`.
-        fn reach_script(want: &[String]) -> String {
+        /// ⟨M04 Windows runs at 2675e2ff and b2d69de3⟩ The agent identities reachable from
+        /// inside a distribution, compared by the exact identity blobs an agent answers (a
+        /// binding's identity is a certificate, whose blob is not what `ssh-add -l`'s
+        /// fingerprint names: that is the key inside it). `learn <socket>`: the SHA-256 (hex)
+        /// of each identity blob the agent at `socket` answers to `REQUEST_IDENTITIES`
+        /// (`identities=<d1>,<d2>…`; 30 s for the first answer, which travels the bridge).
+        /// `scan <d>…`: every Unix socket in the distribution's `/proc/net/unix` it can connect
+        /// to (an abstract one, which the shared network namespace makes visible to every WSL 2
+        /// distribution, or a path one that exists in its own file system) is asked the same,
+        /// 10 s each; prints `checked=<n> reached=<m>`, `reached` counting the sockets whose
+        /// answer holds one of the digests.
+        fn reach_script(args: &[&str]) -> String {
             // One line (`wsl.exe` carries it as one argument): the program, base64-encoded,
             // decoded and run by Python itself.
-            let program = REACH_PROGRAM;
             format!(
                 r#"python3 -c "import base64,sys;exec(base64.b64decode(sys.argv[1]))" {} {}"#,
-                base64_encode(program.as_bytes()),
-                want.join(" ")
+                base64_encode(REACH_PROGRAM.as_bytes()),
+                args.join(" ")
             )
         }
 
@@ -1711,13 +1714,7 @@ mod native {
         }
 
         /// [`reach_script`]'s program (`sys.argv[2:]` are the wanted fingerprints).
-        const REACH_PROGRAM: &str = r#"import base64, hashlib, os, socket, struct, sys
-want = set(sys.argv[2:])
-paths = set()
-for line in open('/proc/net/unix').read().splitlines()[1:]:
-    f = line.split()
-    if len(f) >= 8:
-        paths.add(f[7])
+        const REACH_PROGRAM: &str = r#"import hashlib, os, socket, struct, sys
 def exact(s, n):
     b = b''
     while len(b) < n:
@@ -1726,22 +1723,15 @@ def exact(s, n):
             raise EOFError
         b += c
     return b
-checked = reached = 0
-for p in sorted(paths):
-    if p.startswith('@'):
-        addr = '\0' + p[1:]
-    elif os.path.exists(p):
-        addr = p
-    else:
-        continue
+def identities(addr, timeout):
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(2)
+    s.settimeout(timeout)
     try:
         s.connect(addr)
     except OSError:
         s.close()
-        continue
-    checked += 1
+        return None
+    blobs = []
     try:
         s.sendall(struct.pack('>IB', 1, 11))
         n, typ = struct.unpack('>IB', exact(s, 5))
@@ -1750,18 +1740,39 @@ for p in sorted(paths):
             count, at = struct.unpack('>I', body[:4])[0], 4
             for _ in range(min(count, 64)):
                 (bl,) = struct.unpack('>I', body[at:at + 4])
-                blob = body[at + 4:at + 4 + bl]
+                blobs.append(body[at + 4:at + 4 + bl])
                 at += 4 + bl
                 (cl,) = struct.unpack('>I', body[at:at + 4])
                 at += 4 + cl
-                fp = 'SHA256:' + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip('=')
-                if fp in want:
-                    reached += 1
-                    break
     except Exception:
         pass
     finally:
         s.close()
+    return blobs
+digest = lambda b: hashlib.sha256(b).hexdigest()
+if sys.argv[2] == 'learn':
+    print('identities=' + ','.join(digest(b) for b in (identities(sys.argv[3], 30) or [])))
+    sys.exit(0)
+want = set(sys.argv[3:])
+paths = set()
+for line in open('/proc/net/unix').read().splitlines()[1:]:
+    f = line.split()
+    if len(f) >= 8:
+        paths.add(f[7])
+checked = reached = 0
+for p in sorted(paths):
+    if p.startswith('@'):
+        addr = '\0' + p[1:]
+    elif os.path.exists(p):
+        addr = p
+    else:
+        continue
+    blobs = identities(addr, 10)
+    if blobs is None:
+        continue
+    checked += 1
+    if any(digest(b) in want for b in blobs):
+        reached += 1
 print('checked=%d reached=%d' % (checked, reached))
 "#;
 
@@ -1810,21 +1821,34 @@ print('checked=%d reached=%d' % (checked, reached))
             let (socket, _) = descriptor(&ensure(&w, &env, "a13-o", "a13-o-r1"));
             let (code, listed) = sh(&d, &format!("SSH_AUTH_SOCK={socket} ssh-add -l 2>&1"));
             assert_eq!(code, 0, "the enabled distribution serves it: {listed}");
-            let want: Vec<String> = listed
+            // The binding's identity as its agent answers it (the exact blob).
+            let (code, learned) = sh(&d, &reach_script(&["learn", &socket]));
+            assert_eq!(code, 0, "{learned}");
+            let want: Vec<String> = learned
                 .split_whitespace()
-                .filter(|w| w.starts_with("SHA256:"))
+                .find_map(|w| w.strip_prefix("identities="))
+                .unwrap_or_default()
+                .split(',')
+                .filter(|d| !d.is_empty())
                 .map(str::to_owned)
                 .collect();
-            assert_eq!(want.len(), 1, "the binding's one identity: {listed}");
-            // The positive control: the probe reaches the binding where it is served.
-            let (code, out) = sh(&d, &reach_script(&want));
+            assert_eq!(
+                want.len(),
+                1,
+                "the binding's one identity, as `ssh-add -l` lists it ({listed}): {learned}"
+            );
+            let scan: Vec<&str> = std::iter::once("scan")
+                .chain(want.iter().map(String::as_str))
+                .collect();
+            // The positive control: the scan reaches the binding where it is served.
+            let (code, out) = sh(&d, &reach_script(&scan));
             assert_eq!(code, 0, "{out}");
             assert!(
                 reach_counts(&out).1 >= 1,
                 "control: the probe reaches the binding inside its own distribution: {out}"
             );
             // The observer, as its own account.
-            let (code, out) = sh(&observer, &reach_script(&want));
+            let (code, out) = sh(&observer, &reach_script(&scan));
             assert_eq!(code, 0, "{out}");
             let (checked, reached) = reach_counts(&out);
             assert_eq!(
