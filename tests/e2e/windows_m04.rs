@@ -142,7 +142,7 @@ mod native {
         }
     }
 
-    /// The probe: re-executed with `--exact native::handle_probe_child --nocapture`, it reports
+    /// The probe: re-executed with `--exact <its name> --nocapture` ([`probe_name`]), it reports
     /// whether the handle number in `HM_U2_PROBE_HANDLE` names the marker file. A no-op unless
     /// the variables are set.
     #[test]
@@ -160,12 +160,22 @@ mod native {
         );
     }
 
-    fn probe_args() -> Vec<&'static str> {
+    /// The probe's libtest name in this test binary. ⟨M04 Windows fix round⟩ Derived from the
+    /// module path, not written out: since this file became the `windows` module of
+    /// `e2e_platform_m04` the name is `windows::native::handle_probe_child`, and the literal
+    /// `native::handle_probe_child` matched no test, so the probe printed nothing ("no verdict").
+    fn probe_name() -> String {
+        let path = module_path!();
+        let inside = path.split_once("::").map_or(path, |(_, rest)| rest);
+        format!("{inside}::handle_probe_child")
+    }
+
+    fn probe_args() -> Vec<String> {
         vec![
-            "--exact",
-            "native::handle_probe_child",
-            "--nocapture",
-            "--test-threads=1",
+            "--exact".to_owned(),
+            probe_name(),
+            "--nocapture".to_owned(),
+            "--test-threads=1".to_owned(),
         ]
     }
 
@@ -520,6 +530,58 @@ mod native {
             .unwrap_or_default()
     }
 
+    /// ⟨M04 Windows fix round; M03 `eccab7d6`⟩ A plan that changes no item is applied as
+    /// previewed, with no question (ADR-0007 §5.2), so a fresh home's first `setup apply` asks
+    /// nothing. The first adoption of an alias always needs the owner's decision: this adopts
+    /// a scratch public key (generated per run, never the owner's) and adds a destination for
+    /// it, so the next `setup apply` asks its typed `yes`. Both are plain product steps.
+    fn add_alias_needing_a_decision(env: &[(OsString, OsString)], inst: &SecondInstallation) {
+        let run = |args: Vec<OsString>| -> serde_json::Value {
+            let out = Command::new(bin())
+                .args(["--json", "--non-interactive"])
+                .args(&args)
+                .env_clear()
+                .envs(env.iter().map(|(k, v)| (k, v)))
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            heimdall_testkit::assert_no_canary(&text);
+            let envelope = text
+                .lines()
+                .rev()
+                .filter_map(|l| l.find("{\"schema_version\"").map(|i| &l[i..]))
+                .find_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+                .unwrap_or_default();
+            assert_eq!(
+                envelope["code"],
+                "OK",
+                "{args:?} (exit {:?})",
+                out.status.code()
+            );
+            envelope
+        };
+        let key = heimdall_testkit::agent::FixtureKey::generate_many(1);
+        let path = inst.root().join("fixture.pub");
+        std::fs::write(&path, format!("{}\n", key[0].public_line_without_comment())).unwrap();
+        let adopted = run(vec![
+            "identity".into(),
+            "adopt".into(),
+            "--pub".into(),
+            path.clone().into_os_string(),
+        ]);
+        let identity = adopted["data"]["identity_id"].as_str().unwrap().to_owned();
+        let destination = inst.destination_id();
+        run(SecondInstallation::destination_add_args(
+            "hm-a14",
+            &destination,
+            "127.0.0.1",
+            22,
+            "deploy",
+            &identity,
+        ));
+    }
+
     /// ADR-0010 §1 item 4 (A14): no takeover. Before and after every product step, the global
     /// agent pipe, the `ssh-agent` service (configuration, state and SDDL), the persistent user
     /// environment, Git's global and system configuration and `%USERPROFILE%\.ssh` are the same,
@@ -534,6 +596,15 @@ mod native {
         let env = product_env(&inst);
         let _login_root = DeleteLoginRoot(login_root(&inst));
         let _stop = StopRuntime(env.clone());
+        // The alias `setup apply` must decide on (M03 `eccab7d6`), itself product steps.
+        add_alias_needing_a_decision(&env, &inst);
+        let after = inventory();
+        assert_eq!(after.agent_pipes, before.agent_pipes, "after adopt and add");
+        assert_eq!(
+            after.user_environment, before.user_environment,
+            "after adopt and add"
+        );
+        owner.assert_unchanged();
         for (name, args, mode, expected) in STEPS {
             let (code, exit) = run_step(&env, args, *mode);
             assert_eq!(code, *expected, "step `{name}` (exit {exit})");
@@ -569,6 +640,27 @@ mod native {
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout).contains("Heimdall-")
+    }
+
+    /// ⟨M04 Windows fix round⟩ Give `dir` (a directory of this test's installation) the stock
+    /// profile list, protected: full control, inherited by files and subdirectories, for the
+    /// user, SYSTEM and Administrators only, so what is created inside has a stock profile's
+    /// inherited list whatever the host profile carries.
+    fn stock_profile_list(dir: &Path) {
+        let me = heimdall_ipc::windows::current_user_sid().unwrap();
+        let set = Command::new(system32("icacls.exe"))
+            .arg(dir)
+            .args([
+                "/inheritance:r",
+                "/grant:r",
+                &format!("*{me}:(OI)(CI)F"),
+                "*S-1-5-18:(OI)(CI)F",
+                "*S-1-5-32-544:(OI)(CI)F",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(set.status.success(), "{set:?}");
     }
 
     /// `std::fs::rename`, retried for a while: the stopped runtime's last handles close
@@ -609,6 +701,7 @@ mod native {
                 .unwrap_or_default()
                 .contains("# >>> heimdall managed include")
         };
+        add_alias_needing_a_decision(&env, &inst);
         for (args, mode) in [
             (&["time", "confirm"][..], Mode::Attended),
             (&["setup", "apply"][..], Mode::Attended),
@@ -620,11 +713,14 @@ mod native {
         }
         assert!(managed(&config), "setup apply wrote the managed include");
         assert!(login_value_present(&inst), "the login entry is installed");
-        // The list a build before M04 left: the content moved into a plain directory.
+        // The list a build before M04 left on a stock profile: the content moved into a plain
+        // directory under a parent given the stock list here (⟨M04 Windows fix round⟩ never
+        // assumed from the host profile, which sandboxing tools change; ADR-0010 §11).
         let state = inst.state_dir();
         assert_eq!(check_owner_only(&state).unwrap(), Verdict::OwnerOnly);
         let aside = inst.root().join("state-aside");
         rename_settled(&state, &aside);
+        stock_profile_list(inst.heimdall_home());
         std::fs::create_dir_all(&state).unwrap();
         for e in std::fs::read_dir(&aside).unwrap() {
             let e = e.unwrap();
@@ -1422,7 +1518,9 @@ mod native {
 
         /// A13: `wsl --terminate` kills the helper with the distribution; the runtime reports it
         /// and starts **nothing** in the background (the distribution stays stopped across two
-        /// re-check periods); a user restart brings the endpoint back at the same path.
+        /// re-check periods); after a user restart the helper is not relaunched in the
+        /// background either, and the owner's next `ensure` brings the endpoint back at the
+        /// same path (M04-W2-R03).
         #[test]
         #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER)"]
         fn a13_terminate_then_user_restart_recreates_endpoint_without_background_start() {
@@ -1444,9 +1542,15 @@ mod native {
             assert!(!running(&d.name), "no background start");
             let item = environment(&w, &d.name).expect("still listed");
             assert_eq!(item["state"], "not_running", "{item}");
-            // A user restart: the supervisor respawns the helper within a re-check period.
+            // A user restart. ⟨M04-W2-R03; ADR-0010 §11 item 1⟩ A listing showed it stopped, so
+            // nothing relaunches the helper in the background: the endpoint stays away over
+            // two re-check periods, until the owner's next `ensure` naming the environment,
+            // which is the explicit start and brings it back at the same path.
             let (code, _) = sh(&d, "true");
             assert_eq!(code, 0, "the user restarts the distribution");
+            std::thread::sleep(Duration::from_secs(25));
+            assert_ne!(list(&d, &socket), (0, 1), "no background relaunch");
+            ensure(&w, &env, "a13-r2", "a13-r2-r1");
             eventually("the endpoint is back", Duration::from_secs(60), || {
                 list(&d, &socket) == (0, 1)
             });

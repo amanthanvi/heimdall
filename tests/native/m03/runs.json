@@ -149,7 +149,8 @@
       "summary": "Lock continuity: fresh authentications continue through desktop and vault lock without the original vault staying unlocked; the lock-revokes alternative behaves differently and is disclosed once (R-UX-03); the process-restart re-issue row. macOS is mechanism evidence (debug build, test store); Windows is the release-profile product DPAPI row.",
       "limitations": [
         "macOS lock rows are a debug build on the test store: mechanism evidence, never the macOS lock_continuity claim (B3, F03).",
-        "Blocked: the macOS login-keychain product row (B3), the Linux desktop row (B11), the 1Password vault row (B1) and the Windows system-agent vault row (B4); the lock-procedure checks (a03_*) are native steps apart from the exit build window (m03-plan §4.4)."
+        "Blocked: the macOS login-keychain product row (B3), the Linux desktop row (B11), the 1Password vault row (B1) and the Windows system-agent vault row (B4); the lock-procedure checks (a03_*) are native steps apart from the exit build window (m03-plan §4.4).",
+        "Lock-revokes grant R (ADR-0008 D7; the orchestrator's ruling on I-11): a session_locked revocation is local and immediate. R's tombstone commits with its move to revoking, and every fresh login of R through Heimdall's endpoint is refused from then on (the attribution check: 0 of R's key IDs accepted after the revocation). R stays revoking while its certificates' residual is pending, that is until their latest valid_before (R's deadline, about 2 h after R was created) has passed on safe time; the supervisor then moves it to revoked. It never returns to active. m03-plan §4.4 step 6 (\"ended for good\") is met by revoking -> revoked, the refused logins and no reactivation; a run that ends before the residual passes records revoking, and R's window is not shortened to observe revoked."
       ]
     },
     "A07": {
@@ -325,7 +326,8 @@
       ],
       "summary": "ADR-0005 §9.3 P1, macOS screen lock (mechanism evidence: debug build, test store)",
       "limitations": [
-        "Mechanism evidence only: a debug build on the test store never yields the macOS lock_continuity claim, which waits for a release-profile run on the login keychain of a disposable account (B3; F03). Supersedes tests/evidence/g04-macos-screen-lock-probe.json."
+        "Mechanism evidence only: a debug build on the test store never yields the macOS lock_continuity claim, which waits for a release-profile run on the login keychain of a disposable account (B3; F03). Supersedes tests/evidence/g04-macos-screen-lock-probe.json.",
+        "Lock-revokes grant R (ADR-0008 D7; the orchestrator's ruling on I-11): a session_locked revocation is local and immediate. R's tombstone commits with its move to revoking, and every fresh login of R through Heimdall's endpoint is refused from then on (the attribution check: 0 of R's key IDs accepted after the revocation). R stays revoking while its certificates' residual is pending, that is until their latest valid_before (R's deadline, about 2 h after R was created) has passed on safe time; the supervisor then moves it to revoked. It never returns to active. m03-plan §4.4 step 6 (\"ended for good\") is met by revoking -> revoked, the refused logins and no reactivation; a run that ends before the residual passes records revoking, and R's window is not shortened to observe revoked."
       ]
     },
     "PW1": {
@@ -337,7 +339,8 @@
       ],
       "summary": "ADR-0005 §9.3 P-W1, Windows desktop lock (release profile, product DPAPI store)",
       "limitations": [
-        "Only a release-profile run on the product DPAPI store is claim-eligible (F03). Supersedes tests/evidence/g04-windows-desktop-lock-probe.json."
+        "Only a release-profile run on the product DPAPI store is claim-eligible (F03). Supersedes tests/evidence/g04-windows-desktop-lock-probe.json.",
+        "Lock-revokes grant R (ADR-0008 D7; the orchestrator's ruling on I-11): a session_locked revocation is local and immediate. R's tombstone commits with its move to revoking, and every fresh login of R through Heimdall's endpoint is refused from then on (the attribution check: 0 of R's key IDs accepted after the revocation). R stays revoking while its certificates' residual is pending, that is until their latest valid_before (R's deadline, about 2 h after R was created) has passed on safe time; the supervisor then moves it to revoked. It never returns to active. m03-plan §4.4 step 6 (\"ended for good\") is met by revoking -> revoked, the refused logins and no reactivation; a run that ends before the residual passes records revoking, and R's window is not shortened to observe revoked."
       ]
     }
   }

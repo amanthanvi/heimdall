@@ -182,6 +182,10 @@ pub fn list(locator: &str) -> Result<Vec<Listed>, i32> {
             cmd.env(k, v);
         }
     }
+    #[cfg(windows)]
+    for (k, v) in crate::world::openssh_startup_env() {
+        cmd.env(k, v);
+    }
     let out = run_bounded(&mut cmd, Duration::from_secs(20));
     parse_listing(out.code, &out.stdout)
 }

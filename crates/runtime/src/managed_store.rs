@@ -2040,13 +2040,16 @@ mod live_tests {
             let bridge = wsl.and_then(|fx| {
                 ops.set_distribution_host(fx.host.clone());
                 fx.factory.map(|f| {
+                    // ⟨M04-W2-R03⟩ A short re-check period, so the two-listing relaunch rule
+                    // runs in the tests' time (the tests call `tick` themselves).
                     let b = crate::wsl_bridge::BridgeRegistry::new(
                         self.store.clone(),
                         env(),
                         fx.host.clone(),
                         f,
                         tokio::runtime::Handle::current(),
-                    );
+                    )
+                    .with_recheck(std::time::Duration::from_millis(100));
                     b.attach(registry.downgrade());
                     registry.set_wsl_realizer(Arc::new(b.clone()));
                     b

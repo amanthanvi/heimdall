@@ -104,8 +104,20 @@ pub fn certificate_file(destination: &DestinationId) -> Result<String, Container
         .map_err(|_| ContainerRenderError::Destination)
 }
 
+/// `<directory>/<name>`, a path inside the container or the distribution: joined with `/`
+/// whatever the host is. ⟨M04 Windows fix round⟩ `Path::join` used the host's separator, so on
+/// Windows (the runtime that renders a WSL Mode B binding's files) every path came out as
+/// `<directory>\<name>` and the Unix rule refused it.
 fn in_directory(directory: &str, name: &str) -> Result<RenderPath, ContainerRenderError> {
-    Ok(RenderPath::unix(&Path::new(directory).join(name))?)
+    if name.is_empty() || name.contains(['/', '\\']) {
+        return Err(ContainerRenderError::Render(RenderError::RefusedValue(
+            "path",
+        )));
+    }
+    Ok(RenderPath::unix(Path::new(&format!(
+        "{}/{name}",
+        directory.trim_end_matches('/')
+    )))?)
 }
 
 fn host_key_ok(algorithm: &str, key: &str) -> bool {

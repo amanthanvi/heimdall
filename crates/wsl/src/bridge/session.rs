@@ -26,7 +26,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use heimdall_app::ports::{DistributionStart, DistributionTarget, RunningState};
+use heimdall_app::ports::{DistributionStart, DistributionTarget};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
 use tokio_util::sync::CancellationToken;
 
@@ -175,12 +175,9 @@ impl Bridge {
         start: DistributionStart,
         streams: Arc<dyn StreamHandler>,
     ) -> Result<Bridge, SessionError> {
-        if start == DistributionStart::Forbidden
-            && launcher.running(&target.name) != RunningState::Running
-        {
-            return Err(SessionError::NotRunning);
-        }
-        let transport = launcher.launch(target)?;
+        // ⟨M04-W2-R03⟩ Under `Forbidden`, the launcher lists the distribution immediately
+        // before each `wsl.exe` call it makes, and starts nothing when one says it stopped.
+        let transport = launcher.launch_under(target, start)?;
         let session = HelperSession::open(
             transport,
             &Expected {

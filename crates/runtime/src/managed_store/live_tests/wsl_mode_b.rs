@@ -120,9 +120,14 @@ enum Call {
     },
 }
 
+/// ⟨M04-W2-R02⟩ A hook run once, inside the next fake `realize`, before it takes effect.
+type RealizeHook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
 /// The fake helper session: it serves what it was realized with, removes exactly the
 /// generation it is asked to, and relays a stream into the handler it was started with.
 struct FakeBridge {
+    /// ⟨M04-W2-R02⟩ Runs once, inside the next `realize`, before it takes effect.
+    on_realize: RealizeHook,
     alive: AtomicBool,
     calls: Mutex<Vec<Call>>,
     served: Mutex<BTreeMap<String, u64>>,
@@ -142,6 +147,10 @@ impl BridgeApi for FakeBridge {
     ) -> Result<Realized, SessionError> {
         if !self.alive() {
             return Err(SessionError::Gone);
+        }
+        let hook = self.on_realize.lock().unwrap().take();
+        if let Some(hook) = hook {
+            hook();
         }
         self.calls.lock().unwrap().push(Call::Realize {
             tag: tag.to_owned(),
@@ -212,20 +221,27 @@ impl FakeBridge {
 /// The fake factory: it enforces `Bridge::start`'s rule (a stopped distribution without
 /// `Allowed` is `NotRunning`), starts the distribution for `Allowed`, and records every start.
 pub(super) struct FakeFactory {
+    /// ⟨M04-W2-R02⟩ Handed to every bridge it starts (`FakeBridge::on_realize`).
+    on_realize: RealizeHook,
     host: Arc<FakeHost>,
     starts: Mutex<Vec<DistributionStart>>,
     current: Mutex<Option<Arc<FakeBridge>>>,
     fail: Mutex<Option<SessionError>>,
     spawned: AtomicUsize,
+    /// ⟨M04-W2-R03⟩ The distribution stops just before the launcher's own pre-launch
+    /// listing of the next `Forbidden` start (the stop the background relaunch can race).
+    stop_before_launch: AtomicBool,
 }
 
 impl FakeFactory {
     fn new(host: &Arc<FakeHost>) -> Arc<Self> {
         Arc::new(Self {
+            on_realize: Arc::new(Mutex::new(None)),
             host: host.clone(),
             starts: Mutex::new(Vec::new()),
             current: Mutex::new(None),
             fail: Mutex::new(None),
+            stop_before_launch: AtomicBool::new(false),
             spawned: AtomicUsize::new(0),
         })
     }
@@ -246,6 +262,12 @@ impl BridgeFactory for FakeFactory {
     ) -> Result<Arc<dyn BridgeApi>, SessionError> {
         self.starts.lock().unwrap().push(start);
         if start == DistributionStart::Forbidden
+            && self.stop_before_launch.swap(false, Ordering::SeqCst)
+        {
+            self.host.set_running(RunningState::NotRunning);
+        }
+        // The launcher's pre-launch listing (`HelperLauncher::launch_under`).
+        if start == DistributionStart::Forbidden
             && self.host.running(&guid()) != RunningState::Running
         {
             return Err(SessionError::NotRunning);
@@ -257,6 +279,7 @@ impl BridgeFactory for FakeFactory {
             self.host.set_running(RunningState::Running);
         }
         let bridge = Arc::new(FakeBridge {
+            on_realize: self.on_realize.clone(),
             alive: AtomicBool::new(true),
             calls: Mutex::new(Vec::new()),
             served: Mutex::new(BTreeMap::new()),
@@ -769,6 +792,80 @@ async fn wsl_mode_b_disable_retires_and_keeps_the_cleanup_of_a_stopped_distribut
     }
 }
 
+/// ⟨M04 W2 review, M04-W2-R03; the contract owner's ruling, ADR-0010 §11 item 1⟩ After the
+/// helper is lost, the supervisor relaunches it in the background only after two consecutive
+/// listings, at least one re-check apart, show the distribution running, and the launch is
+/// itself preceded by a fresh listing (the fake factory's `Forbidden` check stands for the
+/// launcher's, made before each `wsl.exe` call). A stopped answer at any listing, the tick's
+/// or the pre-launch one, launches nothing and blocks the relaunch until the owner's next
+/// `ensure` naming the environment, which is the explicit start.
+#[tokio::test]
+async fn wsl_mode_b_lost_helper_relaunches_only_after_two_running_listings() {
+    let w = Live::new();
+    let (p, host, factory) = process(&w, true).await;
+    let (id, _) = approved(&p).await;
+    permit_ensures(&w, &id);
+    ensure_in(&p, &id, "w-a", "r-a").await.unwrap();
+    let supervisor = p.bridge.clone().unwrap();
+    let spawned = || factory.spawned.load(Ordering::SeqCst);
+    let recheck = std::time::Duration::from_millis(120);
+    assert_eq!(spawned(), 1);
+
+    // Lost while the distribution runs: one listing records it; a second one less than a
+    // re-check later is not enough; a second one a re-check later relaunches (`Forbidden`).
+    factory.bridge().alive.store(false, Ordering::SeqCst);
+    supervisor.tick(&p.ops).await;
+    supervisor.tick(&p.ops).await;
+    assert_eq!(spawned(), 1, "two listings less than a re-check apart");
+    tokio::time::sleep(recheck).await;
+    supervisor.tick(&p.ops).await;
+    assert_eq!(
+        spawned(),
+        2,
+        "relaunched after two running listings a re-check apart"
+    );
+    assert_eq!(factory.starts().last(), Some(&DistributionStart::Forbidden));
+
+    // Lost again; the distribution stops just before the pre-launch listing: nothing is
+    // launched, and running listings afterwards relaunch nothing.
+    factory.bridge().alive.store(false, Ordering::SeqCst);
+    supervisor.tick(&p.ops).await;
+    tokio::time::sleep(recheck).await;
+    factory.stop_before_launch.store(true, Ordering::SeqCst);
+    supervisor.tick(&p.ops).await;
+    assert_eq!(
+        spawned(),
+        2,
+        "a stopped pre-launch listing launches nothing"
+    );
+    host.set_running(RunningState::Running);
+    for _ in 0..3 {
+        tokio::time::sleep(recheck).await;
+        supervisor.tick(&p.ops).await;
+    }
+    assert_eq!(spawned(), 2, "blocked until the owner's ensure");
+
+    // A stopped listing at the tick blocks the same way; the owner's `ensure` lifts it.
+    host.set_running(RunningState::NotRunning);
+    supervisor.tick(&p.ops).await;
+    host.set_running(RunningState::Running);
+    tokio::time::sleep(recheck).await;
+    supervisor.tick(&p.ops).await;
+    tokio::time::sleep(recheck).await;
+    supervisor.tick(&p.ops).await;
+    assert_eq!(spawned(), 2);
+    ensure_in(&p, &id, "w-b", "r-b").await.unwrap();
+    assert_eq!(spawned(), 3, "the owner's ensure is the explicit start");
+    assert_eq!(factory.starts().last(), Some(&DistributionStart::Allowed));
+    // Lost after that: the two-listing rule applies again (the block was lifted).
+    factory.bridge().alive.store(false, Ordering::SeqCst);
+    supervisor.tick(&p.ops).await;
+    tokio::time::sleep(recheck).await;
+    supervisor.tick(&p.ops).await;
+    assert_eq!(spawned(), 4);
+    p.shutdown.cancel();
+}
+
 /// ADR-0010 §3 items 9, 10 and 13 through the supervisor's re-check ([`BridgeRegistry::tick`],
 /// what runs every 10 s): a distribution that stopped moves the row to `not_running` and starts
 /// **nothing**; when it runs again the helper respawns with `Forbidden` and the current
@@ -819,25 +916,36 @@ async fn wsl_mode_b_supervisor_not_running_respawn_and_gone() {
         "the grant is not ended by the distribution stopping"
     );
 
-    // It runs again (a user restart): the helper respawns, never as an explicit start, and
-    // the current generation is realized again at the same tag.
+    // It runs again (a user restart). ⟨M04-W2-R03⟩ A listing showed it stopped, so nothing
+    // relaunches the helper in the background, however many running listings follow, until
+    // the owner's next `ensure` naming the environment, which is the explicit start; then the
+    // current generation is realized again at the same tag.
     host.set_running(RunningState::Running);
-    supervisor.tick(&p.ops).await;
+    for _ in 0..3 {
+        supervisor.tick(&p.ops).await;
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    }
     assert_eq!(
         factory.starts(),
-        vec![DistributionStart::Allowed, DistributionStart::Forbidden]
+        vec![DistributionStart::Allowed],
+        "no background relaunch after a stopped listing"
     );
     assert_eq!(row(&w, &id).state, ManagedState::Active);
+    ensure_in(&p, &id, "w-a2", "r-a2").await.unwrap();
+    assert_eq!(
+        factory.starts(),
+        vec![DistributionStart::Allowed, DistributionStart::Allowed]
+    );
     let second = factory.bridge();
     assert!(!Arc::ptr_eq(&first, &second));
-    match second.calls().as_slice() {
-        [
-            Call::Realize {
-                tag: t,
-                generation: 1,
-                ..
-            },
-        ] => assert_eq!(*t, tag),
+    // The started helper realizes the current generation of the existing binding again
+    // first, then the new `ensure`'s binding.
+    match second.calls().first() {
+        Some(Call::Realize {
+            tag: t,
+            generation: 1,
+            ..
+        }) => assert_eq!(*t, tag),
         other => panic!("the endpoint is realized again: {other:?}"),
     }
     let mut s = second.open(&tag).expect("served again");
@@ -933,5 +1041,64 @@ async fn wsl_mode_b_ensure_is_the_only_start_and_reports_the_helper() {
         factory.starts()
     );
     assert_eq!(row(&w, &id).state, ManagedState::Active);
+    p.shutdown.cancel();
+}
+
+/// ⟨M04 W2 review, M04-W2-R02⟩ The review's probe, inverted: a binding withdrawn while the
+/// relaunched helper realizes it again is withdrawn again at once, so the helper never keeps
+/// an ended binding's endpoint (the claim of ADR-0010 §11 item 2), and a later re-check
+/// finds nothing to sweep. Binding B keeps the helper alive throughout.
+#[tokio::test]
+async fn wsl_mode_b_withdrawal_during_a_relaunch_leaves_no_endpoint() {
+    let w = Live::new();
+    let (p, _host, factory) = process(&w, true).await;
+    let (id, _) = approved(&p).await;
+    permit_ensures(&w, &id);
+    let a = ensure_in(&p, &id, "race-a", "race-ra").await.unwrap();
+    let b = ensure_in(&p, &id, "race-b", "race-rb").await.unwrap();
+    let tag_a = tag_of(
+        a.consumer
+            .realization
+            .as_ref()
+            .unwrap()
+            .endpoint
+            .as_ref()
+            .unwrap(),
+    );
+    let tag_b = tag_of(
+        b.consumer
+            .realization
+            .as_ref()
+            .unwrap()
+            .endpoint
+            .as_ref()
+            .unwrap(),
+    );
+    let supervisor = p.bridge.clone().unwrap();
+    factory.bridge().alive.store(false, Ordering::SeqCst);
+    let effects = p.effects.clone();
+    let binding = a.binding_id.clone();
+    *factory.on_realize.lock().unwrap() = Some(Box::new(move || {
+        heimdall_app::ports::ManagedEffects::clear(&effects, &binding, 1).unwrap();
+    }));
+    // The two-listing relaunch (M04-W2-R03), whose replay realizes A first and meets the
+    // withdrawal inside that call.
+    supervisor.tick(&p.ops).await;
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    supervisor.tick(&p.ops).await;
+    let bridge = factory.bridge();
+    assert!(p.registry.binding_endpoint(&a.binding_id).is_none());
+    let served = bridge.realized().unwrap();
+    assert!(
+        !served.contains(&(tag_a.clone(), 1)),
+        "A is withdrawn again: {served:?}"
+    );
+    assert!(
+        served.contains(&(tag_b.clone(), 1)),
+        "B is served: {served:?}"
+    );
+    assert!(bridge.open(&tag_a).is_none());
+    supervisor.tick(&p.ops).await;
+    assert!(!bridge.realized().unwrap().contains(&(tag_a, 1)));
     p.shutdown.cancel();
 }

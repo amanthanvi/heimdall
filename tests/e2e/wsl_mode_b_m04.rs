@@ -47,6 +47,13 @@ impl Distribution {
             .prefix("hmb")
             .tempdir_in("/tmp")
             .unwrap();
+        // The distribution account's own tree, whatever the umask made the temporary
+        // directory: Mode B refuses a run base another principal could replace (M04-W2-R01).
+        std::fs::set_permissions(
+            dir.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
         let home = dir.path().join("h");
         let run = dir.path().join("r");
         for d in [&home, &run] {
@@ -228,7 +235,13 @@ fn mode_b_end_to_end_through_the_real_bridge_and_helper() {
         "{env:?}"
     );
     assert!(
-        env.contains(&("GIT_SSH_COMMAND".to_owned(), format!("ssh -F {config}"))),
+        env.contains(&(
+            "GIT_SSH_COMMAND".to_owned(),
+            format!(
+                "ssh -F {}",
+                heimdall_app::operations::container_m04::sh_word(&config)
+            )
+        )),
         "{env:?}"
     );
     assert!(
@@ -326,5 +339,77 @@ fn mode_b_end_to_end_through_the_real_bridge_and_helper() {
             .iter()
             .any(|i| i["environment_id"] == env_id.as_str() && i["state"] != "removed"),
         "{after}"
+    );
+}
+
+/// ⟨M04 W2 review, M04-W2-R04⟩ The review's probe, inverted: Git runs `GIT_SSH_COMMAND` through
+/// `sh`, so the descriptor's command carries a configuration path with a space (and a quote)
+/// as one argument. A scratch `ssh` records the arguments Git gives it; the real Git runs it
+/// (no network: the scratch `ssh` exits 1). The raw `config` field stays the plain path; the
+/// container's fixed path needs no quoting and is unchanged.
+#[test]
+fn git_ssh_command_carries_a_config_path_with_spaces_as_one_argument() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = tempfile::Builder::new()
+        .prefix("hwg")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let config = root.path().join("with space/it's/ssh_config");
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(&config, "Host *\n").unwrap();
+    let ssh = root.path().join("ssh");
+    std::fs::write(
+        &ssh,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$HM_ARGS\"\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let args = root.path().join("args");
+    let config_text = config.to_str().unwrap();
+    let descriptor = heimdall_app::operations::container_m04::wsl_realization_descriptor(
+        "/unused/agent.sock",
+        config_text,
+    );
+    assert_eq!(
+        descriptor.config.as_deref(),
+        Some(config_text),
+        "the raw path field"
+    );
+    let (_, command) = descriptor
+        .environment
+        .iter()
+        .find(|(k, _)| k == "GIT_SSH_COMMAND")
+        .unwrap();
+    let git = heimdall_testkit::home::find_program("git").expect("git");
+    let out = Command::new(git)
+        .args(["ls-remote", "ssh://fixture.invalid/hm"])
+        .env_clear()
+        .env("HOME", root.path())
+        .env("PATH", format!("{}:/usr/bin:/bin", root.path().display()))
+        .env("HM_ARGS", &args)
+        .env("GIT_SSH_COMMAND", command)
+        .env("GIT_SSH_VARIANT", "ssh")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0), "the scratch ssh refuses");
+    let seen = std::fs::read_to_string(&args).unwrap();
+    let seen: Vec<&str> = seen.lines().collect();
+    let at = seen.iter().position(|a| *a == "-F").expect("-F");
+    assert_eq!(
+        seen.get(at + 1),
+        Some(&config_text),
+        "one argument: {seen:?}"
+    );
+    // The container's fixed path needs no quoting: its command is unchanged.
+    let container = heimdall_app::operations::container_m04::realization_descriptor("/x");
+    assert!(
+        container.environment.contains(&(
+            "GIT_SSH_COMMAND".to_owned(),
+            "ssh -F /run/heimdall/ssh_config".to_owned()
+        )),
+        "{container:?}"
     );
 }

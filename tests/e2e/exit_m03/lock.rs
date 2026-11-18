@@ -20,7 +20,7 @@
 //! | `a03_issuer_restart_dpapi_unprotect_while_locked` (Windows) | locked: a forced runtime restart (its new issuer child unprotects K_ca under lock), the re-issue of C's dropped key, a fresh login attributed to C's new certificate |
 //! | `a03_lock_revokes_ends_grant_and_fresh_login_fails` | locked: R's revocation (cause `session_locked`) and its refused fresh login |
 //! | `a03_vault_stand_in_locked_agent_does_not_matter` | locked: the stand-in agent lists nothing while a managed login succeeds; no credential prompt process |
-//! | `a03_post_unlock_follows_remaining_deadline` | unlocked again: R terminal; C and N by the harness's expectation |
+//! | `a03_post_unlock_follows_remaining_deadline` | unlocked again: R ended for good (`revoking` while its residual is pending, then `revoked`; never reactivated); C and N by the harness's expectation |
 //! | `a03_lock_cleanup` | the workers, the stand-in, the runtime, the fixtures and the scratch |
 //!
 //! **Handshake** (files in `HM_LOCK_STATE_DIR`, each written whole with a rename): the
@@ -39,9 +39,16 @@
 //! accepted certificate key ID or `-`, `accepted|refused`; one row per accepted
 //! certificate), `events.tsv` (epoch, event, role: `revoked R` at the commit of R's
 //! `session_locked` revocation, `ensured N` for the explicit ensure under lock),
-//! `store-kind.txt` (the registered CA's store kind as `issuer status` reports it) and
+//! `store-kind.txt` (the registered CA's store kind as `issuer status` reports it),
 //! `runtime-home.txt` (the scratch Heimdall home, for the harness's fallback `service
-//! stop` should this process be killed).
+//! stop` should this process be killed; removed once the cleanup's own stop ran) and
+//! `failure-<test>.txt` (a failed step's reason, written as it fails: libtest prints a
+//! captured panic only at the end of its run).
+//!
+//! **Rehearsal** (`HM_LOCK_REHEARSAL=1`, debug test configuration only): the world uses
+//! the test session-lock source, which the driver sets `locked` at the harness's `locked`
+//! and `unlocked` at its `unlocked`, so the whole procedure runs without a desktop lock.
+//! A rehearsal checks the driver; it is never evidence (its observations say so).
 //!
 //! **Per platform.** macOS (`HM_LOCK_PLATFORM=macos`): the debug test configuration with
 //! the scratch test store (mechanism evidence only, F03) and the **platform**
@@ -120,8 +127,10 @@ fn a03_issuer_restart_dpapi_unprotect_while_locked() {
 }
 
 /// Locked: grant R (`revoke_on_lock`) has a tombstone with cause `session_locked` and is
-/// `revoked`; its worker's fresh login to host 2 is refused, and host 2 accepted no
-/// certificate of R after its baseline.
+/// `revoking` while its certificates' residual is pending, `revoked` once that has passed
+/// (ADR-0008 D7; ruling I-11: local revocation is immediate, the remote state pending
+/// until the residual ends); its worker's fresh login to host 2 is refused, and host 2
+/// accepted no certificate of R after its baseline.
 #[test]
 #[ignore = "run once by tests/native/m03/lock-macos.sh or lock-windows.ps1 (m03-plan §4.4)"]
 fn a03_lock_revokes_ends_grant_and_fresh_login_fails() {
@@ -138,8 +147,10 @@ fn a03_vault_stand_in_locked_agent_does_not_matter() {
     check(Step::StandIn);
 }
 
-/// After the unlock: R is still terminal (its tombstone unchanged) and its fresh login is
-/// refused; C and N each follow the harness's expectation from the remaining deadline:
+/// After the unlock: R has ended for good (m03-plan §4.4 step 6; ruling I-11): still
+/// `revoking` with its residual pending, or `revoked` after it, never reactivated, its
+/// tombstone unchanged and its fresh login refused; C and N each follow the harness's
+/// expectation from the remaining deadline:
 /// `usable`, a fresh login attributed to it; `expired`, the grant reads `expired` and its
 /// fresh login is refused.
 #[test]
@@ -160,7 +171,27 @@ fn a03_lock_cleanup() {
 fn check(step: Step) {
     match procedure().wait(step) {
         Ok(text) => print!("{text}"),
-        Err(why) => panic!("{}: {why}", step.name()),
+        Err(why) => {
+            keep_failure(step, &why);
+            panic!("{}: {why}", step.name())
+        }
+    }
+}
+
+/// Keep a failed step's reason in the state directory at once (`failure-<test>.txt`,
+/// written whole): libtest prints a captured panic only in its summary at the end of the
+/// run, which a driver that ends early (a signal, a kill) never reaches, so the harness
+/// records these instead.
+fn keep_failure(step: Step, why: &str) {
+    let Some(dir) = std::env::var_os("HM_LOCK_STATE_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute() && p.is_dir())
+    else {
+        return;
+    };
+    let tmp = dir.join(format!(".failure-{}.tmp", step.name()));
+    if std::fs::write(&tmp, format!("{}: {why}\n", step.name())).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join(format!("failure-{}.txt", step.name())));
     }
 }
 
@@ -245,6 +276,9 @@ const C_WINDOW: Duration = Duration::from_secs(16 * 3600);
 const C_MIN_LEFT: Duration = Duration::from_secs(13 * 3600 + 1800);
 /// Grant R's policy window.
 const R_WINDOW: Duration = Duration::from_secs(2 * 3600);
+/// After a revoked grant's latest certificate `valid_before`, how long it may still read
+/// `revoking` (the measured completion bound's drift and the supervisor's next pass).
+const RESIDUAL_MARGIN: Duration = Duration::from_secs(900);
 /// Grant N's policy window: short, so an unlock more than an hour later exercises the
 /// `expired` case and C the `usable` one (F09).
 const N_WINDOW: Duration = Duration::from_secs(3600);
@@ -422,6 +456,7 @@ fn run(shared: &'static Shared) {
     // Locked.
     match hs.await_flag(&["abort", "locked"], LOCK_WAIT) {
         Ok((flag, text)) if flag == "locked" => {
+            run.rehearse("locked");
             run.locked_at = epoch();
             let _ = text;
             for step in [
@@ -440,6 +475,7 @@ fn run(shared: &'static Shared) {
             // After the unlock.
             match hs.await_flag(&["abort", "unlocked"], UNLOCK_WAIT) {
                 Ok((flag, _)) if flag == "unlocked" => {
+                    run.rehearse("unlocked");
                     let expect = hs.read("expect").unwrap_or_default();
                     let r = guarded(|| run.post_unlock(&expect));
                     shared.put(Step::PostUnlock, r);
@@ -477,6 +513,12 @@ struct Handshake {
     dir: PathBuf,
     /// `HM_LOCK_HARNESS_PID`: the harness, checked alive while waiting.
     harness: Option<u32>,
+    /// `HM_LOCK_REHEARSAL=1`: a rehearsal of the procedure, never evidence. The world
+    /// uses the test session-lock source (`HEIMDALL_TEST_SESSION_LOCK`), which this driver
+    /// sets `locked` when the harness's `locked` arrives and `unlocked` when its
+    /// `unlocked` does, so the whole procedure (R's `session_locked` revocation included)
+    /// runs without locking the desktop. Every observation says so.
+    rehearsal: bool,
 }
 
 impl Handshake {
@@ -505,7 +547,12 @@ impl Handshake {
             ),
             Err(_) => None,
         };
-        Ok(Handshake { dir, harness })
+        let rehearsal = std::env::var("HM_LOCK_REHEARSAL").is_ok_and(|v| v == "1");
+        Ok(Handshake {
+            dir,
+            harness,
+            rehearsal,
+        })
     }
 
     /// Write the flag `name` whole (a temporary file, then a rename).
@@ -652,6 +699,16 @@ impl Run {
         self.w.as_ref().expect("the world")
     }
 
+    /// A rehearsal ([`Handshake::rehearsal`]) only: set the test session-lock source's
+    /// state file to `state`, as the desktop's lock or unlock would.
+    fn rehearse(&self, state: &str) {
+        if self.hs.rehearsal
+            && let Some(w) = self.w.as_ref()
+        {
+            std::fs::write(&w.lock_file, state).expect("the test session-lock state file");
+        }
+    }
+
     fn lane(&mut self, role: Role) -> &mut Lane {
         &mut self.lanes[role.pair()]
     }
@@ -675,8 +732,13 @@ impl Run {
         let hs = Handshake {
             dir: hs.dir.clone(),
             harness: hs.harness,
+            rehearsal: hs.rehearsal,
         };
         let product = cfg!(windows);
+        assert!(
+            !(product && hs.rehearsal),
+            "failed: a rehearsal needs the debug test configuration (the product configuration has no test session-lock source)"
+        );
         if product {
             release_probe();
             owner_ssh_guard();
@@ -687,7 +749,7 @@ impl Run {
             pairs: 3,
             servers,
             per_pair_profiles: true,
-            platform_session_lock: true,
+            platform_session_lock: !hs.rehearsal,
             product,
             pair_policy_windows: vec![C_WINDOW, R_WINDOW, N_WINDOW],
             config_toml: Some(format!(
@@ -700,18 +762,31 @@ impl Run {
         hs.write("runtime-home.txt", &w.hh.to_string_lossy());
         let _ = writeln!(
             out,
-            "m03 observation: a03 {os} world three hosts with disjoint pairs (exit-1..3 on hosts 1..3), {} configuration, session-lock source platform",
+            "m03 observation: a03 {os} world three hosts with disjoint pairs (exit-1..3 on hosts 1..3), {} configuration, session-lock source {}",
             if product {
                 "product (no HEIMDALL_TEST_* variable)"
             } else {
                 "debug test"
+            },
+            if hs.rehearsal {
+                "test (HM_LOCK_REHEARSAL=1: a rehearsal, never evidence; the desktop is not locked)"
+            } else {
+                "platform"
             }
         );
         // The platform source answers (the harness checked the same query reads
         // `unlocked`); `revoke-on-lock` needs it.
         let ls = w.cli(&["--json", "internal", "session-lock-state"]);
         let ls = ls.json();
-        assert_eq!(ls["data"]["source"], "platform", "{ls}");
+        assert_eq!(
+            ls["data"]["source"],
+            if hs.rehearsal {
+                "test_configuration"
+            } else {
+                "platform"
+            },
+            "{ls}"
+        );
         assert_eq!(ls["data"]["state"], "unlocked", "{ls}");
 
         // The issuer's store kind as the product reports it.
@@ -1039,6 +1114,49 @@ impl Run {
         );
     }
 
+    /// The latest `valid_before` (epoch seconds) of `grant`'s reserved or published
+    /// certificates: until then (and its completion bound) the revocation's residual is
+    /// pending (ADR-0008 D7 item 2 step 5).
+    fn residual_until(&self, grant: &str) -> Option<u64> {
+        let id = heimdall_contract::ids::GrantId::parse(grant).unwrap();
+        self.w()
+            .open_store()
+            .transaction(|tx| tx.issuance_entries(&id))
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.state != heimdall_domain::issuance::IssuanceState::Voided)
+            .map(|e| u64::try_from(e.bounds.valid_before.as_second()).unwrap_or(0))
+            .max()
+    }
+
+    /// A revoked grant's state read at `now`, checked against its residual: `revoking`
+    /// while the residual is pending (before its latest `valid_before`, plus
+    /// [`RESIDUAL_MARGIN`] for the completion bound and the supervisor's pass), `revoked`
+    /// after; anything else fails. Returns the case, for the record.
+    fn revoked_case(&self, grant: &str, state: &str, residual: Option<u64>, now: u64) -> String {
+        let until = residual.unwrap_or(0);
+        match state {
+            "revoked" => format!(
+                "state revoked; its certificates' residual ended {} s ago",
+                now.saturating_sub(until)
+            ),
+            "revoking" => {
+                assert!(
+                    residual.is_some() && now < until + RESIDUAL_MARGIN.as_secs(),
+                    "{grant} still reads revoking {} s after its certificates' latest valid_before (residual {residual:?}); the supervisor moves it to revoked once that has passed",
+                    now.saturating_sub(until)
+                );
+                format!(
+                    "state revoking: local denial applied, its certificates' residual pending for {} s more (ADR-0008 D7)",
+                    until.saturating_sub(now)
+                )
+            }
+            other => panic!(
+                "{grant} reads {other:?} after its revocation (expected revoking or revoked)"
+            ),
+        }
+    }
+
     fn snapshot(&self, grant: &str) -> heimdall_domain::grant::GrantSnapshot {
         let id = heimdall_contract::ids::GrantId::parse(grant).unwrap();
         self.w()
@@ -1220,7 +1338,13 @@ impl Run {
         let revoked_at = u64::try_from(tomb.revoked_at.as_second()).unwrap_or(0);
         self.hs
             .append("events.tsv", &format!("{revoked_at}\trevoked\tR"));
-        assert_eq!(self.w().grant_state(&r), "revoked", "R is revoked");
+        // The tombstone commits with the move to `revoking` (local denial applied). A
+        // managed grant stays `revoking` while its certificates' residual is pending
+        // (ADR-0008 D7 items 2-3: until their latest `valid_before`, R's deadline, has
+        // passed on safe time), then the supervisor's pass moves it to `revoked`.
+        let state = self.w().grant_state(&r);
+        let residual = self.residual_until(&r);
+        let case = self.revoked_case(&r, &state, residual, epoch());
         let login = self.drive(Role::R, "locked");
         self.refused(&login, Role::R, "R's fresh login after its revocation");
         let prefix = self.key_prefix(&r);
@@ -1237,7 +1361,7 @@ impl Run {
         let offset =
             i64::try_from(revoked_at).unwrap_or(0) - i64::try_from(self.locked_at).unwrap_or(0);
         format!(
-            "m03 observation: a03 {os} lock_revokes R revoked cause session_locked at {offset:+} s from the harness's verified-lock flag; fresh login to host 2 refused; host 2 accepted none of R's key IDs since its baseline\n"
+            "m03 observation: a03 {os} lock_revokes R revoked cause session_locked at {offset:+} s from the harness's verified-lock flag ({case}); fresh login to host 2 refused; host 2 accepted none of R's key IDs since its baseline\n"
         )
     }
 
@@ -1308,18 +1432,17 @@ impl Run {
         out
     }
 
-    /// One grant after the unlock: R terminal; C or N by `case` (`usable`, `expired`).
+    /// One grant after the unlock: R ended for good; C or N by `case` (`usable`, `expired`).
     fn post_one(&mut self, role: Role, case: &str) -> String {
         let os = platform();
         let grant = self.grant(role);
         if role == Role::R {
             assert_eq!(case, "terminal", "the expectation names R terminal");
-            // Terminal, never reactivated.
-            assert_eq!(
-                self.w().grant_state(&grant),
-                "revoked",
-                "R is still revoked"
-            );
+            // Ended for good, never reactivated: `revoking` while its residual is
+            // pending, `revoked` once it passed (see `lock_revokes`).
+            let state = self.w().grant_state(&grant);
+            let residual = self.residual_until(&grant);
+            let ended = self.revoked_case(&grant, &state, residual, epoch());
             let id = heimdall_contract::ids::GrantId::parse(&grant).unwrap();
             let tomb = self
                 .w()
@@ -1342,7 +1465,7 @@ impl Run {
                 "nothing of R accepted since its baseline"
             );
             return format!(
-                "m03 observation: a03 {os} post_unlock R terminal (revoked, cause session_locked, not reactivated; fresh login refused)\n"
+                "m03 observation: a03 {os} post_unlock R ended, not reactivated ({ended}; tombstone cause session_locked unchanged); fresh login refused\n"
             );
         }
         match case {

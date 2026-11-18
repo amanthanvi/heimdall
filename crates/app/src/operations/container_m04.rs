@@ -116,9 +116,26 @@ pub fn realization_descriptor(directory: &str) -> RealizationDescriptor {
             ),
             (
                 "GIT_SSH_COMMAND".to_owned(),
-                format!("ssh -F {CONTAINER_CONFIG}"),
+                format!("ssh -F {}", sh_word(CONTAINER_CONFIG)),
             ),
         ],
+    }
+}
+
+/// ⟨M04 W2 review, M04-W2-R04⟩ `text` as one POSIX shell word, for the command lines the
+/// descriptor gives (Git runs `GIT_SSH_COMMAND` through `sh`): as it is when it holds only
+/// `[A-Za-z0-9/._-]`, otherwise single-quoted with each `'` written `'\''`. The raw path
+/// fields of the descriptor stay as they are.
+#[must_use]
+pub fn sh_word(text: &str) -> String {
+    let plain = !text.is_empty()
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'_' | b'-'));
+    if plain {
+        text.to_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
     }
 }
 
@@ -812,7 +829,8 @@ pub(crate) fn finish_integration(
 
 /// ⟨M04 U4b⟩ The mode B descriptor (design §1): `endpoint` is the binding's socket inside
 /// the distribution, `config` the `ssh_config` beside it (`<run>/b/<tag>/ssh_config`),
-/// `environment` is `SSH_AUTH_SOCK` and `GIT_SSH_COMMAND=ssh -F <config>`, and there is no
+/// `environment` is `SSH_AUTH_SOCK` and `GIT_SSH_COMMAND=ssh -F <config>` (the path one shell
+/// word, [`sh_word`]), and there is no
 /// mount. The native fields carry no path: Linux `ssh` and Git use the descriptor directly,
 /// and nothing is written into the distribution user's `~/.ssh`.
 fn finish_wsl_integration(consumer: &mut ConsumerIntegration) {
@@ -844,7 +862,10 @@ pub fn wsl_realization_descriptor(socket: &str, config: &str) -> RealizationDesc
         mount: None,
         environment: vec![
             ("SSH_AUTH_SOCK".to_owned(), socket.to_owned()),
-            ("GIT_SSH_COMMAND".to_owned(), format!("ssh -F {config}")),
+            (
+                "GIT_SSH_COMMAND".to_owned(),
+                format!("ssh -F {}", sh_word(config)),
+            ),
         ],
     }
 }

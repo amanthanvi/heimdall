@@ -117,6 +117,28 @@ pub trait HelperLauncher: Send + Sync {
     /// [`SessionError::HelperUnavailable`]: no Linux-visible helper path, a missing or
     /// non-executable helper, or a process that cannot be started.
     fn launch(&self, target: &DistributionTarget) -> Result<Transport, SessionError>;
+
+    /// ⟨M04 W2 review, M04-W2-R03⟩ [`Self::launch`] under `start`: with
+    /// [`DistributionStart::Forbidden`], a fresh running listing immediately before each
+    /// `wsl.exe` call this launch makes (none with `Allowed`), and [`SessionError::NotRunning`]
+    /// with nothing started when one says the distribution is not running. The default makes
+    /// one listing, then [`Self::launch`]; a launcher that makes several `wsl.exe` calls
+    /// checks before each.
+    ///
+    /// # Errors
+    /// [`SessionError`].
+    fn launch_under(
+        &self,
+        target: &DistributionTarget,
+        start: DistributionStart,
+    ) -> Result<Transport, SessionError> {
+        if start == DistributionStart::Forbidden
+            && self.running(&target.name) != RunningState::Running
+        {
+            return Err(SessionError::NotRunning);
+        }
+        self.launch(target)
+    }
 }
 
 /// A session or request failure.

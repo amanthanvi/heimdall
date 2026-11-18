@@ -161,6 +161,12 @@ struct EnvState {
     pending: bool,
     /// The last helper start failed for a reason other than a stopped distribution.
     helper_unavailable: bool,
+    /// ⟨M04-W2-R03⟩ After the helper was lost, when a listing first showed the distribution
+    /// running again: the relaunch waits for a second, at least one re-check later.
+    running_since: Option<std::time::Instant>,
+    /// ⟨M04-W2-R03⟩ A listing showed the distribution stopped, absent or unreadable: no
+    /// background relaunch until the owner's next `ensure` naming the environment.
+    relaunch_blocked: bool,
 }
 
 struct Inner {
@@ -347,12 +353,15 @@ impl BridgeRegistry {
         let bridge = match self.inner.factory.start(&target, start, streams) {
             Ok(b) => b,
             Err(e) => {
-                let hard = !matches!(e, SessionError::NotRunning);
-                self.inner
-                    .lock()
-                    .entry(environment.clone())
-                    .or_default()
-                    .helper_unavailable = hard;
+                let stopped = matches!(e, SessionError::NotRunning);
+                let mut g = self.inner.lock();
+                let st = g.entry(environment.clone()).or_default();
+                st.helper_unavailable = !stopped;
+                if stopped {
+                    // ⟨M04-W2-R03⟩ A pre-launch listing said stopped.
+                    st.relaunch_blocked = true;
+                    st.running_since = None;
+                }
                 return Err(adapter_error(e));
             }
         };
@@ -361,6 +370,11 @@ impl BridgeRegistry {
             let st = g.entry(environment.clone()).or_default();
             st.bridge = Some(Arc::clone(&bridge));
             st.helper_unavailable = false;
+            st.running_since = None;
+            // ⟨M04-W2-R03⟩ The owner's explicit start lifts a block.
+            if start == DistributionStart::Allowed {
+                st.relaunch_blocked = false;
+            }
             // The helper's startup removed the leftovers of a binding it was not asked to
             // realize (design §4): nothing stays pending.
             st.pending = false;
@@ -369,9 +383,12 @@ impl BridgeRegistry {
                 .map(|(t, s)| (t.clone(), s.generation, s.public.clone()))
                 .collect()
         };
-        // A respawn realizes the current generations again.
+        // A respawn realizes the current generations again (⟨M04-W2-R02⟩ a binding withdrawn
+        // while that runs is withdrawn again: `realize_still_wanted`).
         for (tag, generation, public) in tags {
-            if let Err(e) = bridge.realize(&tag, generation, to_bridge(&public), deadline()) {
+            if let Err(e) =
+                self.realize_still_wanted(environment, &bridge, &tag, generation, &public)
+            {
                 tracing::warn!(code = %e.code(), "a Mode B endpoint could not be realized again");
             }
         }
@@ -394,17 +411,54 @@ impl BridgeRegistry {
             })
             .unwrap_or_default();
         for (tag, generation, public) in tags {
-            if let Err(e) = bridge.realize(&tag, generation, to_bridge(&public), deadline()) {
+            if let Err(e) =
+                self.realize_still_wanted(environment, bridge, &tag, generation, &public)
+            {
                 tracing::warn!(code = %e.code(), "a Mode B endpoint could not be realized again");
-                continue;
             }
-            let still = self.inner.lock().get(environment).is_some_and(|st| {
-                st.tags
-                    .get(&tag)
-                    .is_some_and(|t| t.generation == generation)
-            });
-            if !still {
-                let _ = bridge.withdraw(&tag, generation);
+        }
+    }
+
+    /// ⟨M04-W2-R02⟩ Realize `tag` at `generation` on `bridge`, then withdraw it again when it
+    /// is no longer wanted at that generation (withdrawn while the call was in flight), so no
+    /// realization ever leaves the endpoint of an ended binding behind. `Ok(false)`: realized
+    /// and withdrawn again.
+    fn realize_still_wanted(
+        &self,
+        environment: &EnvironmentId,
+        bridge: &Arc<dyn BridgeApi>,
+        tag: &str,
+        generation: u64,
+        public: &WslPublic,
+    ) -> Result<bool, SessionError> {
+        bridge.realize(tag, generation, to_bridge(public), deadline())?;
+        let still = self
+            .inner
+            .lock()
+            .get(environment)
+            .is_some_and(|st| st.tags.get(tag).is_some_and(|t| t.generation == generation));
+        if !still {
+            let _ = bridge.withdraw(tag, generation);
+        }
+        Ok(still)
+    }
+
+    /// ⟨M04-W2-R03⟩ Whether a lost helper may be relaunched in the background now: not
+    /// blocked by a stopped listing, and a listing at least one re-check ago already showed
+    /// the distribution running (this one being the second). The first such listing is
+    /// recorded here.
+    fn relaunch_due(&self, environment: &EnvironmentId) -> bool {
+        let now = std::time::Instant::now();
+        let mut g = self.inner.lock();
+        let st = g.entry(environment.clone()).or_default();
+        if st.relaunch_blocked {
+            return false;
+        }
+        match st.running_since {
+            Some(t) => now.duration_since(t) >= self.inner.recheck,
+            None => {
+                st.running_since = Some(now);
+                false
             }
         }
     }
@@ -481,6 +535,12 @@ impl BridgeRegistry {
                 .unwrap_or(RunningState::Unknown);
             if running == RunningState::Running {
                 let _ = ops.set_environment_running(&environment, true).await;
+                // ⟨M04-W2-R03⟩ A lost helper is relaunched in the background only after two
+                // consecutive listings, at least one re-check apart, show the distribution
+                // running, and never after one showed it stopped (until the owner's `ensure`).
+                if self.live_bridge(&environment).is_none() && !self.relaunch_due(&environment) {
+                    continue;
+                }
                 // Respawn, never starting a distribution: it runs (`Forbidden`). A live helper
                 // realizes the current generations again (idempotent for the helper), which
                 // recreates an endpoint whose socket was deleted (m04-plan U4,
@@ -499,6 +559,12 @@ impl BridgeRegistry {
                 let _ = ops.set_environment_running(&environment, false).await;
                 // The helper died with its distribution: drop it, keep the desired set.
                 let _ = self.live_bridge(&environment);
+                // ⟨M04-W2-R03⟩ Stopped, absent or unreadable: no background relaunch until the
+                // owner's next `ensure` naming the environment.
+                let mut g = self.inner.lock();
+                let st = g.entry(environment.clone()).or_default();
+                st.relaunch_blocked = true;
+                st.running_since = None;
             }
         }
     }
@@ -572,8 +638,10 @@ impl WslRealizer for BridgeRegistry {
                     public: public.clone(),
                 },
             );
-        match bridge.realize(tag, generation, to_bridge(public), deadline()) {
-            Ok(_) => Ok(()),
+        match self.realize_still_wanted(environment, &bridge, tag, generation, public) {
+            Ok(true) => Ok(()),
+            // ⟨M04-W2-R02⟩ Withdrawn while it was realized: withdrawn again, and not served.
+            Ok(false) => Err(unavailable("wsl_binding_withdrawn")),
             Err(e) => {
                 if let Some(st) = self.inner.lock().get_mut(environment) {
                     st.tags.remove(tag);

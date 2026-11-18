@@ -1215,6 +1215,14 @@ mod bridge_relay {
                 .prefix("hmr")
                 .tempdir_in("/tmp")
                 .unwrap();
+            // An XDG runtime directory is the user's alone (0700), whatever the umask made the
+            // temporary directory: Mode B refuses a run base another principal could replace
+            // (M04-W2-R01).
+            std::fs::set_permissions(
+                runtime.path(),
+                std::os::unix::fs::PermissionsExt::from_mode(0o700),
+            )
+            .unwrap();
             // The comment is not a canary: `ssh-add -l` prints it.
             let key = FixtureKey::generate().with_comment("relay-test-key");
             Rig {

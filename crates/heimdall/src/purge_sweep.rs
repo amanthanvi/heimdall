@@ -3700,7 +3700,18 @@ pub(crate) mod tests {
     /// Owner-only directories `state`, `run` (with `b/`, `mux/`) and `outside` in a fresh
     /// owner-only scratch directory, a database file and a snapshot.
     fn roots() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
-        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        roots_in(None)
+    }
+
+    /// [`roots`] under `parent` (the process's temporary directory when `None`).
+    fn roots_in(
+        parent: Option<&std::path::Path>,
+    ) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let d = match parent {
+            Some(p) => tempfile::tempdir_in(p),
+            None => tempfile::tempdir(),
+        }
+        .unwrap_or_else(|e| panic!("{e}"));
         let state = d.path().join("state");
         let run = d.path().join("run");
         for p in [d.path(), &state, &run] {
@@ -3952,10 +3963,20 @@ pub(crate) mod tests {
     /// chain passes it (observed: `/var` root's link, `/private/var/folders` root 0755, the
     /// per-user level this user's 0755, `T` 0700). Linux test hosts keep scratch under the
     /// sticky `/tmp`, which the rule refuses, so this runs on macOS only.
+    /// ⟨M03 wave 6⟩ The roots are made under the per-user temporary directory itself
+    /// (`getconf DARWIN_USER_TEMP_DIR`), not `TMPDIR`: the native harness points `TMPDIR` under
+    /// the sticky `/tmp` (socket path lengths), whose chain the rule rightly refuses.
     #[cfg(target_os = "macos")]
     #[test]
     fn secure_path_full_chain_from_root_without_the_hook() {
-        let (_d, state, run) = roots();
+        let out = std::process::Command::new("/usr/bin/getconf")
+            .arg("DARWIN_USER_TEMP_DIR")
+            .output()
+            .unwrap_or_else(|e| panic!("getconf: {e}"));
+        assert!(out.status.success(), "getconf DARWIN_USER_TEMP_DIR");
+        let per_user = std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        assert!(per_user.is_dir(), "the per-user temporary directory exists");
+        let (_d, state, run) = roots_in(Some(&per_user));
         assert!(Anchors::open(&state, &run, None).is_ok());
     }
 

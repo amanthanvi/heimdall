@@ -129,6 +129,39 @@ pub(crate) fn run_dir_path(env: &HelperEnv) -> PathBuf {
     }
 }
 
+/// ⟨M04 W2 review, M04-W2-R01⟩ Whether no other principal can replace any component of
+/// `base`, the directory the run directory's anchor lives in, or any of its ancestors, by
+/// OpenSSH's secure-path rule: each directory is owned by root or `uid` and is not writable by
+/// group or others unless it is sticky. The rule reads the mode bits, which on a directory
+/// with a POSIX ACL carry the ACL's mask in the group bits, so an ACL entry granting another
+/// principal write access shows as group-writable and is refused. Both chains are checked: the
+/// path as given (a symlink component must be owned by root or `uid`; its directory is checked
+/// as the component before it) and the path it resolves to. A missing component is refused.
+fn secure_chain(base: &Path, uid: u32) -> bool {
+    let dir_ok = |m: &std::fs::Metadata| {
+        (m.uid() == 0 || m.uid() == uid) && (m.mode() & 0o022 == 0 || m.mode() & 0o1000 != 0)
+    };
+    let lexical = base
+        .ancestors()
+        .all(|p| match std::fs::symlink_metadata(p) {
+            Ok(m) if m.file_type().is_symlink() => m.uid() == 0 || m.uid() == uid,
+            Ok(m) => m.is_dir() && dir_ok(&m),
+            Err(_) => false,
+        });
+    lexical
+        && std::fs::canonicalize(base).is_ok_and(|real| {
+            real.ancestors()
+                .all(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir() && dir_ok(&m)))
+        })
+}
+
+/// ⟨M04 W2 review, M04-W2-R01⟩ Whether `path` names exactly the directory `pinned` (device,
+/// inode): the tree the files were written through is the one the socket and the returned
+/// paths name.
+fn names_pinned(path: &Path, pinned: (u64, u64)) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && (m.dev(), m.ino()) == pinned)
+}
+
 fn say(message: &str) {
     let _ = writeln!(std::io::stderr(), "wsl-helper: {message}");
 }
@@ -261,6 +294,11 @@ impl Endpoints {
         }
         let unsafe_dir = || fail(ErrorKind::Unavailable, "wsl_bridge_run_dir_unsafe");
         let run_path = run_dir_path(&self.env);
+        // ⟨M04-W2-R01⟩ Mode B returns paths (the socket, the `ssh_config` the owner runs `ssh
+        // -F` with), so no other principal may be able to replace the anchor's directory or
+        // any ancestor: otherwise it could rename the anchor aside and plant a configuration
+        // at the returned path.
+        let base = xdg_runtime(&self.env).unwrap_or_else(|| self.env.state_base.clone());
         // `<run>` is `<xdg>/heimdall` (created owner-only like the helper's state directory), or
         // `<state>/heimdall/run`.
         let run = if let Some(base) = xdg_runtime(&self.env) {
@@ -277,6 +315,10 @@ impl Endpoints {
                 .map_err(|_| unsafe_dir())?
                 .ok_or_else(unsafe_dir)?
         };
+        if !secure_chain(&base, self.shared.uid) {
+            say("the run directory's base or an ancestor can be replaced by another principal");
+            return Err(unsafe_dir());
+        }
         let held =
             lock::acquire(&run_path.join(BRIDGE_LOCK), self.env.lock_wait).map_err(
                 |e| match e {
@@ -360,6 +402,13 @@ impl Endpoints {
                 .ok_or_else(unsafe_dir)?;
             (dir, live.run_path.join("b").join(tag), live.handle.clone())
         };
+        // ⟨M04-W2-R01⟩ The path names the pinned directory before anything is written, and
+        // again once the socket is bound (below): otherwise nothing is answered.
+        let pinned = dir.identity().map_err(|_| unsafe_dir())?;
+        if !names_pinned(&dir_path, pinned) {
+            say("the endpoint directory's path no longer names the verified directory");
+            return Err(unsafe_dir());
+        }
 
         // The files first, then the listener (design §4): a client that finds the socket finds
         // the configuration beside it.
@@ -418,6 +467,17 @@ impl Endpoints {
                     cancel,
                 },
             );
+        }
+        // ⟨M04-W2-R01⟩ The socket was bound, and the paths are answered, through the same
+        // verified tree the files were written through; otherwise this binding is withdrawn
+        // here and nothing is answered.
+        if !names_pinned(&dir_path, pinned) {
+            if let Some(served) = self.bindings.remove(tag) {
+                served.cancel.cancel();
+            }
+            unlink_own_socket(&sock, self.shared.uid);
+            say("the endpoint directory's path changed while it was realized; withdrawn");
+            return Err(unsafe_dir());
         }
         Ok((
             sock.to_string_lossy().into_owned(),

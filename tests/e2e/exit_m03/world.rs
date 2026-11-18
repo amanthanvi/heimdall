@@ -652,9 +652,14 @@ impl World {
         );
         // The default-identity guard over P for every alias: each one's identity list
         // is certainly the projection's scratch files, never the account's defaults.
+        // ⟨M03 wave 6⟩ On Windows the projection's agent is this world's own runtime's pipe
+        // (`\\.\pipe\heimdall-…`, which no scratch path can hold): the guard also accepts
+        // exactly the pipes this runtime rendered into its managed file under the scratch
+        // Heimdall home, and nothing else (never the system agent's pipe).
+        let own_agents = self.rendered_agents();
         for p in &self.pairs {
             self.home
-                .check_alias(&p.alias)
+                .check_alias_with_agents(&p.alias, &own_agents)
                 .unwrap_or_else(|e| panic!("the projection of {}: {e:?}", p.alias));
         }
     }
@@ -694,6 +699,11 @@ impl World {
             }
         } else {
             put("PATH", OsStr::new("/usr/bin:/bin"));
+        }
+        // The runtime's verification `ssh` inherits this environment.
+        #[cfg(windows)]
+        for (k, v) in openssh_startup_env() {
+            put(k, &v);
         }
         for (k, v) in &self.extra_env {
             put(k, OsStr::new(v));
@@ -998,6 +1008,10 @@ impl World {
         } else {
             env.push(("PATH".into(), "/usr/bin:/bin".into()));
         }
+        #[cfg(windows)]
+        for (k, v) in openssh_startup_env() {
+            env.push((k.into(), v));
+        }
         (openssh("ssh"), args, env)
     }
 
@@ -1121,6 +1135,21 @@ impl World {
         } else {
             Some(self.home.git_home.join(".ssh").join("config"))
         }
+    }
+
+    /// The `IdentityAgent` values this world's runtime rendered into its managed SSH
+    /// configuration (`<hh>/config/ssh_config`, under the scratch Heimdall home).
+    fn rendered_agents(&self) -> Vec<String> {
+        std::fs::read_to_string(self.hh.join("config").join("ssh_config"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| {
+                let l = l.trim();
+                let (key, value) = l.split_once(char::is_whitespace)?;
+                key.eq_ignore_ascii_case("identityagent")
+                    .then(|| value.trim().trim_matches('"').to_owned())
+            })
+            .collect()
     }
 
     /// ⟨W6-R01⟩ Whether the projection is restored: the projected configuration is
@@ -1579,4 +1608,25 @@ fn enrollment(
         created_at: now,
         updated_at: now,
     }
+}
+
+/// ⟨M03 wave 6, Windows⟩ What the in-box OpenSSH for Windows client needs in its environment
+/// just to start: without `ProgramData`, `ssh.exe` (9.5.6.4) exits 255 before it prints
+/// anything, even for `ssh -G`. This was bisected on the PC on 2026-11-18: adding
+/// `ProgramData` alone to the World's minimal login or runtime environment gives exit 0, and
+/// removing it from a full environment gives 255. The World's minimal Windows environments
+/// (its runtime, whose verification `ssh` inherits it, its logins and its `ssh-add -L`
+/// probes) carry exactly these, by name, beyond their own, never the whole environment (the
+/// orchestrator's ruling on the E2 Windows failures). The product side, a runtime started
+/// with a stripped environment, is M04 U2's.
+#[cfg(windows)]
+pub const OPENSSH_STARTUP_ENV: [&str; 1] = ["ProgramData"];
+
+/// [`OPENSSH_STARTUP_ENV`] read from this process's environment (an absent one is skipped).
+#[cfg(windows)]
+pub fn openssh_startup_env() -> Vec<(&'static str, OsString)> {
+    OPENSSH_STARTUP_ENV
+        .iter()
+        .filter_map(|k| std::env::var_os(k).map(|v| (*k, v)))
+        .collect()
 }

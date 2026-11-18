@@ -25,6 +25,8 @@
 #        harness exits nonzero, and commands.txt keeps both exits. m01: a failing
 #        binary -> nonzero.
 #
+#   M04  tests/native/m04/run-mode-b-windows.ps1 -SelfTest (the Mode B runner's helpers and
+#        `bash -n` of the scripts it sends into a distribution), when pwsh is available.
 #   M03  tests/native/m03/selftest.sh (the lock harness, the Windows lock harness's
 #        -SelfTest and the Linux wrapper; listed in that file's header).
 #   M02  tests/native/m02/selftest.sh (its own checks, listed in that file's header: the
@@ -432,6 +434,30 @@ if [ -f "$m03_dir/selftest.sh" ]; then
     fi
 else
     check "M03 selftest: tests/native/m03/selftest.sh exists" false
+fi
+
+# --- M04 harnesses (ADR-0010 §11; the Mode B native rows) ---------------------------------
+
+m04_ps1="$root/tests/native/m04/run-mode-b-windows.ps1"
+if [ -f "$m04_ps1" ]; then
+    if command -v pwsh >/dev/null 2>&1; then
+        pwsh -NoProfile -NonInteractive -File "$m04_ps1" -SelfTest >"$T/m04-selftest.out" 2>&1 </dev/null
+        m04_rc=$?
+        cat "$T/m04-selftest.out"
+        m04_line=$(grep '^selftest: ' "$T/m04-selftest.out" | tail -1)
+        m04_pass=$(printf '%s\n' "$m04_line" | sed -n 's/^selftest: \([0-9][0-9]*\) passed.*/\1/p')
+        m04_fail=$(printf '%s\n' "$m04_line" | sed -n 's/^selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+        if [ -n "$m04_pass" ] && [ -n "$m04_fail" ]; then
+            passes=$((passes + m04_pass))
+            fails=$((fails + m04_fail))
+            check "M04 selftest: run-mode-b-windows.ps1 -SelfTest exit agrees with its totals ($m04_pass passed, $m04_fail failed)" \
+                exit_agrees "$m04_rc" "$m04_fail"
+        else
+            check "M04 selftest: run-mode-b-windows.ps1 -SelfTest ran to its summary line" false
+        fi
+    else
+        echo "skip M04 selftest: run-mode-b-windows.ps1 -SelfTest needs pwsh"
+    fi
 fi
 
 echo "native-harness-selftest: $passes passed, $fails failed"

@@ -301,7 +301,30 @@ impl HelperLauncher for WslExeLauncher {
     }
 
     fn launch(&self, target: &DistributionTarget) -> Result<Transport, SessionError> {
+        self.launch_under(target, DistributionStart::Allowed)
+    }
+
+    /// ⟨M04-W2-R03⟩ Two `wsl.exe` calls (the `wslpath` resolution, then the helper); under
+    /// `Forbidden`, a fresh listing immediately before each. `wsl.exe` has no launch that
+    /// refuses a stopped distribution, so a stop that begins after the last listing can still
+    /// be raced (ADR-0010 §11 residual).
+    fn launch_under(
+        &self,
+        target: &DistributionTarget,
+        start: DistributionStart,
+    ) -> Result<Transport, SessionError> {
+        let listed = || {
+            if start == DistributionStart::Forbidden
+                && self.running(&target.name) != RunningState::Running
+            {
+                Err(SessionError::NotRunning)
+            } else {
+                Ok(())
+            }
+        };
+        listed()?;
         let linux = self.linux_helper_path(target)?;
+        listed()?;
         let args = spawn::helper_args(&target.name, &target.account, &linux)
             .ok_or_else(|| SessionError::HelperUnavailable("not a plain argument".to_owned()))?;
         let cmd = spawn::wsl_command(&self.wsl_exe, &args, &parent_env);

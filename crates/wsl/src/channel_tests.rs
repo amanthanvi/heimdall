@@ -499,6 +499,8 @@ fn helper_withdraw_of_old_generation_keeps_replacement() {
         .prefix("hw")
         .tempdir_in("/tmp")
         .unwrap();
+    // The account's own tree whatever the umask (Mode B refuses a replaceable run base).
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let env = helper_env(root.path(), Some("Ubuntu"));
     let launcher = Arc::new(InProcess {
         env,
@@ -670,4 +672,100 @@ fn helper_withdraw_of_old_generation_keeps_replacement() {
     assert_eq!(helper.join().unwrap(), 0);
     assert!(!b.join("b2").exists());
     assert!(b.join("live1").exists(), "what was not ours stays");
+}
+
+/// ⟨M04 W2 review, M04-W2-R01⟩ The review's probe, inverted: Mode B answers paths (the socket,
+/// the `ssh_config` the owner runs `ssh -F` with) only through a tree no other principal can
+/// replace, and only when they name the directory the files were written through.
+/// 1. A run base that another principal could rename entries in (world-writable, not sticky)
+///    is refused before anything is created.
+/// 2. With a safe base, a binding is realized; then its anchor is renamed aside and a
+///    configuration is planted at the binding's path (what another principal could do in a
+///    replaceable base, done here by the test's own account). The next realize of that binding
+///    is refused: the planted configuration is never answered and is left as it was, no socket
+///    is bound beside it, and the legitimate files stay in the displaced tree.
+#[test]
+fn mode_b_answers_paths_only_through_a_verified_unreplaced_tree() {
+    let root = tempfile::Builder::new()
+        .prefix("hwr")
+        .tempdir_in("/tmp")
+        .unwrap();
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let env = helper_env(root.path(), Some("Ubuntu"));
+    std::fs::create_dir(&env.state_base).unwrap();
+    std::fs::set_permissions(&env.state_base, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let base = env.state_base.clone();
+    let launcher = Arc::new(InProcess {
+        env,
+        helpers: Mutex::new(Vec::new()),
+    });
+    let handler = Arc::new(CountingHandler {
+        accept: false,
+        served: AtomicUsize::new(0),
+    });
+    let bridge = Bridge::start(
+        launcher.clone(),
+        &target("Ubuntu"),
+        DistributionStart::Forbidden,
+        handler,
+    )
+    .unwrap();
+    let run = bridge.run_dir().to_owned();
+    let at = in_one_hour();
+
+    // 1. A replaceable base: refused, nothing created under it.
+    assert_eq!(
+        bridge
+            .realize("b1", 1, public(&run, "b1", &[]), at)
+            .unwrap_err()
+            .code(),
+        "wsl_bridge_run_dir_unsafe"
+    );
+    assert!(!Path::new(&run).join("b").exists(), "nothing created");
+
+    // 2. A safe base: realized; then the anchor is replaced and the next realize is refused.
+    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let first = bridge
+        .realize("b1", 1, public(&run, "b1", &[]), at)
+        .unwrap();
+    assert!(UnixStream::connect(&first.socket).is_ok());
+    std::fs::rename(base.join("heimdall"), base.join("displaced")).unwrap();
+    let replacement = base.join("heimdall/run/b/b1");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&replacement)
+        .unwrap();
+    let planted = "Host *\n  ProxyCommand /usr/bin/touch /nonexistent/hm-planted\n";
+    std::fs::write(replacement.join("ssh_config"), planted).unwrap();
+    assert_eq!(
+        bridge
+            .realize("b1", 1, public(&run, "b1", &[]), at)
+            .unwrap_err()
+            .code(),
+        "wsl_bridge_run_dir_unsafe"
+    );
+    assert_eq!(
+        std::fs::read_to_string(replacement.join("ssh_config")).unwrap(),
+        planted,
+        "the planted configuration is never answered, and left as it was"
+    );
+    assert!(
+        !replacement.join("agent.sock").exists(),
+        "no socket is bound beside it"
+    );
+    let displaced = base.join("displaced/run/b/b1/ssh_config");
+    assert_ne!(std::fs::read_to_string(&displaced).unwrap(), planted);
+    drop(bridge);
+    assert_eq!(
+        launcher
+            .helpers
+            .lock()
+            .unwrap()
+            .pop()
+            .unwrap()
+            .join()
+            .unwrap(),
+        0
+    );
 }

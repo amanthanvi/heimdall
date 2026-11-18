@@ -162,6 +162,18 @@ pub fn scan_tree(
     collect_files(kind, root, true, &mut files, &mut t.not_scanned);
     files.sort();
     for (i, f) in files.iter().enumerate() {
+        // ⟨M03 wave 6, Windows E3⟩ A regular file of length 0 has no byte to scan, so it
+        // counts as scanned without being opened. The runtime's `state/service.lock` is such
+        // a file: it holds it under an exclusive `LockFileEx` lock (`File::try_lock`) for its
+        // whole life, and on Windows no other process can read through that lock (on Unix
+        // the lock is advisory and the file is read like any other). Its length comes from
+        // its metadata, which the lock does not cover. Any file with bytes is still read,
+        // and one that cannot be read is still incomplete coverage.
+        #[cfg(windows)]
+        if std::fs::symlink_metadata(f).is_ok_and(|m| m.is_file() && m.len() == 0) {
+            t.read += 1;
+            continue;
+        }
         match std::fs::read(f) {
             Ok(mut bytes) => {
                 if f.file_name()
@@ -181,7 +193,37 @@ pub fn scan_tree(
                 .push(format!("{kind} file #{i}: {:?}", e.kind())),
         }
     }
+    // ⟨M03 wave 6, Windows E3⟩ Each gap also names its file by the path under `root`
+    // (never above it), so a Windows run's bundle says which file it was.
+    #[cfg(windows)]
+    for gap in t.not_scanned.iter_mut().chain(t.vanished.iter_mut()) {
+        name_gap(gap, kind, root, &files);
+    }
     t
+}
+
+/// `<kind> file #<n>…` becomes `<kind> file #<n> (<path under root>)…` (Windows; see
+/// [`scan_tree`]).
+#[cfg(windows)]
+fn name_gap(gap: &mut String, kind: &str, root: &Path, files: &[std::path::PathBuf]) {
+    let head = format!("{kind} file #");
+    let Some(rest) = gap.strip_prefix(&head) else {
+        return;
+    };
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    let Some(file) = rest[..digits]
+        .parse::<usize>()
+        .ok()
+        .and_then(|i| files.get(i))
+    else {
+        return;
+    };
+    let rel = file.strip_prefix(root).map_or_else(
+        |_| "?".to_owned(),
+        |r| r.to_string_lossy().replace('\\', "/"),
+    );
+    let at = head.len() + digits;
+    gap.insert_str(at, &format!(" ({rel})"));
 }
 
 /// The one place a canary-prefixed value may be stored: the test configuration's fake

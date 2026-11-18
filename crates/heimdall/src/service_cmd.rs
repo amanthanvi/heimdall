@@ -117,9 +117,9 @@ pub(crate) fn state_dir_unsafe(e: &ConfigError) -> Envelope<ErrorData> {
         Code::StateUnavailable,
         format!(
             "{e}; Heimdall never changes a state directory that grants access to anyone but \
-             you, SYSTEM and Administrators: remove the other entries from its access-control \
-             list (your state is kept), or move the directory aside to start a new \
-             installation, then run the command again"
+             you, SYSTEM and Administrators: give it a list that names only those, with \
+             inheritance from its parent turned off (your state is kept), or move the \
+             directory aside to start a new installation, then run the command again"
         ),
     )
     .with_reason(heimdall_contract::envelope::reason::STATE_DIR_UNSAFE)

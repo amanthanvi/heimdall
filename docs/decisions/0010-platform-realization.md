@@ -613,13 +613,23 @@ reading I-11.
 **Decisions:**
 1. **Only an owner's `ensure` naming the environment starts a stopped distribution** (§3 item
    9), and so does `wsl disable --start`, the owner's explicit cleanup start. `delegate`, `bind`
-   and `run` naming a stopped Mode B environment don't start it. The re-check, the respawn and
-   the cleanup never do.
+   and `run` naming a stopped Mode B environment don't start it, and neither do the re-check or
+   the cleanup. ⟨Review M04-W2-R03, the contract owner's ruling⟩ **A background helper
+   relaunch never starts a distribution that a listing showed stopped.** After the helper is
+   lost, the supervisor relaunches it only after two consecutive listings, at least one
+   re-check (10 s) apart, show the distribution running, and a fresh listing is made
+   immediately before each `wsl.exe` call of the launch (the `wslpath` resolution and the
+   helper). Any stopped, absent or unreadable listing cancels the relaunch until the owner's
+   next `ensure` naming the environment, which is the explicit start. A stop that begins after
+   the final pre-launch listing can still be raced, because `wsl.exe` offers no launch that
+   refuses a stopped distribution; the window is the time from that listing to `wsl.exe`'s
+   start. Recorded as a residual.
 2. **The re-check keeps the endpoints realized.** Every 10 s, while the distribution runs and
    bindings remain, the runtime realizes each binding's current generation again on the live
    helper. That's idempotent for the helper, and it recreates a deleted socket (m04-plan U4,
    `a13_deleted_socket_recreated`). A binding withdrawn while that runs is withdrawn again, so
-   a re-check never brings back an ended binding's endpoint.
+   a re-check never brings back an ended binding's endpoint; ⟨review M04-W2-R02⟩ the same
+   post-check runs after a relaunch's replay and after a binding's first realization.
 3. **The leftovers of a stopped distribution are a retained obligation.** When `wsl disable`
    can't reach a stopped distribution, its binding directories stay, holding public material
    and a dead socket. The answer says `cleanup_pending`. A later disable reports it again, and
@@ -641,6 +651,34 @@ reading I-11.
    to end through the real binary on macOS and Linux. It's mechanism evidence; the A13 rows are
    native.
 
+9. **⟨Review M04-W2-R01⟩ Mode B answers paths only through a tree no other principal can
+   replace.** The run base (`$XDG_RUNTIME_DIR`, or the state base) and every ancestor, both as
+   given and as resolved, must pass OpenSSH's secure-path rule: owned by root or the user,
+   and not writable by group or others unless sticky. The mode bits carry a POSIX ACL's mask,
+   so an ACL granting another principal write access is refused too. A base that fails is
+   refused (`wsl_bridge_run_dir_unsafe`) before anything is created. Each realization also
+   checks that the binding's path names the directory its files are written through (device
+   and inode of the pinned handle), before writing and again after binding the socket; on a
+   mismatch the binding is withdrawn and nothing is answered. **Consequence:** a group-writable
+   ancestor, as `umask 002` leaves `~/.local` on a user-private-group system, makes the
+   fallback base unusable for Mode B; `$XDG_RUNTIME_DIR` (0700, systemd) is unaffected.
+10. **⟨Review M04-W2-R04⟩ `GIT_SSH_COMMAND` carries the configuration path as one shell word**
+    (single-quoted when it holds anything outside `[A-Za-z0-9/._-]`), because Git runs it
+    through `sh`. The descriptor's path fields stay raw. The container's fixed path needs no
+    quoting, so its command is unchanged.
+11. **⟨Windows fix round⟩ The renderer joins in-container and in-distribution paths with `/`.**
+    It used the host's separator, so on Windows, the runtime that renders a Mode B binding's
+    files, every path came out with `\` and was refused: no Mode B binding could be realized on
+    Windows. The container renderer's tests are its native regression.
+
+**Platform fact (the Windows fix round, the PC's run at `02108f8c`):** profiles changed by
+sandboxing tools (observed: an inherited read-and-execute entry for a local sandbox group on
+`%LOCALAPPDATA%`, and Modify entries for sandbox accounts on a protected `%TEMP%`) make a
+pre-M04 state directory `state_dir_unsafe`. That's correct, because another principal could
+read it. The Windows harnesses give their scratch root the stock profile list (the user,
+SYSTEM and Administrators, protected, with full control inherited) so the suites are
+deterministic, and the tests that need a legacy or wider shape build it on their own parent.
+
 **Proof (mechanism; the native A13 rows are Windows'):**
 - `wsl_mode_b::mode_b_end_to_end_through_the_real_bridge_and_helper` (`e2e_platform_m04`, Unix):
   - `wsl enable --mode-b` through its decision, then `ensure` in the environment;
@@ -654,7 +692,19 @@ reading I-11.
   without `start`, the supervisor's not-running, respawn and `gone`), and the refusal tables.
 - `wsl_cmd::tests::uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one`.
 
+**Review fixes' proof:** `channel_tests::mode_b_answers_paths_only_through_a_verified_unreplaced_tree`
+(R01; revert proof: with the fix reverted, and separately with only the identity check
+neutralized, it fails, exit 101; restored, exit 0),
+`wsl_mode_b_lost_helper_relaunches_only_after_two_running_listings` (R03),
+`wsl_mode_b_withdrawal_during_a_relaunch_leaves_no_endpoint` (R02), and
+`wsl_mode_b::git_ssh_command_carries_a_config_path_with_spaces_as_one_argument` (R04).
+
 **Residuals:**
+- **A stop racing the last pre-launch listing** (item 1): `wsl.exe` has no launch that refuses
+  a stopped distribution, so a stop that begins after the final listing of a background
+  relaunch can still be started by that launch.
+- **The same Linux user and root** can still replace Mode B's tree (the accepted hostile
+  same-user residual of §3); item 9 closes it for other principals.
 - **Another Linux user and `wsl.exe -u`:** the `SO_PEERCRED` refusal of another uid, and the
   non-claim of §3 for a process that becomes the user through `wsl.exe -u`, are native rows.
 - **Leftovers across a restart:** a retained Mode B cleanup isn't durable. If the runtime

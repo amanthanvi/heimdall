@@ -4800,6 +4800,30 @@ No review has run yet. These rulings complete the wave before its reviews.
 
 Wave 5 merges under §17.33 item 6. From wave 6 on, delivery follows ADR-0009.
 
+### 17.41 Orchestrator rulings from M03's exit runs (2026-11-18)
+
+**Source:** the M03 exit builds E–E4 on `m03/wave6`, and their native runs on macOS, the devbox, Windows 11 and a disposable WSL distribution. Each item was found by an exit run, not by a review.
+
+1. **A plain `heimdall uninstall` ignores retry bookkeeping on unchanged revocations.**
+   - **The defect:** for about a minute after an `access revoke`, the supervisor's retry rounds rewrite the pending remote-revocation records. A plain uninstall whose confirmation spanned a round was refused with `uninstall_inventory_changed`, although nothing the owner had confirmed had changed. It was reproduced on macOS and in WSL; the refusal stopped once the rounds ended (eight at most, with a doubling back-off).
+   - **The ruling:** §17.27 item 2 (W5-S01) refuses an inventory that differs from the one the owner confirmed. Retry counters on the same obligations are not part of that. So when `--purge-state` isn't given, the fence-time check compares the remote-revocation records with the fields a retry round writes cleared:
+     - per record: `attempts`, `last_attempt_at`, `claimed_at`, `claim_seq` and `stopped`;
+     - per obligation: `attempts`, `stopped` and `reason`.
+   - **Still compared exactly:** which records exist, each record's root and grants, each obligation's grant, adapter, kind and effect sequence, the re-arm history, the cap, and everything else in the snapshot. A record that doesn't parse is compared raw.
+   - **The purge path is unchanged:** its fence-time check and W5-E01's final locked comparison (§17.33 item 3) stay exact.
+   - **The regressions:**
+     - `plain_uninstall_passes_the_fence_across_retry_rounds`, with a revert proof;
+     - `plain_uninstall_refuses_a_changed_remote_obligation`;
+     - `purge_fence_refuses_retry_rounds_exactly`.
+2. **Windows `ssh.exe` needs `ProgramData`.** The in-box OpenSSH for Windows (9.5p2) exits 255 silently, before connecting, when `ProgramData` is missing from its environment. The exit World now passes exactly that variable. M04 U2 makes every product launch of `ssh.exe` fill the variables it needs from the Windows known-folder APIs when they're missing (ADR-0010 §10).
+3. **Ubuntu's OpenSSH and group-writable files.** Debian's and Ubuntu's OpenSSH carry the user-group-modes patch: StrictModes accepts a group-writable file whose group is the owner's private group. The exit suite's negative control therefore uses a world-writable registry, and records the group-writable case without asserting it. This is the same platform fact as the purge's private-group homes (§17.34).
+4. **The real issuer child on every platform** (§17.26 item 3): the exit suite drives activation, re-issue, revocation and enrollment verification through the real `internal issuer` child on macOS, the devbox, Windows and WSL. Each passed natively before E4 (macOS and the devbox at E2, Windows and WSL at E3), and the E4 runs are the evidence the records cite. The certificate key ID ends in its serial (I-3), as the server logs show.
+5. **Accepted as limits, recorded in the M03 exit draft:**
+   - the macOS lock run is mechanism evidence (a debug build and the test store; the product row is blocked on B3);
+   - the Windows lock run is blocked on B2: a release build uses the account's real `~/.ssh`;
+   - a revoked managed grant reads `revoking` until its certificates' residual passes, then `revoked` (I-11);
+   - on Windows, the live runtime's empty `service.lock` cannot be read by another process, and the A33 and A10 scans record it as a locked empty file.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

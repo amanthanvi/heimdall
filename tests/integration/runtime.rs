@@ -3604,12 +3604,35 @@ echo "$r" > "$1.tmp" && mv "$1.tmp" "$1""#;
 // ⟨M04 U1⟩ The Windows state directory (ADR-0010 §1 item 7; ADR-0006 §13.12 item 4)
 // =================================================================================
 
+/// ⟨M04 Windows fix round⟩ Give `dir` (a directory this test created) the stock profile list,
+/// protected: full control, inherited by files and subdirectories, for the user, SYSTEM and
+/// Administrators only. What a directory created inside inherits is then exactly what a stock
+/// `%LOCALAPPDATA%` gives, whatever the host profile carries (ADR-0010 §11).
+#[cfg(windows)]
+fn stock_profile_list(dir: &std::path::Path) {
+    let me = heimdall_ipc::windows::current_user_sid().unwrap();
+    let set = std::process::Command::new("icacls")
+        .arg(dir)
+        .args([
+            "/inheritance:r",
+            "/grant:r",
+            &format!("*{me}:(OI)(CI)F"),
+            "*S-1-5-18:(OI)(CI)F",
+            "*S-1-5-32-544:(OI)(CI)F",
+        ])
+        .output()
+        .unwrap();
+    assert!(set.status.success(), "{set:?}");
+}
+
 /// ADR-0010 §1 item 7 with the upgrade path (M04 review-fix round): an existing state
-/// directory with the inherited list a build before M04 left (created under `%TEMP%`, as
-/// one under `%LOCALAPPDATA%` is: the user, SYSTEM, Administrators) is narrowed once to the
-/// protected owner-only DACL, keeping its content, and starts. A directory granting anyone
-/// else, inherited or protected, is refused `state_dir_unsafe` and left exactly as it was.
-/// Windows native (the PC); the pure rule is `platform::state_dir_acl_tests`.
+/// directory with the inherited list a build before M04 left on a stock profile (the user,
+/// SYSTEM, Administrators: built here on the test's own parent, never assumed from the
+/// host's `%TEMP%`) is narrowed once to the protected owner-only DACL, keeping its content,
+/// and starts. A directory granting anyone else, inherited or protected, is refused
+/// `state_dir_unsafe` and left exactly as it was: among them ⟨M04 Windows fix round⟩ the
+/// shape observed on a sandboxed profile, an inherited read-and-execute entry for another
+/// local principal. Windows native (the PC); the pure rule is `platform::state_dir_acl_tests`.
 #[cfg(windows)]
 #[test]
 fn windows_state_dir_not_owner_only_is_refused() {
@@ -3661,7 +3684,10 @@ fn windows_state_dir_not_owner_only_is_refused() {
         .output()
         .unwrap();
     assert!(reset.status.success(), "{reset:?}");
-    let layout = Paths::under(&tmp.path().join("hh"));
+    let hh = tmp.path().join("hh");
+    std::fs::create_dir(&hh).unwrap();
+    stock_profile_list(&hh);
+    let layout = Paths::under(&hh);
     std::fs::create_dir_all(&layout.state_dir).unwrap();
     std::fs::write(layout.state_dir.join("marker"), b"mine").unwrap();
     assert_eq!(
@@ -3682,9 +3708,45 @@ fn windows_state_dir_not_owner_only_is_refused() {
     );
     layout.ensure().expect("and starts again");
 
+    // ⟨M04 Windows fix round⟩ The stock list plus an inherited read-and-execute entry for
+    // another local principal (Users stands in for the observed sandbox group): another
+    // principal can read it, so it is refused and left as it is.
+    let readable = tmp.path().join("readable");
+    std::fs::create_dir(&readable).unwrap();
+    stock_profile_list(&readable);
+    let granted = std::process::Command::new("icacls")
+        .arg(&readable)
+        .args(["/grant", "*S-1-5-32-545:(OI)(CI)(RX)"])
+        .output()
+        .unwrap();
+    assert!(granted.status.success(), "{granted:?}");
+    let readable_layout = Paths::under(&readable);
+    std::fs::create_dir_all(&readable_layout.state_dir).unwrap();
+    assert_eq!(
+        check_owner_only(&readable_layout.state_dir).unwrap(),
+        Verdict::NotProtected
+    );
+    let err = readable_layout
+        .ensure()
+        .expect_err("another principal's inherited read access is refused");
+    assert!(is_state_dir_unsafe(&err), "{err}");
+    let text = err.to_string();
+    assert!(
+        text.contains("another principal") && !text.contains("S-1-") && !text.contains(&me),
+        "the refusal names the kind, never a SID or a path: {text}"
+    );
+    assert_eq!(
+        check_owner_only(&readable_layout.state_dir).unwrap(),
+        Verdict::NotProtected,
+        "never repaired"
+    );
+    let refused = migrate_legacy(&readable_layout.state_dir).expect_err("never narrowed");
+    assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
+
     // An inherited list that also grants Everyone: refused, unchanged.
     let wide = tmp.path().join("wide");
     std::fs::create_dir_all(&wide).unwrap();
+    stock_profile_list(&wide);
     let granted = std::process::Command::new("icacls")
         .arg(&wide)
         .args(["/grant", "*S-1-1-0:(OI)(CI)R"])
@@ -3735,12 +3797,15 @@ fn windows_state_dir_not_owner_only_is_refused() {
 
 /// The positive case (m04 design review T01/A14): a **fresh** installation starts. The
 /// state directory Heimdall creates has the protected owner-only DACL, so the check at
-/// start passes now and on every restart, and a file created inside inherits it. Windows
+/// start passes now and on every restart, and a file created inside inherits its one entry
+/// (unprotected, for the user alone). Windows
 /// native; the real runtime start on a fresh home is `e2e_platform_m04` (`service_login`).
 #[cfg(windows)]
 #[test]
 fn windows_fresh_state_dir_is_created_protected_and_passes_the_start_check() {
-    use heimdall_runtime::platform::state_dir_acl::{Verdict, check_owner_only};
+    use heimdall_runtime::platform::state_dir_acl::{
+        AceKind, INHERITED_ACE, Verdict, check_owner_only, dacl_facts,
+    };
 
     let tmp = tempfile::tempdir().unwrap();
     let layout = Paths::under(&tmp.path().join("fresh"));
@@ -3756,9 +3821,17 @@ fn windows_fresh_state_dir_is_created_protected_and_passes_the_start_check() {
         check_owner_only(&layout.state_dir).unwrap(),
         Verdict::OwnerOnly
     );
-    assert_eq!(
-        check_owner_only(&layout.state_dir.join("state.db")).unwrap_or(Verdict::OwnerOnly),
-        Verdict::OwnerOnly,
-        "what is created inside inherits the same owner-only DACL"
+    // ⟨M04 Windows fix round⟩ A file created inside is unprotected by design: it inherits
+    // the directory's one entry, for the user alone, and is owned by the user.
+    let me = heimdall_ipc::windows::current_user_sid().unwrap();
+    let inside = dacl_facts(&layout.state_dir.join("state.db")).unwrap();
+    assert_eq!(inside.owner_sid, me, "owned by the user");
+    assert!(inside.dacl_present && !inside.protected, "{inside:?}");
+    assert_eq!(inside.aces.len(), 1, "one entry: {inside:?}");
+    assert!(
+        inside.aces[0].kind == AceKind::Allow
+            && inside.aces[0].sid == me
+            && inside.aces[0].flags & INHERITED_ACE != 0,
+        "only the user, inherited: {inside:?}"
     );
 }

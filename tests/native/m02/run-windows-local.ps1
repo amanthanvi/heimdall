@@ -224,6 +224,16 @@ function Get-ToolEnvironmentOverrides([string]$RustupHome, [string]$CargoHome, [
         CARGO_PROFILE_DEV_DEBUG = 'line-tables-only'; CARGO_PROFILE_TEST_DEBUG = 'line-tables-only' }
 }
 
+# ⟨M04 Windows fix round; ADR-0010 §11⟩ The icacls arguments that give the run's own root the
+# stock profile list, protected: full control, inherited by files and subdirectories, for the
+# user, SYSTEM and Administrators only. Every directory a test creates under it (TEMP and TMP
+# point inside it) then inherits what a stock %LOCALAPPDATA% gives, whatever the host profile
+# carries (sandboxing tools add principals there), so the suites' results do not depend on it.
+# Only the directory this run created is changed.
+function Get-StockProfileGrantArguments([string]$Dir, [string]$UserSid) {
+    return @($Dir, '/inheritance:r', '/grant:r', "*${UserSid}:(OI)(CI)F", '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F')
+}
+
 # How many of the given files contain a carriage return (0 when every one is LF-only; a file
 # that cannot be read counts as one).
 function Get-CrlfFileCount([string[]]$Paths) {
@@ -415,6 +425,9 @@ function Invoke-SelfTest([string]$OutDir) {
     # Every file goes through the same protection as in a real run.
     $files = (Protect-BundleFiles $files $rules).Files
     Check 'R09 every result file is protected (the host name in host.txt too)' ($files['host.txt'].Contains('on <winhost>'))
+    $sg = Get-StockProfileGrantArguments 'S\run' 'S-1-5-21-1-2-3-1001'
+    Check 'A01 the run root''s stock list: protected, full control inherited by files and subdirectories, the user, SYSTEM and Administrators only (ADR-0010 §11)' (
+        ($sg -join ' ') -ceq 'S\run /inheritance:r /grant:r *S-1-5-21-1-2-3-1001:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F')
     $te = Get-ToolEnvironmentOverrides 'S\rustup' 'S\cargo' 'S\empty.gitconfig' 'S\tmp'
     $canaryLabel = 'run ' + ('HEIMDALL_' + 'CANARY_') + 'labelvalue1 for fixtureuser'
     $pm = Get-ProtectedMetadata $canaryLabel $rules
@@ -538,6 +551,10 @@ $run = Join-Path $rootItem.FullName ("hm-$Milestone-local-" + (New-RandomHex 8))
 # Exclusive: a directory that exists already (another run's) is never reused.
 if (Test-Path -LiteralPath $run) { Stop-Usage 'the run directory exists already' }
 [void][System.IO.Directory]::CreateDirectory($run)
+# ⟨M04 Windows fix round⟩ The stock profile list on this run's root, before anything is created
+# inside it (Get-StockProfileGrantArguments); recorded below, its SIDs redacted.
+$stockOut = (& (Join-Path $env:SystemRoot 'System32\icacls.exe') @(Get-StockProfileGrantArguments $run ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)) 2>&1 | Out-String)
+$stockRc = $LASTEXITCODE
 $src = Join-Path $run 'src'
 $tools = Join-Path $run 'toolchain'
 $wtmp = Join-Path $run 'tmp'
@@ -622,6 +639,10 @@ if ($null -eq $git) { Stop-Usage 'git.exe is not on PATH' }
 $git = $git.Source
 
 try {
+    # ⟨M04 Windows fix round⟩ The run root's stock profile list (set when the root was created).
+    Add-Command $stockRc 'icacls: the run root gets the protected stock profile list (the user, SYSTEM, Administrators; inherited by what is created inside)'
+    if ($stockRc -ne 0) { [void]$build.Append($stockOut); throw 'the run root''s list could not be set' }
+    Add-Fact 'run-root-sddl' ((Get-Acl -LiteralPath $run).Sddl)
     # Facts before anything runs.
     Add-Fact 'os' ((Invoke-Bounded (Join-Path $sys32 'cmd.exe') @('/d', '/c', 'ver') $null $run 30).Output.Trim())
     $groups = (Invoke-Bounded (Join-Path $sys32 'whoami.exe') @('/groups') $null $run 30).Output

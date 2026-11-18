@@ -263,6 +263,19 @@ impl Operations {
         distribution: Option<&DistributionGuid>,
         explicit: bool,
     ) {
+        let ids = self.pending_distribution_setups(distribution).await;
+        self.drive_distribution_setups(&ids, explicit).await;
+    }
+
+    /// ⟨M04 Windows fix round⟩ The open or unresolved setup operations of a distribution's
+    /// items (of `distribution`, or of any), read from the store only: no host call. The
+    /// runtime reads them inline at start and spawns a driver only when there are some, so a
+    /// runtime with nothing to drive keeps no background task holding the store (on Windows a
+    /// held database file cannot be renamed or removed after the service is dropped).
+    pub async fn pending_distribution_setups(
+        &self,
+        distribution: Option<&DistributionGuid>,
+    ) -> Vec<OperationId> {
         let only = distribution.cloned();
         let ids = self
             .local_write(move |tx, _| {
@@ -293,15 +306,23 @@ impl Operations {
                 Ok(ids)
             })
             .await;
-        let ids = match ids {
+        match ids {
             Ok(ids) => ids,
             Err(e) => {
                 tracing::warn!(code = %e.code, "distribution setup operations could not be listed");
-                return;
+                Vec::new()
             }
-        };
-        let allowed = explicit.then(|| self.allow_distribution_start(&ids));
-        for id in &ids {
+        }
+    }
+
+    /// Drive the setup operations `ids` ([`Self::pending_distribution_setups`]); `explicit`:
+    /// the owner's own request leads them, so a stopped distribution may be started.
+    pub async fn drive_distribution_setups(&self, ids: &[OperationId], explicit: bool) {
+        if ids.is_empty() {
+            return;
+        }
+        let allowed = explicit.then(|| self.allow_distribution_start(ids));
+        for id in ids {
             if let Err(e) = self.lead_local_setup(id).await {
                 tracing::warn!(code = %e.code, "a distribution setup operation is still unfinished");
             }

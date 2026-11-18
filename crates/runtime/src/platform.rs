@@ -1200,6 +1200,8 @@ pub mod state_dir_acl {
     pub const CONTAINER_INHERIT_ACE: u8 = 0x02;
     /// `INHERIT_ONLY_ACE`.
     pub const INHERIT_ONLY_ACE: u8 = 0x08;
+    /// `INHERITED_ACE`.
+    pub const INHERITED_ACE: u8 = 0x10;
 
     /// ⟨Re-check M04-W1-RC01⟩ Whether `ace` already grants `user_sid` everything the
     /// owner-only replacement `(A;OICI;GA;;;<user>)` grants: full control on the directory
@@ -1263,7 +1265,7 @@ pub mod state_dir_acl {
                 Verdict::OwnerOnly => "the state directory is owner-only",
                 Verdict::NoDacl => "the state directory has no access-control list",
                 Verdict::NotProtected => {
-                    "the state directory inherits its access-control list from its parent"
+                    "the state directory inherits an access-control list that lets another principal read it, or limits your own access"
                 }
                 Verdict::ForeignOwner => "the state directory is owned by another principal",
                 Verdict::ForeignAce => {
@@ -1331,6 +1333,16 @@ pub mod state_dir_acl {
         let user = heimdall_ipc::windows::current_user_sid()?;
         let facts = super::win_acl::read_facts(dir)?;
         Ok(judge(&facts, &user))
+    }
+
+    /// ⟨M04 Windows fix round⟩ The owner and DACL facts of `path` (a directory or a file),
+    /// read as [`check_owner_only`] reads them, for exact native assertions.
+    ///
+    /// # Errors
+    /// The path or its security information cannot be read.
+    #[cfg(windows)]
+    pub fn dacl_facts(path: &Path) -> std::io::Result<DaclFacts> {
+        super::win_acl::read_facts(path)
     }
 
     /// Create the directory `dir` (its parent must exist) **exclusively**, owned by the
@@ -1880,6 +1892,21 @@ mod state_dir_acl_tests {
             (
                 "users",
                 facts(false, ME, vec![allow(ME), allow("S-1-5-32-545")]),
+            ),
+            // ⟨M04 Windows fix round⟩ The profile observed on the PC (ADR-0010 §11): the
+            // stock entries plus an inherited read-and-execute entry for a local group.
+            (
+                "a local group with read and execute",
+                facts(
+                    false,
+                    ME,
+                    vec![
+                        ace("S-1-5-21-9-8-7-1009", 0x0012_00a9, OICI | INHERITED),
+                        allow("S-1-5-18"),
+                        allow("S-1-5-32-544"),
+                        allow(ME),
+                    ],
+                ),
             ),
             (
                 "another owner",

@@ -823,8 +823,13 @@ impl Service {
             // Restart recovery ran before the host was wired: a setup operation of a
             // distribution's items it left unresolved is driven again now, in the
             // background, never starting a distribution (ADR-0010 §9 item 2).
-            let ops = operations.clone();
-            tokio::spawn(async move { ops.redrive_distribution_setups(None, false).await });
+            // ⟨M04 Windows fix round⟩ Read inline; a driver task only when there is work, so a
+            // runtime with nothing to drive keeps no task holding the store past its drop.
+            let pending = operations.pending_distribution_setups(None).await;
+            if !pending.is_empty() {
+                let ops = operations.clone();
+                tokio::spawn(async move { ops.drive_distribution_setups(&pending, false).await });
+            }
         }
         // ⟨M03; ADR-0008 §17.25 item 19⟩ `inspect destinations`' D8 wording: the managed
         // adapter's own (`connection_policy_report`), so the destination view and the
