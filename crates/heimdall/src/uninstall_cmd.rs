@@ -337,6 +337,44 @@ impl RecoverySnapshot {
             ..self.clone()
         }
     }
+
+    /// ⟨ADR-0008 §17.41⟩ This snapshot with every `remote_revocation:` row reduced by
+    /// [`without_round_bookkeeping`] (a row that does not parse is kept as it is).
+    fn without_round_bookkeeping(mut self) -> RecoverySnapshot {
+        for (key, value) in &mut self.meta {
+            if key.starts_with(REMOTE_REVOCATION_PREFIX)
+                && let Some(reduced) = without_round_bookkeeping(value)
+            {
+                *value = reduced;
+            }
+        }
+        self
+    }
+}
+
+/// The `meta` key prefix of a pending remote revocation ([`remote_revocation_key`]).
+const REMOTE_REVOCATION_PREFIX: &str = "remote_revocation:";
+
+/// ⟨ADR-0008 §17.41⟩ A stored `PendingRemoteRevocation` without the fields a supervisor
+/// retry round writes: the record's `attempts`, `last_attempt_at`, `claimed_at`,
+/// `claim_seq` and `stopped`, and each obligation's `attempts`, `stopped` and `reason`.
+/// The root, grants, each obligation's grant, adapter and kind, its effect round and
+/// sequence, the re-arm history and the cap are kept. `None` when `stored` is not such
+/// a record (the caller then compares it as it is).
+fn without_round_bookkeeping(stored: &str) -> Option<String> {
+    let mut r: heimdall_domain::revocation::PendingRemoteRevocation =
+        serde_json::from_str(stored).ok()?;
+    r.attempts = 0;
+    r.last_attempt_at = Timestamp::UNIX_EPOCH;
+    r.claimed_at = None;
+    r.claim_seq = None;
+    r.stopped = false;
+    for o in &mut r.obligations {
+        o.attempts = None;
+        o.stopped = false;
+        o.reason = None;
+    }
+    serde_json::to_string(&r).ok()
 }
 
 /// ⟨audit A2, A4⟩ How the recovery snapshot treats a **pending** decision, by kind
@@ -528,7 +566,7 @@ struct OwnChanges {
 /// The `meta` key of a pending remote revocation (`heimdall_store`'s
 /// `remote_revocation:` prefix and the root grant).
 fn remote_revocation_key(root: &str) -> String {
-    format!("remote_revocation:{root}")
+    format!("{REMOTE_REVOCATION_PREFIX}{root}")
 }
 
 /// ⟨ADR-0008 §17.32 item 7; §17.33 item 3 (W5-E01)⟩ The `meta` rows are the confirmed
@@ -848,6 +886,26 @@ impl Inventory {
             && self.cas == now.cas
             && self.last_change == now.last_change
             && self.snapshot.records() == now.snapshot.records()
+    }
+
+    /// ⟨ADR-0008 §17.41⟩ The fence-time check of a **plain** uninstall (no `--purge-state`):
+    /// [`Inventory::same_as`], except that each pending remote revocation is compared
+    /// without what a supervisor retry round writes ([`without_round_bookkeeping`]).
+    /// Those rounds run for about a minute after every revoke; their counters and stops
+    /// are not a change to what the owner confirmed (§17.27 item 2; §17.32 item 7).
+    /// Everything else stays exact: which records exist, each record's root, grants,
+    /// obligations (grant, adapter, kind), effect sequence, re-arm history and cap, and
+    /// every other snapshot row. A purge keeps [`Inventory::same_as`] and its final exact
+    /// comparison (§17.33 item 3, W5-E01).
+    fn same_obligations_as(&self, now: &Inventory) -> bool {
+        self.open == now.open
+            && self.foreign == now.foreign
+            && self.operations == now.operations
+            && self.unresolved_steps == now.unresolved_steps
+            && self.cas == now.cas
+            && self.last_change == now.last_change
+            && self.snapshot.records().without_round_bookkeeping()
+                == now.snapshot.records().without_round_bookkeeping()
     }
 
     /// ⟨ADR-0008 §17.32 item 1 (W5-D01; audit A3)⟩ The purge's final check, under the
@@ -2418,7 +2476,8 @@ async fn uninstall_after_recovery<P: Prompter>(
     };
     // Close admission, then revalidate against the state about to be changed: an
     // inventory (or a bundle) that no longer matches what the owner confirmed lifts
-    // the fence and stops here, with nothing deleted.
+    // the fence and stops here, with nothing deleted. ⟨§17.41⟩ A plain uninstall
+    // compares the pending remote revocations without their retry rounds.
     if let Err(refused) = fence_and_revalidate(&mut client, &db, &inv, known, args).await {
         return refused;
     }
@@ -2656,7 +2715,14 @@ async fn fence_and_revalidate<S: crate::cli::Session>(
         Ok(now) => now,
         Err(why) => return refuse(s, unreadable(why)).await,
     };
-    if !confirmed.same_as(&now) {
+    // ⟨ADR-0008 §17.41⟩ A plain uninstall is not refused for retry rounds on unchanged
+    // obligations; a purge compares exactly.
+    let unchanged = if args.purge_state {
+        confirmed.same_as(&now)
+    } else {
+        confirmed.same_obligations_as(&now)
+    };
+    if !unchanged {
         return refuse(s, inventory_changed(None, &now, EffectStatus::None)).await;
     }
     // ⟨ADR-0008 §17.28 item 1⟩ a dispatched step without its result (or an uncertain
@@ -5713,6 +5779,173 @@ mod tests {
             effect_seq: Some(1),
             kind: heimdall_domain::revocation::ObligationKind::default(),
         }
+    }
+
+    // --- ADR-0008 §17.41: a plain uninstall's fence check and the retry rounds
+
+    /// A plain uninstall (no `--purge-state`, no acknowledgement flag).
+    fn plain() -> UninstallArgs {
+        UninstallArgs {
+            keep_remote_enrollments: false,
+            purge_state: false,
+            bundle: None,
+        }
+    }
+
+    /// [`remote_revocation`] with its adapter obligation, as a revoke leaves it.
+    fn pending_with_obligation() -> heimdall_domain::revocation::PendingRemoteRevocation {
+        let mut r = remote_revocation();
+        r.obligations = vec![obligation("fake-a")];
+        r.claim_seq = Some(1);
+        r
+    }
+
+    /// What one supervisor retry round writes to `r` (`crates/app` `plan_obligation_calls`
+    /// and `stop_capped_obligations`): the record's count, time, claim and sequence, and
+    /// here its cap reached (`stopped`); each obligation's count, stop and reason.
+    fn after_round(
+        mut r: heimdall_domain::revocation::PendingRemoteRevocation,
+    ) -> heimdall_domain::revocation::PendingRemoteRevocation {
+        r.attempts += 7;
+        r.last_attempt_at = t0()
+            .checked_add(Duration::from_secs(55))
+            .unwrap_or_else(|_| panic!("time"));
+        r.claimed_at = Some(r.last_attempt_at);
+        r.claim_seq = Some(r.claim_seq.unwrap_or(0) + 23);
+        r.stopped = true;
+        for o in &mut r.obligations {
+            o.attempts = Some(o.attempts.unwrap_or(0) + 7);
+            o.stopped = true;
+            o.reason = Some(heimdall_domain::revocation::RemotePendingReason::AdapterUnavailable);
+        }
+        r
+    }
+
+    /// `fence_and_revalidate` over a store holding [`pending_with_obligation`], with
+    /// `change` committed between the confirmation's read and the fence's re-read.
+    fn revalidate_across(
+        args: &UninstallArgs,
+        change: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> + 'static,
+    ) -> (Result<(), Outcome>, Vec<String>) {
+        let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let db = database(d.path(), |tx| {
+            seed_remote(tx)?;
+            // A second revoked root, for a record added later (its tombstone is not in
+            // the compared snapshot).
+            tx.insert_tombstone(&heimdall_domain::revocation::Tombstone {
+                grant: heimdall_contract::ids::GrantId::from_random_bytes([4; 16]),
+                cascade: Vec::new(),
+                generation: heimdall_domain::policy::AuthorityGeneration(0),
+                revoked_at: t0(),
+                remote_pending: Vec::new(),
+                cause: heimdall_domain::revocation::RevocationCause::Revoke,
+            })?;
+            tx.set_remote_revocation(&pending_with_obligation())
+        });
+        let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            confirmed.remote_revocations,
+            vec![pending_with_obligation()]
+        );
+        let db2 = db.clone();
+        let mut s = FenceSession {
+            acquired: Envelope::ok(serde_json::json!({ "fence": "held" })),
+            sent: Vec::new(),
+            between: Some(Box::new(move || {
+                let store = Store::open(&db2, Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+                store.transaction(change).unwrap_or_else(|e| panic!("{e}"));
+            })),
+        };
+        let r = block_on(fence_and_revalidate(&mut s, &db, &confirmed, true, args));
+        (r, s.sent)
+    }
+
+    fn refused_as_changed(r: &Result<(), Outcome>) -> bool {
+        r.as_ref().is_err_and(|out| {
+            out.env.data["error"]["reason"] == reason::UNINSTALL_INVENTORY_CHANGED
+                && out.env.data["error"]["effect_status"] == "none"
+        })
+    }
+
+    /// `plain_uninstall_passes_the_fence_across_retry_rounds` (ADR-0008 §17.41; the WSL
+    /// E3 run): the supervisor's retry rounds on a pending remote revocation (counts,
+    /// time, claim, sequence, stops, reason) between the owner's confirmation and the
+    /// fence are not a change to what the owner confirmed, so a plain uninstall goes on
+    /// with the fence held.
+    #[test]
+    fn plain_uninstall_passes_the_fence_across_retry_rounds() {
+        let (r, sent) = revalidate_across(&plain(), |tx| {
+            tx.set_remote_revocation(&after_round(pending_with_obligation()))
+        });
+        assert!(r.is_ok(), "retry rounds refused a plain uninstall");
+        assert_eq!(
+            sent,
+            vec!["uninstall_fence.acquire".to_owned()],
+            "the fence stays held"
+        );
+    }
+
+    /// `plain_uninstall_refuses_a_changed_remote_obligation` (ADR-0008 §17.41): the plain
+    /// check still refuses every change to the obligations themselves, also when the
+    /// round fields changed with it: a record added, a record gone, an obligation added,
+    /// an obligation re-armed (its effect sequence), a covered grant added.
+    #[test]
+    fn plain_uninstall_refuses_a_changed_remote_obligation() {
+        let other = heimdall_contract::ids::GrantId::from_random_bytes([4; 16]);
+        let o2 = other.clone();
+        let (r, _) = revalidate_across(&plain(), move |tx| {
+            let mut added = after_round(pending_with_obligation());
+            added.root = o2.clone();
+            added.grants = vec![o2.clone()];
+            added.obligations[0].grant = o2;
+            tx.set_remote_revocation(&added)
+        });
+        assert!(refused_as_changed(&r), "a new record");
+        let (r, _) = revalidate_across(&plain(), |tx| {
+            tx.clear_remote_revocation(&remote_revocation().root)
+        });
+        assert!(refused_as_changed(&r), "a record gone");
+        let (r, _) = revalidate_across(&plain(), |tx| {
+            let mut more = after_round(pending_with_obligation());
+            more.obligations.push(obligation("fake-b"));
+            tx.set_remote_revocation(&more)
+        });
+        assert!(refused_as_changed(&r), "an obligation added");
+        let (r, _) = revalidate_across(&plain(), |tx| {
+            let mut rearmed = after_round(pending_with_obligation());
+            rearmed.obligations[0].effect_seq = Some(9);
+            tx.set_remote_revocation(&rearmed)
+        });
+        assert!(refused_as_changed(&r), "an obligation re-armed");
+        let (r, _) = revalidate_across(&plain(), move |tx| {
+            let mut wider = after_round(pending_with_obligation());
+            let mut owed = obligation("fake-a");
+            owed.grant = other.clone();
+            wider.grants.push(other);
+            wider.obligations.push(owed);
+            tx.set_remote_revocation(&wider)
+        });
+        assert!(refused_as_changed(&r), "a covered grant added");
+    }
+
+    /// `purge_fence_refuses_retry_rounds_exactly` (ADR-0008 §17.33 item 3, W5-E01; §17.41):
+    /// a purge keeps the exact comparison, so the same retry rounds refuse it.
+    #[test]
+    fn purge_fence_refuses_retry_rounds_exactly() {
+        let (r, sent) = revalidate_across(&plain_purge(), |tx| {
+            tx.set_remote_revocation(&after_round(pending_with_obligation()))
+        });
+        assert!(
+            refused_as_changed(&r),
+            "a purge accepted changed remote revocation records"
+        );
+        assert_eq!(
+            sent,
+            vec![
+                "uninstall_fence.acquire".to_owned(),
+                "uninstall_fence.release".to_owned()
+            ]
+        );
     }
 
     /// `uninstall_lists_and_confirms_pending_remote_revocations` (ADR-0008 §17.32 item

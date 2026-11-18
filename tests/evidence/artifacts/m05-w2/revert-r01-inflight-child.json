@@ -1,0 +1,23 @@
+{
+ "name": "M05-W2-R01 (Codex review of 28d54e3b, blocking): a delegation still preparing when the work of its parent binding is stopped never activates (stop_m05::parent_work_refusal, asked by activation_refusal); the check disabled",
+ "file": "crates/app/src/operations/stop_m05.rs (parent_work_refusal), crates/app/src/operations.rs (activation_refusal and its five callers)",
+ "change_reverted": "parent_work_refusal returned Ok(None) before walking the parent chain",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --test e2e_stop_m05 shared_work_stop_fails",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test shared_work_stop_fails_a_child_still_preparing ... FAILED",
+   "thread 'shared_work_stop_fails_a_child_still_preparing' (46140982) panicked at crates/runtime/../../tests/e2e/m05_stop.rs:879:10:",
+   "a child delegated through stopped work never activates: Completed { ... state: Succeeded, code: AccessReady, ... }",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.03s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.04s"
+  ]
+ }
+}

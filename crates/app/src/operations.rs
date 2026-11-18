@@ -2152,7 +2152,9 @@ impl Activation {
 /// ⟨M05⟩ U3 (ADR-0011 §7.2 "Stop (work)"): `work` is the work the activation is for
 /// (the new binding's, or the existing binding's); a stopped one is refused
 /// `CREDENTIAL_EXPIRED` / `work_stopped` whatever the activation
-/// (`stop_m05::work_stop_refusal`).
+/// (`stop_m05::work_stop_refusal`). `parent` is the binding a delegation was made through
+/// (a new child's request, an existing child's record); its work, and its ancestors',
+/// must not be stopped either (review M05-W2-R01, `stop_m05::parent_work_refusal`).
 #[allow(clippy::too_many_arguments)]
 fn activation_refusal(
     tx: &mut Txn<'_>,
@@ -2163,6 +2165,7 @@ fn activation_refusal(
     now: Timestamp,
     activation: Activation,
     work: Option<(&EnvironmentId, &WorkId)>,
+    parent: Option<&BindingId>,
 ) -> heimdall_store::Result<Option<Refusal>> {
     let expected_ok = if activation.attached() {
         grant.state.permits_use()
@@ -2193,6 +2196,12 @@ fn activation_refusal(
     if let Some((env, work_id)) = work
         && let Some(error) = stop_m05::work_stop_refusal(tx, env, work_id)?
     {
+        let event = (!activation.attached()).then_some(GrantEvent::PreparationFailed);
+        return Ok(Some(Refusal::new(error, event)));
+    }
+    // ⟨Review M05-W2-R01⟩ A delegation made through a binding whose work (or an ancestor
+    // binding's work) was stopped never activates, nor binds again.
+    if let Some(error) = stop_m05::parent_work_refusal(tx, parent)? {
         let event = (!activation.attached()).then_some(GrantEvent::PreparationFailed);
         return Ok(Some(Refusal::new(error, event)));
     }
@@ -7313,6 +7322,8 @@ impl Operations {
         let retention = self.retention();
         // ⟨M05⟩ U3: the work this attempt's binding is for (the work-stop check).
         let work = stop_m05::work_of(st);
+        // ⟨Review M05-W2-R01⟩ The binding a delegation was made through.
+        let parent = stop_m05::parent_of(st);
         let attempt = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id2)? else {
@@ -7341,6 +7352,7 @@ impl Operations {
                     now,
                     Activation::NewGrant,
                     work.as_ref().map(|(e, w)| (e, w)),
+                    parent.as_ref(),
                 )? {
                     Some(r) => r,
                     None => {
@@ -7949,6 +7961,8 @@ impl Operations {
         let cap = self.inner.revocation_cap.load(Ordering::SeqCst);
         // ⟨M05⟩ U3: the work this binding is for (the work-stop check).
         let work = stop_m05::work_of(st);
+        // ⟨Review M05-W2-R01⟩ The binding a delegation was made through.
+        let parent = stop_m05::parent_of(st);
         let outcome = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id)? else {
@@ -7991,6 +8005,7 @@ impl Operations {
                     now,
                     activation,
                     work.as_ref().map(|(e, w)| (e, w)),
+                    parent.as_ref(),
                 )? {
                     if !attached
                         && let Some(ev) = refusal.grant_event
@@ -8229,6 +8244,8 @@ impl Operations {
         let cap = self.inner.revocation_cap.load(Ordering::SeqCst);
         // ⟨M05⟩ U3: the work this binding is for (the work-stop check).
         let work = stop_m05::work_of(st);
+        // ⟨Review M05-W2-R01⟩ The binding a delegation was made through.
+        let parent = stop_m05::parent_of(st);
         let outcome = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id)? else {
@@ -8287,6 +8304,7 @@ impl Operations {
                     now,
                     activation,
                     work.as_ref().map(|(e, w)| (e, w)),
+                    parent.as_ref(),
                 )? {
                     Some(r) => Some(r),
                     None => {
@@ -10031,6 +10049,7 @@ impl Operations {
                     now,
                     Activation::Existing,
                     Some((&b.environment, &b.work_id)),
+                    b.parent.as_ref(),
                 )?
                 .map(|r| r.error);
                 if refusal.is_none() {

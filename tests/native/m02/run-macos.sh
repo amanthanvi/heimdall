@@ -54,6 +54,9 @@ repo=$(cd "$here/../../.." && pwd)
 # ⟨M03 wave 6⟩ The milestone's case index (its observation_targets): tests/native/m03/run-macos.sh
 # sets HM_HARNESS_DIR; default this directory.
 hdir=${HM_HARNESS_DIR:-$here}
+# The milestone variables configure this harness only: check.sh (its native-harness
+# self-test runs these harnesses against a fake world) must not inherit them.
+unset HM_HARNESS_DIR HM_EVIDENCE HM_RUN_PREFIX HM_EXTRA_REMOTE HM_SCENARIO HM_SCENARIO_FILES HM_ROOT_PHASES
 owner_lock="$repo/tests/fixtures/ssh/runtime.owner.lock"
 # shellcheck source=tests/native/m02/lib.sh
 . "$here/lib.sh"

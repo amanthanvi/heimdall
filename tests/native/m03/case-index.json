@@ -33,10 +33,10 @@
       "runs": "scenario"
     },
     "macos-lock": {
-      "runs": "cargo"
+      "runs": "procedure"
     },
     "windows-lock": {
-      "runs": "cargo"
+      "runs": "procedure"
     }
   },
   "build_host_paths": {
@@ -352,25 +352,29 @@
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_enroll_registry::docker_busybox::": {
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_enroll_registry::docker_dash::": {
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_enroll_registry::docker_debian_dash::": {
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_enroll_registry::native_sh::": {
       "platforms": [
@@ -449,7 +453,8 @@
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_issuer_child::process::issuer_path_never_exists_through_runtime_lifecycle": {
       "platforms": [
@@ -482,7 +487,8 @@
       "platforms": [
         "macos-lock"
       ],
-      "rationale": "macOS lock signal (#[cfg(target_os = \"macos\")]), #[ignore]d: observed only across a real screen lock under the ADR-0004 §2 lock rule, so it runs in the lock procedure (tests/native/m03/lock-macos.sh, platform macos-lock), started unlocked before pmset displaysleepnow (m03-plan §4.4)"
+      "rationale": "macOS lock signal (#[cfg(target_os = \"macos\")]), #[ignore]d: observed only across a real screen lock under the ADR-0004 §2 lock rule, so it runs in the lock procedure (tests/native/m03/lock-macos.sh, platform macos-lock), started unlocked before pmset displaysleepnow (m03-plan §4.4)",
+      "ignored_elsewhere": true
     },
     "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": {
       "platforms": [
@@ -495,19 +501,22 @@
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_testkit_m03::docker_ca_hook_is_container_internal_only": {
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_testkit_m03::docker_enrollable2_seeded_like_enrollable": {
       "platforms": [
         "macos"
       ],
-      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC"
+      "rationale": "Docker fixture case (#[ignore = \"docker: …\"], asserts HM_DOCKER_TESTS=1): run by the macOS harness with HM_DOCKER_TESTS=1 after the Docker fixtures are up (m03-plan §4.3); there is no Docker on the devbox (B8) or the Windows PC",
+      "ignored_elsewhere": true
     },
     "integration_testkit_m03::registry_guard_refuses_non_scratch_paths": {
       "platforms": [
@@ -528,7 +537,16 @@
         "macos-lock",
         "windows-lock"
       ],
-      "rationale": "the A03 lock procedure's driver step (#[ignore]): run once, in one driver process, by tests/native/m03/lock-macos.sh (platform macos-lock) and lock-windows.ps1 (platform windows-lock) under the ADR-0004 §2 lock rule (m03-plan §4.4); never in an ordinary run"
+      "rationale": "the A03 lock procedure's driver step (#[ignore]): run once, in one driver process, by tests/native/m03/lock-macos.sh (platform macos-lock) and lock-windows.ps1 (platform windows-lock) under the ADR-0004 §2 lock rule (m03-plan §4.4); never in an ordinary run",
+      "ignored_elsewhere": true
+    }
+  },
+  "macro_tests": {
+    "integration_enroll_registry::native_sh::procstat_live_comm_fixtures_per_linux_shell": {
+      "platforms": [
+        "linux"
+      ],
+      "rationale": "generated by rows_for!(native make; procstat_live_comm_fixtures_per_linux_shell) under #[cfg(target_os = \"linux\")] in tests/integration/enroll_registry.rs mod native_sh: compiled on Linux only, so the macOS build host's --list never names it and the Linux source scan cannot expand the macro; required where it compiles"
     }
   },
   "groups": {
@@ -745,7 +763,7 @@
           "m03_wsl_ordinary_scp_managed_alias_without_f",
           "m03_wsl_ordinary_sftp_managed_alias_without_f",
           "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca",
-          "m03_wsl_strictmodes_refuses_a_group_writable_registry",
+          "m03_wsl_strictmodes_refuses_a_world_writable_registry",
           "m03_wsl_uninstall_lists_the_remote_enrollments",
           "m03_wsl_uninstall_restores_the_users_config_bytes"
         ]
@@ -1475,7 +1493,7 @@
         "m03_wsl_ordinary_sftp_managed_alias_without_f": "sftp -b put/get through <account-form alias>, bytes compared (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
         "m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca": "ssh <system-form alias> true: alias managed, no -F (while a heimdall run holds the pairs' slots: ordinary ssh of a managed alias works only while a binding holds the slot, ADR-0008 D10 item 2; activation on first use is M05)",
         "m03_wsl_logins_attributed_to_the_grant_certificate": "every login both root sshds accepted during those clients (at least 6 on the account form, 1 on the system form) is an ED25519-CERT whose key ID heimdall:<env>:<grant>:<n> names the pair's grant, under this run's CA; none by the existing-access key",
-        "m03_wsl_strictmodes_refuses_a_group_writable_registry": "with ~/.ssh/authorized_keys made group-writable, the same managed login is refused (exit 255) and the root sshd logs bad ownership or modes; the mode is restored",
+        "m03_wsl_strictmodes_refuses_a_world_writable_registry": "with ~/.ssh/authorized_keys made world-writable, the same managed login is refused (exit 255), the root sshd logs bad ownership or modes, and the mode is restored to 600; a group-writable registry is tried first and only recorded, since Debian's and Ubuntu's OpenSSH (the user-group-modes patch) accept a group-writable file whose group is the owner's private group",
         "m03_wsl_revoke_on_lock_refused_lock_signal_unavailable": "access lock-behavior --policy <policy> revoke-on-lock is refused: lock_signal_unavailable (no lock signal in the distribution)",
         "m03_wsl_revoke_then_fresh_login_refused": "access revoke of each grant; fresh ordinary logins to both aliases fail and neither sshd accepts any login afterwards",
         "m03_wsl_uninstall_lists_the_remote_enrollments": "uninstall (typed yes) names every enrollment enroll status listed (at least 2); nothing remote is removed",

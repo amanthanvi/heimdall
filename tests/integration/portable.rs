@@ -349,7 +349,15 @@ impl Inst {
         ) {
             for e in std::fs::read_dir(dir).unwrap() {
                 let p = e.unwrap().path();
-                let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                // `/`-separated on every platform (`.ssh/known_hosts`), so the keys are
+                // the same on Windows (W2 Windows fix).
+                let rel = p
+                    .strip_prefix(root)
+                    .unwrap()
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
                 if p.is_dir() {
                     out.insert(rel, Vec::new());
                     walk(&p, root, out);

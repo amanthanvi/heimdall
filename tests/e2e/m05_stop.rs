@@ -791,6 +791,133 @@ async fn stop_one_job_leaves_the_other() {
 /// `ensure` of that work ID, then a bind) attaches the run to the ensure's grant as a
 /// separate reference, with no second preparation; a differing pin keeps M01's behaviour
 /// (a separate grant, capped at the work's first deadline).
+/// Review M05-W2-R01 (ADR-0011 §7.2, §7.3): a child delegated through a shared work's
+/// binding, **still preparing** when that work is stopped, never becomes usable.
+///
+/// The stop finds children through their committed bindings, and a preparing child has
+/// none. So the child's own activation re-checks the work of the binding it was delegated
+/// through (`stop_m05::parent_work_refusal`, asked by `activation_refusal` at its
+/// preparation, recheck and commit, and at every later bind). The child fails
+/// `work_stopped`, its applied credential is revoked, and a second stop of the work and a
+/// restart leave it refused. The other job keeps its reference to the shared grant
+/// throughout.
+#[tokio::test]
+async fn shared_work_stop_fails_a_child_still_preparing() {
+    let mut w = World::with_script(vec![FakeStep::HangBeforeEffect(outcome())]).await;
+    // A and B share one grant (concurrent equivalent ensures, spec §8.2).
+    let ops = w.ops.clone();
+    let ta = tokio::spawn(async move {
+        ops.ensure(
+            &owner(false),
+            request(&dev(), "r01-a", "job-a", &["h1"], None),
+        )
+        .await
+    });
+    for _ in 0..2000 {
+        if w.fake.hangs_entered() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert_eq!(w.fake.hangs_entered(), 1);
+    let ops = w.ops.clone();
+    let tb = tokio::spawn(async move {
+        ops.ensure(
+            &owner(false),
+            request(&dev(), "r01-b", "job-b", &["h1"], None),
+        )
+        .await
+    });
+    while w.hook.entries.load(Ordering::SeqCst) < 2 {
+        w.hook.changed.notified().await;
+    }
+    w.fake.release_hangs();
+    let a = ta.await.unwrap().unwrap().data;
+    let b = tb.await.unwrap().unwrap().data;
+    assert_eq!(a.grant_id, b.grant_id, "one shared grant");
+
+    // A delegates a child; its preparation is held, so it has no committed binding yet.
+    w.fake.arm(FakeStep::HangBeforeEffect(outcome()));
+    let ops = w.ops.clone();
+    let parent = a.binding_id.clone();
+    let child = tokio::spawn(async move {
+        ops.delegate(
+            &owner(false),
+            DelegateRequest {
+                parent_binding_id: parent,
+                scope: [pair("h1")].into_iter().collect(),
+                until: None,
+                work_id: WorkId::parse("r01-child-work").unwrap(),
+                request_id: RequestId::parse("r01-child").unwrap(),
+                required_capabilities: RequiredCapabilities::default(),
+            },
+        )
+        .await
+    });
+    for _ in 0..2000 {
+        if w.fake.hangs_entered() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert_eq!(
+        w.fake.hangs_entered(),
+        2,
+        "the child is preparing before the stop"
+    );
+
+    // The owner stops A: A's binding is released, B's reference stays.
+    w.stop_work("r01-stop", "job-a").await.unwrap();
+    assert_eq!(w.binding_state(&a.binding_id), BindingState::Released);
+    assert_eq!(w.binding_state(&b.binding_id), BindingState::Active);
+
+    // The child's preparation completes: it is refused, not activated.
+    w.fake.release_hangs();
+    let e = child
+        .await
+        .unwrap()
+        .expect_err("a child delegated through stopped work never activates");
+    assert_eq!(e.code, Code::CredentialExpired, "{}", e.message);
+    assert_eq!(e.reason.as_deref(), Some(reason::WORK_STOPPED));
+    let op = e.operation_id.clone().expect("the child's operation");
+    let child_grant = w
+        .store
+        .transaction(|tx| {
+            Ok(tx
+                .recovery_intent(&op)?
+                .and_then(|i| i.resolved)
+                .and_then(|r| r.grant))
+        })
+        .unwrap()
+        .expect("the child's grant");
+    assert!(!w.usable(&child_grant));
+    // Its applied credential is cleaned up.
+    w.ops.tick().await.unwrap();
+    w.ops.process_cleanup_intents().await.unwrap();
+    assert!(
+        w.fake
+            .journal()
+            .contains(&heimdall_testkit::FakeEvent::Revoke(child_grant.clone())),
+        "the child's credential is revoked: {:?}",
+        w.fake.journal()
+    );
+
+    // A repeated stop and a restart change nothing: the child stays unusable, and a
+    // fresh delegation through A's binding is refused too. B keeps working.
+    w.stop_work("r01-stop-again", "job-a").await.unwrap();
+    w.restart().await;
+    assert!(!w.usable(&child_grant));
+    let again = w
+        .delegate(&a.binding_id, "r01-child-2", "r01-child-work-2")
+        .await;
+    assert_eq!(code_of(&again), Code::CredentialExpired);
+    assert!(w.usable(&b.grant_id));
+    assert_eq!(
+        code_of(&w.bind(&b.binding_id, "r01-b-bind").await),
+        Code::AccessReady
+    );
+}
+
 #[tokio::test]
 async fn ensure_then_run_same_work_id_reuses_the_grant() {
     let w = World::new().await;

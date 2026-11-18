@@ -187,6 +187,49 @@ pub(super) fn work_stop_refusal(
     Ok(tx.work_stop(environment, work_id)?.map(|_| work_stopped()))
 }
 
+/// ⟨Review M05-W2-R01⟩ `CREDENTIAL_EXPIRED` / `work_stopped` when the work of `parent`, the
+/// binding a delegation was made through, or of any binding further up its parent chain,
+/// was stopped (ADR-0011 §7.2: children delegated through the stopped work's bindings are
+/// revoked; §7.3: nothing resurrects them).
+///
+/// A stop finds the children that already have a committed binding (`work_plan`). A child
+/// still preparing has none, so it is caught here: `activation_refusal` asks this at its
+/// preparation, at its recheck, at its commit and at every later bind. A delegation
+/// admitted before its parent's work stopped therefore fails, and its credential cleanup
+/// settles, instead of becoming usable after the owner withdrew that branch of authority.
+/// The walk is bounded like the grant ancestry (`MAX_ANCESTRY`); a parent binding the store
+/// no longer has ends it.
+///
+/// # Errors
+/// A store failure.
+pub(super) fn parent_work_refusal(
+    tx: &mut Txn<'_>,
+    parent: Option<&BindingId>,
+) -> heimdall_store::Result<Option<OpError>> {
+    let mut next = parent.cloned();
+    for _ in 0..super::MAX_ANCESTRY {
+        let Some(id) = next else {
+            return Ok(None);
+        };
+        let Some(b) = tx.binding(&id)? else {
+            return Ok(None);
+        };
+        if tx.work_stop(&b.environment, &b.work_id)?.is_some() {
+            return Ok(Some(work_stopped()));
+        }
+        next = b.parent;
+    }
+    Ok(None)
+}
+
+/// The parent binding a `delegate` operation was made through (`None` for an `ensure`).
+pub(super) fn parent_of(st: &WorkState) -> Option<BindingId> {
+    match st.request()? {
+        Request::Delegate(r) => Some(r.parent_binding_id),
+        _ => None,
+    }
+}
+
 /// The work an `ensure` or `delegate` operation creates its binding for: its
 /// operation's environment (where the binding is recorded) and its work ID.
 pub(super) fn work_of(st: &WorkState) -> Option<(EnvironmentId, WorkId)> {
@@ -1372,6 +1415,7 @@ fn reusable_grant(
             now,
             Activation::NewBinding,
             Some((&op.environment, work)),
+            None,
         )?
         .is_some()
         {

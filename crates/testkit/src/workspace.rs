@@ -7,9 +7,11 @@
 //! temporary directory lives behind the `/var` → `/private/var` symlink, and the observer
 //! records canonical roots).
 //!
-//! Git runs isolated from the account: a cleared environment (only `PATH` and the
-//! platform's temporary-directory and system-root variables pass through), `HOME` and
-//! `GIT_CONFIG_GLOBAL` inside the scratch directory, no system configuration, a fixed
+//! Git runs isolated from the account: on Unix a cleared environment (only `PATH`, the
+//! temporary-directory variables and `LANG` pass through); on Windows the inherited one
+//! (Git for Windows needs the system's variables) with every `GIT_*` variable removed; on
+//! both, `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL` inside the scratch
+//! directory, no system configuration (`GIT_CONFIG_NOSYSTEM`), a fixed
 //! identity, no hooks, no signing, and `protocol.file.allow=always` for the local
 //! submodule. Nothing here reads the owner's Git configuration, keys or repositories.
 
@@ -67,18 +69,30 @@ impl Scratch {
     pub fn git(&self, cwd: &Path, args: &[&str]) -> io::Result<String> {
         let home = self.home();
         let mut cmd = Command::new("git");
-        cmd.env_clear();
-        for key in [
-            "PATH",
-            "SYSTEMROOT",
-            "SystemRoot",
-            "TMPDIR",
-            "TEMP",
-            "TMP",
-            "LANG",
-        ] {
-            if let Some(v) = std::env::var_os(key) {
-                cmd.env(key, v);
+        if cfg!(windows) {
+            // ⟨W2 Windows fix⟩ Git for Windows cannot read its configuration in a cleared
+            // environment ("unknown error occurred while reading the configuration files",
+            // the 28d54e3b PC run): it needs the system's own variables (`ProgramData`,
+            // `SystemDrive`, `windir`, `ComSpec`, ...). So, as M03's `ScratchHome` clients do,
+            // the environment is inherited and every variable that could redirect Git is
+            // removed or replaced: every `GIT_*` variable goes, and the home, the global and
+            // XDG configuration and the system configuration are the scratch ones below.
+            // The owner's Git configuration is never read.
+            for (key, _) in std::env::vars_os() {
+                if key
+                    .to_string_lossy()
+                    .to_ascii_uppercase()
+                    .starts_with("GIT_")
+                {
+                    cmd.env_remove(key);
+                }
+            }
+        } else {
+            cmd.env_clear();
+            for key in ["PATH", "TMPDIR", "TEMP", "TMP", "LANG"] {
+                if let Some(v) = std::env::var_os(key) {
+                    cmd.env(key, v);
+                }
             }
         }
         cmd.env("HOME", &home)

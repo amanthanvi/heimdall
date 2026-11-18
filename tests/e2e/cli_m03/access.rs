@@ -1663,22 +1663,68 @@ fn lock_behavior_results_labelled_signal_unverified_on_linux_only() {
 #[cfg(windows)]
 #[test]
 fn windows_setup_apply_and_time_confirm_need_a_typed_yes() {
-    let rt = Rt::new("unlocked");
-    for argv in [&["setup", "apply"][..], &["time", "confirm"]] {
-        for (input, why) in [
-            (&b"no\n"[..], "answered no"),
-            (&b"\x04"[..], "end of input"),
-            (&b"\x03"[..], "interrupted"),
-        ] {
-            let out = rt.run_pty(argv, input);
-            assert_eq!(out.code, 3, "{argv:?} {why}: {out:?}");
-            assert!(
-                out.stdout.contains("not confirmed"),
-                "{argv:?} {why}: {out:?}"
-            );
-            assert!(out.stdout.contains(why), "{argv:?} {why}: {out:?}");
-        }
-        let yes = rt.run_pty(argv, b"yes\n");
-        assert_eq!(yes.code, 0, "{argv:?} yes: {yes:?}");
+    // ⟨M03 wave 6⟩ A plan that changes no item is applied as previewed, on every platform
+    // (ADR-0007 §5.2: a fresh home's first `setup apply` asked nothing on macOS either);
+    // first adoption of an alias always needs the owner's decision, so each home gets one
+    // (as `ManagedPair::set_up` has before its typed `setup apply`). A refused apply keeps
+    // its operation open with the decision pending (a later apply is `setup_in_progress`,
+    // exit 6, until it expires), so each answer gets a fresh home.
+    let with_alias = || {
+        let rt = Rt::new("unlocked");
+        let key = scratch_key(&rt);
+        let adopted = rt.run(&[
+            "--json",
+            "identity",
+            "adopt",
+            "--pub",
+            &key.to_string_lossy(),
+        ]);
+        assert_eq!(adopted.code, 0, "{adopted:?}");
+        let identity = adopted.json()["data"]["identity_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let add = rt.run(&[
+            "--json",
+            "destination",
+            "add",
+            "lab2",
+            "--hostname",
+            "127.0.0.1",
+            "--account",
+            "deploy",
+            "--identity",
+            &identity,
+            "--id",
+            "h2",
+        ]);
+        assert_eq!(add.code, 0, "{add:?}");
+        rt
+    };
+    let refusals = [
+        (&b"no\n"[..], "answered no"),
+        (&b"\x04"[..], "end of input"),
+        (&b"\x03"[..], "interrupted"),
+    ];
+    let refused = |rt: &Rt, argv: &[&str], input: &[u8], why: &str| {
+        let out = rt.run_pty(argv, input);
+        assert_eq!(out.code, 3, "{argv:?} {why}: {out:?}");
+        assert!(
+            out.stdout.contains("not confirmed"),
+            "{argv:?} {why}: {out:?}"
+        );
+        assert!(out.stdout.contains(why), "{argv:?} {why}: {out:?}");
+    };
+    for (input, why) in refusals {
+        refused(&with_alias(), &["setup", "apply"], input, why);
     }
+    let rt = with_alias();
+    let yes = rt.run_pty(&["setup", "apply"], b"yes\n");
+    assert_eq!(yes.code, 0, "setup apply yes: {yes:?}");
+    // `time confirm` is a client-side confirmation: no decision stays open after a refusal.
+    for (input, why) in refusals {
+        refused(&rt, &["time", "confirm"], input, why);
+    }
+    let yes = rt.run_pty(&["time", "confirm"], b"yes\n");
+    assert_eq!(yes.code, 0, "time confirm yes: {yes:?}");
 }

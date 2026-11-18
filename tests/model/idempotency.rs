@@ -600,7 +600,9 @@ fn context_trace(steps: Vec<CtxStep>, cov: &CtxCoverage) -> Result<(), TestCaseE
                 req.profile = None;
                 req.scope = BTreeSet::new();
                 req.context = Some(heimdall_contract::trust::WorkContext {
-                    cwd: "/w/src".into(),
+                    // Absolute by this platform's rule (`WorkContext::validate`): `/w/src`
+                    // is not absolute on Windows (W2 Windows fix).
+                    cwd: if cfg!(windows) { r"C:\w\src" } else { "/w/src" }.into(),
                 });
                 handles.push(tokio::spawn(
                     async move { ops.ensure(&owner(501), req).await },
