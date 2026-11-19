@@ -845,10 +845,22 @@ impl World {
             if let Ok(text) = std::fs::read_to_string(self.hh.join("log").join(name)) {
                 lines.extend(
                     text.lines()
-                        .filter(|l| l.contains("issuer"))
+                        // The issuer's lines, and the runtime's start-up timings.
+                        .filter(|l| {
+                            l.contains("issuer")
+                                || l.contains("the runtime starts")
+                                || l.contains("the runtime advertised its endpoints")
+                        })
                         .map(|l| self.redact(l)),
                 );
             }
+        }
+        // ⟨M04 merge-candidate run at 9de3169a⟩ The child's own phases (debug test builds).
+        if let Ok(text) =
+            std::fs::read_to_string(self.hh.join("state").join("test-issuer-child.log"))
+        {
+            lines.push("child phases:".to_owned());
+            lines.extend(text.lines().map(str::to_owned));
         }
         if lines.is_empty() {
             "no issuer line".to_owned()

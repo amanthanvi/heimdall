@@ -260,10 +260,19 @@ fn pump_stdout(
         .name("hm-issuer-out".into())
         .spawn(move || {
             let mut chunk = [0u8; 4096];
+            let mut first = true;
             loop {
                 match file.read(&mut chunk) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
+                        // ⟨M04 merge-candidate run at 9de3169a⟩ The child's first answer
+                        // reached this process (a byte count only).
+                        if std::mem::take(&mut first) {
+                            tracing::info!(
+                                bytes = n,
+                                "the issuer child's stdout gave its first bytes"
+                            );
+                        }
                         let Some(bytes) = chunk.get(..n) else { break };
                         if handle.block_on(writer.write_all(bytes)).is_err() {
                             break;
@@ -289,12 +298,23 @@ fn pump_stdin(
         .name("hm-issuer-in".into())
         .spawn(move || {
             let mut chunk = [0u8; 4096];
+            let mut first = true;
             loop {
                 match handle.block_on(reader.read(&mut chunk)) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
                         let Some(bytes) = chunk.get(..n) else { break };
-                        if file.write_all(bytes).and_then(|()| file.flush()).is_err() {
+                        let written = file.write_all(bytes).and_then(|()| file.flush());
+                        // ⟨M04 merge-candidate run at 9de3169a⟩ The first request reached
+                        // the child's stdin, or could not (a byte count and the outcome).
+                        if std::mem::take(&mut first) {
+                            tracing::info!(
+                                bytes = n,
+                                written = written.is_ok(),
+                                "the issuer child's stdin took its first bytes"
+                            );
+                        }
+                        if written.is_err() {
                             break;
                         }
                     }

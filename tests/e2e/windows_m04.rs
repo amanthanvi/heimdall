@@ -421,6 +421,123 @@ mod native {
         );
     }
 
+    /// ⟨M04 merge-candidate run at 9de3169a⟩ The issuer child's start on Windows, alone (no
+    /// WSL, no sshd): a scratch installation whose store has an active CA, its key in a DPAPI
+    /// test store (`HEIMDALL_TEST_SECRET_STORE=product-file:<dir>`, as the exit suite's world
+    /// seeds one), the runtime started on demand and stopped five times. Each time `issuer
+    /// status` must read `ready` within 30 s; a start that does not prints the child's own
+    /// phase record (`test-issuer-child.log`: where it stopped before or after its `hello`)
+    /// and the runtime log's issuer lines (the pumps' first bytes, the hello's outcome).
+    #[test]
+    fn issuer_child_answers_its_hello_on_every_start() {
+        use heimdall_contract::issuer::{CaState, StoreKind};
+        use heimdall_credential::cert::SecretCaKey;
+        let scratch = Scratch::new().unwrap();
+        let inst = SecondInstallation::new(&scratch).unwrap();
+        let dpapi = inst.heimdall_home().join("issuer-dpapi");
+        let mut env = product_env(&inst);
+        let mut store_var = OsString::from("product-file:");
+        store_var.push(dpapi.as_os_str());
+        env.push(("HEIMDALL_TEST_SECRET_STORE".into(), store_var));
+        let _login_root = DeleteLoginRoot(login_root(&inst));
+        let _stop = StopRuntime(env.clone());
+        let cli = |args: &[&str]| -> serde_json::Value {
+            let out = Command::new(bin())
+                .args(["--json", "--non-interactive"])
+                .args(args)
+                .env_clear()
+                .envs(env.iter().map(|(k, v)| (k, v)))
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            heimdall_testkit::assert_no_canary(&text);
+            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null)
+        };
+        let start = || {
+            let v = cli(&[
+                "access",
+                "release",
+                "binding_00000000000000000000000000000000",
+            ]);
+            assert_eq!(v["code"], "NOT_FOUND", "the runtime starts on demand: {v}");
+        };
+        // The store and its environment, from a first start.
+        start();
+        cli(&["service", "stop"]);
+        // An active CA, its key in the DPAPI test store.
+        let db = inst
+            .state_dir()
+            .join(heimdall_runtime::service::STATE_DB_FILE);
+        let ca = SecretCaKey::generate().unwrap();
+        let fp = ca.fingerprint().unwrap();
+        let store = heimdall_store::Store::open(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+            .unwrap();
+        let environment = store
+            .transaction(|tx| tx.self_environment())
+            .unwrap()
+            .expect("the runtime recorded its environment");
+        heimdall_issuer::store::test_product::create(&dpapi).expect("the DPAPI test store");
+        let item = heimdall_issuer::store::test_product::open(&dpapi, &environment)
+            .expect("a DPAPI store")
+            .put(&fp, &ca)
+            .unwrap();
+        let now = heimdall_contract::Timestamp::now();
+        store
+            .transaction(|tx| {
+                tx.insert_issuer(&heimdall_store::IssuerRecord {
+                    ca_fingerprint: fp.clone(),
+                    public_key: ca.public_openssh().unwrap(),
+                    state: CaState::Active,
+                    store_kind: StoreKind::WindowsDpapi,
+                    backup_sha256: "ab".repeat(32),
+                    backup_created_at: now,
+                    restored_without_log: false,
+                    created_at: now,
+                    retired_at: None,
+                })?;
+                tx.set_issuer_store_locator(&fp, &item.locator)
+            })
+            .unwrap();
+        drop(store);
+        let evidence = || {
+            let phases = std::fs::read_to_string(inst.state_dir().join("test-issuer-child.log"))
+                .unwrap_or_else(|e| format!("no phase record ({:?})", e.kind()));
+            let log =
+                std::fs::read_to_string(inst.heimdall_home().join("log").join("heimdall.log"))
+                    .unwrap_or_default()
+                    .lines()
+                    // The issuer's lines, and the runtime's own start-up timings.
+                    .filter(|l| {
+                        l.contains("issuer")
+                            || l.contains("the runtime starts")
+                            || l.contains("the runtime advertised its endpoints")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+            format!("child phases:\n{phases}\nruntime log:\n{log}")
+        };
+        for round in 1..=5 {
+            start();
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                let v = cli(&["issuer", "status"]);
+                if v["data"]["state"] == "ready" {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "round {round}: the issuer is not ready within 30 s ({}): {}",
+                    v["data"]["state"],
+                    evidence()
+                );
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            cli(&["service", "stop"]);
+        }
+        println!("issuer start evidence (all rounds ready):\n{}", evidence());
+    }
+
     // --- the A14 inventory ---------------------------------------------------------------
 
     /// A stable digest (equality only; never printed with a value).

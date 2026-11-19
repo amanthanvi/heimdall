@@ -339,9 +339,52 @@ fn internal_issuer(ctx: &Ctx) -> ExitCode {
     }
 }
 
+/// ⟨M04 merge-candidate run at 9de3169a⟩ The issuer child's start phases, for a test to
+/// read where a start that never answered its `hello` stopped: in a **debug** build under
+/// the test configuration only, each phase is appended to `<state>/test-issuer-child.log`
+/// as `<pid> <phase> <ms since the child began> <wall clock>` (phase names and times
+/// only). Nothing is recorded otherwise, and a release build has no such file.
+struct ChildPhases {
+    begun: std::time::Instant,
+    file: Option<std::sync::Mutex<std::fs::File>>,
+}
+
+/// The record's file name inside the state directory.
+pub(crate) const CHILD_PHASES_FILE: &str = "test-issuer-child.log";
+
+impl ChildPhases {
+    fn new(begun: std::time::Instant, state_dir: &std::path::Path, test: bool) -> Self {
+        let file = (cfg!(debug_assertions) && test)
+            .then(|| {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(state_dir.join(CHILD_PHASES_FILE))
+                    .ok()
+            })
+            .flatten()
+            .map(std::sync::Mutex::new);
+        Self { begun, file }
+    }
+
+    fn note(&self, phase: &str) {
+        use std::io::Write as _;
+        if let Some(f) = &self.file {
+            let mut f = f.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let ms = self.begun.elapsed().as_millis();
+            // The wall clock too, to compare with the runtime log's spawn time (the
+            // process's load before `main` is not in `ms`).
+            let at = heimdall_contract::Timestamp::now();
+            let _ = writeln!(f, "{} {phase} {ms} {at}", std::process::id());
+            let _ = f.flush();
+        }
+    }
+}
+
 /// The issuer child's status (see [`internal_issuer`]).
 fn issuer_child_status(ctx: &Ctx) -> i32 {
     use heimdall_issuer::child::{EXIT_UNAVAILABLE, EXIT_USAGE};
+    let begun = std::time::Instant::now();
     let env = |name: &str| std::env::var_os(name);
     // A release build refuses every test variable before anything is read (U0b's
     // `release_build_refuses_m03_test_gates`); the M03 values are validated here.
@@ -359,6 +402,8 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
     let Ok(paths) = ctx.paths() else {
         return EXIT_UNAVAILABLE;
     };
+    let phases = ChildPhases::new(begun, &paths.state_dir, crate::testcfg::requested_by(&env));
+    phases.note("paths");
     let db = paths
         .state_dir
         .join(heimdall_runtime::service::STATE_DB_FILE);
@@ -367,23 +412,30 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
         heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
             .and_then(|s| s.transaction(|tx| tx.self_environment()));
     let Ok(Some(environment)) = environment else {
+        phases.note("environment_unreadable");
         return EXIT_UNAVAILABLE;
     };
+    phases.note("environment_read");
     // ⟨ADR-0008 §17.25 item 7 (b)⟩ The same selection as the CLI's (`issuer_cmd`): a
     // refused product-file store is a refused configuration.
     let Ok(test) = crate::testcfg::test_store(&m03, ctx.home.as_deref()) else {
         return EXIT_USAGE;
     };
     let Some(store) = issuer_store(ctx, &paths, &environment, &test) else {
+        phases.note("store_unavailable");
         return EXIT_UNAVAILABLE;
     };
-    heimdall_issuer::child::run(
+    phases.note("store_opened");
+    let status = heimdall_issuer::child::run_observed(
         std::io::stdin(),
         std::io::stdout(),
         store,
         &db,
         issuer_clock(&env),
-    )
+        &|phase| phases.note(phase),
+    );
+    phases.note("exited");
+    status
 }
 
 /// ⟨M03-U3⟩ The issuer child's K_ca store (ADR-0008 D1): the platform's product
