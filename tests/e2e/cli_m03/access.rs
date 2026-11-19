@@ -102,9 +102,58 @@ impl Rt {
         ]
     }
 
+    /// ⟨M03 E7⟩ Fixture readiness: a command refused with `SERVICE_UNAVAILABLE`, effect
+    /// `none` and "the runtime did not become ready in time" changed nothing; the runtime
+    /// it started on demand may still come up (a debug build's cold start can exceed the
+    /// CLI's readiness wait under parallel load on Windows; M04 widens that wait). Then
+    /// the runtime gets up to 60 s to serve (`service status`, which never starts one),
+    /// and that same command is retried once, with a `fixture:` line. Any other failure
+    /// is never retried.
+    #[allow(clippy::print_stdout)] // the `fixture:` lines, for the evidence record
     fn run(&self, args: &[&str]) -> Out {
         let env = self.env();
         let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let out = run(&self.home, &self.account, args, &env);
+        let refused = out
+            .stdout
+            .lines()
+            .rev()
+            .find_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+            .is_some_and(|v| {
+                v["code"] == "SERVICE_UNAVAILABLE"
+                    && v["data"]["error"]["effect_status"] == "none"
+                    && v["data"]["error"]["message"] == "the runtime did not become ready in time"
+            });
+        if !refused {
+            return out;
+        }
+        let name = args
+            .iter()
+            .filter(|a| !a.starts_with('-') && !a.contains(['/', '\\']))
+            .take(3)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let start = std::time::Instant::now();
+        while run(
+            &self.home,
+            &self.account,
+            &["--json", "service", "status"],
+            &env,
+        )
+        .code
+            != 0
+        {
+            if start.elapsed() >= Duration::from_secs(60) {
+                println!("fixture: runtime not ready after 60 s; `{name}` is not retried");
+                return out;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        println!(
+            "fixture: runtime became ready after {} s; `{name}` retried once",
+            start.elapsed().as_secs()
+        );
         run(&self.home, &self.account, args, &env)
     }
 

@@ -440,12 +440,15 @@ function Get-LeftoverHeimdall([string]$Root) {
 
 # ⟨M03 E5⟩ Stop each leftover by its exact PID after re-reading it: the same PID with the same
 # creation time, else it is left alone (it ended, or the PID now names another process).
-function Stop-LeftoverHeimdall($Leftovers) {
+# ⟨M03 E7⟩ An empty sweep reaches here as $null (a function's empty output), which `@()`
+# would turn into one $null element: only leftover records are taken. READER re-reads a PID
+# (the Win32_Process record, or $null when no process has it; the self-test passes its own).
+function Stop-LeftoverHeimdall($Leftovers, [scriptblock]$Reader = { param($Id) Get-CimInstance Win32_Process -Filter "ProcessId = $Id" -ErrorAction SilentlyContinue | Select-Object -First 1 }) {
     $done = @()
-    foreach ($l in @($Leftovers)) {
-        $now = Get-CimInstance Win32_Process -Filter "ProcessId = $($l.Pid)" -ErrorAction SilentlyContinue | Select-Object -First 1
+    foreach ($l in @($Leftovers | Where-Object { $null -ne $_ -and $null -ne $_.PSObject.Properties['Pid'] })) {
+        $now = & $Reader $l.Pid
         $outcome = 'gone'
-        if ($null -ne $now -and $now.CreationDate -eq $l.Created) {
+        if ($null -ne $now -and $null -ne $now.PSObject.Properties['CreationDate'] -and $now.CreationDate -eq $l.Created) {
             try { Stop-Process -Id $l.Pid -Force -ErrorAction Stop; $outcome = 'stopped' } catch { $outcome = 'stop-failed' }
         }
         $done += [pscustomobject]@{ Pid = $l.Pid; Ppid = $l.Ppid; Created = $l.Created; Role = $l.Role; Outcome = $outcome }
@@ -609,6 +612,19 @@ function Invoke-SelfTest([string]$OutDir) {
         (Test-ParentGone $null $born) -and
         -not (Test-ParentGone ([pscustomobject]@{ CreationDate = $born.AddSeconds(-5) }) $born) -and
         (Test-ParentGone ([pscustomobject]@{ CreationDate = $born.AddSeconds(5) }) $born))
+    # ⟨M03 E7⟩ The sweep's final pass on an empty result, and a leftover that vanished (or
+    # whose PID now names a newer process) before it was stopped: nothing is stopped and
+    # nothing throws under strict mode.
+    $none = @(Stop-LeftoverHeimdall $null { param($Id) throw 'never read' })
+    $empty = @(Stop-LeftoverHeimdall @() { param($Id) throw 'never read' })
+    $nothing = @(Stop-LeftoverHeimdall (& { }) { param($Id) throw 'never read' })
+    Check 'L04 an empty sweep (null, empty, or a function''s empty output) stops and reads nothing' ($none.Count -eq 0 -and $empty.Count -eq 0 -and $nothing.Count -eq 0)
+    $ghost = [pscustomobject]@{ Pid = 999999; Ppid = 1; Created = $born; Role = 'runtime' }
+    $vanished = @(Stop-LeftoverHeimdall @($ghost, $null) { param($Id) $null })
+    $reused = @(Stop-LeftoverHeimdall @($ghost) { param($Id) [pscustomobject]@{ CreationDate = $born.AddSeconds(30) } })
+    Check 'L05 a leftover that vanished, or whose PID now names a newer process, is recorded gone and never stopped' (
+        $vanished.Count -eq 1 -and $vanished[0].Outcome -eq 'gone' -and $reused.Count -eq 1 -and $reused[0].Outcome -eq 'gone' -and
+        (Format-Leftover $vanished[0]) -eq 'pid 999999 parent 1 created 2026-11-18T12:52:50Z runtime gone')
     if (-not $IsWindows) {
         $drain = {
             param([string]$Script, [int]$Bound)
