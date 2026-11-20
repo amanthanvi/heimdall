@@ -1,12 +1,16 @@
-# M03 exit draft — managed-certificate vertical slice
+# M03 exit record — managed-certificate vertical slice
 
-> **Status: draft for the orchestrator's exit decision (2026-11-19).** The runs are E5's (the last change outside
-> `cfg(windows)`) and E9's Windows harness; the macOS and Linux release `heimdall` are
-> byte-identical from E5 to E9. The records are `tests/evidence/m03-*.json`. The macOS lock row is `blocked` on the owner's
-> unlock (section 5); the Windows revert proof of E9's fix is **pending**. The exit decision is the
-> orchestrator's, under the owner's delegation (ADR-0004).
+**Date:** 2026-11-20 · **Build:** E9 `2b79aac1b6bea72f886cef2331c9e3b5d0a123e8` (`m03/wave6`) ·
+**Decided by:** the orchestrator, under the owner's delegation (ADR-0004).
 
-**Build:** E9, `2b79aac1b6bea72f886cef2331c9e3b5d0a123e8` on `m03/wave6`.
+**Decision:** **M03 exits at E9 `2b79aac1b6bea72f886cef2331c9e3b5d0a123e8`**, on 2026-11-20, with `m03/wave6` merged
+into main by the orchestrator. Two items stay open, each named below:
+- the A03 and P1 macOS lock row is `blocked` on a physical input, the owner's unlock (section 5);
+- the claim update is `deferred_with_decision` to M03-F1 (ruling I-25, section 4), so every claim-table field reads
+  `unknown`.
+
+The runs are E5's (the last change outside `cfg(windows)`) and E9's Windows harness; the macOS and Linux release
+`heimdall` are byte-identical from E5 to E9. The records are `tests/evidence/m03-*.json`.
 
 **The rule** (ADR-0008 §17.3 item 6; m03-plan §3, "What the lowest-row rule makes of the exit"). M03 may exit as M01
 and M02 did:
@@ -84,7 +88,7 @@ console idle for 15 minutes) and are rewritten when the run happens. No row is `
 | The same, the M02 scenario at the same build | E5 | `tests/native/m02/run-wsl-distro.sh` (local mode), 76 s | 0 | `wsl_ordinary_ssh` 11 of 11 | 0 / 0 | the registered set equal before and after; 0 leftover heimdall processes |
 | macOS lock procedure (debug build, scratch test store, platform session-lock source) | E8 | `tests/native/m03/lock-macos.sh`, armed by the orchestrator's watcher (it starts once the session reads unlocked and the console has been idle 15 minutes) | not run | blocked: the owner's unlock within the 12 h bound; four attempts, none evidence (E5 killed with its session, E7 no unlock within 12 h, E8 attempt 1 refused because the screen was already locked) | — | — |
 | Windows lock procedure | — | `tests/native/m03/lock-windows.ps1` | not run | blocked: B2 | — | — |
-| Windows revert proof of E9's fix (`m03/e9-revert-proof`, never merged: `windows_runtime_children_have_no_console_window` with `CREATE_NO_WINDOW` removed) | E9 minus the fix | `run-windows-local.ps1` with `HM_ONLY_BINARY` and `HM_TEST_FILTER` | pending | pending (expected to fail) | — | — |
+| Windows revert proof of E9's fix (`m03/e9-revert-proof` at `4043acb7`, never merged: E9 with `CREATE_NO_WINDOW` removed; `HM_ONLY_BINARY=e2e_exit_m03`, `HM_TEST_FILTER=windows_runtime_children_have_no_console_window`) | E9 minus the fix | `run-windows-local.ps1` (local mode), 225 s, 2026-11-20 | 1, as required | the one test `FAILED` (0 passed, 1 failed, 16 filtered out): "heimdall.exe (a child of the console-less runtime) has a console window" (`window`); every other binary `not run (HM_ONLY_BINARY, revert proof)` | 0 / 0 | nothing left; the development run's bundle was not kept (`bundle.json` sha256 `87eb975c…aebe`). With the fix (E9, `2b79aac1`) the same test passed in the harness run above |
 
 ## 3. Known limitations and residuals
 
@@ -176,7 +180,8 @@ console idle for 15 minutes) and are rewritten when the run happens. No row is `
     - **Builds:** E8..E9 changes `cfg(windows)` code and Windows tests only. The macOS and Linux release
       `heimdall` are byte-identical to E5's, so the macOS lock run at E8 binds to E9, and only the Windows
       harness reran.
-    - **Pending:** the revert proof (the test with the fix removed, on the PC).
+    - **Revert proof (observed):** with `CREATE_NO_WINDOW` removed (`m03/e9-revert-proof` at `4043acb7`, never merged)
+      the test fails, the issuer child reading `window`; with the fix it passes (E9). So the test guards the fix.
 
 ## 4. The claim update: deferred (ruling I-25)
 
@@ -207,13 +212,11 @@ passed for this platform and these versions.
   evidence on a test store, and the Windows release row is blocked on B2.
 - Every `RESIDUALS` limit stays listed in section 3 above.
 
-## 5. Before the exit
+## 5. Open after the exit
 
-1. **The Windows revert proof** of E9's fix (the orchestrator, on the PC, `m03/e9-revert-proof` at `4043acb7`): its
-   row in section 2 and item 19. If the test does not fail without the fix, the test is fixed before the merge.
-2. **The merge** of `m03/wave6` into main, then the M03 exit record (this draft made final) and progress.md.
-3. **The macOS lock row of A03 and P1 stays `blocked`** on a physical input: the owner unlocking the Mac within the
+1. **The macOS lock row of A03 and P1 stays `blocked`** on a physical input: the owner unlocking the Mac within the
    procedure's 12 h bound, from an unlocked console idle for 15 minutes (ADR-0004 §2). The watcher is armed (at E8,
-   binding to E9). The row is updated when the run happens; M03 may exit with it `blocked`, as M01 exited with A08 and
+   binding to E9). The row is updated when the run happens. M03 exits with it `blocked`, as M01 exited with A08 and
    A29-local blocked on physical inputs.
-4. **M03-F1**, the claim update with version gating (section 4).
+2. **M03-F1**, the claim update with version gating (section 4): the integrator, on a fresh branch from main, before
+   the M09 release record.

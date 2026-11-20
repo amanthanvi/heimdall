@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M03 (managed credentials), waves 0–5 merged (wave 5 at f6ed0cee, 2026-11-15); next wave 6 (U13, the exit suite), in parallel with the M04 and M05 tracks (ADR-0009). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
+**Current milestone:** M04 and M05 (parallel tracks, ADR-0009). M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -1109,8 +1109,11 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   release `heimdall` are byte-identical from E5 to E9. Native runs: macOS with Docker, the devbox and WSL M03/M02 at E5;
   Windows at E9 (2646/0/18, no readiness retry). Records commit `9176fc5e` (18 records; `verified`: A07, A23, A33,
   R-AU-08, no self-renewal, honest limits; the rest blocked only on named owner inputs). Exit record:
-  `docs/architecture/m03-exit-draft.md`.
-  - **Pending before the merge:** the Windows revert proof of E9's fix (`m03/e9-revert-proof`, never merged).
+  `docs/architecture/m03-exit.md`.
+  - **The Windows revert proof of E9's fix** (`m03/e9-revert-proof` at `4043acb7`, never merged) failed as required
+    (2026-11-20: the console-window test reads `window` without `CREATE_NO_WINDOW`), so the test guards the fix.
+  - **M03 exit, 2026-11-20, at E9 `2b79aac1`** (`docs/architecture/m03-exit.md`; `m03/wave6` merged into main by the
+    orchestrator).
   - **The A03/P1 macOS lock row is `blocked`** on a physical input: the owner unlocking within the 12 h bound, from an
     unlocked console idle 15 minutes. The orchestrator's watcher is armed (at E8, binding to E9); four attempts, none
     evidence. M03 may exit with it `blocked` (the M01 precedent); it is updated when the run happens.

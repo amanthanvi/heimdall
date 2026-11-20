@@ -445,9 +445,9 @@ that target.
       artifacts do not say what they are.
     - **The WSL version** is not recorded: `wsl-distro/host.txt` reads `wsl-version=WSL version: <addr>`.
 
-## M03 managed-certificate rows (Heimdall builds E5 `da51b055` to E9 `2b79aac1`, M03 exit candidate)
+## M03 managed-certificate rows (Heimdall builds E5 `da51b055` to E9 `2b79aac1`, the M03 exit build E9)
 
-> **Draft (2026-11-19).** macOS, the devbox and WSL ran at E5, Windows at E9; the macOS and Linux release `heimdall`
+> **M03 exit (2026-11-20).** macOS, the devbox and WSL ran at E5, Windows at E9; the macOS and Linux release `heimdall`
 > are byte-identical from E5 to E9. The macOS lock row is `blocked` on the owner's unlock (its watcher is armed at E8);
 > the records are `tests/evidence/m03-*.json`.
 
@@ -460,7 +460,7 @@ These rows test Heimdall itself.
   `6b3af383…8043ba`); the test-configured Linux `heimdall` (devbox and WSL, E5) `6e20ec76…fd061c`; Windows
   `heimdall.exe` (E9) `782520ae…1b7705`.
 - **Records:** `tests/evidence/m03-*.json`. **Artifacts:** `tests/evidence/artifacts/m03/exit-da51b055/`; `runs.json`
-  holds the configuration, and `digests.txt` lists every artifact file. **Exit record:** `docs/architecture/m03-exit-draft.md`.
+  holds the configuration, and `digests.txt` lists every artifact file. **Exit record:** `docs/architecture/m03-exit.md`.
 
 - **Label.** Every row stays `not-tested`: ADR-0001 §9 keeps every platform at `not-tested` until ADR-0001 §5 (floors)
   and §6 (baseline worksheet) close, and both are still `blocked`.
@@ -499,7 +499,8 @@ These rows test Heimdall itself.
   reading: the A03 macOS lock row is `blocked` on the owner's unlock.
 - **A background runtime's children got console windows on Windows; fixed at E9** (ADR-0008 §17.43, ruling I-24).
   `CREATE_NO_WINDOW` on every non-interactive child; that the new console's hand-off to Windows Terminal caused the
-  E8 Windows failures is the most likely cause (inferred, not reproduced). The revert proof is pending.
+  E8 Windows failures is the most likely cause (inferred, not reproduced). The revert proof (the fix removed) fails the
+  console-window test, so the test guards the fix.
 - **No claim-table entry in M03** (ruling I-25). The product matches an entry by field, value and OS/architecture
   only, not by `os_floor`, `client_versions` or `signer_builds`, so the claim update is deferred to M03-F1 (version
   gating, then the 19 drafted A07 and A23 entries); every claim-table field reads `unknown` until then.
