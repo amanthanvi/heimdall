@@ -1124,7 +1124,11 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     (R01-R03 blocking, R04-R06 nonblocking); the fix round covers all six: stored verdicts are history (R01), WSL is
     its own platform (R02), the client version is bound to its executable's identity (R03), strict parsers and exact
     signer builds (R04), exact floors at full granularity (R05), the validator reads each record at its cited
-    revision and checks the bounds (R06). The scoped re-check, the native reruns and the record follow. The unit:
+    revision and checks the bounds (R06), at `177a909e`. The scoped re-check said FIX FIRST (R02 and the fix round's
+    RC-R01, RC-R02 blocking; RC-R03 and an R06 residual): on Linux only a native release of the floor's flavour
+    matches, the client identity is read from an opened handle, the host facts and claims are read again after the
+    effect driver, the Linux parser never panics, and the validator rejects a cited non-object record. The branch
+    carries `origin/main` (M04). The native reruns and the record follow. The unit:
     the claim update, deferred by ruling I-25. The product matches claim-table entries by field, value and
     OS/architecture only, never `os_floor`, `client_versions` or `signer_builds`, so a non-empty table would over-claim
     (WSL included). M03-F1 adds version gating in `claims()` and `claimed()`/`claim()` (a host OS release reader per

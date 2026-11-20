@@ -331,6 +331,7 @@
           "removing_withdrawn_residual_keeps_ca_while_a_newer_verified_one_trusts_it",
           "rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable",
           "rotation_two_accounts_one_unreachable",
+          "routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route",
           "second_step_refused_while_one_outstanding",
           "step_refused_when_route_changed_after_approval",
           "step_result_timeout_marks_mutation_uncertain_and_read_retryable",
@@ -1333,6 +1334,10 @@
       "macos"
     ],
     "e2e_enroll_m03::rotation_two_accounts_one_unreachable": [
+      "linux",
+      "macos"
+    ],
+    "e2e_enroll_m03::routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route": [
       "linux",
       "macos"
     ],
@@ -2820,5 +2825,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "8e2b5972eb71ef49ade9f489b612a90c1d6bdf658f4f91aafead9fa34e0e5d38"
+  "sources_sha256": "1c1a7a3e20caf24d42bb27ff14bdae3c237e488121156bd6ea9b71f67453d81a"
 }

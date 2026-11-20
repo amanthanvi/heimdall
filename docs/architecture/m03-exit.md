@@ -189,12 +189,15 @@ console idle for 15 minutes) and are rewritten when the run happens. No row is `
     - **Each floor is the exact tested release, at full granularity:** the macOS `ProductVersion` (`27.2.1`), the Linux
       kernel release with its ABI number (`6.8.0-147-generic`), and the Windows build with its UBR (`10.0.26300.9974`).
     - **They are compared at that granularity** (`heimdall_domain::claims::os_release_key`), so an older revision of the
-      tested release never matches (`6.8.0-1-generic`, `6.8.0-rc1`, `10.0.26300.9973`, `27.2`). The Linux flavour is
-      checked for its characters but not ordered.
+      tested release never matches (`6.8.0-1-generic`, `10.0.26300.9973`, `27.2`).
+    - **On Linux only a positively native release of the floor's flavour matches** (the re-check's R02): exactly
+      `major.minor.patch-ABI-flavour` with the same flavour (`generic`). A custom kernel (`6.12.0-custom`), a WSL kernel,
+      a release candidate (`6.8.0-rc1`) or another flavour (`-lowlatency`) never matches, whatever its version.
     - **The client and the signer build are exact.** The client range is the tested version, and the signer build is a
       pinned identity, never an ordered version.
-    - **WSL is its own platform** (`wsl`), and the table has no WSL entries, so a native Linux entry never applies under
-      WSL, whatever its kernel (R02).
+    - **WSL is its own platform** (`wsl`) whenever a WSL marker shows (the kernel release or `/proc/version` text, the
+      `WSLInterop` entry or `/run/WSL`), and the table has no WSL entries; a WSL host without markers still needs a
+      native kernel release of the floor's flavour (R02).
 
 ## 4. The claim update: deferred (ruling I-25)
 

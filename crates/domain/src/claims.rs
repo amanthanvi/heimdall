@@ -736,7 +736,8 @@ pub struct HostFacts {
 
 /// ⟨M03-F1⟩ Whether `claim` applies on `host`: the same platform, an OS release at least
 /// its `os_floor` (both in that platform's format, compared at the floor's full
-/// granularity), a client within its `client_versions` and exactly its pinned signer build.
+/// granularity; on Linux the same kernel flavour, R02), a client within its
+/// `client_versions` and exactly its pinned signer build.
 /// A fact the host could not read, or one that is malformed, never satisfies a bound.
 #[must_use]
 pub fn applies(claim: &Claim, host: &HostFacts) -> bool {
@@ -747,7 +748,7 @@ pub fn applies(claim: &Claim, host: &HostFacts) -> bool {
         .as_deref()
         .and_then(|r| os_release_key(os, r));
     claim.platform == host.platform
-        && matches!((release, floor), (Some(r), Some(f)) if r >= f)
+        && matches!((release, floor), (Some(r), Some(f)) if r.flavour == f.flavour && r.numbers >= f.numbers)
         && host
             .client_version
             .as_deref()
@@ -761,68 +762,60 @@ pub fn applicable(table: &[Claim], host: &HostFacts) -> Vec<Claim> {
     table.iter().filter(|c| applies(c, host)).copied().collect()
 }
 
-/// ⟨M03-F1 R04, R05⟩ The numeric key an OS release is ordered by, parsed strictly in the
-/// format of the platform `os`; `None` for a malformed text or a platform without one
-/// (`wsl` among them), so no entry applies on it.
+/// ⟨M03-F1 R02, R04, R05⟩ An OS release as a claim's floor is compared with it: its numbers,
+/// ordered, and the flavour that must be the same (empty except on Linux).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OsRelease {
+    /// The ordered numbers: macOS `[major, minor, patch]`, Linux `[major, minor, patch,
+    /// ABI]`, Windows `[major, minor, build, UBR]`.
+    pub numbers: Vec<u64>,
+    /// The Linux kernel flavour (`generic` in `6.8.0-147-generic`); empty elsewhere.
+    pub flavour: String,
+}
+
+/// ⟨M03-F1 R02, R04, R05⟩ An OS release parsed strictly in the format of the platform `os`;
+/// `None` for a malformed text or a platform without one (`wsl` among them), so no entry
+/// applies on it. It never panics, whatever the text.
 /// * `macos`: the `ProductVersion`, two or three dot-separated numbers (`27.2` is `27.2.0`).
-/// * `linux`: the kernel release `major.minor.patch`, an optional `-ABI` number and an
-///   optional flavour (`6.8.0-147-generic` is `[6, 8, 0, 147]`; `6.8.0-rc1` and `6.8.0` have
-///   ABI 0). The flavour is checked for its characters and not ordered.
+/// * `linux`: a **native** distribution kernel release, exactly
+///   `major.minor.patch-ABI-flavour`, the flavour lowercase ASCII letters and digits in
+///   `-`-separated words (`6.8.0-147-generic`, `6.1.0-28-amd64`). Anything else, a custom
+///   kernel (`6.12.0-custom`), a WSL kernel (`…-microsoft-standard-WSL2`), a release
+///   candidate (`6.8.0-rc1`) or a bare version, is not positively native and has none.
 /// * `windows`: exactly `major.minor.build.UBR`.
 #[must_use]
-pub fn os_release_key(os: &str, release: &str) -> Option<Vec<u64>> {
-    let numbers = |s: &str| -> Option<Vec<u64>> {
-        s.split('.')
-            .map(|p| {
-                (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-                    .then(|| p.parse().ok())
-                    .flatten()
-            })
-            .collect()
+pub fn os_release_key(os: &str, release: &str) -> Option<OsRelease> {
+    let number = |p: &str| -> Option<u64> {
+        (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| p.parse().ok())
+            .flatten()
+    };
+    let numbers = |s: &str| -> Option<Vec<u64>> { s.split('.').map(number).collect() };
+    let plain = |numbers: Vec<u64>| OsRelease {
+        numbers,
+        flavour: String::new(),
     };
     match os {
         "macos" => {
             let mut key = numbers(release).filter(|k| (2..=3).contains(&k.len()))?;
             key.resize(3, 0);
-            Some(key)
+            Some(plain(key))
         }
-        "windows" => numbers(release).filter(|k| k.len() == 4),
+        "windows" => numbers(release).filter(|k| k.len() == 4).map(plain),
         "linux" => {
-            // `major.minor.patch`: the longest prefix of digits and dots, then three numbers.
-            let head_len = release
-                .bytes()
-                .position(|b| !(b.is_ascii_digit() || b == b'.'))
-                .unwrap_or(release.len());
-            let (head, rest) = release.split_at(head_len);
-            // A fourth dotted number (as in `6.6.87.2-microsoft…`) belongs to the flavour.
-            let mut parts: Vec<&str> = head.splitn(4, '.').collect();
-            let flavour_dot = (parts.len() == 4).then(|| parts.pop()).flatten();
-            let mut key = numbers(&parts.join(".")).filter(|k| k.len() == 3)?;
-            let rest = match flavour_dot {
-                Some(extra) => format!(".{extra}{rest}"),
-                None => rest.to_owned(),
+            let mut parts = release.splitn(3, '-');
+            let (version, abi, flavour) = (parts.next()?, parts.next()?, parts.next()?);
+            let mut key = numbers(version).filter(|k| k.len() == 3)?;
+            key.push(number(abi)?);
+            let word = |w: &str| {
+                !w.is_empty()
+                    && w.bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
             };
-            let separator = |b: u8| matches!(b, b'-' | b'.' | b'+' | b'~' | b'_');
-            // An optional `-ABI`: digits, then the end or a separator.
-            let mut tail = rest.as_str();
-            let mut abi = 0;
-            if let Some(after) = tail.strip_prefix('-') {
-                let n = after.bytes().take_while(u8::is_ascii_digit).count();
-                if n > 0 && after.as_bytes().get(n).is_none_or(|b| separator(*b)) {
-                    abi = after[..n].parse().ok()?;
-                    tail = &after[n..];
-                }
-            }
-            // An optional flavour: a separator and at least one ordinary character.
-            if !tail.is_empty() {
-                let (first, flavour) = (tail.as_bytes()[0], &tail[1..]);
-                let ordinary = |b: u8| b.is_ascii_alphanumeric() || separator(b);
-                if !separator(first) || flavour.is_empty() || !flavour.bytes().all(ordinary) {
-                    return None;
-                }
-            }
-            key.push(abi);
-            Some(key)
+            flavour.split('-').all(word).then(|| OsRelease {
+                numbers: key,
+                flavour: flavour.to_owned(),
+            })
         }
         _ => None,
     }
@@ -932,37 +925,66 @@ mod tests {
     #[test]
     fn version_keys_parse_strictly_per_platform() {
         let key = |os: &str, r: &str| os_release_key(os, r);
-        assert_eq!(key("macos", "27.2.1"), Some(vec![27, 2, 1]));
-        assert_eq!(key("macos", "27.2"), Some(vec![27, 2, 0]));
-        assert_eq!(key("linux", "6.8.0-147-generic"), Some(vec![6, 8, 0, 147]));
-        assert_eq!(key("linux", "6.8.0-1-generic"), Some(vec![6, 8, 0, 1]));
-        assert_eq!(key("linux", "6.8.0-rc1"), Some(vec![6, 8, 0, 0]));
+        let rel = |numbers: &[u64], flavour: &str| {
+            Some(OsRelease {
+                numbers: numbers.to_vec(),
+                flavour: flavour.to_owned(),
+            })
+        };
+        assert_eq!(key("macos", "27.2.1"), rel(&[27, 2, 1], ""));
+        assert_eq!(key("macos", "27.2"), rel(&[27, 2, 0], ""));
         assert_eq!(
-            key("linux", "6.11.0-29-lowlatency"),
-            Some(vec![6, 11, 0, 29])
+            key("linux", "6.8.0-147-generic"),
+            rel(&[6, 8, 0, 147], "generic")
         );
         assert_eq!(
-            key("linux", "6.6.87.2-microsoft-standard-WSL2"),
-            Some(vec![6, 6, 87, 0])
+            key("linux", "6.8.0-1-generic"),
+            rel(&[6, 8, 0, 1], "generic")
+        );
+        assert_eq!(
+            key("linux", "6.11.0-29-lowlatency"),
+            rel(&[6, 11, 0, 29], "lowlatency")
+        );
+        assert_eq!(key("linux", "6.1.0-28-amd64"), rel(&[6, 1, 0, 28], "amd64"));
+        assert_eq!(
+            key("linux", "6.8.0-1015-generic-64k"),
+            rel(&[6, 8, 0, 1015], "generic-64k")
         );
         assert_eq!(
             key("windows", "10.0.26300.9974"),
-            Some(vec![10, 0, 26300, 9974])
+            rel(&[10, 0, 26300, 9974], "")
         );
         // ⟨R04⟩ One negative per format: malformed or incomplete releases have no key.
+        // ⟨R02⟩ On Linux only a native distribution release is one: a custom kernel, a WSL
+        // kernel, a release candidate or a bare version is not. ⟨RC-R03⟩ Never a panic, for
+        // non-ASCII text either.
         for (os, bad) in [
             ("macos", "27.3."),
             ("macos", "27"),
             ("macos", "27.2.1.1"),
             ("macos", "27.2.1 (26B131)"),
+            ("macos", "27.2é"),
             ("linux", "unreadable"),
             ("linux", "6.8"),
+            ("linux", "6.8.0"),
             ("linux", "6.8.0."),
             ("linux", "6.8.0 -147"),
             ("linux", "6.8.0-147-gen eric"),
+            ("linux", "6.8.0-147-Generic"),
+            ("linux", "6.8.0-147-"),
+            ("linux", "6.8.0-147-generic-"),
+            ("linux", "6.8.0-rc1"),
+            ("linux", "6.12.0-custom"),
+            ("linux", "6.12.0-microsoft-standard-WSL2"),
+            ("linux", "6.6.87.2-microsoft-standard-WSL2"),
+            ("linux", "6.8.0é"),
+            ("linux", "6.8.0-é"),
+            ("linux", "6.8.0-147-généric"),
+            ("linux", "é.8.0-147-generic"),
             ("windows", "10.0.26300"),
             ("windows", "10.0.26300.9974."),
             ("windows", "10.0.26300.99x4"),
+            ("windows", "10.0.26300.９９７４"),
             ("wsl", "6.12.0-microsoft-standard-WSL2"),
             ("plan9", "4"),
         ] {
@@ -1077,6 +1099,20 @@ mod tests {
                     "6.6.87.2-microsoft-standard-WSL2",
                     "9.6p1",
                 ),
+            ),
+            // ⟨R02⟩ Only a native kernel of the floor's flavour: a markerless custom kernel
+            // above the floor, or another flavour, is not.
+            (
+                "a markerless custom kernel above the Linux floor",
+                host("linux", "x86_64", "6.12.0-custom", "9.6p1"),
+            ),
+            (
+                "another flavour above the Linux floor",
+                host("linux", "x86_64", "6.11.0-29-lowlatency", "9.6p1"),
+            ),
+            (
+                "a WSL kernel above the Linux floor, read as Linux",
+                host("linux", "x86_64", "6.12.0-microsoft-standard-WSL2", "9.6p1"),
             ),
             // ⟨R05⟩ Older revisions of the tested release are below the floor.
             (

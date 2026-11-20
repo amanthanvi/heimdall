@@ -1069,7 +1069,7 @@ mod tests {
             .unwrap();
     }
 
-    /// ⟨M03-F1 R03⟩ The client version is bound to the selected executable's identity.
+    /// ⟨M03-F1 R03, RC-R01, RC-R02⟩ The client version is bound to the selected executable's identity.
     /// While the scratch `ssh` the runtime verified is in place, a fresh prepare judges the
     /// claim table with its version (the entries of this platform apply when the host is
     /// in their OS range); once the file is replaced during the same runtime, the next
@@ -1144,10 +1144,38 @@ mod tests {
         };
         let fresh = snapshot();
         assert_eq!(
-            fresh.host.and_then(|h| h.client_version).as_deref(),
+            fresh.host.clone().and_then(|h| h.client_version).as_deref(),
             Some(version)
         );
         assert_eq!(!fresh.claims.is_empty(), applies_here);
+        // ⟨RC-R01⟩ Made unreadable after startup (its metadata otherwise unchanged): the
+        // refresh after the driver (RC-R02) and every fresh prepare have no client, so no
+        // claim, and the client stays withheld once readable again until verified again.
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&ssh).is_err() {
+            let mut refreshed = heimdall_app::ports::IntegrationSnapshot {
+                managed: Some(fresh.clone()),
+                ..heimdall_app::ports::IntegrationSnapshot::default()
+            };
+            {
+                use heimdall_app::ports::CredentialAdapter as _;
+                adapter.refresh_after_driver(&mut refreshed);
+            }
+            let refreshed = refreshed.managed.expect("the managed sources");
+            assert_eq!(refreshed.host.and_then(|h| h.client_version), None);
+            assert!(refreshed.claims.is_empty());
+            assert!(snapshot().claims.is_empty());
+            std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(
+                w.sources.host().client_version,
+                None,
+                "withheld until verified"
+            );
+            w.sources.set_verified_client(verify());
+            assert_eq!(snapshot().claims.is_empty(), !applies_here);
+        } else {
+            std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
         // Replaced during the same runtime: a fresh prepare has no client, so no claim.
         install(&format!("{script}# replaced\n"));
         let replaced = snapshot();

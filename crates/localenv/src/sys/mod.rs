@@ -228,14 +228,23 @@ pub struct ExecutableIdentity {
     modified: (i64, i64),
 }
 
-/// ⟨M03-F1 R03⟩ The identity of the regular file at `path` (following links), or `None`
-/// when it cannot be read.
+/// ⟨M03-F1 R03, RC-R01⟩ The identity of the regular file at `path` (following links), read
+/// from a handle opened for reading (Unix `open` without blocking, then `fstat` of that
+/// descriptor; Windows `GetFileInformationByHandle` of the opened handle). `None` when the
+/// file cannot be opened for reading (a read denial included), its handle cannot be
+/// queried, or it is not a regular file.
 #[must_use]
 pub fn executable_identity(path: &std::path::Path) -> Option<ExecutableIdentity> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        let m = std::fs::metadata(path).ok()?;
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        // `O_NONBLOCK`: opening a FIFO or device never waits; the type check refuses it.
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)
+            .ok()?;
+        let m = file.metadata().ok()?;
         m.is_file().then(|| ExecutableIdentity {
             path: path.to_path_buf(),
             volume: m.dev(),
@@ -1915,6 +1924,30 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         assert_eq!(super::executable_identity(&path), None, "removed");
         assert_eq!(super::executable_identity(dir.path()), None, "a directory");
+    }
+
+    /// ⟨M03-F1 RC-R01⟩ A file this process may no longer read has no identity, even though
+    /// its metadata is unchanged (skipped where the mode does not deny the read: root).
+    #[cfg(unix)]
+    #[test]
+    fn executable_identity_needs_a_readable_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ssh");
+        std::fs::write(&path, b"client").unwrap();
+        assert!(super::executable_identity(&path).is_some());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&path).is_err() {
+            assert_eq!(super::executable_identity(&path), None, "a read denial");
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(super::executable_identity(&path).is_some());
+        // A FIFO never blocks the read and is not a regular file.
+        let fifo = dir.path().join("fifo");
+        let c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a valid NUL-terminated path; `mkfifo` has no other preconditions.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert_eq!(super::executable_identity(&fifo), None, "a FIFO");
     }
 
     /// ⟨M03-F1⟩ The host's OS release reads on every supported platform (a claim's floor

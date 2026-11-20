@@ -611,6 +611,24 @@ async fn read_prepare_sources(
         .unwrap_or_default()
 }
 
+/// ⟨M03-F1 RC-R02⟩ `adapter`'s [`CredentialAdapter::refresh_after_driver`] over `sources`,
+/// on the blocking pool and awaited, after the effect driver returned and before the
+/// bounded `prepare_from`. A refresh that panicked keeps nothing (an empty snapshot,
+/// which fails closed).
+async fn refresh_after_driver(
+    adapter: &Arc<dyn CredentialAdapter>,
+    sources: IntegrationSnapshot,
+) -> IntegrationSnapshot {
+    let adapter = Arc::clone(adapter);
+    tokio::task::spawn_blocking(move || {
+        let mut sources = sources;
+        adapter.refresh_after_driver(&mut sources);
+        sources
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// Row cap for the event log trimmed by `tick` (in addition to the age bound).
 pub const EVENT_ROW_CAP: u64 = 100_000;
 
@@ -7837,6 +7855,10 @@ impl Operations {
         let result = match driven {
             Err(e) => Err(e),
             Ok(()) => {
+                // ⟨M03-F1 RC-R02⟩ What the report judges claims by (the host facts, the
+                // applicable entries) is read again now, after the driver waited, and
+                // immediately before the report is computed.
+                sources = refresh_after_driver(&adapter, std::mem::take(&mut sources)).await;
                 bounded_adapter_call(
                     self.adapter_limit(),
                     adapter.prepare_from(

@@ -341,6 +341,8 @@ impl ManagedEffects for FixtureEffects {
 struct FixtureIssuer {
     timeline: Arc<Timeline>,
     signed: Mutex<Vec<IssuanceRef>>,
+    /// ⟨M03-F1 RC-R02⟩ Run at each signature, while the effect driver waits on it.
+    on_sign: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl FixtureIssuer {
@@ -348,6 +350,7 @@ impl FixtureIssuer {
         Arc::new(Self {
             timeline,
             signed: Mutex::new(Vec::new()),
+            on_sign: Mutex::new(None),
         })
     }
 }
@@ -382,6 +385,9 @@ impl IssuerPort for FixtureIssuer {
     {
         Box::pin(async move {
             self.timeline.push(Ev::Effect("sign"));
+            if let Some(hook) = self.on_sign.lock().unwrap().as_ref() {
+                hook();
+            }
             let line = format!("ssh-ed25519-cert-v01@openssh.com AAAAfixture-{}", entry.id);
             self.signed.lock().unwrap().push(entry);
             Ok(line)
@@ -408,12 +414,30 @@ struct FixtureManaged {
     revoke_rows: Mutex<Vec<RemoteEffectReport>>,
     /// ⟨§17.21 item 1⟩ `prepare_from` refuses (after the driver ran) while set.
     fail_prepare: std::sync::atomic::AtomicBool,
-    /// ⟨M03-F1 R01⟩ While set, `prepare_from` judges as a host inside the claim table's
-    /// ranges: the claim-gated values, with the adapter's report.
+    /// ⟨M03-F1 R01, RC-R02⟩ Whether the host's client is inside the claim table's ranges
+    /// now. `read_sources` and `refresh_after_driver` read it into the snapshot's host facts;
+    /// `prepare_from` judges from the snapshot (the claim-gated values, with the adapter's
+    /// report, when its host has the client).
     in_range: std::sync::atomic::AtomicBool,
 }
 
 impl FixtureManaged {
+    /// The host facts now: the client present while [`Self::in_range`] is set.
+    fn host_now(&self) -> heimdall_domain::claims::HostFacts {
+        heimdall_domain::claims::HostFacts {
+            platform: heimdall_domain::claims::Platform {
+                os: "macos",
+                arch: "aarch64",
+            },
+            os_release: Some("27.2.1".to_owned()),
+            client_version: self
+                .in_range
+                .load(Ordering::SeqCst)
+                .then(|| "10.5p1".to_owned()),
+            signer_build: heimdall_domain::claims::SIGNER_BUILD.to_owned(),
+        }
+    }
+
     fn new(mechanism: &str, timeline: Arc<Timeline>) -> Arc<Self> {
         Arc::new(Self {
             descriptor: AdapterDescriptor {
@@ -499,9 +523,19 @@ impl CredentialAdapter for FixtureManaged {
 
     fn read_sources(&self, _pairs: &[PreparePair]) -> IntegrationSnapshot {
         IntegrationSnapshot {
-            managed: (self.descriptor.identity.mechanism == MANAGED_CERTIFICATE)
-                .then(ManagedSources::default),
+            managed: (self.descriptor.identity.mechanism == MANAGED_CERTIFICATE).then(|| {
+                ManagedSources {
+                    host: Some(self.host_now()),
+                    ..ManagedSources::default()
+                }
+            }),
             ..IntegrationSnapshot::default()
+        }
+    }
+
+    fn refresh_after_driver(&self, sources: &mut IntegrationSnapshot) {
+        if let Some(m) = sources.managed.as_mut() {
+            m.host = Some(self.host_now());
         }
     }
 
@@ -530,7 +564,11 @@ impl CredentialAdapter for FixtureManaged {
             } else {
                 match prepared {
                     Some(p) if p.certificates.len() == req.scope.pairs.len() => {
-                        let in_range = self.in_range.load(Ordering::SeqCst);
+                        let in_range = sources
+                            .managed
+                            .as_ref()
+                            .and_then(|m| m.host.as_ref())
+                            .is_some_and(|h| h.client_version.is_some());
                         Ok(PrepareOutcome {
                             credential_ref: p.instance.to_string(),
                             enforcement: if in_range {
@@ -1744,4 +1782,33 @@ async fn fresh_bind_after_reissue_never_carries_the_stored_claim_values() {
         "a result built from the stored verdict claims nothing"
     );
     assert_eq!(stored(), claimed, "the stored verdict stays history");
+}
+
+/// ⟨M03-F1 RC-R02⟩ The client is replaced while the preparation driver waits on the issuer
+/// (after the step read its sources with the client in range). The host facts are read
+/// again after the driver returns, so the report and the committed grant claim nothing.
+#[tokio::test]
+async fn client_replaced_while_the_driver_waits_claims_nothing() {
+    let w = World::new().await;
+    w.adapter.in_range.store(true, Ordering::SeqCst);
+    let adapter = w.adapter.clone();
+    *w.issuer.on_sign.lock().unwrap() = Some(Box::new(move || {
+        adapter.in_range.store(false, Ordering::SeqCst);
+    }));
+    let (data, _) = w.ensure("f1-rc-r02", &[h1()]).await;
+    assert!(
+        !w.issuer.signed.lock().unwrap().is_empty(),
+        "the driver signed, and the client was replaced meanwhile"
+    );
+    assert!(!w.adapter.in_range.load(Ordering::SeqCst));
+    let nothing = evidence().report;
+    assert_eq!(data.enforcement, nothing, "the report claims nothing");
+    let stored = w
+        .store
+        .transaction(|tx| tx.grant(&data.grant_id))
+        .unwrap()
+        .unwrap()
+        .enforcement
+        .report;
+    assert_eq!(stored, nothing, "nor does the committed grant");
 }

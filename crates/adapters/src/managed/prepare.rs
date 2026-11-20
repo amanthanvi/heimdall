@@ -394,6 +394,17 @@ pub fn snapshot(sources: &dyn ManagedSourceRead, pairs: &[PreparePair]) -> Integ
     }
 }
 
+/// ⟨M03-F1 RC-R02⟩ The host facts and the applicable claim-table entries of `snapshot`
+/// read again from `sources`, together, after the effect driver returned: a client
+/// replaced while the driver waited is judged before the report is computed. A snapshot
+/// without managed sources is left as it is.
+pub fn refresh_host_claims(sources: &dyn ManagedSourceRead, snapshot: &mut IntegrationSnapshot) {
+    if let Some(m) = snapshot.managed.as_mut() {
+        m.host = Some(sources.host());
+        m.claims = sources.claims();
+    }
+}
+
 /// Why a managed preparation is refused, with its stable reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ManagedRefusal {

@@ -73,6 +73,7 @@ build fixture tables and records in a `tempfile.mkdtemp()` directory removed aft
   claims_table_rejects_bounds_unrelated_to_the_record
   claims_table_reads_the_record_at_its_cited_revision
   claims_table_host_fact_normalizers_are_strict
+  claims_table_rejects_a_cited_record_that_is_not_an_object
 """
 import json
 import os
@@ -733,12 +734,20 @@ def check_entries(entries, custody, kinds, repo, schema):
                 bad.append("%s: record %s does not exist at record_commit %s (%s)" % (tag, rec, commit, err))
             else:
                 try:
-                    record = json.loads(text)
+                    decoded = json.loads(text)
                 except ValueError as exc:
                     bad.append("%s: record %s at %s is not readable JSON (%s)" % (tag, rec, commit, exc))
-        if record is not None and not isinstance(record, dict):
-            bad.append("%s: record %s at %s is not a JSON object" % (tag, rec, commit))
-        elif record is not None:
+                else:
+                    # ⟨M03-F1-R06 residual⟩ Checked at decoding: a decoded `null` (or any other
+                    # non-object) fails, never read as "no record".
+                    if isinstance(decoded, dict):
+                        record = decoded
+                    else:
+                        bad.append(
+                            "%s: record %s at %s is not a JSON object (decoded %s)"
+                            % (tag, rec, commit, type(decoded).__name__)
+                        )
+        if record is not None:
             errors = minischema.validate(schema, record)
             if errors:
                 bad.append("%s: record %s does not validate: %s" % (tag, rec, "; ".join(errors[:3])))
@@ -1068,6 +1077,21 @@ def _t_revision_reading():
     return ok and ok_valid and ok2 and ok3 and ok4, bad + bad2 + bad3 + bad4
 
 
+def _t_non_object_record():
+    """M03-F1-R06 residual: a cited record that decodes to `null` (or another non-object)
+    fails, even when HEAD's record is verified."""
+    cargo = {"Cargo.toml": _fixture_cargo(FIXTURE_CARGO_VERSION)}
+    verified = {"tests/evidence/rec.json": _record("verified")}
+    bad = []
+    ok = True
+    for text in ("null", "[]", '"verified"', "3"):
+        early = dict(cargo, **{"tests/evidence/rec.json": text})
+        b = _run_history_fixture(lambda first, late: _entry_source(commit=first), early, verified)
+        ok = ok and _has(b, "record tests/evidence/rec.json at", "is not a JSON object")
+        bad += b
+    return ok, bad
+
+
 def _t_normalizers_strict():
     """M03-F1-R06: the host-fact normalizers take a complete version token or nothing."""
     pos = [
@@ -1185,6 +1209,7 @@ SELF_TESTS = [
     ("claims_table_rejects_bounds_unrelated_to_the_record", _t_unrelated_bounds),
     ("claims_table_reads_the_record_at_its_cited_revision", _t_revision_reading),
     ("claims_table_host_fact_normalizers_are_strict", _t_normalizers_strict),
+    ("claims_table_rejects_a_cited_record_that_is_not_an_object", _t_non_object_record),
 ]
 
 

@@ -447,6 +447,10 @@ impl CredentialAdapter for ManagedCertificateAdapter {
         prepare::snapshot(self.sources.as_ref(), pairs)
     }
 
+    fn refresh_after_driver(&self, sources: &mut IntegrationSnapshot) {
+        prepare::refresh_host_claims(self.sources.as_ref(), sources);
+    }
+
     async fn prepare_from(
         &self,
         req: PrepareRequest<'_>,
