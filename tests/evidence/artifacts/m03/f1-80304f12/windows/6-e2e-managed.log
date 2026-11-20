@@ -1,0 +1,102 @@
+   Compiling syn v3.0.9
+   Compiling equivalent v1.0.3
+   Compiling allocator-api2 v0.2.21
+   Compiling windows-sys v0.61.2
+   Compiling bitflags v2.13.2
+   Compiling hashbrown v0.17.1
+   Compiling unicode-segmentation v1.13.3
+   Compiling hashlink v0.12.2
+   Compiling heck v0.5.0
+   Compiling rusqlite v0.41.1
+   Compiling rustversion v1.0.23
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling serde_derive_internals v0.30.0
+   Compiling darling_core v0.24.1
+   Compiling parking_lot_core v0.9.12
+   Compiling winapi v0.3.9
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling thiserror v2.0.21
+   Compiling ref-cast-impl v1.0.27
+   Compiling ref-cast v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling tokio-macros v2.7.2
+   Compiling serde v1.0.229
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling schemars v1.2.3
+   Compiling async-trait v0.1.92
+   Compiling tokio v1.54.1
+   Compiling heimdall-contract v0.1.0-m01 (<scratch>\crates\contract)
+   Compiling ssh-agent-lib v0.6.0
+   Compiling either v1.19.0
+   Compiling itertools v0.14.0
+   Compiling darling_macro v0.24.1
+   Compiling castaway v0.2.4
+   Compiling strum_macros v0.28.0
+   Compiling convert_case v0.10.0
+   Compiling tokio-util v0.7.20
+   Compiling unicode-width v0.2.3
+   Compiling scopeguard v1.2.0
+   Compiling static_assertions v1.1.0
+   Compiling ryu v1.0.23
+   Compiling compact_str v0.9.1
+   Compiling unicode-truncate v2.0.1
+   Compiling lock_api v0.4.14
+   Compiling strum v0.28.0
+   Compiling derive_more-impl v2.1.1
+   Compiling darling v0.24.1
+   Compiling kasuari v0.4.13
+   Compiling lru v0.18.5
+   Compiling litrs v1.0.1
+   Compiling indoc v2.0.8
+   Compiling tempfile v3.27.0
+   Compiling instability v0.3.14
+   Compiling document-features v0.2.12
+   Compiling crossterm_winapi v0.9.1
+   Compiling ratatui-core v0.1.2
+   Compiling derive_more v2.1.1
+   Compiling parking_lot v0.12.5
+   Compiling rusty-fork v0.3.1
+   Compiling crossterm v0.29.0
+   Compiling sharded-slab v0.1.7
+   Compiling line-clipping v0.3.8
+   Compiling thread_local v1.1.10
+   Compiling anstyle v1.0.14
+   Compiling clap_lex v1.1.1
+   Compiling proptest v1.12.0
+   Compiling clap_builder v4.6.7
+   Compiling tracing-subscriber v0.3.23
+   Compiling heimdall-domain v0.1.0-m01 (<scratch>\crates\domain)
+   Compiling heimdall-ipc v0.1.0-m01 (<scratch>\crates\ipc)
+   Compiling ratatui-crossterm v0.1.2
+   Compiling ratatui-widgets v0.3.2
+   Compiling etcetera v0.11.0
+   Compiling clap_derive v4.6.7
+   Compiling ratatui v0.30.2
+   Compiling heimdall-project v0.1.0-m01 (<scratch>\crates\project)
+   Compiling heimdall-store v0.1.0-m01 (<scratch>\crates\store)
+   Compiling heimdall-registry v0.1.0-m01 (<scratch>\crates\registry)
+   Compiling heimdall-app v0.1.0-m01 (<scratch>\crates\app)
+   Compiling heimdall-sshconf v0.1.0-m01 (<scratch>\crates\sshconf)
+   Compiling clap v4.6.7
+   Compiling heimdall-localenv v0.1.0-m01 (<scratch>\crates\localenv)
+   Compiling heimdall-credential v0.1.0-m01 (<scratch>\crates\credential)
+   Compiling heimdall-issuer v0.1.0-m01 (<scratch>\crates\issuer)
+   Compiling heimdall-enroll v0.1.0-m01 (<scratch>\crates\enroll)
+   Compiling heimdall-wsl v0.1.0-m01 (<scratch>\crates\wsl)
+   Compiling heimdall-adapters v0.1.0-m01 (<scratch>\crates\adapters)
+   Compiling heimdall-runtime v0.1.0-m01 (<scratch>\crates\runtime)
+   Compiling heimdall-testkit v0.1.0-m01 (<scratch>\crates\testkit)
+   Compiling heimdall-launch v0.1.0-m01 (<scratch>\crates\launch)
+   Compiling heimdall v0.1.0-m01 (<scratch>\crates\heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 12s
+     Running ..\..\tests\e2e\managed_m03.rs (target\debug\deps\e2e_managed_m03-da1816cd5e8aa11d.exe)
+
+running 2 tests
+test client_replaced_while_the_driver_waits_claims_nothing ... ok
+test fresh_bind_after_reissue_never_carries_the_stored_claim_values ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.17s
+

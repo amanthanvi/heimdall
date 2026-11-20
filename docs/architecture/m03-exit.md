@@ -228,11 +228,30 @@ passed for this platform and these versions.
   evidence on a test store, and the Windows release row is blocked on B2.
 - Every `RESIDUALS` limit stays listed in section 3 above.
 
+**Closed by M03-F1 (2026-11-20, `80304f12`; record `tests/evidence/m03-f1-claims.json`, `verified`).** The update above
+is done on `m03/f1-claims`, merged into main after M05's final candidate.
+- **The gate.** An entry applies only on its own platform (WSL is `wsl`, which no row names), with an OS release at
+  least its floor (the exact tested release at full granularity; on Linux a native release of the floor's flavour), the
+  selected client within its range, and exactly its pinned signer build. A fact that is missing, malformed or
+  unreadable never satisfies a bound (`heimdall_domain::claims::applies`).
+- **The client.** Its `ssh -V` version is bound to the executable's identity, read from an opened handle. It is checked
+  again at every fresh prepare and again after the effect driver returns. A replaced, removed or unreadable client
+  withholds the claims until the runtime verifies one again.
+- **Stored verdicts are history.** A result built from a grant's stored verdict, or from a leader's result, carries none
+  of the claim-gated values.
+- **The table.** It holds the 19 entries for A07 and A23, each at its tested release (`27.2.1`, `6.8.0-147-generic`,
+  `10.0.26300.9974`). `claims_table.py` checks every bound against the record at its cited revision.
+- **Review.** One Codex review, then a scoped Codex re-check: both said FIX FIRST, and everything they found is fixed.
+  The orchestrator reviewed and accepted the last fixes.
+- **The reruns at `80304f12` passed:** macOS (targeted), the devbox (the whole workspace: 108 binaries, 3396 passed) and
+  Windows (targeted, with the in-box client).
+- **The observations:** 7 entries apply on macOS and on Linux, and 5 on Windows.
+
 ## 5. Open after the exit
 
 1. **The macOS lock row of A03 and P1 stays `blocked`** on a physical input: the owner unlocking the Mac within the
    procedure's 12 h bound, from an unlocked console idle for 15 minutes (ADR-0004 §2). The watcher is armed (at E8,
    binding to E9). The row is updated when the run happens. M03 exits with it `blocked`, as M01 exited with A08 and
    A29-local blocked on physical inputs.
-2. **M03-F1**, the claim update with version gating (section 4): the integrator, on a fresh branch from main, before
-   the M09 release record.
+2. **M03-F1**, the claim update with version gating (section 4): **closed** at `80304f12`
+   (`tests/evidence/m03-f1-claims.json`, `verified`). It merges into main after M05's final candidate.

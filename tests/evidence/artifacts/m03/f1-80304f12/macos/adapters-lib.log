@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_adapters-6cf50a97cdcd937b)
+
+running 2 tests
+test managed::report::tests::notes_and_multiplexing ... ok
+test managed::report::tests::completion_bound_matches_d7_item_3 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s
+

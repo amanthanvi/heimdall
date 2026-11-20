@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M04 and M05 (parallel tracks, ADR-0009). M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
+**Current milestone:** M04 and M05 (parallel tracks, ADR-0009). M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25; M03-F1 `verified` at `80304f12`, merging after M05's final candidate). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -1119,22 +1119,13 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - **The A03/P1 macOS lock row is `blocked`** on a physical input: the owner unlocking within the 12 h bound, from an
     unlocked console idle 15 minutes. The orchestrator's watcher is armed (at E8, binding to E9); four attempts, none
     evidence. M03 may exit with it `blocked` (the M01 precedent); it is updated when the run happens.
-  - **M03-F1 (`in_progress` on `m03/f1-claims`; the integrator, before the M09 release record):** gating, the OS
-    release reader, the 19 entries and the real-table report test at `fb3b5294`. The Codex review said FIX FIRST
-    (R01-R03 blocking, R04-R06 nonblocking); the fix round covers all six: stored verdicts are history (R01), WSL is
-    its own platform (R02), the client version is bound to its executable's identity (R03), strict parsers and exact
-    signer builds (R04), exact floors at full granularity (R05), the validator reads each record at its cited
-    revision and checks the bounds (R06), at `177a909e`. The scoped re-check said FIX FIRST (R02 and the fix round's
-    RC-R01, RC-R02 blocking; RC-R03 and an R06 residual): on Linux only a native release of the floor's flavour
-    matches, the client identity is read from an opened handle, the host facts and claims are read again after the
-    effect driver, the Linux parser never panics, and the validator rejects a cited non-object record. The branch
-    carries `origin/main` (M04). The native reruns and the record follow. The unit:
-    the claim update, deferred by ruling I-25. The product matches claim-table entries by field, value and
-    OS/architecture only, never `os_floor`, `client_versions` or `signer_builds`, so a non-empty table would over-claim
-    (WSL included). M03-F1 adds version gating in `claims()` and `claimed()`/`claim()` (a host OS release reader per
-    platform, the verified client's `ssh -V`, the signer build), per-platform tests including out-of-range hosts and
-    WSL, then the 19 drafted A07 and A23 entries, one Codex review, and targeted native reruns on macOS, the devbox and
-    Windows. Plan §3 step 3 (the report test against the real table) moves with it.
+  - **M03-F1 (`verified` at `80304f12` on `m03/f1-claims`; record `tests/evidence/m03-f1-claims.json`; merges into
+    main after M05's final candidate):** the claim update deferred by ruling I-25. Claim-table entries now apply only
+    within their platform, OS release floor (exact tested release; native Linux of the same flavour; WSL is its own
+    platform), client range and pinned signer build; the client version is bound to its executable's identity and
+    re-read after the effect driver; stored verdicts are history; the 19 A07 and A23 entries are in the table. One
+    Codex review and one scoped re-check (both FIX FIRST, all fixed; the last fixes accepted by the orchestrator);
+    reruns at `80304f12`: macOS targeted, the devbox's whole workspace (108 binaries), Windows targeted.
 - **Next: three parallel tracks:**
   - M03 wave 6 (U13: the exit suite, native harnesses, evidence, the matrix and the claims update, then the M03 exit);
   - the M04 design and build;
