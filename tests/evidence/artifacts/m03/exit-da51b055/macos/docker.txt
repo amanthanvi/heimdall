@@ -1,0 +1,486 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running ../../tests/integration/testkit_m03.rs (target/debug/deps/integration_testkit_m03-13707d16055b242d)
+
+running 3 tests
+test docker_ca_hook_is_container_internal_only ... ok
+test docker_enrollable2_seeded_like_enrollable ... ok
+test shell_containers_run_each_shell_as_group_leader ... ok
+
+successes:
+
+successes:
+    docker_ca_hook_is_container_internal_only
+    docker_enrollable2_seeded_like_enrollable
+    shell_containers_run_each_shell_as_group_leader
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 15.98s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running ../../tests/integration/enroll_verify.rs (target/debug/deps/integration_enroll_verify-874f3c83a3665ccb)
+
+running 1 test
+test verify_on_account_without_log_access ... ok
+
+successes:
+
+---- verify_on_account_without_log_access stdout ----
+docker enrollable row: server Some("OpenSSH_10.0p2 Debian-7+deb13u4"), clock Some(ClockMeasurement { behind_upper_ms: 1796, rtt_ms: 36, measured_at: 2026-11-18T18:11:44.796705Z })
+
+
+successes:
+    verify_on_account_without_log_access
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running ../../tests/integration/enroll_registry.rs (target/debug/deps/integration_enroll_registry-d1d34496ed5f5487)
+
+running 172 tests
+test docker_bash_sh::foreign_owned_registry_refused ... ok
+test docker_bash_sh::admin_edit_inside_remove_window_is_lost ... ok
+test docker_bash_sh::bootstrap_missing_parent_exit_33_refused ... ok
+test docker_bash_sh::busy_lock_changes_nothing_exit_40 ... ok
+test docker_bash_sh::fence_decision_ignores_diagnostics_uses_exit_status ... ok
+test docker_bash_sh::group_probe_and_listing_per_target_shell ... ok
+test docker_bash_sh::group_probe_permission_failure_is_unproven ... ok
+test docker_bash_sh::bootstrap_refuses_symlink_or_foreign_owner ... ok
+test docker_bash_sh::admin_append_between_inspect_and_append_preserved ... ok
+test docker_bash_sh::append_creates_registry_exclusively_mode_0600 ... ok
+test docker_bash_sh::append_idempotent_by_marker_exit_10 ... ok
+test docker_bash_sh::group_writable_dir_refused ... ok
+test docker_bash_sh::admin_append_without_newline_in_append_window_detected_damaged ... ok
+test docker_bash_sh::admin_edit_before_final_check_remove_restarts ... ok
+test docker_bash_sh::hardlinked_registry_refused ... ok
+test docker_bash_sh::holder_is_process_group_leader_per_target ... ok
+test docker_bash_sh::inspect_reports_metadata_and_content ... ok
+test docker_bash_sh::append_newline_decided_at_append_time ... ok
+test docker_bash_sh::listing_without_own_group_is_unproven ... ok
+test docker_bash_sh::lock_lost_changes_nothing_exit_42 ... ok
+test docker_bash_sh::lock_records_holder_pid_start_and_boot_identity ... ok
+test docker_bash_sh::missing_registry_dir_is_exit_32_not_busy ... ok
+test docker_bash_sh::non_ascii_registry_bytes_per_target_shell ... ok
+test docker_bash_sh::non_posix_or_noisy_login_refused_as_registry_unsupported ... ok
+test docker_bash_sh::lock_symlink_is_exclusive_per_target ... ok
+test docker_bash_sh::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ok
+test docker_bash_sh::remote_clock_reading_per_target ... ok
+test docker_bash_sh::registry_too_large_refused ... ok
+test docker_bash_sh::registry_protocol_on_target_shell ... ok
+test docker_bash_sh::group_probe_and_listing_disagreement_is_unproven ... ok
+test docker_bash_sh::retry_after_lost_reply_never_appends_twice ... ok
+test docker_bash_sh::remove_compare_then_rename_preserves_unrelated_bytes ... ok
+test docker_bash_sh::procstat_fixtures_rust_and_awk_agree ... ok
+test docker_bash_sh::reused_pid_with_live_foreign_group_is_unproven_never_signalled ... ok
+test docker_bash_sh::reused_pid_with_empty_group_is_gone_by_agreement ... ok
+test docker_bash_sh::group_probe_syntax_error_is_unproven ... ok
+test docker_bash_sh::script_started_after_not_after_writes_nothing_exit_41 ... ok
+test docker_bash_sh::procstat_live_comm_fixtures_per_linux_shell ... ok
+test docker_bash_sh::rotation_add_preserves_admin_edit ... ok
+test docker_bash_sh::ssh_killed_before_append_reconciled_not_applied ... ok
+test docker_bash_sh::start_identity_per_target_shell ... ok
+test docker_bash_sh::stale_lock_broken_only_after_holder_proven_gone ... ok
+test docker_bash_sh::symlinked_registry_refused ... ok
+test docker_bash_sh::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss ... ok
+test docker_bash_sh::shell_table_matches_round4_observed_rows ... ok
+test docker_busybox::admin_append_between_inspect_and_append_preserved ... ok
+test docker_busybox::admin_append_without_newline_in_append_window_detected_damaged ... ok
+test docker_bash_sh::three_compare_failures_give_registry_changed ... ok
+test docker_busybox::admin_edit_inside_remove_window_is_lost ... ok
+test docker_busybox::bootstrap_missing_parent_exit_33_refused ... ok
+test docker_busybox::admin_edit_before_final_check_remove_restarts ... ok
+test docker_busybox::append_creates_registry_exclusively_mode_0600 ... ok
+test docker_busybox::append_idempotent_by_marker_exit_10 ... ok
+test docker_bash_sh::not_after_passed_changes_nothing_exit_41 ... ok
+test docker_busybox::busy_lock_changes_nothing_exit_40 ... ok
+test docker_bash_sh::other_enrollments_lock_is_busy_never_broken ... ok
+test docker_busybox::busybox_append_and_remove_run_with_proc_process_group ... ok
+test docker_busybox::append_newline_decided_at_append_time ... ok
+test docker_busybox::foreign_owned_registry_refused ... ok
+test docker_busybox::bootstrap_refuses_symlink_or_foreign_owner ... ok
+test docker_busybox::group_probe_and_listing_per_target_shell ... ok
+test docker_bash_sh::leader_absent_live_mutation_child_never_gone_per_shell ... ok
+test docker_busybox::fence_decision_ignores_diagnostics_uses_exit_status ... ok
+test docker_busybox::group_probe_permission_failure_is_unproven ... ok
+test docker_busybox::hardlinked_registry_refused ... ok
+test docker_busybox::holder_is_process_group_leader_per_target ... ok
+test docker_busybox::group_writable_dir_refused ... ok
+test docker_busybox::inspect_reports_metadata_and_content ... ok
+test docker_busybox::listing_without_own_group_is_unproven ... ok
+test docker_busybox::lock_lost_changes_nothing_exit_42 ... ok
+test docker_busybox::lock_records_holder_pid_start_and_boot_identity ... ok
+test docker_busybox::missing_registry_dir_is_exit_32_not_busy ... ok
+test docker_bash_sh::unprovable_holder_held_for_manual_recovery_never_redispatched ... ok
+test docker_bash_sh::late_write_residual_cleared_only_by_inspect_after_not_after ... ok
+test docker_busybox::non_ascii_registry_bytes_per_target_shell ... ok
+test docker_busybox::lock_symlink_is_exclusive_per_target ... ok
+test docker_busybox::non_posix_or_noisy_login_refused_as_registry_unsupported ... ok
+test docker_bash_sh::terminate_then_unproven_reports_signals_sent_exit_44 ... ok
+test docker_busybox::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss ... ok
+test docker_busybox::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ok
+test docker_busybox::group_probe_and_listing_disagreement_is_unproven ... ok
+test docker_busybox::remote_clock_reading_per_target ... ok
+test docker_busybox::registry_protocol_on_target_shell ... ok
+test docker_busybox::registry_too_large_refused ... ok
+test docker_busybox::procstat_fixtures_rust_and_awk_agree ... ok
+test docker_busybox::group_probe_syntax_error_is_unproven ... ok
+test docker_busybox::retry_after_lost_reply_never_appends_twice ... ok
+test docker_busybox::remove_compare_then_rename_preserves_unrelated_bytes ... ok
+test docker_busybox::reused_pid_with_live_foreign_group_is_unproven_never_signalled ... ok
+test docker_busybox::procstat_live_comm_fixtures_per_linux_shell ... ok
+test docker_busybox::reused_pid_with_empty_group_is_gone_by_agreement ... ok
+test docker_busybox::script_started_after_not_after_writes_nothing_exit_41 ... ok
+test docker_busybox::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone ... ok
+test docker_busybox::rotation_add_preserves_admin_edit ... ok
+test docker_busybox::ssh_killed_before_append_reconciled_not_applied ... ok
+test docker_busybox::start_identity_per_target_shell ... ok
+test docker_busybox::stale_lock_broken_only_after_holder_proven_gone ... ok
+test docker_bash_sh::stopped_holder_ended_by_kill ... ok
+test docker_busybox::busybox_fence_always_unproven_manual_recovery ... ok
+test docker_busybox::symlinked_registry_refused ... ok
+test docker_busybox::shell_table_matches_round4_observed_rows ... ok
+test docker_busybox::leader_absent_live_mutation_child_never_gone_per_shell ... ok
+test docker_dash::admin_append_between_inspect_and_append_preserved ... ok
+test docker_dash::admin_append_without_newline_in_append_window_detected_damaged ... ok
+test docker_busybox::not_after_passed_changes_nothing_exit_41 ... ok
+test docker_dash::admin_edit_inside_remove_window_is_lost ... ok
+test docker_dash::bootstrap_missing_parent_exit_33_refused ... ok
+test docker_dash::admin_edit_before_final_check_remove_restarts ... ok
+test docker_busybox::other_enrollments_lock_is_busy_never_broken ... ok
+test docker_dash::append_creates_registry_exclusively_mode_0600 ... ok
+test docker_bash_sh::writer_paused_just_before_write_no_duplicate_no_loss ... ok
+test docker_dash::append_idempotent_by_marker_exit_10 ... ok
+test docker_dash::busy_lock_changes_nothing_exit_40 ... ok
+test docker_busybox::three_compare_failures_give_registry_changed ... ok
+test docker_bash_sh::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone ... ok
+test docker_dash::foreign_owned_registry_refused ... ok
+test docker_dash::group_probe_and_listing_per_target_shell ... ok
+test docker_dash::group_probe_permission_failure_is_unproven ... ok
+test docker_dash::append_newline_decided_at_append_time ... ok
+test docker_dash::hardlinked_registry_refused ... ok
+test docker_dash::fence_decision_ignores_diagnostics_uses_exit_status ... ok
+test docker_dash::bootstrap_refuses_symlink_or_foreign_owner ... ok
+test docker_dash::group_writable_dir_refused ... ok
+test docker_dash::holder_is_process_group_leader_per_target ... ok
+test docker_busybox::terminate_then_unproven_reports_signals_sent_exit_44 ... ok
+test docker_busybox::stopped_holder_ended_by_kill ... ok
+test docker_busybox::late_write_residual_cleared_only_by_inspect_after_not_after ... ok
+test docker_busybox::writer_paused_just_before_write_no_duplicate_no_loss ... ok
+test docker_busybox::unprovable_holder_held_for_manual_recovery_never_redispatched ... ok
+test docker_dash::listing_without_own_group_is_unproven ... ok
+test docker_dash::lock_lost_changes_nothing_exit_42 ... ok
+test docker_dash::inspect_reports_metadata_and_content ... ok
+test docker_dash::missing_registry_dir_is_exit_32_not_busy ... ok
+test docker_dash::lock_records_holder_pid_start_and_boot_identity ... ok
+test docker_dash::non_posix_or_noisy_login_refused_as_registry_unsupported ... ok
+test docker_dash::non_ascii_registry_bytes_per_target_shell ... ok
+test docker_dash::remote_clock_reading_per_target ... ok
+test docker_dash::registry_dir_bootstrap_journaled_shown_in_plan_then_locked ... ok
+test docker_dash::group_probe_syntax_error_is_unproven ... ok
+test docker_dash::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss ... ok
+test docker_dash::registry_protocol_on_target_shell ... ok
+test docker_dash::registry_too_large_refused ... ok
+test docker_dash::lock_symlink_is_exclusive_per_target ... ok
+test docker_dash::retry_after_lost_reply_never_appends_twice ... ok
+test docker_dash::remove_compare_then_rename_preserves_unrelated_bytes ... ok
+test docker_dash::group_probe_and_listing_disagreement_is_unproven ... ok
+test docker_dash::reused_pid_with_live_foreign_group_is_unproven_never_signalled ... ok
+test docker_dash::procstat_fixtures_rust_and_awk_agree ... ok
+test docker_dash::script_started_after_not_after_writes_nothing_exit_41 ... ok
+test docker_dash::reused_pid_with_empty_group_is_gone_by_agreement ... ok
+test docker_dash::start_identity_per_target_shell ... ok
+test docker_dash::ssh_killed_before_append_reconciled_not_applied ... ok
+test docker_dash::rotation_add_preserves_admin_edit ... ok
+test docker_dash::stale_lock_broken_only_after_holder_proven_gone ... ok
+test docker_dash::symlinked_registry_refused ... ok
+test docker_dash::procstat_live_comm_fixtures_per_linux_shell ... ok
+test docker_dash::shell_table_matches_round4_observed_rows ... ok
+test docker_debian_dash::acl_indicator_refused ... ok
+test docker_debian_dash::foreign_owned_registry_refused ... ok
+test docker_dash::leader_absent_live_mutation_child_never_gone_per_shell ... ok
+test docker_dash::three_compare_failures_give_registry_changed ... ok
+test docker_dash::not_after_passed_changes_nothing_exit_41 ... ok
+test docker_dash::other_enrollments_lock_is_busy_never_broken ... ok
+test docker_dash::late_write_residual_cleared_only_by_inspect_after_not_after ... ok
+test docker_dash::terminate_then_unproven_reports_signals_sent_exit_44 ... ok
+test docker_dash::unprovable_holder_held_for_manual_recovery_never_redispatched ... ok
+test docker_busybox::truncated_script_does_nothing_at_every_truncation_point ... ok
+test docker_dash::stopped_holder_ended_by_kill ... ok
+test docker_bash_sh::truncated_script_does_nothing_at_every_truncation_point ... ok
+test docker_dash::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone ... ok
+test docker_dash::writer_paused_just_before_write_no_duplicate_no_loss ... ok
+test docker_dash::truncated_script_does_nothing_at_every_truncation_point ... ok
+
+successes:
+
+---- docker_bash_sh::admin_edit_inside_remove_window_is_lost stdout ----
+admin_edit_inside_remove_window_is_lost: shell=BashSh: DISCLOSED LIMITATION reproduced (the write between cmp and mv is lost)
+
+---- docker_bash_sh::group_probe_and_listing_per_target_shell stdout ----
+group_probe_and_listing_per_target_shell: shell=BashSh live: C=0 K=0 listed=yes fence=alive | empty: C=0 K=1 listed=no fence=gone
+
+---- docker_bash_sh::group_probe_permission_failure_is_unproven stdout ----
+group_probe_permission_failure_is_unproven: shell=BashSh: a group owned by uid 2000 probed by uid 1000 (genuine EPERM in a disposable container)
+
+---- docker_bash_sh::holder_is_process_group_leader_per_target stdout ----
+holder_is_process_group_leader_per_target: shell=BashSh: this runner's shell leads its group without setsid
+
+---- docker_bash_sh::remote_clock_reading_per_target stdout ----
+remote_clock_reading_per_target: shell=BashSh remote_now=1795025510 local=[1795025510,1795025510] awk_srand_raw=1795025510261188096 (M-F23 reading; U5S-Q1)
+
+---- docker_bash_sh::procstat_live_comm_fixtures_per_linux_shell stdout ----
+procstat_live_comm_fixtures_per_linux_shell: shell=BashSh comm="plain" pid=38 parser=38 32015584 naive_$5="38"
+procstat_live_comm_fixtures_per_linux_shell: shell=BashSh comm="has space" pid=95 parser=95 32015619 naive_$5="1"
+procstat_live_comm_fixtures_per_linux_shell: shell=BashSh comm="a ) b ( c" pid=151 parser=151 32015657 naive_$5="("
+procstat_live_comm_fixtures_per_linux_shell: shell=BashSh comm=")(" pid=208 parser=208 32015700 naive_$5="208"
+procstat_live_comm_fixtures_per_linux_shell: shell=BashSh comm="nl\nname" pid=265 parser=265 32015739 naive_$5="265"
+
+---- docker_bash_sh::start_identity_per_target_shell stdout ----
+start_identity_per_target_shell: shell=BashSh start="32015788" (token 20 after the last ')' of /proc/$$/stat, clock ticks since boot) boot="b172882b-7d6d-44f4-b738-49c54b4c8e3d" (/proc/sys/kernel/random/boot_id)
+
+---- docker_bash_sh::shell_table_matches_round4_observed_rows stdout ----
+shell_table_matches_round4_observed_rows: bash [GNU bash, version 5.2.37(1)-release (aarch64-unknown-linux-gnu)]: live child 0/0/0, empty group 0/1/0, invalid syntax 1/1/0 (with `--`: 1/1/0)
+
+---- docker_busybox::admin_edit_inside_remove_window_is_lost stdout ----
+admin_edit_inside_remove_window_is_lost: shell=BusyBox: DISCLOSED LIMITATION reproduced (the write between cmp and mv is lost)
+
+---- docker_busybox::busybox_append_and_remove_run_with_proc_process_group stdout ----
+busybox_append_and_remove_run_with_proc_process_group: `ps -o pgid= -p $$` exit Some(1)
+
+---- docker_busybox::group_probe_and_listing_per_target_shell stdout ----
+group_probe_and_listing_per_target_shell: shell=BusyBox live: C=1 K=1 listed=yes fence=unproven | empty: C=1 K=2 listed=no fence=unproven
+
+---- docker_busybox::group_probe_permission_failure_is_unproven stdout ----
+group_probe_permission_failure_is_unproven: shell=BusyBox: a group owned by uid 2000 probed by uid 1000 (genuine EPERM in a disposable container)
+
+---- docker_busybox::holder_is_process_group_leader_per_target stdout ----
+holder_is_process_group_leader_per_target: shell=BusyBox: this runner's shell leads its group without setsid
+
+---- docker_busybox::remote_clock_reading_per_target stdout ----
+remote_clock_reading_per_target: shell=BusyBox remote_now=1795025519 local=[1795025519,1795025519] awk_srand_raw=1795025519 (M-F23 reading; U5S-Q1)
+
+---- docker_busybox::procstat_live_comm_fixtures_per_linux_shell stdout ----
+procstat_live_comm_fixtures_per_linux_shell: shell=BusyBox comm="plain" pid=37 parser=37 32016511 naive_$5="37"
+procstat_live_comm_fixtures_per_linux_shell: shell=BusyBox comm="has space" pid=93 parser=93 32016550 naive_$5="1"
+procstat_live_comm_fixtures_per_linux_shell: shell=BusyBox comm="a ) b ( c" pid=145 parser=145 32016590 naive_$5="("
+procstat_live_comm_fixtures_per_linux_shell: shell=BusyBox comm=")(" pid=201 parser=201 32016629 naive_$5="201"
+procstat_live_comm_fixtures_per_linux_shell: shell=BusyBox comm="nl\nname" pid=257 parser=257 32016676 naive_$5="257"
+
+---- docker_busybox::start_identity_per_target_shell stdout ----
+start_identity_per_target_shell: shell=BusyBox start="32016773" (token 20 after the last ')' of /proc/$$/stat, clock ticks since boot) boot="b172882b-7d6d-44f4-b738-49c54b4c8e3d" (/proc/sys/kernel/random/boot_id)
+
+---- docker_busybox::shell_table_matches_round4_observed_rows stdout ----
+shell_table_matches_round4_observed_rows: busybox [BusyBox v1.37.0 (2026-01-10 15:38:28 UTC) multi-call binary.]: live child 1/1/0, empty group 1/2/0, invalid syntax 1/1/0 (with `--`: 2/2/0)
+
+---- docker_dash::admin_edit_inside_remove_window_is_lost stdout ----
+admin_edit_inside_remove_window_is_lost: shell=Dash: DISCLOSED LIMITATION reproduced (the write between cmp and mv is lost)
+
+---- docker_dash::group_probe_and_listing_per_target_shell stdout ----
+group_probe_and_listing_per_target_shell: shell=Dash live: C=0 K=0 listed=yes fence=alive | empty: C=0 K=1 listed=no fence=gone
+
+---- docker_dash::group_probe_permission_failure_is_unproven stdout ----
+group_probe_permission_failure_is_unproven: shell=Dash: a group owned by uid 2000 probed by uid 1000 (genuine EPERM in a disposable container)
+
+---- docker_dash::holder_is_process_group_leader_per_target stdout ----
+holder_is_process_group_leader_per_target: shell=Dash: this runner's shell leads its group without setsid
+
+---- docker_dash::remote_clock_reading_per_target stdout ----
+remote_clock_reading_per_target: shell=Dash remote_now=1795025528 local=[1795025528,1795025528] awk_srand_raw=1795025529002333184 (M-F23 reading; U5S-Q1)
+
+---- docker_dash::start_identity_per_target_shell stdout ----
+start_identity_per_target_shell: shell=Dash start="32017654" (token 20 after the last ')' of /proc/$$/stat, clock ticks since boot) boot="b172882b-7d6d-44f4-b738-49c54b4c8e3d" (/proc/sys/kernel/random/boot_id)
+
+---- docker_dash::procstat_live_comm_fixtures_per_linux_shell stdout ----
+procstat_live_comm_fixtures_per_linux_shell: shell=Dash comm="plain" pid=5777 parser=5777 32017466 naive_$5="5777"
+procstat_live_comm_fixtures_per_linux_shell: shell=Dash comm="has space" pid=6651 parser=6651 32017517 naive_$5="1"
+procstat_live_comm_fixtures_per_linux_shell: shell=Dash comm="a ) b ( c" pid=7650 parser=7650 32017569 naive_$5="("
+procstat_live_comm_fixtures_per_linux_shell: shell=Dash comm=")(" pid=8355 parser=8355 32017625 naive_$5="8355"
+procstat_live_comm_fixtures_per_linux_shell: shell=Dash comm="nl\nname" pid=9568 parser=9568 32017694 naive_$5="9568"
+
+---- docker_dash::shell_table_matches_round4_observed_rows stdout ----
+shell_table_matches_round4_observed_rows: dash [0.5.12-12]: live child 0/0/0, empty group 0/1/0, invalid syntax 2/2/0 (with `--`: 2/2/0)
+
+---- docker_busybox::truncated_script_does_nothing_at_every_truncation_point stdout ----
+truncated_script_does_nothing_at_every_truncation_point: shell=BusyBox: 48599 prefixes, none ran
+
+---- docker_bash_sh::truncated_script_does_nothing_at_every_truncation_point stdout ----
+truncated_script_does_nothing_at_every_truncation_point: shell=BashSh: 48599 prefixes, none ran
+
+---- docker_dash::truncated_script_does_nothing_at_every_truncation_point stdout ----
+truncated_script_does_nothing_at_every_truncation_point: shell=Dash: 48599 prefixes, none ran
+
+
+successes:
+    docker_bash_sh::admin_append_between_inspect_and_append_preserved
+    docker_bash_sh::admin_append_without_newline_in_append_window_detected_damaged
+    docker_bash_sh::admin_edit_before_final_check_remove_restarts
+    docker_bash_sh::admin_edit_inside_remove_window_is_lost
+    docker_bash_sh::append_creates_registry_exclusively_mode_0600
+    docker_bash_sh::append_idempotent_by_marker_exit_10
+    docker_bash_sh::append_newline_decided_at_append_time
+    docker_bash_sh::bootstrap_missing_parent_exit_33_refused
+    docker_bash_sh::bootstrap_refuses_symlink_or_foreign_owner
+    docker_bash_sh::busy_lock_changes_nothing_exit_40
+    docker_bash_sh::fence_decision_ignores_diagnostics_uses_exit_status
+    docker_bash_sh::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss
+    docker_bash_sh::foreign_owned_registry_refused
+    docker_bash_sh::group_probe_and_listing_disagreement_is_unproven
+    docker_bash_sh::group_probe_and_listing_per_target_shell
+    docker_bash_sh::group_probe_permission_failure_is_unproven
+    docker_bash_sh::group_probe_syntax_error_is_unproven
+    docker_bash_sh::group_writable_dir_refused
+    docker_bash_sh::hardlinked_registry_refused
+    docker_bash_sh::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone
+    docker_bash_sh::holder_is_process_group_leader_per_target
+    docker_bash_sh::inspect_reports_metadata_and_content
+    docker_bash_sh::late_write_residual_cleared_only_by_inspect_after_not_after
+    docker_bash_sh::leader_absent_live_mutation_child_never_gone_per_shell
+    docker_bash_sh::listing_without_own_group_is_unproven
+    docker_bash_sh::lock_lost_changes_nothing_exit_42
+    docker_bash_sh::lock_records_holder_pid_start_and_boot_identity
+    docker_bash_sh::lock_symlink_is_exclusive_per_target
+    docker_bash_sh::missing_registry_dir_is_exit_32_not_busy
+    docker_bash_sh::non_ascii_registry_bytes_per_target_shell
+    docker_bash_sh::non_posix_or_noisy_login_refused_as_registry_unsupported
+    docker_bash_sh::not_after_passed_changes_nothing_exit_41
+    docker_bash_sh::other_enrollments_lock_is_busy_never_broken
+    docker_bash_sh::procstat_fixtures_rust_and_awk_agree
+    docker_bash_sh::procstat_live_comm_fixtures_per_linux_shell
+    docker_bash_sh::registry_dir_bootstrap_journaled_shown_in_plan_then_locked
+    docker_bash_sh::registry_protocol_on_target_shell
+    docker_bash_sh::registry_too_large_refused
+    docker_bash_sh::remote_clock_reading_per_target
+    docker_bash_sh::remove_compare_then_rename_preserves_unrelated_bytes
+    docker_bash_sh::retry_after_lost_reply_never_appends_twice
+    docker_bash_sh::reused_pid_with_empty_group_is_gone_by_agreement
+    docker_bash_sh::reused_pid_with_live_foreign_group_is_unproven_never_signalled
+    docker_bash_sh::rotation_add_preserves_admin_edit
+    docker_bash_sh::script_started_after_not_after_writes_nothing_exit_41
+    docker_bash_sh::shell_table_matches_round4_observed_rows
+    docker_bash_sh::ssh_killed_before_append_reconciled_not_applied
+    docker_bash_sh::stale_lock_broken_only_after_holder_proven_gone
+    docker_bash_sh::start_identity_per_target_shell
+    docker_bash_sh::stopped_holder_ended_by_kill
+    docker_bash_sh::symlinked_registry_refused
+    docker_bash_sh::terminate_then_unproven_reports_signals_sent_exit_44
+    docker_bash_sh::three_compare_failures_give_registry_changed
+    docker_bash_sh::truncated_script_does_nothing_at_every_truncation_point
+    docker_bash_sh::unprovable_holder_held_for_manual_recovery_never_redispatched
+    docker_bash_sh::writer_paused_just_before_write_no_duplicate_no_loss
+    docker_busybox::admin_append_between_inspect_and_append_preserved
+    docker_busybox::admin_append_without_newline_in_append_window_detected_damaged
+    docker_busybox::admin_edit_before_final_check_remove_restarts
+    docker_busybox::admin_edit_inside_remove_window_is_lost
+    docker_busybox::append_creates_registry_exclusively_mode_0600
+    docker_busybox::append_idempotent_by_marker_exit_10
+    docker_busybox::append_newline_decided_at_append_time
+    docker_busybox::bootstrap_missing_parent_exit_33_refused
+    docker_busybox::bootstrap_refuses_symlink_or_foreign_owner
+    docker_busybox::busy_lock_changes_nothing_exit_40
+    docker_busybox::busybox_append_and_remove_run_with_proc_process_group
+    docker_busybox::busybox_fence_always_unproven_manual_recovery
+    docker_busybox::fence_decision_ignores_diagnostics_uses_exit_status
+    docker_busybox::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss
+    docker_busybox::foreign_owned_registry_refused
+    docker_busybox::group_probe_and_listing_disagreement_is_unproven
+    docker_busybox::group_probe_and_listing_per_target_shell
+    docker_busybox::group_probe_permission_failure_is_unproven
+    docker_busybox::group_probe_syntax_error_is_unproven
+    docker_busybox::group_writable_dir_refused
+    docker_busybox::hardlinked_registry_refused
+    docker_busybox::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone
+    docker_busybox::holder_is_process_group_leader_per_target
+    docker_busybox::inspect_reports_metadata_and_content
+    docker_busybox::late_write_residual_cleared_only_by_inspect_after_not_after
+    docker_busybox::leader_absent_live_mutation_child_never_gone_per_shell
+    docker_busybox::listing_without_own_group_is_unproven
+    docker_busybox::lock_lost_changes_nothing_exit_42
+    docker_busybox::lock_records_holder_pid_start_and_boot_identity
+    docker_busybox::lock_symlink_is_exclusive_per_target
+    docker_busybox::missing_registry_dir_is_exit_32_not_busy
+    docker_busybox::non_ascii_registry_bytes_per_target_shell
+    docker_busybox::non_posix_or_noisy_login_refused_as_registry_unsupported
+    docker_busybox::not_after_passed_changes_nothing_exit_41
+    docker_busybox::other_enrollments_lock_is_busy_never_broken
+    docker_busybox::procstat_fixtures_rust_and_awk_agree
+    docker_busybox::procstat_live_comm_fixtures_per_linux_shell
+    docker_busybox::registry_dir_bootstrap_journaled_shown_in_plan_then_locked
+    docker_busybox::registry_protocol_on_target_shell
+    docker_busybox::registry_too_large_refused
+    docker_busybox::remote_clock_reading_per_target
+    docker_busybox::remove_compare_then_rename_preserves_unrelated_bytes
+    docker_busybox::retry_after_lost_reply_never_appends_twice
+    docker_busybox::reused_pid_with_empty_group_is_gone_by_agreement
+    docker_busybox::reused_pid_with_live_foreign_group_is_unproven_never_signalled
+    docker_busybox::rotation_add_preserves_admin_edit
+    docker_busybox::script_started_after_not_after_writes_nothing_exit_41
+    docker_busybox::shell_table_matches_round4_observed_rows
+    docker_busybox::ssh_killed_before_append_reconciled_not_applied
+    docker_busybox::stale_lock_broken_only_after_holder_proven_gone
+    docker_busybox::start_identity_per_target_shell
+    docker_busybox::stopped_holder_ended_by_kill
+    docker_busybox::symlinked_registry_refused
+    docker_busybox::terminate_then_unproven_reports_signals_sent_exit_44
+    docker_busybox::three_compare_failures_give_registry_changed
+    docker_busybox::truncated_script_does_nothing_at_every_truncation_point
+    docker_busybox::unprovable_holder_held_for_manual_recovery_never_redispatched
+    docker_busybox::writer_paused_just_before_write_no_duplicate_no_loss
+    docker_dash::admin_append_between_inspect_and_append_preserved
+    docker_dash::admin_append_without_newline_in_append_window_detected_damaged
+    docker_dash::admin_edit_before_final_check_remove_restarts
+    docker_dash::admin_edit_inside_remove_window_is_lost
+    docker_dash::append_creates_registry_exclusively_mode_0600
+    docker_dash::append_idempotent_by_marker_exit_10
+    docker_dash::append_newline_decided_at_append_time
+    docker_dash::bootstrap_missing_parent_exit_33_refused
+    docker_dash::bootstrap_refuses_symlink_or_foreign_owner
+    docker_dash::busy_lock_changes_nothing_exit_40
+    docker_dash::fence_decision_ignores_diagnostics_uses_exit_status
+    docker_dash::first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss
+    docker_dash::foreign_owned_registry_refused
+    docker_dash::group_probe_and_listing_disagreement_is_unproven
+    docker_dash::group_probe_and_listing_per_target_shell
+    docker_dash::group_probe_permission_failure_is_unproven
+    docker_dash::group_probe_syntax_error_is_unproven
+    docker_dash::group_writable_dir_refused
+    docker_dash::hardlinked_registry_refused
+    docker_dash::holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone
+    docker_dash::holder_is_process_group_leader_per_target
+    docker_dash::inspect_reports_metadata_and_content
+    docker_dash::late_write_residual_cleared_only_by_inspect_after_not_after
+    docker_dash::leader_absent_live_mutation_child_never_gone_per_shell
+    docker_dash::listing_without_own_group_is_unproven
+    docker_dash::lock_lost_changes_nothing_exit_42
+    docker_dash::lock_records_holder_pid_start_and_boot_identity
+    docker_dash::lock_symlink_is_exclusive_per_target
+    docker_dash::missing_registry_dir_is_exit_32_not_busy
+    docker_dash::non_ascii_registry_bytes_per_target_shell
+    docker_dash::non_posix_or_noisy_login_refused_as_registry_unsupported
+    docker_dash::not_after_passed_changes_nothing_exit_41
+    docker_dash::other_enrollments_lock_is_busy_never_broken
+    docker_dash::procstat_fixtures_rust_and_awk_agree
+    docker_dash::procstat_live_comm_fixtures_per_linux_shell
+    docker_dash::registry_dir_bootstrap_journaled_shown_in_plan_then_locked
+    docker_dash::registry_protocol_on_target_shell
+    docker_dash::registry_too_large_refused
+    docker_dash::remote_clock_reading_per_target
+    docker_dash::remove_compare_then_rename_preserves_unrelated_bytes
+    docker_dash::retry_after_lost_reply_never_appends_twice
+    docker_dash::reused_pid_with_empty_group_is_gone_by_agreement
+    docker_dash::reused_pid_with_live_foreign_group_is_unproven_never_signalled
+    docker_dash::rotation_add_preserves_admin_edit
+    docker_dash::script_started_after_not_after_writes_nothing_exit_41
+    docker_dash::shell_table_matches_round4_observed_rows
+    docker_dash::ssh_killed_before_append_reconciled_not_applied
+    docker_dash::stale_lock_broken_only_after_holder_proven_gone
+    docker_dash::start_identity_per_target_shell
+    docker_dash::stopped_holder_ended_by_kill
+    docker_dash::symlinked_registry_refused
+    docker_dash::terminate_then_unproven_reports_signals_sent_exit_44
+    docker_dash::three_compare_failures_give_registry_changed
+    docker_dash::truncated_script_does_nothing_at_every_truncation_point
+    docker_dash::unprovable_holder_held_for_manual_recovery_never_redispatched
+    docker_dash::writer_paused_just_before_write_no_duplicate_no_loss
+    docker_debian_dash::acl_indicator_refused
+    docker_debian_dash::foreign_owned_registry_refused
+
+test result: ok. 172 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 40.14s
+

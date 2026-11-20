@@ -1,0 +1,2422 @@
+{
+  "case_id": "m03-exit-claims",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-AU-04",
+    "R-AU-05",
+    "R-AU-08",
+    "R-CR-02",
+    "R-CR-03",
+    "R-CR-04",
+    "R-CR-05",
+    "R-CR-06",
+    "R-CR-07",
+    "R-SE-07",
+    "R-UX-03"
+  ],
+  "build_commit": "2b79aac1b6bea72f886cef2331c9e3b5d0a123e8 (E9; crates/ and tests/ *.rs sources_sha256 f37e357d1030e0b6e826ff8c910c2c87367759c908ef44ca683b8bc15c7a4b4f, the value in required-inventory.json). The Windows harness ran at E9, the macOS lock procedure at E8, every other run at E5; from E5 to E9 the macOS and Linux release heimdall are byte-identical.",
+  "artifact_digest": "sha256:aedaabada819264f366eae9e10a9b4c0d20747c2e25b1185fb3bbcfdc7438907 (sha256 of tests/evidence/artifacts/m03/exit-da51b055/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in linux/build.txt and windows/build.txt)",
+  "environment": {
+    "macos": "macOS 27.2.1 (26B131) arm64, OpenSSH_10.5p1 client and server, Apple Git 2.54.0, APFS; Docker 29.9.3 with the M00-T03 fixtures (OpenSSH_10.0p2, Debian 13)",
+    "linux": "Linux 6.8.0-147 x86_64 (the devbox, headless), glibc 2.39, 4 CPUs, OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0, ext4; ptrace_scope 1",
+    "windows": "Windows 11 x64 (10.0.26300.9974), Medium integrity, native x86_64-pc-windows-msvc (rustc 1.99.1, MSVC 18.11.2), in-box OpenSSH_for_Windows_9.5p2, Git for Windows 2.55.0.windows.3; the fixture sshds (OpenSSH 9.6p1, non-root) in WSL scratch on 127.0.0.1; run-windows-local.ps1 in local mode by an agent on the PC, at BelowNormal priority with 4 test threads and 4 jobs; heimdall.exe sha256 782520ae30266b2e54ee02c30f4b9fbe8c1e8237d5f884124b16287df41b7705; at E9 the run needed no readiness retry and left no heimdall.exe or ssh.exe behind",
+    "wsl-distro": "WSL 3.0.5.0 on the same PC: a disposable distribution from the pinned Ubuntu 24.04.5 image (sha256 matches the pin), created and unregistered by name; OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0; root sshds on 127.0.0.1 (StrictModes yes) for the M03 scenario; the Linux heimdall 6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c, verified against HM_PREBUILT_SHA256 before use; local mode inside the controller distribution",
+    "macos-lock": "macOS 27.2.1 (26B131) arm64, the build host: the lock procedure (tests/native/m03/lock-macos.sh) on a debug build with the scratch test store and the platform session-lock source; observed values in macos-lock/lock.txt; grant R's policy window, and so its certificate's validity, 600 s, and N's window 600 s (E5, ruling I-12), so R's residual passes and N expires inside a 20-30 minute lock. The run is E8's (7b75c4c1, started from the release worktree by the orchestrator once the session read unlocked and the console had been idle >= 960 s); E8..E9 changes cfg(windows) code and Windows tests only, so it binds to E9. Pending: the run has not completed",
+    "host_facts": {
+      "macos": {
+        "inherited-ssh-auth-sock": "set (unset for the run)",
+        "inherited-git-variables": "1 (unset for the run)",
+        "inherited-heimdall-variables": "0 (unset for the run)",
+        "os": "macOS 27.2.1 (26B131) arm64",
+        "script": "/usr/bin/script",
+        "scratch-fs": "apfs",
+        "ssh-V": "OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+        "sshd-V": "OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+        "git-version": "git version 2.54.0 (Apple Git-157) (exit 0)",
+        "keychain-list-before": "89a3a221ca8d65588822245e",
+        "fixture-sshd-preflight": "listening on 127.0.0.1 (non-root, per-run host key)",
+        "leftover-test-processes": "0",
+        "keychain-list-after": "89a3a221ca8d65588822245e",
+        "docker-server": "29.9.3",
+        "docker-client": "29.9.3",
+        "docker-container-hm-m00t03-bastion": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) ",
+        "docker-container-hm-m00t03-ca1": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) ",
+        "docker-container-hm-m00t03-ca2": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) ",
+        "docker-container-hm-m00t03-enroll": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) ",
+        "docker-container-hm-m00t03-enroll2": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) ",
+        "docker-container-hm-m00t03-fixed": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) ",
+        "docker-container-hm-m00t03-target": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) "
+      },
+      "linux": {
+        "inherited-ssh-auth-sock": "unset (unset for the run)",
+        "inherited-git-variables": "0 (unset for the run)",
+        "inherited-heimdall-variables": "0 (unset for the run)",
+        "os": "Linux 6.8.0-147-generic x86_64",
+        "glibc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.12) 2.39",
+        "nproc": "4",
+        "script": "script from util-linux 2.39.3",
+        "scratch-fs": "ext4",
+        "ssh-V": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "sshd-V": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "git-version": "git version 2.43.0 (exit 0)",
+        "ptrace-scope": "1",
+        "memlock-limit": "1016472",
+        "ntp-synchronized": "yes",
+        "gnome-keyring": "absent",
+        "fixture-sshd-preflight": "listening on 127.0.0.1 (non-root, per-run host key)",
+        "fixture-sshd-preflight-stopped": "yes",
+        "leftover-test-processes": "0"
+      },
+      "windows": {
+        "os": "Microsoft Windows [Version 10.0.26300.9974]",
+        "integrity": "Medium Mandatory Level",
+        "mode": "local (run on the PC by an agent; no remote route into WSL, ADR-0007 §12.32 item 15)",
+        "build-target": "x86_64-pc-windows-msvc (native build and run)",
+        "developer-mode": "on (read only)",
+        "localappdata-heimdall-before": "absent",
+        "ssh-V-inbox": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+        "w32tm-status": "Leap Indicator: 0(no warning); Stratum: 5 (secondary reference - syncd by (S)NTP); Last Successful Sync Time: 11/19/2026 7:30:19 PM; Source: time.windows.com,0x9",
+        "ssh-V-path-first": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026 (candidate, not selected)",
+        "git-version-windows": "git version 2.55.0.windows.3",
+        "build-commit": "2b79aac1b6bea72f886cef2331c9e3b5d0a123e8",
+        "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+        "toolchain-msvc": "18.11.2 (Visual Studio Build Tools, read only)",
+        "ssh-V-wsl": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "sshd-V-wsl": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "git-version-wsl": "git version 2.43.0 (exit 0)",
+        "fixture-sshd": "listening on 127.0.0.1 in WSL scratch (non-root, per-run host key)",
+        "fixture-sshd-from-windows": "reachable (WSL localhost forwarding, SSH banner read)",
+        "fixture-sshd-account": "differs from the Windows user (a non-root sshd authenticates only its own account)",
+        "fixture-sshd-strict": "listening on 127.0.0.1 in WSL scratch (MaxAuthTries 3; HM_FIXTURE_SSHD_STRICT_*)",
+        "fixture-sshd-user": "exported as HM_FIXTURE_SSHD_USER (the WSL account; redacted as <wsluser>)",
+        "fixture-sshd-registry": "exported as HM_FIXTURE_SSHD_REGISTRY and HM_FIXTURE_SSHD_REGISTRY_REMOTE (owner-only, WSL scratch)",
+        "ssh-V-tests": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2 (what the tests resolve)",
+        "test-pipes-before": "0",
+        "test-pipes-after": "0",
+        "localappdata-heimdall-after": "absent",
+        "fixture-sshd-at-end": "stopped",
+        "fixture-sshd-strict-at-end": "stopped"
+      },
+      "wsl-distro": {
+        "mode": "local (run inside the WSL controller by an agent on the PC; ADR-0007 §12.32 item 15)",
+        "inherited-ssh-auth-sock": "unset (unset for the run)",
+        "inherited-git-variables": "0 (unset for the run)",
+        "inherited-heimdall-variables": "0 (unset for the run)",
+        "os": "Ubuntu 24.04.5 LTS",
+        "ssh-V": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "git-version": "git version 2.43.0 (exit 0)",
+        "sshd-V": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "lock-behavior-revoke-on-lock": "exit 4, CAPABILITY_UNAVAILABLE, lock_signal_unavailable",
+        "home-fs": "ext4",
+        "time-confirmation": "needed (exit 0)",
+        "sshd-accepted-logins": "6",
+        "rename-exchange": "supported (renameat2 RENAME_EXCHANGE)",
+        "birth-time": "recorded (statx STATX_BTIME)"
+      }
+    }
+  },
+  "provider_versions": [
+    "macos git-version: git version 2.54.0 (Apple Git-157) (exit 0)",
+    "macos ssh-V: OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+    "macos sshd-V: OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+    "linux git-version: git version 2.43.0 (exit 0)",
+    "linux ssh-V: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+    "linux sshd-V: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+    "windows git-version-windows: git version 2.55.0.windows.3",
+    "windows git-version-wsl: git version 2.43.0 (exit 0)",
+    "windows ssh-V-inbox: OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+    "windows ssh-V-path-first: OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026 (candidate, not selected)",
+    "windows ssh-V-tests: OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2 (what the tests resolve)",
+    "windows ssh-V-wsl: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+    "windows sshd-V-wsl: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+    "wsl-distro git-version: git version 2.43.0 (exit 0)",
+    "wsl-distro ssh-V: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+    "wsl-distro sshd-V: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)"
+  ],
+  "started_at": "2026-11-18",
+  "commands_or_harness": [
+    "the Windows harness ran at E9 2b79aac1, the macOS lock procedure at E8 7b75c4c1, and the devbox, macOS with Docker and the WSL M03 and M02 scenarios at E5 da51b055 (2026-11-18/19); the macOS and Linux release heimdall are byte-identical from E5 to E9",
+    "tests/native/m03/refresh-inventory.sh (regenerates tests/native/m03/required-inventory.json at the exit commit, with the Linux and Windows scans)",
+    "tests/native/m03/run-macos.sh <artifacts_root> (writes macos/: check.sh, the observation pass, the Docker phase)",
+    "tests/native/m03/run-linux.sh <artifacts_root>/linux <linuxhost>",
+    "on the PC, by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m03/run-windows-local.ps1 -Commit <exit commit> -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <report> --label <artifacts_root name> --commit <exit commit> --artifacts-root tests/evidence/artifacts/m03 --config <artifacts_root>/runs.json",
+    "on the PC, inside the controller distribution, after the Windows run: HM_LOCAL=1 HM_PREBUILT_HEIMDALL=<linux heimdall> HM_PREBUILT_SHA256=<its sha256> HM_WSL_ROOTFS=<pinned image> HM_WSL_ALLOW_APT=1 bash tests/native/m03/run-wsl-distro.sh <out>/wsl-distro, and the M02 scenario at the same build: bash tests/native/m02/run-wsl-distro.sh <out>/wsl-distro-m02 (same inputs)",
+    "tests/native/m03/lock-macos.sh <artifacts_root>/macos-lock and, on the PC, tests/native/m03/lock-windows.ps1 -ProductBin <release heimdall.exe> -Driver <e2e_exit_m03.exe> -SignalTest <integration_session_lock.exe> -Commit <exit commit> -Out <dir> (ADR-0004 §2 lock rule; bound to the exit commit), imported with --platform-dir windows-lock",
+    "python3 -I tests/native/m03/m03-evidence.py --config <artifacts_root>/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "observed_result": {
+    "indexed_tests": 878,
+    "rows": [
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 19,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 8,
+        "excluded_by_rationale": {
+          "e2e_exit_m03::lock::": 7,
+          "integration_session_lock::macos_lock_signal_observed": 1
+        },
+        "observations": {
+          "integration_session_lock::revoke_on_lock_refused_where_signal_unavailable": [
+            "m03 observation: os=macos session_lock_state=Unlocked signal=MacosScreenLock revoke_on_lock=accepted"
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 19,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 8,
+        "excluded_by_rationale": {
+          "e2e_exit_m03::lock::": 7,
+          "integration_session_lock::macos_lock_signal_observed": 1
+        },
+        "observations": {
+          "integration_session_lock::revoke_on_lock_refused_where_signal_unavailable": [
+            "m03 observation: os=linux session_lock_state=Unavailable signal=None revoke_on_lock=refused lock_signal_unavailable"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 19,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 8,
+        "excluded_by_rationale": {
+          "e2e_exit_m03::lock::": 7,
+          "integration_session_lock::macos_lock_signal_observed": 1
+        },
+        "observations": {
+          "integration_session_lock::revoke_on_lock_refused_where_signal_unavailable": [
+            "m03 observation: os=windows session_lock_state=Unlocked signal=WindowsSession revoke_on_lock=accepted"
+          ]
+        }
+      },
+      {
+        "platform": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+        "status": "verified",
+        "passed": 1,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host (6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c)": 0,
+          "remote: create the run directories exclusively (run M03-U13-wsl-300f73153604)": 0,
+          "staged heimdall copy still has the verified sha256": 0,
+          "local tar extraction of heimdall and the scenario files into WSL scratch": 0,
+          "remote: pinned image, import, prepare, the ordinary-ssh scenario, terminate and unregister the disposable distribution": 0,
+          "registered WSL distributions equal to the set before the import (the disposable one unregistered, no other touched)": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming a host, a user, a home or the controller distribution (0)": 0,
+          "remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent": 0,
+          "remote: create the run directories exclusively (run M02-U11-wsl-bc4a7449dab3)": 0
+        },
+        "artifact_digest": "sha256:9a48ff1dd2a9e27739ee02abb168f267b8cdc739b70a6bf3552cfb34f53f4e0d (sha256 of the wsl-distro/ and wsl-distro-m02/ lines of digests.txt)",
+        "logs": [
+          "wsl-distro/tests.txt",
+          "wsl-distro-m02/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "macos-arm64 lock procedure (debug build, test store: mechanism evidence only)",
+        "status": "blocked",
+        "passed": 0,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [
+          "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
+          "e2e_exit_m03::lock::a03_lock_cleanup",
+          "e2e_exit_m03::lock::a03_lock_prepare",
+          "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
+          "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
+          "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter",
+          "integration_session_lock::macos_lock_signal_observed"
+        ],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": null,
+        "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
+        "logs": [],
+        "excluded_on_this_platform": 0,
+        "blocked_on": "pending: the macOS lock run at E8 waits for the owner (the session must read unlocked, then 960 s of console idle); these rows are rewritten when it completes. Earlier attempts are not evidence: the E5 run was killed with the session that started it, the E7 run was blocked (unlock_not_observed within 43200 s), and the first E8 attempt was refused because the screen was already locked"
+      },
+      {
+        "platform": "windows-11-x86_64 lock procedure (release profile, product DPAPI store)",
+        "status": "blocked",
+        "passed": 0,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [
+          "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
+          "e2e_exit_m03::lock::a03_lock_cleanup",
+          "e2e_exit_m03::lock::a03_lock_prepare",
+          "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
+          "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
+          "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter"
+        ],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": null,
+        "artifact_digest": null,
+        "logs": [
+          "windows-lock/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "platform_required_not_passed": {
+          "e2e_exit_m03::lock::a03_issuer_restart_dpapi_unprotect_while_locked": "absent",
+          "integration_session_lock::windows_lock_signal_observed": "absent"
+        },
+        "blocked_on": "B2: the disposable second Windows account (its profile carries the .heimdall-disposable-account marker; one elevation consent to create it): a release-profile runtime projects into the account's own ~/.ssh (ProjectionWiring::Account), so the Windows lock procedure runs only there (the orchestrator's ruling on I-9; m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 login-keychain product row (K_ca written at init, read at issuer start, during lock, after login, ACL across ad-hoc-signed updates)",
+        "status": "blocked",
+        "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+      },
+      {
+        "platform": "linux desktop (logind lock signal, the Linux lock-revokes row, Secret Service availability after login)",
+        "status": "blocked",
+        "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+      },
+      {
+        "platform": "1Password vault row (lock the vault; managed logins continue)",
+        "status": "blocked",
+        "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7)"
+      },
+      {
+        "platform": "windows-11 system-agent vault row (the Windows system ssh-agent as the locked source provider)",
+        "status": "blocked",
+        "blocked_on": "B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 157,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::managed_revoke_reaches_revoked_once_the_residual_passes": [
+            "m03 observation: managed_revoke_residual macos certificate_validity_s=90 state_at_revoke=revoking state_after_residual=revoked obligation=bounded_by_expiry clock=unmeasured status=nominally_expired record_kept=true rounds_after_revoke=0"
+          ],
+          "e2e_exit_m03::real_issuer_activation_reissue_revocation_with_fresh_logins": [
+            "m03 observation: issuer_child macos activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial"
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 157,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::managed_revoke_reaches_revoked_once_the_residual_passes": [
+            "m03 observation: managed_revoke_residual linux certificate_validity_s=90 state_at_revoke=revoking state_after_residual=revoked obligation=bounded_by_expiry clock=unmeasured status=nominally_expired record_kept=true rounds_after_revoke=0"
+          ],
+          "e2e_exit_m03::real_issuer_activation_reissue_revocation_with_fresh_logins": [
+            "m03 observation: issuer_child linux activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 155,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 2,
+        "excluded_by_rationale": {
+          "integration_managed_adapter::revoke_during_each_issuance_step": 1,
+          "integration_managed_signer::destroyed_key_makes_installed_certificate_unusable": 1
+        },
+        "observations": {
+          "e2e_exit_m03::managed_revoke_reaches_revoked_once_the_residual_passes": [
+            "m03 observation: managed_revoke_residual windows certificate_validity_s=90 state_at_revoke=revoking state_after_residual=revoked obligation=bounded_by_expiry clock=unmeasured status=nominally_expired record_kept=true rounds_after_revoke=0"
+          ],
+          "e2e_exit_m03::real_issuer_activation_reissue_revocation_with_fresh_logins": [
+            "m03 observation: issuer_child windows activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial"
+          ]
+        }
+      },
+      {
+        "platform": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+        "status": "verified",
+        "passed": 3,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host (6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c)": 0,
+          "remote: create the run directories exclusively (run M03-U13-wsl-300f73153604)": 0,
+          "staged heimdall copy still has the verified sha256": 0,
+          "local tar extraction of heimdall and the scenario files into WSL scratch": 0,
+          "remote: pinned image, import, prepare, the ordinary-ssh scenario, terminate and unregister the disposable distribution": 0,
+          "registered WSL distributions equal to the set before the import (the disposable one unregistered, no other touched)": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming a host, a user, a home or the controller distribution (0)": 0,
+          "remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent": 0,
+          "remote: create the run directories exclusively (run M02-U11-wsl-bc4a7449dab3)": 0
+        },
+        "artifact_digest": "sha256:9a48ff1dd2a9e27739ee02abb168f267b8cdc739b70a6bf3552cfb34f53f4e0d (sha256 of the wsl-distro/ and wsl-distro-m02/ lines of digests.txt)",
+        "logs": [
+          "wsl-distro/tests.txt",
+          "wsl-distro-m02/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "disconnected-runner variant of A07 (a runner disconnected from the runtime keeps no authority after revocation)",
+        "status": "deferred_with_decision",
+        "decision": "m03-plan §3, §4.5: the disconnected-runner variant of A07 is deferred to M06 (G07; plan §5 M06); A07's M01 model rows stay as recorded"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 425,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 250,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 176,
+        "excluded_by_rationale": {
+          "integration_enroll_registry::docker_bash_sh::": 56,
+          "integration_enroll_registry::docker_busybox::": 58,
+          "integration_enroll_registry::docker_dash::": 56,
+          "integration_enroll_registry::docker_debian_dash::": 2,
+          "integration_enroll_registry::native_sh::acl_indicator_refused": 1,
+          "integration_enroll_registry::native_sh::timestamp_boot_identity_difference_alone_never_proves_gone": 1,
+          "integration_enroll_verify::verify_on_account_without_log_access": 1,
+          "integration_testkit_m03::shell_containers_run_each_shell_as_group_leader": 1
+        },
+        "observations": {
+          "integration_enroll_registry::native_sh::shell_table_matches_round4_observed_rows": [
+            "m03 observation: shell_table_row family=dash version=\"0.5.12-6ubuntu5\" control_probe_listing live=0/0/0 empty=0/1/0 invalid=2/2/0 invalid_dashdash=2/2/0 recorded_row=0.5.12-12 matches_recorded_row=true"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 108,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 324,
+        "excluded_by_rationale": {
+          "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_account_form": 1,
+          "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_system_form": 1,
+          "e2e_enroll_m03::client_change_triggers_prompt_reverification": 1,
+          "e2e_enroll_m03::enroll_account_approval_records_lock_disclosure_acknowledgement_once": 1,
+          "e2e_enroll_m03::enroll_reconcile_unreachable": 1,
+          "e2e_enroll_m03::enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check": 1,
+          "e2e_enroll_m03::enrollment_result_next_discloses_slot_free": 1,
+          "e2e_enroll_m03::evidence_invalidated_on_host_key_or_client_change": 1,
+          "e2e_enroll_m03::fence::concurrent_reverification_resumes_run_one_verification": 1,
+          "e2e_enroll_m03::fence::refused_reverification_is_resumed_once_after_the_fence_lifts": 1,
+          "e2e_enroll_m03::fence::verification_fence_refusal_is_returned_and_changes_no_evidence": 1,
+          "e2e_enroll_m03::fence_audit_keeps_signals_sent_on_unproven": 1,
+          "e2e_enroll_m03::fence_unproven_never_unlocks_and_counts_attempt": 1,
+          "e2e_enroll_m03::held_evidence_hold_reverifies_on_owner_request": 1,
+          "e2e_enroll_m03::held_host_key_change_needs_target_reapproval_with_key_diff": 1,
+          "e2e_enroll_m03::manual_removal_cancel_returns_to_origin_state_and_evidence": 1,
+          "e2e_enroll_m03::recheck_manual_recovered_last_removal_drops_issuing_ca": 1,
+          "e2e_enroll_m03::recheck_manual_recovered_withdrawn_removal_clears_residual": 1,
+          "e2e_enroll_m03::reconcile_after_manual_recovery_classifies_without_redispatch": 1,
+          "e2e_enroll_m03::reconcile_terminates_stale_holder_then_redispatches": 1,
+          "e2e_enroll_m03::rotation_two_accounts_one_unreachable": 1,
+          "e2e_enroll_m03::supervisor_reverifies_before_freshness_lapses": 1,
+          "e2e_enroll_m03::system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified": 1,
+          "e2e_enroll_m03::system_form_never_reported_removed_without_absence_check": 1,
+          "e2e_enroll_m03::target_change_failure_or_inconclusive_keeps_approved_target_and_held": 1,
+          "e2e_enroll_m03::target_change_pass_replaces_approved_target_atomically": 1,
+          "e2e_enroll_m03::target_change_pins_come_from_proposed_target": 1,
+          "integration_enroll_registry::docker_bash_sh::": 56,
+          "integration_enroll_registry::docker_busybox::": 58,
+          "integration_enroll_registry::docker_dash::": 56,
+          "integration_enroll_registry::docker_debian_dash::": 2,
+          "integration_enroll_registry::native_sh::": 53,
+          "integration_enroll_registry::native_sh::acl_indicator_refused": 1,
+          "integration_enroll_registry::native_sh::timestamp_boot_identity_difference_alone_never_proves_gone": 1,
+          "integration_enroll_registry::native_sshd::": 20,
+          "integration_enroll_verify": 46,
+          "integration_enroll_verify::verify_on_account_without_log_access": 1,
+          "integration_testkit_m03::owner_digest_detects_change": 1,
+          "integration_testkit_m03::registry_guard_refuses_non_scratch_paths": 1,
+          "integration_testkit_m03::shell_containers_run_each_shell_as_group_leader": 1
+        },
+        "observations": {
+          "e2e_enroll_m03::windows::windows_client_trace_row_host_key_changed_observation": [
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure verification=HOST_TRUST_CHANGED Some(\"enrollment_host_key_mismatch\") state=Held",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"debug1: kex: host key algorithm: ssh-ed25519\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"debug1: Server host key: ssh-ed25519 SHA256:MCw071USx/4UrSxmVzwlejmH2GUGXIdbzgiBYaBGsFs\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"Someone could be eavesdropping on you right now (man-in-the-middle attack)!\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"It is also possible that a host key has just been changed.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"The fingerprint for the ED25519 key sent by the remote host is\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"SHA256:MCw071USx/4UrSxmVzwlejmH2GUGXIdbzgiBYaBGsFs.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"Please contact your system administrator.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"Add correct host key in <scratch>/rt2/v to get rid of this message.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"Offending ED25519 key in <scratch>/rt2/v/6e036c594fcd42df/known_hosts:1\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"Host key for hm-verify-6e036c594fcd42df has changed and you have requested strict checking.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=positive line=\"Host key verification failed.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"debug1: kex: host key algorithm: ssh-ed25519\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"debug1: Server host key: ssh-ed25519 SHA256:MCw071USx/4UrSxmVzwlejmH2GUGXIdbzgiBYaBGsFs\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"Someone could be eavesdropping on you right now (man-in-the-middle attack)!\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"It is also possible that a host key has just been changed.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"The fingerprint for the ED25519 key sent by the remote host is\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"SHA256:MCw071USx/4UrSxmVzwlejmH2GUGXIdbzgiBYaBGsFs.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"Please contact your system administrator.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"Add correct host key in <scratch>/rt2/v to get rid of this message.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"Offending ED25519 key in <scratch>/rt2/v/6e036c594fcd42df/known_hosts:1\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"Host key for hm-verify-6e036c594fcd42df has changed and you have requested strict checking.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_failure attempt=negative line=\"Host key verification failed.\""
+          ],
+          "e2e_enroll_m03::windows::windows_client_trace_row_host_key_unknown_observation": [
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_unknown exit=Some(255)",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_unknown line=\"OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_unknown line=\"debug1: kex: host key algorithm: ssh-ed25519\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_unknown line=\"debug1: Server host key: ssh-ed25519 SHA256:MCw071USx/4UrSxmVzwlejmH2GUGXIdbzgiBYaBGsFs\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_unknown line=\"No ED25519 host key is known for hm-verify-0000000000000000 and you have requested strict checking.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 field=host_key_unknown line=\"Host key verification failed.\""
+          ],
+          "e2e_enroll_m03::windows::windows_client_trace_row_observation": [
+            "m03 observation: client_trace_row family=win32 version=9.5p2 client=\"OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2\" parsed_with=10.5p1 enrollment=Verified",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=positive line=\"debug1: Remote protocol version 2.0, remote software version OpenSSH_9.6p1 Ubuntu-3ubuntu13.20\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=positive line=\"debug1: Host 'hm-verify-3bb4763a297ee6c6' is known and matches the ED25519 host key.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=positive line=\"debug1: Authentications that can continue: publickey\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=positive line=\"debug1: Offering public key: <scratch>/rt2/v/3bb4763a297ee6c6/positive-cert.pub ED25519-CERT SHA256:joDiBVfFHlcJS+QagAjgx7DPnBQofUhY5Sld/iiL3U4 explicit\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=positive line=\"debug1: Server accepts key: <scratch>/rt2/v/3bb4763a297ee6c6/positive-cert.pub ED25519-CERT SHA256:joDiBVfFHlcJS+QagAjgx7DPnBQofUhY5Sld/iiL3U4 explicit\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=positive line=\"Authenticated to 127.0.0.1 ([127.0.0.1]:37792) using \\\"publickey\\\".\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=negative line=\"debug1: Remote protocol version 2.0, remote software version OpenSSH_9.6p1 Ubuntu-3ubuntu13.20\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=negative line=\"debug1: Host 'hm-verify-3bb4763a297ee6c6' is known and matches the ED25519 host key.\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=negative line=\"debug1: Authentications that can continue: publickey\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=negative line=\"debug1: Offering public key: <scratch>/rt2/v/3bb4763a297ee6c6/negative-cert.pub ED25519-CERT SHA256:joDiBVfFHlcJS+QagAjgx7DPnBQofUhY5Sld/iiL3U4 explicit\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=negative line=\"debug1: Offering public key: <scratch>/rt2/v/3bb4763a297ee6c6/k_verify.pub ED25519 SHA256:joDiBVfFHlcJS+QagAjgx7DPnBQofUhY5Sld/iiL3U4 explicit agent\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 attempt=negative line=\"<user>@127.0.0.1: Permission denied (publickey).\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Accepted key ED25519 SHA256:1kUQA9C5wR4YnxePzkrRncks5E4A7zdeUytMncHZsJM found at /home/<user>/hm-m02-local-1a7d9da45943/registry/authorized_keys:1\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Accepted publickey for <user> from 127.0.0.1 port 46554 ssh2: ED25519 SHA256:1kUQA9C5wR4YnxePzkrRncks5E4A7zdeUytMncHZsJM\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Accepted publickey for <user> from 127.0.0.1 port 46566 ssh2: ED25519 SHA256:1kUQA9C5wR4YnxePzkrRncks5E4A7zdeUytMncHZsJM\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Accepted certificate ID \\\"heimdall:env_be1326f9d4e965dfd5a2671330e91485:op_160226ab2026005a0ff20b4b4858c2b6:5472519774006208553\\\" (serial 5472519774006208553) signed by CA ED25519 SHA256:rn7juyjxp0Pl+D1cMwFl0okNdZV6AFj4R8A4qclUh8Y found at /home/<user>/hm-m02-local-1a7d9da45943/registry/authorized_keys:2\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Accepted publickey for <user> from 127.0.0.1 port 46576 ssh2: ED25519-CERT SHA256:joDiBVfFHlcJS+QagAjgx7DPnBQofUhY5Sld/iiL3U4 ID heimdall:env_be1326f9d4e965dfd5a2671330e91485:op_160226ab2026005a0ff20b4b4858c2b6:5472519774006208553 (serial 5472519774006208553) CA ED25519 SHA256:rn7juyjxp0Pl+D1cMwFl0okNdZV6AFj4R8A4qclUh8Y\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Certificate does not contain an authorized principal\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Failed publickey for <user> from 127.0.0.1 port 46586 ssh2: ED25519-CERT SHA256:joDiBVfFHlcJS+QagAjgx7DPnBQofUhY5Sld/iiL3U4 ID heimdall:env_be1326f9d4e965dfd5a2671330e91485:op_160226ab2026005a0ff20b4b4858c2b6:15863910025284525717 (serial 15863910025284525717) CA ED25519 SHA256:rn7juyjxp0Pl+D1cMwFl0okNdZV6AFj4R8A4qclUh8Y\"",
+            "m03 observation: client_trace_row family=win32 version=9.5p2 sshd_log=\"Failed publickey for <user> from 127.0.0.1 port 46586 ssh2: ED25519 SHA256:joDiBVfFHlcJS+QagAjgx7DPnBQofUhY5Sld/iiL3U4\""
+          ]
+        }
+      },
+      {
+        "platform": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+        "status": "verified",
+        "passed": 12,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host (6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c)": 0,
+          "remote: create the run directories exclusively (run M03-U13-wsl-300f73153604)": 0,
+          "staged heimdall copy still has the verified sha256": 0,
+          "local tar extraction of heimdall and the scenario files into WSL scratch": 0,
+          "remote: pinned image, import, prepare, the ordinary-ssh scenario, terminate and unregister the disposable distribution": 0,
+          "registered WSL distributions equal to the set before the import (the disposable one unregistered, no other touched)": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming a host, a user, a home or the controller distribution (0)": 0,
+          "remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent": 0,
+          "remote: create the run directories exclusively (run M02-U11-wsl-bc4a7449dab3)": 0
+        },
+        "artifact_digest": "sha256:9a48ff1dd2a9e27739ee02abb168f267b8cdc739b70a6bf3552cfb34f53f4e0d (sha256 of the wsl-distro/ and wsl-distro-m02/ lines of digests.txt)",
+        "logs": [
+          "wsl-distro/tests.txt",
+          "wsl-distro-m02/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "enrollment with 1Password as the existing access",
+        "status": "blocked",
+        "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7)"
+      },
+      {
+        "platform": "enrollment through the Windows system ssh-agent as the source provider",
+        "status": "blocked",
+        "blocked_on": "B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7)"
+      },
+      {
+        "platform": "enrollment through a touch-required existing identity (provider-interaction path of D5 §6.10)",
+        "status": "blocked",
+        "blocked_on": "B6: a hardware security key (FIDO2) owned for testing (m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 21,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::a10_bound_consumer_issuer_reachability_recorded": [
+            "m03 observation: a10 macos issuer_path none (endpoints: control=1 environment=1 binding=1 issuer=0 other=0; control: the worker's live binding endpoint is among them)",
+            "m03 observation: a10 macos issuer_child_sockets 0 (control: the runtime holds 6 sockets by the same reading)",
+            "m03 observation: a10 macos ca_key_listed 0 (agent endpoints listed: 2 from the test, 2 from the worker; control: the worker's binding endpoint lists exactly its grant's certificate, key ID and serial)",
+            "m03 observation: a10 macos issuer_pipe_descriptors 0 (exact PIDs checked: the bound worker and 0 other runtime children; controls: the runtime holds both issuer pipes' other ends, the worker's stdout and stderr are identified as the pipes it was given)",
+            "m03 observation: a10 macos keychain_item_reading unobservable: this run's issuer store is the fixture scratch store, not a keychain item (the product keychain row needs a disposable account, B3)",
+            "m03 observation: a10 macos k_ca_bytes 0 (outputs=14 files=22 crash_files=0 process_argv=3 process_environ=0; control: the CA public blob found in 3 Heimdall-home files)",
+            "m03 observation: a10 macos k_ca_bytes unobservable: environment of the issuer child process: macOS shows another process's environment only with privilege",
+            "m03 observation: a10 macos k_ca_bytes unobservable: environment of the runtime process: macOS shows another process's environment only with privilege",
+            "m03 observation: a10 macos k_ca_bytes unobservable: environment of the worker process: macOS shows another process's environment only with privilege",
+            "m03 observation: a10 macos issuer_isolation same_user_process: the boundary is the OS user"
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 19,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 2,
+        "excluded_by_rationale": {
+          "integration_testkit_m03::docker_ca_hook_is_container_internal_only": 1,
+          "integration_testkit_m03::docker_enrollable2_seeded_like_enrollable": 1
+        },
+        "observations": {
+          "e2e_exit_m03::a10_bound_consumer_issuer_reachability_recorded": [
+            "m03 observation: a10 linux issuer_path none (endpoints: control=1 environment=1 binding=1 issuer=0 other=0; control: the worker's live binding endpoint is among them)",
+            "m03 observation: a10 linux issuer_child_sockets unobservable: /proc/<pid>/fd is root's for a non-dumpable process (harden_process)",
+            "m03 observation: a10 linux bound_unix_sockets_naming_issuer 0 (the namespace's sockets bound under the Heimdall home are exactly its 3 endpoints; control: the runtime's listeners are listed)",
+            "m03 observation: a10 linux ca_key_listed 0 (agent endpoints listed: 2 from the test, 2 from the worker; control: the worker's binding endpoint lists exactly its grant's certificate, key ID and serial)",
+            "m03 observation: a10 linux issuer_pipe_descriptors 0 (the bound worker holds no pipe but the stdout and stderr this test gave it, so none of the issuer's; 0 other runtime children, not comparable; the issuer pipes' identities are unobservable here: /proc/<pid>/fd is root's for a non-dumpable process (harden_process))",
+            "m03 observation: a10 linux secret_service_item_reading unobservable: no disposable Secret Service on this run (B11)",
+            "m03 observation: a10 linux k_ca_bytes 0 (outputs=14 files=22 crash_files=0 process_argv=3 process_environ=1; control: the CA public blob found in 3 Heimdall-home files)",
+            "m03 observation: a10 linux k_ca_bytes unobservable: environment of the issuer child process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)",
+            "m03 observation: a10 linux k_ca_bytes unobservable: environment of the runtime process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)",
+            "m03 observation: a10 linux k_ca_bytes unobservable: system core dumps: core_pattern pipes to a handler whose dumps only root reads",
+            "m03 observation: a10 linux issuer_isolation same_user_process: the boundary is the OS user"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 5,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 16,
+        "excluded_by_rationale": {
+          "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_account_form": 1,
+          "e2e_enroll_m03::a10_narrow_certificate_refused_on_other_host_system_form": 1,
+          "integration_enroll_verify": 11,
+          "integration_issuer_child::process::issuer_path_never_exists_through_runtime_lifecycle": 1,
+          "integration_testkit_m03::docker_ca_hook_is_container_internal_only": 1,
+          "integration_testkit_m03::docker_enrollable2_seeded_like_enrollable": 1
+        },
+        "observations": {
+          "e2e_exit_m03::a10_bound_consumer_issuer_reachability_recorded": [
+            "m03 observation: a10 windows issuer_path none (endpoints: control=1 environment=1 binding=1 issuer=0 other=0; control: the worker's live binding endpoint is among them)",
+            "m03 observation: a10 windows issuer_child_sockets unobservable: another process's handles are not listed without privilege",
+            "m03 observation: a10 windows ca_key_listed 0 (agent endpoints listed: 2 from the test, 2 from the worker; control: the worker's binding endpoint lists exactly its grant's certificate, key ID and serial)",
+            "m03 observation: a10 windows issuer_pipe_descriptors unobservable: the descriptor check is Unix-only (m03-plan U13); another process's handles are not listed without privilege",
+            "m03 observation: a10 windows worker_reads_ca_dpapi_item yes (control: the worker read a scratch DPAPI test item)",
+            "m03 observation: a10 windows k_ca_bytes 0 (outputs=14 files=23 crash_files=0 process_argv=3 process_environ=0; control: the CA public blob found in 1 Heimdall-home files)",
+            "m03 observation: a10 windows k_ca_bytes unobservable: environment of the issuer child process: Windows has no documented unprivileged reading of another process's environment",
+            "m03 observation: a10 windows k_ca_bytes unobservable: environment of the runtime process: Windows has no documented unprivileged reading of another process's environment",
+            "m03 observation: a10 windows k_ca_bytes unobservable: environment of the worker process: Windows has no documented unprivileged reading of another process's environment",
+            "m03 observation: a10 windows issuer_isolation same_user_process: the boundary is the OS user"
+          ]
+        }
+      },
+      {
+        "platform": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+        "status": "verified",
+        "passed": 3,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host (6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c)": 0,
+          "remote: create the run directories exclusively (run M03-U13-wsl-300f73153604)": 0,
+          "staged heimdall copy still has the verified sha256": 0,
+          "local tar extraction of heimdall and the scenario files into WSL scratch": 0,
+          "remote: pinned image, import, prepare, the ordinary-ssh scenario, terminate and unregister the disposable distribution": 0,
+          "registered WSL distributions equal to the set before the import (the disposable one unregistered, no other touched)": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming a host, a user, a home or the controller distribution (0)": 0,
+          "remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent": 0,
+          "remote: create the run directories exclusively (run M02-U11-wsl-bc4a7449dab3)": 0
+        },
+        "artifact_digest": "sha256:9a48ff1dd2a9e27739ee02abb168f267b8cdc739b70a6bf3552cfb34f53f4e0d (sha256 of the wsl-distro/ and wsl-distro-m02/ lines of digests.txt)",
+        "logs": [
+          "wsl-distro/tests.txt",
+          "wsl-distro-m02/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux desktop: the Secret Service reachability row (what a same-user worker can reach of the issuer store)",
+        "status": "blocked",
+        "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 56,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "integration_connections::unix::foreign_master_at_stable_path_never_serves_after_revocation": [
+            "m03 observation: foreign_master_after_revocation ordinary_exit=Some(0) new_auth=true"
+          ],
+          "integration_connections::unix::forward_through_master_refused_without_permit_port_forwarding": [
+            "m03 observation: forward_through_master control_exit=Some(0) listener=true banner_through_forward=false",
+            "m03 observation: forward_through_master server_lines=0"
+          ],
+          "integration_connections::unix::o_stop_and_o_exit_behaviour_recorded_per_client": [
+            "m03 observation: o_stop client=\"OpenSSH_10.5p1, LibreSSL 3.3.6\" exit=Some(0) master_alive=true preaccepted_alive=true socket_left=false new_session_exit=Some(0) new_session_new_auth=true o_exit_after_stop_exit=Some(255)",
+            "m03 observation: o_exit client=\"OpenSSH_10.5p1, LibreSSL 3.3.6\" exit=Some(0) master_gone=true preaccepted_ended=true socket_left=false"
+          ],
+          "integration_connections::unix::remote_command_stalled_after_its_pidfile_leaves_no_process": [
+            "m03 observation: stalled_remote_command stall=AfterPidfile pid=27497 token=1795025474.855924"
+          ],
+          "integration_connections::unix::remote_command_stalled_before_its_pidfile_leaves_no_process": [
+            "m03 observation: stalled_remote_command stall=BeforePidfile pid=27509 token=1795025474.867213"
+          ],
+          "integration_connections::unix::remote_process_survives_close_reported_not_terminated": [
+            "m03 observation: remote_process_after_close alive=true reported=NotTerminated"
+          ],
+          "integration_connections::unix::run_of_non_ssh_program_reports_existing_connections_not_controlled": [
+            "m03 observation: run_non_ssh existing_connections=NotControlled"
+          ],
+          "integration_connections::unix::unmanaged_alias_master_reported_not_controlled": [
+            "m03 observation: unmanaged_alias_master owned=false reported=NotControlled"
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 56,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "integration_connections::unix::foreign_master_at_stable_path_never_serves_after_revocation": [
+            "m03 observation: foreign_master_after_revocation ordinary_exit=Some(0) new_auth=true"
+          ],
+          "integration_connections::unix::forward_through_master_refused_without_permit_port_forwarding": [
+            "m03 observation: forward_through_master control_exit=Some(0) listener=true banner_through_forward=false",
+            "m03 observation: forward_through_master server_lines=0"
+          ],
+          "integration_connections::unix::o_stop_and_o_exit_behaviour_recorded_per_client": [
+            "m03 observation: o_stop client=\"OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024\" exit=Some(0) master_alive=true preaccepted_alive=true socket_left=false new_session_exit=Some(0) new_session_new_auth=true o_exit_after_stop_exit=Some(255)",
+            "m03 observation: o_exit client=\"OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024\" exit=Some(0) master_gone=true preaccepted_ended=true socket_left=false"
+          ],
+          "integration_connections::unix::remote_command_stalled_after_its_pidfile_leaves_no_process": [
+            "m03 observation: stalled_remote_command stall=AfterPidfile pid=2216226 token=2e7a23db-b46c-4752-9061-22fcf4233b6e:279204629"
+          ],
+          "integration_connections::unix::remote_command_stalled_before_its_pidfile_leaves_no_process": [
+            "m03 observation: stalled_remote_command stall=BeforePidfile pid=2216257 token=2e7a23db-b46c-4752-9061-22fcf4233b6e:279204685"
+          ],
+          "integration_connections::unix::remote_process_survives_close_reported_not_terminated": [
+            "m03 observation: remote_process_after_close alive=true reported=NotTerminated"
+          ],
+          "integration_connections::unix::run_of_non_ssh_program_reports_existing_connections_not_controlled": [
+            "m03 observation: run_non_ssh existing_connections=NotControlled"
+          ],
+          "integration_connections::unix::unmanaged_alias_master_reported_not_controlled": [
+            "m03 observation: unmanaged_alias_master owned=false reported=NotControlled"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 24,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 43,
+        "excluded_by_rationale": {
+          "e2e_consumer_m03::connect_existing_access_pair_flow_unchanged_from_m02": 1,
+          "integration_connections::unix::": 42
+        },
+        "observations": {
+          "e2e_deadline_m03::windows::windows_non_ssh_run_has_no_job_object_by_default": [
+            "m03 observation: windows_non_ssh_run child_job=none test_in_job=false"
+          ],
+          "e2e_deadline_m03::windows::windows_revoke_between_register_and_resume_kills_child": [
+            "m03 observation: windows_resume_after_terminate result=Err(Some(\"connection_registration_failed\"))"
+          ],
+          "integration_connections::windows_owned_multiplexing_reported_unavailable": [
+            "m03 observation: windows_ssh_master_attempt exit=Some(-1) socket=false first_line=\"getsockname failed: Not a socket\""
+          ]
+        }
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 9,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::a33_secret_bytes_scan_all_artifacts": [
+            "m03 observation: a33 macos secret_bytes 0 (kinds: k_env 80 forms, k_ca 12 forms, canary 2 forms; checkpoints: after the activation [outputs=18 files=25 crash_files=0 process_argv=4 process_environ=0]; after the re-issue [outputs=42 files=25 crash_files=0 process_argv=4 process_environ=0]; after the revocation [outputs=48 files=19 crash_files=0 process_argv=3 process_environ=0]; controls: CA public blob in 1 Heimdall-home files, placed canary seen in 0 environments, all 4 K_env seeded (indices [0, 3, 1, 2]))",
+            "m03 observation: a33 macos fake_adapter_credential_ref_in_effect_receipts 10 (the test configuration's canary-named credential reference, stored by design in the state database's effect receipts; not counted)",
+            "m03 observation: a33 macos unobservable: environment of the fixture server process: macOS shows another process's environment only with privilege",
+            "m03 observation: a33 macos unobservable: environment of the issuer child process: macOS shows another process's environment only with privilege",
+            "m03 observation: a33 macos unobservable: environment of the runtime process: macOS shows another process's environment only with privilege",
+            "m03 observation: a33 macos unobservable: environment of the worker process: macOS shows another process's environment only with privilege"
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 9,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::a33_secret_bytes_scan_all_artifacts": [
+            "m03 observation: a33 linux secret_bytes 0 (kinds: k_env 80 forms, k_ca 12 forms, canary 2 forms; checkpoints: after the activation [outputs=18 files=25 crash_files=0 process_argv=4 process_environ=2]; after the re-issue [outputs=42 files=25 crash_files=0 process_argv=4 process_environ=2]; after the revocation [outputs=48 files=19 crash_files=0 process_argv=3 process_environ=1]; controls: CA public blob in 2 Heimdall-home files, placed canary seen in 2 environments, all 4 K_env seeded (indices [0, 3, 1, 2]))",
+            "m03 observation: a33 linux fake_adapter_credential_ref_in_effect_receipts 10 (the test configuration's canary-named credential reference, stored by design in the state database's effect receipts; not counted)",
+            "m03 observation: a33 linux unobservable: environment of the issuer child process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)",
+            "m03 observation: a33 linux unobservable: environment of the runtime process: /proc/<pid>/environ is root's for a non-dumpable process (harden_process)",
+            "m03 observation: a33 linux unobservable: system core dumps: core_pattern pipes to a handler whose dumps only root reads"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 6,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 3,
+        "excluded_by_rationale": {
+          "e2e_issuer_ceremony::d5_backup_restores_with_stock_ssh_keygen": 1,
+          "e2e_issuer_ceremony::passphrase_only_on_tty_transcript": 1,
+          "integration_credential_memory::core_dumps_disabled_after_harden": 1
+        },
+        "observations": {
+          "e2e_exit_m03::a33_secret_bytes_scan_all_artifacts": [
+            "m03 observation: a33 windows secret_bytes 0 (kinds: k_env 80 forms, k_ca 12 forms, canary 2 forms; checkpoints: after the activation [outputs=18 files=25 crash_files=0 process_argv=3 process_environ=0]; after the re-issue [outputs=42 files=25 crash_files=0 process_argv=3 process_environ=0]; after the revocation [outputs=48 files=19 crash_files=0 process_argv=2 process_environ=0]; controls: CA public blob in 2 Heimdall-home files, placed canary seen in 0 environments, all 4 K_env seeded (indices [0, 3, 1, 2]))",
+            "m03 observation: a33 windows fake_adapter_credential_ref_in_effect_receipts 10 (the test configuration's canary-named credential reference, stored by design in the state database's effect receipts; not counted)",
+            "m03 observation: a33 windows unobservable: environment of the issuer child process: Windows has no documented unprivileged reading of another process's environment",
+            "m03 observation: a33 windows unobservable: environment of the runtime process: Windows has no documented unprivileged reading of another process's environment",
+            "m03 observation: a33 windows unobservable: environment of the worker process: Windows has no documented unprivileged reading of another process's environment"
+          ]
+        }
+      },
+      {
+        "platform": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+        "status": "verified",
+        "passed": 1,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host (6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c)": 0,
+          "remote: create the run directories exclusively (run M03-U13-wsl-300f73153604)": 0,
+          "staged heimdall copy still has the verified sha256": 0,
+          "local tar extraction of heimdall and the scenario files into WSL scratch": 0,
+          "remote: pinned image, import, prepare, the ordinary-ssh scenario, terminate and unregister the disposable distribution": 0,
+          "registered WSL distributions equal to the set before the import (the disposable one unregistered, no other touched)": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming a host, a user, a home or the controller distribution (0)": 0,
+          "remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent": 0,
+          "remote: create the run directories exclusively (run M02-U11-wsl-bc4a7449dab3)": 0
+        },
+        "artifact_digest": "sha256:9a48ff1dd2a9e27739ee02abb168f267b8cdc739b70a6bf3552cfb34f53f4e0d (sha256 of the wsl-distro/ and wsl-distro-m02/ lines of digests.txt)",
+        "logs": [
+          "wsl-distro/tests.txt",
+          "wsl-distro-m02/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "support bundles (secret-byte scan of generated bundles)",
+        "status": "deferred_with_decision",
+        "decision": "m03-plan §3, §4.5: support bundles are M08 (their rows are deferred_with_decision)"
+      },
+      {
+        "platform": "update artifacts (secret-byte scan of update artifacts)",
+        "status": "deferred_with_decision",
+        "decision": "m03-plan §3, §4.5: update artifacts are M08 (their rows are deferred_with_decision)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 8,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 8,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 8,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 4,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 4,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 4,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 1,
+        "excluded_by_rationale": {
+          "e2e_tui_m03::pty::time_confirmation_chore_shown_after_reboot": 1
+        },
+        "observations": {
+          "e2e_exit_m03::windows_runtime_children_have_no_console_window": [
+            "m03 observation: windows_runtime_children_console heimdall.exe=no-window"
+          ]
+        }
+      },
+      {
+        "platform": "the human walkthrough of allowing background work once",
+        "status": "blocked",
+        "blocked_on": "B7: the owner as participant (the human walkthrough of allowing background work once without routine unlocks; m03-plan §7)"
+      },
+      {
+        "platform": "native reboot and logout rows (the runtime start and one attended time confirm counted as chores after a real reboot)",
+        "status": "blocked",
+        "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 10,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 10,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 10,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 5,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "integration_connections::unix::remote_process_survives_close_reported_not_terminated": [
+            "m03 observation: remote_process_after_close alive=true reported=NotTerminated"
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 5,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "integration_connections::unix::remote_process_survives_close_reported_not_terminated": [
+            "m03 observation: remote_process_after_close alive=true reported=NotTerminated"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 4,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 1,
+        "excluded_by_rationale": {
+          "integration_connections::unix::": 1
+        }
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 88,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "integration_git_observe::git_both_global_files_present_values_in_either_make_item_not_applicable": [
+            "observation test=git_both_global_files_present_values_in_either_make_item_not_applicable git=\"git version 2.54.0 (Apple Git-157)\" global_query_reads_xdg_when_home_file_exists=\"false\""
+          ],
+          "integration_git_observe::git_global_file_resolution_follows_read_order": [
+            "observation test=git_global_file_resolution_follows_read_order git=\"git version 2.54.0 (Apple Git-157)\" git_var_exit=\"0\" git_var_global=\"<scratch>/home/.config/git/config,<scratch>/home/.gitconfig\" unscoped_read_order=\"xdg-value,home-value\""
+          ],
+          "integration_git_observe::git_queries_use_includes_flag_and_expand_includes": [
+            "observation test=git_queries_use_includes_flag_and_expand_includes git=\"git version 2.54.0 (Apple Git-157)\" with_includes_exit=\"0\" without_includes_exit=\"1\""
+          ],
+          "integration_git_observe::git_run_selection_in_cwd_reports_local_override": [
+            "observation test=git_run_selection_in_cwd_reports_local_override git=\"git version 2.54.0 (Apple Git-157)\" git_bundles_msys_ssh=\"false\""
+          ],
+          "integration_git_observe::git_value_through_conditional_include_is_counted_conditional": [
+            "observation test=git_value_through_conditional_include_is_counted_conditional git=\"git version 2.54.0 (Apple Git-157)\" query_outside_repository_exit=\"1\""
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 88,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "integration_git_observe::git_both_global_files_present_values_in_either_make_item_not_applicable": [
+            "observation test=git_both_global_files_present_values_in_either_make_item_not_applicable git=\"git version 2.43.0\" global_query_reads_xdg_when_home_file_exists=\"false\""
+          ],
+          "integration_git_observe::git_global_file_resolution_follows_read_order": [
+            "observation test=git_global_file_resolution_follows_read_order git=\"git version 2.43.0\" git_var_exit=\"0\" git_var_global=\"<scratch>/home/.config/git/config,<scratch>/home/.gitconfig\" unscoped_read_order=\"xdg-value,home-value\""
+          ],
+          "integration_git_observe::git_queries_use_includes_flag_and_expand_includes": [
+            "observation test=git_queries_use_includes_flag_and_expand_includes git=\"git version 2.43.0\" with_includes_exit=\"0\" without_includes_exit=\"1\""
+          ],
+          "integration_git_observe::git_run_selection_in_cwd_reports_local_override": [
+            "observation test=git_run_selection_in_cwd_reports_local_override git=\"git version 2.43.0\" git_bundles_msys_ssh=\"false\""
+          ],
+          "integration_git_observe::git_value_through_conditional_include_is_counted_conditional": [
+            "observation test=git_value_through_conditional_include_is_counted_conditional git=\"git version 2.43.0\" query_outside_repository_exit=\"1\""
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 79,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 9,
+        "excluded_by_rationale": {
+          "e2e_cli_m02::ssh::a01_personal_profile_without_repository": 1,
+          "e2e_enroll_m03::enroll_account_approval_records_lock_disclosure_acknowledgement_once": 1,
+          "e2e_enroll_m03::enroll_reconcile_unreachable": 1,
+          "e2e_enroll_m03::enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check": 1,
+          "e2e_run_m02::a11::a11_confirm_constrained_native_key_refused_before_agent_contact": 1,
+          "e2e_run_m02::a11::a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact": 1,
+          "e2e_run_m02::a11::a11_interactive_connect_succeeds_after_provider_approval": 1,
+          "integration_adapters::a11_locked_native_agent_lists_nothing": 1,
+          "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": 1
+        },
+        "observations": {
+          "integration_git_observe::git_both_global_files_present_values_in_either_make_item_not_applicable": [
+            "observation test=git_both_global_files_present_values_in_either_make_item_not_applicable git=\"git version 2.55.0.windows.3\" global_query_reads_xdg_when_home_file_exists=\"false\""
+          ],
+          "integration_git_observe::git_global_file_resolution_follows_read_order": [
+            "observation test=git_global_file_resolution_follows_read_order git=\"git version 2.55.0.windows.3\" git_var_exit=\"0\" git_var_global=\"<scratch>/home/.config/git/config,<scratch>/home/.gitconfig\" unscoped_read_order=\"xdg-value,home-value\""
+          ],
+          "integration_git_observe::git_queries_use_includes_flag_and_expand_includes": [
+            "observation test=git_queries_use_includes_flag_and_expand_includes git=\"git version 2.55.0.windows.3\" with_includes_exit=\"0\" without_includes_exit=\"1\""
+          ],
+          "integration_git_observe::git_run_selection_in_cwd_reports_local_override": [
+            "observation test=git_run_selection_in_cwd_reports_local_override git=\"git version 2.55.0.windows.3\" git_bundles_msys_ssh=\"true\""
+          ],
+          "integration_git_observe::git_value_through_conditional_include_is_counted_conditional": [
+            "observation test=git_value_through_conditional_include_is_counted_conditional git=\"git version 2.55.0.windows.3\" query_outside_repository_exit=\"1\""
+          ]
+        }
+      },
+      {
+        "platform": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+        "status": "verified",
+        "passed": 4,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host (6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c)": 0,
+          "remote: create the run directories exclusively (run M03-U13-wsl-300f73153604)": 0,
+          "staged heimdall copy still has the verified sha256": 0,
+          "local tar extraction of heimdall and the scenario files into WSL scratch": 0,
+          "remote: pinned image, import, prepare, the ordinary-ssh scenario, terminate and unregister the disposable distribution": 0,
+          "registered WSL distributions equal to the set before the import (the disposable one unregistered, no other touched)": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming a host, a user, a home or the controller distribution (0)": 0,
+          "remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent": 0,
+          "remote: create the run directories exclusively (run M02-U11-wsl-bc4a7449dab3)": 0
+        },
+        "artifact_digest": "sha256:9a48ff1dd2a9e27739ee02abb168f267b8cdc739b70a6bf3552cfb34f53f4e0d (sha256 of the wsl-distro/ and wsl-distro-m02/ lines of digests.txt)",
+        "logs": [
+          "wsl-distro/tests.txt",
+          "wsl-distro-m02/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "1Password live rows (every platform; carried from M02 A11/A35)",
+        "status": "blocked",
+        "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7)"
+      },
+      {
+        "platform": "windows-11 system agent, incl. its confirm-constrained row (carried from M02 A11/A35)",
+        "status": "blocked",
+        "blocked_on": "B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7)"
+      },
+      {
+        "platform": "hardware-key touch-required row (carried from M02 A11)",
+        "status": "blocked",
+        "blocked_on": "B6: a hardware security key (FIDO2) owned for testing (m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 10,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "macos-arm64 login-keychain product row (K_ca item written at init, read at issuer start, during lock, after login, ACL behaviour across ad-hoc-signed updates)",
+        "status": "blocked",
+        "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 data-protection keychain row (P6) and Secure Enclave persistent keys, the signed bundle",
+        "status": "blocked",
+        "blocked_on": "B13: Apple Developer membership (G04 D3; ADR-0002 Q-F; m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 2,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 2,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 2,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "windows-11 DPAPI cross-user unprotect refusal (a second Windows account)",
+        "status": "blocked",
+        "blocked_on": "B2: the disposable second Windows account (one elevation consent; m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 3,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 3,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 3,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 0
+      },
+      {
+        "platform": "linux desktop Secret Service over DH, K_ca availability after login (the product store row)",
+        "status": "blocked",
+        "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "passed": 14,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)": 0,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0,
+          "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output": 0,
+          "HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output": 0,
+          "tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED": 0,
+          "release the Docker fixture ownership lock": 0,
+          "canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)": 0,
+          "leak scan over macos/ after the Docker phase (0)": 0
+        },
+        "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt",
+          "macos/docker.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::real_issuer_activation_reissue_revocation_with_fresh_logins": [
+            "m03 observation: issuer_child macos activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial"
+          ]
+        }
+      },
+      {
+        "platform": "linux-x86_64 (devbox, headless)",
+        "status": "verified",
+        "passed": 14,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 672 files)": 0,
+          "tar stream of 87 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::real_issuer_activation_reissue_revocation_with_fresh_logins": [
+            "m03 observation: issuer_child linux activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial"
+          ]
+        }
+      },
+      {
+        "platform": "windows-11-x86_64 (native msvc, local mode)",
+        "status": "verified",
+        "passed": 14,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "git clone of the public repository into the run directory": 0,
+          "git config --local core.autocrlf false (the clone's own configuration)": 0,
+          "git config --local core.longpaths true (the clone's own configuration)": 0,
+          "git checkout --detach <exit commit>": 0,
+          "the checked-out tree has LF line endings (core.autocrlf=false)": 0,
+          "the clone is at exactly the exit commit": 0,
+          "rustup-init.exe downloaded over HTTPS and its sha256 matches the published one": 0,
+          "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)": 0,
+          "cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)": 0,
+          "wsl.exe: create the WSL scratch directory exclusively": 0,
+          "fixture sshd in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1": 0,
+          "fixture sshd enrollment registry in WSL scratch exported": 0,
+          "no heimdall process left under the run directory with its parent gone after the tests (0 recorded and stopped by exact PID)": 0,
+          "every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by the run": 0,
+          "wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run": 0,
+          "wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run": 0,
+          "wsl.exe: remove exactly the WSL scratch directory, then check it is absent": 0,
+          "remove the clone, the build and the toolchain from the run directory, then check they are absent": 0,
+          "canary-prefix scan over saved output and metadata (count = 0)": 0,
+          "leak scan: saved files and metadata still naming a host, a user or a home (0)": 0
+        },
+        "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)",
+        "logs": [
+          "windows/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "observations": {
+          "e2e_exit_m03::real_issuer_activation_reissue_revocation_with_fresh_logins": [
+            "m03 observation: issuer_child windows activation=signed_and_login_accepted reissue=signed_and_login_accepted revocation=login_refused reissue_trigger=runtime_restart_same_boot key_id_last_field=serial"
+          ]
+        }
+      },
+      {
+        "platform": "native sleep across a deadline (macOS, Windows, Linux desktop)",
+        "status": "blocked",
+        "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+      },
+      {
+        "platform": "re-issue after logout and after reboot (ADR-0005 §9.3 P2, P3, P4, P-W2, P-L2, R4); the synchronized-time behaviour after a real reboot",
+        "status": "blocked",
+        "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+      },
+      {
+        "platform": "macOS logout row with a disposable account",
+        "status": "blocked",
+        "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+      },
+      {
+        "platform": "macos-arm64 lock procedure (debug build, test store: mechanism evidence only)",
+        "status": "blocked",
+        "passed": 0,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [
+          "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
+          "e2e_exit_m03::lock::a03_lock_cleanup",
+          "e2e_exit_m03::lock::a03_lock_prepare",
+          "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
+          "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
+          "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter",
+          "integration_session_lock::macos_lock_signal_observed"
+        ],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": null,
+        "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
+        "logs": [],
+        "excluded_on_this_platform": 0,
+        "blocked_on": "pending: the macOS lock run at E8 waits for the owner (the session must read unlocked, then 960 s of console idle); these rows are rewritten when it completes. Earlier attempts are not evidence: the E5 run was killed with the session that started it, the E7 run was blocked (unlock_not_observed within 43200 s), and the first E8 attempt was refused because the screen was already locked"
+      },
+      {
+        "platform": "windows-11-x86_64 lock procedure (release profile, product DPAPI store)",
+        "status": "blocked",
+        "passed": 0,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [
+          "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
+          "e2e_exit_m03::lock::a03_lock_cleanup",
+          "e2e_exit_m03::lock::a03_lock_prepare",
+          "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
+          "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
+          "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
+          "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter"
+        ],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": null,
+        "artifact_digest": null,
+        "logs": [
+          "windows-lock/tests.txt"
+        ],
+        "excluded_on_this_platform": 0,
+        "platform_required_not_passed": {
+          "e2e_exit_m03::lock::a03_issuer_restart_dpapi_unprotect_while_locked": "absent",
+          "integration_session_lock::windows_lock_signal_observed": "absent"
+        },
+        "blocked_on": "B2: the disposable second Windows account (its profile carries the .heimdall-disposable-account marker; one elevation consent to create it): a release-profile runtime projects into the account's own ~/.ssh (ProjectionWiring::Account), so the Windows lock procedure runs only there (the orchestrator's ruling on I-9; m03-plan §7)"
+      }
+    ],
+    "note": null,
+    "row_statuses": {
+      "verified": 49,
+      "blocked": 24,
+      "deferred_with_decision": 3
+    },
+    "summary": "m03-plan §3: every M03 exit case and claim per platform, all rows from one build; blocked while any owner-input row (B1-B13) is blocked (the lowest-row rule)."
+  },
+  "evidence_paths": [
+    "tests/native/m03/case-index.json",
+    "tests/native/m03/runs.json",
+    "tests/native/m03/required-inventory.json",
+    "tests/native/m03/m03-evidence.py",
+    "tests/native/m03/run-linux.sh",
+    "tests/native/m03/remote-facts.sh",
+    "tests/native/m03/lock-macos.sh",
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows.sh",
+    "tests/native/m02/run-windows-local.ps1",
+    "tests/native/m02/import-windows-bundle.py",
+    "tests/native/m02/run-wsl-distro.sh",
+    "tests/native/m02/scenario-ordinary-ssh.sh",
+    "tests/native/m02/target-root.sh",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/pty-answer.py",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/selftest.sh",
+    "tests/native/m02/m02-evidence.py",
+    "tests/native/m03/run-macos.sh",
+    "tests/native/m03/lock-lib.sh",
+    "tests/native/m03/lock-windows.ps1",
+    "tests/native/m03/run-windows-local.ps1",
+    "tests/native/m03/run-wsl-distro.sh",
+    "tests/native/m03/scenario-managed.sh",
+    "tests/native/m03/refresh-inventory.sh",
+    "tests/native/m03/selftest.sh",
+    "tests/native/m03/case-index.json",
+    "tests/evidence/artifacts/m03/exit-da51b055/case-summary.json"
+  ],
+  "limitations": [
+    "Status discipline (m03-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m03-plan §7, B1-B13) keeps its record blocked, and no claim is widened to cover it.",
+    "Debug test builds on the test store are mechanism evidence only: only a release-profile run on a product store kind can carry a custody claim (ADR-0008 D12 item 3, F03); in M03 that is the Windows DPAPI row alone. The macOS lock_continuity claim stays not_verified (B3).",
+    "Linux and Windows binaries are cross-built on the macOS host with zig and run natively on the hosts (Windows: built and run natively on the PC); tests that read the repository at its compile-time path run on the build host only (case-index.json build_host_paths): a platform-neutral one counts as run elsewhere, any other keeps its row in_progress (harness gap).",
+    "The Docker cases (#[ignore = \"docker: …\"]) run on the macOS build host only (HM_DOCKER_TESTS=1 after up.sh): the devbox has no Docker (B8) and the Windows PC runs the fixture sshd in WSL scratch.",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration, scratch and disposable file keychains, a disposable WSL distribution; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material (m03-plan §0.2)."
+  ],
+  "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7); B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7); B13: Apple Developer membership (G04 D3; ADR-0002 Q-F; m03-plan §7); B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7); B2: the disposable second Windows account (its profile carries the .heimdall-disposable-account marker; one elevation consent to create it): a release-profile runtime projects into the account's own ~/.ssh (ProjectionWiring::Account), so the Windows lock procedure runs only there (the orchestrator's ruling on I-9; m03-plan §7); B2: the disposable second Windows account (one elevation consent; m03-plan §7); B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7); B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7); B6: a hardware security key (FIDO2) owned for testing (m03-plan §7); B7: the owner as participant (the human walkthrough of allowing background work once without routine unlocks; m03-plan §7); pending: the macOS lock run at E8 waits for the owner (the session must read unlocked, then 960 s of console idle); these rows are rewritten when it completes. Earlier attempts are not evidence: the E5 run was killed with the session that started it, the E7 run was blocked (unlock_not_observed within 43200 s), and the first E8 attempt was refused because the screen was already locked"
+}

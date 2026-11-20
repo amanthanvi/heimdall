@@ -1,0 +1,358 @@
+{
+  "$comment": "Configuration of the M03 exit runs (m03-plan §4), for m03-evidence.py. The builds: E5 da51b0558a14e08f9af27e47ec0c34304e301b22 (a product fix, ADR-0008 §17.42); E6 3f61d242, E7 7300cfa0199a3c463d825c214c7b38ce72b1a98e and E8 7b75c4c12e925bf4049f67d10ce58ff3b63559e7, test and harness files only; E9 2b79aac1b6bea72f886cef2331c9e3b5d0a123e8 (ADR-0008 §17.43, ruling I-24), cfg(windows) product code and Windows tests only. The macOS and Linux release heimdall are byte-identical from E5 to E9 (E8 and E9 built in one worktree: macOS b9a40f70960492b510243ebb0a75e83e97554a9a44e257f0240a638a7f6f3557, Linux x86_64 6b3af383b43287cc6f3dcd2766d725cc94323372a3cbfd55ae8ffd6f2c8043ba; E5 to E8 at the release worktree: macOS e9eabf9967827332af931409f96aecc4471c5660edf21dcb5f70d16b81343355). The runs: macos/, linux/ (the devbox), wsl-distro/ and wsl-distro-m02/ at E5; windows/ at E9; macos-lock/ at E8 (it binds to E9: E8..E9 is cfg(windows) code and Windows tests only). Every logs, commands_logs and facts path is relative to artifacts_root. The Windows bundle is imported with tests/native/m02/import-windows-bundle.py --artifacts-root tests/evidence/artifacts/m03 --label exit-da51b055 --commit 2b79aac1b6bea72f886cef2331c9e3b5d0a123e8 --config <this file>. Kept, not read by the generator: windows-e7-superseded/ (E7: one M01 timing test, model_revocation r138_2, failed; E8 raised its bound), windows-e8-superseded/ (E8: six e2e_exit_m03 tests failed with the issuer child crashed, issuer_restarting; the most likely cause, a new console per child handed off to Windows Terminal, is fixed at E9), and macos-lock-e7-blocked/ (the E7 lock run: unlock_not_observed within 43200 s). E5 supersedes E4 (518f5c79): every platform reran.",
+  "case_index": "tests/native/m03/case-index.json",
+  "required_inventory": "tests/native/m03/required-inventory.json",
+  "summary_out": "tests/evidence/artifacts/m03/exit-da51b055/case-summary.json",
+  "artifacts_root": "tests/evidence/artifacts/m03/exit-da51b055",
+  "build_commit": "2b79aac1b6bea72f886cef2331c9e3b5d0a123e8 (E9; crates/ and tests/ *.rs sources_sha256 f37e357d1030e0b6e826ff8c910c2c87367759c908ef44ca683b8bc15c7a4b4f, the value in required-inventory.json). The Windows harness ran at E9, the macOS lock procedure at E8, every other run at E5; from E5 to E9 the macOS and Linux release heimdall are byte-identical.",
+  "artifact_digest": "sha256:aedaabada819264f366eae9e10a9b4c0d20747c2e25b1185fb3bbcfdc7438907 (sha256 of tests/evidence/artifacts/m03/exit-da51b055/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in linux/build.txt and windows/build.txt)",
+  "started_at": "2026-11-18",
+  "environment": {
+    "macos": "macOS 27.2.1 (26B131) arm64, OpenSSH_10.5p1 client and server, Apple Git 2.54.0, APFS; Docker 29.9.3 with the M00-T03 fixtures (OpenSSH_10.0p2, Debian 13)",
+    "linux": "Linux 6.8.0-147 x86_64 (the devbox, headless), glibc 2.39, 4 CPUs, OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0, ext4; ptrace_scope 1",
+    "windows": "Windows 11 x64 (10.0.26300.9974), Medium integrity, native x86_64-pc-windows-msvc (rustc 1.99.1, MSVC 18.11.2), in-box OpenSSH_for_Windows_9.5p2, Git for Windows 2.55.0.windows.3; the fixture sshds (OpenSSH 9.6p1, non-root) in WSL scratch on 127.0.0.1; run-windows-local.ps1 in local mode by an agent on the PC, at BelowNormal priority with 4 test threads and 4 jobs; heimdall.exe sha256 782520ae30266b2e54ee02c30f4b9fbe8c1e8237d5f884124b16287df41b7705; at E9 the run needed no readiness retry and left no heimdall.exe or ssh.exe behind",
+    "wsl-distro": "WSL 3.0.5.0 on the same PC: a disposable distribution from the pinned Ubuntu 24.04.5 image (sha256 matches the pin), created and unregistered by name; OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0; root sshds on 127.0.0.1 (StrictModes yes) for the M03 scenario; the Linux heimdall 6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c, verified against HM_PREBUILT_SHA256 before use; local mode inside the controller distribution",
+    "macos-lock": "macOS 27.2.1 (26B131) arm64, the build host: the lock procedure (tests/native/m03/lock-macos.sh) on a debug build with the scratch test store and the platform session-lock source; observed values in macos-lock/lock.txt; grant R's policy window, and so its certificate's validity, 600 s, and N's window 600 s (E5, ruling I-12), so R's residual passes and N expires inside a 20-30 minute lock. The run is E8's (7b75c4c1, started from the release worktree by the orchestrator once the session read unlocked and the console had been idle >= 960 s); E8..E9 changes cfg(windows) code and Windows tests only, so it binds to E9. Pending: the run has not completed"
+  },
+  "commands": [
+    "the Windows harness ran at E9 2b79aac1, the macOS lock procedure at E8 7b75c4c1, and the devbox, macOS with Docker and the WSL M03 and M02 scenarios at E5 da51b055 (2026-11-18/19); the macOS and Linux release heimdall are byte-identical from E5 to E9",
+    "tests/native/m03/refresh-inventory.sh (regenerates tests/native/m03/required-inventory.json at the exit commit, with the Linux and Windows scans)",
+    "tests/native/m03/run-macos.sh <artifacts_root> (writes macos/: check.sh, the observation pass, the Docker phase)",
+    "tests/native/m03/run-linux.sh <artifacts_root>/linux <linuxhost>",
+    "on the PC, by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m03/run-windows-local.ps1 -Commit <exit commit> -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <report> --label <artifacts_root name> --commit <exit commit> --artifacts-root tests/evidence/artifacts/m03 --config <artifacts_root>/runs.json",
+    "on the PC, inside the controller distribution, after the Windows run: HM_LOCAL=1 HM_PREBUILT_HEIMDALL=<linux heimdall> HM_PREBUILT_SHA256=<its sha256> HM_WSL_ROOTFS=<pinned image> HM_WSL_ALLOW_APT=1 bash tests/native/m03/run-wsl-distro.sh <out>/wsl-distro, and the M02 scenario at the same build: bash tests/native/m02/run-wsl-distro.sh <out>/wsl-distro-m02 (same inputs)",
+    "tests/native/m03/lock-macos.sh <artifacts_root>/macos-lock and, on the PC, tests/native/m03/lock-windows.ps1 -ProductBin <release heimdall.exe> -Driver <e2e_exit_m03.exe> -SignalTest <integration_session_lock.exe> -Commit <exit commit> -Out <dir> (ADR-0004 §2 lock rule; bound to the exit commit), imported with --platform-dir windows-lock",
+    "python3 -I tests/native/m03/m03-evidence.py --config <artifacts_root>/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "evidence_paths": [
+    "tests/native/m03/case-index.json",
+    "tests/native/m03/runs.json",
+    "tests/native/m03/required-inventory.json",
+    "tests/native/m03/m03-evidence.py",
+    "tests/native/m03/run-linux.sh",
+    "tests/native/m03/remote-facts.sh",
+    "tests/native/m03/lock-macos.sh",
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows.sh",
+    "tests/native/m02/run-windows-local.ps1",
+    "tests/native/m02/import-windows-bundle.py",
+    "tests/native/m02/run-wsl-distro.sh",
+    "tests/native/m02/scenario-ordinary-ssh.sh",
+    "tests/native/m02/target-root.sh",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/pty-answer.py",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/selftest.sh",
+    "tests/native/m02/m02-evidence.py",
+    "tests/native/m03/run-macos.sh",
+    "tests/native/m03/lock-lib.sh",
+    "tests/native/m03/lock-windows.ps1",
+    "tests/native/m03/run-windows-local.ps1",
+    "tests/native/m03/run-wsl-distro.sh",
+    "tests/native/m03/scenario-managed.sh",
+    "tests/native/m03/refresh-inventory.sh",
+    "tests/native/m03/selftest.sh"
+  ],
+  "common_limitations": [
+    "Status discipline (m03-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m03-plan §7, B1-B13) keeps its record blocked, and no claim is widened to cover it.",
+    "Debug test builds on the test store are mechanism evidence only: only a release-profile run on a product store kind can carry a custody claim (ADR-0008 D12 item 3, F03); in M03 that is the Windows DPAPI row alone. The macOS lock_continuity claim stays not_verified (B3).",
+    "Linux and Windows binaries are cross-built on the macOS host with zig and run natively on the hosts (Windows: built and run natively on the PC); tests that read the repository at its compile-time path run on the build host only (case-index.json build_host_paths): a platform-neutral one counts as run elsewhere, any other keeps its row in_progress (harness gap).",
+    "The Docker cases (#[ignore = \"docker: …\"]) run on the macOS build host only (HM_DOCKER_TESTS=1 after up.sh): the devbox has no Docker (B8) and the Windows PC runs the fixture sshd in WSL scratch.",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration, scratch and disposable file keychains, a disposable WSL distribution; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material (m03-plan §0.2)."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64 (build host)",
+      "logs": [
+        "macos/check.txt",
+        "macos/observations.txt",
+        "macos/docker.txt"
+      ],
+      "commands_logs": [
+        "macos/commands.txt",
+        "macos/docker-commands.txt"
+      ],
+      "facts": [
+        "macos/host.txt",
+        "macos/docker-host.txt"
+      ],
+      "artifact_digest": "sha256:991642c7d17c5755f1b46f7e92559b8985e3b4cd139214a71735389b9f509ff0 (sha256 of the macos/ lines of digests.txt)"
+    },
+    "linux": {
+      "label": "linux-x86_64 (devbox, headless)",
+      "logs": [
+        "linux/tests.txt"
+      ],
+      "commands_logs": [
+        "linux/commands.txt"
+      ],
+      "facts": [
+        "linux/host.txt"
+      ],
+      "artifact_digest": "sha256:78e3d194de48e11fad103a7f6117796fceb607e30b7f93bde9b5fd68ccfe21a4 (sha256 of the linux/ lines of digests.txt)"
+    },
+    "windows": {
+      "label": "windows-11-x86_64 (native msvc, local mode)",
+      "logs": [
+        "windows/tests.txt"
+      ],
+      "commands_logs": [
+        "windows/commands.txt"
+      ],
+      "facts": [
+        "windows/host.txt"
+      ],
+      "artifact_digest": "sha256:8a9df768051feeb1923b30dcf88329c316145d7ee59667fcfdfecbca43ccbcb0 (sha256 of the windows/ lines of digests.txt)"
+    },
+    "wsl-distro": {
+      "label": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+      "logs": [
+        "wsl-distro/tests.txt",
+        "wsl-distro-m02/tests.txt"
+      ],
+      "commands_logs": [
+        "wsl-distro/commands.txt",
+        "wsl-distro-m02/commands.txt"
+      ],
+      "facts": [
+        "wsl-distro/host.txt",
+        "wsl-distro-m02/host.txt"
+      ],
+      "artifact_digest": "sha256:9a48ff1dd2a9e27739ee02abb168f267b8cdc739b70a6bf3552cfb34f53f4e0d (sha256 of the wsl-distro/ and wsl-distro-m02/ lines of digests.txt)"
+    },
+    "macos-lock": {
+      "label": "macos-arm64 lock procedure (debug build, test store: mechanism evidence only)",
+      "logs": [],
+      "commands_logs": [],
+      "facts": [],
+      "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
+      "unavailable": "pending: the macOS lock run at E8 waits for the owner (the session must read unlocked, then 960 s of console idle); these rows are rewritten when it completes. Earlier attempts are not evidence: the E5 run was killed with the session that started it, the E7 run was blocked (unlock_not_observed within 43200 s), and the first E8 attempt was refused because the screen was already locked"
+    },
+    "windows-lock": {
+      "label": "windows-11-x86_64 lock procedure (release profile, product DPAPI store)",
+      "logs": [
+        "windows-lock/tests.txt"
+      ],
+      "commands_logs": [
+        "windows-lock/commands.txt"
+      ],
+      "facts": [
+        "windows-lock/host.txt"
+      ],
+      "artifact_digest": null,
+      "unavailable": "B2: the disposable second Windows account (its profile carries the .heimdall-disposable-account marker; one elevation consent to create it): a release-profile runtime projects into the account's own ~/.ssh (ProjectionWiring::Account), so the Windows lock procedure runs only there (the orchestrator's ruling on I-9; m03-plan §7)"
+    }
+  },
+  "extra_rows": {},
+  "records": {
+    "A03": {
+      "case_id": "A03",
+      "path": "tests/evidence/m03-a03-lock-continuity.json",
+      "requirement_ids": [
+        "R-UX-03",
+        "R-CR-02"
+      ],
+      "summary": "Lock continuity: fresh authentications continue through desktop and vault lock without the original vault staying unlocked; the lock-revokes alternative behaves differently and is disclosed once (R-UX-03); the process-restart re-issue row. macOS is mechanism evidence (debug build, test store); Windows is the release-profile product DPAPI row.",
+      "limitations": [
+        "macOS lock rows are a debug build on the test store: mechanism evidence, never the macOS lock_continuity claim (B3, F03).",
+        "Blocked: the macOS login-keychain product row (B3), the Linux desktop row (B11), the 1Password vault row (B1) and the Windows system-agent vault row (B4); the lock-procedure checks (a03_*) are native steps apart from the exit build window (m03-plan §4.4).",
+        "Lock-revokes grant R (ADR-0008 D7, §17.42; the orchestrator's rulings on I-11 and I-12): a session_locked revocation is local and immediate. R's tombstone commits with its move to revoking, and every fresh login of R through Heimdall's endpoint is refused from then on (the attribution check: 0 of R's key IDs accepted after the revocation). The managed adapter's obligation then becomes a bounded_by_expiry obligation for R's pair (the world's enrollment carries no clock measurement, so unmeasured); once R's certificate's valid_before has passed on safe time the supervisor moves R to revoked, its record kept with the obligation nominally_expired (§17.15). R never returns to active. In this run R's policy window, and so its certificate's validity, is 600 s (ruling I-12), so its residual passes inside the lock and the post-unlock check reads revoked."
+      ]
+    },
+    "A07": {
+      "case_id": "A07",
+      "path": "tests/evidence/m03-a07-revocation.json",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-SE-07"
+      ],
+      "summary": "Revocation: new local use fails immediately; descendants and stale callbacks cannot reactivate; remote-pending effects and the maximum residual are truthful; the generation is rechecked before issuance and activation (R-SE-07); the linearization model with re-issue, lock revocation and the signing gate.",
+      "limitations": [
+        "The disconnected-runner variant of A07 is deferred_with_decision to M06 (G07; plan §5 M06); A07's M01 model rows stay as recorded."
+      ]
+    },
+    "A09": {
+      "case_id": "A09",
+      "path": "tests/evidence/m03-a09-enrollment.json",
+      "requirement_ids": [
+        "R-CR-02",
+        "R-CR-05",
+        "R-CR-06"
+      ],
+      "summary": "Enrollment: existing access survives; only owned records change (R-CR-06); uncertain outcomes reconcile; newer edits are not overwritten; rotation and rollback; Docker, loopback and WSL default-path rows by platform.",
+      "limitations": [
+        "The registry script's remove window is a disclosed limitation (m03-plan U5): a remote edit made inside it is lost and reported; revision 2's fence window is closed (§17.4 item 2).",
+        "Blocked: enrollment with 1Password as the existing access (B1), with the Windows system agent (B4) and with a touch-required key (B6)."
+      ]
+    },
+    "A10": {
+      "case_id": "A10",
+      "path": "tests/evidence/m03-a10-scope-issuer.json",
+      "requirement_ids": [
+        "R-AU-08",
+        "R-CR-04",
+        "R-CR-07"
+      ],
+      "summary": "Scope and issuer: only the intended access succeeds where enforcement is claimed; no issuer key or broader certificate escapes; unsupported scope is labelled; production verification per client and per form.",
+      "limitations": [
+        "Blocked: the Linux Secret Service reachability row (B11).",
+        "The bound-consumer reachability recording (a10_bound_consumer_issuer_reachability_recorded) is added with the exit suite."
+      ]
+    },
+    "A23": {
+      "case_id": "A23",
+      "path": "tests/evidence/m03-a23-deadline-connections.json",
+      "requirement_ids": [
+        "R-AU-05"
+      ],
+      "summary": "Deadlines and connections: owned admission and closure match the policy; no certificate-only enforcement assumption; unmanaged and remote-process limits are reported accurately; OpenSSH stop behaviour tested. Windows reports and enforces multiplexing as unavailable (verified).",
+      "limitations": [
+        "Windows has no owned multiplexing (M-F7): the refusal and CAPABILITY_UNAVAILABLE are verified, not the masters."
+      ]
+    },
+    "A33": {
+      "case_id": "A33",
+      "path": "tests/evidence/m03-a33-secrets.json",
+      "requirement_ids": [
+        "R-CR-03",
+        "R-CR-04"
+      ],
+      "summary": "Secrets: no secret leakage or plaintext fallback; previewed and redacted outputs; nothing collected by default.",
+      "limitations": [
+        "Support bundles and update artifacts are deferred_with_decision to M08.",
+        "release_build_refuses_m03_test_gates exists only in a release-profile test build; its binary half is check.sh's release-gate step."
+      ]
+    },
+    "R-AU-08": {
+      "case_id": "R-AU-08",
+      "path": "tests/evidence/m03-r-au-08-reports.json",
+      "requirement_ids": [
+        "R-AU-08"
+      ],
+      "summary": "Reports show actual enforcement and reject unmet minimums (the managed report, claims, capability_unavailable for an unmet offline bound).",
+      "limitations": [
+        "The claims-table rule (a debug build or test store never satisfies a custody claim) is enforced by tools/validation/claims_table.py (check.sh claims-table), not by a Cargo test."
+      ]
+    },
+    "background-once": {
+      "case_id": "m03-exit-background-once",
+      "path": "tests/evidence/m03-exit-background-once.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M03 exit: the user can allow background work once without routine unlocks, within one boot (fixture level plus the A03 native rows); after a reboot the runtime start and one attended time confirm are counted as chores.",
+      "limitations": [
+        "Blocked: the human walkthrough (B7) and the native reboot and logout rows (B12)."
+      ]
+    },
+    "no-self-renewal": {
+      "case_id": "m03-exit-no-self-renewal",
+      "path": "tests/evidence/m03-exit-no-self-renewal.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M03 exit: an expired grant cannot renew itself (renewal never extends the deadline or pairs; revoke-on-lock grants are never re-issued; issuer ceilings; the M01 A05 model rows).",
+      "limitations": []
+    },
+    "honest-limits": {
+      "case_id": "m03-exit-honest-limits",
+      "path": "tests/evidence/m03-exit-honest-limits.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M03 exit: no claim that all remote processes terminate or that all offline credentials revoke immediately (remote_processes not_terminated; revocation.remote unknown until its claim; bounded and nominally expired residuals).",
+      "limitations": []
+    },
+    "fixed-provider": {
+      "case_id": "m03-exit-fixed-provider",
+      "path": "tests/evidence/m03-exit-fixed-provider.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M03 exit: a fixed provider remains usable under its real limitations; the M02 A11 and A35 suites re-run unchanged at the M03 build, and the existing identity is untouched by enrollment.",
+      "limitations": [
+        "References the M02 A11/A35 rows at the M03 build; the carried blocked rows stay blocked (B1, B4, B6)."
+      ]
+    },
+    "store-macos-keychain": {
+      "case_id": "m03-store-macos-keychain",
+      "path": "tests/evidence/m03-store-macos-keychain.json",
+      "requirement_ids": [],
+      "summary": "K_ca custody, macOS (ADR-0005 §5.2): the keychain code path against a disposable file keychain (mechanism); the login-keychain product row is blocked.",
+      "limitations": [
+        "Mechanism evidence only (debug build, disposable file keychain): no custody claim.",
+        "Blocked: the macOS login-keychain product row (B3) and the data-protection keychain row (B13)."
+      ]
+    },
+    "store-windows-dpapi": {
+      "case_id": "m03-store-windows-dpapi",
+      "path": "tests/evidence/m03-store-windows-dpapi.json",
+      "requirement_ids": [],
+      "summary": "K_ca custody, Windows (ADR-0005 §5.2): the DPAPI CurrentUser blob in scratch, round trip across processes, owner-only DACL.",
+      "limitations": [
+        "Only the windows-11 row is DPAPI evidence; the other platforms' rows run the scratch-store mechanism tests.",
+        "Blocked: cross-user unprotect refusal (B2)."
+      ]
+    },
+    "store-linux-secret-service": {
+      "case_id": "m03-store-linux-secret-service",
+      "path": "tests/evidence/m03-store-linux-secret-service.json",
+      "requirement_ids": [],
+      "summary": "K_ca custody, Linux (ADR-0005 §5.2): the headless devbox reports issuer_store_unavailable and writes no plaintext; the Secret Service row is blocked.",
+      "limitations": [
+        "Blocked: Secret Service over DH and availability after login need a Linux desktop host (B11)."
+      ]
+    },
+    "sleep-logout-reboot": {
+      "case_id": "m03-sleep-logout-reboot",
+      "path": "tests/evidence/m03-sleep-logout-reboot.json",
+      "requirement_ids": [],
+      "summary": "ADR-0005 §9.3 P2, P3, P4, P-W2 and R4: the process-restart rows and the virtual-clock sleep rows run; native sleep, logout and reboot are blocked.",
+      "limitations": [
+        "Blocked: native sleep, logout and reboot rows (B12; the macOS logout row also B3)."
+      ]
+    },
+    "M03 exit cases (m03-plan §3)": {
+      "case_id": "m03-exit-claims",
+      "path": "tests/evidence/m03-exit-claims.json",
+      "requirement_ids": [
+        "R-AU-04",
+        "R-AU-05",
+        "R-AU-08",
+        "R-CR-02",
+        "R-CR-03",
+        "R-CR-04",
+        "R-CR-05",
+        "R-CR-06",
+        "R-CR-07",
+        "R-SE-07",
+        "R-UX-03"
+      ],
+      "summary": "m03-plan §3: every M03 exit case and claim per platform, all rows from one build; blocked while any owner-input row (B1-B13) is blocked (the lowest-row rule).",
+      "limitations": []
+    },
+    "P1": {
+      "case_id": "P1",
+      "path": "tests/evidence/m03-p1-macos-screen-lock.json",
+      "requirement_ids": [
+        "R-UX-03",
+        "R-CR-02"
+      ],
+      "summary": "ADR-0005 §9.3 P1, macOS screen lock (mechanism evidence: debug build, test store)",
+      "limitations": [
+        "Mechanism evidence only: a debug build on the test store never yields the macOS lock_continuity claim, which waits for a release-profile run on the login keychain of a disposable account (B3; F03). Supersedes tests/evidence/g04-macos-screen-lock-probe.json.",
+        "Lock-revokes grant R (ADR-0008 D7, §17.42; the orchestrator's rulings on I-11 and I-12): a session_locked revocation is local and immediate. R's tombstone commits with its move to revoking, and every fresh login of R through Heimdall's endpoint is refused from then on (the attribution check: 0 of R's key IDs accepted after the revocation). The managed adapter's obligation then becomes a bounded_by_expiry obligation for R's pair (the world's enrollment carries no clock measurement, so unmeasured); once R's certificate's valid_before has passed on safe time the supervisor moves R to revoked, its record kept with the obligation nominally_expired (§17.15). R never returns to active. In this run R's policy window, and so its certificate's validity, is 600 s (ruling I-12), so its residual passes inside the lock and the post-unlock check reads revoked."
+      ]
+    },
+    "PW1": {
+      "case_id": "PW1",
+      "path": "tests/evidence/m03-pw1-windows-lock.json",
+      "requirement_ids": [
+        "R-UX-03",
+        "R-CR-02"
+      ],
+      "summary": "ADR-0005 §9.3 P-W1, Windows desktop lock (release profile, product DPAPI store)",
+      "limitations": [
+        "Only a release-profile run on the product DPAPI store is claim-eligible (F03). Supersedes tests/evidence/g04-windows-desktop-lock-probe.json.",
+        "Lock-revokes grant R (ADR-0008 D7, §17.42; the orchestrator's rulings on I-11 and I-12): a session_locked revocation is local and immediate. R's tombstone commits with its move to revoking, and every fresh login of R through Heimdall's endpoint is refused from then on (the attribution check: 0 of R's key IDs accepted after the revocation). The managed adapter's obligation then becomes a bounded_by_expiry obligation for R's pair (the world's enrollment carries no clock measurement, so unmeasured); once R's certificate's valid_before has passed on safe time the supervisor moves R to revoked, its record kept with the obligation nominally_expired (§17.15). R never returns to active. In this run R's policy window, and so its certificate's validity, is 600 s (ruling I-12), so its residual passes inside the lock and the post-unlock check reads revoked."
+      ]
+    }
+  }
+}
