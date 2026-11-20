@@ -76,6 +76,8 @@ const DESTINATION_KEYS: &[&str] = &[
     "port",
     "account",
     "host_key_fingerprints",
+    // ⟨M05⟩ Revision 5.3 (ADR-0006 §17.11 item 23): the route's jump destination.
+    "jump",
 ];
 const IDENTITY_KEYS: &[&str] = &["fingerprint", "provider"];
 const PROFILE_KEYS: &[&str] = &["id", "pairs"];
@@ -102,6 +104,11 @@ pub enum BundleError {
     /// Not valid JSON (or not valid UTF-8).
     #[error("the bundle is not valid JSON")]
     Syntax,
+    /// ⟨M05; review M05-W4-R01⟩ One object names the same key twice (after JSON unescaping),
+    /// at any depth. A value tree keeps only the last occurrence, so an earlier one, such as an
+    /// authority section, would never reach the walk: the raw input is refused instead.
+    #[error("the bundle repeats a key in one object")]
+    DuplicateKey,
     /// `schema` is not `heimdall-portable/1`.
     #[error("the bundle schema is not heimdall-portable/1")]
     Schema,
@@ -253,6 +260,8 @@ fn validate(bundle: &PortableBundle) -> Result<(), BundleError> {
             && d.hostname.as_deref().is_none_or(valid_hostname)
             && d.host_key_fingerprints.len() <= MAX_BUNDLE_ENTRIES
             && d.host_key_fingerprints.iter().all(|f| valid_fingerprint(f))
+            // ⟨M05; §17.11 item 23⟩ A destination is never its own jump.
+            && d.jump.as_ref() != Some(&d.id)
     });
     let identities = bundle.identities.iter().all(|i| {
         valid_fingerprint(&i.fingerprint)
@@ -275,6 +284,76 @@ fn validate(bundle: &PortableBundle) -> Result<(), BundleError> {
     }
 }
 
+/// The error text [`UniqueVisitor`] raises for a repeated key (matched by [`parse_bundle`]).
+const DUPLICATE_KEY: &str = "duplicate object key";
+
+/// ⟨M05; review M05-W4-R01⟩ The raw JSON as a value tree, refusing a duplicate object key at
+/// any depth ([`BundleError::DuplicateKey`]). `serde_json::Value` keeps only the last
+/// occurrence of a key, which would hide an earlier one from the authority walk.
+struct Unique(Value);
+
+impl<'de> serde::Deserialize<'de> for Unique {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(UniqueVisitor).map(Unique)
+    }
+}
+
+/// The visitor behind [`Unique`]: `serde_json::Value`'s own, with a duplicate check.
+struct UniqueVisitor;
+
+impl<'de> serde::de::Visitor<'de> for UniqueVisitor {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a JSON value")
+    }
+    fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<Value, E> {
+        Ok(Value::Bool(v))
+    }
+    fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+    fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+    fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Value, E> {
+        Ok(Value::String(v.to_owned()))
+    }
+    fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Value, E> {
+        Ok(Value::String(v))
+    }
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_none<E: serde::de::Error>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<Value, D::Error> {
+        serde::Deserialize::deserialize(d).map(|Unique(v)| v)
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+        let mut out = Vec::new();
+        while let Some(Unique(v)) = seq.next_element()? {
+            out.push(v);
+        }
+        Ok(Value::Array(out))
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let mut out = serde_json::Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if out.contains_key(&key) {
+                return Err(serde::de::Error::custom(DUPLICATE_KEY));
+            }
+            let Unique(v) = map.next_value()?;
+            out.insert(key, v);
+        }
+        Ok(Value::Object(out))
+    }
+}
+
 /// Parse a bundle: at most [`MAX_BUNDLE_BYTES`], JSON. The raw value tree is walked first
 /// (unknown top-level keys and authority keys at any depth → [`BundleError::AuthoritySection`]),
 /// then decoded, then every value validated. Total: never panics.
@@ -282,7 +361,13 @@ pub fn parse_bundle(bytes: &[u8]) -> Result<PortableBundle, BundleError> {
     if bytes.len() > MAX_BUNDLE_BYTES {
         return Err(BundleError::TooLarge);
     }
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| BundleError::Syntax)?;
+    let value = match serde_json::from_slice::<Unique>(bytes) {
+        Ok(Unique(v)) => v,
+        Err(e) if e.to_string().starts_with(DUPLICATE_KEY) => {
+            return Err(BundleError::DuplicateKey);
+        }
+        Err(_) => return Err(BundleError::Syntax),
+    };
     let Value::Object(top) = &value else {
         return Err(BundleError::Invalid);
     };

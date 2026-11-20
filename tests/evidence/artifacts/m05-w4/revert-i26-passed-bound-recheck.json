@@ -1,0 +1,22 @@
+{
+ "name": "M05 W4, ruling I-26: the supervisor drops a passed bound of a still-usable grant again (in `wake_for`, the re-check branch `else if usable` disabled with `&& false`), as before the fix: a timer wake a few milliseconds early ends nothing and the next wake falls to the idle bound",
+ "file": "crates/runtime/src/supervisor.rs",
+ "observed_by": "the integrator on the W4 tree (d81abda6 plus the final-candidate fixes); source restored byte-identical (checked with cmp)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --lib wake_tests",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "supervisor::wake_tests::a_passed_bound_of_a_usable_grant_is_rechecked_and_nothing_else_is ... FAILED",
+   "a usable grant whose bound just passed is re-checked, not left to the idle bound / left: None / right: Some(2026-11-20T05:30:32.019Z)"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed; 0 failed; 0 ignored; 0 measured; 83 filtered out"
+  ]
+ },
+ "also": "the real-clock symptom: before the fix e2e_exit_m05 a28::a28_parent_end_cascades_child_login_fails left the cutoff case's grants `active` past the cutoff in 2 of 3 runs (one settled at 302 s, the idle bound); with the fix its 90 s state assertion passed 4 of 4 (settled within 1 s)"
+}

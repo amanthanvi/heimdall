@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running ../../tests/e2e/managed_m03.rs (target/debug/deps/e2e_managed_m03-c5b5ce50b8a5f5e7)
+
+running 2 tests
+test client_replaced_while_the_driver_waits_claims_nothing ... ok
+test fresh_bind_after_reissue_never_carries_the_stored_claim_values ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.07s
+

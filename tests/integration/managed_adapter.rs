@@ -90,7 +90,9 @@ use heimdall_credential::vault::KeyVault;
 use heimdall_domain::catalog::{
     DestinationDefinition, DestinationRecord, IdentityRecord, IdentitySource,
 };
-use heimdall_domain::claims::{BuildProfile, Claim, Platform, VersionRange};
+use heimdall_domain::claims::{
+    BuildProfile, CLAIMS, Claim, HostFacts, Platform, SIGNER_BUILD, VersionRange,
+};
 use heimdall_domain::enrollment::{
     ApprovedHostKey, ApprovedTarget, Determinism, EnrollmentEvidence, EnrollmentForm,
     EnrollmentRecord, EnrollmentState, ExistingAccessRecord, NoProxy, PairPreference,
@@ -464,6 +466,10 @@ impl ManagedSourceRead for StoreSources {
                 Ok(out)
             })
             .unwrap()
+    }
+    /// ⟨M03-F1⟩ Host facts every fixture claim applies on (the tests' own table, `claims`).
+    fn host(&self) -> HostFacts {
+        fixture_host(current_platform())
     }
     fn claims(&self) -> Vec<Claim> {
         self.claims.lock().unwrap().clone()
@@ -1577,7 +1583,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
         arch: "x86_64",
     };
     let ctx = ReportContext {
-        platform: windows,
+        host: fixture_host(windows),
         lock_behavior: LockBehavior::Continue,
         policy: ConnectionPolicy::default(),
         issuer_ready: true,
@@ -1764,8 +1770,8 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
         let c = ReportContext {
             selection,
             policy,
-            platform,
-            ..ctx
+            host: fixture_host(platform),
+            ..ctx.clone()
         };
         assert_eq!(
             report::compute(&g, &prepared, &[], &c, &ev)
@@ -1808,6 +1814,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
                 .collect(),
             slots: Vec::new(),
             claims: Vec::new(),
+            host: Some(fixture_host(current_platform())),
             issuer: Some(issuer),
             prepared: Some(with_files),
         }),
@@ -1850,7 +1857,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
     const { assert!(report::MANAGED_SELECTION_CLASSIFIED) };
     let undetermined = ReportContext {
         selection: SelectionClass::Undetermined,
-        ..ctx
+        ..ctx.clone()
     };
     let r2 = report::compute(&g, &prepared, &[], &undetermined, &ev);
     assert_eq!(
@@ -1859,11 +1866,11 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
     );
     // On macOS the conditions also carry the issuer store's unlock (F03).
     let mac = ReportContext {
-        platform: Platform {
+        host: fixture_host(Platform {
             os: "macos",
             arch: "aarch64",
-        },
-        ..ctx
+        }),
+        ..ctx.clone()
     };
     let r3 = report::compute(&g, &prepared, &[], &mac, &ev);
     assert!(
@@ -1883,17 +1890,42 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
     );
 }
 
+/// ⟨M03-F1⟩ Host facts every [`fixture_claim`] applies on (an OS release above its floor, a
+/// client within its range, this build) on `platform`.
+fn fixture_host(platform: Platform) -> HostFacts {
+    let release = match platform.os {
+        "macos" => "99.0",
+        "windows" => "99.0.0.0",
+        _ => "99.0.0-1-generic",
+    };
+    HostFacts {
+        platform,
+        os_release: Some(release.to_owned()),
+        client_version: Some("10.5p1".to_owned()),
+        signer_build: SIGNER_BUILD.to_owned(),
+    }
+}
+
 fn fixture_claim(platform: Platform, field: &'static str, value: &'static str) -> Claim {
     Claim {
         field,
         value,
         platform,
-        os_floor: "0",
+        // ⟨M03-F1⟩ Bounds in each platform's format; the signer build pinned.
+        os_floor: match platform.os {
+            "macos" => "1.0",
+            "windows" => "1.0.0.0",
+            // A native kernel release of the fixture host's flavour (R02).
+            _ => "1.0.0-1-generic",
+        },
         client_versions: VersionRange {
-            min: "9.5",
+            min: "9.5p1",
             max: "",
         },
-        signer_builds: VersionRange { min: "0", max: "" },
+        signer_builds: VersionRange {
+            min: SIGNER_BUILD,
+            max: SIGNER_BUILD,
+        },
         build_profile: BuildProfile::Release,
         store_kind: None,
         record: "tests/evidence/fixture-claim.json",
@@ -1942,7 +1974,7 @@ async fn report_with_fixture_claim_table_reports_verified_with_record() {
         multiplexing: MultiplexingMode::OwnedMasters,
     };
     let ctx = ReportContext {
-        platform,
+        host: fixture_host(platform),
         lock_behavior: LockBehavior::Continue,
         policy: masters,
         issuer_ready: true,
@@ -2013,7 +2045,7 @@ async fn report_with_fixture_claim_table_reports_verified_with_record() {
     assert_eq!(
         w.adapter.descriptor().lock_continuity,
         heimdall_app::ports::LockContinuity::Unknown,
-        "the baseline table is empty"
+        "the real table has no lock_continuity entry"
     );
     let desc = w.adapter.descriptor();
     assert_eq!(desc.mechanism(), MANAGED_CERTIFICATE);
@@ -2023,6 +2055,245 @@ async fn report_with_fixture_claim_table_reports_verified_with_record() {
         heimdall_app::ports::InteractionRequirement::None
     );
     w.finish(&[data.grant_id]).await;
+}
+
+/// ⟨M03-F1⟩ ADR-0008 D12 item 2 with the **real** claim table (m03-plan §3 step 3; ruling
+/// I-25). On a host within this platform's entries' ranges (its OS floor and client), the
+/// A07 and A23 fields read verified, each with its record. On Windows `owned_multiplexing`
+/// reads `unavailable` and graceful dedicated connections are not claimed (`unknown`). A host
+/// outside the ranges (an OS release below the floor, another client) reads `unknown` for
+/// every field. `lock_continuity` stays `not_verified`: the table has no custody entry (the
+/// fixture test above covers a release-profile one).
+#[tokio::test]
+#[allow(clippy::print_stdout)] // an observation for the evidence record
+async fn report_with_the_real_claim_table_reports_verified_with_record() {
+    let platform = current_platform();
+    let Some(entry) = CLAIMS.iter().find(|c| c.platform == platform) else {
+        println!(
+            "m03 observation: real_claim_table {} no entries",
+            platform.os
+        );
+        return;
+    };
+    let w = World::new().await;
+    let data = w.ensure("real-claims", &[h1()]).await;
+    let d = w.drive(&data, "tok-real-claims", Stage::Materialize).await;
+    let g = w.grant(&data.grant_id);
+    let prepared = d.prepared.as_ref().unwrap();
+    let in_range = HostFacts {
+        platform,
+        os_release: Some(entry.os_floor.to_owned()),
+        client_version: Some(entry.client_versions.min.to_owned()),
+        signer_build: SIGNER_BUILD.to_owned(),
+    };
+    let context = |host: &HostFacts, policy: ConnectionPolicy| ReportContext {
+        host: host.clone(),
+        lock_behavior: LockBehavior::Continue,
+        policy,
+        issuer_ready: true,
+        reissue_pending: false,
+        now: w.wall(),
+        selection: SelectionClass::Undetermined,
+    };
+    let graceful = ConnectionPolicy {
+        existing: ExistingConnectionsMode::Graceful,
+        multiplexing: MultiplexingMode::OwnedMasters,
+    };
+    let strict = ConnectionPolicy {
+        existing: ExistingConnectionsMode::Strict,
+        multiplexing: MultiplexingMode::Disabled,
+    };
+    let windows = platform.os == "windows";
+    let r = report::compute(&g, prepared, CLAIMS, &context(&in_range, graceful), &[]);
+    assert_eq!(r.lock_continuity, LockContinuityReport::NotVerified);
+    let e = &r.enforcement;
+    assert_eq!(e.new_signing_expiry(), NewSigningExpiry::Signer);
+    assert_eq!(
+        e.new_authentication_expiry,
+        NewAuthenticationExpiry::CredentialAndSigner
+    );
+    assert_eq!(e.revocation, RevocationStatus::BoundedByCredentialExpiry);
+    assert_eq!(
+        r.revocation.remote,
+        RemoteRevocation::BoundedByCredentialExpiry
+    );
+    if windows {
+        assert_eq!(e.owned_multiplexing(), OwnedMultiplexing::Unavailable);
+        assert_eq!(e.existing_connections, ExistingConnectionsPolicy::Unknown);
+    } else {
+        assert_eq!(e.owned_multiplexing(), OwnedMultiplexing::ClosedAtDeadline);
+        assert_eq!(
+            e.existing_connections,
+            ExistingConnectionsPolicy::GracefulDedicatedConnections
+        );
+    }
+    let records: Vec<(String, Option<String>)> = r
+        .evidence
+        .iter()
+        .filter(|x| x.source == EvidenceSource::ClaimTable)
+        .map(|x| (x.field.clone(), x.record.clone()))
+        .collect();
+    for (field, record) in [
+        (
+            "enforcement.revocation",
+            "tests/evidence/m03-a07-revocation.json",
+        ),
+        (
+            "revocation.remote",
+            "tests/evidence/m03-a07-revocation.json",
+        ),
+        (
+            "new_signing_expiry",
+            "tests/evidence/m03-a23-deadline-connections.json",
+        ),
+        (
+            "new_authentication_expiry",
+            "tests/evidence/m03-a23-deadline-connections.json",
+        ),
+    ] {
+        assert!(
+            records.contains(&(field.to_owned(), Some(record.to_owned()))),
+            "{field} with {record}: {records:?}"
+        );
+    }
+    let s = report::compute(&g, prepared, CLAIMS, &context(&in_range, strict), &[]);
+    assert_eq!(
+        s.enforcement.existing_connections,
+        ExistingConnectionsPolicy::StrictDisconnect
+    );
+    // Outside the ranges nothing is claimed, with multiplexing disabled and with owned
+    // masters (each caller of the gate: `existing_connections`, `owned_multiplexing`).
+    let older = match platform.os {
+        "macos" => "27.1",
+        "windows" => "10.0.26300.9973",
+        _ => "6.8.0-1-generic",
+    };
+    for (what, host) in [
+        (
+            "an older release than the floor",
+            HostFacts {
+                os_release: Some(older.to_owned()),
+                ..in_range.clone()
+            },
+        ),
+        (
+            "a malformed OS release",
+            HostFacts {
+                os_release: Some("unreadable".to_owned()),
+                ..in_range.clone()
+            },
+        ),
+        (
+            "another client",
+            HostFacts {
+                client_version: Some("1.0p1".to_owned()),
+                ..in_range.clone()
+            },
+        ),
+        (
+            "no verified client",
+            HostFacts {
+                client_version: None,
+                ..in_range.clone()
+            },
+        ),
+        (
+            "WSL with a kernel above the Linux floor",
+            HostFacts {
+                platform: Platform {
+                    os: "wsl",
+                    arch: platform.arch,
+                },
+                os_release: Some("6.12.0-microsoft-standard-WSL2".to_owned()),
+                ..in_range.clone()
+            },
+        ),
+    ] {
+        for policy in [strict, graceful] {
+            let o = report::compute(&g, prepared, CLAIMS, &context(&host, policy), &[]);
+            let e = &o.enforcement;
+            assert_eq!(e.new_signing_expiry(), NewSigningExpiry::Unknown, "{what}");
+            assert_eq!(
+                e.new_authentication_expiry,
+                NewAuthenticationExpiry::Unknown,
+                "{what}"
+            );
+            assert_eq!(
+                e.existing_connections,
+                ExistingConnectionsPolicy::Unknown,
+                "{what} {policy:?}"
+            );
+            let multiplexing = match policy.multiplexing {
+                MultiplexingMode::Disabled => OwnedMultiplexing::Disabled,
+                _ if host.platform.os == "windows" => OwnedMultiplexing::Unavailable,
+                _ => OwnedMultiplexing::Unknown,
+            };
+            assert_eq!(e.owned_multiplexing(), multiplexing, "{what} {policy:?}");
+            assert_eq!(e.revocation, RevocationStatus::Unknown, "{what}");
+            assert_eq!(o.revocation.remote, RemoteRevocation::Unknown, "{what}");
+            assert!(
+                o.evidence
+                    .iter()
+                    .all(|x| x.source != EvidenceSource::ClaimTable),
+                "{what}"
+            );
+            // ⟨R01⟩ The values a stored verdict loses are exactly the claim-gated ones.
+            let judged = report::compute(&g, prepared, CLAIMS, &context(&in_range, policy), &[]);
+            if host.platform == platform {
+                assert_eq!(
+                    heimdall_domain::claims::without_claimed_values(&judged.enforcement),
+                    o.enforcement,
+                    "{what} {policy:?}"
+                );
+            }
+        }
+    }
+    w.finish(&[data.grant_id]).await;
+}
+
+/// ⟨M03-F1⟩ What the real claim table gives on **this** host (evidence for the native
+/// reruns): the host's claim platform and OS release, the `ssh` the runtime would select
+/// (`[clients]` unset: on Windows the System32 client, elsewhere `PATH`; ⟨R06⟩ never a
+/// separate `PATH` search) with its version from a successful `ssh -V`, this build, and
+/// the entries that apply. It asserts only that the host facts read; which entries apply
+/// depends on the host.
+#[test]
+#[allow(clippy::print_stdout)] // an observation for the evidence record
+fn real_claim_table_on_this_host_recorded() {
+    let os_release = heimdall_localenv::sys::os_release();
+    let ssh = heimdall_localenv::clients::selected_path(
+        &heimdall_localenv::env::Env::capture(),
+        &heimdall_localenv::clients::ClientsConfig::default(),
+        heimdall_localenv::clients::ClientKind::Ssh,
+    );
+    let client = ssh
+        .as_deref()
+        .and_then(|p| heimdall_localenv::local_query::run_version(p).ok())
+        .map(|v| heimdall_localenv::local_query::version_text(&v));
+    let host = HostFacts {
+        platform: current_platform(),
+        os_release: os_release.clone(),
+        client_version: client.clone(),
+        signer_build: SIGNER_BUILD.to_owned(),
+    };
+    assert!(
+        os_release.is_some(),
+        "the OS release reads on this platform"
+    );
+    let mut applied: Vec<String> = heimdall_domain::claims::applicable(CLAIMS, &host)
+        .iter()
+        .map(|c| format!("{}={}", c.field, c.value))
+        .collect();
+    applied.sort();
+    println!(
+        "m03 observation: real_claim_table {} {} os_release={} client={} applicable={} [{}]",
+        host.platform.os,
+        host.platform.arch,
+        os_release.as_deref().unwrap_or("-"),
+        client.as_deref().unwrap_or("-"),
+        applied.len(),
+        applied.join(" ")
+    );
 }
 
 /// D6 item 5: the child gets its own K_env on its own binding endpoint, and
@@ -2424,7 +2695,7 @@ async fn unattended_minimum_requires_claim_continue_and_no_interaction() {
     let platform = current_platform();
     let reason_with = |claims: &[Claim], lock: LockBehavior| {
         let ctx = ReportContext {
-            platform,
+            host: fixture_host(platform),
             lock_behavior: lock,
             policy: ConnectionPolicy::default(),
             issuer_ready: true,
@@ -4942,7 +5213,7 @@ async fn coverage_never_exceeds_the_shortest_certificate() {
         materialized: None,
     };
     let ctx = ReportContext {
-        platform: current_platform(),
+        host: fixture_host(current_platform()),
         lock_behavior: LockBehavior::Continue,
         policy: ConnectionPolicy::default(),
         issuer_ready: true,

@@ -1,0 +1,21 @@
+### hm-m05-8ff335ff packages
+missing-before= zsh sshd
+apt-install-exit=0
+missing-after= none
+
+### hm-m05-8ff335ff prepare
+os=Ubuntu 24.04.5 LTS
+pid1=init(hm-m05-8ff
+missing-tools= none
+user=created (non-root, disposable home)
+heimdall-installed=yes
+listeners-loopback=0
+listeners-other=3
+
+### hm-m05-8ff335ff stage
+bundle-digest-in-distribution=match
+tar-members=959
+bindir-sha256=verified
+bindir-files=856
+heimdall-sha256=1e680325ee723902ff5950c5d0e87b050e0103f7aaf165c651a65de407ca86ea
+

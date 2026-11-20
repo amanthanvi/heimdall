@@ -158,8 +158,16 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Outcome> {
 
 /// Read a bundle file: a regular file of at most [`MAX_BUNDLE_FILE_BYTES`].
 fn read_bundle(path: &Path) -> Result<Vec<u8>, Outcome> {
-    let f = std::fs::File::open(path)
-        .map_err(|e| usage(&format!("the bundle cannot be read: {}", e.kind())))?;
+    // ⟨M05; finding A29-F1, review M05-W4-R02⟩ Never wait on a special file: a regular file
+    // only, refused before it is opened and opened without blocking (`input_file`).
+    let unreadable = |e: std::io::Error| usage(&format!("the bundle cannot be read: {}", e.kind()));
+    let f = crate::input_file::open_regular(path).map_err(|e| {
+        if crate::input_file::is_not_regular(&e) {
+            usage("the bundle is not a regular file")
+        } else {
+            unreadable(e)
+        }
+    })?;
     let meta = f
         .metadata()
         .map_err(|e| usage(&format!("the bundle cannot be read: {}", e.kind())))?;
@@ -197,12 +205,13 @@ pub(crate) fn render_plan(v: &serde_json::Value) -> String {
         "Imported:\n".to_owned()
     };
     out.push_str(&format!(
-        "  {}: {}, unchanged: {}, conflicts (never applied): {}, need a local key: {}\n",
+        "  {}: {}, unchanged: {}, conflicts (never applied): {}, need a local key: {}, skipped (a route to set up here first): {}\n",
         if dry { "would add" } else { "added" },
         n("added"),
         n("unchanged"),
         n("conflicts"),
         n("needs_local"),
+        n("skipped"),
     ));
     let entries = v
         .get("plan")
@@ -223,6 +232,14 @@ pub(crate) fn render_plan(v: &serde_json::Value) -> String {
         );
         if let Some(r) = e.get("reason").and_then(|r| r.as_str()) {
             line.push_str(&format!(" ({r})"));
+        }
+        // ⟨M05; ADR-0006 §17.11 item 23⟩ A destination reached through a jump says so.
+        if let Some(j) = e.get("jump").and_then(|j| j.as_str()) {
+            line.push_str(&format!(", reached through the jump destination {j}"));
+        }
+        // ⟨M05; ruling I-27⟩ A skipped routed destination says how to set its route up.
+        if let Some(c) = e.get("setup").and_then(|c| c.as_str()) {
+            line.push_str(&format!("; set the route up here first: {c}"));
         }
         out.push_str(&line);
         out.push('\n');

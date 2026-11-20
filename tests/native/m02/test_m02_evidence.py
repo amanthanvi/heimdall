@@ -1363,13 +1363,13 @@ def make_m04_bundle(files=None, commit="1" * 40, label="windows-synthetic (M04 M
     base.update(files or {})
     for name in drop:
         del base[name]
-    doc = {"format": fmt or wb.M04_FORMAT, "commit": commit, "label": label, "exit": 0,
+    doc = {"format": fmt or wb.FORMAT_M04_MODE_B, "commit": commit, "label": label, "exit": 0,
            "files": base, "sha256": {k: hashlib.sha256(v.encode()).hexdigest() for k, v in base.items()}}
     packed = gzip.compress(json.dumps(doc).encode())
     b64 = base64.b64encode(packed).decode()
-    lines = [begin or wb.M04_BEGIN, "sha256-gzip: " + hashlib.sha256(packed).hexdigest()]
+    lines = [begin or wb.MARKERS[wb.FORMAT_M04_MODE_B][0], "sha256-gzip: " + hashlib.sha256(packed).hexdigest()]
     lines += [b64[i:i + 76] for i in range(0, len(b64), 76)]
-    lines.append(end or wb.M04_END)
+    lines.append(end or wb.MARKERS[wb.FORMAT_M04_MODE_B][1])
     return "agent report text before\n" + "\n".join(lines) + "\nand after\n"
 
 
@@ -1396,10 +1396,10 @@ class WindowsBundle(unittest.TestCase):
         cfg_path.write_text(json.dumps({"artifacts_root": str(self.root / "exit-x"),
                                         "platforms": {"wsl-containers": {"label": "old", "unavailable": "not run"}}}))
         dest, digest, n = wb.import_bundle(make_m04_bundle(), "exit-x", self.root, config=cfg_path,
-                                           commit="1" * 40, platform="wsl-containers")
+                                           commit="1" * 40, platform="wsl-containers", fmt=wb.FORMAT_M04_MODE_B)
         self.assertEqual(dest, self.root / "exit-x" / "wsl-containers")
-        self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(wb.M04_FILES))
-        self.assertIn("distributions.txt", wb.M04_FILES)
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(wb.FILE_SETS[wb.FORMAT_M04_MODE_B]))
+        self.assertIn("distributions.txt", wb.FILE_SETS[wb.FORMAT_M04_MODE_B])
         self.assertEqual(ev.parse_log(dest / "tests.txt"), {"a15-podman": {"container::a31_x": "ok"}})
         self.assertEqual(n, 1)
         self.assertEqual(len(digest), 64)
@@ -1408,32 +1408,33 @@ class WindowsBundle(unittest.TestCase):
         self.assertEqual(plat["logs"], ["wsl-containers/tests.txt"])
         self.assertEqual(plat["label"], "windows-synthetic (M04 Mode B)")
         # The M02 format still imports into the same kind of directory, and a bad directory is refused.
-        wb.import_bundle(make_bundle(), "exit-y", self.root, platform="wsl")
-        for bad in ("linux", "wsl_x", "wsl-", "windowsx", "wsl-A"):
+        wb.import_bundle(make_bundle(), "exit-y", self.root, platform="wsl-login")
+        for bad in ("linux", "wsl", "wsl_x", "wsl-", "windowsx", "wsl-A", "wsl-other"):
             with self.assertRaises(wb.Refused):
-                wb.import_bundle(make_m04_bundle(), "exit-z", self.root, platform=bad)
+                wb.import_bundle(make_m04_bundle(), "exit-z", self.root, platform=bad, fmt=wb.FORMAT_M04_MODE_B)
 
     def test_a_mixed_bundle_is_refused_and_nothing_is_written(self):
-        # ⟨M04 U7b⟩ A format keeps its own markers and file set: M04 payload with the M02 file set,
-        # M02 payload with the M04 file set, a payload under the other format's markers, and both
-        # formats' markers in one report.
+        # ⟨M04 U7b⟩ Imported as the M04 format (`--format`), a bundle keeps its own markers and file
+        # set: an M04 payload with the M02 file set, an M02 payload with the M04 file set, a payload
+        # under the other format's markers, and an unknown format are refused.
         cases = {
             "M04 format with the M02 file set": make_m04_bundle(drop=("distributions.txt",)),
             "M02 format with the M04 file set": make_m04_bundle(fmt=wb.FORMAT),
             "M02 markers around an M04 payload": make_m04_bundle(begin=wb.BEGIN, end=wb.END),
-            "M04 markers around an M02 payload": make_bundle().replace(wb.BEGIN, wb.M04_BEGIN).replace(wb.END, wb.M04_END),
-            "both formats' markers": make_bundle() + make_m04_bundle(),
+            "M04 markers around an M02 payload": make_bundle().replace(wb.BEGIN, wb.MARKERS[wb.FORMAT_M04_MODE_B][0]).replace(wb.END, wb.MARKERS[wb.FORMAT_M04_MODE_B][1]),
             "an unknown format": make_m04_bundle(fmt="heimdall-m04-other/1"),
         }
         for why, text in cases.items():
             with self.subTest(why):
                 with self.assertRaises(wb.Refused):
-                    wb.import_bundle(text, "exit-x", self.root, commit="1" * 40, platform="windows-modeb")
+                    wb.import_bundle(text, "exit-x", self.root, commit="1" * 40, platform="windows-modeb",
+                                     fmt=wb.FORMAT_M04_MODE_B)
                 self.assertFalse((self.root / "exit-x" / "windows-modeb").exists(), why)
                 self.assertFalse((self.root / "exit-x" / ".windows-modeb-import").exists(), why)
         # The shared checks still apply to the M04 format: a canary prefix is refused.
         with self.assertRaises(wb.Refused):
-            wb.import_bundle(make_m04_bundle({"distributions.txt": "HEIMDALL_CANARY_x\n"}), "exit-x", self.root)
+            wb.import_bundle(make_m04_bundle({"distributions.txt": "HEIMDALL_CANARY_x\n"}), "exit-x", self.root,
+                             fmt=wb.FORMAT_M04_MODE_B)
 
     def test_the_config_is_pointed_at_the_files_and_loses_its_unavailable_mark(self):
         cfg_path = Path(self.tmp.name) / "runs.json"
@@ -1451,6 +1452,21 @@ class WindowsBundle(unittest.TestCase):
         # load_platforms reads exactly those files.
         plats = ev.load_platforms(json.loads(cfg_path.read_text()))
         self.assertIn("model_setup", plats["windows"][1])
+
+    def test_version_facts_keep_their_versions_and_other_dotted_quads_are_addresses(self):
+        # ⟨M05 W4⟩ As the runner's Invoke-Redaction: the WSL version and the kernel release are
+        # versions, not addresses; a dotted quad with a part over 255 is no address either.
+        for text in ("wsl-version=WSL version: 2.6.1.0\n", "wsl-kernel=6.6.87.2-microsoft-standard-WSL2\n",
+                     "fact kernel-release=6.6.87.2\n", "sshd-V=OpenSSH 9.6 on 10.0.26300.9974\n",
+                     "bad 999.1.1.1\n", "loop 127.0.0.1 any 0.0.0.0\n"):
+            self.assertIsNone(wb.sensitive(text), text)
+        for text in ("peer 198.51.100.7\n", "wsl-version-note=via 198.51.100.7\n", "route=10.1.2.3\n",
+                     "wsl-kernel=6.6.87.2\nnext 6.6.87.2\n"):
+            self.assertEqual(wb.sensitive(text), "a non-loopback IPv4 address", text)
+        files = {"tests.txt": "### t\ntest a ... ok\n### t exit=0\n",
+                 "host.txt": "wsl-version=WSL version: 2.6.1.0\nwsl-kernel=6.6.87.2-microsoft-standard-WSL2\n"}
+        dest, _, _ = wb.import_bundle(make_bundle(files), "exit-ver", self.root, commit="1" * 40)
+        self.assertIn("wsl-kernel=6.6.87.2-microsoft-standard-WSL2", (dest / "host.txt").read_text())
 
     def test_a_refused_bundle_writes_nothing(self):
         def drop(name):
@@ -1473,6 +1489,11 @@ class WindowsBundle(unittest.TestCase):
             "a SID": make_bundle({"host.txt": "user=S-1-5-21-1-2-3-1001\n"}),
             "an Entra SID": make_bundle({"host.txt": "user=S-1-12-1-1-2-3-4\n"}),
             "an address": make_bundle({"build.txt": "peer 203.0.113.9\n"}),
+            # ⟨M05 W4⟩ Only the value of a version fact keeps a version-shaped dotted quad.
+            "an address in a fact whose key only mentions a version": make_bundle(
+                {"host.txt": "wsl-version-note=via 198.51.100.7\n"}),
+            "an address on a version fact's next line": make_bundle(
+                {"host.txt": "wsl-kernel=6.6.87.2-microsoft-standard-WSL2\npeer 198.51.100.7\n"}),
             "no results": make_bundle({"tests.txt": "nothing\n"}),
             # ADR-0007 §12.35 item 3 (N03): metadata and the new content rules.
             "a canary in the label": make_bundle(label="win " + "HEIMDALL_" + "CANARY_" + "x"),
@@ -1649,6 +1670,70 @@ class WindowsBundle(unittest.TestCase):
             self.assertNotIn(value.lower(), "".join(p.read_text() for p in dest.iterdir()).lower(), value)
         self.assertIn("<canary>", tests)
         self.assertIn("observation selftest=1", tests)
+
+
+    def test_the_m05_wsl_hook_bundle_imports_as_wsl_distro_and_only_under_its_own_format(self):
+        # ⟨M05 wave 4, ruling I-19⟩ tests/native/m05/run-wsl-hook-windows.ps1's bundle: the same six
+        # files, its own format and markers, platform directory `wsl-distro`.
+        fmt = wb.FORMAT_M05_WSL_HOOK
+        begin, end = wb.MARKERS[fmt]
+        files = {
+            "tests.txt": "### wsl_hook_m05\ntest m05_wsl_bash_and_zsh_present ... ok\n### wsl_hook_m05 exit=0\n",
+            "commands.txt": "exit 0: bash wsl-hook-journeys.sh <scratch> <BINDIR> as the non-root user\n",
+            "host.txt": "image-sha256=bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e\n",
+            "build.txt": "", "skipped.txt": "", "canary-scan.txt": "canary-prefix occurrences in saved output and metadata: 0\n",
+        }
+        text = make_bundle(files, commit="2" * 40, label="windows-11-x86_64 (WSL 2, M05 hook journeys)")
+        # make_bundle frames an M02 bundle: re-frame the same document with the M05 format and markers.
+        import base64
+        import gzip
+        import hashlib
+        doc = wb.decode(text)
+        doc["format"] = fmt
+        packed = gzip.compress(json.dumps(doc).encode())
+        b64 = base64.b64encode(packed).decode()
+        lines = [begin, "sha256-gzip: " + hashlib.sha256(packed).hexdigest()] + [b64[i:i + 76] for i in range(0, len(b64), 76)] + [end]
+        m05 = "report before\n" + "\n".join(lines) + "\nafter\n"
+        cfg_path = Path(self.tmp.name) / "runs.json"
+        cfg = {"artifacts_root": str(self.root / "exit-x"),
+               "platforms": {"wsl-distro": {"label": "wsl2", "unavailable": "not run", "logs": [], "artifact_digest": None}}}
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        dest, digest, n = wb.import_bundle(m05, "exit-x", self.root, config=cfg_path, commit="2" * 40, platform="wsl-distro", fmt=fmt)
+        self.assertEqual(dest, self.root / "exit-x" / "wsl-distro")
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(wb.FILES))
+        self.assertEqual(ev.parse_log(dest / "tests.txt"), {"wsl_hook_m05": {"m05_wsl_bash_and_zsh_present": "ok"}})
+        platform = json.loads(cfg_path.read_text(encoding="utf-8"))["platforms"]["wsl-distro"]
+        self.assertEqual(platform["logs"], ["wsl-distro/tests.txt"])
+        self.assertEqual(platform["facts"], ["wsl-distro/host.txt"])
+        self.assertNotIn("unavailable", platform)
+        self.assertEqual(platform["artifact_digest"], digest)
+        # Each bundle is refused under the other's format (nothing is written), and an unknown format or
+        # platform is refused.
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(m05, "exit-y", self.root, platform="wsl-distro")
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(text, "exit-y", self.root, platform="wsl-distro", fmt=fmt)
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(m05, "exit-y", self.root, platform="wsl-distro", fmt="heimdall-unknown/1")
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(m05, "exit-y", self.root, platform="wsl-other", fmt=fmt)
+        self.assertFalse((self.root / "exit-y").exists())
+
+    def test_the_m05_wsl_hook_harness_selftest_bundle_imports(self):
+        # The harness's own bundle writer (run-wsl-hook-windows.ps1 -SelfTest -Out FILE), when PowerShell 7
+        # is installed here; a skip otherwise.
+        import shutil
+        pwsh = shutil.which("pwsh")
+        if not pwsh:
+            self.skipTest("pwsh is not installed on this host")
+        out = Path(self.tmp.name) / "m05-bundle.txt"
+        r = subprocess.run([pwsh, "-NoProfile", "-File", str(HERE.parent / "m05" / "run-wsl-hook-windows.ps1"), "-SelfTest", "-Out", str(out)],
+                           capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("0 failed", r.stdout)
+        dest, _, n = wb.import_bundle(out.read_text(), "exit-m05w", self.root, commit="1" * 40, platform="wsl-distro", fmt=wb.FORMAT_M05_WSL_HOOK)
+        self.assertEqual(n, 1)
+        self.assertEqual(ev.parse_log(dest / "tests.txt"), {"wsl_hook_m05": {"m05_wsl_bash_and_zsh_present": "ok"}})
 
 
 class PlatformTests(unittest.TestCase):

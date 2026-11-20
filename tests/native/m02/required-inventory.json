@@ -237,7 +237,9 @@
           "relevant::tests::base64_round_trips",
           "relevant::tests::fingerprint_matches_openssh_form",
           "render::tests::duplicate_alias_is_refused",
+          "render::tests::managed_alias_renders_proxyjump_and_never_forwardagent_by_default",
           "render::tests::managed_render_is_deterministic_sorted_and_closed",
+          "render::tests::owned_arguments_follow_ssh_option_parsing",
           "tests::every_known_keyword_spelling_round_trips_case_insensitively",
           "tests::keyword_table_has_no_duplicate_spelling",
           "tests::limits_are_the_m02_plan_bounds"
@@ -376,6 +378,7 @@
           "v02_rollback_after_subsystem_only_environment_agent_needs_decision"
         ],
         "integration_projection_git": [
+          "distribution_git_apply_and_rollback_leave_ssh_untouched",
           "fresh_writer_creates_absent_global_git_config",
           "git_apply_records_the_file_b_git_was_written_into",
           "git_apply_releases_k_with_and_without_birth_time",
@@ -399,6 +402,7 @@
           "git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own",
           "git_parse_check_failure_aborts_before_the_commit_point",
           "git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable",
+          "git_preview_digest_is_stable_under_a_slow_git",
           "git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present",
           "git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears",
           "git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved",
@@ -418,6 +422,7 @@
           "git_writer_during_heimdall_lock_fails_cleanly_nothing_lost",
           "git_xdg_created_after_apply_shadowed_value_reported",
           "lock_claim_order::git_lock_claimed_only_after_staged_receipt",
+          "native_writer_refuses_a_distribution_intent",
           "the_git_snapshot_follows_the_same_rules_as_the_ssh_one"
         ],
         "integration_projection_recovery_rows": [
@@ -710,6 +715,7 @@
           "a11::a27_git_clone_and_push_over_ssh_with_binary_blob",
           "a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths",
           "a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_replay_and_meta",
+          "a27_cf_text_encoding_form_is_exact",
           "a27_child_exit_127_vs_exec_failure_distinguished_by_prelaunch_record",
           "a27_child_exit_codes_0_to_255_preserved",
           "a27_cwd_and_env_preserved_plus_only_documented_additions",
@@ -918,11 +924,14 @@
         "heimdall_localenv-unit": [
           "known_hosts::tests::base64_round_trips",
           "known_hosts::tests::hashed_entries_are_matched_by_ssh_keygen",
-          "known_hosts::tests::plain_entries_match_patterns_ports_negation_and_markers"
+          "known_hosts::tests::plain_entries_match_patterns_ports_negation_and_markers",
+          "known_hosts::tests::raw_lookup_reports_blobs_and_refuses_unusable_lines"
         ],
         "heimdall_sshconf-unit": [
           "render::tests::duplicate_alias_is_refused",
-          "render::tests::managed_render_is_deterministic_sorted_and_closed"
+          "render::tests::managed_alias_renders_proxyjump_and_never_forwardagent_by_default",
+          "render::tests::managed_render_is_deterministic_sorted_and_closed",
+          "render::tests::owned_arguments_follow_ssh_option_parsing"
         ],
         "integration_doctor": [
           "a21_host_verification_offers_nothing_to_sign",
@@ -1026,6 +1035,10 @@
       "macos"
     ],
     "e2e_run_m02::a11::a11_interactive_connect_succeeds_after_provider_approval": [
+      "linux",
+      "macos"
+    ],
+    "e2e_run_m02::a27_cf_text_encoding_form_is_exact": [
       "linux",
       "macos"
     ],
@@ -1207,6 +1220,10 @@
     "integration_projection::a22_windows_reparse_point_user_config_is_manual_mode": [
       "windows"
     ],
+    "integration_projection_git::git_preview_digest_is_stable_under_a_slow_git": [
+      "linux",
+      "macos"
+    ],
     "integration_projection_git::git_spaced_client_path_is_quoted_and_runs": [
       "windows"
     ],
@@ -1229,5 +1246,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "63ad245b2b7170453d35df97c2a214c317ffc1b018f7fde110b37f1f3520baa5"
+  "sources_sha256": "8cc0740b7cafefdabd8840258f4664e2fd62bd9bcdd3382f1fc98083d672edd2"
 }

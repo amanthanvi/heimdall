@@ -1,0 +1,2 @@
+### wsl_hook_m05
+### wsl_hook_m05 exit=1

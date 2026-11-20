@@ -1,0 +1,228 @@
+{
+ "$comment": "Configuration of the M05 exit native runs (m05-plan §3) for m05-evidence.py, filled from the template tests/native/m05/runs.json. Build commit 85e67bfe (Windows); macOS and the devbox at 84d7c44e; the WSL hook row runs the 84d7c44e BINDIR under the 5aa752c0 harness; crates/ byte-identical across the three (the M03 E5/E9 pattern). Every logs, commands_logs and facts path is relative to artifacts_root.",
+ "case_index": "tests/native/m05/case-index.json",
+ "required_inventory": "tests/native/m05/required-inventory.json",
+ "summary_out": "tests/evidence/artifacts/m05/exit-84d7c44e/case-summary.json",
+ "artifacts_root": "tests/evidence/artifacts/m05/exit-84d7c44e",
+ "build_commit": "85e67bfe6149d749d10ded89184e28d542f5c4a8 (crates/ and tests/ *.rs sources_sha256 9097e792b3770592be30fbf210b6d4ca2a887585da22b670552482fe57d211cd, the value in required-inventory.json). The Windows harness ran at 85e67bfe; macOS and the devbox at 84d7c44e; the WSL hook row ran the 84d7c44e Linux BINDIR (tarball sha256 a0bb3cfd4c8dbcec94345612a4e0b5c10b1c6cdb294f82384e25ee4f46b43769) under the harness of 5aa752c0. crates/ is byte-identical from 84d7c44e to 85e67bfe: 5aa752c0 changed harness files only (the WSL hook runner, the Windows runner's redaction and the importer), 85e67bfe two #[cfg(windows)] taskkill calls in tests/e2e/exit_m05/m05.rs",
+ "artifact_digest": "sha256:4f9f6057e6c73589742fedf71caaea8bff6d21eac5b47194ce77613e56a3f992 (sha256 of tests/evidence/artifacts/m05/exit-84d7c44e/digests.txt, which lists the sha256 of every platform artifact file of this run; the superseded, failed and pre-final runs beside it are not listed; per-binary sha256 values are in each platform's build.txt)",
+ "started_at": "2026-11-20",
+ "environment": {
+  "macos": "macOS 27.2.1 (26B131) arm64, OpenSSH_10.5p1 client and server, Apple Git 2.54.0, APFS; the build host (check.sh with every workspace test, then the observation pass)",
+  "linux": "Linux 6.8.0-147 x86_64 (the devbox, headless), glibc 2.39, 4 CPUs, OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0, util-linux 2.39.3, ext4; the cross-built binaries in five batches (free space checked before each, never under 4 GB)",
+  "windows": "Windows 11 x64 (10.0.26300.9974), Medium integrity, native x86_64-pc-windows-msvc (rustc 1.99.1, MSVC 18.11.2), in-box OpenSSH_for_Windows_9.5p2, Git for Windows 2.55.0.windows.3; the fixture sshds (OpenSSH 9.6p1, non-root) in WSL scratch on 127.0.0.1, their logs on the WSL file system; run-windows-local.ps1 in local mode by an agent on the PC",
+  "wsl-distro": "WSL 3.0.5.0 on the same Windows 11 PC (10.0.26300.9974): one disposable distribution (hm-m05-8ff335ff) from the pinned Ubuntu 24.04.5 image (sha256 bb415d82...6039e, the M02 pin), kernel 6.18.58.1-microsoft-standard-WSL2, bash 5.2.21, zsh 5.9, OpenSSH 9.6p1, git 2.43.0, util-linux 2.39.3, the non-root user hmtest; run-wsl-hook-windows.ps1 at 5aa752c0 by an agent on the PC"
+ },
+ "commands": [
+  "tests/native/m05/refresh-inventory.sh (regenerates tests/native/m05/required-inventory.json at the build commit, with the Linux and Windows scans)",
+  "tests/native/m05/run-macos.sh <artifacts_root> (writes macos/: check.sh with every workspace test, then the observation pass)",
+  "HM_ONLY=<batch> tests/native/m05/run-linux.sh <artifacts_root>/linux-b<n> <linuxhost>, five batches covering every test binary of the run plan (free space checked before each; each removes its own scratch)",
+  "on the PC, by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m05/run-windows-local.ps1 -Commit 85e67bfe6149d749d10ded89184e28d542f5c4a8 -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <bundle.b64> --label exit-84d7c44e --commit <its commit> --artifacts-root tests/evidence/artifacts/m05 --platform-dir windows",
+  "on the PC, from a checkout of 5aa752c0: pwsh -NoProfile -File tests/native/m05/run-wsl-hook-windows.ps1 -Commit 5aa752c0f7a53f26a93e7975a7145e3b5928995b -ScratchRoot <scratch root> -Bundle <the 84d7c44e BINDIR tarball> -BundleSha256 a0bb3cfd4c8dbcec94345612a4e0b5c10b1c6cdb294f82384e25ee4f46b43769 -Download -AllowApt -Out <bundle>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <bundle> --label exit-84d7c44e --commit <its commit> --artifacts-root tests/evidence/artifacts/m05 --platform-dir wsl-distro --format heimdall-m05-wsl-hook-bundle/1",
+  "python3 -I tests/native/m05/m05-evidence.py --config tests/evidence/artifacts/m05/exit-84d7c44e/runs.json --write"
+ ],
+ "evidence_paths": [
+  "tests/native/m05/case-index.json",
+  "tests/native/m05/runs.json",
+  "tests/native/m05/required-inventory.json",
+  "tests/native/m05/m05-evidence.py",
+  "tests/native/m05/refresh-inventory.sh",
+  "tests/native/m05/run-macos.sh",
+  "tests/native/m05/run-linux.sh",
+  "tests/native/m05/run-windows-local.ps1",
+  "tests/native/m05/wsl-hook-journeys.sh",
+  "tests/native/m05/selftest.sh",
+  "tests/evidence/m05-g05-agent-context.json",
+  "tests/native/m02/run-macos.sh",
+  "tests/native/m02/run-linux.sh",
+  "tests/native/m02/run-windows-local.ps1",
+  "tests/native/m02/import-windows-bundle.py",
+  "tests/native/m02/lib.sh",
+  "tests/native/m02/remote-lib.sh",
+  "tests/native/m02/platform-tests.py",
+  "tests/native/m02/refresh-inventory.sh",
+  "tests/native/m02/m02-evidence.py"
+ ],
+ "common_limitations": [
+  "Status discipline (m05-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m05-plan §7: B2, B7, B9, B12) keeps its record blocked, and no claim is widened to cover it.",
+  "Linux and Windows binaries are cross-built on the macOS host with zig and run natively on the hosts (Windows: built and run natively on the PC); tests that read the repository at its compile-time path read it through HM_REPO_ROOT, which the harnesses set.",
+  "Two environments, one OS user: A16 runs two native environments in scratch homes on each platform; the WSL and container pairs are M04's exit (plan Q9).",
+  "The hook journeys need a Unix shell: native Windows has no shell integration (owner question Q6) and uses run and ordinary ssh; the WSL row runs bash and zsh inside one disposable distribution (ruling I-19).",
+  "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+  "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration and Heimdall homes, a disposable WSL distribution; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material.",
+  "The WSL hook row's harness stops before any import unless its first census (wsl --list --quiet) succeeds: on a PC with no WSL distribution, where that listing exits nonzero, the row cannot run and fails closed (ruled in M05 W4; the owner's PC has its own distribution).",
+  "Pre-final runs at earlier candidates (d81abda6, 959936c4, 056a1692), the superseded Windows run at 84d7c44e (exit-84d7c44e/windows-84d7c44e-superseded: passed, with A02's result line unreadable) and the failed first WSL attempt at 84d7c44e (exit-84d7c44e/wsl-distro-attempt1-failed: the harness refused its own distribution, no journey ran) are kept beside this run and are not evidence for it.",
+  "The WSL hook row ran on kernel 6.18.58.1-microsoft-standard-WSL2, newer than the 6.8.0 Linux floor (the devbox's kernel): a WSL host's kernel is its own, the real-world case that M03-F1's version gating (its R02 rule, WSL included) must classify."
+ ],
+ "platforms": {
+  "macos": {
+   "label": "macos-arm64 (build host)",
+   "logs": [
+    "macos/check.txt",
+    "macos/observations.txt"
+   ],
+   "commands_logs": [
+    "macos/commands.txt"
+   ],
+   "facts": [
+    "macos/host.txt"
+   ],
+   "artifact_digest": "sha256:4b498a4e5c34f76deee958c2089d62e30c08b21ef95f4da9eae6e88a8a54813b (sha256 of the macos/ lines of digests.txt)"
+  },
+  "linux": {
+   "label": "linux-x86_64 (devbox, headless)",
+   "logs": [
+    "linux-b1/tests.txt",
+    "linux-b2/tests.txt",
+    "linux-b3/tests.txt",
+    "linux-b4/tests.txt",
+    "linux-b5/tests.txt"
+   ],
+   "commands_logs": [
+    "linux-b1/commands.txt",
+    "linux-b2/commands.txt",
+    "linux-b3/commands.txt",
+    "linux-b4/commands.txt",
+    "linux-b5/commands.txt"
+   ],
+   "facts": [
+    "linux-b1/host.txt"
+   ],
+   "artifact_digest": "sha256:b63084f2474fa5455c29a98213e024e464320af023972c544b27b1b881585bfa (sha256 of the linux-b1/ to linux-b5/ lines of digests.txt)"
+  },
+  "windows": {
+   "label": "windows-11-x86_64",
+   "logs": [
+    "windows/tests.txt"
+   ],
+   "commands_logs": [
+    "windows/commands.txt"
+   ],
+   "facts": [
+    "windows/host.txt"
+   ],
+   "artifact_digest": "sha256:52ca188195b0c6e52ae861af924d02cd9f84a6e428ba775c4f2a9199180ae96a (sha256 of the windows/ lines of digests.txt)"
+  },
+  "wsl-distro": {
+   "label": "wsl2-disposable-distribution (Ubuntu 24.04 image)",
+   "logs": [
+    "wsl-distro/tests.txt"
+   ],
+   "commands_logs": [
+    "wsl-distro/commands.txt"
+   ],
+   "facts": [
+    "wsl-distro/host.txt"
+   ],
+   "artifact_digest": "sha256:566c05213f1fa177ad76655cceef91d9f28196cb4dbb07c7f2fa39cf59106c4c (sha256 of the wsl-distro/ lines of digests.txt)"
+  }
+ },
+ "extra_rows": {},
+ "records": {
+  "A02": {
+   "case_id": "A02",
+   "path": "tests/evidence/m05-a02-trusted-week.json",
+   "requirement_ids": [
+    "R-UX-02"
+   ],
+   "summary": "A normal working week after one project trust: re-enter, three shells through the hook, Git, ssh and scp, a re-issue within a grant, the endpoint recovered after its runtime is stopped, expiry and re-entry; decisions, attended prompts and provider prompts all count 0 (R-UX-02). The default's ordinary-ssh rows. Windows uses run and ordinary ssh with no shell hook; WSL runs the hook journeys in a disposable distribution.",
+   "limitations": [
+    "Blocked: the step comparison with the G01 baseline worksheet (B7, ADR-0001 §6; the human walkthrough is M09's), a reboot or logout inside the window (B12; M04-T04), the arm64 rows (B9).",
+    "Per ADR-0011 I-13 the first plain ssh on a free slot may fail once without the hook's warm-up; the record shows the per-platform outcome as an observation, never as a pass criterion."
+   ]
+  },
+  "A04": {
+   "case_id": "A04",
+   "path": "tests/evidence/m05-a04-access-changes.json",
+   "requirement_ids": [
+    "R-UX-06",
+    "R-AU-03"
+   ],
+   "summary": "Access changes: edits and branch switches make no decision; an added destination makes one decision showing only that pair; two live bindings stay unchanged; changing the default or the profile never redirects a live binding.",
+   "limitations": [
+    "Blocked: the arm64 rows (B9)."
+   ]
+  },
+  "A05": {
+   "case_id": "A05",
+   "path": "tests/evidence/m05-a05-expiry-cutoff.json",
+   "requirement_ids": [
+    "R-AU-02"
+   ],
+   "summary": "Expiry and the hard cutoff: the same work ID is refused after expiry, distinct work proceeds with no decision, and after a cutoff fresh work IDs, a restarted runtime, the hook and default activation are all refused; clearing needs an attended decision (R-AU-02).",
+   "limitations": [
+    "Blocked: the arm64 rows (B9)."
+   ]
+  },
+  "A16": {
+   "case_id": "A16",
+   "path": "tests/evidence/m05-a16-concurrent.json",
+   "requirement_ids": [
+    "R-AU-03"
+   ],
+   "summary": "Concurrent environments: defaults do not redirect running work; stopping one job leaves the other; cleanup leaves no binding or slot (R-AU-03). Two native environments in scratch homes, labelled two environments, one OS user.",
+   "limitations": [
+    "deferred_with_decision to M04's exit (m05-plan Q9): the WSL pair and the container pair.",
+    "Blocked: the arm64 rows (B9).",
+    "A handover inside a second environment is no longer proven: M04 adapted slots_m05::a16_concurrent_environments_defaults_and_cleanup (ADR-0010 §4 item 3 allows one binding per container), so the second environment's second job is refused environment_busy and its slot clears instead of handing over. Still proven: the native share and handover, separate slots and references per environment, defaults and pins, per-environment cleanup. A16's container row is M04's (ADR-0011; m05-plan Q9)."
+   ]
+  },
+  "A18": {
+   "case_id": "A18",
+   "path": "tests/evidence/m05-a18-portable-trust.json",
+   "requirement_ids": [
+    "R-EN-07"
+   ],
+   "summary": "Portable trust: copy, clone, worktree, symlink, move and submodule identity; an export carries no authority or secrets; an import on a second installation creates intent only (R-EN-07).",
+   "limitations": [
+    "Blocked: the arm64 rows (B9)."
+   ]
+  },
+  "A28": {
+   "case_id": "A28",
+   "path": "tests/evidence/m05-a28-delegation.json",
+   "requirement_ids": [
+    "R-AU-07",
+    "R-SE-03"
+   ],
+   "summary": "Delegation: the child is server-enforced to its subset, a broader or longer child is refused, the child handle has no owner functions, the parent's end cascades and the child's next login fails (R-AU-07, R-SE-03). The managed rows.",
+   "limitations": [
+    "deferred_with_decision to M04's exit (m05-plan Q9): A28's forwarding and container rows.",
+    "Blocked: the arm64 rows (B9)."
+   ]
+  },
+  "A29": {
+   "case_id": "A29",
+   "path": "tests/evidence/m05-a29-hostile-input.json",
+   "requirement_ids": [
+    "R-SE-01",
+    "R-SE-02",
+    "R-RT-03"
+   ],
+   "summary": "Hostile input: a repository file cannot become an approval instruction. A program without a terminal cannot decide, repository decision references find nothing, claims in names change nothing, self-authorizing manifests get nothing, hostile manifests, bundles, working directories and hook environments are refused or inert; M01's A29-local rows re-run by name (ruling I-18).",
+   "limitations": [
+    "Blocked: the cross-user rows (B2) and the arm64 rows (B9).",
+    "Findings A29-F1 (a FIFO import bundle) and A29-F2 (pre-set hook state variables), and the W4 review's M05-W4-R01 (a duplicate bundle key) and M05-W4-R02 (other FIFO input files), were fixed in W4; their tests run unignored. Bundle refusal at any depth holds for the raw input because a repeated key is refused before the walk.",
+    "A29 tests are same-user: a same-user program that speaks the control protocol and declares itself interactive can attend (ADR-0011 R1); the claim is that repository, manifest and request content never becomes consent."
+   ]
+  },
+  "M05 exit cases (m05-plan §3)": {
+   "case_id": "m05-exit-claims",
+   "path": "tests/evidence/m05-exit-claims.json",
+   "requirement_ids": [
+    "R-UX-02",
+    "R-UX-06",
+    "R-AU-02",
+    "R-AU-03",
+    "R-AU-07",
+    "R-EN-07",
+    "R-SE-01",
+    "R-SE-02",
+    "R-SE-03",
+    "R-RT-03"
+   ],
+   "summary": "m05-plan §3: every M05 exit case per platform, all rows from one build. G05 (tests/evidence/m05-g05-agent-context.json) is the cited hand-written gate record. Blocked while any owner-input row (B2, B7, B9, B12) is blocked (the lowest-row rule).",
+   "limitations": []
+  }
+ }
+}

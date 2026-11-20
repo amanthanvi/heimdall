@@ -375,6 +375,16 @@ pub trait CredentialAdapter: Send + Sync {
     /// `IntegrationSnapshot::default()`.
     fn read_sources(&self, pairs: &[PreparePair]) -> IntegrationSnapshot;
 
+    /// ⟨M03-F1 RC-R02⟩ Re-read into `sources` what can change while the managed effect
+    /// driver runs and what the report judges claims by: for the managed adapter, the host
+    /// facts and the claim-table entries that apply on them, read together. The runtime
+    /// calls it on the blocking pool after the driver returns, immediately before
+    /// [`Self::prepare_from`]; synchronous for the same reason as [`Self::read_sources`].
+    /// Default: nothing (no other adapter's report depends on such a fact).
+    fn refresh_after_driver(&self, sources: &mut IntegrationSnapshot) {
+        let _ = sources;
+    }
+
     /// ⟨M02⟩ ADR-0007 §12.23 item 2: `prepare` over `sources`, the snapshot
     /// [`Self::read_sources`] returned for `req.pairs` in the same step. This is the
     /// call the runtime bounds; it reads nothing that can block: no store, no file and
@@ -1457,6 +1467,9 @@ pub struct ManagedSources {
     pub slots: Vec<ManagedSlot>,
     /// The applicable claim-table entries (ADR-0008 D12).
     pub claims: Vec<Claim>,
+    /// ⟨M03-F1⟩ The facts the entries' ranges were judged against (the report judges them
+    /// again; ADR-0008 D12 item 2). `None`: no claim applies.
+    pub host: Option<heimdall_domain::claims::HostFacts>,
     /// The issuer's status.
     pub issuer: Option<IssuerStatusSnapshot>,
     /// The effect driver's results. `None`: `prepare_from` refuses with

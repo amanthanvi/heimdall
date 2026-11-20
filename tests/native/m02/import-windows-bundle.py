@@ -4,14 +4,21 @@ into tests/evidence/artifacts/m02/<label>/windows/ and feed it to the evidence g
 
 Usage (from the repository root, with `python3 -I`):
   import-windows-bundle.py --bundle REPORT --label LABEL [--config RUNS.json] [--commit HEX]
-                           [--artifacts-root DIR]
+                           [--artifacts-root DIR] [--platform-dir DIR] [--format FORMAT]
+
+--format selects the bundle's format and markers: the default is the M02 local-mode bundle; the M05
+WSL hook harness (tests/native/m05/run-wsl-hook-windows.ps1, ruling I-19) writes
+`heimdall-m05-wsl-hook-bundle/1`, imported with `--format heimdall-m05-wsl-hook-bundle/1
+--platform-dir wsl-distro` (the same six result files).
+
+⟨M04 U7b⟩ The M04 Mode B runner (tests/native/m04/run-mode-b-windows.ps1) writes
+`heimdall-m04-mode-b-windows-bundle/1`, imported with `--format heimdall-m04-mode-b-windows-bundle/1`
+and `--platform-dir windows-modeb`, `windows-lock`, `wsl-containers` or `wsl-login` (the six files
+plus distributions.txt). Each format sits between its own markers and carries exactly its own file
+set (FILE_SETS); every other check applies to all of them unchanged.
 
 REPORT is any text that contains the bundle between its BEGIN and END markers (the local
-agent's report, or bundle.b64 itself). Two formats are accepted (FORMATS): the M02 local-mode
-runner's and, from M04, tests/native/m04/run-mode-b-windows.ps1's
-`heimdall-m04-mode-b-windows-bundle/1` (its own markers; the M02 file set plus
-distributions.txt). A format must sit between its own markers and carry exactly its own file
-set; every other check applies to both unchanged. The import:
+agent's report, or bundle.b64 itself). The import:
   * decodes the gzip+base64 payload and checks its sha256 line, the bundle format, the commit
     (40 hexadecimal digits; with --commit, exactly that one) and every file's sha256;
   * accepts exactly the result files the format's runner writes (no path, no other name);
@@ -21,8 +28,9 @@ set; every other check applies to both unchanged. The import:
   * checks that the files are what m02-evidence.py reads: tests.txt has at least one
     "### <target>" result and its exit line, commands.txt has "exit N: ..." lines and host.txt
     has key=value facts;
-  * writes them into <artifacts-root>/<label>/<platform-dir>/ (default `windows`; `windows-<word>`
-    or, from M04, `wsl-<word>`; default artifacts root tests/evidence/artifacts/m02), created
+  * writes them into <artifacts-root>/<label>/<platform-dir>/ (default `windows`; `windows-<word>`,
+    `wsl-distro`, or from M04 `wsl-containers` and `wsl-login`; default artifacts root
+    tests/evidence/artifacts/m02), created
     exclusively: an existing, non-empty directory is never overwritten;
   * with --config, points that run configuration's platform at the files (logs,
     commands_logs, facts, the bundle's label and artifact digest) and drops its
@@ -43,17 +51,23 @@ from pathlib import Path
 FORMAT = "heimdall-m02-windows-local-bundle/1"
 BEGIN = "-----BEGIN HEIMDALL M02 WINDOWS BUNDLE-----"
 END = "-----END HEIMDALL M02 WINDOWS BUNDLE-----"
+# ⟨M05 wave 4, ruling I-19⟩ The WSL hook harness's bundle: the same six files, its own format and markers.
+FORMAT_M05_WSL_HOOK = "heimdall-m05-wsl-hook-bundle/1"
+# ⟨M04 U7b⟩ The M04 Mode B runner's bundle (tests/native/m04/run-mode-b-windows.ps1, $BundleFormat,
+# $BeginMarker, $EndMarker, $BundleFiles): its own format and markers, and the M02 files plus
+# distributions.txt.
+FORMAT_M04_MODE_B = "heimdall-m04-mode-b-windows-bundle/1"
+MARKERS = {
+    FORMAT: (BEGIN, END),
+    FORMAT_M05_WSL_HOOK: ("-----BEGIN HEIMDALL M05 WSL HOOK BUNDLE-----", "-----END HEIMDALL M05 WSL HOOK BUNDLE-----"),
+    FORMAT_M04_MODE_B: ("-----BEGIN HEIMDALL M04 MODE B WINDOWS BUNDLE-----", "-----END HEIMDALL M04 MODE B WINDOWS BUNDLE-----"),
+}
 FILES = ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "canary-scan.txt")
-# ⟨M04 U7b⟩ The accepted bundle formats: {format: (begin marker, end marker, exact file set)}. The
-# M02 entry is the original; the Mode B runner (tests/native/m04/run-mode-b-windows.ps1,
-# $BundleFormat/$BeginMarker/$EndMarker/$BundleFiles) adds distributions.txt.
-M04_FORMAT = "heimdall-m04-mode-b-windows-bundle/1"
-M04_BEGIN = "-----BEGIN HEIMDALL M04 MODE B WINDOWS BUNDLE-----"
-M04_END = "-----END HEIMDALL M04 MODE B WINDOWS BUNDLE-----"
-M04_FILES = ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "distributions.txt", "canary-scan.txt")
-FORMATS = {
-    FORMAT: (BEGIN, END, FILES),
-    M04_FORMAT: (M04_BEGIN, M04_END, M04_FILES),
+# The exact result files of each format.
+FILE_SETS = {
+    FORMAT: FILES,
+    FORMAT_M05_WSL_HOOK: FILES,
+    FORMAT_M04_MODE_B: ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "distributions.txt", "canary-scan.txt"),
 }
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -108,6 +122,24 @@ _SENSITIVE = (
      "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
+# ⟨M05 W4⟩ The value of a version fact (the runner's Invoke-Redaction keeps it): a line `<key>=`,
+# after an optional `fact ` prefix, whose key ends in `version`, `kernel`, `kernel-release` or `-V`.
+_FACT_KEY = re.compile(r"(?:fact )?([A-Za-z0-9_.-]+)=")
+_VERSION_KEY = re.compile(r"(?:version|kernel|kernel-release|-v)$", re.IGNORECASE)
+
+
+def _is_address(text, m):
+    """Whether the dotted quad `m` in `text` is an address the runner masks: not loopback or any,
+    every part an octet, and not in the value of a version fact (M05 W4: the WSL version and the
+    kernel release, `6.6.87.2-microsoft-standard-WSL2`, are versions)."""
+    value = m.group(0)
+    if value.startswith("127.") or value == "0.0.0.0":
+        return False
+    if any(int(part) > 255 for part in value.split(".")):
+        return False
+    start = text.rfind("\n", 0, m.start()) + 1
+    key = _FACT_KEY.match(text, start, m.start())
+    return not (key and _VERSION_KEY.search(key.group(1)))
 
 
 def sensitive(text):
@@ -116,7 +148,7 @@ def sensitive(text):
         if rx.search(text):
             return why
     for m in _IPV4.finditer(text):
-        if not (m.group(0).startswith("127.") or m.group(0) == "0.0.0.0"):
+        if _is_address(text, m):
             return "a non-loopback IPv4 address"
     return None
 
@@ -132,23 +164,18 @@ def load_generator():
     return mod
 
 
-def decode(text):
-    """The bundle document from a report that contains it between the markers of one of the
-    accepted formats (FORMATS); the document's own format must be the one those markers name."""
+def decode(text, fmt=FORMAT):
+    """The bundle document from a report that contains it between the markers of `fmt`."""
+    begin_marker, end_marker = MARKERS[fmt]
     if len(text) > MAX_REPORT:
         raise Refused("the report is larger than the bundle bound")
-    present = [f for f, (begin, _, _) in FORMATS.items() if begin in text]
-    if len(present) > 1:
-        raise Refused("BEGIN markers of more than one bundle format")
-    fmt = present[0] if present else FORMAT
-    BEGIN, END, _ = FORMATS[fmt]
-    start = text.find(BEGIN)
-    end = text.find(END, start + 1 if start >= 0 else 0)
+    start = text.find(begin_marker)
+    end = text.find(end_marker, start + 1 if start >= 0 else 0)
     if start < 0 or end < 0:
         raise Refused("no bundle between the BEGIN and END markers")
-    if text.find(BEGIN, start + 1) >= 0 and text.find(BEGIN, start + 1) < end:
+    if text.find(begin_marker, start + 1) >= 0 and text.find(begin_marker, start + 1) < end:
         raise Refused("a second BEGIN marker before the END marker")
-    lines = [l.strip() for l in text[start + len(BEGIN):end].splitlines() if l.strip()]
+    lines = [l.strip() for l in text[start + len(begin_marker):end].splitlines() if l.strip()]
     if not lines or not lines[0].startswith("sha256-gzip: "):
         raise Refused("the payload's sha256 line is missing")
     want = lines[0][len("sha256-gzip: "):].strip().lower()
@@ -176,16 +203,14 @@ def decode(text):
         doc = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         raise Refused(f"the payload is not UTF-8 JSON: {e}") from None
-    if isinstance(doc, dict) and doc.get("format") != fmt:
-        raise Refused(f"the payload is not a {fmt} bundle, which these markers name")
     return doc
 
 
-def validate(doc, commit=None):
+def validate(doc, commit=None, fmt=FORMAT):
     """The checked files {name: text} of a decoded bundle."""
-    if not isinstance(doc, dict) or doc.get("format") not in FORMATS:
-        raise Refused("not an accepted bundle format")
-    names = FORMATS[doc["format"]][2]
+    if not isinstance(doc, dict) or doc.get("format") != fmt:
+        raise Refused(f"not a {fmt} bundle")
+    names = FILE_SETS[fmt]
     c = doc.get("commit")
     if not isinstance(c, str) or not re.fullmatch(r"[0-9a-f]{40}", c):
         raise Refused("the bundle names no 40-hex commit")
@@ -243,18 +268,22 @@ def config_target(config, dest):
     return cfg_path, cfg
 
 
-def import_bundle(text, label, artifacts_root, config=None, commit=None, platform="windows"):
+def import_bundle(text, label, artifacts_root, config=None, commit=None, platform="windows", fmt=FORMAT):
     """(directory, digest, tests) after writing the files; raises Refused before writing.
 
     ⟨M03 wave 6⟩ `platform` is the platform directory and runs.json platform name (default
-    `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`; ⟨M04⟩ the
-    Mode B runner's as `windows-modeb`, `windows-lock`, `wsl-containers` or `wsl-login`)."""
+    `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`).
+    ⟨M05 wave 4⟩ `fmt` is the bundle format (a key of MARKERS); the M05 WSL hook bundle imports
+    as platform `wsl-distro`. ⟨M04⟩ The Mode B runner's bundle (FORMAT_M04_MODE_B) imports as
+    `windows-modeb`, `windows-lock`, `wsl-containers` or `wsl-login`."""
+    if fmt not in MARKERS:
+        raise Refused(f"unknown bundle format {fmt!r}")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", label or ""):
         raise Refused("the label must be [A-Za-z0-9._-] and not start with punctuation")
-    if not re.fullmatch(r"(windows|wsl)(-[a-z0-9]+)?", platform or ""):
-        raise Refused("the platform directory must be windows, wsl, windows-<word> or wsl-<word>")
-    doc = decode(text)
-    files = validate(doc, commit)
+    if not re.fullmatch(r"windows(-[a-z0-9]+)?|wsl-(distro|containers|login)", platform or ""):
+        raise Refused("the platform directory must be windows, windows-<word>, wsl-distro, wsl-containers or wsl-login")
+    doc = decode(text, fmt)
+    files = validate(doc, commit, fmt)
     dest = Path(artifacts_root) / label / platform
     if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
         raise Refused(f"{dest} exists and is not empty: an import never overwrites")
@@ -277,7 +306,7 @@ def import_bundle(text, label, artifacts_root, config=None, commit=None, platfor
         stage.rmdir()
         raise
     h = hashlib.sha256()
-    for name in FORMATS[doc["format"]][2]:
+    for name in FILE_SETS[fmt]:
         h.update(name.encode() + b"\0" + (dest / name).read_bytes() + b"\0")
     digest = h.hexdigest()
     if target:
@@ -317,7 +346,9 @@ def main(argv=None):
     ap.add_argument("--commit", help="the exit commit the bundle must name")
     ap.add_argument("--artifacts-root", default=str(ROOT / "tests" / "evidence" / "artifacts" / "m02"))
     ap.add_argument("--platform-dir", default="windows",
-                    help="the platform directory and runs.json platform (windows, wsl, or windows-<word> / wsl-<word> such as windows-lock, wsl-containers)")
+                    help="the platform directory and runs.json platform (windows, windows-<word> such as windows-lock or windows-modeb, wsl-distro, wsl-containers or wsl-login)")
+    ap.add_argument("--format", default=FORMAT, choices=sorted(MARKERS),
+                    help="the bundle format (default: the M02 local-mode bundle)")
     a = ap.parse_args(argv)
     try:
         text = read_report(a.bundle)
@@ -328,7 +359,7 @@ def main(argv=None):
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1
     try:
-        dest, digest, n = import_bundle(text, a.label, a.artifacts_root, a.config, a.commit, a.platform_dir)
+        dest, digest, n = import_bundle(text, a.label, a.artifacts_root, a.config, a.commit, a.platform_dir, a.format)
     except Refused as e:
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1

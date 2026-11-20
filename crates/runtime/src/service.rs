@@ -2323,6 +2323,10 @@ mod sources {
             self.inner.slots(pairs)
         }
 
+        fn host(&self) -> heimdall_domain::claims::HostFacts {
+            self.inner.host()
+        }
+
         fn claims(&self) -> Vec<heimdall_domain::claims::Claim> {
             self.inner.claims()
         }
@@ -2618,6 +2622,12 @@ impl ManagedParts {
         )>,
     ) -> Result<ManagedRuntime, ServiceError> {
         let mut steps = Vec::new();
+        // ⟨M03-F1⟩ The verified ssh client: the claim table's client ranges are judged
+        // against its version, bound to its executable's identity (ADR-0008 D12 item 2,
+        // R03; no client, no claim).
+        self.sources.set_verified_client(
+            wired.and_then(|w| crate::managed_store::VerifiedClient::selected(&w.config.clients)),
+        );
         let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(ops.clone());
         let supervisor_stop = stop.clone();
         // ⟨M05⟩ U5 (ADR-0011 §3.2 (a)): the environment endpoint's identities path activates

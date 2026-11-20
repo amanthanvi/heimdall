@@ -156,6 +156,21 @@ checkout maps to the Windows record is M04's decision (WSL Mode A path handling)
   - Import is one journaled catalog reconciliation with a preview. It applies catalog intent only. It
     never trusts a host key: exported host-key fingerprints are shown in the preview for comparison,
     then discarded. Adding pairs to a profile never widens a policy (spec §6.2).
+  - **A routed destination is never imported** (ruling I-27, W4; ADR-0006 revision 5.3 items
+    23 and 24). Import writes a destination the bundle reaches through a jump only when this
+    catalog already has it with the same route (`unchanged`, a no-op). Otherwise the entry is
+    `skipped` (`route_required`), naming the jump and the owner's `destination add … --jump`
+    that sets the route up, and nothing of it is stored. No catalog row means nothing can reach
+    it by its bare alias, where a direct `ssh` alias of the same name would win: no listing, TUI
+    view, edit, `connect`, `ensure` or `run`. A new profile with a pair on it is skipped too,
+    since `ensure` treats a pair outside the catalog as existing access through the owner's
+    ordinary SSH configuration. The route comes only from the owner's own definition, with
+    ADR-0010 §5's pins and checks. (Review M05-W4F-R01 found that the first fix,
+    an observed row with a pending-route marker, still leaked through the TUI, a catalog edit
+    and a replayed `ensure`.) A jump resolves against the import's reconciled result (review
+    M05-W4F-R03): a hop the bundle refuses or names twice leaves its routed destination
+    `jump_unresolved`, a hop the bundle omits resolves to this catalog's managed direct
+    destination, and every row of a repeated ID is refused, the first one too.
 - **I5. A decision's action is fixed at creation, from server-side state.** Approval applies exactly
   that action. Repository or request text appears in a decision only as quoted, bounded data with
   control characters stripped, such as the project label. It is never the decision's title or action.
@@ -483,12 +498,41 @@ can still use the shared ordinary alias while another referencer holds it (R3).
   - **Recovery re-drives a bind claimed before a pause** (confirmed by the orchestrator): under the
     pause the re-drive is refused and fails closed. The claim stays with no slot file written, so the
     binding cannot serve the ordinary alias until a `resume`. That is the safe direction.
+- **A cutoff ends its grants at its instant** (ruling I-26, W4): a cutoff ends every affected
+  grant like expiry, and the scheduler pass that sets their state also closes what they own
+  (dedicated connections under `strict`, masters) and releases their slots, so that pass
+  must run at the cutoff, within the supervisor's normal latency, never at its idle bound. The
+  supervisor's next wake considers every future `cutoff_at`, as it considers a grant's deadline,
+  and a usable grant whose bound has passed is re-checked a second later: a timer wake can land
+  a few milliseconds before the wall bound, so that pass ends nothing, and the bound used to be
+  dropped from the next wake (the W4 candidate saw a cut-off grant stay `active` for 302 s while
+  its next login was already refused). The re-check covers **every grant bound**, a grant's own
+  deadline and its anchored bound included, not only cutoffs: before it, a just-passed deadline
+  could also be enforced up to 300 s late (M01/M03 behaviour, recorded in `m03-exit.md` §5). A
+  pause ends nothing, so it needs no wake. The re-check covers every state a bound still ends
+  (`awaiting_approval`, `preparing`, `active`, `degraded`: the states `DeadlineReached` leaves),
+  not only the usable ones; `revoking` keeps its own retry (review M05-W4F-R04).
+  - **A pass due on the wall clock runs at once** (review M05-W4F-R02, W4): the next pass waits
+    on the monotonic timer, computed from the wall instant it was scheduled for, so a wall clock
+    that moves forward faster than the timer (one step, or many small ones) brings that instant
+    nearer than the timer knows, and a strict connection could outlive its cutoff. At every
+    bounded resume poll (at most every 2 s) the supervisor compares that scheduled wall-clock
+    instant with the current wall time, and when it is due the scheduler pass runs now, whatever
+    each step's size. (The first fix compared each poll's wall progress with its monotonic
+    progress and missed steps below 2 s.) The monotonic wake stays, and the pass's tick keeps its
+    safe-time and continuous-budget checks, so a step beyond the skew tolerance ends nothing early
+    and makes time uncertain instead.
+  - The next pass's delay is applied to a monotonic sample taken when the pass ends, so a slow
+    pass never uses up the delay and runs the next pass straight after it (review M05-W4F-R05).
 - **Narrowing actions** are never blocked by uncertain time. Widening actions are refused while time
   is uncertain (ADR-0006 §13.6 item 6).
 
 ## 8. Residuals and non-claims
 
-These are recorded in `RESIDUALS` and in the claims table, with probes, under ADR-0009 §2.1.
+These are recorded with probes under ADR-0009 §2.1. R1, R2 and R6, with I-13 (§10 item 12), have
+`RESIDUALS` entries in `crates/domain/src/claims.rs` (ruling I-23); R3, R4, R5 and R7 are design
+properties, not accepted defects, so they are recorded here and in the exit record only, with no
+`RESIDUALS` entry and no further `ResidualReason`.
 
 - **R1. A same-user agent with a terminal can drive the attended confirmation.** A prompt-injected
   agent with a pseudo-terminal could run `heimdall decision approve` and type `yes`.
@@ -642,6 +686,19 @@ These are recorded in `RESIDUALS` and in the claims table, with probes, under AD
       by naming a `default:` work ID, is left alone, and the activation starts work n+1 under the
       current default. Running work keeps its pins (A16). Reserving the `default:` prefix for the
       server is a contract question, not taken up.
+    - **I-21, the profile in a decision's question** (W4): the TUI's first-trust and `create`
+      questions name the profile by its ID, as the CLI does; the owner's label appears only as
+      quoted data on the detail line (`Profile: dev (label "Development")`). Spec §5.2's
+      `<profile>` is the ID: a label is catalog text a same-user program can set without a
+      decision.
+    - **I-22, two readings of the exit suite** (W4):
+      - **A16's default change:** the default moves in two ways mid-work, through `access
+        default-profile` and through an attended `access allow --policy` that widens the default
+        profile's own policy into a new revision. Either way running bindings keep their pins and
+        never widen; that is the claim.
+      - **A02's "re-issue within the grant":** both the same-work-ID attach (I-1) and recovery's
+        certificate re-issue after the runtime is killed by exact PID, each with 0 decisions and
+        0 prompts.
 13. **Handed on.**
     - **Per-destination identities through `session-bind@openssh.com`,** so managed aliases can
       drop `IdentitiesOnly` and the first ordinary `ssh` logs in without the hook (I-13 option 3):

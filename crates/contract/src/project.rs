@@ -134,6 +134,13 @@ pub struct PortableDestination {
     /// discarded: import never trusts a host key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_key_fingerprints: Vec<String>,
+    /// ⟨M05⟩ Revision 5.3 (ADR-0006 §17.11 item 23): the jump destination of a managed
+    /// destination reached through a single-hop jump (its route's `jump`), as a reference to
+    /// that destination's ID. Import resolves it against the bundle or the local catalog, or
+    /// refuses the destination (`jump_unresolved`); a jump route is never imported as a direct
+    /// one. Omitted for a direct or observed destination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jump: Option<DestinationId>,
 }
 
 /// An identity reference in a bundle.
