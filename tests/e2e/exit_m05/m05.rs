@@ -449,9 +449,14 @@ pub fn kill_runtime(w: &World) -> (u32, Option<u32>) {
     let status = Command::new("/bin/kill")
         .args(["-KILL", &pid.to_string()])
         .status();
+    // `taskkill` writes `SUCCESS: …` to its stdout; inherited, it lands inside libtest's result
+    // line (`test … ... SUCCESS: …` then `ok` on the next line: the W4 Windows runs), which the
+    // evidence generator cannot read as a result. Its output is not this test's.
     #[cfg(windows)]
     let status = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status();
     assert!(status.is_ok_and(|s| s.success()), "the kill was delivered");
     wait_for(
@@ -483,6 +488,8 @@ pub fn old_issuer_ended(issuer: Option<u32>) -> bool {
         #[cfg(windows)]
         let _ = Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status();
     }
     false
