@@ -1014,11 +1014,18 @@ try {
     $pipes = { @([System.IO.Directory]::GetFiles('\\.\pipe\') | Where-Object { $_ -like '*\heimdall-hmtest-*' }).Count }
     Add-Fact 'test-pipes-before' (& $pipes)
     $arc = 0
+    # REVERT PROOF ONLY (m03/e9-revert-proof, never merged): HM_ONLY_BINARY runs that one test binary,
+    # and HM_TEST_FILTER only that one test in it (`--exact <name>`); the fixture setup is unchanged.
+    $onlyBinary = [Environment]::GetEnvironmentVariable('HM_ONLY_BINARY')
+    $onlyTest = [Environment]::GetEnvironmentVariable('HM_TEST_FILTER')
+    if ($onlyBinary) { Add-Fact 'revert-proof-filter' "binary $onlyBinary, test $(if ($onlyTest) { $onlyTest } else { '(all)' })" }
     foreach ($b in $bins) {
+        if ($onlyBinary -and $b.Name -ne $onlyBinary) { [void]$skipped.Append("$($b.Name): not run (HM_ONLY_BINARY, revert proof)`n"); continue }
         $sk = $skips[$b.Name]
         if ($sk -and $sk -contains '*') { [void]$skipped.Append("$($b.Name): not run on windows (build_host_paths)`n"); continue }
         $a = @()
-        if ($sk) { $a += '--exact'; foreach ($n in $sk) { $a += @('--skip', $n) } }
+        if ($onlyBinary -and $onlyTest) { $a += @('--exact', $onlyTest) }
+        elseif ($sk) { $a += '--exact'; foreach ($n in $sk) { $a += @('--skip', $n) } }
         # ⟨M03 wave 4, W4-N01⟩ Every e2e_enroll_m03 test holds the one harness sshd (its
         # registry) for its whole run, some for over a minute; one thread keeps every wait for
         # the harness lease short of LoopbackSshd's 600 s bound.
