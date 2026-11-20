@@ -1,0 +1,169 @@
+{
+  "case_id": "m03-f1-claims",
+  "status": "verified",
+  "requirement_ids": [
+    "R-AU-04",
+    "R-AU-05",
+    "R-AU-08",
+    "R-SE-07"
+  ],
+  "build_commit": "80304f12a7487ee0b233a56ba3f37c49f832aff2 (m03/f1-claims, M03-F1: ruling I-25; the Codex review's R01-R06 and the scoped re-check's R02, RC-R01, RC-R02, RC-R03 and R06 fixed; carries main at 8baf2e1b, M04)",
+  "artifact_digest": "sha256:29a48917f42b1e0bb9d5000ab8116fd18f506637708fb7efda028dabb485f850 (sha256 of tests/evidence/artifacts/m03/f1-80304f12/digests.txt, which lists the sha256 of every artifact file; per-binary sha256 values for Linux are in linux/build.txt)",
+  "environment": {
+    "macos": "macOS 27.2.1 arm64, the build host; OpenSSH_10.5p1 selected; debug test builds in the checkout",
+    "linux": "Linux 6.8.0-147-generic x86_64 (the devbox, headless), glibc 2.39, 4 CPUs, OpenSSH_9.6p1 Ubuntu-3ubuntu13.20; every workspace test binary cross-built on the macOS host with zig (native-test profile) and run natively by tests/native/m03/run-linux.sh (host.txt)",
+    "windows": "Windows 11 x64 10.0.26300.9974, native x86_64-pc-windows-msvc build and run in a scratch checkout on the PC by the orchestrator's agent; C:\\Windows\\System32\\OpenSSH first on PATH (the in-box OpenSSH_for_Windows_9.5p2, which the runtime's selection also takes first); no fixtures (no sshd, no WSL)"
+  },
+  "provider_versions": [
+    "OpenSSH_10.5p1 (macOS)",
+    "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20 (Linux)",
+    "OpenSSH_for_Windows_9.5p2 (Windows in-box)"
+  ],
+  "started_at": "2026-11-20T01:56:31-05:00",
+  "commands_or_harness": [
+    "macOS: macos/run.sh (eight cargo test commands; exit codes in macos/*.exit and macos/commands.txt)",
+    "Linux: tests/native/m03/run-linux.sh <artifact-dir> <linuxhost> (the whole workspace, one batch; linux/commands.txt)",
+    "Windows: the seven cargo test commands in windows/exitcodes.txt order, after $env:Path = \"C:\\Windows\\System32\\OpenSSH;\" + $env:Path"
+  ],
+  "observed_result": {
+    "rows": [
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "verified",
+        "commands": {
+          "cargo test -p heimdall-domain --lib claims::": {
+            "exit": 0,
+            "passed": 7,
+            "failed": 0
+          },
+          "cargo test -p heimdall-localenv --lib -- sys::tests:: local_query::tests::": {
+            "exit": 0,
+            "passed": 15,
+            "failed": 0
+          },
+          "cargo test -p heimdall-adapters --lib managed::report::": {
+            "exit": 0,
+            "passed": 2,
+            "failed": 0
+          },
+          "cargo test -p heimdall-adapters --test integration_managed_adapter": {
+            "exit": 0,
+            "passed": 52,
+            "failed": 0
+          },
+          "cargo test -p heimdall-app --lib ensure_data_carries_managed_facts_only_from_this_process_outcome": {
+            "exit": 0,
+            "passed": 1,
+            "failed": 0
+          },
+          "cargo test -p heimdall --test e2e_managed_m03 -- fresh_bind_after_reissue_never_carries_the_stored_claim_values client_replaced_while_the_driver_waits_claims_nothing": {
+            "exit": 0,
+            "passed": 2,
+            "failed": 0
+          },
+          "cargo test -p heimdall-runtime --lib managed_store::tests::replaced_client_withholds_the_claims_until_verified_again": {
+            "exit": 0,
+            "passed": 1,
+            "failed": 0
+          },
+          "cargo test -p heimdall-adapters --test integration_managed_adapter real_claim_table_on_this_host_recorded -- --exact --nocapture": {
+            "exit": 0,
+            "passed": 1,
+            "failed": 0
+          }
+        }
+      },
+      {
+        "platform": "linux-x86_64 (the devbox)",
+        "status": "verified",
+        "binaries": 108,
+        "binaries_nonzero": [],
+        "totals": {
+          "passed": 3396,
+          "failed": 0,
+          "ignored": 204
+        },
+        "harness": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m03-<random> and its tmp": 0,
+          "stage the repository files the tests read (HM_REPO_ROOT: 840 files)": 0,
+          "tar stream of 108 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        }
+      },
+      {
+        "platform": "windows-x86_64 (native msvc)",
+        "status": "verified",
+        "commands": {
+          "cargo test -p heimdall-domain --lib claims::": {
+            "exit": 0,
+            "passed": 7,
+            "failed": 0
+          },
+          "cargo test -p heimdall-localenv --lib -- sys::tests:: local_query::tests::": {
+            "exit": 0,
+            "passed": 8,
+            "failed": 0
+          },
+          "cargo test -p heimdall-adapters --lib managed::report::": {
+            "exit": 0,
+            "passed": 2,
+            "failed": 0
+          },
+          "cargo test -p heimdall-adapters --test integration_managed_adapter": {
+            "exit": 0,
+            "passed": 50,
+            "failed": 0
+          },
+          "cargo test -p heimdall-app --lib ensure_data_carries_managed_facts_only_from_this_process_outcome": {
+            "exit": 0,
+            "passed": 1,
+            "failed": 0
+          },
+          "cargo test -p heimdall --test e2e_managed_m03 -- fresh_bind_after_reissue_never_carries_the_stored_claim_values client_replaced_while_the_driver_waits_claims_nothing": {
+            "exit": 0,
+            "passed": 2,
+            "failed": 0
+          },
+          "cargo test -p heimdall-adapters --test integration_managed_adapter real_claim_table_on_this_host_recorded -- --exact --nocapture": {
+            "exit": 0,
+            "passed": 1,
+            "failed": 0
+          }
+        }
+      }
+    ],
+    "observations": {
+      "macos": "macos aarch64 os_release=27.2.1 client=10.5p1 applicable=7 [enforcement.revocation=bounded_by_credential_expiry existing_connections=graceful_dedicated_connections existing_connections=strict_disconnect new_authentication_expiry=credential_and_signer new_signing_expiry=signer owned_multiplexing=closed_at_deadline revocation.remote=bounded_by_credential_expiry]",
+      "linux": "linux x86_64 os_release=6.8.0-147-generic client=9.6p1 applicable=7 [enforcement.revocation=bounded_by_credential_expiry existing_connections=graceful_dedicated_connections existing_connections=strict_disconnect new_authentication_expiry=credential_and_signer new_signing_expiry=signer owned_multiplexing=closed_at_deadline revocation.remote=bounded_by_credential_expiry]",
+      "windows": "windows x86_64 os_release=10.0.26300.9974 client=9.5p2 applicable=5 [enforcement.revocation=bounded_by_credential_expiry existing_connections=strict_disconnect new_authentication_expiry=credential_and_signer new_signing_expiry=signer revocation.remote=bounded_by_credential_expiry]"
+    },
+    "summary": "At the M03-F1 candidate the tests that read the claim table pass on macOS, Linux and Windows, as do the regressions for the review findings: a stored verdict is history (fresh_bind_after_reissue_never_carries_the_stored_claim_values, ensure_data_carries_managed_facts_only_from_this_process_outcome), a client replaced while the effect driver waits claims nothing (client_replaced_while_the_driver_waits_claims_nothing), and on Unix a replaced, removed or unreadable client withholds the claims until verified again (replaced_client_withholds_the_claims_until_verified_again). On each host the observation reads the claim platform, the OS release and the selected client, and the real table applies exactly that platform's entries: 7 on macOS 27.2.1 with 10.5p1 and on Linux 6.8.0-147-generic with 9.6p1, 5 on Windows 10.0.26300.9974 with the in-box 9.5p2 (no owned_multiplexing, no graceful_dedicated_connections). The whole Linux workspace suite passed at this commit."
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m03/f1-80304f12/macos",
+    "tests/evidence/artifacts/m03/f1-80304f12/linux",
+    "tests/evidence/artifacts/m03/f1-80304f12/windows",
+    "tests/evidence/artifacts/m03/f1-80304f12/digests.txt",
+    "crates/domain/src/claims.rs",
+    "tests/integration/managed_adapter.rs",
+    "tests/e2e/managed_m03.rs",
+    "crates/runtime/src/managed_store.rs",
+    "docs/architecture/m03-exit.md"
+  ],
+  "limitations": [
+    "Targeted reruns on macOS and Windows (ADR-0009 section 2 item 2); check.sh ran on macOS at this commit (3427 passed, 0 failed, 199 ignored); the whole workspace ran on Linux.",
+    "No WSL run, by the orchestrator's ruling: under WSL the claim platform is `wsl` when a marker shows, and otherwise a WSL kernel is not a native release of the Linux floor's flavour; the domain and localenv unit tests cover both on every platform.",
+    "The OS floors extend upward by ADR-0008 D12's design (m03-exit.md section 3 item 20): a later release of the same flavour with the same pinned client and signer build is covered without its own run.",
+    "Debug test-configured builds: no entry is a custody claim (ADR-0008 D12 item 3, F03); lock_continuity stays not_verified.",
+    "The client-replacement, read-denial and FIFO tests are Unix-only; on Windows the identity is the opened handle's (GetFileInformationByHandle) and the registry reader's checks are unit-tested.",
+    "The Windows logs are redacted: the scratch checkout reads <scratch> and the Windows home <home>. The Windows run's commit is as reported by the orchestrator's agent."
+  ],
+  "blocked_on": null
+}

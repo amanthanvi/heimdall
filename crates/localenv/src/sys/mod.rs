@@ -121,6 +121,178 @@ pub fn account_home() -> Result<PathBuf, SysError> {
     }
 }
 
+/// ⟨M03-F1⟩ The host's OS release, against which a claim's `os_floor` is judged (ADR-0008
+/// D12 item 2): the macOS `ProductVersion` (`SystemVersion.plist`), the Linux kernel
+/// release (`/proc/sys/kernel/osrelease`), the Windows `major.minor.build.UBR` (the
+/// registry's `CurrentVersion` key, read only). `None` when it cannot be read or is
+/// malformed: no claim applies then. Its format is checked again where it is compared
+/// (`heimdall_domain::claims::os_release_key`).
+#[must_use]
+pub fn os_release() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let text =
+            std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok()?;
+        plist_product_version(&text)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let text = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok()?;
+        let release = text.strip_suffix('\n').unwrap_or(&text);
+        (!release.is_empty() && !release.contains(char::is_whitespace)).then(|| release.to_owned())
+    }
+    #[cfg(windows)]
+    {
+        windows::os_release()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        None
+    }
+}
+
+/// ⟨M03-F1 R04⟩ The `ProductVersion` of a macOS `SystemVersion.plist`: the `<string>` that
+/// immediately follows `<key>ProductVersion</key>` (only whitespace between), two or three
+/// complete dot-separated numbers. Any other shape (another element, an empty component,
+/// other characters) is `None`.
+#[must_use]
+pub fn plist_product_version(text: &str) -> Option<String> {
+    let (_, after) = text.split_once("<key>ProductVersion</key>")?;
+    let value = after.trim_start().strip_prefix("<string>")?;
+    let (version, _) = value.split_once("</string>")?;
+    let parts: Vec<&str> = version.split('.').collect();
+    let complete = (2..=3).contains(&parts.len())
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    complete.then(|| version.to_owned())
+}
+
+/// ⟨M03-F1 R02⟩ The platform name the claim table is matched by: `wsl` on a Linux host that
+/// shows any WSL marker ([`wsl_markers`]), which no table row names, otherwise the target
+/// OS (`macos`, `linux`, `windows`). Read once.
+#[must_use]
+pub fn claim_platform_os() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        static WSL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let wsl = *WSL.get_or_init(|| {
+            let read = |p: &str| std::fs::read_to_string(p).ok();
+            let exists = |p: &str| std::path::Path::new(p).exists();
+            wsl_markers(
+                read("/proc/sys/kernel/osrelease").as_deref(),
+                read("/proc/version").as_deref(),
+                exists("/proc/sys/fs/binfmt_misc/WSLInterop")
+                    || exists("/proc/sys/fs/binfmt_misc/WSLInterop-late")
+                    || exists("/run/WSL"),
+            )
+        });
+        if wsl { "wsl" } else { "linux" }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::env::consts::OS
+    }
+}
+
+/// ⟨M03-F1 R02⟩ Whether a Linux host is (or may be) WSL, from its kernel release, its
+/// `/proc/version` and whether a WSL interop marker exists: `microsoft` or `wsl` (any case)
+/// in either text, or the marker, is WSL. A text that could not be read is ambiguous and
+/// counts as WSL, so a native Linux entry never applies on a host it cannot tell apart.
+/// Environment variables are never evidence.
+#[must_use]
+pub fn wsl_markers(
+    kernel_release: Option<&str>,
+    proc_version: Option<&str>,
+    interop: bool,
+) -> bool {
+    let says_wsl = |t: Option<&str>| {
+        t.is_none_or(|t| {
+            let t = t.to_ascii_lowercase();
+            t.contains("microsoft") || t.contains("wsl")
+        })
+    };
+    interop || says_wsl(kernel_release) || says_wsl(proc_version)
+}
+
+/// ⟨M03-F1 R03⟩ An executable's identity at one moment: its path and, on Unix, its device,
+/// inode, size and modification time; on Windows, its volume serial number and file ID,
+/// size and last-write time. A replaced, rewritten or removed file reads another identity
+/// (or none).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExecutableIdentity {
+    path: PathBuf,
+    volume: u64,
+    file: u128,
+    size: u64,
+    modified: (i64, i64),
+}
+
+/// ⟨M03-F1 R03, RC-R01⟩ The identity of the regular file at `path` (following links), read
+/// from a handle opened for reading (Unix `open` without blocking, then `fstat` of that
+/// descriptor; Windows `GetFileInformationByHandle` of the opened handle). `None` when the
+/// file cannot be opened for reading (a read denial included), its handle cannot be
+/// queried, or it is not a regular file.
+#[must_use]
+pub fn executable_identity(path: &std::path::Path) -> Option<ExecutableIdentity> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        // `O_NONBLOCK`: opening a FIFO or device never waits; the type check refuses it.
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)
+            .ok()?;
+        let m = file.metadata().ok()?;
+        m.is_file().then(|| ExecutableIdentity {
+            path: path.to_path_buf(),
+            volume: m.dev(),
+            file: u128::from(m.ino()),
+            size: m.size(),
+            modified: (m.mtime(), m.mtime_nsec()),
+        })
+    }
+    #[cfg(windows)]
+    {
+        let (volume, file, size, modified) = windows::file_identity(path)?;
+        Some(ExecutableIdentity {
+            path: path.to_path_buf(),
+            volume,
+            file,
+            size,
+            modified: (modified, 0),
+        })
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+/// ⟨M03-F1 R04⟩ A registry `REG_SZ` value as `RegGetValueW` returned it: `kind` must be
+/// `REG_SZ` (1), `len` (bytes) even and within `buf`, and the text must end with its one
+/// NUL terminator and hold no other NUL.
+#[must_use]
+pub fn registry_sz(kind: u32, buf: &[u16], len: u32) -> Option<String> {
+    let len = usize::try_from(len).ok()?;
+    if kind != 1 || len % 2 != 0 || len / 2 > buf.len() {
+        return None;
+    }
+    let (last, text) = buf[..len / 2].split_last()?;
+    (*last == 0 && !text.contains(&0))
+        .then(|| String::from_utf16(text).ok())
+        .flatten()
+}
+
+/// ⟨M03-F1 R04⟩ A registry `REG_DWORD` value as `RegGetValueW` returned it: `kind` must be
+/// `REG_DWORD` (4) and `len` exactly four bytes.
+#[must_use]
+pub fn registry_dword(kind: u32, value: u32, len: u32) -> Option<u32> {
+    (kind == 4 && len == 4).then_some(value)
+}
+
 /// The real user ID of this process.
 #[cfg(unix)]
 #[must_use]
@@ -1070,6 +1242,94 @@ mod windows {
             .map_err(|_| SysError::new("LookupAccountSidW", "account name is not UTF-16"))
     }
 
+    /// ⟨M03-F1⟩ `major.minor.build.UBR` from `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`
+    /// (`CurrentMajorVersionNumber`, `CurrentMinorVersionNumber`, `CurrentBuildNumber`,
+    /// `UBR`), read only; `None` when a value is missing or not of its exact type, size and
+    /// form (`super::registry_dword`, `super::registry_sz`).
+    pub(super) fn os_release() -> Option<String> {
+        use windows_sys::Win32::System::Registry::{
+            HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
+        };
+        let wide = |s: &str| -> Vec<u16> { OsStr::new(s).encode_wide().chain(Some(0)).collect() };
+        let key = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+        let dword = |name: &str| -> Option<u32> {
+            let name = wide(name);
+            let mut value: u32 = 0;
+            let mut kind: u32 = 0;
+            let mut len = u32::try_from(std::mem::size_of::<u32>()).ok()?;
+            // SAFETY: valid NUL-terminated key and value names; `kind` is writable; `value`
+            // is writable storage of `len` bytes and `len` a valid in/out size.
+            let rc = unsafe {
+                RegGetValueW(
+                    HKEY_LOCAL_MACHINE,
+                    key.as_ptr(),
+                    name.as_ptr(),
+                    RRF_RT_REG_DWORD,
+                    &raw mut kind,
+                    (&raw mut value).cast::<c_void>(),
+                    &raw mut len,
+                )
+            };
+            if rc != 0 {
+                return None;
+            }
+            super::registry_dword(kind, value, len)
+        };
+        let build = {
+            let name = wide("CurrentBuildNumber");
+            let mut buf = [0u16; 64];
+            let mut kind: u32 = 0;
+            let mut len = u32::try_from(std::mem::size_of_val(&buf)).ok()?;
+            // SAFETY: as above; `buf` is writable storage of `len` bytes.
+            let rc = unsafe {
+                RegGetValueW(
+                    HKEY_LOCAL_MACHINE,
+                    key.as_ptr(),
+                    name.as_ptr(),
+                    RRF_RT_REG_SZ,
+                    &raw mut kind,
+                    buf.as_mut_ptr().cast::<c_void>(),
+                    &raw mut len,
+                )
+            };
+            if rc != 0 {
+                return None;
+            }
+            super::registry_sz(kind, &buf, len)?
+        };
+        if build.is_empty() || !build.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(format!(
+            "{}.{}.{build}.{}",
+            dword("CurrentMajorVersionNumber")?,
+            dword("CurrentMinorVersionNumber")?,
+            dword("UBR")?
+        ))
+    }
+
+    /// ⟨M03-F1 R03⟩ The volume serial number, file ID, size and last-write time of the
+    /// regular file at `path` (`GetFileInformationByHandle` on a handle opened for the
+    /// call); `None` when it cannot be read or is not a regular file.
+    pub(super) fn file_identity(path: &Path) -> Option<(u64, u128, u64, i64)> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, GetFileInformationByHandle,
+        };
+        let file = std::fs::File::open(path).ok()?;
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the handle is open for the call; `info` is writable.
+        let ok =
+            unsafe { GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &raw mut info) };
+        if ok == 0 || info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+            return None;
+        }
+        let id = (u128::from(info.nFileIndexHigh) << 32) | u128::from(info.nFileIndexLow);
+        let size = (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow);
+        let written = (i64::from(info.ftLastWriteTime.dwHighDateTime) << 32)
+            | i64::from(info.ftLastWriteTime.dwLowDateTime);
+        Some((u64::from(info.dwVolumeSerialNumber), id, size, written))
+    }
+
     pub(super) fn account_home() -> Result<PathBuf, SysError> {
         let token = process_token()?;
         let mut size: u32 = 0;
@@ -1547,6 +1807,168 @@ mod windows {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    /// ⟨M03-F1⟩ A macOS `SystemVersion.plist` gives its `ProductVersion`; anything that is
+    /// not a dotted number is refused.
+    #[test]
+    fn plist_product_version_reads_the_product_version() {
+        let plist = "<plist><dict>\n\t<key>ProductBuildVersion</key>\n\t<string>26B131</string>\n\t<key>ProductVersion</key>\n\t<string>27.2.1</string>\n</dict></plist>";
+        assert_eq!(
+            super::plist_product_version(plist).as_deref(),
+            Some("27.2.1")
+        );
+        // ⟨M03-F1 R04⟩ Only the string that immediately follows the key, complete.
+        for bad in [
+            "<key>ProductVersion</key><string>x</string>",
+            "<key>ProductName</key><string>macOS</string>",
+            "<key>ProductVersion</key><integer>27</integer><key>X</key><string>27.3</string>",
+            "<key>ProductVersion</key><string>27.3.</string>",
+            "<key>ProductVersion</key><string>27</string>",
+            "<key>ProductVersion</key><string> 27.3</string>",
+            "<key>ProductVersion</key><string>27..3</string>",
+        ] {
+            assert_eq!(super::plist_product_version(bad), None, "{bad}");
+        }
+    }
+
+    /// ⟨M03-F1 R02⟩ Any WSL marker, or a text that could not be read, is WSL; a native
+    /// distribution kernel without a marker is not.
+    #[test]
+    fn wsl_markers_tell_wsl_from_native_linux() {
+        let native = "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-001) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0) #147-Ubuntu SMP PREEMPT_DYNAMIC";
+        assert!(!super::wsl_markers(
+            Some("6.8.0-147-generic\n"),
+            Some(native),
+            false
+        ));
+        let wsl = "Linux version 6.12.0-microsoft-standard-WSL2 (root@host) (gcc) #1 SMP";
+        for (what, release, version, interop) in [
+            (
+                "a WSL kernel",
+                Some("6.12.0-microsoft-standard-WSL2"),
+                Some(wsl),
+                false,
+            ),
+            (
+                "a custom kernel, WSL in /proc/version",
+                Some("6.12.0-custom"),
+                Some("Linux version 6.12.0-custom (Microsoft@host)"),
+                false,
+            ),
+            (
+                "a custom kernel, the interop marker",
+                Some("6.12.0-custom"),
+                Some("Linux version 6.12.0-custom"),
+                true,
+            ),
+            ("an unreadable kernel release", None, Some(native), false),
+            (
+                "an unreadable /proc/version",
+                Some("6.8.0-147-generic"),
+                None,
+                false,
+            ),
+        ] {
+            assert!(super::wsl_markers(release, version, interop), "{what}");
+        }
+    }
+
+    /// ⟨M03-F1 R04⟩ Registry values must have their exact type, size and terminator.
+    #[test]
+    fn registry_values_are_checked_for_type_size_and_terminator() {
+        let text: Vec<u16> = "26300\0".encode_utf16().collect();
+        let bytes = |n: usize| u32::try_from(n * 2).unwrap();
+        assert_eq!(
+            super::registry_sz(1, &text, bytes(6)).as_deref(),
+            Some("26300")
+        );
+        let embedded: Vec<u16> = "263\u{0}00\u{0}".encode_utf16().collect();
+        for (what, kind, buf, len) in [
+            ("REG_EXPAND_SZ", 2, &text, bytes(6)),
+            ("an odd length", 1, &text, bytes(6) - 1),
+            ("no terminator", 1, &text, bytes(5)),
+            ("an embedded NUL", 1, &embedded, bytes(7)),
+            ("longer than the buffer", 1, &text, bytes(7)),
+            ("empty", 1, &text, 0),
+        ] {
+            assert_eq!(super::registry_sz(kind, buf, len), None, "{what}");
+        }
+        assert_eq!(super::registry_dword(4, 9974, 4), Some(9974));
+        assert_eq!(super::registry_dword(4, 9974, 2), None, "a short value");
+        assert_eq!(super::registry_dword(11, 9974, 4), None, "REG_QWORD");
+    }
+
+    /// ⟨M03-F1 R03⟩ A file's identity changes when it is rewritten or replaced, and reads
+    /// none once it is gone.
+    #[test]
+    fn executable_identity_follows_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ssh");
+        std::fs::write(&path, b"one").unwrap();
+        let first = super::executable_identity(&path).expect("an identity");
+        assert_eq!(super::executable_identity(&path), Some(first.clone()));
+        std::fs::write(&path, b"three").unwrap();
+        assert_ne!(
+            super::executable_identity(&path),
+            Some(first.clone()),
+            "rewritten"
+        );
+        let rewritten = super::executable_identity(&path).unwrap();
+        let other = dir.path().join("ssh.new");
+        std::fs::write(&other, b"three").unwrap();
+        std::fs::rename(&other, &path).unwrap();
+        assert_ne!(
+            super::executable_identity(&path),
+            Some(rewritten),
+            "replaced"
+        );
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(super::executable_identity(&path), None, "removed");
+        assert_eq!(super::executable_identity(dir.path()), None, "a directory");
+    }
+
+    /// ⟨M03-F1 RC-R01⟩ A file this process may no longer read has no identity, even though
+    /// its metadata is unchanged (skipped where the mode does not deny the read: root).
+    #[cfg(unix)]
+    #[test]
+    fn executable_identity_needs_a_readable_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ssh");
+        std::fs::write(&path, b"client").unwrap();
+        assert!(super::executable_identity(&path).is_some());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&path).is_err() {
+            assert_eq!(super::executable_identity(&path), None, "a read denial");
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(super::executable_identity(&path).is_some());
+        // A FIFO never blocks the read and is not a regular file.
+        let fifo = dir.path().join("fifo");
+        let c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a valid NUL-terminated path; `mkfifo` has no other preconditions.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert_eq!(super::executable_identity(&fifo), None, "a FIFO");
+    }
+
+    /// ⟨M03-F1⟩ The host's OS release reads on every supported platform (a claim's floor
+    /// is judged against it), in its platform's format.
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
+    #[test]
+    fn os_release_reads_on_this_platform() {
+        let release = super::os_release().expect("the OS release");
+        assert!(
+            heimdall_domain::claims::os_release_key(std::env::consts::OS, &release).is_some(),
+            "{release}"
+        );
+        assert!(
+            [std::env::consts::OS, "wsl"].contains(&super::claim_platform_os()),
+            "{}",
+            super::claim_platform_os()
+        );
+        #[cfg(not(target_os = "linux"))]
+        assert_eq!(super::claim_platform_os(), std::env::consts::OS);
+    }
+
     #[test]
     fn account_home_is_absolute_and_never_read_from_home_variable() {
         let home = super::account_home().unwrap();

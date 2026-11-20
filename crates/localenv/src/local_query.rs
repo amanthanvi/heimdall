@@ -86,6 +86,10 @@ pub fn run_version(client: &Path) -> Result<OpenSshVersion, LocalQueryError> {
     if out.timed_out {
         return Err(LocalQueryError::Timeout);
     }
+    // ⟨M03-F1 R04⟩ A version is taken only from a run that succeeded.
+    if !out.status.is_some_and(|s| s.success()) {
+        return Err(LocalQueryError::Unparsed);
+    }
     let mut text = String::from_utf8_lossy(&out.stderr).into_owned();
     text.push('\n');
     text.push_str(&String::from_utf8_lossy(&out.stdout));
@@ -93,7 +97,9 @@ pub fn run_version(client: &Path) -> Result<OpenSshVersion, LocalQueryError> {
 }
 
 /// Parse the first `OpenSSH_<major>.<minor>[p<portable>]` (or
-/// `OpenSSH_for_Windows_…`) in `text`.
+/// `OpenSSH_for_Windows_…`) in `text`. ⟨M03-F1 R04⟩ The token must be complete: it ends
+/// the text or is followed by `,` or whitespace (`OpenSSH_9.6p1broken` and `OpenSSH_9.6p`
+/// are not versions).
 #[must_use]
 pub fn parse_openssh_version(text: &str) -> Option<OpenSshVersion> {
     let start = text.find("OpenSSH_")? + "OpenSSH_".len();
@@ -107,7 +113,16 @@ pub fn parse_openssh_version(text: &str) -> Option<OpenSshVersion> {
     let rest = rest[n..].strip_prefix('.')?;
     let (minor, n) = digits(rest);
     let rest = &rest[n..];
-    let portable = rest.strip_prefix('p').and_then(|r| digits(r).0);
+    let (portable, rest) = match rest.strip_prefix('p') {
+        Some(r) => {
+            let (p, n) = digits(r);
+            (Some(p?), &r[n..])
+        }
+        None => (None, rest),
+    };
+    if !rest.is_empty() && !rest.starts_with([',', ' ', '\t', '\r', '\n']) {
+        return None;
+    }
     Some(OpenSshVersion {
         major: major?,
         minor: minor?,
@@ -315,6 +330,63 @@ mod tests {
         assert_eq!(n.portable, None);
         assert_eq!(version_text(&w), "9.5p2");
         assert!(parse_openssh_version("ssh: unknown").is_none());
+        let u = parse_openssh_version("OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13").unwrap();
+        assert_eq!(version_text(&u), "9.6p1");
+        assert!(
+            parse_openssh_version("OpenSSH_10.5p1").is_some(),
+            "the token ends the text"
+        );
+        // ⟨M03-F1 R04⟩ An incomplete or run-on token is not a version.
+        for bad in [
+            "OpenSSH_9.6p1broken",
+            "OpenSSH_9.6p, x",
+            "OpenSSH_9.x",
+            "OpenSSH_.6p1",
+        ] {
+            assert!(parse_openssh_version(bad).is_none(), "{bad}");
+        }
+    }
+
+    /// ⟨M03-F1 R04⟩ `ssh -V` must succeed: a program that prints a version and fails gives none.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_version_query_gives_no_version() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("ssh");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\necho 'OpenSSH_9.6p1, OpenSSL 3.0.13' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // A just-written script can briefly fail to start on Linux (`ETXTBSY` while another
+        // test's child inherited a write descriptor); only a start failure is retried.
+        let query = |p: &std::path::Path| {
+            for _ in 0..50 {
+                match run_version(p) {
+                    Err(LocalQueryError::Spawn) => {
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                    r => return r,
+                }
+            }
+            run_version(p)
+        };
+        assert!(matches!(query(&fake), Err(LocalQueryError::Unparsed)));
+        // The succeeding client is a new file renamed into place (never rewritten in place).
+        let staged = dir.path().join("ssh.staged");
+        std::fs::write(
+            &staged,
+            "#!/bin/sh\necho 'OpenSSH_9.6p1, OpenSSL 3.0.13' >&2\nexit 0\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::rename(&staged, &fake).unwrap();
+        assert_eq!(
+            query(&fake).map(|v| version_text(&v)).ok().as_deref(),
+            Some("9.6p1")
+        );
     }
 
     #[cfg(unix)]

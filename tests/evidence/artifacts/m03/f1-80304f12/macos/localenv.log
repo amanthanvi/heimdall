@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_localenv-c32462a68d67c766)
+
+running 15 tests
+test sys::tests::killpg_refuses_reserved_and_own_groups ... ok
+test sys::tests::wsl_markers_tell_wsl_from_native_linux ... ok
+test sys::tests::plist_product_version_reads_the_product_version ... ok
+test sys::tests::create_owner_only_exclusive_is_0600_exclusive_and_never_follows_a_link ... ok
+test sys::tests::os_release_reads_on_this_platform ... ok
+test sys::tests::registry_values_are_checked_for_type_size_and_terminator ... ok
+test local_query::tests::versions_parse_in_both_forms ... ok
+test sys::tests::executable_identity_needs_a_readable_file ... ok
+test sys::tests::executable_identity_follows_the_file ... ok
+test sys::tests::adopt_inherited_fd_checks_type_and_mode_once_and_clears_nonblock ... ok
+test sys::tests::account_home_is_absolute_and_never_read_from_home_variable ... ok
+test local_query::tests::a_failed_version_query_gives_no_version ... ok
+test sys::tests::killpg_kills_a_spawned_group_and_exited_unreaped_keeps_the_zombie ... ok
+test local_query::tests::contained_run_gets_only_the_given_environment_and_bounded_output ... ok
+test local_query::tests::contained_run_is_bounded_and_its_group_killed_at_the_timeout ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 91 filtered out; finished in 1.84s
+

@@ -1911,7 +1911,7 @@ ADR-0008 §18.
     * `m03-evidence.py`;
   * `tests/evidence/m03-*.json` and `tests/evidence/artifacts/m03/**`;
   * `docs/compatibility/matrix.md` (an M03 section);
-  * `docs/architecture/m03-exit-draft.md`;
+  * `docs/architecture/m03-exit.md`;
   * the **claim update** of `crates/domain/src/claims.rs`, as a separate integrator-reviewed commit after
     the records are `verified`. ⟨r2⟩ Each entry carries the run's build profile and store kind, and
     only release-profile, product-store rows qualify for custody-dependent fields (F03).
