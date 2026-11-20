@@ -483,6 +483,15 @@ can still use the shared ordinary alias while another referencer holds it (R3).
   - **Recovery re-drives a bind claimed before a pause** (confirmed by the orchestrator): under the
     pause the re-drive is refused and fails closed. The claim stays with no slot file written, so the
     binding cannot serve the ordinary alias until a `resume`. That is the safe direction.
+- **A cutoff ends its grants at its instant** (ruling I-26, W4): a cutoff ends every affected
+  grant like expiry, and the scheduler pass that sets their state also closes what they own
+  (dedicated connections under `strict`, masters) and releases their slots, so that pass
+  must run at the cutoff, within the supervisor's normal latency, never at its idle bound. The
+  supervisor's next wake considers every future `cutoff_at`, as it considers a grant's deadline,
+  and a usable grant whose bound has passed is re-checked a second later: a timer wake can land
+  a few milliseconds before the wall bound, so that pass ends nothing, and the bound used to be
+  dropped from the next wake (the W4 candidate saw a cut-off grant stay `active` for 302 s while
+  its next login was already refused). A pause ends nothing, so it needs no wake.
 - **Narrowing actions** are never blocked by uncertain time. Widening actions are refused while time
   is uncertain (ADR-0006 §13.6 item 6).
 

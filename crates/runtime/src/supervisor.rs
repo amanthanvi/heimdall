@@ -1323,23 +1323,34 @@ impl Supervisor {
             let boot = clock.boot_id();
             store.transaction(|tx| {
                 let mut earliest: Option<Timestamp> = None;
-                let mut consider = |t: Timestamp| {
-                    if t > wall && earliest.is_none_or(|e| t < e) {
+                let mut consider = |t: Option<Timestamp>| {
+                    if let Some(t) = t
+                        && earliest.is_none_or(|e| t < e)
+                    {
                         earliest = Some(t);
                     }
                 };
                 for g in tx.grants_due(Timestamp::MAX)? {
-                    consider(g.deadline.effective);
+                    let usable = g.state.permits_use();
+                    consider(wake_for(g.deadline.effective, wall, usable));
                     if let Some(a) = tx.grant_anchor(&g.id)? {
-                        consider(a.bound);
+                        consider(wake_for(a.bound, wall, usable));
                         if a.anchor.boot_id == boot {
                             let left = a.budget_end.saturating_sub(continuous);
                             if let Ok(span) = jiff::SignedDuration::try_from(left)
                                 && let Ok(t) = wall.checked_add(span)
                             {
-                                consider(t);
+                                consider(wake_for(t, wall, usable));
                             }
                         }
+                    }
+                }
+                // ⟨M05; ruling I-26⟩ A policy cutoff ends the grants it bounds like expiry: its
+                // instant is a wake of its own, as a grant's deadline is, so the pass that ends
+                // them (and closes their owned connections) never waits for the idle bound.
+                for p in tx.policies()? {
+                    if let Some(at) = p.cutoff_at {
+                        consider(wake_for(at, wall, false));
                     }
                 }
                 // ⟨M02⟩ ADR-0007 §12.24 item 3: the earliest pending decision deadline,
@@ -1347,7 +1358,7 @@ impl Supervisor {
                 // (`CREDENTIAL_EXPIRED`, `next: new_work`) at the tick right after it,
                 // never up to `max_idle_sleep` later.
                 for d in tx.pending_decisions()? {
-                    consider(d.expires_at);
+                    consider(wake_for(d.expires_at, wall, false));
                 }
                 Ok(earliest)
             })
@@ -2027,6 +2038,30 @@ struct ManagedSupervision {
 
 /// Wait for the next committed change (`true`), or forever once the publisher is
 /// gone. A lagged receiver counts as a change.
+/// ⟨M05; ruling I-26⟩ How soon a pass re-checks a usable grant whose bound has passed but
+/// which the last pass did not end.
+const PASSED_BOUND_RECHECK: jiff::SignedDuration = jiff::SignedDuration::from_secs(1);
+
+/// ⟨M05; ruling I-26⟩ The wake a bound asks for, read at `wall`: the bound itself while it is
+/// ahead; once it has passed, a re-check [`PASSED_BOUND_RECHECK`] from now for a grant that is
+/// still usable, and none otherwise. A timer wake can land a few milliseconds before the wall
+/// bound (the monotonic sleep and the wall clock differ), so that pass's tick finds the bound
+/// not yet passed and ends nothing; by the time the next wake is read the bound is behind the
+/// wall clock. Dropping it then left the grant usable in the store, its owned connections up,
+/// until the idle bound (`max_idle_sleep`, 300 s); the re-check ends it at the next pass. A
+/// grant that is not usable (ended, revoking) and every other kind of instant keep the old rule,
+/// so nothing passed is re-checked forever. While time is uncertain the tick ends nothing, so
+/// a passed bound is re-checked once per [`PASSED_BOUND_RECHECK`] until time is safe again.
+fn wake_for(bound: Timestamp, wall: Timestamp, usable: bool) -> Option<Timestamp> {
+    if bound > wall {
+        Some(bound)
+    } else if usable {
+        wall.checked_add(PASSED_BOUND_RECHECK).ok()
+    } else {
+        None
+    }
+}
+
 async fn recv_change(
     events: &mut Option<
         tokio::sync::broadcast::Receiver<Arc<heimdall_app::events::SequencedEvent>>,
@@ -2176,5 +2211,43 @@ mod holder_tests {
             .with_liveness(never.clone());
         assert!(sup.holder_pass().await.unwrap().is_empty());
         assert_eq!(never.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+}
+
+/// ⟨M05; ruling I-26⟩ The next-wake rule for a bound (`wake_for`).
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod wake_tests {
+    use super::*;
+
+    fn ts(s: &str) -> Timestamp {
+        s.parse().unwrap()
+    }
+
+    /// A bound ahead is its own wake; a passed bound of a usable grant (the pass that woke for
+    /// it ran a few milliseconds early and ended nothing) is re-checked a second from now, never
+    /// dropped to the idle bound; a passed bound of an ended grant, or any other passed instant,
+    /// asks for nothing.
+    #[test]
+    fn a_passed_bound_of_a_usable_grant_is_rechecked_and_nothing_else_is() {
+        let wall = ts("2026-11-20T05:30:31.019Z");
+        let ahead = ts("2026-11-20T05:30:40Z");
+        let passed = ts("2026-11-20T05:30:31Z");
+        assert_eq!(wake_for(ahead, wall, true), Some(ahead));
+        assert_eq!(wake_for(ahead, wall, false), Some(ahead));
+        assert_eq!(
+            wake_for(passed, wall, true),
+            Some(ts("2026-11-20T05:30:32.019Z")),
+            "a usable grant whose bound just passed is re-checked, not left to the idle bound"
+        );
+        assert_eq!(
+            wake_for(wall, wall, true),
+            Some(ts("2026-11-20T05:30:32.019Z"))
+        );
+        assert_eq!(
+            wake_for(passed, wall, false),
+            None,
+            "nothing ended is re-checked"
+        );
     }
 }

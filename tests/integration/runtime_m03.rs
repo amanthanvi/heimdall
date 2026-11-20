@@ -3534,6 +3534,63 @@ mod wave4 {
         assert_eq!(connection_events(&w).len(), 1, "never reported twice");
     }
 
+    /// ⟨M05; ruling I-26⟩ A policy cutoff ends the grants it bounds like expiry, and the
+    /// scheduler's teardown follows at the cutoff's instant, not at the idle bound: the pass
+    /// before the cutoff schedules that instant; the pass there ends the grant (`expired`) and
+    /// its post-tick sweep closes the grant's owned dedicated connection under a strict policy
+    /// (A23's strict_disconnect; the verified process exits). Under `graceful` a dedicated
+    /// connection continues past the bound by design. (The pass that woke for the cutoff may run a few milliseconds early and end
+    /// nothing; `supervisor::wake_tests` pins that the passed bound is then re-checked.)
+    #[tokio::test]
+    async fn a_policy_cutoff_ends_its_grant_and_closes_its_connection_at_the_cutoff() {
+        let w = World::new().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut row = seed_row(&w, 0x95, GrantState::Active);
+        let sup = w.supervisor().with_connections(connections(&w, dir.path()));
+        let at = shift(t0(), 30);
+        w.store
+            .transaction(|tx| {
+                let mut p = tx.policy(&PolicyId::parse("pol").unwrap())?.unwrap();
+                p.revision = PolicyRevision(2);
+                p.cutoff_at = Some(at);
+                // Strict existing connections (A23's strict_disconnect): dedicated
+                // connections close at the grant's bound.
+                p.connection.existing = heimdall_contract::managed::ExistingConnectionsMode::Strict;
+                tx.upsert_policy(&p, true).map(|_| ())
+            })
+            .unwrap();
+        let state = |w: &World| {
+            w.store
+                .transaction(|tx| tx.grant(&row.grant))
+                .unwrap()
+                .unwrap()
+                .state
+        };
+        let next = sup.scheduler_pass().await.unwrap();
+        assert!(
+            next.is_some_and(|t| t <= at),
+            "the pass before the cutoff wakes for it: {next:?}"
+        );
+        // (Re-validation may mark it `degraded`: this world wires no managed adapter.)
+        assert!(
+            state(&w).permits_use(),
+            "usable before the cutoff: {:?}",
+            state(&w)
+        );
+        assert!(
+            matches!(row.child.try_wait(), Ok(None)),
+            "still up before the cutoff"
+        );
+        w.clock.advance(Duration::from_secs(30));
+        let _ = sup.scheduler_pass().await.unwrap();
+        assert_eq!(state(&w), GrantState::Expired, "the cutoff ended the grant");
+        // The same pass's post-tick sweep closed the strict dedicated connection.
+        assert!(
+            exited(&mut row.child),
+            "the owned connection closed at the cutoff"
+        );
+    }
+
     // --- wave 4, round 2 (ADR-0008 §17.21 item 11) ---------------------------------------
 
     /// A grant in `state` (with its origin) and an active binding referencing it, whose
@@ -3805,7 +3862,7 @@ mod wave4 {
             .transaction(|tx| {
                 let mut p = tx.policy(&PolicyId::parse("pol").unwrap())?.unwrap();
                 p.revision = PolicyRevision(2);
-                p.connection.existing = ExistingConnectionsMode::Strict;
+                p.connection.existing = heimdall_contract::managed::ExistingConnectionsMode::Strict;
                 tx.upsert_policy(&p, true).map(|_| ())
             })
             .unwrap();

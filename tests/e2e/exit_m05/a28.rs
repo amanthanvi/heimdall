@@ -477,12 +477,12 @@ fn a28_parent_end_cascades_child_login_fails() {
         };
         // The claim is the child's next login, refused once the parent's end applies: at once
         // for a revocation, from the cutoff's instant for a cutoff (admission and the signing
-        // gate check the bound at every use). The stored grant states are the scheduler's
-        // bookkeeping, settled by its next pass: for a revocation at once, for a cutoff at the
-        // pass it schedules for that instant, and never later than its idle bound
-        // (`SupervisorConfig::max_idle_sleep`, 300 s), which is what is asserted below. (On the
-        // W4 candidate a cutoff's pass was sometimes missed and the states settled at the idle
-        // bound, while the login was already refused; reported with the candidate.)
+        // gate check the bound at every use); it is asserted first. Then the stored grant
+        // states, which the scheduler's pass sets (and with them the teardown of what the
+        // grants own): for a revocation at once, for a cutoff at the pass it schedules for that
+        // instant, within the same 90 s bound. ⟨Ruling I-26⟩ A timer wake that lands a few
+        // milliseconds before the cutoff once left the states `active` until the idle bound
+        // (300 s); a passed bound of a usable grant is now re-checked (`supervisor::wake_for`).
         if how == "revoke" {
             wait_for(
                 &format!("{how}: the parent's and the child's grants end"),
@@ -516,7 +516,7 @@ fn a28_parent_end_cascades_child_login_fails() {
         let settle = std::time::Instant::now();
         wait_for(
             &format!("{how}: the parent's and the child's grants end"),
-            Duration::from_secs(330),
+            Duration::from_secs(90),
             || ended(&w),
         );
         println!(
