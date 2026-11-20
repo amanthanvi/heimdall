@@ -360,14 +360,31 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(matches!(run_version(&fake), Err(LocalQueryError::Unparsed)));
+        // A just-written script can briefly fail to start on Linux (`ETXTBSY` while another
+        // test's child inherited a write descriptor); only a start failure is retried.
+        let query = |p: &std::path::Path| {
+            for _ in 0..50 {
+                match run_version(p) {
+                    Err(LocalQueryError::Spawn) => {
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                    r => return r,
+                }
+            }
+            run_version(p)
+        };
+        assert!(matches!(query(&fake), Err(LocalQueryError::Unparsed)));
+        // The succeeding client is a new file renamed into place (never rewritten in place).
+        let staged = dir.path().join("ssh.staged");
         std::fs::write(
-            &fake,
+            &staged,
             "#!/bin/sh\necho 'OpenSSH_9.6p1, OpenSSL 3.0.13' >&2\nexit 0\n",
         )
         .unwrap();
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::rename(&staged, &fake).unwrap();
         assert_eq!(
-            run_version(&fake).map(|v| version_text(&v)).ok().as_deref(),
+            query(&fake).map(|v| version_text(&v)).ok().as_deref(),
             Some("9.6p1")
         );
     }

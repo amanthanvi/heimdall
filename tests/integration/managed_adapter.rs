@@ -1915,7 +1915,8 @@ fn fixture_claim(platform: Platform, field: &'static str, value: &'static str) -
         os_floor: match platform.os {
             "macos" => "1.0",
             "windows" => "1.0.0.0",
-            _ => "1.0.0",
+            // A native kernel release of the fixture host's flavour (R02).
+            _ => "1.0.0-1-generic",
         },
         client_versions: VersionRange {
             min: "9.5p1",
