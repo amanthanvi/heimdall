@@ -1,0 +1,8 @@
+exit 0: tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)
+exit 0: HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ shell_containers_ --show-output
+exit 0: HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored --exact verify_on_account_without_log_access --show-output
+exit 0: HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_registry -- --ignored docker_ --show-output
+exit 0: tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED
+exit 0: release the Docker fixture ownership lock
+exit 0: canary-prefix scan over the saved macOS artifacts, values masked in place (count = 0)
+exit 0: leak scan over macos/ after the Docker phase (0)

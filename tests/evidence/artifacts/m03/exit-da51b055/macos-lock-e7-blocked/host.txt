@@ -1,0 +1,13 @@
+build-profile=debug (test configuration; mechanism evidence only, F03)
+store-kind=scratch_test (the test store; the login-keychain product row is B3)
+build-commit=7300cfa0199a3c463d825c214c7b38ce72b1a98e
+build-tree-changes=(git diff sha256 e3b0c44298fc1c14)
+os=macOS 27.2.1 (26B131) arm64
+screen-lock-delay=immediate
+owner-ssh-before=42:a993f1dae5d85cf409dfca15
+keychain-list-before=89a3a221ca8d65588822245e
+idle-seconds-before-prepare=978
+idle-seconds-before-lock=982
+store-kind-recorded-by-product=linux_secret_service (the CA record's label; the issuer child reads the scratch test store)
+owner-ssh-after=42:a993f1dae5d85cf409dfca15
+keychain-list-after=89a3a221ca8d65588822245e

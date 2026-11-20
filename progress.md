@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M03 (managed credentials), waves 0–5 merged (wave 5 at f6ed0cee, 2026-11-15); next wave 6 (U13, the exit suite), in parallel with the M04 and M05 tracks (ADR-0009). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
+**Current milestone:** M04 and M05 (parallel tracks, ADR-0009). M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -1106,6 +1106,26 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - `check.sh` once per commit;
   - parallel milestone tracks;
   - workers block on their own long commands.
+- **M03 wave 6 (U13), 2026-11-18/19.** Exit builds E5 (`da51b055`, the managed residual settles, ADR-0008 §17.42) to
+  E9 (`2b79aac1`, no console window for a background child on Windows, §17.43; ruling I-24); the macOS and Linux
+  release `heimdall` are byte-identical from E5 to E9. Native runs: macOS with Docker, the devbox and WSL M03/M02 at E5;
+  Windows at E9 (2646/0/18, no readiness retry). Records commit `9176fc5e` (18 records; `verified`: A07, A23, A33,
+  R-AU-08, no self-renewal, honest limits; the rest blocked only on named owner inputs). Exit record:
+  `docs/architecture/m03-exit.md`.
+  - **The Windows revert proof of E9's fix** (`m03/e9-revert-proof` at `4043acb7`, never merged) failed as required
+    (2026-11-20: the console-window test reads `window` without `CREATE_NO_WINDOW`), so the test guards the fix.
+  - **M03 exit, 2026-11-20, at E9 `2b79aac1`** (`docs/architecture/m03-exit.md`; `m03/wave6` merged into main by the
+    orchestrator).
+  - **The A03/P1 macOS lock row is `blocked`** on a physical input: the owner unlocking within the 12 h bound, from an
+    unlocked console idle 15 minutes. The orchestrator's watcher is armed (at E8, binding to E9); four attempts, none
+    evidence. M03 may exit with it `blocked` (the M01 precedent); it is updated when the run happens.
+  - **M03-F1 (open; the integrator, after the merge, on a fresh branch from main; before the M09 release record):**
+    the claim update, deferred by ruling I-25. The product matches claim-table entries by field, value and
+    OS/architecture only, never `os_floor`, `client_versions` or `signer_builds`, so a non-empty table would over-claim
+    (WSL included). M03-F1 adds version gating in `claims()` and `claimed()`/`claim()` (a host OS release reader per
+    platform, the verified client's `ssh -V`, the signer build), per-platform tests including out-of-range hosts and
+    WSL, then the 19 drafted A07 and A23 entries, one Codex review, and targeted native reruns on macOS, the devbox and
+    Windows. Plan §3 step 3 (the report test against the real table) moves with it.
 - **Next: three parallel tracks:**
   - M03 wave 6 (U13: the exit suite, native harnesses, evidence, the matrix and the claims update, then the M03 exit);
   - the M04 design and build;

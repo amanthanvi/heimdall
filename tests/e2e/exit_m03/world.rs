@@ -81,6 +81,35 @@ pub const POLICY: &str = "exit-pol";
 /// otherwise.
 const DEFAULT_POLICY_WINDOW: Duration = Duration::from_secs(2 * 3600);
 
+/// ⟨M03 E7⟩ How long [`World::cli`] waits for a runtime that missed the CLI's readiness
+/// wait to serve before it retries the refused command.
+const READY_WAIT: Duration = Duration::from_secs(60);
+
+/// ⟨M03 E7⟩ Whether `stdout`'s last envelope is the CLI's refusal for a runtime that did
+/// not become ready in time: `SERVICE_UNAVAILABLE`, effect `none`, that exact message
+/// (nothing happened, so the command may be retried once).
+fn not_ready(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .rev()
+        .find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
+        .is_some_and(|v| {
+            v["code"] == "SERVICE_UNAVAILABLE"
+                && v["data"]["error"]["effect_status"] == "none"
+                && v["data"]["error"]["message"] == "the runtime did not become ready in time"
+        })
+}
+
+/// ⟨M03 E7⟩ A command's words for a `fixture:` line (no flag, no path).
+fn command_name(args: &[&str]) -> String {
+    args.iter()
+        .filter(|a| !a.starts_with('-') && !a.contains(['/', '\\']))
+        .take(3)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The binary under test.
 pub fn bin() -> PathBuf {
     std::env::var_os("HEIMDALL_E2E_BIN")
@@ -714,7 +743,45 @@ impl World {
 
     /// Run the binary (cleared environment, stdin closed, the scratch root as working
     /// directory); the output joins the transcript.
+    ///
+    /// ⟨M03 E7⟩ Fixture readiness: a command refused with `SERVICE_UNAVAILABLE`, effect
+    /// `none` and "the runtime did not become ready in time" changed nothing; the runtime
+    /// it started on demand may still come up (a debug build's cold start can exceed the
+    /// CLI's readiness wait under parallel load on Windows; M04 widens that wait). Then
+    /// the runtime gets up to [`READY_WAIT`] to serve (`service status`, which never
+    /// starts one), and that same command is retried once, with a `fixture:` line. Any
+    /// other failure is never retried.
     pub fn cli(&self, args: &[&str]) -> Out {
+        let out = self.cli_once(args);
+        if !not_ready(&out.stdout) {
+            return out;
+        }
+        let start = Instant::now();
+        while self.cli_once(&["--json", "service", "status"]).code != 0 {
+            if start.elapsed() >= READY_WAIT {
+                let line = format!(
+                    "fixture: runtime not ready after {} s; `{}` is not retried\n",
+                    READY_WAIT.as_secs(),
+                    command_name(args)
+                );
+                print!("{line}");
+                self.record(&["fixture"], &line, "");
+                return out;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let line = format!(
+            "fixture: runtime became ready after {} s; `{}` retried once\n",
+            start.elapsed().as_secs(),
+            command_name(args)
+        );
+        print!("{line}");
+        self.record(&["fixture"], &line, "");
+        self.cli_once(args)
+    }
+
+    /// One run of the binary ([`World::cli`] without its readiness retry).
+    fn cli_once(&self, args: &[&str]) -> Out {
         let out = Command::new(bin())
             .args(args)
             .env_clear()
@@ -733,10 +800,14 @@ impl World {
         out
     }
 
-    /// Run the binary on a terminal and type `yes` at its `[y/N]: ` prompt.
+    /// Run the binary on a terminal and type `yes` at its `[y/N]: ` prompt. ⟨M03 E6⟩ The
+    /// prompt is matched without its trailing space, on a terminal wide enough that its line
+    /// cannot wrap: a pseudoconsole's text drops a line's trailing spaces (as M04's
+    /// `windows_m04.rs` found).
     pub fn confirm(&self, args: &[&str]) -> Out {
         let mut cmd = TerminalCommand::new(bin())
             .args(args)
+            .size(1000, 50)
             .current_dir(&self.home.root);
         for (k, v) in self.env() {
             cmd = cmd.env(k, v);
@@ -744,9 +815,10 @@ impl World {
         let mut term = cmd.spawn().unwrap_or_else(|e| {
             panic!("blocked: a terminal (script(1) on Unix, ConPTY on Windows) is needed: {e}")
         });
-        if let Err(e) = term.expect("[y/N]: ", Duration::from_secs(90)) {
+        if let Err(e) = term.expect("[y/N]:", Duration::from_secs(90)) {
             panic!("{args:?}: no prompt: {}", self.redact(&e.to_string()));
         }
+        std::thread::sleep(Duration::from_millis(300));
         term.send(b"yes\r").unwrap();
         let code = term.wait(Duration::from_secs(120)).unwrap_or(-1);
         let text = term.text();

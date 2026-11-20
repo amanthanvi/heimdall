@@ -1124,7 +1124,7 @@ impl ConnectionSupervisor {
                 cmd.env(k, v);
             }
         }
-        cmd
+        heimdall_app::no_window!(cmd)
     }
 
     /// The PID of the master answering `ssh -O check` at `path`, bounded by
