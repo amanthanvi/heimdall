@@ -849,7 +849,8 @@ impl Inner {
                 stdout,
             });
         }
-        let mut cmd = Command::new(&c.program);
+        // ⟨M03 E9; ADR-0008 §17.43⟩ No console window (the spawner, when wired, sets its own).
+        let mut cmd = heimdall_app::no_window!(Command::new(&c.program));
         cmd.args(&c.args)
             .envs(c.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())

@@ -50,6 +50,7 @@
     "A07": {
       "tests": {
         "e2e_exit_m03": [
+          "managed_revoke_reaches_revoked_once_the_residual_passes",
           "real_issuer_activation_reissue_revocation_with_fresh_logins"
         ],
         "e2e_managed_m03": [
@@ -77,6 +78,8 @@
           "key_only_restore_reports_unbounded_unknown"
         ],
         "integration_managed_adapter": [
+          "managed_revoke_records_bounded_obligations_and_reaches_revoked",
+          "managed_revoke_with_stale_measurement_is_nominally_expired",
           "revoke_cascades_to_children_destroying_their_keys",
           "revoke_destroys_keys_under_exclusive_gate",
           "revoke_during_each_issuance_step",
@@ -104,6 +107,7 @@
           "bounded_obligation_completes_after_measured_bound_on_safe_time",
           "bounded_obligation_consumes_no_attempt",
           "bounded_obligation_never_moves_on_uncertain_time",
+          "mixed_obligations_revoke_with_the_last_confirmation",
           "unmeasured_obligation_becomes_nominally_expired_never_cleared"
         ],
         "model_issuer_linearization": [
@@ -232,6 +236,7 @@
         ],
         "wsl_managed_ssh": [
           "m03_wsl_access_ensure_signed_by_the_real_issuer_child",
+          "m03_wsl_managed_revoke_revoked_once_the_residual_passes",
           "m03_wsl_revoke_then_fresh_login_refused"
         ]
       }
@@ -896,6 +901,7 @@
         "e2e_enroll_m03": [
           "enroll_preview_apply_verify_setup_apply_ensure_ssh"
         ],
+        "e2e_exit_m03": [],
         "e2e_tui_m03": [
           "pty::time_confirmation_chore_shown_after_reboot"
         ],
@@ -1172,6 +1178,13 @@
           "windows_owned_multiplexing_reported_unavailable"
         ]
       }
+    },
+    "background-once": {
+      "windows": {
+        "e2e_exit_m03": [
+          "windows_runtime_children_have_no_console_window"
+        ]
+      }
     }
   },
   "platform_only": {
@@ -1364,6 +1377,9 @@
       "windows"
     ],
     "e2e_enroll_m03::windows::windows_verification_host_key_mismatch_holds_no_rollback": [
+      "windows"
+    ],
+    "e2e_exit_m03::windows_runtime_children_have_no_console_window": [
       "windows"
     ],
     "e2e_issuer_ceremony::d5_backup_restores_with_stock_ssh_keygen": [
@@ -2802,5 +2818,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "c5dc3e45d1f52ce1c9dd4bfa34aac7a2e1a95cccf597c0b7b60ae181e283c1e7"
+  "sources_sha256": "f37e357d1030e0b6e826ff8c910c2c87367759c908ef44ca683b8bc15c7a4b4f"
 }

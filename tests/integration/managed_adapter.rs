@@ -741,6 +741,8 @@ struct Opts {
     clock: Option<ClockMeasurement>,
     enroll: bool,
     limits: Limits,
+    /// The enrollment evidence's freshness ended at `t0()` (E5, I-12).
+    stale_evidence: bool,
 }
 
 impl Default for Opts {
@@ -750,6 +752,7 @@ impl Default for Opts {
             clock: Some(measured()),
             enroll: true,
             limits: Limits::default(),
+            stale_evidence: false,
         }
     }
 }
@@ -855,7 +858,13 @@ impl World {
                 if o.enroll {
                     for (i, p) in o.pairs.iter().enumerate() {
                         let seed = u8::try_from(i + 1).unwrap();
-                        tx.seed_enrollment(&enrollment(seed, &ca_fp, p, o.clock))?;
+                        let mut e = enrollment(seed, &ca_fp, p, o.clock);
+                        if o.stale_evidence
+                            && let Some(ev) = e.evidence.as_mut()
+                        {
+                            ev.fresh_until = t0();
+                        }
+                        tx.seed_enrollment(&e)?;
                     }
                 }
                 Ok(())
@@ -3650,6 +3659,152 @@ async fn unmeasured_residual_reported_nominally_expired_never_cleared() {
     w.sources.key_only.store(true, Ordering::SeqCst);
     let o = w.adapter.revoke(&gid, w.wall()).await.unwrap();
     assert_eq!(o.remote_effects[0].status, ResidualStatus::UnboundedUnknown);
+    w.finish(&[gid]).await;
+}
+
+// =================================================================================
+// E5 (I-12; ADR-0008 D7 item 3): a managed revoke's bounded obligations
+// =================================================================================
+
+impl World {
+    fn remote_record(
+        &self,
+        root: &GrantId,
+    ) -> Option<heimdall_domain::revocation::PendingRemoteRevocation> {
+        self.store
+            .transaction(|tx| tx.remote_revocation(root))
+            .unwrap()
+    }
+}
+
+/// `(latest_valid_before, clock, status)` of each obligation of `r`, in order (`None`
+/// for an obligation that is not `bounded_by_expiry`).
+fn bounds_of(
+    r: &heimdall_domain::revocation::PendingRemoteRevocation,
+) -> Vec<Option<(Timestamp, DestinationClock, ResidualStatus)>> {
+    use heimdall_domain::revocation::ObligationKind;
+    r.obligations
+        .iter()
+        .map(|o| match &o.kind {
+            ObligationKind::BoundedByExpiry {
+                latest_valid_before,
+                clock,
+                status,
+            } => Some((*latest_valid_before, *clock, *status)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `managed_revoke_records_bounded_obligations_and_reaches_revoked` (E5, I-12; ADR-0008
+/// D7 items 2–3): the revoke calls the managed adapter once, which ends the grant
+/// locally. Its obligation then becomes one `bounded_by_expiry` obligation per pair: the
+/// pair's latest `valid_before` from the issuance log and the pair's fresh clock
+/// measurement. No retry round calls the adapter again. The grant reads `revoking`
+/// until the measured bound has passed on safe time, then `revoked`, and the record is
+/// removed.
+#[tokio::test]
+async fn managed_revoke_records_bounded_obligations_and_reaches_revoked() {
+    let w = World::new().await;
+    let data = w.ensure("bounded", &[h1(), h2()]).await;
+    let gid = data.grant_id.clone();
+    w.drive(&data, "tok", Stage::Materialize).await;
+    let lvb = w
+        .entries(&gid)
+        .iter()
+        .map(|e| e.bounds.valid_before)
+        .max()
+        .unwrap();
+    let calls = || w.wrapped.revokes.load(Ordering::SeqCst);
+    let before = calls();
+    w.revoke(&gid, "rv-bounded").await;
+    assert_eq!(calls(), before + 1, "one call");
+    assert_eq!(w.grant(&gid).state, GrantState::Revoking);
+    let r = w.remote_record(&gid).expect("a pending record");
+    let pending = Some((
+        lvb,
+        DestinationClock::Measured(measured()),
+        ResidualStatus::PendingUntil,
+    ));
+    assert_eq!(bounds_of(&r), [pending, pending], "one per pair");
+    // No adapter round for it: a retry makes no call and counts nothing.
+    for _ in 0..3 {
+        let after = w.ops.retry_remote_revocation(&gid, 8).await.unwrap();
+        assert_eq!(after.map(|a| a.attempts), Some(r.attempts));
+    }
+    assert_eq!(calls(), before + 1, "no round");
+    // Past `valid_before` but inside the measured bound: still pending.
+    let to = |at: Timestamp| Duration::try_from(at.duration_since(w.wall())).unwrap();
+    w.clock.advance(to(shift(lvb, 1)));
+    let b = w.ops.settle_bounded_obligations().await.unwrap();
+    assert!(b.safe && b.moved.is_empty(), "{b:?}");
+    assert_eq!(w.grant(&gid).state, GrantState::Revoking);
+    // Past the bound on safe time: `revoked`, the record gone.
+    w.clock.advance(to(shift(lvb, 60)));
+    let b = w.ops.settle_bounded_obligations().await.unwrap();
+    assert_eq!(b.moved.len(), 2, "{b:?}");
+    assert_eq!(b.revoked, std::slice::from_ref(&gid));
+    assert_eq!(b.removed, std::slice::from_ref(&gid));
+    assert_eq!(w.grant(&gid).state, GrantState::Revoked);
+    assert!(w.remote_record(&gid).is_none());
+    assert_eq!(calls(), before + 1, "no call");
+    w.finish(&[gid]).await;
+}
+
+/// `managed_revoke_with_stale_measurement_is_nominally_expired` (E5, I-12; ADR-0008 D5
+/// §6.5 item 4, §17.1 item 10, §17.15): a measurement whose evidence is no longer fresh
+/// at the revocation is recorded `unmeasured`. Once `valid_before` has passed on safe
+/// time the obligation is `nominally_expired`, never `bounded_complete`, and the grant
+/// reaches `revoked` with its record kept.
+#[tokio::test]
+async fn managed_revoke_with_stale_measurement_is_nominally_expired() {
+    let w = World::with(Opts {
+        pairs: vec![h1()],
+        stale_evidence: true,
+        ..Opts::default()
+    })
+    .await;
+    let data = w.ensure("stale", &[h1()]).await;
+    let gid = data.grant_id.clone();
+    w.drive(&data, "tok", Stage::Materialize).await;
+    let lvb = w
+        .entries(&gid)
+        .iter()
+        .map(|e| e.bounds.valid_before)
+        .max()
+        .unwrap();
+    let calls = || w.wrapped.revokes.load(Ordering::SeqCst);
+    let before = calls();
+    w.revoke(&gid, "rv-stale").await;
+    let r = w.remote_record(&gid).expect("a pending record");
+    assert_eq!(
+        bounds_of(&r),
+        [Some((
+            lvb,
+            DestinationClock::Unmeasured,
+            ResidualStatus::PendingUntil
+        ))]
+    );
+    let to = |at: Timestamp| Duration::try_from(at.duration_since(w.wall())).unwrap();
+    w.clock.advance(to(shift(lvb, -1)));
+    let b = w.ops.settle_bounded_obligations().await.unwrap();
+    assert!(b.safe && b.moved.is_empty(), "{b:?}");
+    assert_eq!(w.grant(&gid).state, GrantState::Revoking);
+    w.clock.advance(to(lvb));
+    let b = w.ops.settle_bounded_obligations().await.unwrap();
+    assert_eq!(b.revoked, std::slice::from_ref(&gid));
+    assert!(b.removed.is_empty(), "kept (§17.15)");
+    assert_eq!(w.grant(&gid).state, GrantState::Revoked);
+    let kept = w.remote_record(&gid).expect("kept (§17.15)");
+    assert_eq!(
+        bounds_of(&kept),
+        [Some((
+            lvb,
+            DestinationClock::Unmeasured,
+            ResidualStatus::NominallyExpired
+        ))]
+    );
+    assert_eq!(calls(), before + 1, "one call");
     w.finish(&[gid]).await;
 }
 

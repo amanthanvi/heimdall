@@ -243,6 +243,124 @@ fn real_issuer_activation_reissue_revocation_with_fresh_logins() {
     );
 }
 
+/// The policy window of [`managed_revoke_reaches_revoked_once_the_residual_passes`]'s
+/// grant, and so its certificate's validity (`valid_before` is the grant's deadline).
+const SHORT_WINDOW: Duration = Duration::from_secs(90);
+
+/// E5 (ruling I-12; ADR-0008 D7 items 2–3, §17.15) through the real binary: a managed
+/// grant whose certificate is valid for [`SHORT_WINDOW`] is revoked. It reads `revoking`,
+/// and its pending record holds one `bounded_by_expiry` obligation for its pair, with the
+/// certificate's `valid_before` (the world's enrollment has no clock measurement, so
+/// `unmeasured`). Once that has passed, the runtime's supervisor moves the grant to
+/// `revoked` with no further adapter round (the record's round count is unchanged), never
+/// earlier. The record is kept with the obligation `nominally_expired`: it is never shown
+/// as cleared.
+#[cfg(any(unix, windows))]
+#[test]
+fn managed_revoke_reaches_revoked_once_the_residual_passes() {
+    use heimdall_contract::managed::{DestinationClock, ResidualStatus};
+    use heimdall_domain::revocation::{ObligationKind, PendingRemoteRevocation};
+    let (w, ca) = World::start(WorldOptions {
+        pairs: 1,
+        per_pair_profiles: true,
+        pair_policy_windows: vec![SHORT_WINDOW],
+        ..WorldOptions::default()
+    });
+    drop(ca);
+    let g = w.ensure_on(
+        &w.profile_of(0),
+        "exit-work-residual",
+        "exit-ensure-residual",
+    )["grant_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let gid = heimdall_contract::ids::GrantId::parse(&g).unwrap();
+    let record = || -> Option<PendingRemoteRevocation> {
+        w.open_store()
+            .transaction(|tx| tx.remote_revocation(&gid))
+            .unwrap()
+    };
+    let lvb = w
+        .open_store()
+        .transaction(|tx| tx.issuance_entries(&gid))
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.state != heimdall_domain::issuance::IssuanceState::Voided)
+        .map(|e| e.bounds.valid_before)
+        .max()
+        .expect("the grant's certificate was signed");
+    w.revoke(&g, "exit-revoke-residual");
+    assert!(
+        heimdall_contract::Timestamp::now() < lvb,
+        "revoked before the certificate's valid_before"
+    );
+    assert_eq!(w.grant_state(&g), "revoking", "the residual is pending");
+    let kinds = |r: &PendingRemoteRevocation| -> Vec<
+        Option<(
+            heimdall_contract::Timestamp,
+            DestinationClock,
+            ResidualStatus,
+        )>,
+    > {
+        r.obligations
+            .iter()
+            .map(|o| match &o.kind {
+                ObligationKind::BoundedByExpiry {
+                    latest_valid_before,
+                    clock,
+                    status,
+                } => Some((*latest_valid_before, *clock, *status)),
+                _ => None,
+            })
+            .collect()
+    };
+    let at_revoke = record().expect("a pending record");
+    assert_eq!(
+        kinds(&at_revoke),
+        [Some((
+            lvb,
+            DestinationClock::Unmeasured,
+            ResidualStatus::PendingUntil
+        ))],
+        "one bounded obligation for the pair"
+    );
+    let limit = lvb.checked_add(Duration::from_secs(120)).unwrap();
+    loop {
+        let state = w.grant_state(&g);
+        let now = heimdall_contract::Timestamp::now();
+        if state == "revoked" {
+            assert!(now >= lvb, "revoked before the residual passed");
+            break;
+        }
+        assert_eq!(state, "revoking");
+        assert!(
+            now < limit,
+            "still revoking {} s after the certificate's valid_before",
+            now.duration_since(lvb).as_secs()
+        );
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let kept = record().expect("kept: a nominally expired obligation (§17.15)");
+    assert_eq!(
+        kinds(&kept),
+        [Some((
+            lvb,
+            DestinationClock::Unmeasured,
+            ResidualStatus::NominallyExpired
+        ))]
+    );
+    assert_eq!(
+        kept.attempts, at_revoke.attempts,
+        "no adapter round after it"
+    );
+    println!(
+        "m03 observation: managed_revoke_residual {} certificate_validity_s={} state_at_revoke=revoking state_after_residual=revoked obligation=bounded_by_expiry clock=unmeasured status=nominally_expired record_kept=true rounds_after_revoke=0",
+        platform(),
+        SHORT_WINDOW.as_secs()
+    );
+}
+
 /// ⟨M03 wave 6, W6-R01⟩ A failure injected right after `setup apply` (as a failing or
 /// time-limited `time confirm` would) unwinds the preparation, and the world's owned
 /// rollback runs as it is dropped: the projection is rolled back and the restoration
@@ -1027,5 +1145,85 @@ fn real_issuer_signs_verification_certificates_enroll_verify_passes() {
         "key ID heimdall:<env>:<operation>:<serial>: {} (serial {})",
         c.key_id,
         c.serial
+    );
+}
+
+/// ⟨M03 E9⟩ The helper process of [`windows_runtime_children_have_no_console_window`]: with
+/// `HM_CONSOLE_PROBE=<pid>|<file>` it attaches to that process's console and writes `none` (no
+/// console), `window` or `no-window` to the file; a no-op in the suite itself.
+#[cfg(windows)]
+#[test]
+fn console_probe_entry() {
+    let Some(spec) = std::env::var_os("HM_CONSOLE_PROBE") else {
+        return;
+    };
+    let spec = spec.to_string_lossy().into_owned();
+    let (pid, file) = spec.split_once('|').expect("<pid>|<file>");
+    let state = match heimdall_testkit::win::attached_console_window(pid.parse().unwrap()) {
+        None => "none",
+        Some(true) => "window",
+        Some(false) => "no-window",
+    };
+    std::fs::write(file, state).unwrap();
+}
+
+/// ⟨M03 E9⟩ Ruling I-24, ADR-0008 §17.43: the runtime runs `DETACHED_PROCESS` (no console),
+/// so a console child it starts without `CREATE_NO_WINDOW` gets a new console, which Windows
+/// hands off to the default terminal (a window or a Windows Terminal tab on the desktop, and a
+/// start that waits on it). Every child the world's runtime has running once it serves, its
+/// issuer child at least, has no console window: a helper process attaches to each child's
+/// console (`AttachConsole`) and reads `GetConsoleWindow`.
+#[cfg(windows)]
+#[test]
+fn windows_runtime_children_have_no_console_window() {
+    let (w, ca) = World::start(WorldOptions {
+        pairs: 1,
+        ..WorldOptions::default()
+    });
+    drop(ca);
+    let status = w.cli(&["--json", "service", "status"]);
+    let runtime = u32::try_from(
+        status.json()["data"]["pid"]
+            .as_u64()
+            .expect("the runtime's pid"),
+    )
+    .unwrap();
+    let children: Vec<(u32, String)> = heimdall_testkit::win::child_processes(runtime)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, image)| {
+            !image.eq_ignore_ascii_case("conhost.exe")
+                && !image.eq_ignore_ascii_case("OpenConsole.exe")
+        })
+        .collect();
+    assert!(
+        children
+            .iter()
+            .any(|(_, image)| image.eq_ignore_ascii_case("heimdall.exe")),
+        "the issuer child runs under the runtime: {children:?}"
+    );
+    let dir = w.subdir("console-probe");
+    let mut seen = Vec::new();
+    for (pid, image) in &children {
+        let file = dir.join(format!("{pid}.txt"));
+        let probe = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "console_probe_entry", "--test-threads=1"])
+            .env("HM_CONSOLE_PROBE", format!("{pid}|{}", file.display()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(probe.success(), "the console probe of {image} ran");
+        let state = std::fs::read_to_string(&file).unwrap();
+        assert_ne!(
+            state, "window",
+            "{image} (a child of the console-less runtime) has a console window"
+        );
+        seen.push(format!("{image}={state}"));
+    }
+    println!(
+        "m03 observation: windows_runtime_children_console {}",
+        seen.join(" ")
     );
 }

@@ -38,6 +38,14 @@ pub enum ListedStdio {
     Null,
 }
 
+/// ⟨M03 E9; ADR-0008 §17.43, ruling I-24⟩ `CREATE_NO_WINDOW`, the creation flag of every
+/// non-interactive listed child (all its standard streams piped or null): what
+/// `heimdall_app::no_window!` sets on a `Command`, for [`ListedSpawn::creation_flags`], which
+/// [`spawn_listed`] uses instead of the command's. A console program started by a parent with
+/// no console (the runtime runs `DETACHED_PROCESS`) otherwise gets a new console that Windows
+/// hands to the default terminal, and its start waits on that hand-off. Ignored off Windows.
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// Options [`std::process::Command`] cannot carry for [`spawn_listed`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ListedSpawn {

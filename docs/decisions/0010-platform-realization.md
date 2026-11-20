@@ -69,6 +69,14 @@ probe IDs P-…), **[I]** inference to be proved by the M04 tests named in the p
      (Windows, with a positive control); on Unix, M01's
      `on_demand_runtime_keeps_no_descriptor_inherited_through_its_client` and
      `runtime_closes_every_descriptor_inherited_at_startup` (ADR-0006 §13.8 item 7).
+   - **No console window for a non-interactive child** (platform fact; ADR-0008 §17.43, ruling
+     I-24): the runtime runs `DETACHED_PROCESS`, so a console child it starts without
+     `CREATE_NO_WINDOW` gets a new console that Windows hands to the default terminal (Windows
+     Terminal on the PC), and its start waits on that hand-off (the issuer child missed its 5 s
+     hello). M04's listed spawns set it in `ListedSpawn::creation_flags`
+     (`localenv::sys::spawn::CREATE_NO_WINDOW`: the issuer child, the verification `ssh -G`, every
+     `wsl.exe` launch and run); a `Command` takes `heimdall_app::no_window!`. The runtime's own
+     start (`DETACHED_PROCESS`) and the launches that share the user's terminal are unchanged.
 7. **The state directory** must have a protected owner-only DACL, checked at start. Anything else is
    refused as `state_dir_unsafe` and never repaired. This closes ADR-0006 §13.12 item 4.
 

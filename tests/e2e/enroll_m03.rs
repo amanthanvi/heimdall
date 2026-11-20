@@ -5027,17 +5027,26 @@ async fn system_form_cancel_from_manual_pending_keeps_entry_until_absence_verifi
 }
 
 /// Waits until the remote clock (this host's) is past the uncertain step's not-after
-/// (the step timeout is 1 s here, so the not-after is the inspect's reading + ~61 s).
+/// (the step timeout is [`SHORT_STEP`] here, so the not-after is the inspect's reading +
+/// [`SHORT_STEP`] + ~60 s).
 #[cfg(any(unix, windows))]
 async fn past_not_after() {
-    tokio::time::sleep(std::time::Duration::from_secs(64)).await;
+    tokio::time::sleep(SHORT_STEP + std::time::Duration::from_secs(64)).await;
 }
+
+/// ⟨M03 E7⟩ The step bound of [`short_steps`]: short, so a not-after passes within the
+/// test, and long enough that a real step over `ssh` completes on a loaded Windows host. A
+/// step the runner ends at its bound reports no ready line, which the runtime reads as
+/// `registry_unsupported` (it cannot tell a timeout from a remote shell that is not
+/// POSIX); at 1 s an `inspect` under parallel load on Windows failed that way.
+#[cfg(any(unix, windows))]
+const SHORT_STEP: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[cfg(any(unix, windows))]
 fn short_steps() -> WorldOptions {
     WorldOptions {
         limits: heimdall_app::operations::Limits {
-            enrollment_step_timeout: std::time::Duration::from_secs(1),
+            enrollment_step_timeout: SHORT_STEP,
             ..heimdall_app::operations::Limits::default()
         },
         ..WorldOptions::default()

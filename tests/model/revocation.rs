@@ -4156,13 +4156,15 @@ async fn settled(w: &World, rid: &str, work: &str) -> OpResult<EnsureData> {
 /// observable as `running`, and once the adapter is released all five complete
 /// with one effect.
 ///
-/// Margin: the bound asserted is `2 × max_wait` (160 ms): one `max_wait` (80 ms)
-/// plus up to another 80 ms for the deciding transaction and task scheduling on a
+/// Margin: the bound asserted is `2 × max_wait` (800 ms): one `max_wait` (400 ms)
+/// plus up to another 400 ms for the deciding transaction and task scheduling on a
 /// loaded debug build. Waiting one after another takes about `5 × max_wait`
-/// (≥ 400 ms), so the margin separates the two by more than 2×.
+/// (≥ 2000 ms), so the margin separates the two by more than 2×. ⟨M03 E8⟩ `max_wait`
+/// was 80 ms: on a loaded Windows host (BelowNormal priority, 4 test threads) the
+/// setup's waiters then missed their decision (`dec_of`: no `decision_ref`).
 #[tokio::test]
 async fn r138_2_a_decision_resuming_five_waiters_waits_one_bound_in_total() {
-    const MAX_WAIT: Duration = Duration::from_millis(80);
+    const MAX_WAIT: Duration = Duration::from_millis(400);
     let w = World::with_opts(Opts {
         limits: Limits {
             max_wait: MAX_WAIT,

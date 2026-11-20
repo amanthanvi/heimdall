@@ -274,14 +274,20 @@ const SAMPLE_INTERVAL: Duration = Duration::from_secs(60);
 const C_WINDOW: Duration = Duration::from_secs(16 * 3600);
 /// The least C may have left when prepared (the lock follows within minutes).
 const C_MIN_LEFT: Duration = Duration::from_secs(13 * 3600 + 1800);
-/// Grant R's policy window.
-const R_WINDOW: Duration = Duration::from_secs(2 * 3600);
+/// Grant R's policy window, and so its certificate's validity (`valid_before` is the
+/// grant's deadline). ⟨E5, ruling I-12⟩ About 10 minutes, so its residual passes inside a
+/// 20–30 minute lock and the post-unlock check reads `revoked` (the run configuration
+/// records it).
+const R_WINDOW: Duration = Duration::from_secs(600);
 /// After a revoked grant's latest certificate `valid_before`, how long it may still read
-/// `revoking` (the measured completion bound's drift and the supervisor's next pass).
-const RESIDUAL_MARGIN: Duration = Duration::from_secs(900);
-/// Grant N's policy window: short, so an unlock more than an hour later exercises the
-/// `expired` case and C the `usable` one (F09).
-const N_WINDOW: Duration = Duration::from_secs(3600);
+/// `revoking`: the supervisor's next pass. The world's enrollments carry no clock
+/// measurement, so the residual is `unmeasured` and ends at `valid_before` itself
+/// (ADR-0008 D7 item 3).
+const RESIDUAL_MARGIN: Duration = Duration::from_secs(120);
+/// Grant N's policy window: short, so an unlock 20 minutes or more after the lock
+/// exercises the `expired` case and C the `usable` one (F09). ⟨E5⟩ It was an hour with
+/// the multi-hour lock.
+const N_WINDOW: Duration = Duration::from_secs(600);
 
 #[derive(Default)]
 struct Shared {
@@ -850,8 +856,9 @@ impl Run {
         }
         let _ = writeln!(
             out,
-            "m03 observation: a03 {os} policies exit-pol-1 continue (window {} s), exit-pol-2 revoke_on_lock (`access lock-behavior`, narrowing), exit-pol-3 continue (window {} s; the standing policy for N)",
+            "m03 observation: a03 {os} policies exit-pol-1 continue (window {} s), exit-pol-2 revoke_on_lock (`access lock-behavior`, narrowing; window {} s, R's certificate validity), exit-pol-3 continue (window {} s; the standing policy for N)",
             C_WINDOW.as_secs(),
+            R_WINDOW.as_secs(),
             N_WINDOW.as_secs()
         );
 

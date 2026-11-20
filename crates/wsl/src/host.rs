@@ -332,7 +332,7 @@ impl HelperLauncher for WslExeLauncher {
             &cmd,
             &ListedSpawn {
                 env_clear: true,
-                creation_flags: 0x0800_0000,
+                creation_flags: heimdall_localenv::sys::spawn::CREATE_NO_WINDOW,
                 ..ListedSpawn::piped()
             },
         )
@@ -402,6 +402,8 @@ impl HelperLauncher for DirectLauncher {
             &cmd,
             &ListedSpawn {
                 env_clear: true,
+                // ⟨ADR-0008 §17.43⟩ A non-interactive child: no console window.
+                creation_flags: heimdall_localenv::sys::spawn::CREATE_NO_WINDOW,
                 ..ListedSpawn::piped()
             },
         )

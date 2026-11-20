@@ -17,8 +17,9 @@ use heimdall_localenv::sys::spawn::{ListedChild, ListedSpawn, ListedStdio, spawn
 
 use crate::discover::{RunningSet, parse_running_list};
 
-/// `CREATE_NO_WINDOW`: no console window for a `wsl.exe` child.
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// `CREATE_NO_WINDOW`: no console window for a `wsl.exe` child (⟨M04⟩ the shared constant,
+/// ADR-0008 §17.43).
+use heimdall_localenv::sys::spawn::CREATE_NO_WINDOW;
 
 /// The bound on `wsl.exe --list --running --quiet`.
 pub const LIST_TIMEOUT: Duration = Duration::from_secs(5);

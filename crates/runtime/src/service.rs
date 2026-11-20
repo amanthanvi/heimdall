@@ -183,6 +183,9 @@ fn listed_issuer_child(c: &ChildCommand) -> std::io::Result<heimdall_issuer::cli
     cmd.args(&c.args).envs(c.env.iter().map(|(k, v)| (k, v)));
     let options = ListedSpawn {
         stderr: ListedStdio::Null,
+        // ⟨M03 E9; ADR-0008 §17.43, ruling I-24⟩ No console window: `spawn_listed` takes its
+        // creation flags from here, not from the command (so `no_window!` would not reach it).
+        creation_flags: heimdall_localenv::sys::spawn::CREATE_NO_WINDOW,
         ..ListedSpawn::piped()
     };
     let mut child = spawn_listed(&cmd, &options).map_err(std::io::Error::other)?;
@@ -3223,6 +3226,8 @@ impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
         let options = heimdall_localenv::sys::spawn::ListedSpawn {
             stdin: heimdall_localenv::sys::spawn::ListedStdio::Null,
             stderr: heimdall_localenv::sys::spawn::ListedStdio::Null,
+            // ⟨M03 E9; ADR-0008 §17.43⟩ No console window (the listed spawn's own flag).
+            creation_flags: heimdall_localenv::sys::spawn::CREATE_NO_WINDOW,
             ..heimdall_localenv::sys::spawn::ListedSpawn::piped()
         };
         let mut child = heimdall_localenv::sys::spawn::spawn_listed(&cmd, &options)

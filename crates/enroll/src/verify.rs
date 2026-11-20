@@ -492,7 +492,7 @@ async fn attempt(
         );
     }
     let before = session.signatures(fingerprint);
-    let mut cmd = tokio::process::Command::new(client);
+    let mut cmd = heimdall_app::no_window!(tokio::process::Command::new(client));
     cmd.arg("-F")
         .arg(config)
         .args(["-v", "-T", VERIFY_HOST, MEASURE_COMMAND])

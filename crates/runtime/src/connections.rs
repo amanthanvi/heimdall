@@ -1130,7 +1130,8 @@ impl ConnectionSupervisor {
             &mut cmd,
             self.config.client_env.is_none(),
         );
-        cmd
+        // ⟨M03 E9; ADR-0008 §17.43⟩ No console window.
+        heimdall_app::no_window!(cmd)
     }
 
     /// The PID of the master answering `ssh -O check` at `path`, bounded by

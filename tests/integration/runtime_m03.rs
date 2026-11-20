@@ -1834,6 +1834,51 @@ async fn bounded_obligation_consumes_no_attempt() {
     assert_eq!(w.grant_state(&m), GrantState::Revoking);
 }
 
+/// `mixed_obligations_revoke_with_the_last_confirmation` (E5, I-12; ADR-0008 D7 item 3,
+/// §17.15): a grant whose bounded obligation settled before its `needs_remote_action`
+/// one stays `revoking` until that one is confirmed, then reaches `revoked` in the
+/// confirming round's own completion: a settled bounded obligation blocks nothing.
+#[tokio::test]
+async fn mixed_obligations_revoke_with_the_last_confirmation() {
+    let w = World::new().await;
+    let lvb = shift(t0(), 1800);
+    let g = revoking_with(&w, "req-e5-mixed", |g| {
+        let mut settled = bounded(g, fake_identity(), lvb, measured());
+        if let ObligationKind::BoundedByExpiry { status, .. } = &mut settled.kind {
+            *status = ResidualStatus::BoundedComplete;
+        }
+        vec![needs_action(g, fake_identity()), settled]
+    })
+    .await;
+    let sup = w.supervisor().with_revocation_backoff(Backoff {
+        base: Duration::from_millis(10),
+        max: Duration::from_millis(40),
+        max_attempts: 3,
+    });
+    let called = || {
+        w.fake
+            .revocations
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|x| **x == g)
+            .count()
+    };
+    let mut passes = 0;
+    while called() == 0 {
+        assert_eq!(w.grant_state(&g), GrantState::Revoking, "pass {passes}");
+        assert!(passes < 6, "the needs-action obligation was never called");
+        sup.revocation_pass().await.unwrap();
+        w.clock.advance(Duration::from_secs(1));
+        passes += 1;
+    }
+    assert_eq!(
+        w.grant_state(&g),
+        GrantState::Revoked,
+        "revoked by the confirming round"
+    );
+}
+
 // =================================================================================
 // Row 7 (supervisor part): kept cleanup intents
 // =================================================================================
