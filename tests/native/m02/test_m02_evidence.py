@@ -1377,6 +1377,21 @@ class WindowsBundle(unittest.TestCase):
         plats = ev.load_platforms(json.loads(cfg_path.read_text()))
         self.assertIn("model_setup", plats["windows"][1])
 
+    def test_version_facts_keep_their_versions_and_other_dotted_quads_are_addresses(self):
+        # ⟨M05 W4⟩ As the runner's Invoke-Redaction: the WSL version and the kernel release are
+        # versions, not addresses; a dotted quad with a part over 255 is no address either.
+        for text in ("wsl-version=WSL version: 2.6.1.0\n", "wsl-kernel=6.6.87.2-microsoft-standard-WSL2\n",
+                     "fact kernel-release=6.6.87.2\n", "sshd-V=OpenSSH 9.6 on 10.0.26300.9974\n",
+                     "bad 999.1.1.1\n", "loop 127.0.0.1 any 0.0.0.0\n"):
+            self.assertIsNone(wb.sensitive(text), text)
+        for text in ("peer 198.51.100.7\n", "wsl-version-note=via 198.51.100.7\n", "route=10.1.2.3\n",
+                     "wsl-kernel=6.6.87.2\nnext 6.6.87.2\n"):
+            self.assertEqual(wb.sensitive(text), "a non-loopback IPv4 address", text)
+        files = {"tests.txt": "### t\ntest a ... ok\n### t exit=0\n",
+                 "host.txt": "wsl-version=WSL version: 2.6.1.0\nwsl-kernel=6.6.87.2-microsoft-standard-WSL2\n"}
+        dest, _, _ = wb.import_bundle(make_bundle(files), "exit-ver", self.root, commit="1" * 40)
+        self.assertIn("wsl-kernel=6.6.87.2-microsoft-standard-WSL2", (dest / "host.txt").read_text())
+
     def test_a_refused_bundle_writes_nothing(self):
         def drop(name):
             return lambda d: d["files"].pop(name) and d["sha256"].pop(name)
@@ -1398,6 +1413,11 @@ class WindowsBundle(unittest.TestCase):
             "a SID": make_bundle({"host.txt": "user=S-1-5-21-1-2-3-1001\n"}),
             "an Entra SID": make_bundle({"host.txt": "user=S-1-12-1-1-2-3-4\n"}),
             "an address": make_bundle({"build.txt": "peer 203.0.113.9\n"}),
+            # ⟨M05 W4⟩ Only the value of a version fact keeps a version-shaped dotted quad.
+            "an address in a fact whose key only mentions a version": make_bundle(
+                {"host.txt": "wsl-version-note=via 198.51.100.7\n"}),
+            "an address on a version fact's next line": make_bundle(
+                {"host.txt": "wsl-kernel=6.6.87.2-microsoft-standard-WSL2\npeer 198.51.100.7\n"}),
             "no results": make_bundle({"tests.txt": "nothing\n"}),
             # ADR-0007 §12.35 item 3 (N03): metadata and the new content rules.
             "a canary in the label": make_bundle(label="win " + "HEIMDALL_" + "CANARY_" + "x"),

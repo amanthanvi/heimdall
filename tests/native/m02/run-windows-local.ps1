@@ -140,9 +140,23 @@ function Invoke-Redaction([string]$Text, $Rules) {
     }
     # User and domain SIDs (local and Entra accounts), and non-loopback IPv4 addresses.
     $Text = [regex]::Replace($Text, 'S-1-(5-21|12-1)(-\d+){1,6}', 'S-1-<redacted>')
+    # M05 W4: a dotted quad is an address only when every part is an octet (0-255), and never in the
+    # value of a version fact (`<key>=` whose key names a version or a kernel, e.g. `wsl-version=`,
+    # `wsl-kernel=6.6.87.2-microsoft-standard-WSL2`): those are versions, kept as evidence.
+    $source = $Text
     $Text = [regex]::Replace($Text, '(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])', {
             param($m)
-            if ($m.Value.StartsWith('127.') -or $m.Value -eq '0.0.0.0') { $m.Value } else { '<addr>' }
+            if ($m.Value.StartsWith('127.') -or $m.Value -eq '0.0.0.0') { return $m.Value }
+            if (@($m.Value.Split('.') | Where-Object { [int]$_ -gt 255 }).Count -gt 0) { return $m.Value }
+            # The value of a version fact: the match's line (after an optional `fact ` prefix) is
+            # `<key>=<value>` with a key that ends in `version`, `kernel`, `kernel-release` or `-V`
+            # (case-insensitive: `wsl-version`, `wsl-kernel`, `git-version`, `sshd-V`). Only such a
+            # key: an address in any other fact (`wsl-version-note=…`) is masked. (Inline, so the
+            # runners that load Invoke-Redaction by name need no other helper.)
+            $start = if ($m.Index -eq 0) { 0 } else { $source.LastIndexOf("`n", $m.Index - 1) + 1 }
+            $key = [regex]::Match($source.Substring($start, $m.Index - $start), '^(?:fact )?([A-Za-z0-9_.-]+)=')
+            if ($key.Success -and [regex]::IsMatch($key.Groups[1].Value, '(?:version|kernel|kernel-release|-v)$', 'IgnoreCase')) { return $m.Value }
+            return '<addr>'
         })
     return $Text
 }
@@ -548,6 +562,8 @@ function Invoke-SelfTest([string]$OutDir) {
         "short host mac on macOS, mac-1, xmac`n" +
         "sid S-1-5-21-1111111111-2222222222-3333333333-1001 entra S-1-12-1-111-222-333-444 system S-1-5-18`n" +
         "addr 203.0.113.9 loop 127.0.0.1 any 0.0.0.0 version 1.2.3.4.5`n" +
+        "wsl-version=WSL version: 2.6.1.0`nwsl-kernel=6.6.87.2-microsoft-standard-WSL2`nfact kernel-release=6.6.87.2`n" +
+        "route=10.1.2.3 next 6.6.87.2 bad 999.1.1.1`nwsl-version-note=via 198.51.100.7`n" +
         "canary " + ("HEIMDALL_" + "CANARY_") + "selftest_value_1 end`n"
     $r = Invoke-Redaction $text $rules
     Check 'R01 the Windows home in its backslash, doubled, slash and /mnt forms, any case' (-not ($r -match '(?i)fixtureuser') -and ([regex]::Matches($r, '<winhome>')).Count -ge 4)
@@ -555,6 +571,9 @@ function Invoke-SelfTest([string]$OutDir) {
     Check 'R03 host names as whole words only (inside another word they stay)' ($r.Contains('host <winhost> fqdn <winhost>.example') -and $r.Contains('<wslhost> on macOS, <wslhost>-1, xmac'))
     Check 'R04 user and Entra SIDs masked, a well-known SID kept' ($r.Contains('sid S-1-<redacted>') -and $r.Contains('entra S-1-<redacted>') -and $r.Contains('S-1-5-18') -and -not $r.Contains('3333333333'))
     Check 'R05 non-loopback IPv4 masked, loopback and any kept, version numbers untouched' ($r.Contains('addr <addr>') -and $r.Contains('127.0.0.1') -and $r.Contains('0.0.0.0') -and $r.Contains('1.2.3.4.5'))
+    Check 'R05b a version fact keeps its version-shaped value (WSL version, kernel release); elsewhere a dotted quad of octets is an address, one with a part over 255 is not' (
+        $r.Contains("wsl-version=WSL version: 2.6.1.0`n") -and $r.Contains("wsl-kernel=6.6.87.2-microsoft-standard-WSL2`n") -and $r.Contains("fact kernel-release=6.6.87.2`n") -and
+        $r.Contains('route=<addr> next <addr> bad 999.1.1.1') -and $r.Contains('wsl-version-note=via <addr>'))
     $p = Protect-BundleFiles @{ 'tests.txt' = $text } $rules
     Check 'R06 a canary is counted and its value masked' ($p.Canaries -eq 1 -and $p.Files['tests.txt'].Contains('canary <canary> end') -and -not $p.Files['tests.txt'].Contains('HEIMDALL_CANARY_'))
     Check 'R07 nothing redacted is left (leak scan 0)' ($p.Leaks -eq 0)

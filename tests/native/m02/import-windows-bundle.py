@@ -104,6 +104,24 @@ _SENSITIVE = (
      "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
+# ⟨M05 W4⟩ The value of a version fact (the runner's Invoke-Redaction keeps it): a line `<key>=`,
+# after an optional `fact ` prefix, whose key ends in `version`, `kernel`, `kernel-release` or `-V`.
+_FACT_KEY = re.compile(r"(?:fact )?([A-Za-z0-9_.-]+)=")
+_VERSION_KEY = re.compile(r"(?:version|kernel|kernel-release|-v)$", re.IGNORECASE)
+
+
+def _is_address(text, m):
+    """Whether the dotted quad `m` in `text` is an address the runner masks: not loopback or any,
+    every part an octet, and not in the value of a version fact (M05 W4: the WSL version and the
+    kernel release, `6.6.87.2-microsoft-standard-WSL2`, are versions)."""
+    value = m.group(0)
+    if value.startswith("127.") or value == "0.0.0.0":
+        return False
+    if any(int(part) > 255 for part in value.split(".")):
+        return False
+    start = text.rfind("\n", 0, m.start()) + 1
+    key = _FACT_KEY.match(text, start, m.start())
+    return not (key and _VERSION_KEY.search(key.group(1)))
 
 
 def sensitive(text):
@@ -112,7 +130,7 @@ def sensitive(text):
         if rx.search(text):
             return why
     for m in _IPV4.finditer(text):
-        if not (m.group(0).startswith("127.") or m.group(0) == "0.0.0.0"):
+        if _is_address(text, m):
             return "a non-loopback IPv4 address"
     return None
 

@@ -220,10 +220,13 @@ function ConvertTo-ComparablePath([string]$Path) {
 }
 
 # The `{DistributionName, BasePath}` rows WSL keeps for the current user:
-# HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss\{GUID}. Throws when the key cannot be read.
-# (Windows only; the self-test feeds synthetic rows through the Source parameters below instead.)
-function Read-LxssRows {
-    $root = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Lxss')
+# HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss\{GUID}, one pipeline item per row (an
+# empty key writes none). Throws when the key cannot be read. OpenRoot opens that key; the self-test
+# passes a fake key with the same methods, so this function's own output shape is tested off Windows.
+# (Its first version returned the rows wrapped in one array, which `@(& $Source)` below kept as a
+# single item: no row matched, and the PC's first run refused its own distribution.)
+function Read-LxssRows([scriptblock]$OpenRoot = { [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Lxss') }) {
+    $root = & $OpenRoot
     if ($null -eq $root) { throw 'the Lxss registry key is not readable' }
     $rows = [System.Collections.Generic.List[object]]::new()
     try {
@@ -235,14 +238,15 @@ function Read-LxssRows {
             } finally { $k.Dispose() }
         }
     } finally { $root.Dispose() }
-    return , $rows.ToArray()
+    return $rows.ToArray()
 }
 
 # The comparable install directory WSL recorded for Name, or $null when it cannot be read: the rows
 # cannot be read, no row or more than one row carries the name, or the BasePath is unusable.
 function Get-DistributionInstallDirectory([string]$Name, [scriptblock]$Source = { Read-LxssRows }) {
     try {
-        $rows = @(& $Source)
+        # Flattened one level, so a source that writes its rows wrapped in one array reads the same.
+        $rows = @(& $Source | ForEach-Object { $_ })
         $match = @($rows | Where-Object { $null -ne $_ -and ([string]$_.DistributionName) -ieq $Name })
         if ($match.Count -ne 1) { return $null }
         return (ConvertTo-ComparablePath ([string]$match[0].BasePath))
@@ -260,6 +264,21 @@ function Test-OwnRegistration([string]$Name, [string]$Dir, $Before, [scriptblock
     if ($null -eq $want) { return $false }
     $have = Get-DistributionInstallDirectory $Name $Source
     return ($null -ne $have -and $have -ceq $want)
+}
+
+# The cleanup's verdict on the registration called Name after an import (M05 W4, the PC's first run):
+# `owned` (this runner's name, absent from the census, named by this run's pending-import marker, and
+# recorded under this run's install directory: the import was this run's, so the run may terminate
+# and unregister it), `not-this-run` (the name, the census or the marker says otherwise),
+# `unreadable` (no usable install directory is recorded for it) or `other-directory` (another
+# directory: another run's). Only `owned` is ever removed.
+function Get-OwnershipVerdict([string]$Name, [string]$Dir, $Before, [string]$MarkerName, [scriptblock]$Source = { Read-LxssRows }) {
+    if ($null -eq $Before -or -not (Test-OwnDistributionName $Name) -or (@($Before) -contains $Name) -or $MarkerName -cne $Name) { return 'not-this-run' }
+    $want = ConvertTo-ComparablePath $Dir
+    $have = Get-DistributionInstallDirectory $Name $Source
+    if ($null -eq $want -or $null -eq $have) { return 'unreadable' }
+    if ($have -cne $want) { return 'other-directory' }
+    return 'owned'
 }
 
 # Throws unless the registration called Name is this run's (see Test-OwnRegistration).
@@ -586,7 +605,7 @@ function Invoke-SelfTest {
     $rules = Get-RunRedactionRules @{ wsluser = 'wslfixtureuser'; wslhome = '/home/wslfixtureuser'; wslhost = 'WSLBOX' } 'C:\S\hm-m05-wsl-00' 'C:\Users\fixtureuser' 'fixtureuser' 'PCNAME' 'pcname.example'
     $raw = @{
         'tests.txt' = "### wsl_hook_m05`ntest a ... ok`nhome C:\Users\fixtureuser\x /home/wslfixtureuser/y on PCNAME WSLBOX 203.0.113.9 HEIMDALL_CANARY_abc123`n### wsl_hook_m05 exit=0`n"
-        'commands.txt' = "exit 0: step`n"; 'host.txt' = "image-sha256=$RootfsSha256`n"; 'build.txt' = "run C:\S\hm-m05-wsl-00\files`n"; 'skipped.txt' = ''; 'canary-scan.txt' = ''
+        'commands.txt' = "exit 0: step`n"; 'host.txt' = "image-sha256=$RootfsSha256`nwsl-version=WSL version: 2.6.1.0`nwsl-kernel=6.6.87.2-microsoft-standard-WSL2`n"; 'build.txt' = "run C:\S\hm-m05-wsl-00\files`n"; 'skipped.txt' = ''; 'canary-scan.txt' = ''
     }
     $pb = New-ProtectedBundle $raw $rules 'label on PCNAME' ('0' * 40) '2026-01-01T00:00:00Z' 0
     $doc = ConvertFrom-BundleText $pb.Bundle.Text
@@ -594,6 +613,8 @@ function Invoke-SelfTest {
     Check 'R01 the M02 redaction applies (windows home, wsl home, hosts, run directory, non-loopback address) and the canary is masked and counted' (
         $doc['files']['tests.txt'].Contains('home <winhome>\x <wslhome>/y on <winhost> <wslhost> <addr> <canary>') -and $doc['files']['build.txt'].Contains('run <run>\files') -and
         $pb.Canaries -eq 1 -and $allText -notmatch 'HEIMDALL_CANARY_|fixtureuser|PCNAME|WSLBOX|203\.0\.113\.9' -and $doc['label'] -ceq 'label on <winhost>')
+    Check 'R03 the host facts keep the WSL version and the kernel release (version-shaped, never masked as addresses)' (
+        $doc['files']['host.txt'].Contains("wsl-version=WSL version: 2.6.1.0`n") -and $doc['files']['host.txt'].Contains("wsl-kernel=6.6.87.2-microsoft-standard-WSL2`n"))
     Check 'R02 a canary finding turns a passing run into exit 1 and is in canary-scan.txt and commands.txt' (
         $pb.Exit -eq 1 -and $doc['exit'] -eq 1 -and $doc['files']['canary-scan.txt'].Contains(': 1 ') -and $doc['files']['commands.txt'].Contains('exit 1: canary-prefix scan'))
     $clean = New-ProtectedBundle @{ 'tests.txt' = "### wsl_hook_m05`ntest $($ExpectedSteps[0]) ... ok`n### wsl_hook_m05 exit=0`n"; 'commands.txt' = "exit 0: x`n"; 'host.txt' = "k=v`n"; 'build.txt' = ''; 'skipped.txt' = ''; 'canary-scan.txt' = '' } $rules 'plain' ('1' * 40) '2026-01-01T00:00:00Z' 0
@@ -685,6 +706,53 @@ function Invoke-SelfTest {
     $lxss = (Get-Command Read-LxssRows -CommandType Function).ScriptBlock.ToString()
     Check 'O07 the registry read is the current user''s Lxss key: HKCU Software\Microsoft\Windows\CurrentVersion\Lxss, DistributionName and BasePath' (
         $lxss.Contains('CurrentUser.OpenSubKey(''Software\Microsoft\Windows\CurrentVersion\Lxss'')') -and $lxss.Contains("GetValue('DistributionName'") -and $lxss.Contains("GetValue('BasePath'"))
+    # The real Read-LxssRows over a fake HKCU Lxss key (the same methods the registry key has):
+    # its own output, as Get-DistributionInstallDirectory and Test-OwnRegistration read it.
+    $fakeKey = {
+        param([hashtable]$Values)
+        $k = [pscustomobject]@{ Values = $Values }
+        $k | Add-Member -MemberType ScriptMethod -Name GetValue -Value { param($n, $d) if ($this.Values.ContainsKey($n)) { $this.Values[$n] } else { $d } }
+        $k | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+        return $k
+    }
+    $fakeRoot = {
+        param([hashtable[]]$Subkeys)
+        $r = [pscustomobject]@{ Subs = [ordered]@{} }
+        $i = 0
+        foreach ($v in $Subkeys) { $r.Subs["{0000000$i-0000-0000-0000-000000000000}"] = (& $fakeKey $v); $i++ }
+        $r | Add-Member -MemberType ScriptMethod -Name GetSubKeyNames -Value { [string[]]@($this.Subs.Keys) }
+        $r | Add-Member -MemberType ScriptMethod -Name OpenSubKey -Value { param($n) $this.Subs[$n] }
+        $r | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+        return $r
+    }.GetNewClosure()
+    $twoRows = @(@{ DistributionName = 'Ubuntu'; BasePath = 'C:\Users\fixtureuser\AppData\Local\wsl\ubuntu' }, @{ DistributionName = $own; BasePath = "\\?\$ownDir" })
+    $oneRow = @(@{ DistributionName = $own; BasePath = $ownDir })
+    $openTwo = { & $fakeRoot $twoRows }.GetNewClosure()
+    $openOne = { & $fakeRoot $oneRow }.GetNewClosure()
+    $openNone = { & $fakeRoot @() }.GetNewClosure()
+    $realOwn = { Read-LxssRows -OpenRoot $openTwo }.GetNewClosure()
+    $realOne = { Read-LxssRows -OpenRoot $openOne }.GetNewClosure()
+    $realNone = { Read-LxssRows -OpenRoot $openNone }.GetNewClosure()
+    $realRows = @(& $realOwn)
+    Check 'O08 the real Read-LxssRows (over a fake Lxss key) writes one item per row, and this run''s own registration reads as owned through it (two rows, one row, no row)' (
+        $realRows.Count -eq 2 -and $realRows[1].DistributionName -ceq $own -and
+        (Get-DistributionInstallDirectory $own $realOwn) -ceq $ownDir.ToLowerInvariant() -and (Test-OwnRegistration $own $ownDir @('Ubuntu') $realOwn) -and
+        (Test-OwnRegistration $own $ownDir @() $realOne) -and -not (Test-OwnRegistration $own $ownDir @() $realNone) -and @(& $realNone).Count -eq 0)
+    $wrapped = { , @([pscustomobject]@{ DistributionName = 'Ubuntu'; BasePath = 'C:\x' }, [pscustomobject]@{ DistributionName = $own; BasePath = $ownDir }) }.GetNewClosure()
+    Check 'O09 a source that writes its rows wrapped in one array (the first version''s shape) still reads them' (
+        (Get-DistributionInstallDirectory $own $wrapped) -ceq $ownDir.ToLowerInvariant() -and (Test-OwnRegistration $own $ownDir @('Ubuntu') $wrapped))
+    $otherRows = @(@{ DistributionName = $own; BasePath = $otherDir })
+    $openOther = { & $fakeRoot $otherRows }.GetNewClosure()
+    $realOther = { Read-LxssRows -OpenRoot $openOther }.GetNewClosure()
+    Check 'O10 after an import, the cleanup removes only this run''s own import (name, census, pending marker, install directory) and says which case any other is' (
+        (Get-OwnershipVerdict $own $ownDir @('Ubuntu') $own $realOwn) -ceq 'owned' -and
+        (Get-OwnershipVerdict $own $ownDir @('Ubuntu') $own $realOther) -ceq 'other-directory' -and
+        (Get-OwnershipVerdict $own $ownDir @('Ubuntu') $own $realNone) -ceq 'unreadable' -and
+        (Get-OwnershipVerdict $own $ownDir @('Ubuntu') $own $srcThrows) -ceq 'unreadable' -and
+        (Get-OwnershipVerdict $own $ownDir @('Ubuntu') 'hm-m05-ffffffff' $realOwn) -ceq 'not-this-run' -and
+        (Get-OwnershipVerdict $own $ownDir @('Ubuntu') '' $realOwn) -ceq 'not-this-run' -and
+        (Get-OwnershipVerdict $own $ownDir @('Ubuntu', $own) $own $realOwn) -ceq 'not-this-run' -and
+        (Get-OwnershipVerdict $own $ownDir $null $own $realOwn) -ceq 'not-this-run')
     $censusMsg = ''
     try { [void](Get-CensusOrThrow { $null }) } catch { $censusMsg = $_.Exception.Message }
     $censusOk = Get-CensusOrThrow { , @('Ubuntu', 'Debian') }
@@ -704,6 +772,9 @@ function Invoke-SelfTest {
         $censusMsg.Contains('could not be listed') -and $viaWsl.FailMsg.Contains('could not be listed') -and $viaWsl.FailNull -and
         ($viaWsl.Names -join ',') -ceq 'Ubuntu' -and ($censusOk -join ',') -ceq 'Ubuntu,Debian' -and $censusEmpty.Count -eq 0 -and $censusEmpty -is [array])
     $mainText = $selfText.Remove($stFn.Extent.StartOffset, $stFn.Extent.EndOffset - $stFn.Extent.StartOffset)
+    Check 'O11 the cleanup decides by Get-OwnershipVerdict, with the pending-import marker, and removes only an owned import' (
+        $mainText.Contains('$verdict = Get-OwnershipVerdict $n $dir $before $marker') -and $mainText.Contains("if (`$verdict -ne 'owned')") -and
+        $mainText.IndexOf('$verdict = Get-OwnershipVerdict $n $dir $before $marker') -lt $mainText.IndexOf("Invoke-WslExe @('--unregister', `$n)"))
     $iCensus = $mainText.IndexOf('$before = Get-CensusOrThrow')
     $iNames = $mainText.IndexOf('$names = @($distroName)')
     $iImport = $mainText.IndexOf("'--import', `$distroName")
@@ -712,7 +783,7 @@ function Invoke-SelfTest {
         $iCensus -gt 0 -and $iCensus -lt $iNames -and $iNames -gt 0 -and $iNames -lt $iMarker -and $iMarker -lt $iImport -and -not $mainText.Contains('$before = @(Get-Registered)'))
     $iUnreg = $mainText.IndexOf("Invoke-WslExe @('--unregister', `$n)")
     $iTermN = $mainText.IndexOf("Invoke-WslExe @('--terminate', `$n)")
-    $iGate = $mainText.IndexOf('if (-not (Test-OwnRegistration $n $dir $before))')
+    $iGate = $mainText.IndexOf("if (`$verdict -ne 'owned')")
     $mainAfterImport = $mainText.Substring($iImport)
     $rawDistro = [regex]::Matches($mainAfterImport, 'Invoke-InDistro \$distroName').Count
     $termDistro = [regex]::Matches($mainAfterImport, "Invoke-WslExe @\('--terminate', \`$distroName\)").Count
@@ -967,10 +1038,18 @@ try {
         if ($attempted.Count -gt 0) {
             $now = @(Get-Registered)
             foreach ($n in @(Select-RemovableDistributions $attempted.ToArray() $before $now)) {
-                # Never terminate or unregister a registration whose install directory is not this
-                # run's, even with the right name (its directory and marker are kept, below).
-                if (-not (Test-OwnRegistration $n $dir $before)) {
-                    Add-Command 1 "$n is registered, but its install directory is not this run's (or could not be read): not terminated, not unregistered; this run's install directory and pending-import.txt are kept"
+                # Never terminate or unregister a registration that is not shown to be this run's
+                # import (name, census, pending marker and install directory), even with the right
+                # name (its directory and marker are kept, below).
+                $marker = $(try { ([System.IO.File]::ReadAllText($markerFile)).Trim() } catch { '' })
+                $verdict = Get-OwnershipVerdict $n $dir $before $marker
+                if ($verdict -ne 'owned') {
+                    $why = switch ($verdict) {
+                        'other-directory' { 'it is recorded under another install directory (another run''s)' }
+                        'unreadable' { 'no install directory could be read for it' }
+                        default { 'its name, the census before the run or the pending-import marker does not make it this run''s' }
+                    }
+                    Add-Command 1 "$n is registered, but $why`: not terminated, not unregistered; this run's install directory and pending-import.txt are kept"
                     if ($overall -eq 0) { $overall = 1 }
                     continue
                 }
