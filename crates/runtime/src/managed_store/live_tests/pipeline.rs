@@ -1156,6 +1156,7 @@ async fn materialize_refuses_a_spec_with_an_inconsistent_source() {
         generation: 1,
         source,
         environment_slots: false,
+        start: heimdall_app::ports::DistributionStart::Forbidden,
     };
     let other_grant = GrantId::from_random_bytes([0x6b; 16]);
     let cases: Vec<(&str, &BindingId, MaterializeSpec, &str)> = vec![

@@ -55,6 +55,7 @@ use heimdall_contract::ids::{BindingId, DestinationId, EnvironmentId};
 use heimdall_contract::provider::{EndpointKind, EndpointRef};
 use heimdall_credential::endpoints::{self, EndpointTag};
 use heimdall_domain::scope::AccessPair;
+pub use heimdall_localenv::container::{KNOWN_HOSTS_FILE, SSH_CONFIG_FILE};
 pub use heimdall_localenv::projection::content::SlotPathRefused;
 use heimdall_localenv::projection::content::{SlotPaths, managed_slot_paths, slot_component};
 pub use heimdall_localenv::sys::MANAGED_DIR_UNSAFE;
@@ -170,7 +171,11 @@ pub fn binding_files_for_endpoint(
             }
             let dir = socket.parent()?;
             tag_of(dir.file_name()?.to_str()?)?;
-            if dir.parent()? != runtime_dir.join(endpoints::BINDING_DIR) {
+            // ⟨M04⟩ A binding's own directory, or a container environment's stable one.
+            let parent = dir.parent()?;
+            if parent != runtime_dir.join(endpoints::BINDING_DIR)
+                && parent != runtime_dir.join(endpoints::CONTAINER_DIR)
+            {
                 return None;
             }
             dir.to_path_buf()
@@ -363,7 +368,8 @@ fn open_levels(
     Ok(Some(dir))
 }
 
-/// The anchor and levels of a binding directory `<runtime_dir>/b/<16 hex>`.
+/// The anchor and levels of a binding directory `<runtime_dir>/b/<16 hex>` or ⟨M04⟩ a
+/// container environment's `<runtime_dir>/c/<16 hex>`.
 fn binding_anchor(directory: &Path) -> Result<(PathBuf, Vec<String>), FilesError> {
     let refused = || FilesError::Directory(directory.to_path_buf());
     let tag = directory
@@ -372,14 +378,24 @@ fn binding_anchor(directory: &Path) -> Result<(PathBuf, Vec<String>), FilesError
         .filter(|t| tag_of(t).is_some())
         .ok_or_else(refused)?;
     let b = directory.parent().ok_or_else(refused)?;
-    if b.file_name().and_then(|n| n.to_str()) != Some(endpoints::BINDING_DIR) {
+    let level = b.file_name().and_then(|n| n.to_str());
+    if level != Some(endpoints::BINDING_DIR) && level != Some(endpoints::CONTAINER_DIR) {
         return Err(refused());
     }
     let root = b.parent().ok_or_else(refused)?;
     Ok((
         root.to_path_buf(),
-        vec![endpoints::BINDING_DIR.to_owned(), tag.to_owned()],
+        vec![level.unwrap_or_default().to_owned(), tag.to_owned()],
     ))
+}
+
+/// Whether `directory` is a container environment's stable directory (`.../c/<tag>`).
+fn is_container_directory(directory: &Path) -> bool {
+    directory
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|n| n.to_str())
+        == Some(endpoints::CONTAINER_DIR)
 }
 
 /// The anchor and levels of a slot directory `<data_dir>/managed/<component>`.
@@ -504,6 +520,20 @@ pub fn write_binding_files(
     key_pub: &str,
     certs: &[(DestinationId, String)],
 ) -> Result<Vec<PathBuf>, FilesError> {
+    let contents = binding_contents(files, key_pub, certs)?;
+    let (root, levels) = binding_anchor(&files.directory)?;
+    let _guard = lock();
+    let dir = open_levels(&root, &levels, true)?
+        .ok_or_else(|| FilesError::Directory(files.directory.clone()))?;
+    write_generation(&dir, &files.directory, generation, binding, &contents)
+}
+
+/// The key and certificate files' contents, checked.
+fn binding_contents(
+    files: &BindingFiles,
+    key_pub: &str,
+    certs: &[(DestinationId, String)],
+) -> Result<Vec<(String, String)>, FilesError> {
     let key = public_key_line(key_pub)?;
     let mut contents = vec![(BINDING_KEY_FILE.to_owned(), format!("{key}\n"))];
     for (dest, cert) in certs {
@@ -515,10 +545,57 @@ pub fn write_binding_files(
         }
         contents.push((binding_cert_name(dest)?, format!("{line}\n")));
     }
+    Ok(contents)
+}
+
+/// ⟨M04⟩ The names Heimdall writes in a container directory besides the certificates:
+/// the key, the marker's companions `ssh_config` and `known_hosts`.
+fn container_owned(name: &str) -> bool {
+    name == BINDING_KEY_FILE
+        || name == SSH_CONFIG_FILE
+        || name == KNOWN_HOSTS_FILE
+        || name == GENERATION_FILE
+        || (name.starts_with("cert-") && name.ends_with(".pub"))
+}
+
+/// ⟨M04⟩ Write a container environment's directory at `generation`: the marker, the key, one
+/// certificate per pair, then `known_hosts` and last `ssh_config` (a reader sees the
+/// configuration only after the files it names). `config` is `(ssh_config, known_hosts)`.
+/// Fenced by the marker like [`write_binding_files`]; a directory whose marker names
+/// **another binding** is taken over first (module docs): that holder's owned names are
+/// removed through the quarantine and its marker last.
+///
+/// # Errors
+/// [`FilesError`].
+pub fn write_container_files(
+    files: &BindingFiles,
+    binding: &BindingId,
+    generation: u64,
+    key_pub: &str,
+    certs: &[(DestinationId, String)],
+    config: (&str, &str),
+) -> Result<Vec<PathBuf>, FilesError> {
+    if !is_container_directory(&files.directory) {
+        return Err(FilesError::Directory(files.directory.clone()));
+    }
+    let mut contents = binding_contents(files, key_pub, certs)?;
+    let (ssh_config, known_hosts) = config;
+    contents.push((KNOWN_HOSTS_FILE.to_owned(), known_hosts.to_owned()));
+    contents.push((SSH_CONFIG_FILE.to_owned(), ssh_config.to_owned()));
     let (root, levels) = binding_anchor(&files.directory)?;
     let _guard = lock();
     let dir = open_levels(&root, &levels, true)?
         .ok_or_else(|| FilesError::Directory(files.directory.clone()))?;
+    if let Some((_, holder)) = read_marker(&dir)?
+        && holder != binding.as_str()
+    {
+        for name in dir.names().map_err(from_dir)? {
+            if container_owned(&name) && name != GENERATION_FILE {
+                dir.remove(&name).map_err(from_dir)?;
+            }
+        }
+        dir.remove(GENERATION_FILE).map_err(from_dir)?;
+    }
     write_generation(&dir, &files.directory, generation, binding, &contents)
 }
 
@@ -550,6 +627,11 @@ pub fn clear_binding_files(
             names.push(n);
         }
     }
+    // ⟨M04⟩ A container directory's two further files (the directory stays).
+    if is_container_directory(&files.directory) {
+        names.push(SSH_CONFIG_FILE.to_owned());
+        names.push(KNOWN_HOSTS_FILE.to_owned());
+    }
     clear_generation(Some(&dir), generation, Some(binding), &names)
 }
 
@@ -567,23 +649,129 @@ pub fn binding_directories_of(
 ) -> Result<Vec<(PathBuf, u64)>, FilesError> {
     let mut out = Vec::new();
     let _guard = lock();
-    let Some(b) = open_levels(runtime_dir, &[endpoints::BINDING_DIR.to_owned()], false)? else {
-        return Ok(out);
-    };
-    for name in b.names().map_err(from_dir)? {
-        if tag_of(&name).is_none() || !b.is_directory(&name).map_err(from_dir)? {
-            continue;
-        }
-        let Some(dir) = b.child(&name, false).map_err(from_dir)? else {
+    // ⟨M04⟩ Both the per-binding directories (`b`) and the containers' stable ones (`c`).
+    for level in [endpoints::BINDING_DIR, endpoints::CONTAINER_DIR] {
+        let Some(b) = open_levels(runtime_dir, &[level.to_owned()], false)? else {
             continue;
         };
-        if let Ok(Some((g, holder))) = read_marker(&dir)
-            && holder == binding.as_str()
-        {
-            out.push((runtime_dir.join(endpoints::BINDING_DIR).join(&name), g));
+        for name in b.names().map_err(from_dir)? {
+            if tag_of(&name).is_none() || !b.is_directory(&name).map_err(from_dir)? {
+                continue;
+            }
+            let Some(dir) = b.child(&name, false).map_err(from_dir)? else {
+                continue;
+            };
+            if let Ok(Some((g, holder))) = read_marker(&dir)
+                && holder == binding.as_str()
+            {
+                out.push((runtime_dir.join(level).join(&name), g));
+            }
         }
     }
     out.sort();
+    Ok(out)
+}
+
+// --- ⟨M04⟩ container directories ---------------------------------------------------------
+
+/// Create container environment `tag`'s stable directory `<runtime_dir>/c/<tag>` (owner-only
+/// 0700, through `ManagedDir`), idempotently. A symlink at a level, or an existing directory
+/// that is not owner-only, is refused (`managed_dir_unsafe`), never repaired.
+///
+/// # Errors
+/// [`FilesError`].
+pub fn ensure_container_dir(runtime_dir: &Path, tag: &EndpointTag) -> Result<PathBuf, FilesError> {
+    let _guard = lock();
+    open_levels(
+        runtime_dir,
+        &[endpoints::CONTAINER_DIR.to_owned(), tag.as_str().to_owned()],
+        true,
+    )?
+    .ok_or_else(|| FilesError::Directory(runtime_dir.to_path_buf()))?;
+    Ok(runtime_dir
+        .join(endpoints::CONTAINER_DIR)
+        .join(tag.as_str()))
+}
+
+/// What [`remove_container_dir`] found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContainerDirRemoval {
+    /// Entries Heimdall wrote that were removed.
+    pub removed: Vec<String>,
+    /// Entries Heimdall did not write (or could not remove), left in place.
+    pub left: Vec<String>,
+    /// Whether the directory is gone.
+    pub directory_gone: bool,
+}
+
+/// Remove container environment `tag`'s directory: each entry Heimdall writes
+/// (`ssh_config`, `known_hosts`, `key.pub`, `cert-*.pub`, the marker) is removed through the
+/// quarantine ([`ManagedDir::remove`]: only a regular, single-link file of the user, checked
+/// by identity and digest), a socket left by a crashed runtime is unlinked, and the directory
+/// itself goes only when nothing else is in it. A foreign entry is left and listed; the
+/// directory stays then. The caller has stopped whatever serves the path.
+///
+/// # Errors
+/// [`FilesError`] when a level is unsafe (nothing removed through it) or an I/O call failed.
+#[cfg(unix)]
+pub fn remove_container_dir(
+    runtime_dir: &Path,
+    tag: &EndpointTag,
+) -> Result<ContainerDirRemoval, FilesError> {
+    use std::os::unix::fs::FileTypeExt as _;
+    let mut out = ContainerDirRemoval::default();
+    let _guard = lock();
+    let Some(c) = open_levels(runtime_dir, &[endpoints::CONTAINER_DIR.to_owned()], false)? else {
+        out.directory_gone = true;
+        return Ok(out);
+    };
+    if !c.contains(tag.as_str()).map_err(from_dir)? {
+        out.directory_gone = true;
+        return Ok(out);
+    }
+    let Some(dir) = c.child(tag.as_str(), false).map_err(from_dir)? else {
+        out.directory_gone = true;
+        return Ok(out);
+    };
+    let path = runtime_dir
+        .join(endpoints::CONTAINER_DIR)
+        .join(tag.as_str());
+    for name in dir.names().map_err(from_dir)? {
+        if name == endpoints::AGENT_SOCKET {
+            let socket = path.join(&name);
+            if std::fs::symlink_metadata(&socket).is_ok_and(|m| m.file_type().is_socket()) {
+                let _ = std::fs::remove_file(&socket);
+            }
+            if !dir.contains(&name).map_err(from_dir)? {
+                out.removed.push(name);
+            } else {
+                out.left.push(name);
+            }
+        } else if container_owned(&name) {
+            match dir.remove(&name) {
+                Ok(_) => out.removed.push(name),
+                // Not a regular file of ours at one of our names: left, never forced.
+                Err(ManagedDirError::Unsafe(_)) => out.left.push(name),
+                Err(e) => return Err(from_dir(e)),
+            }
+        } else if name == heimdall_localenv::sys::QUARANTINE_NAME {
+            // The quarantine our removals used: empty now, or still holding an entry that
+            // changed while it was being removed (left).
+            if std::fs::remove_dir(path.join(&name)).is_ok() {
+                out.removed.push(name);
+            } else {
+                out.left.push(name);
+            }
+        } else {
+            out.left.push(name);
+        }
+    }
+    drop(dir);
+    drop(c);
+    if out.left.is_empty() {
+        out.directory_gone = std::fs::remove_dir(&path).is_ok() || !path.exists();
+    }
+    out.left.sort();
     Ok(out)
 }
 

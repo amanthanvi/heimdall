@@ -34,8 +34,8 @@ use heimdall_contract::doctor::{
     AliasDefinition, AliasObservation, ClientObservation, ClientSource as WireSource,
     ConfigFileObservation, ConfigFileRole, ConfigProvenance, Containment, DirectiveCertainty,
     DirectiveObservation, DoctorReport, Finding, FindingSeverity, GitObservation, GitScope,
-    GitValueObservation, ProbeOutcome, ProbeRecord, ProjectionObservation, ProjectionState,
-    finding,
+    GitSshClassification, GitValueObservation, ProbeOutcome, ProbeRecord, ProjectionObservation,
+    ProjectionState, finding,
 };
 use heimdall_contract::envelope::{NextAction, ResourceRef};
 use heimdall_contract::provider::{
@@ -69,6 +69,20 @@ use crate::known_hosts::lookup_detailed;
 use crate::local_query::{LocalQueries, version_text};
 use crate::paths::SshPaths;
 use crate::probe::{self, ProbeContext, ProbeHook, provenance};
+
+/// ⟨M04 U2; ADR-0010 §1 item 5⟩ Whether Git's effective SSH client is one that cannot reach a
+/// named pipe: on Windows, the Git for Windows bundled MSYS `ssh` (P-W03), which is what
+/// Git runs unless `GIT_SSH_COMMAND`, `core.sshCommand` or `GIT_SSH` names another program
+/// (the precedence `resolve_run_selection` applies). An override that names the bundled
+/// program itself is still the bundled client. Pure: the inputs are the platform and the
+/// classification already read; an undetermined reading never reports.
+#[must_use]
+pub fn git_client_cannot_reach_pipe(
+    platform: Platform,
+    classification: GitSshClassification,
+) -> bool {
+    platform.is_windows() && classification == GitSshClassification::BundledMsys
+}
 
 /// The wording every rendering of `executed_config_commands` uses (ADR-0007 §6; the
 /// list is never complete).
@@ -1514,6 +1528,20 @@ impl Doctor<'_> {
                 None,
             );
         }
+        // ⟨M04 U2; ADR-0010 §1 item 5⟩ Git's effective client cannot reach a named pipe at
+        // all (P-W03): no Git claim is made for this configuration.
+        if git_client_cannot_reach_pipe(ctx.platform, selection.classification) {
+            self.add(
+                heimdall_contract::doctor::finding::GIT_CLIENT_CANNOT_REACH_PIPE,
+                FindingSeverity::Info,
+                subject("executable", Some("git")),
+                ProbeLevel::Static,
+                None,
+                "Git's effective ssh is Git for Windows' bundled client, which cannot reach a named pipe; Heimdall makes no Git claim for this configuration",
+                "change_client",
+                None,
+            );
+        }
         Some(GitObservation {
             selection,
             values: obs.values,
@@ -1985,6 +2013,27 @@ mod tests {
             destination("a.example", &unset),
             Some(("a.example".to_owned(), 22))
         );
+    }
+
+    /// ⟨M04 U2⟩ Only the bundled MSYS client on Windows is reported; the verified client, any
+    /// other program, an undetermined reading and every other platform are not.
+    #[test]
+    fn git_client_cannot_reach_pipe_only_for_the_bundled_client_on_windows() {
+        use GitSshClassification::{BundledMsys, Other, Undetermined, VerifiedClient};
+        for platform in [
+            Platform::Windows,
+            Platform::Linux,
+            Platform::MacOs,
+            Platform::OtherUnix,
+        ] {
+            for classification in [VerifiedClient, BundledMsys, Other, Undetermined] {
+                assert_eq!(
+                    git_client_cannot_reach_pipe(platform, classification),
+                    platform == Platform::Windows && classification == BundledMsys,
+                    "{platform:?} {classification:?}"
+                );
+            }
+        }
     }
 
     #[test]

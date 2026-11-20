@@ -207,6 +207,7 @@ fn pair(destination: &str, identity: &IdentityRecord, alias: Option<&str>) -> Pr
         account: AccountName::parse("deploy").unwrap(),
         identity: identity.clone(),
         alias: alias.map(str::to_owned),
+        route: None,
     }
 }
 

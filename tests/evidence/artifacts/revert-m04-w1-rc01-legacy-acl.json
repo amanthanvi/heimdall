@@ -1,0 +1,25 @@
+{
+ "name": "M04-W1-RC01 (Codex re-check of 02108f8c, fix first): the pre-M04 Windows state-directory shape requires the user's own entry to grant full control, inherited by files and subdirectories, so the narrowing to (A;OICI;GA;;;<user>) never adds access; the check reduced to the SID alone again",
+ "file": "crates/runtime/src/platform.rs (state_dir_acl::judge, grants_full_inheritable)",
+ "change_reverted": "the legacy predicate's `.any(|a| grants_full_inheritable(a, user_sid))` widened to accept any allow entry naming the user, as at 02108f8c",
+ "command": "cargo test --locked -p heimdall-runtime --lib platform::state_dir_acl_tests",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "thread 'platform::state_dir_acl_tests::the_owner_only_rule_passes_one_shape_and_refuses_the_rest' (44788757) panicked at crates/runtime/src/platform.rs:1860:13:",
+   "assertion `left == right` failed: read-only",
+   "  left: LegacyInherited",
+   " right: NotProtected",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 73 filtered out; finished in 0.00s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 73 filtered out; finished in 0.00s"
+  ]
+ },
+ "restored_sha256_prefix": "e9f61124d7e3eabd (platform.rs before the proof and after restoring)"
+}

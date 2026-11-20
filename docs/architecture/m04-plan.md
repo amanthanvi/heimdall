@@ -1,8 +1,49 @@
 # M04 plan: native, WSL, container and bastion realization
 
-**Status:** draft for the ADR-0009 §2.8 cycle (one draft, one independent review, one ruling pass).
+**Status:** accepted with ADR-0010 §9's rulings, folded in below for wave 1 (2026-11-18). Where the
+text below and §9 still differ, §9 wins.
 **Sources:** plan.md §5 M04, §6; spec §3, §6.4, §8.4, §8.5, §10.3, §13.2, §14; ADR-0010 (the decisions).
-**Base:** `main` at `3e75c2f9`, with M03 waves 0–5 merged. M04's exit build waits for the M03 exit.
+**Base:** `main` at `1f72bb09`, with M03 waves 0–5 and the joint M04/M05 wave 0 merged. M04's exit
+build waits for the M03 exit.
+
+## Rulings folded in (ADR-0010 §9; wave 1)
+
+- **U0 is replaced by joint wave 0** (§9 item 9): ADR-0006 revision 5, migration `0007`, the
+  managed-environment seam, the stub modules and the CLI landing are on `main`. What U0 listed and
+  wave 0 did not land (the endpoint-target seam, the `heimdall-wsl/1` types, the per-suite
+  `[[test]]` placeholders) moves to the unit that first needs it. Suites are registered with their
+  first meaningful case (§9 item 8).
+- **The decision kind for adding an environment, the removal rule and the non-Linux container
+  refusal** are put to the contract owner as `.m04-questions.md` I-1 to I-3. U5 builds the
+  provisional readings.
+- **U1** (§9 item 6): the `adjtimex` mapper is built with its error, unit and threshold cases, and
+  trust stays off. Every platform keeps `unknown` and the attended confirmation until native
+  negative evidence exists. Kept from §9 item 8: the positive start-up case for a freshly created
+  protected state directory.
+- **U3** (§9 item 2) is split:
+  - **U3a:** discovery, the helper and `heimdall-wsl/1`. The protocol carries file operations,
+    whose receipts and item commits cross the channel through a proxied `StageSink` and are
+    acknowledged only once durable on Windows. Reconciliation after a lost reply is a `reconcile`
+    by a fresh helper. Bounds and the no-cancel rule are as in the protocol.
+  - **U3b:** the setup driver routes the `distribution_*` items to a distribution writer, under the
+    distribution's own projection namespace; Mode A enable and disable; the A12 tests.
+  - **Stopped distributions:** a stopped distribution is never started in the background. Its
+    cleanup is a retained, reported obligation, or an explicit `wsl disable --start`.
+  - **The proof** is one existing projection fault scenario over the real helper channel,
+    interrupted around the durable receipt and reconciled.
+  - **Kept** (§9 item 8): `helper_unavailable`, and an explicitly defined WSL user session.
+- **U5** (§9 item 5): the rendering and contents checks fold into one mounted-flow case. It
+  covers a permitted login, an unauthorized key and destination, a refusal at the original
+  deadline and a working replacement. Each UID-negative row has an admitted positive control.
+  WSL and test-store results are mechanism evidence; the product row stays B11.
+- **U6** (§9 items 3 and 4; readings I-4 and I-5):
+  - **Host keys:** host-key trust is consistent lookup at each hop under OpenSSH's user-controlled
+    trust, proved by substituting each hop's key, and once through `KnownHostsCommand`.
+  - **Evidence** is route-aware. `connect` uses the approved jump dependency inside the selected
+    profile or refuses with a stated limitation.
+  - **Kept** (§9 item 8): the `LoopbackSshd` forwarding settings. Windows `ForwardAgent` to a
+    pipe stays `unsupported`.
+- **Questions Q1–Q6** are answered by §9 item 10 (Q2 as item 4, Q4 as item 6, Q5 as item 9).
 
 **What M04 builds on, unchanged:**
 - per-binding Windows pipes and Unix endpoints, with their peer checks (ADR-0006 §2, ADR-0008 D10);

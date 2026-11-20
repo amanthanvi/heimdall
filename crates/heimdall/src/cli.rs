@@ -1543,15 +1543,12 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         })) => {
             return schema_export(&out, &config_out, &project_out, ctx.json);
         }
-        // M04 wave 0: `--login` and `autostart` are answered before the runtime's own code.
-        Some(Command::Service(ServiceCommand::Run { login: true, .. })) => {
-            return wsl_cmd::refuse(&ctx);
+        // M04 U1: `--login` and `autostart` are service_cmd's.
+        Some(Command::Service(ServiceCommand::Autostart(c))) => {
+            return service_cmd::autostart(&ctx, c);
         }
-        Some(Command::Service(ServiceCommand::Autostart(_))) => {
-            return wsl_cmd::refuse(&ctx);
-        }
-        Some(Command::Service(ServiceCommand::Run { detach, .. })) => {
-            return service_cmd::run(&ctx, detach);
+        Some(Command::Service(ServiceCommand::Run { detach, login })) => {
+            return service_cmd::run(&ctx, detach, login);
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
         Some(Command::Service(ServiceCommand::Stop)) => return service_cmd::stop(&ctx),
@@ -1569,14 +1566,18 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Issuer(c)) => return issuer_cmd::run(&ctx, c),
         Some(Command::Enroll(a)) => return enroll_cmd::run(&ctx, a),
         Some(Command::Connections(a)) => return connections_cmd::run(&ctx, a),
+        // ⟨M04 U3a⟩ the helper itself (`wsl_cmd::helper`).
         Some(Command::Internal(InternalCommand::WslHelper)) => {
-            return wsl_cmd::refuse(&ctx);
+            return wsl_cmd::helper(&ctx);
         }
         Some(Command::Internal(c)) => return m03_cmd::internal(&ctx, c),
-        // M04 wave 0 (ADR-0010 §9 item 9): each new command is answered by its owner's
-        // handler before any runtime contact.
-        Some(Command::Wsl(_)) => return wsl_cmd::refuse(&ctx),
-        Some(Command::Container(_)) => return container_cmd::refuse(&ctx),
+        // M04/M05 (ADR-0010 §9 item 9; ADR-0011 §10 item 10): each new command is answered by
+        // its owner's handler before any runtime contact.
+        // ⟨M04 U3b, U4b⟩ WSL Mode A (ADR-0010 §2) and Mode B (§3, decision-recorded).
+        Some(Command::Wsl(WslCommand::Enable(a))) => return wsl_cmd::enable(&ctx, a),
+        Some(Command::Wsl(WslCommand::Disable(a))) => return wsl_cmd::disable(&ctx, a),
+        Some(Command::Wsl(WslCommand::Status)) => return wsl_cmd::status(&ctx),
+        Some(Command::Container(c)) => return container_cmd::run(&ctx, c),
         // ⟨M05⟩ U9a (ADR-0011 §2–§7): each M05 command has its own handler and executor.
         Some(Command::Project(c)) => return m05_cmd::project(&ctx, c),
         Some(Command::Activate(a)) => return activate_cmd::activate(&ctx, &a),
@@ -1595,9 +1596,6 @@ pub fn dispatch(cli: Cli) -> ExitCode {
             | AccessCommand::Resume { .. }
             | AccessCommand::Cutoff { .. }),
         )) if m05_cmd::is_targeted(&command) => return m05_cmd::targeted(&ctx, command),
-        Some(Command::Destination(DestinationCommand::Add(a))) if a.jump.is_some() => {
-            return wsl_cmd::refuse(&ctx);
-        }
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),

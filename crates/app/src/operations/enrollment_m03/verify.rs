@@ -148,7 +148,7 @@ impl Operations {
     /// any other state. Only [`Self::verify_operation`] calls it.
     async fn verify_once(&self, id: &OperationId) -> Result<(), OpError> {
         let oid = id.clone();
-        let (ctx, started) = self
+        let (ctx, started, catalog_jump) = self
             .write(move |tx, _| {
                 let ctx = match load_ctx(tx, &oid)? {
                     Ok(c) => c,
@@ -158,7 +158,17 @@ impl Operations {
                     state: ctx.record.state,
                     outcomes: verdicts_recorded(tx, &oid)?,
                 };
-                Ok(Ok((ctx, started)))
+                // ⟨M04-W1-R01⟩ Whether the catalog names a jump for the destination.
+                let catalog_jump = tx.destination(&ctx.record.destination)?.is_some_and(|d| {
+                    matches!(
+                        d.definition,
+                        heimdall_domain::catalog::DestinationDefinition::Managed {
+                            jump: Some(_),
+                            ..
+                        }
+                    )
+                });
+                Ok(Ok((ctx, started, catalog_jump)))
             })
             .await??;
         let phase = match ctx.record.state {
@@ -168,17 +178,36 @@ impl Operations {
             _ => return Ok(()),
         };
         let absence = ctx.record.state == EnrollmentState::RemovalVerifying;
+        let evaluation = self.evaluation_of(&ctx);
         // ⟨round 3⟩ ADR-0008 §17.22 item 7 (D5 §6.5): a re-verification of the
         // approved target (no proposed target: not an `ApproveTargetChange`) whose
-        // alias now evaluates to another host key for the same route is recorded as
+        // alias now evaluates to another host key for the approved host is recorded as
         // the host-key mismatch it is, from the evaluation alone: no session, no
-        // certificate, no login.
+        // certificate, no login. ⟨M04-W1-R01⟩ Through whatever route the alias takes.
         if phase == VerificationPhase::Reverify
             && ctx.journal.proposed_target.is_none()
-            && self.evaluated_host_key_changed(&ctx)
+            && evaluation
+                .as_ref()
+                .is_some_and(|e| crate::enrollment::host_key_changed(&ctx.record.target, e))
         {
             let observed = Observed {
                 outcome: host_key_mismatch_outcome(),
+                clock: None,
+            };
+            return self
+                .record_verification(&ctx, started, phase, absence, &observed)
+                .await;
+        }
+        // ⟨M04-W1-R01; ADR-0010 §5 item 5, §10⟩ The verification's `ssh` goes to the
+        // approved `HostName` and `Port` directly. Over any other route it would connect
+        // outside the route the owner approved, so it opens no session, mints no
+        // certificate and ends `inconclusive` (the run never reached a login).
+        if !crate::enrollment::verification_may_connect(evaluation.as_ref(), catalog_jump) {
+            let observed = Observed {
+                outcome: VerificationOutcome {
+                    not_run: true,
+                    ..VerificationOutcome::default()
+                },
                 clock: None,
             };
             return self
@@ -230,17 +259,12 @@ impl Operations {
         .await
     }
 
-    /// ⟨round 3⟩ Whether the runtime's target evaluator finds a host-key change of
-    /// `ctx`'s approved target for its alias (the same route, another key; no
-    /// evaluator or no alias: `false`, and the verification runs as before).
-    fn evaluated_host_key_changed(&self, ctx: &Ctx) -> bool {
-        let Ok(ports) = self.verification_ports() else {
-            return false;
-        };
-        ports.wiring.target.as_ref().is_some_and(|t| {
-            !ctx.alias.is_empty()
-                && crate::enrollment::host_key_changed(&ctx.record.target, &t.evaluate(&ctx.alias))
-        })
+    /// The runtime's fresh evaluation of `ctx`'s alias (`None` without an evaluator or
+    /// an alias).
+    fn evaluation_of(&self, ctx: &Ctx) -> Option<heimdall_domain::enrollment::TargetEvaluation> {
+        let ports = self.verification_ports().ok()?;
+        let t = ports.wiring.target.as_ref()?;
+        (!ctx.alias.is_empty()).then(|| t.evaluate(&ctx.alias))
     }
 
     /// E4 (module docs). The session exists only in this function's scope, so it is

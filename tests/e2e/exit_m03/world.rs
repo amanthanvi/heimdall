@@ -461,7 +461,14 @@ impl World {
             "--pub",
             &public.to_string_lossy(),
         ]);
-        assert_eq!(adopted.code, 0, "{adopted:?}");
+        // ⟨M04, the Windows readiness failures⟩ The world's first command starts the runtime:
+        // a refusal names the runtime's start-up timings.
+        assert_eq!(
+            adopted.code,
+            0,
+            "{adopted:?}\nruntime start-up: {}",
+            runtime_start_log(&self.hh)
+        );
         self.identity = adopted.json()["data"]["identity_id"]
             .as_str()
             .unwrap()
@@ -633,8 +640,12 @@ impl World {
             let prefer = self.cli(&["--json", "destination", "prefer", &p.alias, "managed"]);
             assert_eq!(prefer.code, 0, "{prefer:?}");
         }
-        let status = self.cli(&["--json", "issuer", "status"]);
-        assert_eq!(status.json()["data"]["state"], "ready", "{status:?}");
+        // ⟨M04 Windows run at 2675e2ff⟩ `ready` within a bound, not at once: when the issuer
+        // child's first start fails, the runtime logs it and the client's restart cycle (D3
+        // item 7: jittered, bounded) starts it again, and `issuer status` reads `crashed`
+        // (`issuer_restarting`) meanwhile. The runtime's issuer lines and the states seen
+        // are printed whenever the first reading is not `ready`.
+        self.await_issuer_ready(Duration::from_secs(60));
         let fp = self.ca_fingerprint.clone();
         let ps: Vec<AccessPair> = pairs.into_iter().collect();
         self.open_store()
@@ -866,6 +877,71 @@ impl World {
     }
 
     /// `service stop` of this world's runtime (a no-op when none runs).
+    /// ⟨M04 Windows run at 2675e2ff⟩ Wait up to `bound` for `issuer status` to read `ready`
+    /// (the restart cycle after a failed first start; see `set_up`). When the first reading
+    /// is not `ready`, the states seen and the runtime log's issuer lines are printed; a
+    /// world whose issuer never becomes ready fails with them.
+    pub fn await_issuer_ready(&self, bound: Duration) {
+        let deadline = Instant::now() + bound;
+        let mut seen: Vec<String> = Vec::new();
+        loop {
+            let status = self.cli(&["--json", "issuer", "status"]);
+            let data = &status.json()["data"];
+            let state = data["state"].as_str().unwrap_or("").to_owned();
+            if state == "ready" {
+                break;
+            }
+            let entry = format!("{state} ({})", data["reason"].as_str().unwrap_or("-"));
+            if seen.last() != Some(&entry) {
+                seen.push(entry);
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the issuer is not ready within {bound:?}: states {seen:?}; runtime log: {}\n{status:?}",
+                self.runtime_issuer_log()
+            );
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        if !seen.is_empty() {
+            println!(
+                "world: the issuer became ready after {seen:?}; runtime log: {}",
+                self.runtime_issuer_log()
+            );
+        }
+    }
+
+    /// The runtime log's lines about the issuer child (its start's failure, with the
+    /// error's kind), redacted.
+    fn runtime_issuer_log(&self) -> String {
+        let mut lines = Vec::new();
+        for name in ["heimdall.log.1", "heimdall.log"] {
+            if let Ok(text) = std::fs::read_to_string(self.hh.join("log").join(name)) {
+                lines.extend(
+                    text.lines()
+                        // The issuer's lines, and the runtime's start-up timings.
+                        .filter(|l| {
+                            l.contains("issuer")
+                                || l.contains("the runtime starts")
+                                || l.contains("the runtime advertised its endpoints")
+                        })
+                        .map(|l| self.redact(l)),
+                );
+            }
+        }
+        // ⟨M04 merge-candidate run at 9de3169a⟩ The child's own phases (debug test builds).
+        if let Ok(text) =
+            std::fs::read_to_string(self.hh.join("state").join("test-issuer-child.log"))
+        {
+            lines.push("child phases:".to_owned());
+            lines.extend(text.lines().map(str::to_owned));
+        }
+        if lines.is_empty() {
+            "no issuer line".to_owned()
+        } else {
+            lines.join("\n")
+        }
+    }
+
     pub fn stop_runtime(&self) {
         let out = self.cli(&["--json", "service", "stop"]);
         assert!(matches!(out.code, 0 | 5), "{out:?}");
@@ -881,8 +957,8 @@ impl World {
         let before = self.runtime_pid();
         self.stop_runtime();
         self.start_runtime();
-        let status = self.cli(&["--json", "issuer", "status"]);
-        assert_eq!(status.json()["data"]["state"], "ready", "{status:?}");
+        // ⟨M04 Windows run at 2675e2ff⟩ Within a bound, as at set-up (`await_issuer_ready`).
+        self.await_issuer_ready(Duration::from_secs(60));
         assert_ne!(before, self.runtime_pid(), "a new runtime process");
     }
 
@@ -1317,15 +1393,240 @@ impl Drop for World {
                     root: self.home.root.clone(),
                 });
         }
-        // The runtime this world started, in its own home (a no-op when none runs);
-        // the servers and the scratch directory go with their own handles after this.
+        // The runtime this world started, in its own home (a no-op when none runs), and
+        // ⟨M04, the Windows readiness failures⟩ any it started that had not advertised yet
+        // (a CLI that gave up waiting leaves its runtime starting): the servers and the
+        // scratch directory go with their own handles after this.
+        let killed = stop_started_runtimes(&self.env(), &self.hh.join("state"), &self.home.root);
+        if killed > 0 {
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!(
+                    "runtime guard: {killed} runtime(s) of this world did not stop through `service stop` and were killed by exact identity"
+                );
+            }
+        }
+    }
+}
+
+/// ⟨M04, the Windows readiness failures; as M05's A29 fixture⟩ Stop every runtime the test
+/// configuration started in the installation whose state directory is `state` (`env`: its
+/// CLI environment; `cwd`: where the CLI runs), a runtime that has not advertised yet
+/// included. Each runtime appends `<pid> <start token>` to `<state>/test-service-starts`
+/// before it takes the instance lock (`testcfg::record_start`).
+///
+/// 1. `service stop` (graceful; a no-op until a runtime advertises), again every 500 ms,
+///    for up to 30 s while a recorded runtime is still alive (the same PID and start token).
+/// 2. Each recorded runtime still alive then is pinned (`ProcessPin`: a pidfd on Linux, a
+///    process handle on Windows), its start token compared again after the pin and its image
+///    checked to be this suite's `heimdall`, and only then killed. On Linux a runtime is
+///    non-dumpable, so its image cannot be read: it is checked by the command name in
+///    `/proc/<pid>/stat` and killed through a pidfd of its own, the token compared again
+///    after that pidfd. Then up to 10 s for it to be gone.
+///
+/// Returns how many were killed (0 when every one stopped gracefully).
+pub fn stop_started_runtimes(env: &[(OsString, OsString)], state: &Path, cwd: &Path) -> usize {
+    stop_started_runtimes_within(env, state, cwd, Duration::from_secs(30))
+}
+
+/// [`stop_started_runtimes`] with `grace` for step 1 (the guard's own test shortens it).
+pub fn stop_started_runtimes_within(
+    env: &[(OsString, OsString)],
+    state: &Path,
+    cwd: &Path,
+    grace: Duration,
+) -> usize {
+    use heimdall_localenv::sys::{ProcessPin, ProcessSignal};
+    let records: Vec<(u32, String)> = std::fs::read_to_string(state.join("test-service-starts"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let mut words = l.split_whitespace();
+            let pid = words.next()?.parse().ok()?;
+            Some((pid, words.next()?.to_owned()))
+        })
+        .collect();
+    let alive = || -> Vec<(u32, String)> {
+        records
+            .iter()
+            .filter(|(pid, token)| {
+                heimdall_runtime::platform::process_start_time(*pid).as_deref()
+                    == Some(token.as_str())
+            })
+            .cloned()
+            .collect()
+    };
+    let stop = || {
         let _ = Command::new(bin())
             .args(["--json", "service", "stop"])
             .env_clear()
-            .envs(self.env())
-            .current_dir(&self.home.root)
+            .envs(env.iter().map(|(k, v)| (k, v)))
+            .current_dir(cwd)
             .stdin(Stdio::null())
             .output();
+    };
+    stop();
+    let deadline = Instant::now() + grace;
+    while !alive().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(500));
+        stop();
+    }
+    let mut killed = Vec::new();
+    for (pid, token) in alive() {
+        let pin = match ProcessPin::open(pid) {
+            Ok(Some(pin)) => pin,
+            Ok(None) => {
+                guard_note("gone before it was pinned");
+                continue;
+            }
+            Err(e) => {
+                guard_note(&format!("not pinned ({e})"));
+                continue;
+            }
+        };
+        let same =
+            heimdall_runtime::platform::process_start_time(pid).as_deref() == Some(token.as_str());
+        if !same {
+            guard_note("its start token changed (another process): left alone");
+            continue;
+        }
+        let expected = Path::new(&bin()).to_path_buf();
+        match pin.image() {
+            // ⟨Linux⟩ The runtime makes itself non-dumpable (`harden_process`), which hides
+            // `/proc/<pid>/exe` from its own user: identified instead through a pidfd of its
+            // own, the start token read again after it, and the command name.
+            #[cfg(target_os = "linux")]
+            None => {
+                if kill_hardened_runtime(pid, &token, &expected) {
+                    killed.push((pid, token));
+                }
+                continue;
+            }
+            #[cfg(not(target_os = "linux"))]
+            None => {
+                guard_note("its image could not be read: left alone");
+                continue;
+            }
+            Some(image) if !image_is(&image, &expected) => {
+                guard_note(&format!(
+                    "its image is not this suite's heimdall (named {:?}, expected {:?}): left alone",
+                    image.file_name().unwrap_or_default(),
+                    expected.file_name().unwrap_or_default()
+                ));
+                continue;
+            }
+            Some(_) => {}
+        }
+        match pin.verify(true, &expected) {
+            Some(verified) => match verified.signal(ProcessSignal::Kill) {
+                Ok(()) => killed.push((pid, token)),
+                Err(e) => guard_note(&format!("not killed ({e})")),
+            },
+            None => guard_note("not verified: left alone"),
+        }
+    }
+    let gone_by = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < gone_by
+        && killed.iter().any(|(pid, token)| {
+            heimdall_runtime::platform::process_start_time(*pid).as_deref() == Some(token.as_str())
+        })
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    killed.len()
+}
+
+/// ⟨Linux⟩ Kill the recorded runtime `pid` whose image cannot be read (it is non-dumpable):
+/// only through a pidfd opened here, once the start token read after that pidfd is still
+/// `token` (the same process instance) and the command name in `/proc/<pid>/stat` is
+/// `expected`'s file name (as the kernel keeps it, at most 15 bytes).
+#[cfg(target_os = "linux")]
+fn kill_hardened_runtime(pid: u32, token: &str, expected: &Path) -> bool {
+    use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
+    let Some(raw) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
+        return false;
+    };
+    let Ok(fd) = pidfd_open(raw, PidfdFlags::empty()) else {
+        guard_note("could not be pinned: left alone");
+        return false;
+    };
+    if heimdall_runtime::platform::process_start_time(pid).as_deref() != Some(token) {
+        guard_note("its start token changed (another process): left alone");
+        return false;
+    }
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+    let comm = match (stat.find('('), stat.rfind(')')) {
+        (Some(a), Some(b)) if a < b => &stat[a + 1..b],
+        _ => "",
+    };
+    let want: String = expected
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .chars()
+        .take(15)
+        .collect();
+    if comm != want {
+        guard_note("its command name is not this suite's heimdall: left alone");
+        return false;
+    }
+    match pidfd_send_signal(&fd, Signal::KILL) {
+        Ok(()) => true,
+        Err(e) => {
+            guard_note(&format!("not killed (os error {})", e.raw_os_error()));
+            false
+        }
+    }
+}
+
+/// A runtime guard's note on stderr (no path above a file name, no identity).
+fn guard_note(what: &str) {
+    #[allow(clippy::print_stderr)]
+    {
+        eprintln!("runtime guard: a recorded runtime {what}");
+    }
+}
+
+/// Whether `image` (as the OS reports a process's executable) is `expected`, as
+/// `ProcessPin::verify` compares them (Unix: after canonicalizing `expected`; Windows:
+/// case-insensitively).
+fn image_is(image: &Path, expected: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let strip = |p: &Path| {
+            let s = p.to_string_lossy().into_owned();
+            s.strip_prefix("\\\\?\\").map(str::to_owned).unwrap_or(s)
+        };
+        strip(image).eq_ignore_ascii_case(&strip(expected))
+    }
+    #[cfg(not(windows))]
+    {
+        let expected = std::fs::canonicalize(expected).unwrap_or_else(|_| expected.to_path_buf());
+        image == expected
+    }
+}
+
+/// ⟨M04, the Windows readiness failures⟩ The runtime log's start-up lines of the installation
+/// whose `HEIMDALL_HOME` is `hh` ("the runtime starts", with the time before the runtime's own
+/// start; "the runtime advertised its endpoints", with each phase's), for a failure message.
+pub fn runtime_start_log(hh: &Path) -> String {
+    let mut lines = Vec::new();
+    for name in ["heimdall.log.1", "heimdall.log"] {
+        if let Ok(text) = std::fs::read_to_string(hh.join("log").join(name)) {
+            lines.extend(
+                text.lines()
+                    .filter(|l| {
+                        l.contains("the runtime starts")
+                            || l.contains("the runtime advertised its endpoints")
+                    })
+                    .map(str::to_owned),
+            );
+        }
+    }
+    if lines.is_empty() {
+        "no start-up line in the runtime log".to_owned()
+    } else {
+        lines.join("\n")
     }
 }
 

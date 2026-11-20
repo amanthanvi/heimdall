@@ -2,7 +2,7 @@
 //! from routes, names, or time).
 
 use heimdall_contract::ids::{
-    BindingId, DecisionId, EventId, GrantId, IssuanceId, OperationId, ResourceId,
+    BindingId, DecisionId, EnvironmentId, EventId, GrantId, IssuanceId, OperationId, ResourceId,
 };
 
 /// Failure to obtain randomness; the runtime refuses to proceed rather than fall
@@ -30,6 +30,12 @@ pub fn new_grant_id() -> Result<GrantId, RandomnessUnavailable> {
 /// New binding ID.
 pub fn new_binding_id() -> Result<BindingId, RandomnessUnavailable> {
     Ok(BindingId::from_random_bytes(random_bytes()?))
+}
+
+/// ⟨M04⟩ New environment ID (a managed environment's identity, or a WSL distribution's
+/// projection namespace; the OS CSPRNG).
+pub fn new_environment_id() -> Result<EnvironmentId, RandomnessUnavailable> {
+    Ok(EnvironmentId::from_random_bytes(random_bytes()?))
 }
 
 /// New resource ID.

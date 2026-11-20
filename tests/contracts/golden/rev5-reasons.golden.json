@@ -1,5 +1,5 @@
 {
- "source": "ADR-0006 revision 5 (joint wave 0 of M04 and M05; section 17): m04-plan section 5 item 8 (reasons; the codes are the contract owner's to confirm, section 17.5 question R5-Q4) and m05-plan section 4 item 9 (reasons and their codes; a reason the table gives two codes, by session attendance, has one row per code), transcribed; `m03` is the M03 reason revision 5 adds (the M03 exit suite, wave 6 question I-8(2): an issuer refusal of a verification certificate, distinct from issuer_unavailable); `m05_warnings` is the table's warning row (slot_shared). Kept separate from reason::ALL (M02) and reason::M03; the code table stays at 30 rows.",
+ "source": "ADR-0006 revision 5 (joint wave 0 of M04 and M05; section 17): m04-plan section 5 item 8 (reasons; the codes are the contract owner's to confirm, section 17.5 question R5-Q4) and m05-plan section 4 item 9 (reasons and their codes; a reason the table gives two codes, by session attendance, has one row per code), transcribed; `m03` is the M03 reason revision 5 adds (the M03 exit suite, wave 6 question I-8(2): an issuer refusal of a verification certificate, distinct from issuer_unavailable); `m05_warnings` is the table's warning row (slot_shared). Kept separate from reason::ALL (M02) and reason::M03; the code table stays at 30 rows. `m04_doctor_findings` and `m04_finding_reasons` are the M04 doctor and setup-plan finding codes and their sub-reasons (ADR-0006 section 17.1, the contract owner's ruling I-9 of 2026-11-18).",
  "m03": [
   {
    "reason": "issuer_refused",
@@ -112,5 +112,19 @@
  ],
  "m05_warnings": [
   "slot_shared"
+ ],
+ "m04_doctor_findings": [
+  "git_client_cannot_reach_pipe",
+  "login_entry"
+ ],
+ "m04_finding_reasons": [
+  {
+   "reason": "on_demand",
+   "finding": "login_entry"
+  },
+  {
+   "reason": "login_entry_conflict",
+   "finding": "login_entry"
+  }
  ]
 }

@@ -221,12 +221,18 @@ async fn destination_spec(ctx: &Ctx, a: &DestinationAddArgs) -> Result<Destinati
             .as_deref()
             .ok_or_else(|| usage("a managed destination needs --identity"))
             .and_then(|s| IdentityId::parse(s).map_err(|_| usage("invalid --identity")))?;
+        // ⟨M04 U6⟩ `--jump <destination>`: an alias or ID, resolved like any other
+        // destination name; the runtime applies the route rules (ADR-0010 §5 item 1).
+        let jump = match a.jump.as_deref() {
+            Some(name) => Some(destination_id(ctx, name).await?),
+            None => None,
+        };
         DestinationDefinitionSpec::Managed {
             hostname,
             port: a.port,
             account,
             identity,
-            jump: None,
+            jump,
         }
     };
     Ok(DestinationSpec {

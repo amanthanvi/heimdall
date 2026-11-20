@@ -1377,7 +1377,8 @@ fn grant(capabilities: &[Capability]) -> GrantSnapshot {
 
 /// D6 item 1 (which narrows ADR-0005 §3.4's table for M03): `permit-pty` for every
 /// pair; `permit-agent-forwarding` only with the `agent-forwarding` capability;
-/// `permit-port-forwarding` never in M03 (no route data until M04); `permit-user-rc`
+/// `permit-port-forwarding` never without a jump pair (M04 U6: only a managed jump pair
+/// in scope, `extension_profile_port_forwarding_only_for_jump_pairs_in_scope`); `permit-user-rc`
 /// never; `permit-X11-forwarding` never; `no-touch-required` never (ADR-0005 §3.4).
 #[test]
 fn extension_profile_matches_adr_0005_3_4_table() {
@@ -1392,9 +1393,13 @@ fn extension_profile_matches_adr_0005_3_4_table() {
     let git = grant(&[Capability::SshAuthentication, Capability::GitSigning]);
     for p in [pair("web", "deploy"), pair("jump", "ops")] {
         let pty: BTreeSet<String> = ["permit-pty".to_owned()].into();
-        assert_eq!(extension_profile(&plain, &p), pty, "{p:?}");
         assert_eq!(
-            extension_profile(&git, &p),
+            extension_profile(&plain, &p, &BTreeSet::new()),
+            pty,
+            "{p:?}"
+        );
+        assert_eq!(
+            extension_profile(&git, &p, &BTreeSet::new()),
             pty,
             "{p:?}: git signing adds nothing"
         );
@@ -1403,9 +1408,13 @@ fn extension_profile_matches_adr_0005_3_4_table() {
             "permit-agent-forwarding".to_owned(),
         ]
         .into();
-        assert_eq!(extension_profile(&forwarding, &p), with_agent, "{p:?}");
+        assert_eq!(
+            extension_profile(&forwarding, &p, &BTreeSet::new()),
+            with_agent,
+            "{p:?}"
+        );
         for g in [&plain, &forwarding, &git] {
-            let got = extension_profile(g, &p);
+            let got = extension_profile(g, &p, &BTreeSet::new());
             for n in never {
                 assert!(!got.contains(n), "{n} issued for {p:?}");
             }
@@ -1437,7 +1446,7 @@ impl Issue {
                 subject_fingerprint: "fp".into(),
                 ca_fingerprint: None,
             },
-            permitted: extension_profile(&grant, &p),
+            permitted: extension_profile(&grant, &p, &BTreeSet::new()),
             grant,
             pair: p,
         }

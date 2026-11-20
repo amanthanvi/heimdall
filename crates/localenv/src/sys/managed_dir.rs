@@ -474,6 +474,18 @@ impl ManagedDir {
         })
     }
 
+    /// ⟨M04 W2 review, M04-W2-R01⟩ The identity (device, inode) of the directory this handle
+    /// pins, so a caller that also names it by path can check the path still resolves to it.
+    ///
+    /// # Errors
+    /// [`ManagedDirError`].
+    #[cfg(unix)]
+    pub fn identity(&self) -> Result<(u64, u64), ManagedDirError> {
+        let st = rustix::fs::fstat(&self.fd).map_err(|e| sys("fstat", &e.into()))?;
+        #[allow(clippy::useless_conversion, clippy::unnecessary_cast)]
+        Ok((st.st_dev as u64, st.st_ino as u64))
+    }
+
     /// The names in this directory (UTF-8 names only; `.` and `..` excluded).
     ///
     /// # Errors

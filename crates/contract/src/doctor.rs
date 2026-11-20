@@ -479,6 +479,30 @@ pub mod finding {
     /// already running; the doctor never starts one and never reads a CA key.
     pub const ISSUER_STORE_ACCESS_DENIED: &str = "issuer_store_access_denied";
 
+    /// ⟨M04⟩ Git's effective SSH client on Windows is Git for Windows' bundled MSYS `ssh`,
+    /// which cannot reach a named-pipe agent (ADR-0010 §1 item 5; revision 5 R5-Q4: also the
+    /// reason of that name). Heimdall makes no Git claim for that configuration. Severity
+    /// `info`.
+    pub const GIT_CLIENT_CANNOT_REACH_PIPE: &str = "git_client_cannot_reach_pipe";
+    /// ⟨M04⟩ The login entry's setup plan (ADR-0010 §1 item 2, §6 item 1): the exact data
+    /// the entry is written with, or why it cannot be (`reason`: [`LOGIN_ENTRY_ON_DEMAND`]
+    /// on a host without a user session manager, `login_entry_conflict` for a foreign entry
+    /// at Heimdall's name).
+    pub const LOGIN_ENTRY: &str = "login_entry";
+    /// ⟨M04⟩ The [`LOGIN_ENTRY`] finding's sub-reason on a host without a user session
+    /// manager: the runtime starts on demand (`login_start.kind: none`).
+    pub const LOGIN_ENTRY_ON_DEMAND: &str = "on_demand";
+
+    /// ⟨M04⟩ The findings M04 adds (ADR-0006 revision 5 §17.1; ruling I-9); [`ALL`] stays
+    /// M02's list and [`M03`] M03's.
+    pub const M04: &[&str] = &[GIT_CLIENT_CANNOT_REACH_PIPE, LOGIN_ENTRY];
+
+    /// ⟨M04⟩ The sub-reasons (`Finding.reason`) the M04 findings carry, with their finding.
+    pub const M04_REASONS: &[(&str, &str)] = &[
+        (LOGIN_ENTRY_ON_DEMAND, LOGIN_ENTRY),
+        (crate::envelope::reason::LOGIN_ENTRY_CONFLICT, LOGIN_ENTRY),
+    ];
+
     /// ⟨M03⟩ The findings M03 adds (m03-plan §5 item 14); [`ALL`] stays M02's list.
     pub const M03: &[&str] = &[
         REVERIFICATION_INCONCLUSIVE,

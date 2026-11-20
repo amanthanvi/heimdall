@@ -14,8 +14,8 @@ use heimdall_contract::enrollment::{
     ApprovedTarget, EnrollmentForm, EnrollmentPlan, RegistryRef, RemovalTarget,
 };
 use heimdall_contract::ids::{
-    AccountName, CaFingerprint, DecisionId, DestinationId, EnrollmentId, GrantId, IdentityId,
-    OperationId,
+    AccountName, CaFingerprint, DecisionId, DestinationId, EnrollmentId, EnvironmentId, GrantId,
+    IdentityId, OperationId,
 };
 use heimdall_contract::issuer::StoreKind;
 use heimdall_contract::provider::EndpointRef;
@@ -31,6 +31,7 @@ pub use heimdall_contract::enrollment::DisclosureKind;
 pub type RemovalTargetRef = RemovalTarget;
 
 use crate::authority::AuthorityDelta;
+use crate::environment::{EnvironmentDisclosure, EnvironmentRealization};
 use crate::policy::AuthorityGeneration;
 use crate::projection::ProjectionSummary;
 use crate::time::BootId;
@@ -184,6 +185,19 @@ pub enum DecisionKind {
         approved: ApprovedTarget,
         /// The proposed target the operation carries.
         proposed: ApprovedTarget,
+    },
+    /// ⟨M04⟩ U5 (ADR-0010 §4 item 1): add a container environment. Approval inserts the
+    /// `managed_environments` row (state `active`) and the environment's record in one
+    /// transaction, then the realization creates the stable directory. Completed only by an
+    /// attended `Decide`; the label and directory tag are fixed here (the tag is random,
+    /// never derived from the label).
+    AddEnvironment {
+        /// The new environment's identity, fixed at creation.
+        environment: EnvironmentId,
+        /// Its realization (`container {label, dir_tag}`).
+        realization: EnvironmentRealization,
+        /// What the owner is told: not a sandbox, engine access, same-UID use.
+        disclosures: Vec<EnvironmentDisclosure>,
     },
     /// ⟨M05⟩ Revision 5 (m05-plan §4 item 6): first trust of a workspace (ADR-0011 §2.1,
     /// §3.4): approval writes the workspace record, its policy, the environment's

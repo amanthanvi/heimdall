@@ -21,8 +21,10 @@
 //! fixture environment record, profile `dev` (`h1`, `h2`, `h3` as `deploy`) and
 //! policy `pol` (covers `h1` and `h2`; `h3` is added authority), and profile `ops`
 //! (`h1`) fully covered by policy `pol-ops`, once per store,
-//! and appends this process's PID to `<state>/test-service-starts` before the
-//! instance lock is taken (the single-child launcher test counts the lines). On
+//! and appends this process's PID and start token (`<pid> <token>`, ⟨M04⟩ so a test's
+//! guard can stop by exact identity a runtime that never advertised) to
+//! `<state>/test-service-starts` before the instance lock is taken (the single-child
+//! launcher test counts the lines). On
 //! Windows its pipes carry the `hmtest-` prefix before the random token.
 //!
 //! **Release builds refuse it.** Without `debug_assertions` nothing in this
@@ -243,6 +245,93 @@ pub const M03_ENV: [&str; 4] = [
     SESSION_LOCK_ENV,
     SCRIPT_PAUSE_DIR_ENV,
 ];
+
+/// ⟨M04⟩ `<uid>:<account>:<distribution>`: the identity `internal wsl-helper` reports in its
+/// hello instead of the process's (an empty distribution is `null`).
+pub const WSL_HELPER_ID_ENV: &str = "HEIMDALL_TEST_WSL_HELPER_ID";
+/// ⟨M04⟩ Absolute scratch account home of `internal wsl-helper` (the home, the XDG defaults
+/// and the SSH paths come from it, never from the account database).
+pub const WSL_HOME_ENV: &str = "HEIMDALL_TEST_WSL_HOME";
+/// ⟨M04⟩ Absolute path of the stand-in `ssh.exe` the helper uses where it would translate the
+/// Windows path with `wslpath` (there is none on a macOS or Linux test host).
+pub const WSL_SSH_EXE_ENV: &str = "HEIMDALL_TEST_WSL_SSH_EXE";
+/// ⟨M04⟩ `<point>[:<step>]` or `before_receipt:<phase>[:<step>]`: the helper exits (status 99,
+/// no cleanup) when its file transaction reaches the point, so a test lands a crash at an exact
+/// place ([`wsl_crash_point`]).
+pub const WSL_CRASH_ENV: &str = "HEIMDALL_TEST_WSL_CRASH";
+/// ⟨M04⟩ The helper's location on Windows (`<directory of heimdall.exe>\linux-x86_64\heimdall`
+/// otherwise); read only by the runtime's WSL wiring in a debug build.
+pub const WSL_HELPER_ENV: &str = "HEIMDALL_WSL_HELPER";
+
+/// ⟨M04 W2⟩ Absolute path of a JSON file `{"guid", "name", "default_uid", "helper_env":
+/// [[name, value], …]}`: the runtime and the CLI then see exactly one WSL distribution, whose
+/// helper is this binary's own `internal wsl-helper`, started directly with exactly
+/// `helper_env` as its environment ([`wsl_direct_host`]). The stand-in for `wsl.exe` and the
+/// Lxss registry on a host without WSL, so Mode A and Mode B run end to end through the real
+/// binary (mechanism evidence; the native rows run on Windows).
+pub const WSL_DIRECT_ENV: &str = "HEIMDALL_TEST_WSL_DIRECT";
+
+/// ⟨M04⟩ Every variable the WSL helper's test configuration adds. [`requested_by`] covers it,
+/// so a release build refuses them like every other test variable.
+pub const WSL_ENV: [&str; 6] = [
+    WSL_HELPER_ID_ENV,
+    WSL_HOME_ENV,
+    WSL_SSH_EXE_ENV,
+    WSL_CRASH_ENV,
+    WSL_HELPER_ENV,
+    WSL_DIRECT_ENV,
+];
+
+/// ⟨M04 W2⟩ The WSL host [`WSL_DIRECT_ENV`] describes, or `None` when it is unset. Debug only.
+///
+/// # Errors
+/// A message naming the variable: the file cannot be read, is not the expected JSON, names a
+/// malformed GUID, or this executable cannot be located.
+#[cfg(debug_assertions)]
+pub fn wsl_direct_host(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<heimdall_wsl::WslHost>, String> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Direct {
+        guid: String,
+        name: String,
+        default_uid: Option<u32>,
+        helper_env: Vec<(String, String)>,
+    }
+    let Some(file) = env(WSL_DIRECT_ENV) else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(&file)
+        .map_err(|e| format!("{WSL_DIRECT_ENV}: cannot read the file: {}", e.kind()))?;
+    let d: Direct = serde_json::from_str(&text)
+        .map_err(|_| format!("{WSL_DIRECT_ENV}: not the expected JSON"))?;
+    let guid = heimdall_contract::environment::DistributionGuid::parse(&d.guid)
+        .map_err(|_| format!("{WSL_DIRECT_ENV}: a malformed GUID"))?;
+    let exe = std::env::current_exe().map_err(|e| {
+        format!(
+            "{WSL_DIRECT_ENV}: cannot locate this executable: {}",
+            e.kind()
+        )
+    })?;
+    let launcher = heimdall_wsl::DirectLauncher::new(
+        exe,
+        vec!["internal".into(), "wsl-helper".into()],
+        d.helper_env
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
+    );
+    Ok(Some(heimdall_wsl::WslHost::with_direct_helper(
+        launcher,
+        vec![heimdall_app::ports::DiscoveredDistribution {
+            guid,
+            name: d.name,
+            version: 2,
+            default_uid: d.default_uid,
+        }],
+    )))
+}
 
 /// ⟨M03⟩ The longest key seed accepted, in bytes.
 const KEY_SEED_MAX_BYTES: usize = 64;
@@ -511,6 +600,7 @@ pub fn requested_by(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
     ALL_ENV
         .iter()
         .chain(M03_ENV.iter())
+        .chain(WSL_ENV.iter())
         .any(|name| env(name).is_some())
 }
 
@@ -535,6 +625,168 @@ pub fn home_refusal(requested: bool, home_explicit: bool) -> Option<&'static str
     (requested && !home_explicit)
         .then_some("the HEIMDALL_TEST_* configuration needs an explicit HEIMDALL_HOME")
 }
+
+/// ⟨M04⟩ The helper's test configuration (debug builds only; a release build refuses every
+/// `HEIMDALL_TEST_*` variable before this is read).
+#[cfg(debug_assertions)]
+mod wsl_helper {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use heimdall_localenv::env::Env;
+    use heimdall_localenv::paths::SshPaths;
+    use heimdall_localenv::projection::{ReplaceHook, ReplacePoint};
+    use heimdall_wsl::helper::identity::Identity;
+    use heimdall_wsl::helper::{HelperEnv, SshExe};
+
+    use super::{WSL_CRASH_ENV, WSL_HELPER_ID_ENV, WSL_HOME_ENV, WSL_SSH_EXE_ENV};
+
+    /// The receipt phases a `before_receipt:<phase>` point may name.
+    const PHASES: [&str; 13] = [
+        "staged",
+        "validated",
+        "exchanged",
+        "post_validated",
+        "restore_started",
+        "restored",
+        "held",
+        "settling",
+        "settled",
+        "settle_conflict",
+        "committed",
+        "rolling_back",
+        "finished",
+    ];
+
+    /// Parse `<point>[:<step>]` or `before_receipt:<phase>[:<step>]`.
+    ///
+    /// # Errors
+    /// A fixed message naming the malformed part (never an environment value's content beyond
+    /// the point name the test wrote).
+    pub fn wsl_crash_point(text: &str) -> Result<(ReplacePoint, Option<u16>), String> {
+        let mut parts = text.split(':');
+        let name = parts.next().unwrap_or_default();
+        let point = match name {
+            "after_stage" => ReplacePoint::AfterStage,
+            "after_validate" => ReplacePoint::AfterValidate,
+            "before_exchange" => ReplacePoint::BeforeExchange,
+            "after_exchange" => ReplacePoint::AfterExchange,
+            "after_post_validate" => ReplacePoint::AfterPostValidate,
+            "before_commit" => ReplacePoint::BeforeCommit,
+            "before_settle_move" => ReplacePoint::BeforeSettleMove,
+            "after_settle_move" => ReplacePoint::AfterSettleMove,
+            "before_quarantine_remove" => ReplacePoint::BeforeQuarantineRemove,
+            "before_lock_claim" => ReplacePoint::BeforeLockClaim,
+            "after_lock_claim" => ReplacePoint::AfterLockClaim,
+            "before_lock_release" => ReplacePoint::BeforeLockRelease,
+            "before_receipt" => {
+                let phase = parts.next().unwrap_or_default();
+                let phase = PHASES
+                    .iter()
+                    .find(|p| **p == phase)
+                    .ok_or_else(|| format!("{WSL_CRASH_ENV}: unknown receipt phase"))?;
+                ReplacePoint::BeforeReceipt(phase)
+            }
+            _ => return Err(format!("{WSL_CRASH_ENV}: unknown point")),
+        };
+        let step = match parts.next() {
+            None => None,
+            Some(n) => Some(
+                n.parse::<u16>()
+                    .map_err(|_| format!("{WSL_CRASH_ENV}: bad step"))?,
+            ),
+        };
+        if parts.next().is_some() {
+            return Err(format!("{WSL_CRASH_ENV}: trailing text"));
+        }
+        Ok((point, step))
+    }
+
+    /// The crash: the process leaves at once, with no cleanup, like a killed helper.
+    struct CrashAt {
+        point: ReplacePoint,
+        step: Option<u16>,
+    }
+
+    impl ReplaceHook for CrashAt {
+        fn at(&self, point: ReplacePoint, step: u16) {
+            if point == self.point && self.step.is_none_or(|s| s == step) {
+                std::process::exit(99);
+            }
+        }
+    }
+
+    /// The helper's test environment when `HEIMDALL_TEST_WSL_*` asks for one, else `None`.
+    ///
+    /// # Errors
+    /// A fixed message when a variable is malformed or one it needs is missing.
+    pub fn helper_env(env: &dyn Fn(&str) -> Option<OsString>) -> Result<Option<HelperEnv>, String> {
+        let Some(id) = env(WSL_HELPER_ID_ENV) else {
+            return Ok(None);
+        };
+        let id = id
+            .into_string()
+            .map_err(|_| format!("{WSL_HELPER_ID_ENV}: not text"))?;
+        let mut parts = id.splitn(3, ':');
+        let uid: u32 = parts
+            .next()
+            .and_then(|u| u.parse().ok())
+            .ok_or_else(|| format!("{WSL_HELPER_ID_ENV}: bad uid"))?;
+        let account = parts
+            .next()
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| format!("{WSL_HELPER_ID_ENV}: no account"))?
+            .to_owned();
+        let distribution = parts.next().filter(|d| !d.is_empty()).map(str::to_owned);
+        let abs = |name: &str| -> Result<PathBuf, String> {
+            let p = PathBuf::from(env(name).ok_or_else(|| format!("{name}: missing"))?);
+            if p.is_absolute() {
+                Ok(p)
+            } else {
+                Err(format!("{name}: not an absolute path"))
+            }
+        };
+        let home = abs(WSL_HOME_ENV)?;
+        let captured = Env::capture();
+        let xdg = |name: &str, default: &[&str]| {
+            captured
+                .get(name)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .unwrap_or_else(|| default.iter().fold(home.clone(), |p, c| p.join(c)))
+        };
+        let hook = match env(WSL_CRASH_ENV) {
+            None => None,
+            Some(t) => {
+                let t = t
+                    .into_string()
+                    .map_err(|_| format!("{WSL_CRASH_ENV}: not text"))?;
+                let (point, step) = wsl_crash_point(&t)?;
+                Some(Arc::new(CrashAt { point, step }) as Arc<dyn ReplaceHook>)
+            }
+        };
+        Ok(Some(HelperEnv {
+            identity: Identity {
+                uid,
+                account,
+                distribution,
+                interop: true,
+                append_windows_path: Some(true),
+            },
+            ssh_paths: SshPaths::with_test_override(home.clone(), home.join("etc-ssh")),
+            config_base: xdg("XDG_CONFIG_HOME", &[".config"]),
+            state_base: xdg("XDG_STATE_HOME", &[".local", "state"]),
+            env: captured,
+            ssh_exe: SshExe::Fixed(abs(WSL_SSH_EXE_ENV)?),
+            hook,
+            lock_wait: std::time::Duration::from_millis(1500),
+        }))
+    }
+}
+
+#[cfg(debug_assertions)]
+pub use wsl_helper::helper_env as wsl_helper_env;
 
 #[cfg(debug_assertions)]
 pub use enabled::{isolate_projection, prepare};
@@ -849,6 +1101,8 @@ mod enabled {
                 managed.session_lock = SessionLockWiring::Source(fake_session_lock(path));
             }
             managed.script_pause_dir = m03.script_pause_dir.clone();
+            // ⟨M04-MC3-R03⟩ The issuer client's start diagnostics (the pumps' first bytes).
+            managed.issuer_start_diagnostics = true;
         }
         // Count starts before the instance lock (single-child launcher test).
         record_start(paths).map_err(|e| format!("cannot record the start: {}", e.kind()))?;
@@ -986,7 +1240,12 @@ mod enabled {
             .create(true)
             .append(true)
             .open(paths.state_dir.join(super::STARTS_FILE))?;
-        writeln!(f, "{}", std::process::id())?;
+        // ⟨M04, the Windows readiness failures⟩ With the process's start token, so a test's
+        // guard can stop by exact identity a runtime that never advertised
+        // (`tests/e2e/exit_m03/world.rs` `stop_started_runtimes`).
+        let pid = std::process::id();
+        let token = heimdall_runtime::platform::process_start_time(pid).unwrap_or_default();
+        writeln!(f, "{pid} {token}")?;
         f.sync_all()
     }
 
