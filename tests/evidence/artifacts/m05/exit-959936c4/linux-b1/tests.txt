@@ -1,0 +1,2767 @@
+### adversarial_ipc_frames
+
+running 10 tests
+test codec_refuses_oversize_from_the_header_without_reserving ... ok
+test attend_on_a_non_interactive_session_is_refused ... ok
+test many_valid_requests_are_all_answered ... ok
+test parse_errors_never_quote_the_input ... ok
+test production_hello_timeout_closes_a_silent_connection ... ok
+test client_messages_round_trip ... ok
+test zero_length_and_wrong_types_after_hello_close_with_goodbye ... ok
+test codec_matches_pure_decoder ... ok
+test decode_frame_never_panics ... ok
+test serve_survives_adversarial_streams ... ok
+
+successes:
+
+---- client_messages_round_trip stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- codec_matches_pure_decoder stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- decode_frame_never_panics stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- serve_survives_adversarial_streams stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/ipc_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    attend_on_a_non_interactive_session_is_refused
+    client_messages_round_trip
+    codec_matches_pure_decoder
+    codec_refuses_oversize_from_the_header_without_reserving
+    decode_frame_never_panics
+    many_valid_requests_are_all_answered
+    parse_errors_never_quote_the_input
+    production_hello_timeout_closes_a_silent_connection
+    serve_survives_adversarial_streams
+    zero_length_and_wrong_types_after_hello_close_with_goodbye
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+### adversarial_ipc_frames exit=0
+### adversarial_prompt_injection
+
+running 7 tests
+test a29_an_agent_without_a_terminal_cannot_decide ... ok
+test a29_hostile_manifest_files_are_refused_explicitly_and_bounded ... ok
+test a29_decision_references_from_repository_text_are_not_found_or_stale ... ok
+test agent::the_agent_reads_every_planted_phrasing ... ok
+test a29_approval_claims_in_labels_work_ids_and_agent_names_change_nothing ... ok
+test a29_self_authorizing_manifests_get_nothing_unattended ... ok
+test a29_hostile_working_directories_move_no_trust ... ok
+
+successes:
+
+successes:
+    a29_an_agent_without_a_terminal_cannot_decide
+    a29_approval_claims_in_labels_work_ids_and_agent_names_change_nothing
+    a29_decision_references_from_repository_text_are_not_found_or_stale
+    a29_hostile_manifest_files_are_refused_explicitly_and_bounded
+    a29_hostile_working_directories_move_no_trust
+    a29_self_authorizing_manifests_get_nothing_unattended
+    agent::the_agent_reads_every_planted_phrasing
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+### adversarial_prompt_injection exit=0
+### contracts
+
+running 100 tests
+test canonical_props::decimal_text_reaches_a_canonical_fixed_point ... ok
+test canonical_props::float_roundtrip_parsed_number_canonicalizes_identically ... ok
+test canonical_props::floats_hash_consistently_and_round_trip_text ... ok
+test canonical_props::golden_request_hash_vectors ... ok
+test canonical_props::array_order_changes_canonical_bytes_and_hash ... ok
+test canonical_props::canonical_output_is_valid_json_and_idempotent ... ok
+test canonical_props::hash_hex_round_trips ... ok
+test canonical_props::context_participates_in_the_hash ... ok
+test canonical_props::hash_parser_is_bounded_and_total ... ok
+test canonical_props::integer_documents_reparse_to_identical_canonical_bytes ... ok
+test canonical_props::numbers_keep_their_serde_json_form ... ok
+test canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale ... ok
+test canonical_props::strings_use_deterministic_escapes ... ok
+test code_table::adr_13_1_rulings_hold ... ok
+test code_table::code_set_has_no_duplicates_and_covers_the_spec_list ... ok
+test code_table::code_spelling_is_exact_on_the_wire ... ok
+test code_table::decision_stale_row_is_in_table_order ... ok
+test code_table::envelope_with_an_unknown_code_parses_and_is_not_success ... ok
+test code_table::error_envelope_golden_json_for_every_code ... ok
+test code_table::every_code_matches_its_golden_row ... ok
+test code_table::exit_numbers_are_the_documented_wire_numbers ... ok
+test code_table::golden_file_matches_the_adr_table ... ok
+test code_table::launch_failed_row_and_its_126_rule ... ok
+test code_table::retryable_never_applies_to_uncertain_or_refused_outcomes ... ok
+test code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips ... ok
+test examples::attend_and_subscribed_examples_parse_to_the_documented_shapes ... ok
+test canonical_props::hash_equality_iff_bytes_equality_with_floats ... ok
+test examples::decide_and_confirm_time_examples_are_attended_only_requests ... ok
+test examples::decision_stale_example_matches_its_table_row ... ok
+test examples::emitted_documents_always_materialize_next_and_warnings ... ok
+test examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table ... ok
+test canonical_props::hash_equality_iff_canonical_byte_equality ... ok
+test examples::every_example_round_trips_exactly_through_the_typed_model ... ok
+test examples::missing_schema_version_is_not_defaulted ... ok
+test examples::client_hello_interaction_defaults_to_non_interactive ... ok
+test examples::state_matches_code_in_the_examples ... ok
+test canonical_props::key_order_does_not_change_canonical_bytes ... ok
+test examples::success_examples_carry_no_private_material_fields ... ok
+test examples::unsupported_schema_major_is_rejected_explicitly ... ok
+test ids::generated_ids_use_the_documented_wire_form ... ok
+test ids::hostile_inputs_are_rejected_without_panic ... ok
+test examples::unknown_fields_are_tolerated_at_every_nesting_level ... ok
+test ids::length_bound_is_exactly_128_bytes ... ok
+test ids::prefixed_ids_require_their_own_prefix ... ok
+test ids::random_bytes_always_make_parseable_ids ... ok
+test ids::serde_enforces_the_same_bounds ... ok
+test examples::schema_validator_is_not_vacuous_for_the_examples ... ok
+test jsonschema_lite::tests::accepts_and_rejects_basic_shapes ... ok
+test jsonschema_lite::tests::one_of_requires_exactly_one_match ... ok
+test jsonschema_lite::tests::unique_items_detects_duplicates ... ok
+test jsonschema_lite::tests::unsupported_keywords_fail_loudly ... ok
+test limits::framing_and_connection_limits_match_adr_0006 ... ok
+test limits::m02_bounds_are_fixed ... ok
+test limits::request_and_cursor_bounds_are_fixed ... ok
+test limits::versions_and_capability_names_are_stable ... ok
+test ids::token_parsers_match_the_bound_oracle ... ok
+test ids::prefixed_parsers_accept_only_prefixed_tokens ... ok
+test m02::catalog_examples_pass_the_boundary_checks ... ok
+test m02::error_reasons_are_stable_snake_case_and_complete ... ok
+test m02::classify_never_claims_more_than_the_records_show ... ok
+test m02::launch_binding_rules ... ok
+test m02::m02_additive_fields_and_defaults ... ok
+test m02::bind_launch_without_argv ... ok
+test m02::journaled_operation_kinds_match_their_request_kind ... ok
+test m02::preview_intent_repair_rules ... ok
+test m02::run_record_classify_golden ... ok
+test m02::setup_and_catalog_need_setup_1_and_preview_is_read_only ... ok
+test m03::contract_code_table_unchanged_30_rows ... ok
+test m03::enforcement_without_m03_fields_decodes_unknown ... ok
+test m03::contract_reason_golden ... ok
+test m03::ensure_data_managed_example_matches_plan ... ok
+test m03::m03_capabilities_declared ... ok
+test m03::ensure_data_without_m03_fields_decodes ... ok
+test m03::m03_requests_need_their_capability_and_unlock_is_attended ... ok
+test m03::m03_wire_forms_and_m02_requests_unchanged ... ok
+test m03::policy_lock_and_connection_widening_classification ... ok
+test m03::revoke_data_timestamps_golden ... ok
+test m03::revoke_data_without_timestamps_decodes ... ok
+test m03::wave5_round2_additive_fields_round_trip_and_omit_when_absent ... ok
+test rev5::rev5_1_dry_run_closed_bundle_and_typed_results ... ok
+test rev5::rev5_1_set_default_profile_forms ... ok
+test rev5::rev5_2_decision_scope ... ok
+test m02::m02_schemas_are_not_vacuous ... ok
+test m03::public_schema_has_no_scratch_store_kind ... ok
+test rev5::rev5_capabilities_declared_not_offered_and_required ... ok
+test rev5::rev5_m01_m03_forms_unchanged ... ok
+test rev5::rev5_reason_golden ... ok
+test schema_export::checked_in_project_schemas_match_the_model_exactly ... ok
+test rev5::rev5_2_workspace_proposal ... ok
+test schema_export::code_schema_enumerates_exactly_the_code_table ... ok
+test schema_export::codes_json_rows_equal_the_model_and_golden ... ok
+test schema_export::checked_in_public_api_matches_the_model_exactly ... ok
+test schema_export::envelope_without_warnings_and_next_still_deserializes ... ok
+test schema_export::envelope_schemas_require_warnings_and_next ... ok
+test schema_export::every_schema_is_a_closed_set_of_supported_keywords ... ok
+test schema_export::public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types ... ok
+test schema_export::schema_ids_are_never_secret_bearing_formats ... ok
+test schema_export::export_is_byte_identical_across_runs ... ok
+test rev5::rev5_examples_round_trip_and_validate ... ok
+test examples::every_example_validates_against_generated_and_checked_in_schemas ... ok
+
+successes:
+
+---- canonical_props::decimal_text_reaches_a_canonical_fixed_point stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::float_roundtrip_parsed_number_canonicalizes_identically stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::array_order_changes_canonical_bytes_and_hash stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::canonical_output_is_valid_json_and_idempotent stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_hex_round_trips stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::context_participates_in_the_hash stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_parser_is_bounded_and_total stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::integer_documents_reparse_to_identical_canonical_bytes stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_equality_iff_bytes_equality_with_floats stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::hash_equality_iff_canonical_byte_equality stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- canonical_props::key_order_does_not_change_canonical_bytes stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/canonical_props.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- ids::random_bytes_always_make_parseable_ids stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/ids.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- ids::token_parsers_match_the_bound_oracle stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/ids.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- ids::prefixed_parsers_accept_only_prefixed_tokens stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/ids.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+---- m02::classify_never_claims_more_than_the_records_show stdout ----
+proptest: Failed to find absolute path of source file '"crates/contract/../../tests/contracts/m02.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+
+
+successes:
+    canonical_props::array_order_changes_canonical_bytes_and_hash
+    canonical_props::canonical_output_is_valid_json_and_idempotent
+    canonical_props::context_participates_in_the_hash
+    canonical_props::decimal_text_reaches_a_canonical_fixed_point
+    canonical_props::float_roundtrip_parsed_number_canonicalizes_identically
+    canonical_props::floats_hash_consistently_and_round_trip_text
+    canonical_props::golden_request_hash_vectors
+    canonical_props::hash_equality_iff_bytes_equality_with_floats
+    canonical_props::hash_equality_iff_canonical_byte_equality
+    canonical_props::hash_hex_round_trips
+    canonical_props::hash_parser_is_bounded_and_total
+    canonical_props::integer_documents_reparse_to_identical_canonical_bytes
+    canonical_props::key_order_does_not_change_canonical_bytes
+    canonical_props::numbers_keep_their_serde_json_form
+    canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale
+    canonical_props::strings_use_deterministic_escapes
+    code_table::adr_13_1_rulings_hold
+    code_table::code_set_has_no_duplicates_and_covers_the_spec_list
+    code_table::code_spelling_is_exact_on_the_wire
+    code_table::decision_stale_row_is_in_table_order
+    code_table::envelope_with_an_unknown_code_parses_and_is_not_success
+    code_table::error_envelope_golden_json_for_every_code
+    code_table::every_code_matches_its_golden_row
+    code_table::exit_numbers_are_the_documented_wire_numbers
+    code_table::golden_file_matches_the_adr_table
+    code_table::launch_failed_row_and_its_126_rule
+    code_table::retryable_never_applies_to_uncertain_or_refused_outcomes
+    code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips
+    examples::attend_and_subscribed_examples_parse_to_the_documented_shapes
+    examples::client_hello_interaction_defaults_to_non_interactive
+    examples::decide_and_confirm_time_examples_are_attended_only_requests
+    examples::decision_stale_example_matches_its_table_row
+    examples::emitted_documents_always_materialize_next_and_warnings
+    examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table
+    examples::every_example_round_trips_exactly_through_the_typed_model
+    examples::every_example_validates_against_generated_and_checked_in_schemas
+    examples::missing_schema_version_is_not_defaulted
+    examples::schema_validator_is_not_vacuous_for_the_examples
+    examples::state_matches_code_in_the_examples
+    examples::success_examples_carry_no_private_material_fields
+    examples::unknown_fields_are_tolerated_at_every_nesting_level
+    examples::unsupported_schema_major_is_rejected_explicitly
+    ids::generated_ids_use_the_documented_wire_form
+    ids::hostile_inputs_are_rejected_without_panic
+    ids::length_bound_is_exactly_128_bytes
+    ids::prefixed_ids_require_their_own_prefix
+    ids::prefixed_parsers_accept_only_prefixed_tokens
+    ids::random_bytes_always_make_parseable_ids
+    ids::serde_enforces_the_same_bounds
+    ids::token_parsers_match_the_bound_oracle
+    jsonschema_lite::tests::accepts_and_rejects_basic_shapes
+    jsonschema_lite::tests::one_of_requires_exactly_one_match
+    jsonschema_lite::tests::unique_items_detects_duplicates
+    jsonschema_lite::tests::unsupported_keywords_fail_loudly
+    limits::framing_and_connection_limits_match_adr_0006
+    limits::m02_bounds_are_fixed
+    limits::request_and_cursor_bounds_are_fixed
+    limits::versions_and_capability_names_are_stable
+    m02::bind_launch_without_argv
+    m02::catalog_examples_pass_the_boundary_checks
+    m02::classify_never_claims_more_than_the_records_show
+    m02::error_reasons_are_stable_snake_case_and_complete
+    m02::journaled_operation_kinds_match_their_request_kind
+    m02::launch_binding_rules
+    m02::m02_additive_fields_and_defaults
+    m02::m02_schemas_are_not_vacuous
+    m02::preview_intent_repair_rules
+    m02::run_record_classify_golden
+    m02::setup_and_catalog_need_setup_1_and_preview_is_read_only
+    m03::contract_code_table_unchanged_30_rows
+    m03::contract_reason_golden
+    m03::enforcement_without_m03_fields_decodes_unknown
+    m03::ensure_data_managed_example_matches_plan
+    m03::ensure_data_without_m03_fields_decodes
+    m03::m03_capabilities_declared
+    m03::m03_requests_need_their_capability_and_unlock_is_attended
+    m03::m03_wire_forms_and_m02_requests_unchanged
+    m03::policy_lock_and_connection_widening_classification
+    m03::public_schema_has_no_scratch_store_kind
+    m03::revoke_data_timestamps_golden
+    m03::revoke_data_without_timestamps_decodes
+    m03::wave5_round2_additive_fields_round_trip_and_omit_when_absent
+    rev5::rev5_1_dry_run_closed_bundle_and_typed_results
+    rev5::rev5_1_set_default_profile_forms
+    rev5::rev5_2_decision_scope
+    rev5::rev5_2_workspace_proposal
+    rev5::rev5_capabilities_declared_not_offered_and_required
+    rev5::rev5_examples_round_trip_and_validate
+    rev5::rev5_m01_m03_forms_unchanged
+    rev5::rev5_reason_golden
+    schema_export::checked_in_project_schemas_match_the_model_exactly
+    schema_export::checked_in_public_api_matches_the_model_exactly
+    schema_export::code_schema_enumerates_exactly_the_code_table
+    schema_export::codes_json_rows_equal_the_model_and_golden
+    schema_export::envelope_schemas_require_warnings_and_next
+    schema_export::envelope_without_warnings_and_next_still_deserializes
+    schema_export::every_schema_is_a_closed_set_of_supported_keywords
+    schema_export::export_is_byte_identical_across_runs
+    schema_export::public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types
+    schema_export::schema_ids_are_never_secret_bearing_formats
+
+test result: ok. 100 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+
+### contracts exit=0
+### e2e_hook_m05
+
+running 3 tests
+test hook_without_a_runtime_prints_nothing_and_starts_none ... ok
+test hook_warm_up_creates_no_decision_when_the_default_does_not_cover ... ok
+test hook_warms_the_default_so_the_first_ordinary_ssh_logs_in ... ok
+
+successes:
+
+---- hook_warms_the_default_so_the_first_ordinary_ssh_logs_in stdout ----
+m05 observation: hook linux warm-up: the hook took 363 ms; the slot was held when it returned: true; held 8 ms later
+
+
+successes:
+    hook_warm_up_creates_no_decision_when_the_default_does_not_cover
+    hook_warms_the_default_so_the_first_ordinary_ssh_logs_in
+    hook_without_a_runtime_prints_nothing_and_starts_none
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.95s
+
+### e2e_hook_m05 exit=0
+### e2e_issuer_ceremony
+
+running 10 tests
+test ceremony_eof_at_written_cancels_at_once ... ok
+test ceremony_ctrl_c_at_written_cancels_at_once ... ok
+test ceremony_registration_prompt_times_out_and_sends_nothing ... ok
+test init_refuses_non_tty_and_non_interactive ... ok
+test ceremony_written_prompt_times_out_clears_and_stores_nothing ... ok
+test pty_ceremony_child ... ignored, child-mode entry of the pty ceremony tests, started by them
+test pty_exec_child ... ignored, child-mode entry of d5_backup_restores_with_stock_ssh_keygen, started by it
+test init_ceremony_registers_ca_and_environment_permissions ... ok
+test d5_backup_restores_with_stock_ssh_keygen ... ok
+test passphrase_only_on_tty_transcript ... ok
+
+successes:
+
+successes:
+    ceremony_ctrl_c_at_written_cancels_at_once
+    ceremony_eof_at_written_cancels_at_once
+    ceremony_registration_prompt_times_out_and_sends_nothing
+    ceremony_written_prompt_times_out_clears_and_stores_nothing
+    d5_backup_restores_with_stock_ssh_keygen
+    init_ceremony_registers_ca_and_environment_permissions
+    init_refuses_non_tty_and_non_interactive
+    passphrase_only_on_tty_transcript
+
+test result: ok. 8 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 4.97s
+
+### e2e_issuer_ceremony exit=0
+### e2e_portable_m05
+
+running 1 test
+test export_import_journey_never_creates_authority ... ok
+
+successes:
+
+successes:
+    export_import_journey_never_creates_authority
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+### e2e_portable_m05 exit=0
+### heimdall-unit
+
+running 297 tests
+test activate_cmd::tests::status_lines_never_ask ... ok
+test activate_cmd::tests::the_scripts_never_evaluate_what_they_read ... ok
+test activate_cmd::tests::the_hook_reenters_after_expiry_never_after_a_stop_and_splits_groups ... ok
+test activate_cmd::tests::the_hook_never_attends_or_decides_whatever_the_answer ... ok
+test cli::tests::bare_heimdall_is_the_tui_only_on_a_terminal_without_json ... ok
+test catalog_cmd::tests::from_agent_fingerprint_chooses_one_listed_identity ... ok
+test cli::tests::interactive_ensure_attends_before_the_request_and_decides_only_on_yes ... ok
+test cli::tests::interactive_needs_a_terminal_and_no_opt_out ... ok
+test cli::tests::json_is_requested_anywhere_before_the_argv_terminator ... ok
+test cli::tests::interactive_ensure_sends_nothing_more_unless_confirmed ... ok
+test cli::tests::m03_policy_actions_attend_only_when_widening ... ok
+test cli::tests::non_interactive_or_non_tty_never_attends_or_prompts ... ok
+test cli::tests::not_confirmed_is_interaction_required_with_the_decision_ref ... ok
+test cli::tests::command_tree_is_consistent ... ok
+test cli::tests::owner_present_policy_and_decision_flows_attend_first ... ok
+test cli::tests::pending_decision_needs_an_interaction_code_and_a_reference ... ok
+test cli::tests::require_unattended_is_carried_into_the_request_never_dropped ... ok
+test cli::tests::m02_argument_trees_refuse_malformed_lines ... ok
+test cli::tests::usage_messages_never_echo_the_offending_token ... ok
+test connect_cmd::tests::a_listed_destination_names_its_definition_and_anything_else_reads_managed ... ok
+test connect_cmd::tests::binding_files_follow_the_binding_endpoint_or_refuse ... ok
+test connect_cmd::tests::connect_managed_pair_covering_profile_is_the_one_listed_or_refused ... ok
+test connect_cmd::tests::managed_connect_refuses_without_a_live_binding_endpoint ... ok
+test cli::tests::run_and_connect_parse_and_refuse_before_the_runtime ... ok
+test connect_cmd::tests::only_an_applied_managed_preference_takes_the_managed_flow ... ok
+test connect_cmd::tests::the_alias_identity_follows_the_definition ... ok
+test connections_cmd::tests::close_exit_follows_the_envelope_code ... ok
+test delegate_cmd::tests::scope_pair_needs_destination_and_account ... ok
+test container_cmd::tests::mount_args_print_the_read_only_bind_and_the_uid_notes ... ok
+test dev_home_guard::tests::decision_table ... ok
+test delegate_cmd::tests::worker_environment_loses_every_locator_and_a_foreign_agent ... ok
+test dev_home_guard::tests::the_message_names_the_home_variable_and_the_escape ... ok
+test dev_home_guard::tests::environment_rules ... ok
+test doctor_cmd::tests::authorization_text_lists_found_commands_or_says_none_found_now ... ok
+test doctor_cmd::tests::chores_are_added_to_status_only_when_pending ... ok
+test doctor_cmd::tests::client_trace_finding_names_an_unrecorded_family_and_version ... ok
+test doctor_cmd::tests::interactive_authorization_needs_a_typed_yes ... ok
+test doctor_cmd::tests::issuer_store_finding_only_for_the_access_denial ... ok
+test doctor_cmd::tests::an_unreadable_tree_shows_no_prompt ... ok
+test doctor_cmd::tests::non_interactive_flag_is_the_authorization_and_a_bare_pipe_is_refused ... ok
+test doctor_cmd::tests::q02_unreadable_then_readable_tree_runs_no_evaluation ... ok
+test doctor_cmd::tests::time_confirmation_is_pending_exactly_when_the_gate_lacks_a_reference ... ok
+test doctor_cmd::tests::q02_nothing_runnable_then_an_alias_appears_runs_nothing ... ok
+test enroll_cmd::drive::tests::agent_held_needs_a_concrete_agent_and_identities_only ... ok
+test enroll_cmd::drive::tests::the_handoff_notice_names_the_auth_fallback_residual ... ok
+test enroll_cmd::drive::tests::the_uncertain_message_is_exact ... ok
+test enroll_cmd::render::tests::ca_key_is_cut_as_the_runtime_cuts_it ... ok
+test enroll_cmd::render::tests::held_next_names_the_commands_per_reason ... ok
+test enroll_cmd::render::tests::held_of_prefers_the_runtimes_hold ... ok
+test enroll_cmd::render::tests::only_removed_is_removed ... ok
+test enroll_cmd::render::tests::preview_disclosures_are_the_shared_texts ... ok
+test enroll_cmd::tests::a_redacted_bundle_is_refused_bundle_redacted ... ok
+test enroll_cmd::tests::generic_decision_completion_shows_disclosures_and_needs_the_lock_text ... ok
+test enroll_cmd::tests::enrollment_approval_refused_without_the_runtimes_lock_text ... ok
+test enroll_cmd::tests::lock_disclosure_text_reads_the_runtimes_capabilities ... ok
+test enroll_cmd::tests::the_switches_fail_closed ... ok
+test input_file::tests::only_a_regular_file_opens_and_nothing_waits ... ok
+test issuer_cmd::tests::displaced_items_are_those_of_the_ca_with_a_locator ... ok
+test cli::tests::w0_m02_commands_answer_not_available_and_never_contact_the_runtime ... ok
+test launch_flow::tests::a_binding_that_is_no_longer_active_is_refused_as_binding_released ... ok
+test launch_flow::tests::a_path_outside_the_home_is_shown_as_written_not_canonicalized ... ok
+test launch_flow::tests::refusal_entries_show_a_home_behind_a_symlink_as_tilde ... ok
+test launch_flow::tests::the_fallback_refusal_fills_error_entries ... ok
+test launch_flow::tests::the_fresh_selection_evaluates_every_invocation_profile ... ok
+test m03_cmd::tests::internal_is_hidden_and_the_rest_are_listed ... ok
+test m03_cmd::tests::internal_issuer_refuses_tty_stdin ... ok
+test m03_cmd::tests::m03_internal_issuer_envelopes_carry_no_wave_0_text ... ok
+test enroll_cmd::tests::typed_yes_timeout_sends_nothing_and_exits_3 ... ok
+test m03_cmd::tests::m03_lines_answer_without_touching_the_home ... ok
+test m03_cmd::wave5_tests::connection_policy_needs_a_flag ... ok
+test m03_cmd::wave5_tests::destination_prefer_renders_the_answer ... ok
+test m03_cmd::wave5_tests::destination_prefer_resolves_the_managed_pair ... ok
+test m03_cmd::wave5_tests::m03_policy_actions_classify_as_widening_or_narrowing ... ok
+test m03_cmd::wave5_tests::m03_reasons_exit_codes_follow_adr_0006_table ... ok
+test m03_cmd::wave5_tests::strict_connection_narrows_existing_only ... ok
+test m05_cmd::tests::a_create_review_shows_the_recorded_scope_or_refuses ... ok
+test m05_cmd::tests::a_targeted_result_renders_each_policy ... ok
+test m05_cmd::tests::recorded_previews_show_the_scope_and_quote_the_label ... ok
+test m05_cmd::tests::workspace_paths_render_as_quoted_data ... ok
+test output::tests::a_data_field_is_one_inert_quoted_token ... ok
+test output::tests::a_plan_shows_a_removed_file_of_heimdalls_own_as_a_removal ... ok
+test output::tests::a_policy_result_shows_the_lock_behaviour_when_it_carries_one ... ok
+test output::tests::a_wait_reports_the_awaited_operation ... ok
+test output::tests::accepted_without_async_is_not_success ... ok
+test output::tests::access_ensure_strict_reports_strict_disconnect ... ok
+test output::tests::destination_list_renders_the_runtimes_items_shape ... ok
+test output::tests::destination_listing_shows_the_runtimes_connection_policy_wording ... ok
+test output::tests::every_known_code_maps_to_its_table_exit_class ... ok
+test output::tests::human_json_is_inert_and_denotes_the_same_value ... ok
+test output::tests::revoke_output_lists_owned_connections_and_ordinary_note ... ok
+test output::tests::sanitizer_drops_escapes ... ok
+test output::tests::unknown_code_is_never_success_and_exits_one ... ok
+test portable_cmd::tests::the_import_previews_then_asks_then_applies ... ok
+test m03_cmd::tests::the_m03_command_tree_matches_the_plan_table ... ok
+test prompt::tests::only_y_or_yes_confirms_and_the_default_is_no ... ok
+test purge_sweep::tests::a_group_writable_refusal_names_the_fix ... ok
+test purge_sweep::tests::a_linked_ancestor_refuses_the_anchoring ... ok
+test purge_sweep::tests::a_planted_journal_refuses_with_every_byte_unchanged ... ok
+test prompt::tests::no_answer_in_time_is_timed_out ... ok
+test purge_sweep::tests::an_entry_placed_inside_a_quarantined_directory_is_deleted ... ok
+test purge_sweep::tests::delete_refuses_without_a_recovery_copy ... ok
+test purge_sweep::tests::final_review_companion_failure_preserves_database ... ok
+test purge_sweep::tests::final_review_quarantine_dir_removal_failure_reports_what_is_on_disk ... ok
+test purge_sweep::tests::partial_delete_renames_the_database_back ... ok
+test purge_sweep::tests::purge_trusted_top_conditions ... ok
+test purge_sweep::tests::no_purge_created_file_is_restored_or_listed_as_renamed_back ... ok
+test purge_sweep::tests::quarantine_failed_restore_is_left_and_reported ... ok
+test purge_sweep::tests::quarantine_refuses_a_leaf_replaced_before_it ... ok
+test purge_sweep::tests::recheck4_default_unix_home_with_private_group_must_pass ... ok
+test purge_sweep::tests::quarantine_refuses_a_decoy_database_before_its_read ... ok
+test purge_sweep::tests::restore_never_replaces_an_entry_at_the_original_name ... ok
+test purge_sweep::tests::secure_path_accepts_the_linux_default_layouts ... ok
+test purge_sweep::tests::secure_path_accepts_the_macos_default_layouts ... ok
+test purge_sweep::tests::secure_path_accepts_the_windows_default_layout ... ok
+test purge_sweep::tests::secure_path_on_synthetic_trees ... ok
+test purge_sweep::tests::secure_path_refuses_unsafe_ancestors_and_roots ... ok
+test purge_sweep::tests::shared_group_home_still_refuses ... ok
+test purge_sweep::tests::recheck4_leaf_replacement_must_keep_unconfirmed_owner_data ... ok
+test purge_sweep::tests::the_windows_residual_is_listed ... ok
+test purge_sweep::tests::uninstall_purge_link_between_passes_deletes_nothing ... ok
+test purge_sweep::tests::user_private_group_lookup_runs ... ok
+test purge_sweep::tests::swap_between_quarantine_and_unlink_spares_new_data ... ok
+test purge_sweep::tests::w5_i01_failed_copy_check_unlinks_nothing ... ok
+test purge_sweep::tests::windows_owner_classification ... ok
+test run_cmd::tests::the_argument_bound_counts_every_byte_and_terminator ... ok
+test run_cmd::tests::the_argument_bound_refuses_one_byte_over ... ok
+test run_cmd::tests::the_slot_check_reads_the_bind_outcome_and_claims_nothing ... ok
+test run_m05::tests::a_trust_decision_is_shown_decided_and_the_same_request_reissued ... ok
+test run_m05::tests::mixed_mechanisms_are_requested_group_by_group_under_one_work_id ... ok
+test service_cmd::tests::autostart_enable_is_previewed_attended_and_applied_only_after_a_typed_yes ... ok
+test setup_cmd::tests::a_recorded_plan_other_than_the_one_shown_is_refused ... ok
+test setup_cmd::tests::a_repair_is_complete_only_when_doctor_reports_none_left ... ok
+test setup_cmd::tests::a_replayed_request_id_after_the_plan_changed_says_why ... ok
+test setup_cmd::tests::a_rollback_prompt_shows_heimdalls_own_files_as_removals ... ok
+test setup_cmd::tests::apply_previews_attends_shows_restore_and_decides_only_on_yes ... ok
+test setup_cmd::tests::apply_sends_nothing_more_unless_confirmed ... ok
+test setup_cmd::tests::keep_needs_a_typed_yes_and_sends_nothing_without_one ... ok
+test setup_cmd::tests::non_interactive_apply_never_attends_or_prompts ... ok
+test setup_cmd::tests::personal_default_offer_is_never_made_unattended_or_twice ... ok
+test setup_cmd::tests::personal_default_offer_shows_the_disclosure_and_creates_only_on_yes ... ok
+test activate_cmd::tests::the_warm_up_sends_only_request_identities_and_ends_by_the_deadline ... ok
+test setup_cmd::tests::personal_default_offer_without_a_recorded_scope_approves_nothing ... ok
+test setup_cmd::tests::repair_arguments_parse_or_are_usage_errors ... ok
+test setup_cmd::tests::setup_in_progress_names_both_repair_commands ... ok
+test purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original ... ok
+test setup_cmd::tests::u9_command_lines_parse ... ok
+test testcfg::tests::a_build_without_the_configuration_refuses_a_request_for_it ... ok
+test testcfg::tests::clock_offset_is_fixed_or_read_from_its_file_at_every_use ... ok
+test testcfg::tests::detection_covers_the_m03_variables_and_all_env_keeps_its_m01_m02_set ... ok
+test testcfg::tests::detection_sees_every_variable_and_nothing_else ... ok
+test testcfg::tests::launch_hooks_parse_and_need_absolute_paths ... ok
+test testcfg::tests::m03_values_are_parsed_and_validated ... ok
+test testcfg::tests::product_file_selector_parses_and_is_checked_against_the_home ... ok
+test testcfg::tests::purge_trusted_top_is_refused_in_a_release_build ... ok
+test testcfg::tests::the_m03_refusal_covers_every_m03_variable ... ok
+test tui::data::tests::a_held_setup_operation_is_recognized_by_its_reason ... ok
+test tui::data::tests::catalog_listings_parse_tolerantly ... ok
+test tui::data::tests::clean_removes_escapes_and_controls_and_flattens_lines ... ok
+test tui::keys::tests::a_lone_escape_waits_for_the_timeout_and_split_sequences_join ... ok
+test tui::keys::tests::printable_control_and_navigation_keys_decode ... ok
+test tui::keys::tests::unknown_or_hostile_sequences_never_become_text ... ok
+test tui::m03::tests::every_enrollment_state_has_a_text_marker ... ok
+test tui::m03::tests::listings_parse_tolerantly ... ok
+test tui::m05::tests::a_create_shows_its_recorded_scope_or_offers_no_approval ... ok
+test tui::m05::tests::a_targeted_widening_lists_its_policies ... ok
+test tui::m05::tests::an_unserved_runtime_reads_as_unavailable ... ok
+test tui::m05::tests::decisions_read_back_from_their_wire_forms ... ok
+test tui::m05::tests::each_stop_action_is_the_cli_request ... ok
+test tui::m05::tests::quoted_label_is_inert ... ok
+test tui::m05::tests::the_menu_confirms_before_it_sends ... ok
+test tui::model::tests::a_decision_the_runtime_just_issued_opens_once_listed ... ok
+test tui::model::tests::config_commands_authorization_requires_typed_yes ... ok
+test tui::model::tests::connect_refuses_an_alias_the_catalog_does_not_list ... ok
+test tui::model::tests::decision_modal_requires_typed_yes_default_no ... ok
+test tui::model::tests::health_is_ready_working_or_needs_attention ... ok
+test tui::model::tests::held_repair_submits_only_after_plan_and_typed_yes ... ok
+test tui::model::tests::held_setup_operation_is_needs_attention_with_its_two_repairs ... ok
+test tui::model::tests::keyboard_only_navigation_reaches_every_m02_action ... ok
+test tui::model::tests::reading_scrolls_without_skipping_and_remembers_the_end_per_content ... ok
+test tui::model::tests::search_is_immediate_and_produces_no_effect ... ok
+test tui::tests::connect_takes_only_an_alias ... ok
+test tui::tests::probe_isolation_names_only_scratch_files ... ok
+test tui::tests::the_test_hooks_are_parsed_in_debug_and_refused_in_release ... ok
+test tui::view::tests::a_decision_diff_with_a_suffix_beyond_the_cell_width_is_readable_in_full ... ok
+test tui::view::tests::a_removed_file_of_heimdalls_own_is_a_summary_line_under_before ... ok
+test testcfg::enabled::tests::a_test_runtime_never_wires_the_accounts_ssh_configuration ... ok
+test tui::view::tests::a_rollback_decision_shows_the_summary_lines_in_full ... ok
+test tui::view::tests::ages_read_naturally ... ok
+test tui::view::tests::a_terminal_too_small_to_show_the_content_confirms_nothing ... ok
+test tui::view::tests::decision_modal_renders_the_prompt_default_no ... ok
+test tui::view::tests::authorization_shows_the_sentence_and_the_list ... ok
+test tui::view::tests::hostile_strings_never_reach_a_cell_as_controls ... ok
+test setup_cmd::tests::personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit ... ok
+test tui::view::tests::decision_modal_shows_restore_column ... ok
+test tui::view::tests::m03::m03_decisions_render_the_recorded_request_readably ... ok
+test tui::view::tests::m03::m03_enrollment_detail_shows_reason_next_step_and_late_write ... ok
+test tui::view::tests::m03::m03_search_and_refresh_never_reach_the_issuer ... ok
+test tui::view::tests::m03::lock_disclosure_once ... ok
+test tui::view::tests::m03::m03_time_chore_is_first_with_its_command ... ok
+test tui::view::tests::m03::m03_time_chore_offline_from_the_store_reader ... ok
+test issuer_cmd::tests::test_store_items_are_deleted_by_exact_locator_in_debug_builds ... ok
+test tui::view::tests::m03::projection_pending_warning_and_setup_apply_hint ... ok
+test tui::view::tests::m03::m03_testbackend_snapshots_at_40x12_and_120x40 ... ok
+test tui::view::tests::m03::tui_shows_slot_free_with_command ... ok
+test tui::view::tests::m03::managed_readiness_detail_exact_deadline_strings ... ok
+test tui::view::tests::m05::delta_review_shows_only_added_authority ... ok
+test tui::view::tests::m05::first_trust_detail_lists_scope_environments_and_limits ... ok
+test tui::view::tests::m05::stop_menu_distinguishes_four_actions ... ok
+test tui::view::tests::m05::project_label_rendered_as_quoted_data ... ok
+test tui::view::tests::probe_results_label_the_inventory_as_found_before_the_run ... ok
+test tui::view::tests::m05::workspace_status_and_policy_history_render ... ok
+test tui::view::tests::the_end_stays_shown_for_the_same_content_and_not_for_changed_content ... ok
+test tui::view::tests::no_color_carries_no_color_and_every_state_has_a_text_marker ... ok
+test tui::view::tests::the_refusal_is_visible_in_the_modal ... ok
+test tui::view::tests::wrapping_breaks_at_spaces_and_paths_and_marks_continuations ... ok
+test tui::view::tests::testbackend_snapshots_at_40x12_and_120x40 ... ok
+test tui::view::tests::wrapping_keeps_every_character_within_the_width ... ok
+test tui::worker::tests::a_static_pass_that_cannot_run_needs_attention ... ok
+test tui::worker::tests::refreshes_and_operation_reads_coalesce_in_order ... ok
+test uninstall_cmd::tests::a_bundle_is_fresh_only_with_fresh_content_and_a_recorded_digest ... ok
+test uninstall_cmd::tests::a_bundle_lists_outstanding_foreign_removals_and_late_writes ... ok
+test uninstall_cmd::tests::a_plain_uninstall_with_live_enrollments_needs_a_typed_yes ... ok
+test uninstall_cmd::tests::an_empty_record_is_not_installed ... ok
+test tui::view::tests::yes_is_refused_until_the_end_has_been_shown ... ok
+test uninstall_cmd::tests::decision_kinds_are_classified_for_the_snapshot ... ok
+test tui::view::tests::the_last_entry_of_a_15_construct_inventory_is_reachable_by_keyboard ... ok
+test uninstall_cmd::tests::counts_are_read_from_the_store_without_writing ... ok
+test uninstall_cmd::tests::f2_shm_without_wal_reads_by_copy ... ok
+test tui::view::tests::m03::cli_decided_kinds_never_offer_approve_and_show_their_command ... ok
+test uninstall_cmd::tests::final_read_wal_swapped_during_open_keeps_committed_record ... ok
+test uninstall_cmd::tests::final_read_refuses_a_planted_wal ... ok
+test uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database ... ok
+test uninstall_cmd::tests::final_review_failed_retry_retains_pending_display_record ... ok
+test uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit ... ok
+test uninstall_cmd::tests::final_review_partial_report_states_only_what_is_on_disk ... ok
+test uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database ... ok
+test uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers ... ok
+test uninstall_cmd::tests::final_review_recovery_copy_holds_every_record_by_itself ... ok
+test uninstall_cmd::tests::meta_keys_are_classified_for_the_snapshot ... ok
+test uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal ... ok
+test uninstall_cmd::tests::operation_kinds_are_classified_for_the_snapshot ... ok
+test uninstall_cmd::tests::final_review_restore_does_not_attach_old_wal_to_new_owner_database ... ok
+test uninstall_cmd::tests::plain_uninstall_fence_compares_bounded_obligations ... ok
+test uninstall_cmd::tests::final_review_validating_read_writes_no_family_file ... ok
+test uninstall_cmd::tests::plain_uninstall_passes_the_fence_across_retry_rounds ... ok
+test uninstall_cmd::tests::purge_is_confirmed_only_by_a_typed_yes ... ok
+test uninstall_cmd::tests::purge_without_a_terminal_or_with_non_interactive_is_refused_unread_and_unasked ... ok
+test uninstall_cmd::tests::quarantine_listing_removes_empty_dirs_and_lists_kept_entries ... ok
+test uninstall_cmd::tests::purge_fence_refuses_retry_rounds_exactly ... ok
+test uninstall_cmd::tests::r13_review_checkpoint_probe_never_replays_unvalidated_journal ... ok
+test uninstall_cmd::tests::r13_review_restore_race_preserves_replacement_record ... ok
+test uninstall_cmd::tests::recheck3_purge_does_not_follow_nested_links ... ok
+test uninstall_cmd::tests::recheck2_purge_refuses_new_ca_from_replacement_that_already_stopped ... ok
+test uninstall_cmd::tests::plain_uninstall_refuses_a_changed_remote_obligation ... ok
+test uninstall_cmd::tests::recheck3_purge_never_follows_runtime_root_replacement ... ok
+test uninstall_cmd::tests::recheck3_purge_removes_cleanup_mux_path ... ok
+test uninstall_cmd::tests::recheck4_transient_state_swap_must_keep_unconfirmed_recovery ... ok
+test uninstall_cmd::tests::recheck3_retry_allowance_rejects_new_remote_obligation ... ok
+test uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete ... ok
+test uninstall_cmd::tests::resources_are_absent_only_when_desired_and_observed_absent ... ok
+test uninstall_cmd::tests::refused_purge_keeps_the_original_until_uninstall_confirms ... ok
+test uninstall_cmd::tests::store_item_lines_name_the_item_and_the_fate ... ok
+test uninstall_cmd::tests::the_purge_prompt_lists_the_database_counts_backups_and_kept_copies ... ok
+test uninstall_cmd::tests::uninstall_lists_and_confirms_pending_remote_revocations ... ok
+test uninstall_cmd::tests::retry_allowance_admits_no_recreated_record_and_nothing_on_failure ... ok
+test uninstall_cmd::tests::recheck_purge_must_exclude_writer_after_final_read ... ok
+test uninstall_cmd::tests::uninstall_purge_admits_exactly_its_own_retry ... ok
+test uninstall_cmd::tests::uninstall_purge_admits_only_its_own_retirement ... ok
+test uninstall_cmd::tests::uninstall_purge_excludes_runtime_start_while_locked ... ok
+test uninstall_cmd::tests::uninstall_purge_never_follows_state_root_replacement ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_linked_managed_dir ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_replaced_common_parent ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_shared_runtime_root ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_a_swapped_owner_only_state ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_abandoned_foreign_system_form_removal ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_changed_issuing_set ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_foreign_change_after_declined_retire ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_journal_change_on_unchanged_state ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_new_final_enrollment ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_remote_revocation_added_in_window ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_replaced_store_locator ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_pending_registration_locator ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_unconfirmed_stop ... ok
+test uninstall_cmd::tests::uninstall_purge_removes_every_cleanup_intent_path ... ok
+test uninstall_cmd::tests::uninstall_report_names_the_swept_roots ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_withdrawn_late_write ... ok
+test uninstall_cmd::tests::uninstall_revalidates_under_the_fence ... ok
+test uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database ... ok
+test uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit ... ok
+test uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database ... ok
+test uninstall_cmd::tests::uninstall_purge_refuses_replacement_runtime ... ok
+test uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database ... ok
+test wsl_cmd::tests::internal_wsl_helper_refuses_a_terminal_and_a_foreign_host ... ok
+test wsl_cmd::tests::uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one ... ok
+test uninstall_cmd::tests::w5_j01_copy_overwritten_after_check_keeps_originals ... ok
+test uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals ... ok
+test uninstall_cmd::tests::recovery_snapshot_classifies_every_table ... ok
+
+successes:
+
+---- cli::tests::run_and_connect_parse_and_refuse_before_the_runtime stdout ----
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--meta-file already exists; it is created new","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--meta-file already exists; it is created new","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"--meta-fd must be an open, writable pipe, socket or regular file above 2","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"LAUNCH_FAILED","data":{"error":{"code":"LAUNCH_FAILED","effect_status":"none","message":"program not found","next":{"action":"fix_request"},"reason":"not_found","retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+heimdall: request ID req-a2a4c59a85975e18e9db99157eef53e3
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid work ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the destination must be an alias (no leading '-', no spaces)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- cli::tests::w0_m02_commands_answer_not_available_and_never_contact_the_runtime stdout ----
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"unknown conflict","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the destination must be an alias (no leading '-', no spaces)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+heimdall: request ID req-a05d499fad361a93b6852aef1a61ff1f
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid work ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"unknown probe level","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"the TUI has no machine output; use the commands with --json","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"a managed destination needs --account","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid identity ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"a pair is DEST:ACCOUNT","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- enroll_cmd::tests::typed_yes_timeout_sends_nothing_and_exits_3 stdout ----
+the enrollment
+Owner decision dec_00112233445566778899aabbccddeeff
+  kind: enroll_account
+  expires: 2026-11-03T00:15:00Z
+  recorded request (exactly what approve applies to):
+    {
+      "plan_digest": "abababababababababababababababababababababababababababababababab"
+    }
+Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.
+Approve exactly this request?
+Type 'yes' to confirm [y/N]: 
+
+---- m03_cmd::tests::m03_lines_answer_without_touching_the_home stdout ----
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid CA fingerprint (expected SHA256:<43 base64 characters>)","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"INTERACTION_REQUIRED","data":{"error":{"code":"INTERACTION_REQUIRED","effect_status":"none","message":"the issuer ceremonies need the owner at a terminal (not --non-interactive)","next":{"action":"interact"},"retryable":false}},"warnings":[],"next":{"action":"interact"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid CA fingerprint","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"cannot use the recovery bundle f: NotFound","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid operation ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid operation ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid enrollment ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid profile","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid policy","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid policy","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"connection-policy needs --existing or --multiplexing","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid policy","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+{"schema_version":"1","state":"failed","code":"SERVICE_UNAVAILABLE","data":{"error":{"code":"SERVICE_UNAVAILABLE","effect_status":"none","message":"no runtime is running; read-only commands do not start one (effectful commands start it on demand)","next":{"action":"retry_after"},"resource":{"kind":"endpoint"},"retryable":true}},"warnings":[],"next":{"action":"retry_after"}}
+{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","message":"invalid connection ID","next":{"action":"fix_request"},"retryable":false}},"warnings":[],"next":{"action":"fix_request"}}
+
+---- portable_cmd::tests::the_import_previews_then_asks_then_applies stdout ----
+Import plan (a dry run: nothing has been written):
+  would add: 1, unchanged: 1, conflicts (never applied): 1, need a local key: 1
+  destination lab1: add
+  destination lab2: conflict (alias_collision)
+  identity SHA256:BBBB: needs_local
+Host-key fingerprints the exporting installation knew (for your comparison only; an import never trusts a host key):
+  lab1: SHA256:AAAA
+Re-establish locally (an import never carries these):
+  - standing policies and project trust
+
+
+---- prompt::tests::no_answer_in_time_is_timed_out stdout ----
+tType 'yes' to confirm [y/N]: 
+tType 'yes' to confirm [y/N]: 
+---- purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original stdout ----
+
+thread 'purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original' (3352601) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::view::tests::wrapping_keeps_every_character_within_the_width stdout ----
+proptest: Failed to find absolute path of source file '"crates/heimdall/src/tui/view.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database' (3352718) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving delete-copy
+
+---- uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit' (3352719) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+
+---- uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database' (3352717) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving copy-written
+
+thread 'uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database' (3352717) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers stdout ----
+
+thread 'uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers' (3352720) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving copy-written
+
+---- uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal stdout ----
+deletion offered: the macos_login_keychain item L1 of CA SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; every enrollment under it is final, so the retirement steps delete it (run to `retired`, after a typed yes): uninstall runs them before the runtime stops, or run `heimdall issuer retire SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`; then destroy the offline backup made 2026-11-01T00:00:00Z yourself.
+
+---- uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete stdout ----
+
+thread 'uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete' (3352726) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+
+thread 'uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete' (3352726) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-shm
+
+thread 'uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete' (3352726) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db
+
+---- uninstall_cmd::tests::uninstall_purge_refuses_foreign_change_after_declined_retire stdout ----
+deletion offered: the linux_secret_service item item-1 of CA SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; every enrollment under it is final, so the retirement steps delete it (run to `retired`, after a typed yes): uninstall runs them before the runtime stops, or run `heimdall issuer retire SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`; then destroy the offline backup made 2026-11-01T00:00:00Z yourself.
+
+---- uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database' (3352785) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit' (3352787) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database' (3352788) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database stdout ----
+
+thread 'uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database' (3352789) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving restore
+
+---- uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals stdout ----
+
+thread 'uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals' (3352791) panicked at crates/heimdall/src/purge_sweep.rs:3618:13:
+simulated crash before moving state.db-wal
+
+
+successes:
+    activate_cmd::tests::status_lines_never_ask
+    activate_cmd::tests::the_hook_never_attends_or_decides_whatever_the_answer
+    activate_cmd::tests::the_hook_reenters_after_expiry_never_after_a_stop_and_splits_groups
+    activate_cmd::tests::the_scripts_never_evaluate_what_they_read
+    activate_cmd::tests::the_warm_up_sends_only_request_identities_and_ends_by_the_deadline
+    catalog_cmd::tests::from_agent_fingerprint_chooses_one_listed_identity
+    cli::tests::bare_heimdall_is_the_tui_only_on_a_terminal_without_json
+    cli::tests::command_tree_is_consistent
+    cli::tests::interactive_ensure_attends_before_the_request_and_decides_only_on_yes
+    cli::tests::interactive_ensure_sends_nothing_more_unless_confirmed
+    cli::tests::interactive_needs_a_terminal_and_no_opt_out
+    cli::tests::json_is_requested_anywhere_before_the_argv_terminator
+    cli::tests::m02_argument_trees_refuse_malformed_lines
+    cli::tests::m03_policy_actions_attend_only_when_widening
+    cli::tests::non_interactive_or_non_tty_never_attends_or_prompts
+    cli::tests::not_confirmed_is_interaction_required_with_the_decision_ref
+    cli::tests::owner_present_policy_and_decision_flows_attend_first
+    cli::tests::pending_decision_needs_an_interaction_code_and_a_reference
+    cli::tests::require_unattended_is_carried_into_the_request_never_dropped
+    cli::tests::run_and_connect_parse_and_refuse_before_the_runtime
+    cli::tests::usage_messages_never_echo_the_offending_token
+    cli::tests::w0_m02_commands_answer_not_available_and_never_contact_the_runtime
+    connect_cmd::tests::a_listed_destination_names_its_definition_and_anything_else_reads_managed
+    connect_cmd::tests::binding_files_follow_the_binding_endpoint_or_refuse
+    connect_cmd::tests::connect_managed_pair_covering_profile_is_the_one_listed_or_refused
+    connect_cmd::tests::managed_connect_refuses_without_a_live_binding_endpoint
+    connect_cmd::tests::only_an_applied_managed_preference_takes_the_managed_flow
+    connect_cmd::tests::the_alias_identity_follows_the_definition
+    connections_cmd::tests::close_exit_follows_the_envelope_code
+    container_cmd::tests::mount_args_print_the_read_only_bind_and_the_uid_notes
+    delegate_cmd::tests::scope_pair_needs_destination_and_account
+    delegate_cmd::tests::worker_environment_loses_every_locator_and_a_foreign_agent
+    dev_home_guard::tests::decision_table
+    dev_home_guard::tests::environment_rules
+    dev_home_guard::tests::the_message_names_the_home_variable_and_the_escape
+    doctor_cmd::tests::an_unreadable_tree_shows_no_prompt
+    doctor_cmd::tests::authorization_text_lists_found_commands_or_says_none_found_now
+    doctor_cmd::tests::chores_are_added_to_status_only_when_pending
+    doctor_cmd::tests::client_trace_finding_names_an_unrecorded_family_and_version
+    doctor_cmd::tests::interactive_authorization_needs_a_typed_yes
+    doctor_cmd::tests::issuer_store_finding_only_for_the_access_denial
+    doctor_cmd::tests::non_interactive_flag_is_the_authorization_and_a_bare_pipe_is_refused
+    doctor_cmd::tests::q02_nothing_runnable_then_an_alias_appears_runs_nothing
+    doctor_cmd::tests::q02_unreadable_then_readable_tree_runs_no_evaluation
+    doctor_cmd::tests::time_confirmation_is_pending_exactly_when_the_gate_lacks_a_reference
+    enroll_cmd::drive::tests::agent_held_needs_a_concrete_agent_and_identities_only
+    enroll_cmd::drive::tests::the_handoff_notice_names_the_auth_fallback_residual
+    enroll_cmd::drive::tests::the_uncertain_message_is_exact
+    enroll_cmd::render::tests::ca_key_is_cut_as_the_runtime_cuts_it
+    enroll_cmd::render::tests::held_next_names_the_commands_per_reason
+    enroll_cmd::render::tests::held_of_prefers_the_runtimes_hold
+    enroll_cmd::render::tests::only_removed_is_removed
+    enroll_cmd::render::tests::preview_disclosures_are_the_shared_texts
+    enroll_cmd::tests::a_redacted_bundle_is_refused_bundle_redacted
+    enroll_cmd::tests::enrollment_approval_refused_without_the_runtimes_lock_text
+    enroll_cmd::tests::generic_decision_completion_shows_disclosures_and_needs_the_lock_text
+    enroll_cmd::tests::lock_disclosure_text_reads_the_runtimes_capabilities
+    enroll_cmd::tests::the_switches_fail_closed
+    enroll_cmd::tests::typed_yes_timeout_sends_nothing_and_exits_3
+    input_file::tests::only_a_regular_file_opens_and_nothing_waits
+    issuer_cmd::tests::displaced_items_are_those_of_the_ca_with_a_locator
+    issuer_cmd::tests::test_store_items_are_deleted_by_exact_locator_in_debug_builds
+    launch_flow::tests::a_binding_that_is_no_longer_active_is_refused_as_binding_released
+    launch_flow::tests::a_path_outside_the_home_is_shown_as_written_not_canonicalized
+    launch_flow::tests::refusal_entries_show_a_home_behind_a_symlink_as_tilde
+    launch_flow::tests::the_fallback_refusal_fills_error_entries
+    launch_flow::tests::the_fresh_selection_evaluates_every_invocation_profile
+    m03_cmd::tests::internal_is_hidden_and_the_rest_are_listed
+    m03_cmd::tests::internal_issuer_refuses_tty_stdin
+    m03_cmd::tests::m03_internal_issuer_envelopes_carry_no_wave_0_text
+    m03_cmd::tests::m03_lines_answer_without_touching_the_home
+    m03_cmd::tests::the_m03_command_tree_matches_the_plan_table
+    m03_cmd::wave5_tests::connection_policy_needs_a_flag
+    m03_cmd::wave5_tests::destination_prefer_renders_the_answer
+    m03_cmd::wave5_tests::destination_prefer_resolves_the_managed_pair
+    m03_cmd::wave5_tests::m03_policy_actions_classify_as_widening_or_narrowing
+    m03_cmd::wave5_tests::m03_reasons_exit_codes_follow_adr_0006_table
+    m03_cmd::wave5_tests::strict_connection_narrows_existing_only
+    m05_cmd::tests::a_create_review_shows_the_recorded_scope_or_refuses
+    m05_cmd::tests::a_targeted_result_renders_each_policy
+    m05_cmd::tests::recorded_previews_show_the_scope_and_quote_the_label
+    m05_cmd::tests::workspace_paths_render_as_quoted_data
+    output::tests::a_data_field_is_one_inert_quoted_token
+    output::tests::a_plan_shows_a_removed_file_of_heimdalls_own_as_a_removal
+    output::tests::a_policy_result_shows_the_lock_behaviour_when_it_carries_one
+    output::tests::a_wait_reports_the_awaited_operation
+    output::tests::accepted_without_async_is_not_success
+    output::tests::access_ensure_strict_reports_strict_disconnect
+    output::tests::destination_list_renders_the_runtimes_items_shape
+    output::tests::destination_listing_shows_the_runtimes_connection_policy_wording
+    output::tests::every_known_code_maps_to_its_table_exit_class
+    output::tests::human_json_is_inert_and_denotes_the_same_value
+    output::tests::revoke_output_lists_owned_connections_and_ordinary_note
+    output::tests::sanitizer_drops_escapes
+    output::tests::unknown_code_is_never_success_and_exits_one
+    portable_cmd::tests::the_import_previews_then_asks_then_applies
+    prompt::tests::no_answer_in_time_is_timed_out
+    prompt::tests::only_y_or_yes_confirms_and_the_default_is_no
+    purge_sweep::tests::a_group_writable_refusal_names_the_fix
+    purge_sweep::tests::a_linked_ancestor_refuses_the_anchoring
+    purge_sweep::tests::a_planted_journal_refuses_with_every_byte_unchanged
+    purge_sweep::tests::an_entry_placed_inside_a_quarantined_directory_is_deleted
+    purge_sweep::tests::delete_refuses_without_a_recovery_copy
+    purge_sweep::tests::final_review_companion_failure_preserves_database
+    purge_sweep::tests::final_review_quarantine_dir_removal_failure_reports_what_is_on_disk
+    purge_sweep::tests::no_purge_created_file_is_restored_or_listed_as_renamed_back
+    purge_sweep::tests::partial_delete_renames_the_database_back
+    purge_sweep::tests::purge_trusted_top_conditions
+    purge_sweep::tests::quarantine_failed_restore_is_left_and_reported
+    purge_sweep::tests::quarantine_refuses_a_decoy_database_before_its_read
+    purge_sweep::tests::quarantine_refuses_a_leaf_replaced_before_it
+    purge_sweep::tests::recheck4_default_unix_home_with_private_group_must_pass
+    purge_sweep::tests::recheck4_leaf_replacement_must_keep_unconfirmed_owner_data
+    purge_sweep::tests::restore_never_replaces_an_entry_at_the_original_name
+    purge_sweep::tests::secure_path_accepts_the_linux_default_layouts
+    purge_sweep::tests::secure_path_accepts_the_macos_default_layouts
+    purge_sweep::tests::secure_path_accepts_the_windows_default_layout
+    purge_sweep::tests::secure_path_on_synthetic_trees
+    purge_sweep::tests::secure_path_refuses_unsafe_ancestors_and_roots
+    purge_sweep::tests::shared_group_home_still_refuses
+    purge_sweep::tests::swap_between_quarantine_and_unlink_spares_new_data
+    purge_sweep::tests::the_windows_residual_is_listed
+    purge_sweep::tests::uninstall_purge_link_between_passes_deletes_nothing
+    purge_sweep::tests::user_private_group_lookup_runs
+    purge_sweep::tests::w5_i01_failed_copy_check_unlinks_nothing
+    purge_sweep::tests::w5_j01_restored_copy_failing_verification_keeps_every_original
+    purge_sweep::tests::windows_owner_classification
+    run_cmd::tests::the_argument_bound_counts_every_byte_and_terminator
+    run_cmd::tests::the_argument_bound_refuses_one_byte_over
+    run_cmd::tests::the_slot_check_reads_the_bind_outcome_and_claims_nothing
+    run_m05::tests::a_trust_decision_is_shown_decided_and_the_same_request_reissued
+    run_m05::tests::mixed_mechanisms_are_requested_group_by_group_under_one_work_id
+    service_cmd::tests::autostart_enable_is_previewed_attended_and_applied_only_after_a_typed_yes
+    setup_cmd::tests::a_recorded_plan_other_than_the_one_shown_is_refused
+    setup_cmd::tests::a_repair_is_complete_only_when_doctor_reports_none_left
+    setup_cmd::tests::a_replayed_request_id_after_the_plan_changed_says_why
+    setup_cmd::tests::a_rollback_prompt_shows_heimdalls_own_files_as_removals
+    setup_cmd::tests::apply_previews_attends_shows_restore_and_decides_only_on_yes
+    setup_cmd::tests::apply_sends_nothing_more_unless_confirmed
+    setup_cmd::tests::keep_needs_a_typed_yes_and_sends_nothing_without_one
+    setup_cmd::tests::non_interactive_apply_never_attends_or_prompts
+    setup_cmd::tests::personal_default_offer_is_never_made_unattended_or_twice
+    setup_cmd::tests::personal_default_offer_shows_the_disclosure_and_creates_only_on_yes
+    setup_cmd::tests::personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit
+    setup_cmd::tests::personal_default_offer_without_a_recorded_scope_approves_nothing
+    setup_cmd::tests::repair_arguments_parse_or_are_usage_errors
+    setup_cmd::tests::setup_in_progress_names_both_repair_commands
+    setup_cmd::tests::u9_command_lines_parse
+    testcfg::enabled::tests::a_test_runtime_never_wires_the_accounts_ssh_configuration
+    testcfg::tests::a_build_without_the_configuration_refuses_a_request_for_it
+    testcfg::tests::clock_offset_is_fixed_or_read_from_its_file_at_every_use
+    testcfg::tests::detection_covers_the_m03_variables_and_all_env_keeps_its_m01_m02_set
+    testcfg::tests::detection_sees_every_variable_and_nothing_else
+    testcfg::tests::launch_hooks_parse_and_need_absolute_paths
+    testcfg::tests::m03_values_are_parsed_and_validated
+    testcfg::tests::product_file_selector_parses_and_is_checked_against_the_home
+    testcfg::tests::purge_trusted_top_is_refused_in_a_release_build
+    testcfg::tests::the_m03_refusal_covers_every_m03_variable
+    tui::data::tests::a_held_setup_operation_is_recognized_by_its_reason
+    tui::data::tests::catalog_listings_parse_tolerantly
+    tui::data::tests::clean_removes_escapes_and_controls_and_flattens_lines
+    tui::keys::tests::a_lone_escape_waits_for_the_timeout_and_split_sequences_join
+    tui::keys::tests::printable_control_and_navigation_keys_decode
+    tui::keys::tests::unknown_or_hostile_sequences_never_become_text
+    tui::m03::tests::every_enrollment_state_has_a_text_marker
+    tui::m03::tests::listings_parse_tolerantly
+    tui::m05::tests::a_create_shows_its_recorded_scope_or_offers_no_approval
+    tui::m05::tests::a_targeted_widening_lists_its_policies
+    tui::m05::tests::an_unserved_runtime_reads_as_unavailable
+    tui::m05::tests::decisions_read_back_from_their_wire_forms
+    tui::m05::tests::each_stop_action_is_the_cli_request
+    tui::m05::tests::quoted_label_is_inert
+    tui::m05::tests::the_menu_confirms_before_it_sends
+    tui::model::tests::a_decision_the_runtime_just_issued_opens_once_listed
+    tui::model::tests::config_commands_authorization_requires_typed_yes
+    tui::model::tests::connect_refuses_an_alias_the_catalog_does_not_list
+    tui::model::tests::decision_modal_requires_typed_yes_default_no
+    tui::model::tests::health_is_ready_working_or_needs_attention
+    tui::model::tests::held_repair_submits_only_after_plan_and_typed_yes
+    tui::model::tests::held_setup_operation_is_needs_attention_with_its_two_repairs
+    tui::model::tests::keyboard_only_navigation_reaches_every_m02_action
+    tui::model::tests::reading_scrolls_without_skipping_and_remembers_the_end_per_content
+    tui::model::tests::search_is_immediate_and_produces_no_effect
+    tui::tests::connect_takes_only_an_alias
+    tui::tests::probe_isolation_names_only_scratch_files
+    tui::tests::the_test_hooks_are_parsed_in_debug_and_refused_in_release
+    tui::view::tests::a_decision_diff_with_a_suffix_beyond_the_cell_width_is_readable_in_full
+    tui::view::tests::a_removed_file_of_heimdalls_own_is_a_summary_line_under_before
+    tui::view::tests::a_rollback_decision_shows_the_summary_lines_in_full
+    tui::view::tests::a_terminal_too_small_to_show_the_content_confirms_nothing
+    tui::view::tests::ages_read_naturally
+    tui::view::tests::authorization_shows_the_sentence_and_the_list
+    tui::view::tests::decision_modal_renders_the_prompt_default_no
+    tui::view::tests::decision_modal_shows_restore_column
+    tui::view::tests::hostile_strings_never_reach_a_cell_as_controls
+    tui::view::tests::m03::cli_decided_kinds_never_offer_approve_and_show_their_command
+    tui::view::tests::m03::lock_disclosure_once
+    tui::view::tests::m03::m03_decisions_render_the_recorded_request_readably
+    tui::view::tests::m03::m03_enrollment_detail_shows_reason_next_step_and_late_write
+    tui::view::tests::m03::m03_search_and_refresh_never_reach_the_issuer
+    tui::view::tests::m03::m03_testbackend_snapshots_at_40x12_and_120x40
+    tui::view::tests::m03::m03_time_chore_is_first_with_its_command
+    tui::view::tests::m03::m03_time_chore_offline_from_the_store_reader
+    tui::view::tests::m03::managed_readiness_detail_exact_deadline_strings
+    tui::view::tests::m03::projection_pending_warning_and_setup_apply_hint
+    tui::view::tests::m03::tui_shows_slot_free_with_command
+    tui::view::tests::m05::delta_review_shows_only_added_authority
+    tui::view::tests::m05::first_trust_detail_lists_scope_environments_and_limits
+    tui::view::tests::m05::project_label_rendered_as_quoted_data
+    tui::view::tests::m05::stop_menu_distinguishes_four_actions
+    tui::view::tests::m05::workspace_status_and_policy_history_render
+    tui::view::tests::no_color_carries_no_color_and_every_state_has_a_text_marker
+    tui::view::tests::probe_results_label_the_inventory_as_found_before_the_run
+    tui::view::tests::testbackend_snapshots_at_40x12_and_120x40
+    tui::view::tests::the_end_stays_shown_for_the_same_content_and_not_for_changed_content
+    tui::view::tests::the_last_entry_of_a_15_construct_inventory_is_reachable_by_keyboard
+    tui::view::tests::the_refusal_is_visible_in_the_modal
+    tui::view::tests::wrapping_breaks_at_spaces_and_paths_and_marks_continuations
+    tui::view::tests::wrapping_keeps_every_character_within_the_width
+    tui::view::tests::yes_is_refused_until_the_end_has_been_shown
+    tui::worker::tests::a_static_pass_that_cannot_run_needs_attention
+    tui::worker::tests::refreshes_and_operation_reads_coalesce_in_order
+    uninstall_cmd::tests::a_bundle_is_fresh_only_with_fresh_content_and_a_recorded_digest
+    uninstall_cmd::tests::a_bundle_lists_outstanding_foreign_removals_and_late_writes
+    uninstall_cmd::tests::a_plain_uninstall_with_live_enrollments_needs_a_typed_yes
+    uninstall_cmd::tests::an_empty_record_is_not_installed
+    uninstall_cmd::tests::counts_are_read_from_the_store_without_writing
+    uninstall_cmd::tests::decision_kinds_are_classified_for_the_snapshot
+    uninstall_cmd::tests::f2_shm_without_wal_reads_by_copy
+    uninstall_cmd::tests::final_read_refuses_a_planted_wal
+    uninstall_cmd::tests::final_read_wal_swapped_during_open_keeps_committed_record
+    uninstall_cmd::tests::final_review_crash_at_each_copy_step_keeps_a_complete_database
+    uninstall_cmd::tests::final_review_crash_before_the_copy_is_deleted_keeps_a_complete_database
+    uninstall_cmd::tests::final_review_crash_between_database_and_wal_moves_keeps_every_commit
+    uninstall_cmd::tests::final_review_crash_while_vacuum_writes_recovers
+    uninstall_cmd::tests::final_review_failed_retry_retains_pending_display_record
+    uninstall_cmd::tests::final_review_original_unlink_failure_or_crash_recovers_complete
+    uninstall_cmd::tests::final_review_partial_report_states_only_what_is_on_disk
+    uninstall_cmd::tests::final_review_recovery_copy_holds_every_record_by_itself
+    uninstall_cmd::tests::final_review_restore_does_not_attach_old_wal_to_new_owner_database
+    uninstall_cmd::tests::final_review_validating_read_writes_no_family_file
+    uninstall_cmd::tests::meta_keys_are_classified_for_the_snapshot
+    uninstall_cmd::tests::offered_store_items_are_retired_inline_only_on_a_terminal
+    uninstall_cmd::tests::operation_kinds_are_classified_for_the_snapshot
+    uninstall_cmd::tests::plain_uninstall_fence_compares_bounded_obligations
+    uninstall_cmd::tests::plain_uninstall_passes_the_fence_across_retry_rounds
+    uninstall_cmd::tests::plain_uninstall_refuses_a_changed_remote_obligation
+    uninstall_cmd::tests::purge_fence_refuses_retry_rounds_exactly
+    uninstall_cmd::tests::purge_is_confirmed_only_by_a_typed_yes
+    uninstall_cmd::tests::purge_without_a_terminal_or_with_non_interactive_is_refused_unread_and_unasked
+    uninstall_cmd::tests::quarantine_listing_removes_empty_dirs_and_lists_kept_entries
+    uninstall_cmd::tests::r13_review_checkpoint_probe_never_replays_unvalidated_journal
+    uninstall_cmd::tests::r13_review_restore_race_preserves_replacement_record
+    uninstall_cmd::tests::recheck2_purge_refuses_new_ca_from_replacement_that_already_stopped
+    uninstall_cmd::tests::recheck3_purge_does_not_follow_nested_links
+    uninstall_cmd::tests::recheck3_purge_never_follows_runtime_root_replacement
+    uninstall_cmd::tests::recheck3_purge_removes_cleanup_mux_path
+    uninstall_cmd::tests::recheck3_retry_allowance_rejects_new_remote_obligation
+    uninstall_cmd::tests::recheck4_transient_state_swap_must_keep_unconfirmed_recovery
+    uninstall_cmd::tests::recheck_purge_must_exclude_writer_after_final_read
+    uninstall_cmd::tests::recovery_snapshot_classifies_every_table
+    uninstall_cmd::tests::refused_purge_keeps_the_original_until_uninstall_confirms
+    uninstall_cmd::tests::resources_are_absent_only_when_desired_and_observed_absent
+    uninstall_cmd::tests::retry_allowance_admits_no_recreated_record_and_nothing_on_failure
+    uninstall_cmd::tests::store_item_lines_name_the_item_and_the_fate
+    uninstall_cmd::tests::the_purge_prompt_lists_the_database_counts_backups_and_kept_copies
+    uninstall_cmd::tests::uninstall_lists_and_confirms_pending_remote_revocations
+    uninstall_cmd::tests::uninstall_purge_admits_exactly_its_own_retry
+    uninstall_cmd::tests::uninstall_purge_admits_only_its_own_retirement
+    uninstall_cmd::tests::uninstall_purge_excludes_runtime_start_while_locked
+    uninstall_cmd::tests::uninstall_purge_never_follows_state_root_replacement
+    uninstall_cmd::tests::uninstall_purge_refuses_a_linked_managed_dir
+    uninstall_cmd::tests::uninstall_purge_refuses_a_replaced_common_parent
+    uninstall_cmd::tests::uninstall_purge_refuses_a_shared_runtime_root
+    uninstall_cmd::tests::uninstall_purge_refuses_a_swapped_owner_only_state
+    uninstall_cmd::tests::uninstall_purge_refuses_abandoned_foreign_system_form_removal
+    uninstall_cmd::tests::uninstall_purge_refuses_changed_issuing_set
+    uninstall_cmd::tests::uninstall_purge_refuses_foreign_change_after_declined_retire
+    uninstall_cmd::tests::uninstall_purge_refuses_journal_change_on_unchanged_state
+    uninstall_cmd::tests::uninstall_purge_refuses_new_final_enrollment
+    uninstall_cmd::tests::uninstall_purge_refuses_pending_registration_locator
+    uninstall_cmd::tests::uninstall_purge_refuses_remote_revocation_added_in_window
+    uninstall_cmd::tests::uninstall_purge_refuses_replaced_store_locator
+    uninstall_cmd::tests::uninstall_purge_refuses_replacement_runtime
+    uninstall_cmd::tests::uninstall_purge_refuses_unconfirmed_stop
+    uninstall_cmd::tests::uninstall_purge_refuses_withdrawn_late_write
+    uninstall_cmd::tests::uninstall_purge_removes_every_cleanup_intent_path
+    uninstall_cmd::tests::uninstall_report_names_the_swept_roots
+    uninstall_cmd::tests::uninstall_revalidates_under_the_fence
+    uninstall_cmd::tests::w5_i01_marker_binding_mismatch_keeps_the_database
+    uninstall_cmd::tests::w5_i01_original_not_the_recorded_inode_keeps_the_unit
+    uninstall_cmd::tests::w5_i01_planted_marker_with_garbage_copy_keeps_database
+    uninstall_cmd::tests::w5_i01_planted_marker_without_copy_keeps_database
+    uninstall_cmd::tests::w5_j01_copy_overwritten_after_check_keeps_originals
+    uninstall_cmd::tests::w5_j01_recovery_copy_overwritten_after_recheck_keeps_originals
+    wsl_cmd::tests::internal_wsl_helper_refuses_a_terminal_and_a_foreign_host
+    wsl_cmd::tests::uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one
+
+test result: ok. 297 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.53s
+
+### heimdall-unit exit=0
+### heimdall_contract-unit
+
+running 45 tests
+test canonical::tests::array_order_matters ... ok
+test canonical::tests::hex_round_trip ... ok
+test canonical::tests::key_order_does_not_matter ... ok
+test canonical::tests::context_separates_hashes ... ok
+test catalog::tests::public_key_boundary_refuses_armor_and_multiline ... ok
+test code::tests::spec_codes_present ... ok
+test code::tests::outcome_unknown_is_never_retryable_or_not_applied ... ok
+test code::tests::success_codes_exit_zero_and_errors_do_not ... ok
+test catalog::tests::withdraw_reason_defaults_to_owner_and_is_always_written ... ok
+test doctor::tests::excluded_effects_are_a_set_in_wire_order ... ok
+test code::tests::unknown_codes_are_errors_with_exit_one ... ok
+test code::tests::wire_spelling_matches_serde ... ok
+test doctor::tests::finding_codes_are_unique_snake_case ... ok
+test enrollment::tests::state_wire_names_equal_as_str ... ok
+test enrollment::tests::removal_target_wire_forms ... ok
+test envelope::tests::error_entries_are_additive ... ok
+test envelope::tests::omitted_and_null_differ_for_next ... ok
+test envelope::tests::unknown_noncritical_fields_are_tolerated ... ok
+test ids::tests::prefixed_ids_round_trip ... ok
+test ids::tests::serde_rejects_invalid ... ok
+test environment::tests::distribution_guid_accepts_only_the_canonical_form ... ok
+test ids::tests::m03_ids_validate ... ok
+test ids::tests::tokens_are_bounded_and_sanitized ... ok
+test issuer::tests::issuer_request_wire_forms ... ok
+test ipc::tests::hello_round_trips ... ok
+test issuer::tests::issuer_store_item_fields_are_additive ... ok
+test issuer::tests::store_kind_has_no_test_variant ... ok
+test managed::tests::connection_policy_defaults_graceful_disabled ... ok
+test issuer::tests::bundle_foreign_removals_are_additive ... ok
+test managed::tests::destination_clock_wire_forms ... ok
+test provider::tests::credential_availability_defaults_to_unknown ... ok
+test provider::tests::probe_levels_order_weakest_first ... ok
+test provider::tests::provider_kind_wire_names ... ok
+test request::tests::shutdown_wire_form_and_predicates ... ok
+test request::tests::shutdown_examples_round_trip ... ok
+test run_record::tests::unix_is_never_launched ... ok
+test request::tests::uninstall_fence_wire_forms ... ok
+test run_record::tests::unsupported_major_is_indeterminate ... ok
+test setup::tests::plan_digest_is_strict_lowercase_hex ... ok
+test schema::tests::code_table_lists_every_code ... ok
+test setup::tests::preview_intent_defaults_and_rules ... ok
+test state::tests::outcome_unknown_is_quiescent_but_not_settled ... ok
+test trust::tests::work_context_bounds ... ok
+test request::tests::request_schema_names_shutdown ... ok
+test schema::tests::schemas_generate_and_are_unique ... ok
+
+successes:
+
+successes:
+    canonical::tests::array_order_matters
+    canonical::tests::context_separates_hashes
+    canonical::tests::hex_round_trip
+    canonical::tests::key_order_does_not_matter
+    catalog::tests::public_key_boundary_refuses_armor_and_multiline
+    catalog::tests::withdraw_reason_defaults_to_owner_and_is_always_written
+    code::tests::outcome_unknown_is_never_retryable_or_not_applied
+    code::tests::spec_codes_present
+    code::tests::success_codes_exit_zero_and_errors_do_not
+    code::tests::unknown_codes_are_errors_with_exit_one
+    code::tests::wire_spelling_matches_serde
+    doctor::tests::excluded_effects_are_a_set_in_wire_order
+    doctor::tests::finding_codes_are_unique_snake_case
+    enrollment::tests::removal_target_wire_forms
+    enrollment::tests::state_wire_names_equal_as_str
+    envelope::tests::error_entries_are_additive
+    envelope::tests::omitted_and_null_differ_for_next
+    envelope::tests::unknown_noncritical_fields_are_tolerated
+    environment::tests::distribution_guid_accepts_only_the_canonical_form
+    ids::tests::m03_ids_validate
+    ids::tests::prefixed_ids_round_trip
+    ids::tests::serde_rejects_invalid
+    ids::tests::tokens_are_bounded_and_sanitized
+    ipc::tests::hello_round_trips
+    issuer::tests::bundle_foreign_removals_are_additive
+    issuer::tests::issuer_request_wire_forms
+    issuer::tests::issuer_store_item_fields_are_additive
+    issuer::tests::store_kind_has_no_test_variant
+    managed::tests::connection_policy_defaults_graceful_disabled
+    managed::tests::destination_clock_wire_forms
+    provider::tests::credential_availability_defaults_to_unknown
+    provider::tests::probe_levels_order_weakest_first
+    provider::tests::provider_kind_wire_names
+    request::tests::request_schema_names_shutdown
+    request::tests::shutdown_examples_round_trip
+    request::tests::shutdown_wire_form_and_predicates
+    request::tests::uninstall_fence_wire_forms
+    run_record::tests::unix_is_never_launched
+    run_record::tests::unsupported_major_is_indeterminate
+    schema::tests::code_table_lists_every_code
+    schema::tests::schemas_generate_and_are_unique
+    setup::tests::plan_digest_is_strict_lowercase_hex
+    setup::tests::preview_intent_defaults_and_rules
+    state::tests::outcome_unknown_is_quiescent_but_not_settled
+    trust::tests::work_context_bounds
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+### heimdall_contract-unit exit=0
+### heimdall_domain-unit
+
+running 109 tests
+test binding::tests::foreign_limited_caller_may_not_act ... ok
+test catalog::tests::catalog_intent_approval_fits_its_action ... ok
+test catalog::tests::domain_fallback_clearance_rule_table ... ok
+test catalog::tests::fallback_clearance_clears_a_managed_entry_only_with_the_adopted_fingerprint ... ok
+test catalog::tests::domain_eligibility_rule_table ... ok
+test catalog::tests::route_chain_and_out_of_scope_jump_refused ... ok
+test claims::tests::adr_residual_recognition_rule ... ok
+test catalog::tests::prepared_facts_have_no_interaction_field ... ok
+test claims::tests::baseline_table_is_empty ... ok
+test connection::tests::closing_table ... ok
+test decision::tests::consume_once_and_stale_generation_refused ... ok
+test decision::tests::decision_kind_wire_forms ... ok
+test enrollment::tests::account_happy_path_and_form_dependent_verifying ... ok
+test enrollment::tests::finals_have_no_exit_and_every_target_admits_the_form ... ok
+test enrollment::tests::foreign_system_cancel_after_ca_not_held_never_planned_or_withdrawn ... ok
+test connection::tests::effective_policy_is_strictest ... ok
+test enrollment::tests::held_exits_follow_the_hold_kind ... ok
+test enrollment::tests::withdrawn_with_late_write_is_removable_only_with_the_residual ... ok
+test grant::tests::degraded_reason_sign_rule ... ok
+test grant::tests::degraded_reason_wire_form_is_snake_case ... ok
+test holder::tests::holder_bounds_and_state_wire_names ... ok
+test grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged ... ok
+test idempotency::tests::marker_keeps_expired_keys_expired_for_the_window ... ok
+test idempotency::tests::same_hash_replays_different_hash_conflicts_old_expires_pending_never ... ok
+test claims::tests::residuals_are_never_claims ... ok
+test issuance::predicate_tests::agent_forwarding_is_permitted_with_the_capability ... ok
+test issuance::predicate_tests::ca_transition_table ... ok
+test issuance::predicate_tests::extension_profile_matches_m01_permitted_extensions ... ok
+test issuance::predicate_tests::baseline_passes_and_principal_is_exact ... ok
+test issuance::predicate_tests::extension_profile_port_forwarding_only_for_jump_pairs_in_scope ... ok
+test issuance::predicate_tests::m03_ca_refusals ... ok
+test issuance::predicate_tests::refusals_serialize_without_echoing_input ... ok
+test issuance::predicate_tests::root_grant_needs_no_ancestors ... ok
+test issuance::tests::continuing_is_additive_and_old_rows_read_as_new_activation ... ok
+test issuance::tests::residual_counts_reserved_and_published_only ... ok
+test issuance::predicate_tests::publish_rechecks_after_changes_between_reserve_and_publish ... ok
+test lifecycle::tests::spec_6_3_rows ... ok
+test lifecycle::tests::terminal_grant_states_never_move ... ok
+test lifecycle::tests::timeout_is_not_an_operation_event_and_terminal_ops_stay ... ok
+test managed::tests::lock_epoch_latches_until_acknowledged ... ok
+test managed::tests::slot_table ... ok
+test issuance::predicate_tests::refuses_each_predicate ... ok
+test lifecycle::tests::nothing_returns_to_active_from_terminal_or_revoking ... ok
+test operation::tests::operation_kind_serde_form_equals_as_str_for_every_kind ... ok
+test operation::tests::recovery_intent_local_is_additive_on_the_wire ... ok
+test policy::tests::m02_policy_record_reads_defaults_and_reencodes_unchanged ... ok
+test operation::tests::local_receipt_wire_forms ... ok
+test policy::tests::m05_window_bounds_and_coalescing_key_inputs ... ok
+test procstat::tests::comm_with_spaces_parentheses_and_newline ... ok
+test policy::tests::strictest_is_fail_closed ... ok
+test procstat::tests::start_time_entry_ignores_only_the_group ... ok
+test procstat::tests::malformed_is_rejected ... ok
+test projection::tests::an_item_record_without_an_include_file_reads_back_as_none ... ok
+test projection::tests::approval_wire_forms ... ok
+test projection::tests::file_identity_wire_forms_with_birth ... ok
+test projection::tests::fingerprints_hold_metadata_and_digests_only ... ok
+test projection::tests::lock_holder_line_is_one_bounded_line ... ok
+test projection::tests::projection_locator_is_canonical_and_resource_ids_are_stable ... ok
+test projection::tests::props::file_identity_equality_never_wildcards_birth ... ok
+test projection::tests::rendered_is_built_only_by_the_renderers ... ok
+test projection::tests::setup_intent_content_wire_forms ... ok
+test projection::tests::setup_intent_managed_pairs_additive ... ok
+test projection::tests::step_shapes_follow_role_base_and_target ... ok
+test projection::tests::wave0_z01_completed_restore_keeps_its_cause ... ok
+test projection::tests::wave0_z02_recovery_state_build_takes_receipts_then_files ... ok
+test projection::tests::wave0_z03_step_decision_and_its_steps_are_domain_types ... ok
+test revocation::tests::a_pending_record_without_obligations_reads_unchanged ... ok
+test revocation::tests::a_record_without_a_cause_reads_as_an_explicit_revoke ... ok
+test revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation ... ok
+test revocation::tests::only_the_responsible_adapter_serves_an_obligation ... ok
+test revocation::tests::r1318_a_record_is_judged_by_the_lower_of_its_cap_and_the_configured_one ... ok
+test revocation::tests::r1318_a_record_without_the_new_fields_reads_unchanged ... ok
+test revocation::tests::r1318_only_a_round_claimed_after_the_effect_clears_it ... ok
+test revocation::tests::r1319_a_cleanup_intent_round_trips ... ok
+test revocation::tests::r1319_a_record_without_claim_seq_reads_with_a_derived_sequence ... ok
+test revocation::tests::rearmed_effects_round_trip_and_default_to_none ... ok
+test revocation::tests::stale_generation_fails_closed ... ok
+test scope::tests::intersection_never_widens ... ok
+test time::tests::absolute_must_be_in_future_and_within_window ... ok
+test time::tests::absolute_with_offset_resolves_to_utc_and_keeps_intent ... ok
+test time::tests::absolute_without_offset_is_malformed ... ok
+test time::tests::ambiguous_or_nonexistent_local_time_is_ambiguous ... ok
+test time::tests::budget_exhaustion_looks_at_the_continuous_clock_of_the_same_boot_only ... ok
+test time::tests::budget_only_shortens_and_survives_restart_in_the_same_boot ... ok
+test time::tests::duration_bounds_and_malformed ... ok
+test time::tests::durations_iso_and_friendly_agree ... ok
+test time::tests::expiry_is_inclusive_at_the_instant ... ok
+test time::tests::first_start_needs_synchronized_time ... ok
+test time::tests::high_water_never_decreases ... ok
+test time::tests::named_zone_without_offset_is_always_refused ... ok
+test time::tests::narrowest_picks_min ... ok
+test time::tests::oversized_intent_is_rejected_before_parsing ... ok
+test time::tests::reboot_needs_mark_and_sync_or_confirmation ... ok
+test time::tests::same_boot_prediction_both_directions ... ok
+test time::tests::zone_annotations_are_not_rfc3339 ... ok
+test time::tests_rev2::accepted_tolerance_is_zero_for_clean_synchronized_acceptance ... ok
+test time::tests_rev2::later_same_boot_confirmation_becomes_the_prediction_reference ... ok
+test time::tests_rev2::reboot_below_mark_is_uncertain_until_confirmed ... ok
+test time::tests_rev2::runtime_anchor_rebases_only_on_synchronized_time_within_a_boot ... ok
+test time::tests_rev2::shorten_keeps_the_tolerance_margin ... ok
+test time::tests_rev2::tolerance_anchor_ends_early_never_late ... ok
+test verification::tests::classify_follows_the_d5_table ... ok
+test verification::tests::known_offset_beyond_the_allowance ... ok
+test verification::tests::one_refusal_per_predicate ... ok
+test workspace::tests::match_wire_forms ... ok
+test workspace::tests::quoted_label_strips_controls_and_bounds ... ok
+test operation::tests::journaled_kinds_golden_matches_operation_kind_names ... ok
+test projection::tests::props::step_content_round_trips_and_binds_its_digest ... ok
+test claims::tests::every_adr_named_residual_is_listed ... ok
+
+successes:
+
+---- projection::tests::props::file_identity_equality_never_wildcards_birth stdout ----
+proptest: Failed to find absolute path of source file '"crates/domain/src/projection.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- projection::tests::props::step_content_round_trips_and_binds_its_digest stdout ----
+proptest: Failed to find absolute path of source file '"crates/domain/src/projection.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    binding::tests::foreign_limited_caller_may_not_act
+    catalog::tests::catalog_intent_approval_fits_its_action
+    catalog::tests::domain_eligibility_rule_table
+    catalog::tests::domain_fallback_clearance_rule_table
+    catalog::tests::fallback_clearance_clears_a_managed_entry_only_with_the_adopted_fingerprint
+    catalog::tests::prepared_facts_have_no_interaction_field
+    catalog::tests::route_chain_and_out_of_scope_jump_refused
+    claims::tests::adr_residual_recognition_rule
+    claims::tests::baseline_table_is_empty
+    claims::tests::every_adr_named_residual_is_listed
+    claims::tests::residuals_are_never_claims
+    connection::tests::closing_table
+    connection::tests::effective_policy_is_strictest
+    decision::tests::consume_once_and_stale_generation_refused
+    decision::tests::decision_kind_wire_forms
+    enrollment::tests::account_happy_path_and_form_dependent_verifying
+    enrollment::tests::finals_have_no_exit_and_every_target_admits_the_form
+    enrollment::tests::foreign_system_cancel_after_ca_not_held_never_planned_or_withdrawn
+    enrollment::tests::held_exits_follow_the_hold_kind
+    enrollment::tests::withdrawn_with_late_write_is_removable_only_with_the_residual
+    grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged
+    grant::tests::degraded_reason_sign_rule
+    grant::tests::degraded_reason_wire_form_is_snake_case
+    holder::tests::holder_bounds_and_state_wire_names
+    idempotency::tests::marker_keeps_expired_keys_expired_for_the_window
+    idempotency::tests::same_hash_replays_different_hash_conflicts_old_expires_pending_never
+    issuance::predicate_tests::agent_forwarding_is_permitted_with_the_capability
+    issuance::predicate_tests::baseline_passes_and_principal_is_exact
+    issuance::predicate_tests::ca_transition_table
+    issuance::predicate_tests::extension_profile_matches_m01_permitted_extensions
+    issuance::predicate_tests::extension_profile_port_forwarding_only_for_jump_pairs_in_scope
+    issuance::predicate_tests::m03_ca_refusals
+    issuance::predicate_tests::publish_rechecks_after_changes_between_reserve_and_publish
+    issuance::predicate_tests::refusals_serialize_without_echoing_input
+    issuance::predicate_tests::refuses_each_predicate
+    issuance::predicate_tests::root_grant_needs_no_ancestors
+    issuance::tests::continuing_is_additive_and_old_rows_read_as_new_activation
+    issuance::tests::residual_counts_reserved_and_published_only
+    lifecycle::tests::nothing_returns_to_active_from_terminal_or_revoking
+    lifecycle::tests::spec_6_3_rows
+    lifecycle::tests::terminal_grant_states_never_move
+    lifecycle::tests::timeout_is_not_an_operation_event_and_terminal_ops_stay
+    managed::tests::lock_epoch_latches_until_acknowledged
+    managed::tests::slot_table
+    operation::tests::journaled_kinds_golden_matches_operation_kind_names
+    operation::tests::local_receipt_wire_forms
+    operation::tests::operation_kind_serde_form_equals_as_str_for_every_kind
+    operation::tests::recovery_intent_local_is_additive_on_the_wire
+    policy::tests::m02_policy_record_reads_defaults_and_reencodes_unchanged
+    policy::tests::m05_window_bounds_and_coalescing_key_inputs
+    policy::tests::strictest_is_fail_closed
+    procstat::tests::comm_with_spaces_parentheses_and_newline
+    procstat::tests::malformed_is_rejected
+    procstat::tests::start_time_entry_ignores_only_the_group
+    projection::tests::an_item_record_without_an_include_file_reads_back_as_none
+    projection::tests::approval_wire_forms
+    projection::tests::file_identity_wire_forms_with_birth
+    projection::tests::fingerprints_hold_metadata_and_digests_only
+    projection::tests::lock_holder_line_is_one_bounded_line
+    projection::tests::projection_locator_is_canonical_and_resource_ids_are_stable
+    projection::tests::props::file_identity_equality_never_wildcards_birth
+    projection::tests::props::step_content_round_trips_and_binds_its_digest
+    projection::tests::rendered_is_built_only_by_the_renderers
+    projection::tests::setup_intent_content_wire_forms
+    projection::tests::setup_intent_managed_pairs_additive
+    projection::tests::step_shapes_follow_role_base_and_target
+    projection::tests::wave0_z01_completed_restore_keeps_its_cause
+    projection::tests::wave0_z02_recovery_state_build_takes_receipts_then_files
+    projection::tests::wave0_z03_step_decision_and_its_steps_are_domain_types
+    revocation::tests::a_pending_record_without_obligations_reads_unchanged
+    revocation::tests::a_record_without_a_cause_reads_as_an_explicit_revoke
+    revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation
+    revocation::tests::only_the_responsible_adapter_serves_an_obligation
+    revocation::tests::r1318_a_record_is_judged_by_the_lower_of_its_cap_and_the_configured_one
+    revocation::tests::r1318_a_record_without_the_new_fields_reads_unchanged
+    revocation::tests::r1318_only_a_round_claimed_after_the_effect_clears_it
+    revocation::tests::r1319_a_cleanup_intent_round_trips
+    revocation::tests::r1319_a_record_without_claim_seq_reads_with_a_derived_sequence
+    revocation::tests::rearmed_effects_round_trip_and_default_to_none
+    revocation::tests::stale_generation_fails_closed
+    scope::tests::intersection_never_widens
+    time::tests::absolute_must_be_in_future_and_within_window
+    time::tests::absolute_with_offset_resolves_to_utc_and_keeps_intent
+    time::tests::absolute_without_offset_is_malformed
+    time::tests::ambiguous_or_nonexistent_local_time_is_ambiguous
+    time::tests::budget_exhaustion_looks_at_the_continuous_clock_of_the_same_boot_only
+    time::tests::budget_only_shortens_and_survives_restart_in_the_same_boot
+    time::tests::duration_bounds_and_malformed
+    time::tests::durations_iso_and_friendly_agree
+    time::tests::expiry_is_inclusive_at_the_instant
+    time::tests::first_start_needs_synchronized_time
+    time::tests::high_water_never_decreases
+    time::tests::named_zone_without_offset_is_always_refused
+    time::tests::narrowest_picks_min
+    time::tests::oversized_intent_is_rejected_before_parsing
+    time::tests::reboot_needs_mark_and_sync_or_confirmation
+    time::tests::same_boot_prediction_both_directions
+    time::tests::zone_annotations_are_not_rfc3339
+    time::tests_rev2::accepted_tolerance_is_zero_for_clean_synchronized_acceptance
+    time::tests_rev2::later_same_boot_confirmation_becomes_the_prediction_reference
+    time::tests_rev2::reboot_below_mark_is_uncertain_until_confirmed
+    time::tests_rev2::runtime_anchor_rebases_only_on_synchronized_time_within_a_boot
+    time::tests_rev2::shorten_keeps_the_tolerance_margin
+    time::tests_rev2::tolerance_anchor_ends_early_never_late
+    verification::tests::classify_follows_the_d5_table
+    verification::tests::known_offset_beyond_the_allowance
+    verification::tests::one_refusal_per_predicate
+    workspace::tests::match_wire_forms
+    workspace::tests::quoted_label_strips_controls_and_bounds
+
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.24s
+
+### heimdall_domain-unit exit=0
+### heimdall_issuer-unit
+
+running 23 tests
+test backup::tests::typed_groups_normalize_to_the_generated_form ... ok
+test backup::tests::sha256_hex_known_value ... ok
+test backup::tests::generated_passphrase_is_26_base32_symbols_grouped_by_five ... ok
+test ceremony::tests::disclosure_text_covers_every_kind ... ok
+test ceremony::tests::executable_changed_and_access_denied_reasons ... ok
+test ceremony::tests::raw_console_reads_edit_echo_and_keep_cancellation_apart ... ok
+test ceremony::tests::terminal_reads_keep_cancellation_and_end_of_input_apart ... ok
+test ceremony::tests::register_decision_needs_the_runtime_lock_text ... ok
+test ceremony::tests::written_retries_only_a_wrong_answer ... ok
+test protocol::tests::every_message_round_trips_through_a_frame ... ok
+test client::exact_child_tests::exact_child_signalled_when_its_image_was_never_readable ... ok
+test protocol::tests::frame_bounds_are_checked_before_allocation ... ok
+test protocol::tests::every_refusal_round_trips_and_wire_names_are_unique ... ok
+test protocol::tests::hostile_bodies_are_refused ... ok
+test client::exact_child_tests::exact_child_refused_when_a_read_identity_no_longer_matches ... ok
+test protocol::tests::issuer_protocol_golden_is_byte_stable ... ok
+test protocol::tests::oversized_message_is_not_encoded ... ok
+test store::tests::access_denied_and_executable_changed_have_their_own_reasons ... ok
+test store::tests::availability_wire_names_and_reasons ... ok
+test store::tests::test_kinds_are_not_product_kinds ... ok
+test retire::tests::test_store_item_deleted_by_exact_locator_in_debug_builds_only ... ok
+test backup::tests::fingerprint_file_stems_round_trip_and_are_lowercase_hex ... ok
+test store::test_product::tests::product_file_selector_refuses_exactly_the_four_cases ... ok
+
+successes:
+
+successes:
+    backup::tests::fingerprint_file_stems_round_trip_and_are_lowercase_hex
+    backup::tests::generated_passphrase_is_26_base32_symbols_grouped_by_five
+    backup::tests::sha256_hex_known_value
+    backup::tests::typed_groups_normalize_to_the_generated_form
+    ceremony::tests::disclosure_text_covers_every_kind
+    ceremony::tests::executable_changed_and_access_denied_reasons
+    ceremony::tests::raw_console_reads_edit_echo_and_keep_cancellation_apart
+    ceremony::tests::register_decision_needs_the_runtime_lock_text
+    ceremony::tests::terminal_reads_keep_cancellation_and_end_of_input_apart
+    ceremony::tests::written_retries_only_a_wrong_answer
+    client::exact_child_tests::exact_child_refused_when_a_read_identity_no_longer_matches
+    client::exact_child_tests::exact_child_signalled_when_its_image_was_never_readable
+    protocol::tests::every_message_round_trips_through_a_frame
+    protocol::tests::every_refusal_round_trips_and_wire_names_are_unique
+    protocol::tests::frame_bounds_are_checked_before_allocation
+    protocol::tests::hostile_bodies_are_refused
+    protocol::tests::issuer_protocol_golden_is_byte_stable
+    protocol::tests::oversized_message_is_not_encoded
+    retire::tests::test_store_item_deleted_by_exact_locator_in_debug_builds_only
+    store::test_product::tests::product_file_selector_refuses_exactly_the_four_cases
+    store::tests::access_denied_and_executable_changed_have_their_own_reasons
+    store::tests::availability_wire_names_and_reasons
+    store::tests::test_kinds_are_not_product_kinds
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+### heimdall_issuer-unit exit=0
+### heimdall_sshconf-unit
+
+running 30 tests
+test client::tests::default_identities_are_exactly_the_union_of_clients_and_manuals ... ok
+test client::tests::default_identities_per_client_are_kept_as_data ... ok
+test client::tests::behaviour_is_unknown_only_where_the_observations_do_not_settle_it ... ok
+test client::tests::expansion_is_literal_only_where_observed ... ok
+test client::tests::keywords_follow_the_observed_boundary ... ok
+test client::tests::windows_inbox_9_5p2_row_records_only_what_the_native_run_settled ... ok
+test client::tests::match_criteria_follow_the_observed_boundary ... ok
+test client::tests::observations_are_unique_per_version ... ok
+test eval::tests::env_names_lists_every_variable ... ok
+test eval::tests::three_valued_slot_keeps_every_candidate_that_may_apply ... ok
+test include::tests::mem_source_symlink_and_kinds ... ok
+test eval::tests::patterns_follow_openssh ... ok
+test include::tests::written_path_is_the_path_as_requested_never_the_canonical_one ... ok
+test include::tests::glob_match_basics ... ok
+test lex::tests::blank_lines ... ok
+test lex::tests::keyword_and_simple_arguments ... ok
+test lex::tests::hash_starts_a_comment_only_at_a_token_start ... ok
+test lex::tests::quoted_or_equals_first_keyword_is_refused ... ok
+test lex::tests::missing_argument_is_refused ... ok
+test lex::tests::raw_is_the_rest_of_the_line_as_parse_command_keeps_it ... ok
+test lex::tests::single_equals_after_the_keyword ... ok
+test relevant::tests::base64_round_trips ... ok
+test render::tests::duplicate_alias_is_refused ... ok
+test render::tests::managed_alias_renders_proxyjump_and_never_forwardagent_by_default ... ok
+test relevant::tests::fingerprint_matches_openssh_form ... ok
+test render::tests::managed_render_is_deterministic_sorted_and_closed ... ok
+test render::tests::owned_arguments_follow_ssh_option_parsing ... ok
+test tests::limits_are_the_m02_plan_bounds ... ok
+test tests::keyword_table_has_no_duplicate_spelling ... ok
+test tests::every_known_keyword_spelling_round_trips_case_insensitively ... ok
+
+successes:
+
+successes:
+    client::tests::behaviour_is_unknown_only_where_the_observations_do_not_settle_it
+    client::tests::default_identities_are_exactly_the_union_of_clients_and_manuals
+    client::tests::default_identities_per_client_are_kept_as_data
+    client::tests::expansion_is_literal_only_where_observed
+    client::tests::keywords_follow_the_observed_boundary
+    client::tests::match_criteria_follow_the_observed_boundary
+    client::tests::observations_are_unique_per_version
+    client::tests::windows_inbox_9_5p2_row_records_only_what_the_native_run_settled
+    eval::tests::env_names_lists_every_variable
+    eval::tests::patterns_follow_openssh
+    eval::tests::three_valued_slot_keeps_every_candidate_that_may_apply
+    include::tests::glob_match_basics
+    include::tests::mem_source_symlink_and_kinds
+    include::tests::written_path_is_the_path_as_requested_never_the_canonical_one
+    lex::tests::blank_lines
+    lex::tests::hash_starts_a_comment_only_at_a_token_start
+    lex::tests::keyword_and_simple_arguments
+    lex::tests::missing_argument_is_refused
+    lex::tests::quoted_or_equals_first_keyword_is_refused
+    lex::tests::raw_is_the_rest_of_the_line_as_parse_command_keeps_it
+    lex::tests::single_equals_after_the_keyword
+    relevant::tests::base64_round_trips
+    relevant::tests::fingerprint_matches_openssh_form
+    render::tests::duplicate_alias_is_refused
+    render::tests::managed_alias_renders_proxyjump_and_never_forwardagent_by_default
+    render::tests::managed_render_is_deterministic_sorted_and_closed
+    render::tests::owned_arguments_follow_ssh_option_parsing
+    tests::every_known_keyword_spelling_round_trips_case_insensitively
+    tests::keyword_table_has_no_duplicate_spelling
+    tests::limits_are_the_m02_plan_bounds
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### heimdall_sshconf-unit exit=0
+### integration_git_observe
+
+running 17 tests
+test git_multiplicity_through_includes_counts_each_origin ... ok
+test git_config_query_output_parsed ... ok
+test git_global_file_resolution_follows_read_order ... ok
+test git_both_global_files_present_values_in_either_make_item_not_applicable ... ok
+test git_queries_use_includes_flag_and_expand_includes ... ok
+test git_own_value_outside_home_and_absent_managed_file ... ok
+test git_own_value_through_the_include_is_split_out_of_values ... ok
+test git_run_selection_in_cwd_reports_local_override ... ok
+test git_unreadable_include_makes_item_not_applicable ... ok
+test git_own_file_reached_any_other_way_stays_a_value ... ok
+test git_value_through_conditional_include_is_counted_conditional ... ok
+test git_values_never_leave_observation ... ok
+test the_doctor_reports_git_user_value_shadowed_with_both_origins ... ok
+test git_user_value_elsewhere_stays_a_value_beside_the_own_one ... ok
+test the_doctor_takes_a_value_reached_once_through_an_intact_b_git_for_heimdalls_own ... ok
+test the_doctor_reports_no_shadowing_unless_heimdalls_value_wins_over_a_global_one ... ok
+test the_doctor_reports_the_value_when_no_intact_b_git_links_it ... ok
+
+successes:
+
+---- git_global_file_resolution_follows_read_order stdout ----
+observation test=git_global_file_resolution_follows_read_order git="git version 2.43.0" git_var_exit="0" git_var_global="<scratch>/home/.config/git/config,<scratch>/home/.gitconfig" unscoped_read_order="xdg-value,home-value"
+
+---- git_both_global_files_present_values_in_either_make_item_not_applicable stdout ----
+observation test=git_both_global_files_present_values_in_either_make_item_not_applicable git="git version 2.43.0" global_query_reads_xdg_when_home_file_exists="false"
+
+---- git_queries_use_includes_flag_and_expand_includes stdout ----
+observation test=git_queries_use_includes_flag_and_expand_includes git="git version 2.43.0" with_includes_exit="0" without_includes_exit="1"
+
+---- git_run_selection_in_cwd_reports_local_override stdout ----
+observation test=git_run_selection_in_cwd_reports_local_override git="git version 2.43.0" git_bundles_msys_ssh="false"
+
+---- git_value_through_conditional_include_is_counted_conditional stdout ----
+observation test=git_value_through_conditional_include_is_counted_conditional git="git version 2.43.0" query_outside_repository_exit="1"
+
+
+successes:
+    git_both_global_files_present_values_in_either_make_item_not_applicable
+    git_config_query_output_parsed
+    git_global_file_resolution_follows_read_order
+    git_multiplicity_through_includes_counts_each_origin
+    git_own_file_reached_any_other_way_stays_a_value
+    git_own_value_outside_home_and_absent_managed_file
+    git_own_value_through_the_include_is_split_out_of_values
+    git_queries_use_includes_flag_and_expand_includes
+    git_run_selection_in_cwd_reports_local_override
+    git_unreadable_include_makes_item_not_applicable
+    git_user_value_elsewhere_stays_a_value_beside_the_own_one
+    git_value_through_conditional_include_is_counted_conditional
+    git_values_never_leave_observation
+    the_doctor_reports_git_user_value_shadowed_with_both_origins
+    the_doctor_reports_no_shadowing_unless_heimdalls_value_wins_over_a_global_one
+    the_doctor_reports_the_value_when_no_intact_b_git_links_it
+    the_doctor_takes_a_value_reached_once_through_an_intact_b_git_for_heimdalls_own
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s
+
+### integration_git_observe exit=0
+### integration_managed_signer
+
+running 40 tests
+test authorization_timeout_refuses ... ok
+test binding_endpoint_removed_by_generation ... ok
+test add_remove_lock_unlock_smartcard_extension_refused_on_real_signer ... ok
+test crash_after_install_makes_instance_lost_at_restart ... ok
+test deadline_crossed_between_capacity_and_release_check_refused ... ok
+test binding_endpoint_lists_only_its_grant ... ok
+test endpoint_refuses_other_principal_cross_account_linux ... ignored, blocked: B8 (a second Linux account on the <linuxhost>)
+test deadline_crossed_while_enqueue_blocked_nothing_released ... ok
+test endpoint_refuses_other_principal ... ok
+test environment_endpoint_requires_the_pairs_held_slot_in_the_store ... ok
+test environment_endpoint_lists_only_materialized_bindings ... ok
+test forwarded_session_refused_without_agent_forwarding ... ok
+test destroyed_key_makes_installed_certificate_unusable ... ok
+test fresh_login_through_environment_endpoint ... ok
+test no_signature_enqueued_after_revocation_acknowledged ... ok
+test precheck_before_mark_then_gate_after_mark_refused ... ok
+test release_check_refuses_when_mark_set_after_admission ... ok
+test sign_budget_overrun_expires_permit_nothing_released ... ok
+test sign_crossing_deadline_after_fresh_read_not_released ... ok
+test session_bind_observed_per_client ... ok
+test sign_paused_after_precheck_then_revoke_is_refused ... ok
+test sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit ... ok
+test one_signature_per_login ... ok
+test signature_refused_after_tombstone_commit ... ok
+test signature_refused_after_deadline ... ok
+test signature_refused_for_mechanism_unavailable ... ok
+test signature_refused_for_revoke_on_lock_unless_unlocked ... ok
+test signature_refused_on_time_uncertain ... ok
+test signer_holder_bounded_by_signing_holder_max ... ok
+test signature_refused_when_wall_clock_steps_back_after_the_time_assessment ... ok
+test signer_overlapping_narrowings_countermodel_within_derived_bound ... ok
+test stuck_enqueue_is_cancelled_within_bound_and_revoke_proceeds ... ok
+test unix_endpoint_dirs_0700_sockets_0600 ... ok
+test signer_multi_root_countermodel_within_derived_bound ... ok
+test verification_endpoint_lists_k_verify_and_installs_two_certificates ... ok
+test verification_session_opens_and_closes_its_operation_gate ... ok
+test verification_signature_refused_by_production_operations ... ok
+test verification_install_refuses_another_ca_or_another_pair ... ok
+test identities_capped_at_64 ... ok
+test sign_during_revoke_is_linearized has been running for over 60 seconds
+test sign_during_revoke_is_linearized ... ok
+
+successes:
+
+---- session_bind_observed_per_client stdout ----
+m03 observation: session_bind client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" exit=Some(0) sent=yes accepted=1 refused=0 signs_bound=1 signs_unbound=0
+
+
+successes:
+    add_remove_lock_unlock_smartcard_extension_refused_on_real_signer
+    authorization_timeout_refuses
+    binding_endpoint_lists_only_its_grant
+    binding_endpoint_removed_by_generation
+    crash_after_install_makes_instance_lost_at_restart
+    deadline_crossed_between_capacity_and_release_check_refused
+    deadline_crossed_while_enqueue_blocked_nothing_released
+    destroyed_key_makes_installed_certificate_unusable
+    endpoint_refuses_other_principal
+    environment_endpoint_lists_only_materialized_bindings
+    environment_endpoint_requires_the_pairs_held_slot_in_the_store
+    forwarded_session_refused_without_agent_forwarding
+    fresh_login_through_environment_endpoint
+    identities_capped_at_64
+    no_signature_enqueued_after_revocation_acknowledged
+    one_signature_per_login
+    precheck_before_mark_then_gate_after_mark_refused
+    release_check_refuses_when_mark_set_after_admission
+    session_bind_observed_per_client
+    sign_budget_overrun_expires_permit_nothing_released
+    sign_crossing_deadline_after_fresh_read_not_released
+    sign_during_revoke_is_linearized
+    sign_paused_after_precheck_then_revoke_is_refused
+    sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit
+    signature_refused_after_deadline
+    signature_refused_after_tombstone_commit
+    signature_refused_for_mechanism_unavailable
+    signature_refused_for_revoke_on_lock_unless_unlocked
+    signature_refused_on_time_uncertain
+    signature_refused_when_wall_clock_steps_back_after_the_time_assessment
+    signer_holder_bounded_by_signing_holder_max
+    signer_multi_root_countermodel_within_derived_bound
+    signer_overlapping_narrowings_countermodel_within_derived_bound
+    stuck_enqueue_is_cancelled_within_bound_and_revoke_proceeds
+    unix_endpoint_dirs_0700_sockets_0600
+    verification_endpoint_lists_k_verify_and_installs_two_certificates
+    verification_install_refuses_another_ca_or_another_pair
+    verification_session_opens_and_closes_its_operation_gate
+    verification_signature_refused_by_production_operations
+
+test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 98.19s
+
+### integration_managed_signer exit=0
+### integration_projection_recovery_rows
+
+running 1 test
+test recovery_table_rows_each_have_a_test_vector ... ok
+
+successes:
+
+---- recovery_table_rows_each_have_a_test_vector stdout ----
+80 rows; 134 step and item vectors, 11 cleaner vectors
+
+
+successes:
+    recovery_table_rows_each_have_a_test_vector
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.89s
+
+### integration_projection_recovery_rows exit=0
+### integration_projection_replace
+
+running 29 tests
+test dir_handle_refuses_symlink_foreign_mode_and_files ... ok
+test exchange_supported_on_target_fs ... ok
+test create_is_no_replace_and_never_overwrites ... ok
+test materialize_absent_base_is_insert_only ... ok
+test materialize_checks_both_digests_from_the_step ... ok
+test materialize_refuses_shapes_that_do_not_fit_the_role ... ok
+test file_identity_birth_recorded_on_target_fs ... ok
+test observe_fingerprint_records_digests_and_metadata_only ... ok
+test own_sources_never_remove_outside_the_quarantine ... ok
+test edit_after_restore_check_is_kept_in_quarantine_never_deleted ... ok
+test quarantine_validation_owner_mode_symlink_mount ... ok
+test lock_name_without_birth_time_is_foreign ... ok
+test observe_step_classifies_each_name ... ok
+test race_in_place_write_before_exchange_is_restored ... ok
+test private_key_files_never_opened ... ok
+test race_rename_replace_before_exchange_is_restored_never_overwritten ... ok
+test race_symlink_substitution_at_boundary_is_held ... ok
+test range::materialize_range_arithmetic_is_checked ... ok
+test remove_verified_rechecks_the_name_before_removal ... ok
+test remove_verified_hook_marks_the_residual_window ... ok
+test remove_verified_identity_and_content_mismatch_outcomes ... ok
+test restore_with_names_in_a_fresh_handle ... ok
+test restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing ... ok
+test range::materialize_range_corners ... ok
+test stage_keeps_the_original_permission_bits ... ok
+test stage_names_its_target_only_through_learn_step ... ok
+test unrecorded_entry_at_staged_name_is_s_by_digest_never_at_lock_name ... ok
+test settle_outcomes_missing_foreign_occupied_modified ... ok
+test validate_refuses_unmanageable_and_changed_bases ... ok
+
+successes:
+
+---- exchange_supported_on_target_fs stdout ----
+observation: exchange_supported_on_target_fs os=linux supported=true
+
+---- file_identity_birth_recorded_on_target_fs stdout ----
+observation: file_identity_birth_recorded_on_target_fs os=linux birth_recorded=true inode_reused=true
+
+---- range::materialize_range_arithmetic_is_checked stdout ----
+proptest: Failed to find absolute path of source file '"crates/localenv/../../tests/integration/projection_replace.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    create_is_no_replace_and_never_overwrites
+    dir_handle_refuses_symlink_foreign_mode_and_files
+    edit_after_restore_check_is_kept_in_quarantine_never_deleted
+    exchange_supported_on_target_fs
+    file_identity_birth_recorded_on_target_fs
+    lock_name_without_birth_time_is_foreign
+    materialize_absent_base_is_insert_only
+    materialize_checks_both_digests_from_the_step
+    materialize_refuses_shapes_that_do_not_fit_the_role
+    observe_fingerprint_records_digests_and_metadata_only
+    observe_step_classifies_each_name
+    own_sources_never_remove_outside_the_quarantine
+    private_key_files_never_opened
+    quarantine_validation_owner_mode_symlink_mount
+    race_in_place_write_before_exchange_is_restored
+    race_rename_replace_before_exchange_is_restored_never_overwritten
+    race_symlink_substitution_at_boundary_is_held
+    range::materialize_range_arithmetic_is_checked
+    range::materialize_range_corners
+    remove_verified_hook_marks_the_residual_window
+    remove_verified_identity_and_content_mismatch_outcomes
+    remove_verified_rechecks_the_name_before_removal
+    restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing
+    restore_with_names_in_a_fresh_handle
+    settle_outcomes_missing_foreign_occupied_modified
+    stage_keeps_the_original_permission_bits
+    stage_names_its_target_only_through_learn_step
+    unrecorded_entry_at_staged_name_is_s_by_digest_never_at_lock_name
+    validate_refuses_unmanageable_and_changed_bases
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+### integration_projection_replace exit=0
+### integration_projection_state_dir_guard
+
+running 6 tests
+test a_literal_needs_a_state_directory_that_is_not_none ... ok
+test a_new_without_a_state_directory_is_a_violation_and_with_one_is_not ... ok
+test a_passive_entry_is_held_to_its_word ... ok
+test tests_comments_strings_and_other_functions_are_not_constructions ... ok
+test taking_the_state_directory_out_of_a_real_constructor_is_caught ... ok
+test every_production_projection_config_sets_its_state_directory ... ok
+
+successes:
+
+successes:
+    a_literal_needs_a_state_directory_that_is_not_none
+    a_new_without_a_state_directory_is_a_violation_and_with_one_is_not
+    a_passive_entry_is_held_to_its_word
+    every_production_projection_config_sets_its_state_directory
+    taking_the_state_directory_out_of_a_real_constructor_is_caught
+    tests_comments_strings_and_other_functions_are_not_constructions
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+### integration_projection_state_dir_guard exit=0
+### integration_session_lock
+
+running 3 tests
+test linux_logind_lock_signal_observed ... ignored, blocked: B11 (a Linux desktop host: GNOME, gnome-keyring, systemd-logind, a disposable account)
+test source_thread_spawned_once_and_joined_at_shutdown ... ok
+test revoke_on_lock_refused_where_signal_unavailable ... ok
+
+successes:
+
+---- revoke_on_lock_refused_where_signal_unavailable stdout ----
+m03 observation: os=linux session_lock_state=Unavailable signal=None revoke_on_lock=refused lock_signal_unavailable
+
+
+successes:
+    revoke_on_lock_refused_where_signal_unavailable
+    source_thread_spawned_once_and_joined_at_shutdown
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+### integration_session_lock exit=0
+### integration_store
+
+running 77 tests
+test before_transaction_failure_runs_nothing ... ok
+test before_commit_failure_leaves_no_row ... ok
+test after_commit_failure_is_visible_and_retry_replays ... ok
+test crash_child_entry ... ok
+test binding_release_is_idempotent_and_authorized_by_ownership ... ok
+test credential_instances_round_trip_and_destroyed_is_absorbing ... ok
+test cross_owner_request_id_is_a_distinct_key ... ok
+test decisions_complete_once_and_go_stale_when_the_generation_moves ... ok
+test decisions_transfer_and_withdraw_by_cas_on_pending ... ok
+test denied_ancestor_walks_through_a_revoked_grandparent ... ok
+test duplicate_idempotency_key_is_refused_by_the_store ... ok
+test damaged_page_is_corrupt_not_fresh ... ok
+test error_inside_closure_rolls_back ... ok
+test environments_upsert_and_policies_for_matches_profile_and_environment ... ok
+test events_have_per_environment_monotonic_sequence_filters_and_trim ... ok
+test grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant ... ok
+test garbage_header_is_corrupt_not_fresh ... ok
+test grant_anchor_cannot_lengthen_within_a_boot_but_is_replaced_in_a_new_boot ... ok
+test grant_approval_is_written_once_and_survives_operation_purge ... ok
+test grant_degradation_exists_only_while_the_grant_is_degraded ... ok
+test grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it ... ok
+test grant_immutable_columns_and_absorbing_terminal_states ... ok
+test grant_origin_gains_its_preparing_adapter_once ... ok
+test grant_origin_is_written_once_and_gains_only_a_covered_basis ... ok
+test grants_due_descendants_and_deadline_persist_across_reopen ... ok
+test crash_at_each_migration_point_reopens_cleanly ... ok
+test high_water_mark_never_lowers ... ok
+test crash_at_each_transaction_point_reopens_with_exactly_the_committed_state ... ok
+test issuance_reserve_publish_void_cas_and_residual ... ok
+test grant_anchor_budget_never_lengthens_within_a_boot ... ok
+test m02::catalog_destinations_and_identities_are_unique_and_revisioned ... ok
+test m02::commit_projection_item_is_one_transaction ... ok
+test m02::declaration_revision_cas_and_end ... ok
+test high_water_mark_is_the_running_maximum ... ok
+test m02::insert_setup_operation_blocks_on_every_open_or_unresolved_state ... ok
+test m02::insert_setup_operation_repair_exception_is_exact ... ok
+test m02::insert_setup_operation_state_survives_restart_and_a_crash_leaves_nothing ... ok
+test m02::migration_0004_to_0005_keeps_m01_records_counters_and_receipts ... ok
+test m02::open_read_only_refuses_newer_reports_older_and_never_writes ... ok
+test m02::prepared_facts_and_binding_holders_round_trip ... ok
+test m02::projection_resource_generation_and_identity_cas ... ok
+test m02::recovery_intent_local_is_add_only_and_never_beside_resolved ... ok
+test m02::table_counts_count_every_row_of_the_purged_tables_without_writing ... ok
+test newer_schema_is_refused_and_untouched ... ok
+test open_in_memory_and_file_report_current_schema ... ok
+test operation_and_idempotency_round_trip_and_update ... ok
+test outcome_unknown_is_unresolved_not_open_and_survives_purge ... ok
+test pending_keys_never_expire_and_are_never_purged ... ok
+test policy_revisions_are_monotonic_and_narrowing_bumps_generation ... ok
+test private_key_material_is_refused_and_never_reaches_the_file ... ok
+test profile_removal_keeps_pinned_snapshots_and_the_revision_high_water_mark ... ok
+test profile_snapshot_is_immutable_at_a_revision ... ok
+test idempotency_replays_and_conflicts_through_txn ... ok
+test r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions ... ok
+test recovery_intent_approval_basis_is_add_only ... ok
+test recovery_intent_covered_basis_is_add_only ... ok
+test recovery_intent_round_trips_and_only_gains_facts ... ok
+test references_are_ownership_aware ... ok
+test remote_revocation_obligations_name_exactly_the_record_grants ... ok
+test remote_revocation_records_need_a_tombstone_and_round_trip ... ok
+test resource_cas_insert_update_and_reconcile_listing ... ok
+test issuance_residual_counts_reserved_and_published_only ... ok
+test self_environment_is_recorded_once_and_survives_reopen ... ok
+test settle_then_purge_leaves_a_marker_that_expires_reuse_until_marker_purge ... ok
+test stage_receipts_are_append_only_and_ordered ... ok
+test stored_events_after_sequences_are_monotonic_and_page_boundaries_match ... ok
+test time_anchor_round_trips ... ok
+test time_confirmation_round_trips_and_is_replaced ... ok
+test tombstone_cause_round_trips_and_the_first_record_is_kept ... ok
+test tombstones_bump_the_authority_generation_atomically ... ok
+test transfer_waiting_grant_is_a_cas_on_the_owner_while_waiting ... ok
+test truncated_file_is_corrupt_not_fresh ... ok
+test upsert_environment_advances_the_authority_generation_on_every_write ... ok
+test withdrawal_report_is_recorded_once_per_tombstoned_root ... ok
+test m02::insert_setup_operation_check_and_insert_are_one_transaction ... ok
+test resource_cas_never_lets_a_stale_writer_win ... ok
+test purge_keeps_authority_state_and_unexpired_records ... ok
+
+successes:
+
+---- grant_anchor_budget_never_lengthens_within_a_boot stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- high_water_mark_is_the_running_maximum stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- idempotency_replays_and_conflicts_through_txn stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- issuance_residual_counts_reserved_and_published_only stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- resource_cas_never_lets_a_stale_writer_win stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- purge_keeps_authority_state_and_unexpired_records stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/integration/store.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    after_commit_failure_is_visible_and_retry_replays
+    before_commit_failure_leaves_no_row
+    before_transaction_failure_runs_nothing
+    binding_release_is_idempotent_and_authorized_by_ownership
+    crash_at_each_migration_point_reopens_cleanly
+    crash_at_each_transaction_point_reopens_with_exactly_the_committed_state
+    crash_child_entry
+    credential_instances_round_trip_and_destroyed_is_absorbing
+    cross_owner_request_id_is_a_distinct_key
+    damaged_page_is_corrupt_not_fresh
+    decisions_complete_once_and_go_stale_when_the_generation_moves
+    decisions_transfer_and_withdraw_by_cas_on_pending
+    denied_ancestor_walks_through_a_revoked_grandparent
+    duplicate_idempotency_key_is_refused_by_the_store
+    environments_upsert_and_policies_for_matches_profile_and_environment
+    error_inside_closure_rolls_back
+    events_have_per_environment_monotonic_sequence_filters_and_trim
+    garbage_header_is_corrupt_not_fresh
+    grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant
+    grant_anchor_budget_never_lengthens_within_a_boot
+    grant_anchor_cannot_lengthen_within_a_boot_but_is_replaced_in_a_new_boot
+    grant_approval_is_written_once_and_survives_operation_purge
+    grant_degradation_exists_only_while_the_grant_is_degraded
+    grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it
+    grant_immutable_columns_and_absorbing_terminal_states
+    grant_origin_gains_its_preparing_adapter_once
+    grant_origin_is_written_once_and_gains_only_a_covered_basis
+    grants_due_descendants_and_deadline_persist_across_reopen
+    high_water_mark_is_the_running_maximum
+    high_water_mark_never_lowers
+    idempotency_replays_and_conflicts_through_txn
+    issuance_reserve_publish_void_cas_and_residual
+    issuance_residual_counts_reserved_and_published_only
+    m02::catalog_destinations_and_identities_are_unique_and_revisioned
+    m02::commit_projection_item_is_one_transaction
+    m02::declaration_revision_cas_and_end
+    m02::insert_setup_operation_blocks_on_every_open_or_unresolved_state
+    m02::insert_setup_operation_check_and_insert_are_one_transaction
+    m02::insert_setup_operation_repair_exception_is_exact
+    m02::insert_setup_operation_state_survives_restart_and_a_crash_leaves_nothing
+    m02::migration_0004_to_0005_keeps_m01_records_counters_and_receipts
+    m02::open_read_only_refuses_newer_reports_older_and_never_writes
+    m02::prepared_facts_and_binding_holders_round_trip
+    m02::projection_resource_generation_and_identity_cas
+    m02::recovery_intent_local_is_add_only_and_never_beside_resolved
+    m02::table_counts_count_every_row_of_the_purged_tables_without_writing
+    newer_schema_is_refused_and_untouched
+    open_in_memory_and_file_report_current_schema
+    operation_and_idempotency_round_trip_and_update
+    outcome_unknown_is_unresolved_not_open_and_survives_purge
+    pending_keys_never_expire_and_are_never_purged
+    policy_revisions_are_monotonic_and_narrowing_bumps_generation
+    private_key_material_is_refused_and_never_reaches_the_file
+    profile_removal_keeps_pinned_snapshots_and_the_revision_high_water_mark
+    profile_snapshot_is_immutable_at_a_revision
+    purge_keeps_authority_state_and_unexpired_records
+    r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions
+    recovery_intent_approval_basis_is_add_only
+    recovery_intent_covered_basis_is_add_only
+    recovery_intent_round_trips_and_only_gains_facts
+    references_are_ownership_aware
+    remote_revocation_obligations_name_exactly_the_record_grants
+    remote_revocation_records_need_a_tombstone_and_round_trip
+    resource_cas_insert_update_and_reconcile_listing
+    resource_cas_never_lets_a_stale_writer_win
+    self_environment_is_recorded_once_and_survives_reopen
+    settle_then_purge_leaves_a_marker_that_expires_reuse_until_marker_purge
+    stage_receipts_are_append_only_and_ordered
+    stored_events_after_sequences_are_monotonic_and_page_boundaries_match
+    time_anchor_round_trips
+    time_confirmation_round_trips_and_is_replaced
+    tombstone_cause_round_trips_and_the_first_record_is_kept
+    tombstones_bump_the_authority_generation_atomically
+    transfer_waiting_grant_is_a_cas_on_the_owner_while_waiting
+    truncated_file_is_corrupt_not_fresh
+    upsert_environment_advances_the_authority_generation_on_every_write
+    withdrawal_report_is_recorded_once_per_tombstoned_root
+
+test result: ok. 77 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.20s
+
+### integration_store exit=0
+### integration_testkit_m03
+
+running 19 tests
+test docker_ca_hook_is_container_internal_only ... ignored, docker: the M00-T03 ca1/ca2 fixtures after a clean up.sh; run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_ca_hook_is_container_internal_only
+test docker_enrollable2_seeded_like_enrollable ... ignored, docker: the M00-T03 fixtures after a clean up.sh; run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored docker_enrollable2_seeded_like_enrollable
+test fake_lock_source_pauses_consumer_and_latches ... ok
+test managed_run_context_sets_binding_endpoint ... ok
+test owner_digest_detects_change ... ok
+test lagging_clock_fixture_reports_offset_and_changes_no_clock ... ok
+test loopback_system_form_accepts_test_ca_certificate ... ok
+test pause_hook_blocks_and_releases ... ok
+test probe_shims_produce_syntax_error_and_disagreement ... ok
+test procstat_fixtures_cover_spaces_parentheses_and_newline ... ok
+test registry_guard_refuses_non_scratch_paths ... ok
+test second_installation_has_distinct_catalog_and_ids ... ok
+test shell_containers_run_each_shell_as_group_leader ... ignored, docker: disposable shell containers (pinned debian and alpine); run with HM_DOCKER_TESTS=1 cargo test -p heimdall-testkit --features fixtures,managed --test integration_testkit_m03 -- --ignored shell_containers_run_each_shell_as_group_leader
+test faults_each_produce_the_intended_transport_failure ... ok
+test principals_not_enforced_fixture_accepts_both_principals ... ok
+test pause_hooks_stop_and_continue_exact_group ... ok
+test three_hosts_key_ids_attributed_per_host ... ok
+test two_hosts_have_distinct_principals ... ok
+test wrong_key_fixture_variants_each_present_the_wrong_key ... ok
+
+successes:
+
+---- owner_digest_detects_change stdout ----
+
+thread 'owner_digest_detects_change' (3355987) panicked at crates/testkit/src/owner_digest.rs:282:9:
+owner material changed: ssh_tree 3b6d7642e760c8d41abbb8660298655cb02b809a92167476cd6e0aeb935a08bb -> ad1874349319d22f738c4fe6b71ae3f5aac40c8f1e1171e9ffe6007451840983; owner material changed: git_global e388802d4e293825018dc6e6cb2d29478bbc30182f07fd55d8c235a414f7079c -> 0d71195a3ace40a0998f90a67a667c866861fc767e1cbfd4a329d13db5ec4641
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+successes:
+    fake_lock_source_pauses_consumer_and_latches
+    faults_each_produce_the_intended_transport_failure
+    lagging_clock_fixture_reports_offset_and_changes_no_clock
+    loopback_system_form_accepts_test_ca_certificate
+    managed_run_context_sets_binding_endpoint
+    owner_digest_detects_change
+    pause_hook_blocks_and_releases
+    pause_hooks_stop_and_continue_exact_group
+    principals_not_enforced_fixture_accepts_both_principals
+    probe_shims_produce_syntax_error_and_disagreement
+    procstat_fixtures_cover_spaces_parentheses_and_newline
+    registry_guard_refuses_non_scratch_paths
+    second_installation_has_distinct_catalog_and_ids
+    three_hosts_key_ids_attributed_per_host
+    two_hosts_have_distinct_principals
+    wrong_key_fixture_variants_each_present_the_wrong_key
+
+test result: ok. 16 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 3.38s
+
+### integration_testkit_m03 exit=0
+### model_narrowing_m03
+
+running 57 tests
+test admit_reads_fresh_after_taking_gate ... ok
+test admit_checks_pending_first_after_awaited_acquisition ... ok
+test admit_refuses_when_gate_not_obtained_in_time ... ok
+test authorization_time_defaults_to_read_only_assessment ... ok
+test admit_refuses_when_ancestor_marked ... ok
+test authorize_linearizes_with_revoke_commit ... ok
+test ancestor_pending_covers_descendant_created_after_mark ... ok
+test authorization_latency_never_extends_continuous_budget ... ok
+test authorize_revalidates_after_unrelated_generation_move ... ok
+test committed_at_unaffected_by_cleanup_retries ... ok
+test cutoff_earlier_takes_gate ... ok
+test authorize_refuses_each_predicate ... ok
+test deferral_releases_held_gates_and_restarts_in_global_order ... ok
+test delegation_during_revocation_child_never_signs_after_ack ... ok
+test delegation_holds_ancestor_chain_in_global_order ... ok
+test delegation_overrun_aborts_fail_closed_entries_counted ... ok
+test delegation_rechecks_pending_after_each_awaited_acquisition_and_before_install ... ok
+test environment_permission_removal_narrows_before_commit ... ok
+test epoch_acknowledged_only_after_revocations_commit ... ok
+test gate_released_after_keys_destroyed ... ok
+test gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock ... ok
+test gated_member_of_cascade_takes_full_protocol ... ok
+test later_narrowing_defers_to_earlier_mark_no_deadlock ... ok
+test m02_adapters_unchanged_timed_out_immediate_counts_as_made ... ok
+test injected_set_growth_runs_another_round_and_commits ... ok
+test narrowing_commit_within_derived_bound_and_reported ... ok
+test mixed_gated_and_ungated_set_takes_full_protocol_for_whole_set ... ok
+test narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait ... ok
+test narrowing_never_aborts_for_time_reports_over_target ... ok
+test multi_root_countermodel_within_derived_bound ... ok
+test overlapping_narrowings_countermodel_within_derived_bound ... ok
+test pause_leaves_active_grant_permit_releasable_and_refuses_new_activation ... ok
+test on_session_lock_revokes_then_acknowledges ... ok
+test pending_mark_refuses_new_signers_and_delegations ... ok
+test permit_expires_at_matches_expiry ... ok
+test permit_expiry_is_earliest_of_every_bound ... ok
+test post_mark_flood_and_round_one_descendants_commit_within_bound ... ok
+test precheck_refuses_pending_narrowing ... ok
+test register_ordered_with_revocation_by_gate ... ok
+test register_refused_for_ended_or_tombstoned_grant ... ok
+test reacquisition_round_never_grows_set ... ok
+test registration_refused_for_a_binding_no_launcher_holds ... ok
+test registration_refused_while_pending ... ok
+test revalidation_withdrawal_takes_gate ... ok
+test revoke_closes_processes_only_after_gates_released ... ok
+test revoke_committed_at_read_inside_tombstone_transaction ... ok
+test revoke_replay_returns_original_timestamps ... ok
+test revoke_requested_at_captured_at_admission_before_gate_wait ... ok
+test narrowing_commit_target_20s_at_budgets ... ok
+test revoke_takes_gate_before_commit ... ok
+test set_lock_behavior_revoke_on_lock_narrows_before_commit ... ok
+test round_one_marks_new_descendants_before_releasing_gates ... ok
+test slot_files_removed_only_after_gates_released ... ok
+test timed_out_immediate_revoke_with_remote_effect_keeps_intent_and_retries ... ok
+test strict_connection_policy_does_not_narrow_signing_authority ... ok
+test two_concurrent_cascades_no_deadlock_no_late_signature ... ok
+test two_real_policy_cutoffs_overlapping_commit_within_bound ... ok
+
+successes:
+
+successes:
+    admit_checks_pending_first_after_awaited_acquisition
+    admit_reads_fresh_after_taking_gate
+    admit_refuses_when_ancestor_marked
+    admit_refuses_when_gate_not_obtained_in_time
+    ancestor_pending_covers_descendant_created_after_mark
+    authorization_latency_never_extends_continuous_budget
+    authorization_time_defaults_to_read_only_assessment
+    authorize_linearizes_with_revoke_commit
+    authorize_refuses_each_predicate
+    authorize_revalidates_after_unrelated_generation_move
+    committed_at_unaffected_by_cleanup_retries
+    cutoff_earlier_takes_gate
+    deferral_releases_held_gates_and_restarts_in_global_order
+    delegation_during_revocation_child_never_signs_after_ack
+    delegation_holds_ancestor_chain_in_global_order
+    delegation_overrun_aborts_fail_closed_entries_counted
+    delegation_rechecks_pending_after_each_awaited_acquisition_and_before_install
+    environment_permission_removal_narrows_before_commit
+    epoch_acknowledged_only_after_revocations_commit
+    gate_released_after_keys_destroyed
+    gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock
+    gated_member_of_cascade_takes_full_protocol
+    injected_set_growth_runs_another_round_and_commits
+    later_narrowing_defers_to_earlier_mark_no_deadlock
+    m02_adapters_unchanged_timed_out_immediate_counts_as_made
+    mixed_gated_and_ungated_set_takes_full_protocol_for_whole_set
+    multi_root_countermodel_within_derived_bound
+    narrowing_commit_target_20s_at_budgets
+    narrowing_commit_within_derived_bound_and_reported
+    narrowing_never_aborts_for_time_reports_over_target
+    narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait
+    on_session_lock_revokes_then_acknowledges
+    overlapping_narrowings_countermodel_within_derived_bound
+    pause_leaves_active_grant_permit_releasable_and_refuses_new_activation
+    pending_mark_refuses_new_signers_and_delegations
+    permit_expires_at_matches_expiry
+    permit_expiry_is_earliest_of_every_bound
+    post_mark_flood_and_round_one_descendants_commit_within_bound
+    precheck_refuses_pending_narrowing
+    reacquisition_round_never_grows_set
+    register_ordered_with_revocation_by_gate
+    register_refused_for_ended_or_tombstoned_grant
+    registration_refused_for_a_binding_no_launcher_holds
+    registration_refused_while_pending
+    revalidation_withdrawal_takes_gate
+    revoke_closes_processes_only_after_gates_released
+    revoke_committed_at_read_inside_tombstone_transaction
+    revoke_replay_returns_original_timestamps
+    revoke_requested_at_captured_at_admission_before_gate_wait
+    revoke_takes_gate_before_commit
+    round_one_marks_new_descendants_before_releasing_gates
+    set_lock_behavior_revoke_on_lock_narrows_before_commit
+    slot_files_removed_only_after_gates_released
+    strict_connection_policy_does_not_narrow_signing_authority
+    timed_out_immediate_revoke_with_remote_effect_keeps_intent_and_retries
+    two_concurrent_cascades_no_deadlock_no_late_signature
+    two_real_policy_cutoffs_overlapping_commit_within_bound
+
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+
+### model_narrowing_m03 exit=0
+### model_operations
+
+running 196 tests
+test a06_a_dropped_caller_and_a_retry_converge_on_one_result ... ok
+test a06_crash_after_the_receipt_completes_on_restart_with_one_effect ... ok
+test a06_crash_after_the_effect_before_its_receipt_reconciles_on_restart ... ok
+test a06_crash_before_the_effect_then_restart_completes_with_one_effect ... ok
+test a06_duplicate_concurrent_requests_make_one_operation_and_one_effect ... ok
+test a06_lost_reply_then_restart_reconciles_without_a_second_effect ... ok
+test a06_lost_reply_then_restart_with_a_new_adapter_over_the_same_ledger_settles_once ... ok
+test a06_purged_key_is_request_expired_inside_the_marker_window ... ok
+test a19_added_authority_unattended_is_interaction_required_with_a_decision_ref ... ok
+test a06_restart_never_resets_a_resolved_deadline ... ok
+test a06_same_key_with_altered_parameters_conflicts ... ok
+test a19_added_authority_attended_waits_for_decide_then_applies_exactly_the_delta ... ok
+test a19_denied_decision_fails_the_operation_and_its_grant ... ok
+test a19_decision_issued_under_an_older_generation_is_stale ... ok
+test a19_expired_decision_is_stale_operation_keeps_waiting_and_retry_gets_a_fresh_ref ... ok
+test a19_caller_timeout_is_not_cancellation ... ok
+test a19_inspect_reports_capabilities_decisions_and_previews_without_effects ... ok
+test a19_explicit_cancel_reports_possible_external_effect ... ok
+test a19_outcome_unknown_from_the_adapter_is_never_reported_as_no_effect ... ok
+test a19_pending_approval_whose_grant_deadline_passes_fails_with_credential_expired ... ok
+test a19_running_limit_gives_backpressure_and_persists_nothing ... ok
+test a19_success_is_access_ready_with_binding_and_bounded_facts ... ok
+test a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning ... ok
+test a19_time_confirmation_needs_attendance_and_never_moves_a_deadline ... ok
+test a19_widening_policy_actions_always_create_a_decision_record ... ok
+test a29_only_an_interactive_session_may_attend ... ok
+test a29_metadata_is_ignored_and_attendance_is_never_a_request_field ... ok
+test a29_another_principals_binding_is_not_found_or_not_owner ... ok
+test bind_materializes_an_existing_binding_without_a_new_effect ... ok
+test a29_the_same_request_id_from_another_owner_is_a_distinct_key ... ok
+test a29_request_fields_never_widen_the_resolved_scope ... ok
+test delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one ... ok
+test fault_commit_failing_after_commit_is_replayed_by_the_retry ... ok
+test fault_commit_failing_before_commit_leaves_no_binding_and_no_event ... ok
+test g03_cleanup_executor_deletes_generation_n_once ... ok
+test g02_a_revoked_child_frees_its_parent_without_revoking_it ... ok
+test g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary ... ok
+test g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant ... ok
+test g10_widening_under_uncertain_time_creates_no_decision ... ok
+test m02_integration::u0b_admit_keeps_backpressure_order ... ok
+test m02_integration::u0b_bind_launch_validates_executable_and_excludes_holder_from_hash ... ok
+test m02_integration::u0b_confirm_with_prepared_facts_keeps_cleanup_ownership ... ok
+test m02_integration::u0b_existing_access_prepare_errors_name_the_provider ... ok
+test m02_integration::u0b_inspect_grants_keeps_cleanup_pending ... ok
+test m02_integration::u0b_inspect_identities_reports_fresh_eligibility_and_live_declaration ... ok
+test m02_integration::u0b_integration_provider_and_pairs_survive_ensure_attach_bind_replay_restart ... ok
+test m02_integration::u0b_eligibility_is_recomputed_per_result_never_taken_from_prepared_facts ... ok
+test g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff ... ok
+test m02_integration::u0b_mixed_mechanisms_refused_capability_unavailable ... ok
+test m02_integration::u0b_prepared_facts_have_no_interaction_field ... ok
+test m02_integration::u0b_prepared_facts_keep_the_full_identity_selection_report ... ok
+test m02_integration::u0b_recovery_intent_local_is_add_only ... ok
+test fault_points_before_and_after_every_stage_recover_with_one_effect ... ok
+test m02_integration::u0b_reconcile_after_restart_answers_from_prepared_facts ... ok
+test m02_integration::u0b_unattended_minimum_unknown_is_capability_unavailable ... ok
+test m02_integration::u0b_restart_dispatches_every_operation_kind ... ok
+test m02_integration::u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery ... ok
+test personal_resolution_ignores_a_workspace_policy_that_sorts_first ... ok
+test r1230_1_decided_operations_resume_with_their_own_interaction_mode ... ok
+test r1310_2_a_deadline_passing_while_degraded_expires_the_grant ... ok
+test r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused ... ok
+test r1310_2_a_use_repairs_a_degraded_grant_once_its_mechanism_is_configured_again ... ok
+test r1310_2_a_use_with_the_mechanism_gone_is_refused_and_degrades_the_grant ... ok
+test r1310_2_a_degraded_grant_returns_only_when_revalidation_passes ... ok
+test r1310_2_the_scheduler_pass_degrades_a_grant_whose_mechanism_is_gone ... ok
+test r1310_2_the_scheduler_pass_repairs_a_degraded_grant_once_its_mechanism_is_back ... ok
+test r1310_3_a_pending_remote_effect_completes_when_the_adapter_later_reports_done ... ok
+test r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due ... ok
+test r1310_3_the_revocation_backoff_is_injectable_and_caps_the_rounds ... ok
+test r1310_3_a_pending_remote_effect_is_retried_on_the_jittered_schedule_up_to_the_cap ... ok
+test r1312_1_a_crash_between_the_adapter_call_and_its_completion_counts_the_round ... ok
+test r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery ... ok
+test r1312_1_failed_completion_commits_never_allow_more_adapter_calls_than_the_cap ... ok
+test r1312_2_a_record_written_before_obligations_keeps_its_responsible_adapter ... ok
+test r1312_2_a_withdrawal_while_the_responsible_adapter_is_missing_waits_for_it ... ok
+test r1312_2_an_empty_adapter_list_never_completes_a_pending_revocation ... ok
+test r1312_2_removing_the_original_adapter_never_completes_its_pending_revocation ... ok
+test r1313_1_the_preparing_adapter_stays_responsible_after_operation_retention ... ok
+test r1313_2_a_grant_revoked_while_preparing_is_tracked_until_its_adapter_confirms ... ok
+test r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations ... ok
+test r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart ... ok
+test r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation ... ok
+test r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again ... ok
+test r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once ... ok
+test r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart ... ok
+test r1314_2_a_revoked_preparing_grant_with_an_effect_and_no_adapter_waits_for_it ... ok
+test r1314_2_a_revoked_preparing_grant_without_an_effect_receipt_owes_nothing ... ok
+test r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke ... ok
+test r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record ... ok
+test r1315_2_inspect_combines_every_pending_record_that_covers_a_grant ... ok
+test r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record ... ok
+test r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record ... ok
+test r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round ... ok
+test r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it ... ok
+test r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one ... ok
+test r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it ... ok
+test r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it ... ok
+test r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call ... ok
+test r1317_4_an_obligation_at_its_cap_but_not_yet_stopped_is_rearmed ... ok
+test r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once ... ok
+test r1318_2_a_restart_after_the_racing_round_keeps_the_obligation_for_the_next_round ... ok
+test r1318_2_a_round_claimed_after_the_late_effect_clears_it ... ok
+test r1318_2_a_round_in_flight_when_a_late_effect_lands_does_not_clear_it ... ok
+test r1318_2_a_round_superseded_by_an_explicit_revoke_does_not_clear_a_late_effect ... ok
+test r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round ... ok
+test r1318_2_an_explicit_revokes_first_round_in_flight_does_not_clear_a_late_effect ... ok
+test r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_without_a_call ... ok
+test r1318_3_a_withdrawals_record_keeps_the_cap_it_was_created_with ... ok
+test r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with ... ok
+test r1318_3_the_supervisor_judges_a_record_by_the_lower_cap_it_was_created_with ... ok
+test r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call ... ok
+test r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation ... ok
+test r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect ... ok
+test r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation ... ok
+test r1319_2_a_late_confirmation_that_fails_to_commit_still_gets_a_call_after_the_effect ... ok
+test r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect ... ok
+test r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call ... ok
+test r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup ... ok
+test r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call ... ok
+test r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup ... ok
+test r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup ... ok
+test r1319_2_the_supervisor_makes_the_immediate_call_a_failed_refusal_commit_owes ... ok
+test r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made ... ok
+test r136_1_a_waiting_request_under_a_pause_answers_policy_paused_and_keeps_waiting ... ok
+test r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it ... ok
+test r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline ... ok
+test r136_1_pause_refuses_new_grants_and_bindings_and_replays_recorded_results ... ok
+test r136_3_a_child_entering_revoking_releases_its_parent_reference ... ok
+test r136_3_an_expired_child_releases_its_parent_reference ... ok
+test r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publish_voids_the_publish ... ok
+test r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_publish ... ok
+test r136_6_cutoff_direction_and_narrowing_under_uncertain_time ... ok
+test r138_4_a_narrowing_outside_the_approval_ends_the_grant_at_use ... ok
+test r138_4_a_passed_deadline_or_cutoff_expires_the_grant_at_use ... ok
+test r138_4_a_pause_or_uncertain_time_never_ends_a_grant ... ok
+test r138_4_a_removed_environment_permission_ends_the_grant_at_use ... ok
+test r138_4_a_revoke_on_the_chain_ends_the_grant_at_use ... ok
+test r138_4_an_undetermined_revalidation_ends_nothing ... ok
+test r138_4_the_scheduler_pass_ends_grants_whose_authority_was_withdrawn ... ok
+test r138_4_the_scheduler_pass_expires_grants_past_their_deadline_or_cutoff ... ok
+test r139_1_a_continuous_budget_running_out_under_uncertainty_expires_the_grant ... ok
+test r139_1_a_forward_wall_jump_under_uncertainty_leaves_the_grant_non_terminal ... ok
+test r139_1_an_unassessed_wall_reading_after_the_gate_accepted_time_ends_nothing ... ok
+test r139_1_an_unassessed_wall_reading_never_turns_a_withdrawal_into_an_expiry ... ok
+test r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move ... ok
+test r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart ... ok
+test r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report ... ok
+test r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once ... ok
+test r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant ... ok
+test recheck3_released_holder_must_not_continue_retry_under_new_fence ... ok
+test release_is_idempotent_and_the_last_reference_releases_without_revoking ... ok
+test restart_never_changes_environment_identity_or_revives_a_pause ... ok
+test retry_allowance_is_the_rounds_own_commit_not_a_reread ... ok
+test s01_fresh_eligibility_at_commit::s01_declaration_withdrawn_after_the_snapshot_refuses_noninteractive_activation ... ok
+test s01_fresh_eligibility_at_commit::s01_fallback_clearance_that_no_longer_holds_refuses_noninteractive_activation ... ok
+test tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound ... ok
+test u02_sources_before_the_bound::u02_slow_source_and_store_contention_stay_outside_the_bound ... ok
+test r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule ... ok
+test u0b_adapter_bound::u02_adapters_prepare_from_reads_no_store_or_live_source ... ok
+test u0b_adapter_bound::u0b_adapter_bound_covers_only_the_adapter_call ... ok
+test u0b_adapter_bound::u0b_bounded_adapter_call_drops_the_call_at_the_bound ... ok
+test u0b_adapter_bound::u0b_bounded_adapter_call_refuses_an_answer_after_the_bound ... ok
+test u0b_adapter_bound::u0b_continued_preparation_after_restart_answers_from_prepared_facts ... ok
+test u0b_adapter_bound::u0b_dropped_adapter_future_does_no_later_work ... ok
+test u0b_adapter_bound::u0b_every_adapter_call_is_bounded ... ok
+test u0b_adapter_bound::u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker ... ok
+test u0b_adapter_bound::u0b_prepare_timeout_while_running_is_outcome_unknown ... ok
+test u0b_adapter_bound::u0b_reconcile_timeout_matches_each_call_sites_error_arm ... ok
+test u02_sources_before_the_bound::u02_store_contention_delays_the_snapshot_never_the_bounded_call ... ok
+test u0b_adapter_bound::u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart ... ok
+test u0b_phase2::u01_held_repair_proceeds_only_while_runnable ... ok
+test u0b_adapter_bound::u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup ... ok
+test u0b_phase2::u0b_decision_kind_must_match_its_waiting_intent ... ok
+test u0b_phase2::u0b_apply_projection_decision_resumes_exact_waiting_operation ... ok
+test u0b_phase2::u0b_restart_dispatches_every_operation_kind ... ok
+test u0b_phase2::u0b_declare_interaction_decision_requires_attended_decide ... ok
+test u0b_phase2::u0b_setup_1_offered_after_activation ... ok
+test u0b_phase2::u0b_setup_admission_goes_through_insert_setup_operation ... ok
+test u0b_phase2::u0b_setup_cancel_only_before_the_first_commit_point ... ok
+test u0b_phase2::u0b_setup_without_projection_writer_is_capability_unavailable ... ok
+test u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends ... ok
+test u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1 ... ok
+test u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does ... ok
+test u10_crash_child_entry ... ok
+test u10_a17_repeated_unavailable_errors_get_a_stable_code_and_no_retry_storm ... ok
+test uninstall_fence_retry_is_one_ordinary_round ... ok
+test w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant ... ok
+test w0_r02_lock_disclosure_reads_only_personal_policies ... ok
+test u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity ... ok
+test w0_r03a_delegate_in_a_removed_environment_writes_nothing ... ok
+test w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged ... ok
+test w0_r03b_equal_delegations_in_a_managed_environment_coalesce ... ok
+test w5_time_uncertain_warning_reason_only_without_a_time_reference_for_this_boot ... ok
+test wave0_fail_closed::w0_setup_and_catalog_on_a_session_are_never_dispatched ... ok
+test r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation ... ok
+test r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost has been running for over 60 seconds
+test r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost ... ok
+
+successes:
+
+---- r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/operations.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    a06_a_dropped_caller_and_a_retry_converge_on_one_result
+    a06_crash_after_the_effect_before_its_receipt_reconciles_on_restart
+    a06_crash_after_the_receipt_completes_on_restart_with_one_effect
+    a06_crash_before_the_effect_then_restart_completes_with_one_effect
+    a06_duplicate_concurrent_requests_make_one_operation_and_one_effect
+    a06_lost_reply_then_restart_reconciles_without_a_second_effect
+    a06_lost_reply_then_restart_with_a_new_adapter_over_the_same_ledger_settles_once
+    a06_purged_key_is_request_expired_inside_the_marker_window
+    a06_restart_never_resets_a_resolved_deadline
+    a06_same_key_with_altered_parameters_conflicts
+    a19_added_authority_attended_waits_for_decide_then_applies_exactly_the_delta
+    a19_added_authority_unattended_is_interaction_required_with_a_decision_ref
+    a19_caller_timeout_is_not_cancellation
+    a19_decision_issued_under_an_older_generation_is_stale
+    a19_denied_decision_fails_the_operation_and_its_grant
+    a19_expired_decision_is_stale_operation_keeps_waiting_and_retry_gets_a_fresh_ref
+    a19_explicit_cancel_reports_possible_external_effect
+    a19_inspect_reports_capabilities_decisions_and_previews_without_effects
+    a19_outcome_unknown_from_the_adapter_is_never_reported_as_no_effect
+    a19_pending_approval_whose_grant_deadline_passes_fails_with_credential_expired
+    a19_running_limit_gives_backpressure_and_persists_nothing
+    a19_success_is_access_ready_with_binding_and_bounded_facts
+    a19_time_confirmation_needs_attendance_and_never_moves_a_deadline
+    a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning
+    a19_widening_policy_actions_always_create_a_decision_record
+    a29_another_principals_binding_is_not_found_or_not_owner
+    a29_metadata_is_ignored_and_attendance_is_never_a_request_field
+    a29_only_an_interactive_session_may_attend
+    a29_request_fields_never_widen_the_resolved_scope
+    a29_the_same_request_id_from_another_owner_is_a_distinct_key
+    bind_materializes_an_existing_binding_without_a_new_effect
+    delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one
+    fault_commit_failing_after_commit_is_replayed_by_the_retry
+    fault_commit_failing_before_commit_leaves_no_binding_and_no_event
+    fault_points_before_and_after_every_stage_recover_with_one_effect
+    g02_a_revoked_child_frees_its_parent_without_revoking_it
+    g03_cleanup_executor_deletes_generation_n_once
+    g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary
+    g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff
+    g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant
+    g10_widening_under_uncertain_time_creates_no_decision
+    m02_integration::u0b_admit_keeps_backpressure_order
+    m02_integration::u0b_bind_launch_validates_executable_and_excludes_holder_from_hash
+    m02_integration::u0b_confirm_with_prepared_facts_keeps_cleanup_ownership
+    m02_integration::u0b_eligibility_is_recomputed_per_result_never_taken_from_prepared_facts
+    m02_integration::u0b_existing_access_prepare_errors_name_the_provider
+    m02_integration::u0b_inspect_grants_keeps_cleanup_pending
+    m02_integration::u0b_inspect_identities_reports_fresh_eligibility_and_live_declaration
+    m02_integration::u0b_integration_provider_and_pairs_survive_ensure_attach_bind_replay_restart
+    m02_integration::u0b_mixed_mechanisms_refused_capability_unavailable
+    m02_integration::u0b_prepared_facts_have_no_interaction_field
+    m02_integration::u0b_prepared_facts_keep_the_full_identity_selection_report
+    m02_integration::u0b_reconcile_after_restart_answers_from_prepared_facts
+    m02_integration::u0b_recovery_intent_local_is_add_only
+    m02_integration::u0b_restart_dispatches_every_operation_kind
+    m02_integration::u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery
+    m02_integration::u0b_unattended_minimum_unknown_is_capability_unavailable
+    personal_resolution_ignores_a_workspace_policy_that_sorts_first
+    r1230_1_decided_operations_resume_with_their_own_interaction_mode
+    r1310_2_a_deadline_passing_while_degraded_expires_the_grant
+    r1310_2_a_degraded_grant_returns_only_when_revalidation_passes
+    r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused
+    r1310_2_a_use_repairs_a_degraded_grant_once_its_mechanism_is_configured_again
+    r1310_2_a_use_with_the_mechanism_gone_is_refused_and_degrades_the_grant
+    r1310_2_the_scheduler_pass_degrades_a_grant_whose_mechanism_is_gone
+    r1310_2_the_scheduler_pass_repairs_a_degraded_grant_once_its_mechanism_is_back
+    r1310_3_a_pending_remote_effect_completes_when_the_adapter_later_reports_done
+    r1310_3_a_pending_remote_effect_is_retried_on_the_jittered_schedule_up_to_the_cap
+    r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due
+    r1310_3_the_revocation_backoff_is_injectable_and_caps_the_rounds
+    r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule
+    r1312_1_a_crash_between_the_adapter_call_and_its_completion_counts_the_round
+    r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery
+    r1312_1_failed_completion_commits_never_allow_more_adapter_calls_than_the_cap
+    r1312_2_a_record_written_before_obligations_keeps_its_responsible_adapter
+    r1312_2_a_withdrawal_while_the_responsible_adapter_is_missing_waits_for_it
+    r1312_2_an_empty_adapter_list_never_completes_a_pending_revocation
+    r1312_2_removing_the_original_adapter_never_completes_its_pending_revocation
+    r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation
+    r1313_1_the_preparing_adapter_stays_responsible_after_operation_retention
+    r1313_2_a_grant_revoked_while_preparing_is_tracked_until_its_adapter_confirms
+    r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations
+    r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation
+    r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart
+    r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again
+    r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once
+    r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart
+    r1314_2_a_revoked_preparing_grant_with_an_effect_and_no_adapter_waits_for_it
+    r1314_2_a_revoked_preparing_grant_without_an_effect_receipt_owes_nothing
+    r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke
+    r1315_2_inspect_combines_every_pending_record_that_covers_a_grant
+    r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record
+    r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record
+    r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record
+    r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round
+    r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it
+    r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one
+    r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it
+    r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call
+    r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it
+    r1317_4_an_obligation_at_its_cap_but_not_yet_stopped_is_rearmed
+    r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once
+    r1318_2_a_restart_after_the_racing_round_keeps_the_obligation_for_the_next_round
+    r1318_2_a_round_claimed_after_the_late_effect_clears_it
+    r1318_2_a_round_in_flight_when_a_late_effect_lands_does_not_clear_it
+    r1318_2_a_round_superseded_by_an_explicit_revoke_does_not_clear_a_late_effect
+    r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round
+    r1318_2_an_explicit_revokes_first_round_in_flight_does_not_clear_a_late_effect
+    r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_without_a_call
+    r1318_3_a_withdrawals_record_keeps_the_cap_it_was_created_with
+    r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with
+    r1318_3_the_supervisor_judges_a_record_by_the_lower_cap_it_was_created_with
+    r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call
+    r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation
+    r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect
+    r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation
+    r1319_2_a_late_confirmation_that_fails_to_commit_still_gets_a_call_after_the_effect
+    r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect
+    r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup
+    r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call
+    r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call
+    r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup
+    r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup
+    r1319_2_the_supervisor_makes_the_immediate_call_a_failed_refusal_commit_owes
+    r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost
+    r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made
+    r136_1_a_waiting_request_under_a_pause_answers_policy_paused_and_keeps_waiting
+    r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it
+    r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline
+    r136_1_pause_refuses_new_grants_and_bindings_and_replays_recorded_results
+    r136_3_a_child_entering_revoking_releases_its_parent_reference
+    r136_3_an_expired_child_releases_its_parent_reference
+    r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publish_voids_the_publish
+    r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_publish
+    r136_6_cutoff_direction_and_narrowing_under_uncertain_time
+    r138_4_a_narrowing_outside_the_approval_ends_the_grant_at_use
+    r138_4_a_passed_deadline_or_cutoff_expires_the_grant_at_use
+    r138_4_a_pause_or_uncertain_time_never_ends_a_grant
+    r138_4_a_removed_environment_permission_ends_the_grant_at_use
+    r138_4_a_revoke_on_the_chain_ends_the_grant_at_use
+    r138_4_an_undetermined_revalidation_ends_nothing
+    r138_4_the_scheduler_pass_ends_grants_whose_authority_was_withdrawn
+    r138_4_the_scheduler_pass_expires_grants_past_their_deadline_or_cutoff
+    r139_1_a_continuous_budget_running_out_under_uncertainty_expires_the_grant
+    r139_1_a_forward_wall_jump_under_uncertainty_leaves_the_grant_non_terminal
+    r139_1_an_unassessed_wall_reading_after_the_gate_accepted_time_ends_nothing
+    r139_1_an_unassessed_wall_reading_never_turns_a_withdrawal_into_an_expiry
+    r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move
+    r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart
+    r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report
+    r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once
+    r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant
+    recheck3_released_holder_must_not_continue_retry_under_new_fence
+    release_is_idempotent_and_the_last_reference_releases_without_revoking
+    restart_never_changes_environment_identity_or_revives_a_pause
+    retry_allowance_is_the_rounds_own_commit_not_a_reread
+    s01_fresh_eligibility_at_commit::s01_declaration_withdrawn_after_the_snapshot_refuses_noninteractive_activation
+    s01_fresh_eligibility_at_commit::s01_fallback_clearance_that_no_longer_holds_refuses_noninteractive_activation
+    tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound
+    u02_sources_before_the_bound::u02_slow_source_and_store_contention_stay_outside_the_bound
+    u02_sources_before_the_bound::u02_store_contention_delays_the_snapshot_never_the_bounded_call
+    u0b_adapter_bound::u02_adapters_prepare_from_reads_no_store_or_live_source
+    u0b_adapter_bound::u0b_adapter_bound_covers_only_the_adapter_call
+    u0b_adapter_bound::u0b_bounded_adapter_call_drops_the_call_at_the_bound
+    u0b_adapter_bound::u0b_bounded_adapter_call_refuses_an_answer_after_the_bound
+    u0b_adapter_bound::u0b_continued_preparation_after_restart_answers_from_prepared_facts
+    u0b_adapter_bound::u0b_dropped_adapter_future_does_no_later_work
+    u0b_adapter_bound::u0b_every_adapter_call_is_bounded
+    u0b_adapter_bound::u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker
+    u0b_adapter_bound::u0b_prepare_timeout_while_running_is_outcome_unknown
+    u0b_adapter_bound::u0b_reconcile_timeout_matches_each_call_sites_error_arm
+    u0b_adapter_bound::u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup
+    u0b_adapter_bound::u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart
+    u0b_phase2::u01_held_repair_proceeds_only_while_runnable
+    u0b_phase2::u0b_apply_projection_decision_resumes_exact_waiting_operation
+    u0b_phase2::u0b_decision_kind_must_match_its_waiting_intent
+    u0b_phase2::u0b_declare_interaction_decision_requires_attended_decide
+    u0b_phase2::u0b_restart_dispatches_every_operation_kind
+    u0b_phase2::u0b_setup_1_offered_after_activation
+    u0b_phase2::u0b_setup_admission_goes_through_insert_setup_operation
+    u0b_phase2::u0b_setup_cancel_only_before_the_first_commit_point
+    u0b_phase2::u0b_setup_without_projection_writer_is_capability_unavailable
+    u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends
+    u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does
+    u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1
+    u10_a17_repeated_unavailable_errors_get_a_stable_code_and_no_retry_storm
+    u10_crash_child_entry
+    u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity
+    uninstall_fence_retry_is_one_ordinary_round
+    w0_r01_workspace_lock_behavior_never_reaches_a_personal_grant
+    w0_r02_lock_disclosure_reads_only_personal_policies
+    w0_r03a_delegate_in_a_removed_environment_writes_nothing
+    w0_r03b_equal_delegations_in_a_managed_environment_coalesce
+    w5_m03_policy_results_carry_lock_behavior_and_connection_m01_unchanged
+    w5_time_uncertain_warning_reason_only_without_a_time_reference_for_this_boot
+    wave0_fail_closed::w0_setup_and_catalog_on_a_session_are_never_dispatched
+
+test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 89.08s
+
+### model_operations exit=0
+### model_registry_pure
+
+running 17 tests
+test account_override_refused ... ok
+test check_effective_requires_every_trust_pin_and_the_q23_default ... ok
+test hard_deadline_after_reboot_passes_on_safe_wall_time ... ok
+test classify_documented_exit_codes_per_stage ... ok
+test late_write_residual_cleared_only_by_inspect_after_not_after ... ok
+test classify_exit_255_and_ready_rules_every_stage ... ok
+test hm1_parse_bounds_ready_and_version_lines ... ok
+test plan_refusals_each_precondition ... ok
+test plan_digest_covers_every_field ... ok
+test not_after_computation_bounds_hard_deadline ... ok
+test post_image_refuses_marker_lines_it_did_not_write ... ok
+test reconcile_classification_table_every_row ... ok
+test remote_step_pins_are_exactly_the_documented_set ... ok
+test trust_pins_match_documented_table ... ok
+test reconcile_never_redispatches_without_proven_termination ... ok
+test post_image_preserves_every_other_byte ... ok
+test check_post_append_accepts_admin_append_after_ours_rejects_damage ... ok
+
+successes:
+
+---- not_after_computation_bounds_hard_deadline stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- reconcile_never_redispatches_without_proven_termination stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- post_image_preserves_every_other_byte stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- check_post_append_accepts_admin_append_after_ours_rejects_damage stdout ----
+proptest: Failed to find absolute path of source file '"crates/registry/../../tests/model/registry_pure.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    account_override_refused
+    check_effective_requires_every_trust_pin_and_the_q23_default
+    check_post_append_accepts_admin_append_after_ours_rejects_damage
+    classify_documented_exit_codes_per_stage
+    classify_exit_255_and_ready_rules_every_stage
+    hard_deadline_after_reboot_passes_on_safe_wall_time
+    hm1_parse_bounds_ready_and_version_lines
+    late_write_residual_cleared_only_by_inspect_after_not_after
+    not_after_computation_bounds_hard_deadline
+    plan_digest_covers_every_field
+    plan_refusals_each_precondition
+    post_image_preserves_every_other_byte
+    post_image_refuses_marker_lines_it_did_not_write
+    reconcile_classification_table_every_row
+    reconcile_never_redispatches_without_proven_termination
+    remote_step_pins_are_exactly_the_documented_set
+    trust_pins_match_documented_table
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+### model_registry_pure exit=0
+all-tests-exit=0

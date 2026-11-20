@@ -1,0 +1,13 @@
+os=Microsoft Windows [Version 10.0.26300.9974]
+integrity=Medium Mandatory Level
+wsl-version=WSL version: <addr>
+build-commit=84d7c44e18c9d68fc7575ea6231ff1582a9e8658 (a label: the scripts are this checkout's)
+bindir-tarball-sha256=a0bb3cfd4c8dbcec94345612a4e0b5c10b1c6cdb294f82384e25ee4f46b43769 (equals -BundleSha256)
+sent-wsl-hook-journeys.sh-sha256=39d36263e9cb89cd70b1b54fc2c9431d9471b412d0eeb5c299476ead3a92a662
+sent-remote-lib.sh-sha256=848a9cae74c6e8a8ff269baaa11f3074e14814bb32588513e19e3d6128aab8f3
+sent-target-root.sh-sha256=bf549fd852ebc738a9bad4f64c0b8492aa3d5846a9592a38dc999db084f9e742
+runner-sha256=69961239e994a1d630024cfe33a467acea9c19b74ac1573ddd373d0c2fd823dd
+image-sha256=bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e (the M02 pin)
+distributions-before=exit 0; this run's: none; others: 1 (digest b9a76ff20fdf)
+distributions-after=exit 0; this run's: hm-m05-08dba2b1 Stopped 2; others: 1 (digest 185b918768b0)
+registered-set-equal-to-before=no

@@ -254,4 +254,11 @@ is done on `m03/f1-claims`, merged into main after M05's final candidate.
    binding to E9). The row is updated when the run happens. M03 exits with it `blocked`, as M01 exited with A08 and
    A29-local blocked on physical inputs.
 2. **M03-F1**, the claim update with version gating (section 4): **closed** at `80304f12`
-   (`tests/evidence/m03-f1-claims.json`, `verified`). It merges into main after M05's final candidate.
+   (`tests/evidence/m03-f1-claims.json`, `verified`). It merges into main after M05's final candidate (`fb3c3f38`), which carries I-26 (item 3).
+3. **A late scheduler pass at a grant's bound, found after this exit (M05 W4, ruling I-26).** A supervisor pass that
+   woke a few milliseconds before a grant's bound (its deadline, or a policy cutoff) found it not yet passed, ended
+   nothing, and then dropped the passed bound from its next wake, so it slept until the idle bound: a deadline or a
+   cutoff could be enforced up to 300 s late in the store and in what the pass tears down (A23's strict disconnect,
+   masters, slots); a new use was already refused at the bound. Fixed by I-26 (`supervisor::wake_for`) in M05's W4
+   final candidate. M03's E5–E9 evidence passed because unrelated events woke the supervisor in those runs. M03-F1's
+   claim entries (A23's `strict_disconnect` included) merge after that fix.

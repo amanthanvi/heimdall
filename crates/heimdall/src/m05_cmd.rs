@@ -333,7 +333,8 @@ fn rendered(env: Envelope<serde_json::Value>, render: fn(&serde_json::Value) -> 
 }
 
 fn pretty(v: &serde_json::Value) -> String {
-    serde_json::to_string_pretty(v).unwrap_or_default()
+    // ⟨M05⟩ Review M05-W3-RC01: human JSON is inert.
+    crate::output::human_json(v)
 }
 
 fn s<'a>(v: &'a serde_json::Value, k: &str) -> &'a str {

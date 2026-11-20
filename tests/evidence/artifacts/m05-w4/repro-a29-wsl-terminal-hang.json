@@ -1,0 +1,27 @@
+{
+ "name": "M05 W4, the WSL pre-final hang of adversarial_prompt_injection_cli a29_cli_hook_ignores_a_hostile_environment, reproduced on the devbox: the test binary run as wsl-hook-journeys.sh runs it (a shell running GNU `timeout`, so the command is in a background process group of its own) but under a terminal (a pty leading the session, as the WSL session has one), first the 056a1692 build, then the 84d7c44e build",
+ "file": "tests/adversarial/prompt_injection/cli.rs",
+ "observed_by": "the integrator, devbox (Linux x86-64), BINDIR tarballs /tmp/m05-wsl-056a1692.tar.gz (sha256 912c72f965c0490ef01d840c07dc57bf88f93bd45f4069fe6562a7ccb99c8bc0) and /tmp/m05-wsl-84d7c44e.tar.gz (sha256 a0bb3cfd4c8dbcec94345612a4e0b5c10b1c6cdb294f82384e25ee4f46b43769); scratch ~/hm-m05-tty-<random>, removed",
+ "command": "a pty (python3 pty.fork) running `bash -c 'timeout 120 <BINDIR>/adversarial_prompt_injection_cli --exact a29_cli_hook_ignores_a_hostile_environment; ...'`, with HEIMDALL_E2E_BIN, HM_FIXTURE_HOOK and HM_REPO_ROOT from the BINDIR",
+ "reverted": {
+  "label": "056a1692 (before the fix)",
+  "exit": 124,
+  "lines": [
+   "old: at 60 s, this session's processes (pid pgid state name):",
+   "    3649757 3649757 Ss+ bash",
+   "    3649758 3649758 S timeout",
+   "    3649759 3649758 Tl adversarial_pro",
+   "    3649767 3649767 Sl heimdall",
+   "    3649791 3649758 T bash",
+   "old: exit 124 after 120.0 s; []"
+  ]
+ },
+ "restored": {
+  "label": "84d7c44e (the shells under setsid -w, bounded)",
+  "exit": 0,
+  "lines": [
+   "new: exit 0 after 0.7 s; ['test a29_cli_hook_ignores_a_hostile_environment ... ok', 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.73s']"
+  ]
+ },
+ "also": "at 60 s the 056a1692 test binary (`adversarial_pro`, state Tl) and its interactive bash (state T) were stopped in timeout's process group, a background group of the pty's session: bash -i, finding a controlling terminal it is not the foreground of, stops its whole group with SIGTTIN; timeout ended it at 120 s with exit 124, the WSL run's result (900 s there). With the fix the shells have no controlling terminal and the test passes in 0.7 s under the same terminal"
+}

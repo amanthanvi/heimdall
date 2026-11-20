@@ -344,8 +344,7 @@ async fn confirm_recorded<S: Session, P: Prompter>(
          Approve exactly this request?\n",
         field("kind"),
         field("expires_at"),
-        serde_json::to_string_pretty(&request)
-            .unwrap_or_default()
+        crate::output::human_json(&request)
             .lines()
             .map(|l| format!("    {l}"))
             .collect::<Vec<_>>()
@@ -651,8 +650,12 @@ pub(crate) async fn offer_personal_default<S: Session, P: Prompter>(
     )
     .await;
     Some(if decided.code == Code::Ok {
+        // ⟨M05; rulings I-13 and I-17⟩ The note claims no more than the exit record: the first
+        // ordinary `ssh` after a free-slot period activates the default and may fail once.
         format!(
-            "Personal default created: ordinary ssh in this environment uses {profile} access automatically, within its saved limits."
+            "Personal default created: ordinary ssh in this environment uses {profile} access automatically, within its saved limits. \
+             After a time without access, the first ssh starts it and may fail once; the next one logs in. \
+             With the shell integration (bash or zsh) access is started before you need it."
         )
     } else {
         format!(

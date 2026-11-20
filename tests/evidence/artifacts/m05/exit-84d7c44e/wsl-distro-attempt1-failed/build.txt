@@ -1,0 +1,5 @@
+### the run stopped
+At <winhome>\AppData\Local\hm-m05-final2-836f390e\src\tests\native\m05\run-wsl-hook-windows.ps1:906 char:9
++         throw "$distroName is registered under another install direct …
++         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+at <ScriptBlock>, <winhome>\AppData\Local\hm-m05-final2-836f390e\src\tests\native\m05\run-wsl-hook-windows.ps1: line 906

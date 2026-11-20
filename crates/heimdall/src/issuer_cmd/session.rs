@@ -339,7 +339,8 @@ fn read_bundle(path: &Path) -> Result<RecoveryBundle, Outcome> {
         ))
     };
     let mut bytes = Vec::new();
-    std::fs::File::open(path)
+    // ⟨M05; review M05-W4-R02⟩ A regular file only, opened without waiting (a FIFO refuses).
+    crate::input_file::open_regular(path)
         .and_then(|f| f.take(BUNDLE_MAX_BYTES + 1).read_to_end(&mut bytes))
         .map_err(|e| unreadable(&format!("{:?}", e.kind())))?;
     if bytes.len() as u64 > BUNDLE_MAX_BYTES {

@@ -1,0 +1,15 @@
+exit 0: icacls: the run root gets the protected stock profile list (the user, SYSTEM, Administrators; inherited by what is created inside) [0 s]
+exit 0: the BINDIR tarball (-Bundle, -BundleSha256) sha256 equals the expected digest (a0bb3cfd4c8dbcec94345612a4e0b5c10b1c6cdb294f82384e25ee4f46b43769) [0 s]
+exit 0: wsl --list --quiet: the census before the run (1 registered) [0 s]
+exit 0: wsl --list: this run's name is not registered [0 s]
+exit 0: the tarball and the scripts are copied into the run directory, each equal to its source [0 s]
+exit 0: the pinned image downloaded over HTTPS [4 s]
+exit 0: the image is the pinned one (sha256) [0 s]
+exit 0: wsl --import hm-m05-08dba2b1 (into the run directory, WSL 2) [10 s]
+exit 1: hm-m05-08dba2b1 is registered, but not under this run's install directory: another run's, so it is not used and not removed [0 s]
+exit 1: the run stopped: hm-m05-08dba2b1 is registered under another install directory; nothing was run in it (line 906) [0 s]
+exit 1: hm-m05-08dba2b1 is registered, but its install directory is not this run's (or could not be read): not terminated, not unregistered; this run's install directory and pending-import.txt are kept [0 s]
+exit 1: hm-m05-08dba2b1 may still be registered: its install directory and pending-import.txt under the run directory are kept (unregister it by this exact name, then remove the directory) [0 s]
+exit 1: the registered distributions equal the set before the run (only this run's was added and removed) [0 s]
+exit 0: canary-prefix scan over saved output and metadata (count = 0)
+exit 0: leak scan: saved files and metadata still naming a host, a user or a home (0)

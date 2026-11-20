@@ -12,9 +12,13 @@
 __heimdall_hook() {
   emulate -L zsh
   command -v heimdall >/dev/null 2>&1 || return 0
-  local out state rest seq recheck
+  local out state rest seq recheck prev last
+  prev="${__heimdall_seq:-0}"
+  case "$prev" in ''|*[!0-9]*|0?*|??????????*) prev=0 ;; esac
+  last="${__heimdall_state:-none}"
+  case "$last" in active|untrusted|paused|needs_review|none) ;; *) last=none ;; esac
   out="$(command heimdall activate --hook --cwd "$PWD" --shell-pid "$$" \
-    --seq "${__heimdall_seq:-0}" --last "${__heimdall_state:-none}" </dev/null)"
+    --seq "$prev" --last "$last" </dev/null)"
   state="${out%% *}"
   rest="${out#* }"
   seq="${rest%% *}"
@@ -36,7 +40,9 @@ __heimdall_hook() {
 
 __heimdall_due_check() {
   emulate -L zsh
-  if [ "${__heimdall_due:-0}" -gt 0 ] && [ "$SECONDS" -ge "${__heimdall_due:-0}" ]; then
+  local due="${__heimdall_due:-0}"
+  case "$due" in ''|*[!0-9]*|0?*|???????????*) due=0 ;; esac
+  if [ "$due" -gt 0 ] && [ "$SECONDS" -ge "$due" ]; then
     __heimdall_hook
   fi
 }

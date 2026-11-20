@@ -712,6 +712,70 @@ pub const RESIDUALS: &[Residual] = &[
         reason: ResidualReason::FailClosedOnly,
         adr: "ADR-0008 §17.33 item 9; §17.35 item 3",
     },
+    Residual {
+        id: "same_user_agent_with_a_terminal_can_attend",
+        description: "a same-user program with a terminal (a prompt-injected agent driving a pseudo-terminal) can run `heimdall decision approve` and type yes at Heimdall's own attended confirmation, or speak the control protocol itself and declare an interactive session. Claimed instead: no repository, manifest or request content ever becomes consent (ADR-0011 I1, I5), and a program without a terminal gets INTERACTION_REQUIRED. Owner question Q8's guard was dropped; this is the residual only",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "consent.attended_decide (ADR-0011 R1)",
+        probe: Probe {
+            target: "-p heimdall-runtime --test model_operations",
+            source: "tests/model/operations.rs",
+            test: "a29_only_an_interactive_session_may_attend",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0011 §8 R1; ruling I-23",
+    },
+    Residual {
+        id: "request_working_directory_is_a_same_user_claim",
+        description: "the working directory in an ensure, run or hook request is the caller's claim: a same-user process can name any trusted workspace's directory and activate what that workspace's policy covers. Context labels say same_user_context; the claim is only that a directory never gains a workspace trust it does not have, and never moves trust",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "workspace.context_resolution (ADR-0011 R2)",
+        probe: Probe {
+            target: "-p heimdall-runtime --test adversarial_prompt_injection",
+            source: "tests/adversarial/prompt_injection.rs",
+            test: "a29_hostile_working_directories_move_no_trust",
+        },
+        reason: ResidualReason::NeedsHostileSameUserProgram,
+        adr: "ADR-0011 §8 R2; ruling I-23",
+    },
+    Residual {
+        id: "first_ordinary_ssh_after_a_free_slot_fails_once",
+        description: "the first ordinary ssh after a free-slot period activates the personal default and may fail once, because OpenSSH reads the slot's IdentityFile before it asks the agent; the next ssh logs in. With the shell integration the hook warms the default first; native Windows has no hook and keeps it. Spec §5.4 and §10.3 hold from the second use. It only fails; the activation it triggered stays applied",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "activation.ordinary_ssh_default (ADR-0011 §10 item 12, I-13)",
+        probe: Probe {
+            target: "-p heimdall --test e2e_exit_m05",
+            source: "tests/e2e/exit_m05/u5.rs",
+            test: "u5::u5_ordinary_ssh_activates_the_personal_default",
+        },
+        reason: ResidualReason::FailClosedOnly,
+        adr: "ADR-0011 §10 item 12 (I-13); ruling I-23",
+    },
+    Residual {
+        id: "workspace_identity_unavailable_is_refused",
+        description: "on a filesystem that reports no stable file identity, a workspace's identity is refused, never approximated by path alone (ADR-0011 §2.3): such a root cannot be matched to a trust record by identity. No fixture filesystem lacks stable identities (APFS, ext4 and NTFS all report one), so the probe cites the code that keeps a missing identity as None",
+        platform: Platform {
+            os: "any",
+            arch: "any",
+        },
+        limits: "workspace.identity (ADR-0011 R6)",
+        probe: Probe {
+            target: "code: the observation keeps a missing root and .git identity as None (`Observation`'s identity fields; R6: never approximated)",
+            source: "crates/project/src/observe.rs",
+            test: "",
+        },
+        reason: ResidualReason::FailClosedOnly,
+        adr: "ADR-0011 §8 R6; ruling I-23",
+    },
 ];
 
 /// ⟨M03-F1⟩ The running Heimdall build, against which a claim's `signer_builds` is judged.

@@ -3853,7 +3853,10 @@ mod tests {
             let app = open(&m05_app(), "dec_trust1");
             let text = snap("m05_first_trust", &app);
             for expected in [
-                "Use Development access automatically for this project?",
+                // Ruling I-21: the question names the profile by its ID; the owner's label is
+                // quoted data in the detail line only.
+                "Use dev access automatically for this project?",
+                "Profile: dev (label \"Development\")",
                 "Work can continue while your desktop and password manager are locked, using your saved session limits.",
                 "You can pause or remove access at any time.",
                 "Detail: what approving grants",
@@ -3981,15 +3984,17 @@ mod tests {
                 }
             }
             // It is neither the title nor the question: the modal is titled by the
-            // runtime's decision ID and kind, and the question names the owner's profile.
+            // runtime's decision ID and kind, and the question names the profile by its ID
+            // (ruling I-21), never by a label.
             assert!(
                 rows.iter()
                     .any(|r| r.contains("Owner decision dec_trust1 (trust_workspace)"))
             );
             assert!(
-                text.contains("Use Development access automatically for this project?"),
+                text.contains("Use dev access automatically for this project?"),
                 "{text}"
             );
+            assert!(!text.contains("Use Development access"), "{text}");
             // Approving is the attended decide of that record, and only after the end of what
             // it says has been drawn.
             type_text(&mut unread, "yes");
