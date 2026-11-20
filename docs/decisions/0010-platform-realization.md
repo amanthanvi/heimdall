@@ -657,6 +657,14 @@ reading I-11.
    `a13_deleted_socket_recreated`). A binding withdrawn while that runs is withdrawn again, so
    a re-check never brings back an ended binding's endpoint; ⟨review M04-W2-R02⟩ the same
    post-check runs after a relaunch's replay and after a binding's first realization.
+   ⟨Review M04-MC3-R01⟩ Each endpoint generation is bound to the run directory its locator and
+   files were rendered for. A helper with another run directory (a replacement that chose
+   another base, say the home base after `XDG_RUNTIME_DIR` was refused at its start) never
+   realizes or replays it: a realization is refused (`wsl_bridge_run_dir_changed`), a replay
+   drops it, and its endpoint is invalidated, so no `ensure` answers the old paths as ready. The
+   next `ensure` creates the endpoint at the new base. Proof:
+   `wsl_mode_b_a_replacement_with_another_run_base_realizes_nothing_rendered_for_the_old`
+   (revert proof: either half neutralized fails, exit 101; restored, exit 0).
 3. **The leftovers of a stopped distribution are a retained obligation.** When `wsl disable`
    can't reach a stopped distribution, its binding directories stay, holding public material
    and a dead socket. The answer says `cleanup_pending`. A later disable reports it again, and
@@ -699,7 +707,9 @@ reading I-11.
    whole chain passes the rule; otherwise the per-user base under the account's home,
    `<state base>/heimdall/run` (`$XDG_STATE_HOME`, else `~/.local/state`), whose missing
    components are created 0700 and whose whole chain is checked by the same rule at the first
-   realize. Nothing Heimdall did not create has its permissions changed, and nothing is created
+   realize. ⟨Review M04-MC3-R02⟩ The chain is checked as far as it exists before any of it is
+   created; each missing level is then created through the handle of the deepest existing
+   directory (which must be the account's own) and verified owner-only before the next. Nothing Heimdall did not create has its permissions changed, and nothing is created
    under an `XDG_RUNTIME_DIR` that failed. When the home base fails too, the refusal names both
    (`wsl_bridge_xdg_runtime_dir_and_home_unsafe`); when `XDG_RUNTIME_DIR` is unset, the home
    base's refusals are the ones above. A run directory that leaves no room for an endpoint's

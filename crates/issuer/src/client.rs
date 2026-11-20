@@ -252,6 +252,7 @@ const PUMP_BUFFER: usize = 64 * 1024;
 fn pump_stdout(
     mut file: std::fs::File,
     handle: &tokio::runtime::Handle,
+    diagnostics: bool,
 ) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>> {
     use std::io::Read as _;
     let (reader, mut writer) = tokio::io::duplex(PUMP_BUFFER);
@@ -260,13 +261,15 @@ fn pump_stdout(
         .name("hm-issuer-out".into())
         .spawn(move || {
             let mut chunk = [0u8; 4096];
-            let mut first = true;
+            let mut first = diagnostics;
             loop {
                 match file.read(&mut chunk) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
                         // ⟨M04 merge-candidate run at 9de3169a⟩ The child's first answer
-                        // reached this process (a byte count only).
+                        // reached this process (a byte count only). ⟨M04-MC3-R03⟩ Debug
+                        // builds under the test configuration only
+                        // ([`ClientConfig::start_diagnostics`]).
                         if std::mem::take(&mut first) {
                             tracing::info!(
                                 bytes = n,
@@ -290,6 +293,7 @@ fn pump_stdout(
 fn pump_stdin(
     mut file: std::fs::File,
     handle: &tokio::runtime::Handle,
+    diagnostics: bool,
 ) -> std::io::Result<Box<dyn AsyncWrite + Send + Unpin>> {
     use std::io::Write as _;
     let (mut reader, writer) = tokio::io::duplex(PUMP_BUFFER);
@@ -298,7 +302,7 @@ fn pump_stdin(
         .name("hm-issuer-in".into())
         .spawn(move || {
             let mut chunk = [0u8; 4096];
-            let mut first = true;
+            let mut first = diagnostics;
             loop {
                 match handle.block_on(reader.read(&mut chunk)) {
                     Ok(0) | Err(_) => break,
@@ -307,6 +311,7 @@ fn pump_stdin(
                         let written = file.write_all(bytes).and_then(|()| file.flush());
                         // ⟨M04 merge-candidate run at 9de3169a⟩ The first request reached
                         // the child's stdin, or could not (a byte count and the outcome).
+                        // ⟨M04-MC3-R03⟩ Debug builds under the test configuration only.
                         if std::mem::take(&mut first) {
                             tracing::info!(
                                 bytes = n,
@@ -393,6 +398,10 @@ pub struct ClientConfig {
     /// ⟨M04 U2⟩ Starts the child (`None`: `tokio::process`, stdin and stdout piped, stderr
     /// null, `kill_on_drop`).
     pub spawner: Option<ChildSpawner>,
+    /// ⟨M04-MC3-R03⟩ Log when a spawner-started child's pipes carry their first bytes (a
+    /// start diagnostic for the native test runs). Set only by a debug build under the test
+    /// configuration; `false` by default.
+    pub start_diagnostics: bool,
 }
 
 impl ClientConfig {
@@ -409,6 +418,7 @@ impl ClientConfig {
             request_hold: None,
             child_image: None,
             spawner: None,
+            start_diagnostics: false,
         }
     }
 }
@@ -841,8 +851,9 @@ impl Inner {
         if let Some(spawner) = &self.config.spawner {
             let handle = tokio::runtime::Handle::try_current().ok()?;
             let spawned = spawner(c).ok()?;
-            let stdin = pump_stdin(spawned.stdin, &handle).ok()?;
-            let stdout = pump_stdout(spawned.stdout, &handle).ok()?;
+            let diagnostics = self.config.start_diagnostics;
+            let stdin = pump_stdin(spawned.stdin, &handle, diagnostics).ok()?;
+            let stdout = pump_stdout(spawned.stdout, &handle, diagnostics).ok()?;
             return Some(Started {
                 child: spawned.process,
                 stdin,

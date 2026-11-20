@@ -1100,6 +1100,8 @@ mod enabled {
                 managed.session_lock = SessionLockWiring::Source(fake_session_lock(path));
             }
             managed.script_pause_dir = m03.script_pause_dir.clone();
+            // ⟨M04-MC3-R03⟩ The issuer client's start diagnostics (the pumps' first bytes).
+            managed.issuer_start_diagnostics = true;
         }
         // Count starts before the instance lock (single-child launcher test).
         record_start(paths).map_err(|e| format!("cannot record the start: {}", e.kind()))?;

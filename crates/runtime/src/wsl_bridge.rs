@@ -40,7 +40,9 @@ use heimdall_app::ports::{
 use heimdall_contract::Timestamp;
 use heimdall_contract::environment::{DistributionGuid, HelperState};
 use heimdall_contract::ids::{BindingId, EnvironmentId};
-use heimdall_credential::endpoints::wsl::{WeakEndpointRegistry, WslPublic, WslRealizer};
+use heimdall_credential::endpoints::wsl::{
+    RUN_DIR_CHANGED, WeakEndpointRegistry, WslPublic, WslRealizer, same_run_dir,
+};
 use heimdall_domain::environment::EnvironmentRealization;
 use heimdall_domain::resource::ResourceGeneration;
 use heimdall_store::Store;
@@ -152,6 +154,9 @@ struct TagState {
     binding: BindingId,
     generation: u64,
     public: WslPublic,
+    /// ⟨M04-MC3-R01⟩ The run directory the endpoint's locator and `public` were rendered
+    /// for: only a helper with this run directory realizes it.
+    run_dir: String,
 }
 
 /// One Mode B environment's helper and desired endpoints.
@@ -397,7 +402,7 @@ impl BridgeRegistry {
                 return Err(adapter_error(e));
             }
         };
-        let tags: Vec<(String, u64, WslPublic)> = {
+        {
             let mut g = self.inner.lock();
             let st = g.entry(environment.clone()).or_default();
             st.bridge = Some(Arc::clone(&bridge));
@@ -410,38 +415,44 @@ impl BridgeRegistry {
             // The helper's startup removed the leftovers of a binding it was not asked to
             // realize (design §4): nothing stays pending.
             st.pending = false;
-            st.tags
-                .iter()
-                .map(|(t, s)| (t.clone(), s.generation, s.public.clone()))
-                .collect()
-        };
-        // A respawn realizes the current generations again (⟨M04-W2-R02⟩ a binding withdrawn
-        // while that runs is withdrawn again: `realize_still_wanted`).
-        for (tag, generation, public) in tags {
-            if let Err(e) =
-                self.realize_still_wanted(environment, &bridge, &tag, generation, &public)
-            {
-                tracing::warn!(code = %e.code(), "a Mode B endpoint could not be realized again");
-            }
         }
+        // A respawn realizes the current generations again (⟨M04-W2-R02⟩ a binding withdrawn
+        // while that runs is withdrawn again: `realize_still_wanted`; ⟨M04-MC3-R01⟩ one
+        // rendered for another run directory is not realized but invalidated).
+        self.realize_again(environment, &bridge);
         Ok(bridge)
     }
 
     /// Realize `environment`'s current generations again on its live helper (idempotent
     /// there; a deleted socket is recreated). A tag withdrawn meanwhile is withdrawn again,
-    /// so a re-check never brings back the endpoint of an ended binding.
+    /// so a re-check never brings back the endpoint of an ended binding. ⟨M04-MC3-R01⟩ A
+    /// generation rendered for another run directory than `bridge`'s (a replacement helper
+    /// with another run base) is never realized there: its locator and files name paths this
+    /// helper does not serve. It is forgotten and its endpoint invalidated, so the next
+    /// `ensure` creates it afresh at this helper's run directory.
     fn realize_again(&self, environment: &EnvironmentId, bridge: &Arc<dyn BridgeApi>) {
-        let tags: Vec<(String, u64, WslPublic)> = self
-            .inner
-            .lock()
-            .get(environment)
-            .map(|st| {
-                st.tags
-                    .iter()
-                    .map(|(t, s)| (t.clone(), s.generation, s.public.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let base = bridge.run_dir();
+        let (tags, stale) = {
+            let mut g = self.inner.lock();
+            let Some(st) = g.get_mut(environment) else {
+                return;
+            };
+            let mut stale = Vec::new();
+            st.tags.retain(|_, t| {
+                let same = same_run_dir(&t.run_dir, &base);
+                if !same {
+                    stale.push((t.binding.clone(), t.generation));
+                }
+                same
+            });
+            let tags: Vec<(String, u64, WslPublic)> = st
+                .tags
+                .iter()
+                .map(|(t, s)| (t.clone(), s.generation, s.public.clone()))
+                .collect();
+            (tags, stale)
+        };
+        self.invalidate(stale);
         for (tag, generation, public) in tags {
             if let Err(e) =
                 self.realize_still_wanted(environment, bridge, &tag, generation, &public)
@@ -473,6 +484,29 @@ impl BridgeRegistry {
             let _ = bridge.withdraw(tag, generation);
         }
         Ok(still)
+    }
+
+    /// ⟨M04-MC3-R01⟩ Invalidate the endpoints of `stale` (binding, generation): rendered for
+    /// a run directory the environment's helper no longer has. Their tags are already
+    /// forgotten here, so the withdrawal their removal makes is a no-op.
+    fn invalidate(&self, stale: Vec<(BindingId, u64)>) {
+        if stale.is_empty() {
+            return;
+        }
+        let endpoints = self
+            .inner
+            .endpoints
+            .get()
+            .and_then(WeakEndpointRegistry::upgrade);
+        for (binding, generation) in stale {
+            tracing::warn!(
+                code = RUN_DIR_CHANGED,
+                "a Mode B endpoint rendered for another run directory was invalidated"
+            );
+            if let Some(e) = &endpoints {
+                e.invalidate_wsl(&binding, ResourceGeneration(generation));
+            }
+        }
     }
 
     /// ⟨M04-W2-R03, M04-FX-RC02⟩ No background start of `environment`'s helper until the
@@ -518,33 +552,32 @@ impl BridgeRegistry {
         }
     }
 
-    /// [`WslRealizer::realize`]'s body: `tag` at `generation` on `environment`'s helper,
-    /// started under `start` when none lives (module docs: `start`).
+    /// [`WslRealizer::realize`]'s body: `tag` at `want`'s generation on `environment`'s
+    /// helper, started under `start` when none lives (module docs: `start`). ⟨M04-MC3-R01⟩
+    /// Refused with [`RUN_DIR_CHANGED`], and the endpoint invalidated, when that helper's run
+    /// directory is not the one `want` was rendered for (the helper that gave the endpoint
+    /// its locator was replaced meanwhile by one with another run base).
     fn realize_under(
         &self,
         environment: &EnvironmentId,
-        binding: &BindingId,
         tag: &str,
-        generation: u64,
-        public: &WslPublic,
+        want: TagState,
         start: DistributionStart,
     ) -> Result<(), AdapterError> {
         let bridge = self.ensure_bridge(environment, start, false)?;
+        if !same_run_dir(&bridge.run_dir(), &want.run_dir) {
+            self.invalidate(vec![(want.binding, want.generation)]);
+            return Err(unavailable(RUN_DIR_CHANGED));
+        }
+        let (generation, public) = (want.generation, want.public.clone());
         // Remembered first: a stream may arrive the moment the endpoint listens.
         self.inner
             .lock()
             .entry(environment.clone())
             .or_default()
             .tags
-            .insert(
-                tag.to_owned(),
-                TagState {
-                    binding: binding.clone(),
-                    generation,
-                    public: public.clone(),
-                },
-            );
-        match self.realize_still_wanted(environment, &bridge, tag, generation, public) {
+            .insert(tag.to_owned(), want);
+        match self.realize_still_wanted(environment, &bridge, tag, generation, &public) {
             Ok(true) => Ok(()),
             // ⟨M04-W2-R02⟩ Withdrawn while it was realized: withdrawn again, and not served.
             Ok(false) => Err(unavailable("wsl_binding_withdrawn")),
@@ -724,13 +757,17 @@ impl WslRealizer for BridgeRegistry {
         binding: &BindingId,
         tag: &str,
         generation: u64,
+        run_dir: &str,
         public: &WslPublic,
         start: DistributionStart,
     ) -> Result<(), AdapterError> {
-        logged(
-            "realize",
-            self.realize_under(environment, binding, tag, generation, public, start),
-        )
+        let want = TagState {
+            binding: binding.clone(),
+            generation,
+            public: public.clone(),
+            run_dir: run_dir.to_owned(),
+        };
+        logged("realize", self.realize_under(environment, tag, want, start))
     }
 
     fn withdraw(

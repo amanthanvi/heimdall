@@ -386,13 +386,14 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
     use heimdall_issuer::child::{EXIT_UNAVAILABLE, EXIT_USAGE};
     let begun = std::time::Instant::now();
     let env = |name: &str| std::env::var_os(name);
+    let requested = crate::testcfg::requested_by(&env);
     // A release build refuses every test variable before anything is read (U0b's
     // `release_build_refuses_m03_test_gates`); the M03 values are validated here.
-    if crate::testcfg::refusal(
-        crate::testcfg::AVAILABLE,
-        crate::testcfg::requested_by(&env),
-    )
-    .is_some()
+    // ⟨M04-MC3-R04⟩ A test configuration needs an explicit home, checked before a path is
+    // resolved or the phase record opened (the per-user default directories are never
+    // touched by a test configuration).
+    if crate::testcfg::refusal(crate::testcfg::AVAILABLE, requested).is_some()
+        || crate::testcfg::home_refusal(requested, ctx.home.is_some()).is_some()
     {
         return EXIT_USAGE;
     }
@@ -402,7 +403,7 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
     let Ok(paths) = ctx.paths() else {
         return EXIT_UNAVAILABLE;
     };
-    let phases = ChildPhases::new(begun, &paths.state_dir, crate::testcfg::requested_by(&env));
+    let phases = ChildPhases::new(begun, &paths.state_dir, requested);
     phases.note("paths");
     let db = paths
         .state_dir

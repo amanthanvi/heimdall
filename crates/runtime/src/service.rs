@@ -443,6 +443,10 @@ pub struct ManagedOptions {
     /// (`KeyVault::with_test_seed`). A release build has no such field.
     #[cfg(debug_assertions)]
     pub test_key_seed: Option<Vec<u8>>,
+    /// **Test configuration only** (debug builds; ⟨M04-MC3-R03⟩): the issuer client's start
+    /// diagnostics ([`ClientConfig::start_diagnostics`]). A release build has no such field.
+    #[cfg(debug_assertions)]
+    pub issuer_start_diagnostics: bool,
     /// Arguments placed before `--` on every `ssh` the connection supervisor runs, and
     /// the environment of those children (tests: the client isolation arguments and a
     /// scratch `HOME`; production: none, the runtime's own).
@@ -461,6 +465,8 @@ impl Default for ManagedOptions {
             script_pause_dir: None,
             #[cfg(debug_assertions)]
             test_key_seed: None,
+            #[cfg(debug_assertions)]
+            issuer_start_diagnostics: false,
             connection_client_args: Vec::new(),
             connection_client_env: None,
         }
@@ -2740,7 +2746,15 @@ impl ManagedParts {
             .unwrap_or_else(|| Arc::new(crate::platform::process_start_time));
         // ⟨ADR-0008 §17.28 item 1, §17.32, §17.33 item 2⟩ The fence's load gate, the
         // request hold and the exact-child check ([`issuer_client_config`]).
-        let issuer = command.map(|c| ChildIssuer::new(issuer_client_config(c, start_token, ops)));
+        #[cfg(debug_assertions)]
+        let diagnostics = m.issuer_start_diagnostics;
+        #[cfg(not(debug_assertions))]
+        let diagnostics = false;
+        let issuer = command.map(|c| {
+            let mut config = issuer_client_config(c, start_token, ops);
+            config.start_diagnostics = diagnostics;
+            ChildIssuer::new(config)
+        });
         teardown.issuer.clone_from(&issuer);
         if let Some(i) = &issuer {
             self.sources.set_issuer(Arc::new(i.clone()));

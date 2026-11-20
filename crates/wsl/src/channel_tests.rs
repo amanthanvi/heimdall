@@ -923,8 +923,9 @@ fn mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others() {
 
 /// ⟨The contract owner's ruling⟩ When the home base fails the same rule too (here the
 /// account's state directory sits in a directory anyone can write, not sticky), the refusal
-/// names both bases (`wsl_bridge_xdg_runtime_dir_and_home_unsafe`); no endpoint directory is
-/// created, and neither unsafe directory has its mode changed.
+/// names both bases (`wsl_bridge_xdg_runtime_dir_and_home_unsafe`); ⟨M04-MC3-R02⟩ nothing is
+/// created under either base (the home base's chain is judged before any of it is made), and
+/// neither unsafe directory has its mode changed.
 #[test]
 fn mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe() {
     let root = tempfile::Builder::new()
@@ -953,6 +954,10 @@ fn mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe()
         "wsl_bridge_xdg_runtime_dir_and_home_unsafe"
     );
     assert!(!Path::new(&run).join("b").exists(), "no endpoint directory");
+    assert!(
+        !shared.join("state").exists(),
+        "nothing is created under the unsafe home base"
+    );
     assert!(!xdg.join("heimdall").exists());
     assert_eq!(mode(&xdg), 0o777);
     assert_eq!(mode(&shared), 0o777);

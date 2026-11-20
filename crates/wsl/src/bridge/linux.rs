@@ -204,6 +204,65 @@ fn secure_chain(base: &Path, uid: u32) -> Chain {
     chain_of(base, uid, 0)
 }
 
+/// ⟨M04-MC3-R02⟩ The deepest entry on the way to `path` that exists (`path` itself when it
+/// does), and the names below it that do not, outermost first. Only a missing entry is
+/// walked past: any other error stops the walk there, for the chain check to judge.
+fn existing_prefix(path: &Path) -> (PathBuf, Vec<String>) {
+    let mut existing = path.to_path_buf();
+    let mut missing = Vec::new();
+    while matches!(
+        std::fs::symlink_metadata(&existing),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound
+    ) {
+        let Some(name) = existing.file_name().and_then(|n| n.to_str()) else {
+            break;
+        };
+        missing.push(name.to_owned());
+        if !existing.pop() {
+            break;
+        }
+    }
+    missing.reverse();
+    (existing, missing)
+}
+
+/// The run directory's base judged by [`secure_chain`]: `Ok` when secure, else the refusal
+/// (said, and returned). `fallback` is why `XDG_RUNTIME_DIR` was not chosen, when it was not.
+fn chain_verdict(chain: Chain, fallback: Option<XdgVerdict>) -> Result<(), Failure> {
+    match (chain, fallback) {
+        (Chain::Secure, _) => Ok(()),
+        // ⟨The contract owner's ruling⟩ Neither base is safe: the refusal names both.
+        (chain, Some(xdg @ (XdgVerdict::Replaceable | XdgVerdict::Linked))) => {
+            let how = |linked: bool| {
+                if linked {
+                    "is reached through a symbolic link that is not root's, or whose target another principal can replace"
+                } else {
+                    "can be replaced by another principal (a component writable by others and not sticky, not the account's or root's, or missing)"
+                }
+            };
+            say(&format!(
+                "no safe run directory for Mode B: XDG_RUNTIME_DIR {}, and the home base (the account's state directory) {}",
+                how(xdg == XdgVerdict::Linked),
+                how(chain == Chain::Linked)
+            ));
+            Err(fail(
+                ErrorKind::Unavailable,
+                "wsl_bridge_xdg_runtime_dir_and_home_unsafe",
+            ))
+        }
+        (Chain::Replaceable, _) => {
+            say("the run directory's base or an ancestor can be replaced by another principal");
+            Err(fail(ErrorKind::Unavailable, "wsl_bridge_run_dir_unsafe"))
+        }
+        (Chain::Linked, _) => {
+            say(
+                "the run directory's base is reached through a symbolic link that is not root's, or whose target another principal can replace: set XDG_RUNTIME_DIR, or use a base without links",
+            );
+            Err(fail(ErrorKind::Unavailable, "wsl_bridge_run_dir_linked"))
+        }
+    }
+}
+
 fn chain_of(path: &Path, uid: u32, depth: u32) -> Chain {
     use std::path::Component;
     if depth > 8
@@ -401,57 +460,39 @@ impl Endpoints {
         // ⟨M04-W2-R01⟩ Mode B returns paths (the socket, the `ssh_config` the owner runs `ssh
         // -F` with), so no other principal may be able to replace the anchor's directory or
         // any ancestor: otherwise it could rename the anchor aside and plant a configuration
-        // at the returned path. `<run>` is `<xdg>/heimdall` (created owner-only like the
-        // helper's state directory), or `<state>/heimdall/run`; what Heimdall creates is
-        // created 0700, and nothing it did not create has its permissions changed.
-        let run = if fallback.is_none() {
-            let dir = crate::helper::heimdall_dir(&base)?;
-            ManagedDir::open_root(&dir)
-                .map_err(|_| unsafe_dir())?
-                .ok_or_else(unsafe_dir)?
+        // at the returned path. `<run>` is `<xdg>/heimdall`, or `<state>/heimdall/run`; what
+        // Heimdall creates is created 0700, and nothing it did not create has its permissions
+        // changed.
+        //
+        // ⟨M04-MC3-R02⟩ Judged before anything is created: the base's chain as far as it
+        // exists, by the rule below (so a refused base is left exactly as it was found); then
+        // each missing level is created inside the deepest existing directory through its
+        // verified handle (so that directory must be the account's own, not root's), and
+        // verified owner-only before the next is made.
+        let uid = self.shared.uid;
+        let (existing, missing) = existing_prefix(&base);
+        chain_verdict(secure_chain(&existing, uid), fallback)?;
+        let levels: &[&str] = if fallback.is_none() {
+            &["heimdall"]
         } else {
-            let state = crate::helper::heimdall_dir(&base)?;
-            ManagedDir::open_root(&state)
-                .map_err(|_| unsafe_dir())?
-                .ok_or_else(unsafe_dir)?
-                .child("run", true)
-                .map_err(|_| unsafe_dir())?
-                .ok_or_else(unsafe_dir)?
+            &["heimdall", "run"]
         };
-        // The whole chain of the chosen base, by the same rule (`XDG_RUNTIME_DIR`'s was
-        // checked when it was chosen, and is again now).
-        match (secure_chain(&base, self.shared.uid), fallback) {
-            (Chain::Secure, _) => {}
-            // ⟨The contract owner's ruling⟩ Neither base is safe: the refusal names both.
-            (chain, Some(xdg @ (XdgVerdict::Replaceable | XdgVerdict::Linked))) => {
-                let how = |linked: bool| {
-                    if linked {
-                        "is reached through a symbolic link that is not root's, or whose target another principal can replace"
-                    } else {
-                        "can be replaced by another principal (a component writable by others and not sticky, not the account's or root's, or missing)"
-                    }
-                };
-                say(&format!(
-                    "no safe run directory for Mode B: XDG_RUNTIME_DIR {}, and the home base (the account's state directory) {}",
-                    how(xdg == XdgVerdict::Linked),
-                    how(chain == Chain::Linked)
-                ));
-                return Err(fail(
-                    ErrorKind::Unavailable,
-                    "wsl_bridge_xdg_runtime_dir_and_home_unsafe",
-                ));
-            }
-            (Chain::Replaceable, _) => {
-                say("the run directory's base or an ancestor can be replaced by another principal");
-                return Err(unsafe_dir());
-            }
-            (Chain::Linked, _) => {
-                say(
-                    "the run directory's base is reached through a symbolic link that is not root's, or whose target another principal can replace: set XDG_RUNTIME_DIR, or use a base without links",
-                );
-                return Err(fail(ErrorKind::Unavailable, "wsl_bridge_run_dir_linked"));
-            }
+        let mut run = ManagedDir::open_root(&existing)
+            .map_err(|_| unsafe_dir())?
+            .ok_or_else(unsafe_dir)?;
+        for name in missing
+            .iter()
+            .map(String::as_str)
+            .chain(levels.iter().copied())
+        {
+            run = run
+                .child(name, true)
+                .map_err(|_| unsafe_dir())?
+                .ok_or_else(unsafe_dir)?;
         }
+        // The whole chain of the chosen base, now that it exists, by the same rule
+        // (`XDG_RUNTIME_DIR`'s was checked when it was chosen, and is again now).
+        chain_verdict(secure_chain(&base, uid), fallback)?;
         let held =
             lock::acquire(&run_path.join(BRIDGE_LOCK), self.env.lock_wait).map_err(
                 |e| match e {

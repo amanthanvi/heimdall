@@ -42,6 +42,9 @@ use std::sync::atomic::AtomicUsize;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 const RUN_DIR: &str = "/run/user/1000/heimdall";
+/// ⟨M04-MC3-R01⟩ Another helper's run base (the home fallback, when `XDG_RUNTIME_DIR` was
+/// refused at that helper's start).
+const HOME_RUN_DIR: &str = "/home/ubuntu/.local/state/heimdall/run";
 
 pub(super) fn guid() -> DistributionGuid {
     DistributionGuid::parse("0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0").unwrap()
@@ -128,6 +131,10 @@ type RealizeHook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 struct FakeBridge {
     /// ⟨M04-W2-R02⟩ Runs once, inside the next `realize`, before it takes effect.
     on_realize: RealizeHook,
+    /// ⟨M04-MC3-R01⟩ The run directory its hello advertised.
+    run_dir: String,
+    /// ⟨M04-MC3-R01⟩ The helper is lost right after the next read of its run directory.
+    lose_on_run_dir: AtomicBool,
     alive: AtomicBool,
     calls: Mutex<Vec<Call>>,
     served: Mutex<BTreeMap<String, u64>>,
@@ -136,7 +143,10 @@ struct FakeBridge {
 
 impl BridgeApi for FakeBridge {
     fn run_dir(&self) -> String {
-        RUN_DIR.to_owned()
+        if self.lose_on_run_dir.swap(false, Ordering::SeqCst) {
+            self.alive.store(false, Ordering::SeqCst);
+        }
+        self.run_dir.clone()
     }
     fn realize(
         &self,
@@ -161,9 +171,10 @@ impl BridgeApi for FakeBridge {
         if served.get(tag).is_none_or(|g| *g <= generation) {
             served.insert(tag.to_owned(), generation);
         }
+        let run = &self.run_dir;
         Ok(Realized {
-            socket: format!("{RUN_DIR}/b/{tag}/agent.sock"),
-            ssh_config: format!("{RUN_DIR}/b/{tag}/ssh_config"),
+            socket: format!("{run}/b/{tag}/agent.sock"),
+            ssh_config: format!("{run}/b/{tag}/ssh_config"),
         })
     }
     fn withdraw(&self, tag: &str, generation: u64) -> Result<(), SessionError> {
@@ -234,6 +245,9 @@ pub(super) struct FakeFactory {
     /// ⟨M04 Windows fix round 5⟩ The next helper started is lost at once, and its
     /// distribution stops with it (WSL stops a distribution whose last process ended).
     lose_next: AtomicBool,
+    /// ⟨M04-MC3-R01⟩ The run directories of the next helpers started, in order
+    /// ([`RUN_DIR`] once it is empty).
+    run_dirs: Mutex<std::collections::VecDeque<String>>,
 }
 
 impl FakeFactory {
@@ -246,6 +260,7 @@ impl FakeFactory {
             fail: Mutex::new(None),
             stop_before_launch: AtomicBool::new(false),
             lose_next: AtomicBool::new(false),
+            run_dirs: Mutex::new(std::collections::VecDeque::new()),
             spawned: AtomicUsize::new(0),
         })
     }
@@ -286,8 +301,16 @@ impl BridgeFactory for FakeFactory {
         if lost {
             self.host.set_running(RunningState::NotRunning);
         }
+        let run_dir = self
+            .run_dirs
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_else(|| RUN_DIR.to_owned());
         let bridge = Arc::new(FakeBridge {
             on_realize: self.on_realize.clone(),
+            run_dir,
+            lose_on_run_dir: AtomicBool::new(false),
             alive: AtomicBool::new(!lost),
             calls: Mutex::new(Vec::new()),
             served: Mutex::new(BTreeMap::new()),
@@ -373,10 +396,15 @@ fn mode_b_of(w: &Live) -> Option<EnvironmentId> {
 
 /// The tag of the endpoint `socket` names (`<run>/b/<tag>/agent.sock`).
 fn tag_of(socket: &str) -> String {
+    tag_under(RUN_DIR, socket)
+}
+
+/// The tag of the endpoint `socket` names under the run directory `run`.
+fn tag_under(run: &str, socket: &str) -> String {
     socket
-        .strip_prefix(&format!("{RUN_DIR}/b/"))
+        .strip_prefix(&format!("{run}/b/"))
         .and_then(|r| r.strip_suffix("/agent.sock"))
-        .unwrap_or_else(|| panic!("not a Mode B socket: {socket}"))
+        .unwrap_or_else(|| panic!("not a Mode B socket under {run}: {socket}"))
         .to_owned()
 }
 
@@ -1219,5 +1247,78 @@ async fn wsl_mode_b_owner_ensure_is_never_a_background_start() {
     assert!(WslRealizer::run_dir(&supervisor, &id, DistributionStart::Forbidden).is_err());
     assert_eq!(spawned(), 2, "no background start after a stopped listing");
     assert_eq!(factory.starts().len(), 2);
+    p.shutdown.cancel();
+}
+
+/// ⟨M04-MC3-R01⟩ A helper replaced by one with another run base (its `XDG_RUNTIME_DIR` was
+/// refused at the replacement's start, so the home fallback) never realizes, nor replays, an
+/// endpoint rendered for the first helper's base. Binding `b`'s helper is lost right after
+/// it gave `b`'s endpoint its locator (between the endpoint's creation and its realization):
+/// `b`'s `ensure` is refused, never ready at the old paths, and nothing reaches the
+/// replacement; `a`, realized on the first helper, is not replayed at the new locator but
+/// invalidated. The next `ensure` of each publishes the new base's paths, realized there.
+#[tokio::test]
+async fn wsl_mode_b_a_replacement_with_another_run_base_realizes_nothing_rendered_for_the_old() {
+    let w = Live::new();
+    let (p, _host, factory) = process(&w, true).await;
+    let (id, _) = approved(&p).await;
+    permit_ensures(&w, &id);
+    factory
+        .run_dirs
+        .lock()
+        .unwrap()
+        .extend([RUN_DIR.to_owned(), HOME_RUN_DIR.to_owned()]);
+    let socket_of = |d: &EnsureData| {
+        d.consumer
+            .realization
+            .as_ref()
+            .and_then(|r| r.endpoint.clone())
+            .expect("a Mode B endpoint")
+    };
+    let a = ensure_in(&p, &id, "w-a", "r-a").await.unwrap();
+    let old_tag = tag_of(&socket_of(&a));
+    let first = factory.bridge();
+
+    first.lose_on_run_dir.store(true, Ordering::SeqCst);
+    let e = ensure_in(&p, &id, "w-b", "r-b")
+        .await
+        .expect_err("an endpoint rendered for the lost helper's run base is never ready");
+    assert_eq!(e.code, Code::ServiceUnavailable, "{}", e.message);
+    let second = factory.bridge();
+    assert!(!Arc::ptr_eq(&first, &second), "the helper was replaced");
+    assert_eq!(
+        second.calls(),
+        vec![],
+        "the replacement realizes nothing rendered for the old run base"
+    );
+    assert!(
+        p.registry.binding_endpoint(&a.binding_id).is_none(),
+        "a's endpoint (the old run base) is invalidated, not replayed"
+    );
+    assert!(
+        second.open(&old_tag).is_none(),
+        "no signer stays behind the old base's tag"
+    );
+
+    let b = ensure_in(&p, &id, "w-b", "r-b2").await.unwrap();
+    let a2 = ensure_in(&p, &id, "w-a", "r-a2").await.unwrap();
+    for d in [&b, &a2] {
+        let socket = socket_of(d);
+        let tag = tag_under(HOME_RUN_DIR, &socket);
+        let r = d.consumer.realization.as_ref().unwrap();
+        assert_eq!(
+            r.config.as_deref(),
+            Some(format!("{HOME_RUN_DIR}/b/{tag}/ssh_config").as_str())
+        );
+        assert!(second.realized().unwrap().iter().any(|(t, _)| *t == tag));
+    }
+    for c in second.calls() {
+        if let Call::Realize { public, .. } = c {
+            assert!(
+                !public.ssh_config.contains(RUN_DIR),
+                "nothing realized on the replacement names the old run base"
+            );
+        }
+    }
     p.shutdown.cancel();
 }

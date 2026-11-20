@@ -75,15 +75,22 @@ pub trait WslRealizer: Send + Sync {
 
     /// Realize `binding`'s endpoint `tag` at `generation` with `public`, starting a bridge
     /// under `start` as [`Self::run_dir`] does. Idempotent for the same tag and generation.
+    /// ⟨M04-MC3-R01⟩ `run_dir` is the run directory the endpoint's locator and `public` were
+    /// rendered for: a helper with another run directory (a replacement started meanwhile)
+    /// never realizes it, and the endpoint is invalidated
+    /// ([`EndpointRegistry::invalidate_wsl`]).
     ///
     /// # Errors
-    /// As [`Self::start`]; `AdapterError::Protocol` for a refused file.
+    /// As [`Self::start`]; `AdapterError::Protocol` for a refused file;
+    /// [`AdapterError::Unavailable`] naming [`RUN_DIR_CHANGED`].
+    #[allow(clippy::too_many_arguments)] // the endpoint's identity, its content and authority
     fn realize(
         &self,
         environment: &EnvironmentId,
         binding: &BindingId,
         tag: &str,
         generation: u64,
+        run_dir: &str,
         public: &WslPublic,
         start: DistributionStart,
     ) -> Result<(), AdapterError>;
@@ -119,12 +126,24 @@ pub trait WslRealizer: Send + Sync {
     ) -> Result<(), AdapterError>;
 }
 
+/// ⟨M04-MC3-R01⟩ The refusal of a Mode B endpoint rendered for another run directory than
+/// its environment's helper now has (the helper was replaced by one with another run base).
+pub const RUN_DIR_CHANGED: &str = "wsl_bridge_run_dir_changed";
+
+/// Whether two run directories are the same (a trailing `/` aside).
+#[must_use]
+pub fn same_run_dir(a: &str, b: &str) -> bool {
+    a.trim_end_matches('/') == b.trim_end_matches('/')
+}
+
 /// A running Mode B endpoint's tie to its realizer, held by its [`Running`] entry.
 pub(super) struct WslLease {
     pub(super) realizer: Arc<dyn WslRealizer>,
     pub(super) environment: EnvironmentId,
     pub(super) tag: String,
     pub(super) generation: u64,
+    /// ⟨M04-MC3-R01⟩ The run directory the endpoint's locator was built from.
+    pub(super) run_dir: String,
 }
 
 impl WslLease {
@@ -281,13 +300,10 @@ impl EndpointRegistry {
         if !run_dir.starts_with('/') || run_dir.contains(['\0', '\n', '\r']) {
             return Err(EndpointError::Wsl("wsl_helper_unavailable".to_owned()));
         }
+        let run_dir = run_dir.trim_end_matches('/').to_owned();
         let endpoint = EndpointRef {
             kind: TransportKind::UnixSocket,
-            locator: format!(
-                "{}/b/{tag}/{}",
-                run_dir.trim_end_matches('/'),
-                super::AGENT_SOCKET
-            ),
+            locator: format!("{run_dir}/b/{tag}/{}", super::AGENT_SOCKET),
         };
         let signer = self
             .inner
@@ -306,6 +322,7 @@ impl EndpointRegistry {
                 environment: environment.clone(),
                 tag: tag.as_str().to_owned(),
                 generation: generation.0,
+                run_dir,
             }),
         };
         let mut s = self.inner.lock();
@@ -333,7 +350,7 @@ impl EndpointRegistry {
         public: &WslPublic,
         start: DistributionStart,
     ) -> Result<(), AdapterError> {
-        let (realizer, environment, tag) = {
+        let (realizer, environment, tag, run_dir) = {
             let s = self.inner.lock();
             let lease = s
                 .bindings
@@ -347,9 +364,44 @@ impl EndpointRegistry {
                 Arc::clone(&lease.realizer),
                 lease.environment.clone(),
                 lease.tag.clone(),
+                lease.run_dir.clone(),
             )
         };
-        realizer.realize(&environment, binding, &tag, generation.0, public, start)
+        realizer.realize(
+            &environment,
+            binding,
+            &tag,
+            generation.0,
+            &run_dir,
+            public,
+            start,
+        )
+    }
+
+    /// ⟨M04-MC3-R01⟩ Remove `binding`'s Mode B endpoint of exactly `generation` (withdrawn
+    /// through its lease): it was rendered for a run directory its environment's helper no
+    /// longer has, so its locator names nothing that helper serves. A newer generation, or
+    /// an endpoint that is not Mode B, is left untouched. The next `ensure` creates the
+    /// endpoint afresh at the helper's run directory. Returns whether one was removed.
+    pub fn invalidate_wsl(&self, binding: &BindingId, generation: ResourceGeneration) -> bool {
+        let removed = {
+            let mut s = self.inner.lock();
+            let Some(gens) = s.bindings.get_mut(binding) else {
+                return false;
+            };
+            if gens.get(&generation).is_none_or(|r| r.wsl.is_none()) {
+                return false;
+            }
+            let removed = gens.remove(&generation);
+            if gens.is_empty() {
+                s.bindings.remove(binding);
+            }
+            removed
+        };
+        removed.is_some_and(|r| {
+            r.stop();
+            true
+        })
     }
 
     /// Serve one stream the helper relayed from `binding`'s Mode B endpoint of `generation`
