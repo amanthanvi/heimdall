@@ -147,6 +147,7 @@ fn target() -> TargetEvaluation {
         port: 22,
         user: "deploy".into(),
         proxy: ProxyRoute::None,
+        proxy_jump: None,
         determinism: Determinism::Determined,
         host_keys: vec![host_key(HOST_KEY, false)],
     }

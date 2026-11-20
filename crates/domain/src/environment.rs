@@ -77,6 +77,47 @@ pub enum EnvironmentRealization {
     },
 }
 
+/// ⟨M04⟩ U5: what an `AddEnvironment` decision for a container environment discloses to the
+/// owner (ADR-0010 §4 "Non-claims"). Shown with the decision; stored verbatim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum EnvironmentDisclosure {
+    /// A container environment is not a sandbox: `workload_isolation: shared_os_user`.
+    NotASandbox,
+    /// Whoever can drive the container engine has host-root-equivalent power over the
+    /// user's sockets.
+    EngineAccessIsHostRootEquivalent,
+    /// Any process of the same host user can use the mounted signing endpoint.
+    SameUidProcessesCanUseEndpoint,
+    /// ⟨M04 U4b⟩ Mode B (ADR-0010 §3 non-claims): the same Windows user, and the
+    /// distribution's root, can use the endpoint (`wsl.exe -d <name>`, interop).
+    SameWindowsUserAndDistributionRootCanUseEndpoint,
+    /// ⟨M04 U4b⟩ Mode B (ADR-0010 §3 non-claims): a Linux user who can use interop can
+    /// become the account that owns the endpoint (`wsl.exe -u`).
+    InteropUserCanBecomeOwner,
+    /// ⟨M04 U4b⟩ Mode B (ADR-0010 §3 item 14): an active binding keeps its distribution
+    /// running (P-B10).
+    BindingKeepsDistributionRunning,
+}
+
+impl EnvironmentDisclosure {
+    /// The disclosures a container environment's decision carries, in order.
+    pub const CONTAINER: [EnvironmentDisclosure; 3] = [
+        EnvironmentDisclosure::NotASandbox,
+        EnvironmentDisclosure::EngineAccessIsHostRootEquivalent,
+        EnvironmentDisclosure::SameUidProcessesCanUseEndpoint,
+    ];
+
+    /// ⟨M04 U4b⟩ The disclosures a WSL Mode B environment's decision carries, in order
+    /// (ADR-0010 §3 "Non-claims" and item 14).
+    pub const MODE_B: [EnvironmentDisclosure; 3] = [
+        EnvironmentDisclosure::SameWindowsUserAndDistributionRootCanUseEndpoint,
+        EnvironmentDisclosure::InteropUserCanBecomeOwner,
+        EnvironmentDisclosure::BindingKeepsDistributionRunning,
+    ];
+}
+
 /// ⟨M04⟩ A managed environment's lifecycle state (revision 5 §17; ADR-0010 §3 items 9–13,
 /// §4 item 6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -191,6 +232,18 @@ pub struct WslDistributionRecord {
     /// (ADR-0010 §9 item 2), done at the next explicit start or `ensure`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cleanup_pending: bool,
+    /// ⟨M04 U3b⟩ The Linux account Mode A's items were applied for (the helper runs as
+    /// it, `wsl.exe -u`). Absent in a record that never enabled Mode A.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// ⟨M04 U3b⟩ The projection namespace of the distribution's Mode A items: the
+    /// `ProjectionRecord.environment`, receipts' adapter and resources of its
+    /// `distribution_git` item are keyed by it. Minted once, at the first Mode A enable,
+    /// and kept for the record's life. **Not an environment:** it is never in the managed
+    /// set, so it is never an `ensure` target (`NOT_FOUND`), and a Mode A distribution
+    /// still has no environment record (ADR-0010 §2 item 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<EnvironmentId>,
     /// Last change.
     pub updated_at: Timestamp,
 }

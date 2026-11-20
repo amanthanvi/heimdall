@@ -504,6 +504,9 @@ async fn attempt(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // ⟨M04 U2⟩ What OpenSSH for Windows needs to start, from the OS, when missing (a
+    // stripped environment otherwise ends verification `inconclusive`).
+    heimdall_localenv::sys::openssh_env::fill_openssh_environment(cmd.as_std_mut(), true);
     let t1 = SystemTime::now();
     let Ok(mut child) = cmd.spawn() else {
         return (AttemptEvidence::default(), None);

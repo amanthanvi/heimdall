@@ -1166,6 +1166,11 @@ pub struct ManagedAliasSpec {
     pub endpoint: Option<heimdall_contract::provider::EndpointRef>,
     /// `IdentityFile`: the materialized public key file.
     pub key_file: String,
+    /// ⟨M04 U6; ADR-0010 §5 item 1⟩ The alias of the destination's single jump
+    /// (`ProxyJump <alias>`), when the catalog names one. Serde default, omitted when
+    /// absent, so every stored spec and digest is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jump_alias: Option<String>,
 }
 
 /// What a preview renders from (catalog, consent and the last record).

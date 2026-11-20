@@ -23,6 +23,8 @@
 
 pub mod agents;
 pub mod clients;
+// ⟨M04⟩ U5: the container environment's ssh_config and known_hosts (ADR-0010 §4 item 2).
+pub mod container;
 pub mod doctor;
 pub mod env;
 pub mod fs;

@@ -2226,7 +2226,18 @@ impl Txn<'_> {
             return Err(missing());
         };
         let environment = commit.record.environment.clone();
-        if !op.kind.is_setup() || op.environment != environment {
+        // ⟨M04 U3b⟩ A WSL distribution's Mode A items are recorded under its projection
+        // namespace (`WslDistributionRecord.namespace`) by a setup operation of the runtime's
+        // own environment (setup admissions stay in the runtime's environment, revision 5
+        // §17.6 R5-Q11): such a commit is admitted only for a namespace a distribution
+        // record of this store holds, and only from the store's own environment.
+        let distribution_namespace = op.environment != environment
+            && self.self_environment()?.as_ref() == Some(&op.environment)
+            && self
+                .wsl_distributions()?
+                .iter()
+                .any(|r| r.namespace.as_ref() == Some(&environment));
+        if !op.kind.is_setup() || (op.environment != environment && !distribution_namespace) {
             return Err(codec::doc_error(
                 "a projection item is committed by a setup operation of its environment",
             ));

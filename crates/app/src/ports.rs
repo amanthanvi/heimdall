@@ -200,6 +200,21 @@ pub struct PreparePair {
     /// The managed alias, when the destination is managed (a literal `Host` name,
     /// validated by the renderer).
     pub alias: Option<String>,
+    /// ⟨M04 U6; ADR-0010 §5⟩ The pair's single-hop route as the **current catalog**
+    /// states it, with how the jump hop is accessed for the request's scope. `None`
+    /// without a route.
+    pub route: Option<PairRoute>,
+}
+
+/// ⟨M04 U6⟩ A pair's route (`PreparePair::route`): the catalog's jump and how its hop
+/// is accessed for the grant's scope (a managed pair in the same scope, or existing
+/// access).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairRoute {
+    /// The catalog's jump, mapped to its alias.
+    pub approved: heimdall_domain::catalog::ApprovedRoute,
+    /// How the jump hop is accessed.
+    pub access: heimdall_contract::environment::JumpAccess,
 }
 
 /// ⟨M02⟩ ADR-0007 §12.23 item 2 (U02): everything an adapter's `prepare` reads
@@ -1128,6 +1143,15 @@ pub struct MaterializeSpec {
     pub source: MaterializeSource,
     /// Also fill the environment slots (a materialized binding holding them).
     pub environment_slots: bool,
+    /// ⟨M04 Windows fix round 5⟩ Who asks, for a WSL Mode B binding's endpoint:
+    /// [`DistributionStart::Allowed`] only for the owner's own `ensure` (its new
+    /// activation, or a follower `ensure`'s own binding), whose endpoint creation and
+    /// realization may start the environment's helper (a stopped distribution too) when
+    /// none lives; a `delegate`'s and every continuing-work call (a re-issue's
+    /// restoration, the slots) pass [`DistributionStart::Forbidden`], so their helper
+    /// start is a background one (the supervisor's admission). Other placements ignore
+    /// it.
+    pub start: DistributionStart,
 }
 
 /// What `materialize` wrote.
@@ -1198,6 +1222,105 @@ pub trait ManagedEffects: Send + Sync {
     /// # Errors
     /// [`AdapterError`].
     fn clear(&self, binding: &BindingId, generation: u64) -> Result<(), AdapterError>;
+
+    /// ⟨M04⟩ U5 (ADR-0010 §4 item 7): whether this host realizes container environments:
+    /// a Linux-native runtime (`true` for the production effects on Linux, and for a test
+    /// effects instance that names the test switch). The default is `false`, so a fixture
+    /// that does not implement the container methods realizes nothing.
+    fn container_host_supported(&self) -> bool {
+        false
+    }
+
+    /// ⟨M04⟩ U5: the host path of container environment `dir_tag`'s stable directory
+    /// (`<runtime_dir>/c/<tag>`); `None` when these effects serve no containers.
+    fn container_directory(&self, dir_tag: &str) -> Option<PathBuf> {
+        let _ = dir_tag;
+        None
+    }
+
+    /// ⟨M04⟩ U5: create the stable directory of `dir_tag` (owner-only 0700, through
+    /// `ManagedDir`), idempotently. Returns its path.
+    ///
+    /// # Errors
+    /// [`AdapterError`]; the default refuses (`driver_unavailable`).
+    fn container_directory_create(&self, dir_tag: &str) -> Result<PathBuf, AdapterError> {
+        let _ = dir_tag;
+        Err(AdapterError::Unavailable("driver_unavailable".to_owned()))
+    }
+
+    /// ⟨M04⟩ U5: stop whatever serves `dir_tag`'s directory and remove the entries
+    /// Heimdall wrote there (through the quarantine: only regular files of Heimdall's own
+    /// names), then the directory when it is empty. A foreign entry is left and reported.
+    ///
+    /// # Errors
+    /// [`AdapterError`]; the default removes nothing.
+    fn container_directory_remove(&self, dir_tag: &str) -> Result<ContainerRemoval, AdapterError> {
+        let _ = dir_tag;
+        Ok(ContainerRemoval::default())
+    }
+
+    /// ⟨M04 U4b⟩ The owner's own `ensure` names the WSL Mode B `environment`: start its
+    /// supervised helper, starting a stopped distribution if need be (ADR-0010 §3 item 9,
+    /// §10 item 2). Called on the blocking pool, only on the request path; restart
+    /// recovery, the supervisor and every cleanup pass never call it. The default (a fixture
+    /// that realizes no distribution) answers `wsl_unavailable`.
+    ///
+    /// # Errors
+    /// [`AdapterError::Unavailable`] naming `wsl_distribution_not_running`,
+    /// `wsl_helper_unavailable` or `wsl_unavailable`.
+    fn start_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Result<(), AdapterError> {
+        let _ = environment;
+        Err(AdapterError::Unavailable("wsl_unavailable".to_owned()))
+    }
+
+    /// ⟨M04 U4b⟩ Whether these effects realize WSL Mode B environments (a bridge supervisor
+    /// is wired). The default is `false`: `wsl enable --mode-b` then answers
+    /// `driver_unavailable`.
+    fn wsl_mode_b_supported(&self) -> bool {
+        false
+    }
+
+    /// ⟨M04 U4b⟩ `wsl disable` of a Mode B environment: stop every endpoint it serves
+    /// (each withdrawn by generation) and its helper. `start` is the request's explicit
+    /// authorized start: only then may a stopped distribution be started so the leftovers
+    /// inside it are removed now. Returns whether in-distribution leftovers remain a
+    /// retained obligation (removed by the next helper start). Idempotent. The default
+    /// stops nothing.
+    ///
+    /// # Errors
+    /// [`AdapterError`] when what serves the environment could not be stopped.
+    fn stop_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+        start: bool,
+    ) -> Result<bool, AdapterError> {
+        let _ = (environment, start);
+        Ok(false)
+    }
+
+    /// ⟨M04 U4b⟩ The helper's state for `inspect environments` (Mode B only); `None` for an
+    /// environment these effects do not serve.
+    fn helper_state(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Option<heimdall_contract::environment::HelperState> {
+        let _ = environment;
+        None
+    }
+}
+
+/// ⟨M04⟩ U5: what [`ManagedEffects::container_directory_remove`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContainerRemoval {
+    /// The entries Heimdall removed (names only).
+    pub removed: Vec<String>,
+    /// Entries Heimdall did not write, left in place (names only).
+    pub left: Vec<String>,
+    /// Whether the directory itself is gone (absent, or removed because it was empty).
+    pub directory_gone: bool,
 }
 
 /// ⟨r2⟩ The session-lock source (ADR-0008 D9 item 3; implemented by
@@ -1339,6 +1462,171 @@ pub struct ManagedSources {
     /// The effect driver's results. `None`: `prepare_from` refuses with
     /// [`crate::managed::MANAGED_PREPARE_WITHOUT_DRIVER`].
     pub prepared: Option<ManagedPrepared>,
+}
+
+// --- ⟨M04⟩ WSL distributions (ADR-0010 §2, §3; m04-plan U3) -------------------------
+
+/// ⟨M04⟩ Whether a call may start a stopped WSL distribution (ADR-0010 §3 item 9, §9
+/// item 2): only an explicit `wsl enable`, `wsl disable --start` or an `ensure` naming the
+/// environment passes [`DistributionStart::Allowed`]. Every background path passes
+/// `Forbidden`, and a stopped distribution then answers `Unavailable`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DistributionStart {
+    /// The caller is an explicit, owner-attended action naming this distribution.
+    Allowed,
+    /// Background work: never start the distribution.
+    Forbidden,
+}
+
+/// ⟨M04⟩ One distribution as the runtime addresses it: its identity, the account the helper
+/// runs as, and the projection namespace its items are recorded under.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DistributionTarget {
+    /// Registration GUID (identity).
+    pub guid: heimdall_contract::environment::DistributionGuid,
+    /// Name as last observed (what `wsl.exe -d` takes).
+    pub name: String,
+    /// The Linux account (`wsl.exe -u`).
+    pub account: String,
+    /// The projection namespace (`ProjectionRecord.environment` of its items).
+    pub namespace: heimdall_contract::ids::EnvironmentId,
+}
+
+/// ⟨M04⟩ A registered distribution, read from Lxss without changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredDistribution {
+    /// Registration GUID.
+    pub guid: heimdall_contract::environment::DistributionGuid,
+    /// `DistributionName`.
+    pub name: String,
+    /// WSL version (1 or 2).
+    pub version: u32,
+    /// `DefaultUid`, when present.
+    pub default_uid: Option<u32>,
+}
+
+/// ⟨M04⟩ Whether a distribution runs, from `wsl.exe --list --running --quiet` (starts
+/// nothing). `Unknown` is treated as not running by every caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RunningState {
+    /// Listed as running.
+    Running,
+    /// Not listed.
+    NotRunning,
+    /// The listing failed or could not be read.
+    Unknown,
+}
+
+/// ⟨M04⟩ The WSL host: discovery, the running set, and a projection writer and cleaner
+/// per distribution through its helper (implemented by `heimdall_wsl`, wired by the
+/// runtime; `None` in `OperationsConfig` on a host without WSL).
+pub trait DistributionHost: Send + Sync {
+    /// The registered distributions (read-only).
+    ///
+    /// # Errors
+    /// [`AdapterError::Unavailable`] (`wsl_unavailable`) when WSL is absent.
+    fn discover(&self) -> Result<Vec<DiscoveredDistribution>, AdapterError>;
+
+    /// Whether `guid` runs now.
+    fn running(&self, guid: &heimdall_contract::environment::DistributionGuid) -> RunningState;
+
+    /// The projection writer for `target`, through its helper.
+    ///
+    /// # Errors
+    /// [`AdapterError::Unavailable`] with `wsl_distribution_not_running` (stopped and
+    /// `Forbidden`) or `wsl_helper_unavailable`.
+    fn writer(
+        &self,
+        target: &DistributionTarget,
+        start: DistributionStart,
+    ) -> Result<std::sync::Arc<dyn ProjectionWriter>, AdapterError>;
+
+    /// The cleaner for `target`'s projection resources, through its helper.
+    ///
+    /// # Errors
+    /// As [`DistributionHost::writer`]; a retryable refusal leaves the obligation.
+    fn cleaner(
+        &self,
+        target: &DistributionTarget,
+        start: DistributionStart,
+    ) -> Result<std::sync::Arc<dyn ResourceCleaner>, AdapterError>;
+}
+
+// --- ⟨M04⟩ the login entry (ADR-0010 §1 item 2, §6 item 1; m04-plan U1) -------------------------
+
+/// What is at Heimdall's login-entry name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoginEntryState {
+    /// Nothing.
+    Absent,
+    /// Heimdall's own entry (its exact data).
+    Owned,
+    /// Another entry: other data, another type, a hand edit. Never touched.
+    Foreign,
+}
+
+/// What an install or a removal did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoginEntryEffect {
+    /// A new entry was written.
+    Created,
+    /// Heimdall's own entry was replaced (another executable path).
+    Updated,
+    /// Heimdall's own entry was already exact.
+    Unchanged,
+    /// Heimdall's own entry was removed.
+    Removed,
+    /// There was none.
+    Absent,
+}
+
+/// Why a login-entry operation did not happen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoginEntryFailure {
+    /// A non-owned entry is at the name (`login_entry_conflict`); untouched.
+    Conflict,
+    /// This host has no user manager: no entry, the runtime starts on demand.
+    NoUserManager,
+    /// Anything else, as a fixed sentence (no paths, no secrets).
+    Failed(String),
+}
+
+/// The runtime's login entry, as the setup item and `inspect capabilities` use it. The
+/// runtime implements it over its platform host; the application never learns a registry
+/// path or a plist. Wired with `Operations::set_login_entry`; unwired, the item answers
+/// `driver_unavailable` and `login_start` reads `none`.
+pub trait LoginEntryPort: Send + Sync {
+    /// The kind of entry this host supports (`run_value`, `launch_agent`,
+    /// `systemd_user`, `none`).
+    fn kind(&self) -> heimdall_contract::environment::LoginStartKind;
+
+    /// Where the entry lives, for display.
+    fn location(&self) -> String;
+
+    /// What is at the entry's name now. Read-only.
+    ///
+    /// # Errors
+    /// The location cannot be read.
+    fn observe(&self) -> Result<LoginEntryState, LoginEntryFailure>;
+
+    /// The exact data an install writes now (shown in the preview, and part of the
+    /// plan's digest).
+    ///
+    /// # Errors
+    /// No command can be rendered, or this host has no entry.
+    fn render(&self) -> Result<String, LoginEntryFailure>;
+
+    /// Write and activate Heimdall's entry.
+    ///
+    /// # Errors
+    /// See [`LoginEntryFailure`].
+    fn install(&self) -> Result<LoginEntryEffect, LoginEntryFailure>;
+
+    /// Deactivate and remove Heimdall's own entry.
+    ///
+    /// # Errors
+    /// See [`LoginEntryFailure`].
+    fn remove(&self) -> Result<LoginEntryEffect, LoginEntryFailure>;
 }
 
 // ---------------------------------------------------------------------------------

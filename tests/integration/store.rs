@@ -4871,6 +4871,52 @@ mod m02 {
             s.transaction(|tx| tx.commit_projection_item(&ensure.id, &c, &r))
                 .is_err()
         );
+        // ⟨M04 U3b⟩ A commit into another namespace is admitted only for a WSL
+        // distribution's recorded namespace, and only from the store's own environment:
+        // `env_id(41)` is refused while no distribution holds it (above, and here once the
+        // store has a self environment), and still refused from an operation of another
+        // environment once one does.
+        let ns = env_id(41);
+        s.transaction(|tx| tx.init_self_environment(&env)).unwrap();
+        let (mut c6, r6) = item_commit(&env, &op, 2);
+        c6.record.environment = ns.clone();
+        assert!(
+            s.transaction(|tx| tx.commit_projection_item(&op, &c6, &r6))
+                .is_err(),
+            "no distribution holds the namespace"
+        );
+        let foreign = setup_op(9, &env_id(42), OperationKind::SetupApply, apply());
+        assert_eq!(admit(&s, &foreign, None), SetupAdmitted::Inserted);
+        s.transaction(|tx| {
+            tx.put_wsl_distribution(&heimdall_domain::environment::WslDistributionRecord {
+                guid: heimdall_contract::environment::DistributionGuid::parse(
+                    "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0",
+                )
+                .unwrap(),
+                name: "scratch".to_owned(),
+                mode_a: true,
+                mode_b: None,
+                cleanup_pending: false,
+                account: Some("alice".to_owned()),
+                namespace: Some(ns.clone()),
+                updated_at: "2026-11-18T09:00:00Z".parse().unwrap(),
+            })
+        })
+        .unwrap();
+        let (mut c7, r7) = item_commit(&env_id(42), &foreign.0.id, 2);
+        c7.record.environment = ns.clone();
+        assert!(
+            s.transaction(|tx| tx.commit_projection_item(&foreign.0.id, &c7, &r7))
+                .is_err(),
+            "an operation of another environment never commits into a distribution namespace"
+        );
+        s.transaction(|tx| {
+            assert!(tx.projection_record(&ns)?.is_none());
+            assert!(tx.stage_receipts(&foreign.0.id)?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+
         s.transaction(|tx| {
             assert_eq!(
                 tx.stage_receipts(&op)?.len(),

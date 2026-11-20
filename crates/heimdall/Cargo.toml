@@ -62,6 +62,8 @@ rustix = { workspace = true, features = ["event", "termios"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# ⟨M04 U4a⟩ `integration_wsl_helper_channel`'s Mode B relay test implements `ipc::signing::Signer`.
+async-trait = { workspace = true }
 # Property tests (fixed seed, >= 256 cases), as in the other crates.
 proptest = { workspace = true }
 # M02-U8 `e2e_run_m02` (tests only): the U7 process fixtures (scratch home, fake agent).
@@ -74,6 +76,11 @@ heimdall-store = { workspace = true }
 # (workspace crates only, already in the production graph through `heimdall-runtime`).
 heimdall-adapters = { workspace = true }
 heimdall-credential = { workspace = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+# ⟨M04 U2⟩ `e2e_platform_m04`'s `windows` module (tests only): the handle probe's three Win32 calls (`SetHandleInformation`,
+# `GetHandleInformation`, `GetFinalPathNameByHandleW`); the workspace pin, already in the lock.
+windows-sys = { workspace = true }
 
 [target.'cfg(unix)'.dev-dependencies]
 # M02-U8 `a27_ctrl_c_reaches_child_once` and `a27_resize_reaches_child`: a pty through
@@ -159,6 +166,27 @@ path = "../../tests/e2e/exit_m05.rs"
 [[test]]
 name = "e2e_cli_m04_m05"
 path = "../../tests/e2e/cli_m04_m05.rs"
+
+# ⟨M04⟩ The M04 platform suite through the real binary (m04-plan U1, U2; later U5): one
+# target whose modules are platform-gated, so it runs at least one test on every host
+# (check.sh's test discovery fails a target that runs none). `service_login` (U1, every
+# host), `windows` (U2, Windows only: handle lists, the A14 inventory, the Git client
+# finding).
+[[test]]
+name = "e2e_platform_m04"
+path = "../../tests/e2e/platform_m04.rs"
+
+# ⟨M04 U3a⟩ The projection transaction across the `heimdall-wsl/1` channel with the real
+# `heimdall` binary as the helper (M04-D02; ADR-0010 §9 items 2 and 8).
+[[test]]
+name = "integration_wsl_helper_channel"
+path = "../../tests/integration/wsl_helper_channel.rs"
+
+# ⟨M04 U6⟩ Bastion routes, explicit agent forwarding and route-aware evidence through the real
+# binary (ADR-0010 §5, §9 items 3, 4, 8; review findings M04-D03, M04-D04).
+[[test]]
+name = "e2e_route_m04"
+path = "../../tests/e2e/route_m04.rs"
 
 # ⟨M05⟩ U8 (m05-plan U8; ADR-0011 §6): `run --parent-binding` through the real binary on two
 # loopback servers (the exit suite's world).

@@ -156,7 +156,81 @@ pub fn issuer_client_config(
             .flatten()
             .and_then(|p| p.image())
     }));
+    // ⟨M04 U2; ADR-0010 §1 item 6⟩ On Windows the child inherits only its three standard
+    // stream handles (an explicit handle list), never another inheritable handle of this
+    // process.
+    #[cfg(windows)]
+    {
+        config.spawner = Some(listed_issuer_spawner());
+    }
     config
+}
+
+/// ⟨M04 U2⟩ The spawner [`issuer_client_config`] injects on Windows (public so the native
+/// handle-inheritance test drives the same function the runtime uses).
+#[cfg(windows)]
+#[must_use]
+pub fn listed_issuer_spawner() -> heimdall_issuer::client::ChildSpawner {
+    Arc::new(listed_issuer_child)
+}
+
+/// ⟨M04 U2⟩ The issuer child as a handle-list child: its stdin and stdout piped, its stderr
+/// null, the command's environment on top of this process's.
+#[cfg(windows)]
+fn listed_issuer_child(c: &ChildCommand) -> std::io::Result<heimdall_issuer::client::SpawnedChild> {
+    use heimdall_localenv::sys::spawn::{ListedSpawn, ListedStdio, spawn_listed};
+    let mut cmd = std::process::Command::new(&c.program);
+    cmd.args(&c.args).envs(c.env.iter().map(|(k, v)| (k, v)));
+    let options = ListedSpawn {
+        stderr: ListedStdio::Null,
+        // ⟨M03 E9; ADR-0008 §17.43, ruling I-24⟩ No console window: `spawn_listed` takes its
+        // creation flags from here, not from the command (so `no_window!` would not reach it).
+        creation_flags: heimdall_localenv::sys::spawn::CREATE_NO_WINDOW,
+        ..ListedSpawn::piped()
+    };
+    let mut child = spawn_listed(&cmd, &options).map_err(std::io::Error::other)?;
+    let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(std::io::Error::other("the issuer child has no pipes"));
+    };
+    Ok(heimdall_issuer::client::SpawnedChild {
+        process: Box::new(ListedIssuerProcess(child)),
+        stdin,
+        stdout,
+    })
+}
+
+/// ⟨M04 U2⟩ A handle-list child as the issuer client's process. Dropping it ends and reaps
+/// the child, as the default spawn's `kill_on_drop` does.
+#[cfg(windows)]
+struct ListedIssuerProcess(heimdall_localenv::sys::spawn::ListedChild);
+
+#[cfg(windows)]
+impl heimdall_issuer::client::ChildProcess for ListedIssuerProcess {
+    fn id(&self) -> Option<u32> {
+        Some(self.0.id())
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<bool> {
+        Ok(self.0.try_wait()?.is_some())
+    }
+
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        self.0.kill()
+    }
+
+    fn exit_code(&mut self) -> Option<i32> {
+        self.0.try_wait().ok().flatten()
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ListedIssuerProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// File name of the state database inside `Paths::state_dir`.
@@ -305,6 +379,26 @@ pub struct ServiceOptions {
     /// answers `driver_unavailable`). With it, [`Self::signer`] is not used: the
     /// environment endpoint is the managed signer's.
     pub managed: Option<ManagedOptions>,
+    /// ⟨M04⟩ U1: the login entry's port (`Operations::set_login_entry`): the setup item
+    /// `login_entry` and `inspect capabilities` → `login_start`. `None` (the default of
+    /// [`Self::with_clock`]): the item answers `driver_unavailable` and `login_start`
+    /// reads `none`. `service run` wires the host's own
+    /// ([`crate::autostart::port::HostLoginPort`]).
+    pub login_entry: Option<Arc<dyn heimdall_app::ports::LoginEntryPort>>,
+    /// ⟨M04 U3b⟩ The WSL host (`Operations::set_distribution_host`; ADR-0010 §2): `None`
+    /// (the default) is the platform's own, [`heimdall_wsl::WslHost::platform`] with
+    /// [`Self::wsl_helper`]: Lxss, `wsl.exe` and the bundled helper on Windows, none
+    /// elsewhere (every WSL request then answers `wsl_unavailable`). A test injects its own.
+    pub wsl_host: Option<Arc<dyn heimdall_app::ports::DistributionHost>>,
+    /// ⟨M04 U3b⟩ The Windows path of the Linux helper binary, when not the one beside
+    /// `heimdall.exe` (the debug-only test configuration's `HEIMDALL_WSL_HELPER`).
+    pub wsl_helper: Option<std::path::PathBuf>,
+    /// ⟨M04 U4b⟩ Starts WSL Mode B helper sessions
+    /// ([`crate::wsl_bridge::BridgeFactory`]): `None` (the default) is the platform's own,
+    /// [`crate::wsl_bridge::LauncherBridgeFactory`] over the platform host's launcher (on
+    /// Windows; elsewhere none, so `wsl enable --mode-b` answers `driver_unavailable`). A
+    /// test injects its own, with [`Self::wsl_host`].
+    pub wsl_bridge: Option<Arc<dyn crate::wsl_bridge::BridgeFactory>>,
 }
 
 /// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
@@ -349,6 +443,10 @@ pub struct ManagedOptions {
     /// (`KeyVault::with_test_seed`). A release build has no such field.
     #[cfg(debug_assertions)]
     pub test_key_seed: Option<Vec<u8>>,
+    /// **Test configuration only** (debug builds; ⟨M04-MC3-R03⟩): the issuer client's start
+    /// diagnostics ([`ClientConfig::start_diagnostics`]). A release build has no such field.
+    #[cfg(debug_assertions)]
+    pub issuer_start_diagnostics: bool,
     /// Arguments placed before `--` on every `ssh` the connection supervisor runs, and
     /// the environment of those children (tests: the client isolation arguments and a
     /// scratch `HOME`; production: none, the runtime's own).
@@ -367,6 +465,8 @@ impl Default for ManagedOptions {
             script_pause_dir: None,
             #[cfg(debug_assertions)]
             test_key_seed: None,
+            #[cfg(debug_assertions)]
+            issuer_start_diagnostics: false,
             connection_client_args: Vec::new(),
             connection_client_env: None,
         }
@@ -423,6 +523,10 @@ impl ServiceOptions {
             projection: ProjectionWiring::Disabled,
             existing_access: false,
             managed: None,
+            login_entry: None,
+            wsl_host: None,
+            wsl_helper: None,
+            wsl_bridge: None,
         }
     }
 }
@@ -555,6 +659,9 @@ impl Service {
         options: ServiceOptions,
         shutdown: CancellationToken,
     ) -> Result<Self, ServiceError> {
+        // ⟨M04, the Windows readiness failures⟩ Each phase's time to the advertisement, logged
+        // once it is written ("the runtime advertised its endpoints").
+        let phases = StartPhases::begin();
         // ⟨M03⟩ m03-plan U10 (wave-1 hand-off): process hardening first, before any key
         // exists (no core dumps; Linux: not dumpable).
         if options.managed.is_some() {
@@ -583,6 +690,7 @@ impl Service {
         let db = paths.state_dir.join(STATE_DB_FILE);
         let faults = options.store_faults.clone();
         let store = blocking(move || Store::open(&db, faults)).await??;
+        let phases = phases.mark("store_ms");
         let store = Arc::new(store);
 
         // 3. Environment identity: the recorded one, or a new random one at first
@@ -670,6 +778,7 @@ impl Service {
             ProjectionWiring::Account => account_projection(&paths).and_then(wire),
             ProjectionWiring::Config(c) => wire(*c),
         };
+        let phases = phases.mark("projection_ms");
         let mut adapters = options.adapters;
         if options.existing_access {
             adapters.extend(existing_access_adapters(
@@ -699,9 +808,48 @@ impl Service {
             projection: wired.as_ref().map(|w| Arc::clone(&w.writer)),
         })
         .await?;
+        let phases = phases.mark("recovery_ms");
         // ⟨M03⟩ U9 (R3): the `[session] lock_behavior` floor, in every runtime.
         let floor = crate::session_lock::lock_floor(&config.session);
         operations.set_session_lock_floor(floor);
+        // ⟨M04⟩ U1: the login entry's port (setup item, `inspect capabilities`).
+        if let Some(port) = options.login_entry {
+            operations.set_login_entry(port);
+        }
+        // ⟨M04 U3b⟩ The WSL host: the platform's own unless a test injects one. Off Windows
+        // the platform's has no WSL, so it is not wired and WSL requests answer
+        // `wsl_unavailable`.
+        let platform_host = (options.wsl_host.is_none() && cfg!(windows))
+            .then(|| heimdall_wsl::WslHost::platform(options.wsl_helper.clone()));
+        // ⟨M04 U4b⟩ The Mode B helper sessions start through the same launcher.
+        let wsl_bridge: Option<Arc<dyn crate::wsl_bridge::BridgeFactory>> =
+            options.wsl_bridge.clone().or_else(|| {
+                platform_host.as_ref().map(|h| {
+                    let f: Arc<dyn crate::wsl_bridge::BridgeFactory> =
+                        Arc::new(crate::wsl_bridge::LauncherBridgeFactory::new(h.launcher()));
+                    f
+                })
+            });
+        let wsl_host: Option<Arc<dyn heimdall_app::ports::DistributionHost>> =
+            options.wsl_host.clone().or_else(|| {
+                platform_host.map(|h| {
+                    let h: Arc<dyn heimdall_app::ports::DistributionHost> = Arc::new(h);
+                    h
+                })
+            });
+        if let Some(h) = &wsl_host {
+            operations.set_distribution_host(Arc::clone(h));
+            // Restart recovery ran before the host was wired: a setup operation of a
+            // distribution's items it left unresolved is driven again now, in the
+            // background, never starting a distribution (ADR-0010 §9 item 2).
+            // ⟨M04 Windows fix round⟩ Read inline; a driver task only when there is work, so a
+            // runtime with nothing to drive keeps no task holding the store past its drop.
+            let pending = operations.pending_distribution_setups(None).await;
+            if !pending.is_empty() {
+                let ops = operations.clone();
+                tokio::spawn(async move { ops.drive_distribution_setups(&pending, false).await });
+            }
+        }
         // ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3): the workspace observer behind `ensure` with
         // `context`, `inspect workspace` and the workspace decisions.
         operations.set_workspace_probe(Arc::new(crate::workspace_observe::RealWorkspaceProbe));
@@ -734,13 +882,23 @@ impl Service {
                         endpoint_string(
                             &EndpointPaths::for_runtime(&paths.runtime_dir, &token).control,
                         )?,
+                        wsl_host.clone().zip(wsl_bridge),
                     )
                     .await?,
             ),
             _ => None,
         };
+        let phases = phases.mark("managed_ms");
+        // ⟨M04 U3b⟩ A WSL distribution namespace's projection resources go to its helper
+        // (never starting it); the runtime's own go to the native cleaner, as before.
         let cleaner: Option<Arc<dyn ResourceCleaner>> = wired.map(|w| {
-            let c: Arc<dyn ResourceCleaner> = w.cleaner;
+            let native: Arc<dyn ResourceCleaner> = w.cleaner;
+            let c: Arc<dyn ResourceCleaner> = Arc::new(crate::wsl_wiring::NamespaceCleaner::new(
+                native,
+                environment.clone(),
+                store.clone(),
+                wsl_host.clone(),
+            ));
             c
         });
 
@@ -771,6 +929,7 @@ impl Service {
         };
         info.write(&paths.runtime_dir)
             .map_err(ServiceError::Advertise)?;
+        phases.mark("advertise_ms").log();
         if let Some(m) = managed.as_mut() {
             m.steps.push(start_step::INSTANCE_FILE);
         }
@@ -1741,13 +1900,85 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
         binding: &heimdall_contract::ids::BindingId,
         generation: u64,
     ) -> Result<EndpointRef, heimdall_app::ports::AdapterError> {
+        self.create_binding_endpoint_at(
+            binding,
+            generation,
+            &heimdall_credential::endpoints::EndpointPlacement::Native,
+        )
+    }
+
+    /// ⟨M04⟩ U5: the same creation at a placement (a container's stable directory).
+    fn create_binding_endpoint_at(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+        placement: &heimdall_credential::endpoints::EndpointPlacement,
+    ) -> Result<EndpointRef, heimdall_app::ports::AdapterError> {
         self.get()
             .ok_or_else(|| {
                 heimdall_app::ports::AdapterError::Unavailable(
                     heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
                 )
             })?
-            .create_binding_endpoint(binding, generation)
+            .create_binding_endpoint_at(binding, generation, placement)
+    }
+
+    fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
+        self.get().map_or(0, |r| r.remove_container(dir_tag))
+    }
+
+    fn start_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Result<(), heimdall_app::ports::AdapterError> {
+        self.get()
+            .ok_or_else(|| {
+                heimdall_app::ports::AdapterError::Unavailable("wsl_unavailable".to_owned())
+            })?
+            .start_wsl_environment(environment)
+    }
+
+    fn wsl_supported(&self) -> bool {
+        self.get().is_some_and(|r| r.has_wsl_realizer())
+    }
+
+    fn stop_environment(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+        start: bool,
+    ) -> Result<bool, heimdall_app::ports::AdapterError> {
+        match self.get() {
+            Some(r) if r.has_wsl_realizer() => r.stop_wsl_environment(environment, start),
+            _ => Ok(false),
+        }
+    }
+
+    fn helper_state(
+        &self,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> Option<heimdall_contract::environment::HelperState> {
+        self.get()?.wsl_helper_state(environment)
+    }
+
+    fn realize_wsl_binding(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+        public: &heimdall_credential::endpoints::wsl::WslPublic,
+        start: heimdall_app::ports::DistributionStart,
+    ) -> Result<(), heimdall_app::ports::AdapterError> {
+        self.get()
+            .ok_or_else(|| {
+                heimdall_app::ports::AdapterError::Unavailable(
+                    heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+                )
+            })?
+            .realize_wsl(
+                binding,
+                heimdall_domain::resource::ResourceGeneration(generation),
+                public,
+                start,
+            )
     }
 
     fn remove_binding_endpoint(
@@ -1933,6 +2164,53 @@ impl heimdall_app::operations::ConnectionWording for AdapterWording {
         policy: &heimdall_contract::managed::ConnectionPolicy,
     ) -> Option<heimdall_contract::managed::ConnectionPolicyReport> {
         Some(self.0.connection_policy_report(alias, policy))
+    }
+}
+
+/// ⟨M04, the Windows readiness failures⟩ The start's phases, timed: each mark is the time
+/// since the previous one, and the log line (once the advertisement is written) has every
+/// phase and the total, in milliseconds. Facts only (no path, no identity).
+struct StartPhases {
+    begun: std::time::Instant,
+    last: std::time::Instant,
+    marks: Vec<(&'static str, u64)>,
+}
+
+impl StartPhases {
+    fn begin() -> Self {
+        let now = std::time::Instant::now();
+        Self {
+            begun: now,
+            last: now,
+            marks: Vec::new(),
+        }
+    }
+
+    fn mark(mut self, phase: &'static str) -> Self {
+        let now = std::time::Instant::now();
+        let ms = u64::try_from(now.duration_since(self.last).as_millis()).unwrap_or(u64::MAX);
+        self.marks.push((phase, ms));
+        self.last = now;
+        self
+    }
+
+    fn log(self) {
+        let total = u64::try_from(self.begun.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let ms = |name: &str| {
+            self.marks
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map_or(0, |(_, v)| *v)
+        };
+        tracing::info!(
+            store_ms = ms("store_ms"),
+            projection_ms = ms("projection_ms"),
+            recovery_ms = ms("recovery_ms"),
+            managed_ms = ms("managed_ms"),
+            advertise_ms = ms("advertise_ms"),
+            total_ms = total,
+            "the runtime advertised its endpoints"
+        );
     }
 }
 
@@ -2334,9 +2612,14 @@ impl ManagedParts {
         floor: heimdall_contract::managed::LockBehavior,
         stop: CancellationToken,
         control_locator: String,
+        wsl: Option<(
+            Arc<dyn heimdall_app::ports::DistributionHost>,
+            Arc<dyn crate::wsl_bridge::BridgeFactory>,
+        )>,
     ) -> Result<ManagedRuntime, ServiceError> {
         let mut steps = Vec::new();
         let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(ops.clone());
+        let supervisor_stop = stop.clone();
         // ⟨M05⟩ U5 (ADR-0011 §3.2 (a)): the environment endpoint's identities path activates
         // the personal default (covered only, single-flight, bounded wait).
         let activation = crate::default_activation::DefaultActivator::new(
@@ -2363,6 +2646,22 @@ impl ManagedParts {
             stop,
         )
         .with_verification_gates(ops.signing_gates().clone());
+        // ⟨M04 U4b⟩ WSL Mode B: the bridge supervisor is the endpoint registry's realizer
+        // (it serves the streams it relays with the registry's signers). It is installed
+        // before anything can materialize a Mode B binding (the re-issue pass below), and
+        // re-checks every 10 s until the runtime stops (ADR-0010 §3 items 9–10, 13).
+        if let Some((host, factory)) = wsl {
+            let bridge = crate::wsl_bridge::BridgeRegistry::new(
+                Arc::clone(store),
+                ops.environment().clone(),
+                host,
+                factory,
+                tokio::runtime::Handle::current(),
+            );
+            bridge.attach(registry.downgrade());
+            registry.set_wsl_realizer(Arc::new(bridge.clone()));
+            tokio::spawn(bridge.supervise(ops.clone(), supervisor_stop));
+        }
         // ⟨§17.22 item 3, W4-S03⟩ From the first reference cycle on, a failed start
         // unwinding (any `?` below) runs the full teardown: the guard owns every part
         // that `Drop` must stop or clear, and the issuer joins it the moment it exists.
@@ -2467,7 +2766,15 @@ impl ManagedParts {
             .unwrap_or_else(|| Arc::new(crate::platform::process_start_time));
         // ⟨ADR-0008 §17.28 item 1, §17.32, §17.33 item 2⟩ The fence's load gate, the
         // request hold and the exact-child check ([`issuer_client_config`]).
-        let issuer = command.map(|c| ChildIssuer::new(issuer_client_config(c, start_token, ops)));
+        #[cfg(debug_assertions)]
+        let diagnostics = m.issuer_start_diagnostics;
+        #[cfg(not(debug_assertions))]
+        let diagnostics = false;
+        let issuer = command.map(|c| {
+            let mut config = issuer_client_config(c, start_token, ops);
+            config.start_diagnostics = diagnostics;
+            ChildIssuer::new(config)
+        });
         teardown.issuer.clone_from(&issuer);
         if let Some(i) = &issuer {
             self.sources.set_issuer(Arc::new(i.clone()));
@@ -2944,12 +3251,20 @@ impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
             .client
             .as_ref()
             .ok_or_else(|| fail("no verified client"))?;
-        let mut child = heimdall_app::no_window!(std::process::Command::new(client))
-            .args(heimdall_app::enrollment::effective_config_args(step))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
+        // ⟨M04 U2; ADR-0010 §1 item 6⟩ Started with an explicit inherited-handle list: only
+        // its three standard streams (stdin and stderr null, stdout a pipe) reach the client.
+        let mut cmd = std::process::Command::new(client);
+        cmd.args(heimdall_app::enrollment::effective_config_args(step));
+        // ⟨M04 U2⟩ What OpenSSH for Windows needs to start, from the OS, when missing.
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment(&mut cmd, true);
+        let options = heimdall_localenv::sys::spawn::ListedSpawn {
+            stdin: heimdall_localenv::sys::spawn::ListedStdio::Null,
+            stderr: heimdall_localenv::sys::spawn::ListedStdio::Null,
+            // ⟨M03 E9; ADR-0008 §17.43⟩ No console window (the listed spawn's own flag).
+            creation_flags: heimdall_localenv::sys::spawn::CREATE_NO_WINDOW,
+            ..heimdall_localenv::sys::spawn::ListedSpawn::piped()
+        };
+        let mut child = heimdall_localenv::sys::spawn::spawn_listed(&cmd, &options)
             .map_err(|_| fail("the client could not run"))?;
         let mut stdout = child.stdout.take().ok_or_else(|| fail("no output"))?;
         let reader = std::thread::spawn(move || {
@@ -2976,7 +3291,7 @@ impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
             return Err(fail("the effective-configuration check timed out"));
         };
         let out = reader.join().map_err(|_| fail("no output"))?;
-        if !status.success() {
+        if status != 0 {
             return Err(fail("the effective-configuration check failed"));
         }
         String::from_utf8(out).map_err(|_| fail("the output is not UTF-8"))
@@ -3134,6 +3449,7 @@ mod pair_source_tests {
             identity: IdentityId::from_random_bytes([0x41; 16]),
             endpoint: None,
             key_file: "/k/lab.pub".into(),
+            jump_alias: None,
         }
     }
 

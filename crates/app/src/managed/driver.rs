@@ -190,12 +190,14 @@ pub(crate) async fn run_stages(
     // The binding minted at resolve (§17.21 item 1), from the operation's intent; a
     // re-issue (continuing work, no operation) restores the grant's live bindings
     // instead (§17.22 item 5).
-    let binding = if new_activation {
+    // ⟨M04 Windows fix round 5⟩ With the start authority of the operation's own request
+    // (an `ensure`'s: `Allowed`); continuing work has none.
+    let (binding, start) = if new_activation {
         ops.managed_binding_of_token(token)
             .await
             .map_err(|e| adapter_error_of(&e))?
     } else {
-        None
+        (None, crate::ports::DistributionStart::Forbidden)
     };
     let limit = ops.managed_effect_limit();
     // 1. key (an effect), then its instance `pending` and the gate (a transaction).
@@ -223,7 +225,7 @@ pub(crate) async fn run_stages(
         new_activation,
         &key,
         &instance,
-        binding.as_ref(),
+        binding.as_ref().map(|b| (b, start)),
         &mut materialized,
     )
     .await;
@@ -276,7 +278,7 @@ async fn stages_after_key(
     new_activation: bool,
     key: &crate::ports::KeyRegistration,
     instance: &CredentialInstanceId,
-    binding: Option<&BindingId>,
+    binding: Option<(&BindingId, crate::ports::DistributionStart)>,
     materialized: &mut Vec<(BindingId, u64)>,
 ) -> Result<ManagedPrepared, AdapterError> {
     let receipt = |s: &'static str| async move {
@@ -293,6 +295,13 @@ async fn stages_after_key(
     let valid_after = validity_start(now, grant.starts_at)
         .ok_or_else(|| AdapterError::Protocol("validity_start_out_of_range".to_owned()))?;
     let mut published: Vec<(IssuanceEntry, String)> = Vec::new();
+    // ⟨M04 U6; ADR-0010 §5 item 2⟩ The pairs whose certificate carries
+    // `permit-port-forwarding`: the in-scope pairs another in-scope pair uses as its
+    // managed jump, read here and again, in its own transaction, by the issuance check.
+    let jump_pairs = ops
+        .jump_pairs_for(grant.scope.pairs.clone())
+        .await
+        .map_err(|e| adapter_error_of(&e))?;
     for pair in &grant.scope.pairs {
         // 2. reserve (a transaction; the CA is selected inside it, D4 item 3).
         let request = IssuanceRequest {
@@ -301,7 +310,7 @@ async fn stages_after_key(
             principal: principal_for(pair),
             valid_after,
             valid_before: grant.deadline.effective,
-            extensions: extension_profile(grant, pair),
+            extensions: extension_profile(grant, pair, &jump_pairs),
             subject_fingerprint: key.fingerprint.clone(),
             facts: facts.clone(),
         };
@@ -367,7 +376,7 @@ async fn stages_after_key(
         })
         .collect();
     let files = match binding {
-        Some(b) if new_activation => {
+        Some((b, start)) if new_activation => {
             let spec = MaterializeSpec {
                 generation: BINDING_GENERATION,
                 source: MaterializeSource::Fresh {
@@ -375,6 +384,8 @@ async fn stages_after_key(
                     certificates,
                 },
                 environment_slots: false,
+                // ⟨M04 Windows fix round 5⟩ The operation's own (an `ensure`'s: `Allowed`).
+                start,
             };
             materialized.push((b.clone(), BINDING_GENERATION));
             let files = effects.materialize(b, &spec)?;
@@ -446,11 +457,14 @@ async fn restore_consumers(
             grant: grant.clone(),
         },
         environment_slots: false,
+        // ⟨M04 Windows fix round 5⟩ A re-issue is continuing work: a background start.
+        start: crate::ports::DistributionStart::Forbidden,
     };
     let slots_only = MaterializeSpec {
         generation: plan.generation,
         source: MaterializeSource::SlotsOnly,
         environment_slots: true,
+        start: crate::ports::DistributionStart::Forbidden,
     };
     for (binding, holds_slots) in &plan.bindings {
         materialized.push((binding.clone(), plan.generation));

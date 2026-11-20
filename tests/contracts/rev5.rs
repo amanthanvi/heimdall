@@ -11,9 +11,9 @@
 //!   exactly through its type and validates against its generated public schema;
 //! * `rev5_capabilities_declared_not_offered_and_required`: `environments/1` and
 //!   `trusted-work/1` exist, are what the new request forms require, and the M01–M03
-//!   forms still require nothing new. ⟨M05 W3⟩ The offer itself is the runtime's, not the
-//!   contract's: `trusted-work/1` is offered since M05 W3 and `environments/1` is not yet
-//!   (`heimdall_ipc::session::tests::trusted_work_is_offered_and_environments_is_not_yet`);
+//!   forms still require nothing new. The offer itself is the runtime's, not the contract's:
+//!   ⟨M04 U5⟩ `environments/1` and ⟨M05 W3⟩ `trusted-work/1` are both offered
+//!   (`heimdall_ipc::session::tests::the_revision_5_offer_is_environments_and_trusted_work`);
 //!   the name is kept because ADR-0006 §17.7 cites it;
 //! * `rev5_m01_m03_forms_unchanged`: every pre-revision-5 example decodes into the
 //!   extended types and re-encodes byte-identically, and none uses a revision-5 form.
@@ -124,6 +124,43 @@ fn rev5_reason_golden() {
             .iter()
             .all(|w| !m03_warning::ALL.contains(&w.as_str()))
     );
+    // ⟨M04; ruling I-9⟩ The M04 finding codes and their sub-reasons, both ways; distinct
+    // from M02's and M03's findings, snake_case, and each sub-reason refines an M04 finding.
+    let m04_findings: BTreeSet<String> = heimdall_contract::doctor::finding::M04
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    let want: BTreeSet<String> =
+        serde_json::from_value(golden["m04_doctor_findings"].clone()).unwrap();
+    assert_eq!(m04_findings, want, "M04 doctor findings");
+    for f in &m04_findings {
+        assert!(
+            f.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+            "{f}"
+        );
+        assert!(
+            !heimdall_contract::doctor::finding::ALL.contains(&f.as_str())
+                && !heimdall_contract::doctor::finding::M03.contains(&f.as_str()),
+            "{f} repeats an earlier finding"
+        );
+    }
+    let reasons: BTreeSet<(String, String)> = golden["m04_finding_reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["reason"].as_str().unwrap().to_owned(),
+                r["finding"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let in_code: BTreeSet<(String, String)> = heimdall_contract::doctor::finding::M04_REASONS
+        .iter()
+        .map(|(r, f)| ((*r).to_owned(), (*f).to_owned()))
+        .collect();
+    assert_eq!(in_code, reasons, "M04 finding sub-reasons");
+    assert!(in_code.iter().all(|(_, f)| m04_findings.contains(f)));
     assert_eq!(Code::all().len(), 30, "the code table is unchanged");
 }
 

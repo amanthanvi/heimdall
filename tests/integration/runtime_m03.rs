@@ -4360,6 +4360,7 @@ mod round2 {
                 updated_at: t0(),
             },
             alias: Some(format!("{dest}-alias")),
+            route: None,
         }
     }
 
@@ -6486,39 +6487,43 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
     let table: Vec<(&str, Request, Code)> = vec![
         // M04: the environment requests (examples) and the route field.
         (
-            "wsl_enable",
-            example("request.environment.wsl-enable.json"),
-            Code::CapabilityUnavailable,
-        ),
-        (
-            "wsl_disable",
-            example("request.environment.wsl-disable.json"),
-            Code::CapabilityUnavailable,
-        ),
-        (
             "container_add",
             example("request.environment.container-add.json"),
             Code::CapabilityUnavailable,
         ),
+        // ⟨M04 U5⟩ `container_remove` is served: the example names an environment this
+        // runtime does not manage, which is `NOT_FOUND` (nothing written). `container_add`
+        // above still answers `driver_unavailable` here: this world wires no effects, so its
+        // host check (a Linux-native runtime with the container effects) refuses first.
         (
             "container_remove",
             example("request.environment.container-remove.json"),
-            Code::CapabilityUnavailable,
+            Code::NotFound,
         ),
-        (
-            "upsert_destination with a jump",
-            request(serde_json::json!({
-                "op": "catalog", "action": "upsert_destination", "request_id": "rev5-jump",
-                "destination": {"id": "lab-db", "alias": "lab-db", "definition": {
-                    "kind": "managed", "hostname": "db.example.invalid", "account": "deploy",
-                    "identity": "idn_00112233445566778899aabbccddeeff", "jump": "bastion"}}
-            })),
-            Code::CapabilityUnavailable,
-        ),
+        // ⟨M04 U6⟩ `upsert_destination` with a jump is built (route rules in the upsert's own
+        // transaction); its row left this table. Covered by `e2e_route_m04`.
         (
             "setup preview of a login entry",
             request(serde_json::json!({"op": "setup", "action": "preview",
                 "intent": {"kind": "apply", "items": ["login_entry"]}})),
+            Code::CapabilityUnavailable,
+        ),
+        // ⟨M04 W2; I-11, ruled⟩ Mode B's `distribution_projection` (a B include in the
+        // distribution's `~/.ssh/config`) is not built in M04: a plan naming it (and so any
+        // apply, which applies a previewed plan) answers `driver_unavailable`, never a plan
+        // that claims it.
+        (
+            "setup preview of the distribution projection",
+            request(serde_json::json!({"op": "setup", "action": "preview",
+                "intent": {"kind": "apply", "items": ["distribution_projection"],
+                    "distribution": "0b1c2d3e-1111-4222-8333-abcdef012345"}})),
+            Code::CapabilityUnavailable,
+        ),
+        (
+            "setup preview of the distribution projection's rollback",
+            request(serde_json::json!({"op": "setup", "action": "preview",
+                "intent": {"kind": "rollback", "items": ["distribution_projection"],
+                    "distribution": "0b1c2d3e-1111-4222-8333-abcdef012345"}})),
             Code::CapabilityUnavailable,
         ),
         // M05: ensure forms, policy forms, revoke target, import, inspect subjects.
@@ -6605,6 +6610,26 @@ async fn w0_revision_5_requests_fail_closed_before_any_record() {
             if *code == Code::CapabilityUnavailable {
                 assert_driver_unavailable(&env, what);
             }
+        }
+    }
+    // ⟨M04 U3b, U4b⟩ `wsl_enable` (the example names both modes) and `wsl_disable` are served
+    // now: a runtime without WSL refuses them `wsl_unavailable`, before anything is read or
+    // written.
+    for (what, name) in [
+        (
+            "wsl_enable without WSL",
+            "request.environment.wsl-enable.json",
+        ),
+        (
+            "wsl_disable without WSL",
+            "request.environment.wsl-disable.json",
+        ),
+    ] {
+        for caller in [attended(ClientRole::Owner), unattended(ClientRole::Owner)] {
+            let env = d.handle_as(&caller, example(name)).await;
+            assert_fail_closed(&env, what);
+            assert_eq!(env.code, Code::CapabilityUnavailable, "{:?}", env.data);
+            assert_eq!(reason_of(&env), Some("wsl_unavailable"));
         }
     }
     // An environment request from a non-owner: the role refusal, no driver reason.

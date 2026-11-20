@@ -167,6 +167,9 @@ windows-sys = { version = "=0.61.2", features = [
     # runtime GetModuleHandleW for the window class.
     "Win32_System_Memory",
     "Win32_System_LibraryLoader",
+    # M04 U2 (the M03 exit suite's Windows diagnosis): `CoTaskMemFree` for the known-folder
+    # path OpenSSH for Windows' environment is filled from (`localenv::sys::openssh_env`).
+    "Win32_System_Com",
 ] }
 
 # --- test only -------------------------------------------------------------------------

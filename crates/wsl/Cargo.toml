@@ -10,16 +10,34 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# Production edges (m04-plan; ADR-0010 §9): the M04 track adds credential, localenv, ipc
-# and app (ports) when its first unit lands. `heimdall-app` must never import this crate:
+# Production edges (m04-plan; ADR-0010 §9): `heimdall-app` must never import this crate:
 # wsl implements app ports and the runtime wires it (tools/validation/crate_graph.py).
 [dependencies]
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
+# The ports only (`ProjectionWriter`, `StageSink`, `ResourceCleaner`, `DistributionHost`).
+heimdall-app = { workspace = true }
+# The projection transaction the helper runs (`LocalProjection`), the client inventory,
+# `ManagedDir`, and the spawn and Lxss primitives.
+heimdall-localenv = { workspace = true }
+# Mode B (ADR-0010 §3 items 4–6): `ipc::signing::classify` on the Linux endpoint, the
+# stale-socket rule, and the endpoint types a `StreamHandler`'s signer serves.
+heimdall-ipc = { workspace = true }
+async-trait = { workspace = true }
+# `data` frames carry base64 (the workspace pin `heimdall-app` already uses).
+base64ct = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# `DistributionCleaner::delete` runs the blocking session on the blocking pool.
+tokio = { workspace = true }
+# The Linux endpoints' and the stream pumps' cancellation.
+tokio-util = { workspace = true }
 
-# No test target runs yet: `tools/validation/check.sh` fails any test target that runs zero
-# tests, so the M04 track enables the lib target's tests (and doctests) with its first
-# meaningful case (ADR-0010 §9 item 8).
-[lib]
-test = false
-doctest = false
+[target.'cfg(unix)'.dependencies]
+# The helper's instance lock (`flock`, O_NOFOLLOW) and its effective uid, through
+# rustix's safe wrappers.
+rustix = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

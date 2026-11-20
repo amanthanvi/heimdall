@@ -444,6 +444,36 @@ fn m03_cli_commands_answer_without_a_runtime_and_never_panic() {
     );
 }
 
+/// ⟨M04-MC3-R04⟩ The issuer child (`internal issuer` on a pipe) under a test configuration
+/// without an explicit `HEIMDALL_HOME` is refused as a usage error (exit 2) before it resolves
+/// a path or opens its phase record: the account's default state directory (scratch here, so
+/// Unix only: `HOME` decides it) gains nothing. Without the guard it resolved the defaults and
+/// exited `unavailable` (5).
+#[cfg(unix)]
+#[test]
+fn internal_issuer_refuses_a_test_configuration_without_an_explicit_home() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = scratch.path().join("account");
+    let state = account.join(".local/state/heimdall");
+    std::fs::create_dir_all(&state).unwrap();
+    let out = Command::new(bin())
+        .args(["internal", "issuer"])
+        .env_clear()
+        .env("HOME", &account)
+        .env("PATH", "/usr/bin:/bin")
+        .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn heimdall");
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(out.stdout.is_empty(), "{out:?}");
+    assert_eq!(
+        std::fs::read_dir(&state).unwrap().count(),
+        0,
+        "nothing is written to the default state directory"
+    );
+}
+
 /// The Rust sources of the M03 handlers and the TUI, relative to the `heimdall` crate:
 /// the files and (recursively) the directories that hold them.
 const M03_SOURCES: &[&str] = &[
@@ -737,6 +767,11 @@ fn enrollment(n: u8, state: EnrollmentState) -> EnrollmentRecord {
 fn seed_state(home: &Path, states: &[EnrollmentState]) -> PathBuf {
     let state_dir = home.join("state");
     std::fs::create_dir_all(&state_dir).unwrap();
+    // ⟨M04 U1; ADR-0010 §1 item 7⟩ A runtime started on this home refuses a Windows state
+    // directory that is not protected owner-only (`state_dir_unsafe`), and never repairs
+    // one: the fixture gives its directory the protected DACL, as a fresh install has.
+    #[cfg(windows)]
+    heimdall_testkit::win::set_owner_only(&state_dir).unwrap();
     let db = state_dir.join("state.db");
     let store = Store::open(&db, Arc::new(NoFaults)).unwrap();
     store

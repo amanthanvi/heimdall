@@ -22,6 +22,9 @@ heimdall-credential = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# ⟨M04 merge-candidate run at 09de4fb2⟩ the child's start, hello and load, timed, in the
+# runtime's redacted log (no frame content, no key material).
+tracing = { workspace = true }
 # M03 wave 2 (U3): the async client of the child (`client::ChildIssuer`: tokio
 # process, pipes, timeouts, the restart backoff) implementing the async
 # `IssuerPort` port. Both already pinned (the workspace tokio has process/io-util/time).

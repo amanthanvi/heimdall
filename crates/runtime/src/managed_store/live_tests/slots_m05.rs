@@ -50,6 +50,19 @@ async fn job(
     environment: Option<&EnvironmentId>,
     until: &str,
 ) -> EnsureData {
+    try_job(ops, tag, scope, environment, until)
+        .await
+        .unwrap_or_else(|e| panic!("ensure {tag}: {} {}", e.code, e.message))
+}
+
+/// [`job`], with its refusal.
+async fn try_job(
+    ops: &Operations,
+    tag: &str,
+    scope: &[AccessPair],
+    environment: Option<&EnvironmentId>,
+    until: &str,
+) -> Result<EnsureData, heimdall_app::OpError> {
     ops.ensure(
         &caller(),
         EnsureRequest {
@@ -70,7 +83,6 @@ async fn job(
     )
     .await
     .map(|c| c.data)
-    .unwrap_or_else(|e| panic!("ensure {tag}: {} {}", e.code, e.message))
 }
 
 /// The launch bind of `binding` (`run`'s), with its warnings.
@@ -539,16 +551,19 @@ async fn default_of(p: &Process, environment: Option<&EnvironmentId>) -> Option<
 
 /// A16 (R-AU-03), **two environments, one OS user** (the native session and a second
 /// managed environment `e2` through the joint wave-0 managed-environment seam; the WSL
-/// and container realizations are M04's rows): two jobs prepare and bind **concurrently**
-/// in each environment on the same pair (one materializes, one joins: a slot and its
-/// references per environment, none crossing). The global default changes mid-run (the
+/// and container realizations are M04's rows): jobs prepare and bind **concurrently** in
+/// both environments on the same pair, with a slot and its references per environment,
+/// none crossing. Natively two jobs share the slot (one materializes, one joins).
+/// ⟨M04 MC5 merge⟩ `e2` is a container environment, which serves **one** binding
+/// (ADR-0010 §4 item 3, M04's container row): its second job is refused
+/// `environment_busy`, so `e2` holds one job. The global default changes mid-run (the
 /// native default moves `dev` → `ops`; `e2`'s stays `dev`): no binding pin changes. Then
 /// each environment's cleanup runs during the other's jobs, through the supervisor's pass
-/// over the managed set: `e2`'s materializer ends (its release's own cleanup fails, so
-/// the pass completes it) and its slot is handed over in `e2` only, while the native
-/// slot, listing, files, bindings and `ssh` are untouched; the
-/// native materializer ends and its slot is handed over while `e2`'s stays as it was.
-/// Finally every job ends and both slots clear, each in its own namespace.
+/// over the managed set: `e2`'s job ends (its release's own cleanup fails, so the pass
+/// completes it) and its slot clears in `e2` only, while the native slot, listing, files,
+/// bindings and `ssh` are untouched; the native materializer ends and its slot is handed
+/// over while `e2`'s stays as it was. Finally every job ends and both slots clear, each
+/// in its own namespace.
 #[tokio::test]
 async fn a16_concurrent_environments_defaults_and_cleanup() {
     let pr = own_pair("u6-a16");
@@ -579,7 +594,14 @@ async fn a16_concurrent_environments_defaults_and_cleanup() {
     );
     let (b, d) = tokio::join!(
         job(&p.ops, "a16-b", scope, None, "2h"),
-        job(&p.ops, "a16-d", scope, Some(&e2), "2h"),
+        try_job(&p.ops, "a16-d", scope, Some(&e2), "2h"),
+    );
+    let busy = d.expect_err("a container environment serves one binding");
+    assert_eq!(
+        (busy.code, busy.reason.as_deref()),
+        (Code::ConfigConflict, Some("environment_busy")),
+        "{}",
+        busy.message
     );
     assert_eq!(
         (a.environment_id.clone(), c.environment_id.clone()),
@@ -589,16 +611,13 @@ async fn a16_concurrent_environments_defaults_and_cleanup() {
         launch(&p, &a.binding_id, "a16-a"),
         launch(&p, &c.binding_id, "a16-c")
     );
-    let (bb, bd) = tokio::join!(
-        launch(&p, &b.binding_id, "a16-b"),
-        launch(&p, &d.binding_id, "a16-d")
-    );
+    let bb = launch(&p, &b.binding_id, "a16-b").await;
     assert!(
         !shared(&ba) && !shared(&bc),
         "one materializer per environment"
     );
-    assert!(shared(&bb) && shared(&bd), "one joiner per environment");
-    let all = [&a, &b, &c, &d];
+    assert!(shared(&bb), "the native joiner");
+    let all = [&a, &b, &c];
     let pins_before: Vec<_> = all.iter().map(|j| pins(&w, &j.binding_id)).collect();
     assert_eq!(
         slot_in(&w, &env(), &pr),
@@ -620,7 +639,7 @@ async fn a16_concurrent_environments_defaults_and_cleanup() {
     );
     assert_eq!(
         references(&w, &e2, &pr),
-        sorted(vec![c.binding_id.clone(), d.binding_id.clone()]),
+        vec![c.binding_id.clone()],
         "environments never share a slot or a reference"
     );
     assert_ne!(
@@ -650,10 +669,10 @@ async fn a16_concurrent_environments_defaults_and_cleanup() {
         );
     }
 
-    // e2's cleanup during the native jobs: e2's materializer ends. Its release's own
-    // cleanup cannot finish (its binding files cannot be removed), so the slot stays
-    // `clearing` in e2; the supervisor's pass over the managed set completes it and hands
-    // the slot over, in e2 only.
+    // e2's cleanup during the native jobs: e2's job ends. Its release's own cleanup cannot
+    // finish (its binding files cannot be removed), so the slot stays `clearing` in e2; the
+    // supervisor's pass over the managed set completes it, in e2 only (no other job
+    // references it there, so it clears).
     let dirs = w.binding_dirs(&c.binding_id);
     assert_eq!(dirs.len(), 1);
     set_mode(&dirs[0].0, 0o500);
@@ -667,22 +686,12 @@ async fn a16_concurrent_environments_defaults_and_cleanup() {
     supervisor(&w, &p).ended_slot_pass().await.unwrap();
     assert_eq!(
         slot_in(&w, &e2, &pr),
-        SlotState::Held {
-            binding: d.binding_id.clone(),
-            generation: 2
-        },
-        "e2's slot handed over in e2"
+        SlotState::Free { generation: 1 },
+        "e2's slot cleared in e2"
     );
-    assert_eq!(
-        p.table
-            .materialized_generation_in(Some(&e2), &d.binding_id, &pr),
-        Some(2)
-    );
-    assert_eq!(files::slot_generation(&root2, &pr).unwrap(), Some(2));
-    assert_eq!(
-        slot_certificate(&root2, &pr),
-        Some(certificate_of(&p, &d.grant_id, &pr))
-    );
+    assert!(references(&w, &e2, &pr).is_empty());
+    assert_eq!(slot_certificate(&root2, &pr), None);
+    assert!(p.table.list(&e2_listing).is_empty());
     assert_eq!(
         slot_in(&w, &env(), &pr),
         SlotState::Held {
@@ -716,18 +725,9 @@ async fn a16_concurrent_environments_defaults_and_cleanup() {
     assert_eq!(fp, Some(key_of(&p, &b.grant_id)));
     assert_eq!(
         slot_in(&w, &e2, &pr),
-        SlotState::Held {
-            binding: d.binding_id.clone(),
-            generation: 2
-        },
+        SlotState::Free { generation: 1 },
         "e2's slot is untouched by the native cleanup"
     );
-    assert_eq!(
-        p.table
-            .materialized_generation_in(Some(&e2), &d.binding_id, &pr),
-        Some(2)
-    );
-    assert_eq!(files::slot_generation(&root2, &pr).unwrap(), Some(2));
     for (before, j) in pins_before.iter().zip(all) {
         assert!(
             same_pins(before, &pins(&w, &j.binding_id)),
@@ -737,12 +737,11 @@ async fn a16_concurrent_environments_defaults_and_cleanup() {
 
     // Every job ends: both slots clear, each in its own namespace.
     release(&p, &b.binding_id).await;
-    release(&p, &d.binding_id).await;
     supervisor(&w, &p).ended_slot_pass().await.unwrap();
-    for (environment, root) in [(env(), &root1), (e2.clone(), &root2)] {
+    for (environment, root, generation) in [(env(), &root1, 2), (e2.clone(), &root2, 1)] {
         assert_eq!(
             slot_in(&w, &environment, &pr),
-            SlotState::Free { generation: 2 }
+            SlotState::Free { generation }
         );
         assert!(references(&w, &environment, &pr).is_empty());
         assert_eq!(slot_certificate(root, &pr), None);

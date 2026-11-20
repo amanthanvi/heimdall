@@ -327,6 +327,8 @@ impl SshStepRunner {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // ⟨M04 U2⟩ What OpenSSH for Windows needs to start, from the OS, when missing.
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment(&mut cmd, true);
         let mut running = self.spawn(&mut cmd)?;
         let lifetime = running.lifetime;
         let (Some(stdin), Some(stdout), Some(stderr)) = (
@@ -483,6 +485,8 @@ impl SshStepRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        // ⟨M04 U2⟩ What OpenSSH for Windows needs to start, from the OS, when missing.
+        heimdall_localenv::sys::openssh_env::fill_openssh_environment(&mut cmd, true);
         let mut running = self.spawn(&mut cmd)?;
         let Some(stdout) = running.child_mut().stdout.take() else {
             running.kill();
