@@ -61,6 +61,22 @@ probe IDs P-…), **[I]** inference to be proved by the M04 tests named in the p
    only an explicit handle list (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`).
    - This closes the inheritable-handle residual (ADR-0006 §13.9).
    - It is also what makes the §3 channel private.
+   - The CLI's on-demand start of the runtime uses the same list, holding only three `NUL`
+     handles (`launcher::spawn_detached`), so a handle the CLI inherited from its caller (a
+     script's pipe, a test harness's output) never reaches the long-lived runtime or its
+     issuer child, and a piped `heimdall` command reaches end of file when the CLI exits.
+     ⟨The M03 E5 hang (2026-11-18)⟩ Proof: `cli_started_runtime_keeps_no_handle_of_its_caller`
+     (Windows, with a positive control); on Unix, M01's
+     `on_demand_runtime_keeps_no_descriptor_inherited_through_its_client` and
+     `runtime_closes_every_descriptor_inherited_at_startup` (ADR-0006 §13.8 item 7).
+   - **No console window for a non-interactive child** (platform fact; ADR-0008 §17.43, ruling
+     I-24): the runtime runs `DETACHED_PROCESS`, so a console child it starts without
+     `CREATE_NO_WINDOW` gets a new console that Windows hands to the default terminal (Windows
+     Terminal on the PC), and its start waits on that hand-off (the issuer child missed its 5 s
+     hello). M04's listed spawns set it in `ListedSpawn::creation_flags`
+     (`localenv::sys::spawn::CREATE_NO_WINDOW`: the issuer child, the verification `ssh -G`, every
+     `wsl.exe` launch and run); a `Command` takes `heimdall_app::no_window!`. The runtime's own
+     start (`DETACHED_PROCESS`) and the launches that share the user's terminal are unchanged.
 7. **The state directory** must have a protected owner-only DACL, checked at start. Anything else is
    refused as `state_dir_unsafe` and never repaired. This closes ADR-0006 §13.12 item 4.
 
@@ -431,3 +447,380 @@ This ADR is reopened when any of these happens:
     - **Q4:** as item 6.
     - **Q5:** as item 9.
     - **Q6:** yes. Recipe A and hardware working keys are deferred again, to be reopened only for an observed target without certificate support.
+
+## 10. Wave 1: the integrator's decisions (2026-11-18; review fixes M04-W1-R01, R02 in items 5 and 6)
+
+**Source:** M04 wave 1 (U1, U2, U3a/U3b, U5, U6), committed as `806ab489`. The readings below
+were put to the contract owner as I-1 to I-10. **Ruled on 2026-11-18:** I-1 to I-8 and I-10
+are confirmed as built. I-9 is answered: the M04 doctor finding codes become a `finding::M04`
+list with a golden, an additive revision-5 delta in ADR-0006 §17 (the review-fix round).
+
+**The provisional readings built on:**
+- **I-1, the decision kind:** adding a container (or, in wave 2, a Mode B distribution) is
+  decision-recorded as `AddEnvironment {environment, realization, disclosures}`.
+- **I-2, removals:** `container remove` and `wsl disable` take authority away and execute for
+  the owner, with no decision.
+- **I-3, non-Linux hosts:** a host that is not Linux refuses `container add` as
+  `driver_unavailable`.
+- **I-4, I-5, routes:** the jump must be a managed-definition destination with no route of its
+  own. Verified-scope evidence holds through exactly the catalog's current single-hop jump.
+- **I-6, Mode A listing:** a Mode A distribution's items are recorded under a projection
+  namespace that is never in the managed set. `inspect environments` lists it under that
+  namespace.
+- **I-7, results:** a completed environment request answers `{"environment": <EnvironmentView>}`.
+- **I-8, the login entry:** it is attended but not journaled. Ownership is the byte-for-byte
+  re-render of its data, so a missing journal can never make a foreign entry look owned: a crash
+  during install leaves at worst an **owned** entry with no resource row, which `service
+  autostart disable` and uninstall find by its data and remove.
+- **I-10, container bindings:** in a container environment, a same-work `ensure` takes the stable
+  directory over.
+
+**Authority decisions:**
+1. **The store admits a commit into a WSL namespace only from its own environment.** A projection
+   item may be committed into a namespace other than the operation's environment only when a WSL
+   distribution record of the same store holds that namespace, and the operation belongs to the
+   store's own environment (`Txn::commit_projection_item`). Every other cross-environment commit
+   is refused, as before.
+   - **Test:** the existing store commit test was extended with the refusals.
+   - **Mutation check:** dropping the own-environment condition fails it (exit 101); restored, it
+     passes (exit 0).
+2. **Only the owner's own request may start a stopped distribution.** A setup operation's driver
+   may start a stopped distribution only while the owner's own setup request, or the attended
+   approval of its `ApplyProjection` decision, leads it.
+   - Restart recovery, the supervisor and the cleanup executor never start one.
+   - A distribution operation they cannot reach stays unresolved: a retained obligation, driven
+     again when the host is wired and at the owner's next `wsl enable` or `wsl disable` (§9
+     item 2).
+3. **Uninstall never starts a distribution.** A stopped Mode A distribution keeps its rollback as
+   an obligation, and uninstall then stays incomplete, so the state store that holds the
+   obligation is kept.
+4. **What OpenSSH for Windows needs to start is filled from the OS** (the M03 exit suite's
+   Windows diagnosis).
+   - Every product launch of `ssh.exe` gets `ProgramData`, `ALLUSERSPROFILE`, `windir` and
+     `SystemDrive`, from the known-folder APIs, but only when the child would lack them.
+   - Nothing else is added, and a present value is never changed.
+
+5. **The Windows state directory has one upgrade path** (the review-fix round, on the
+   orchestrator's instruction that an upgrade is never silently refused). A state directory a
+   build before M04 created has the profile's inherited list: owned by the user, not
+   protected, granting only the user, `SYSTEM` and `BUILTIN\Administrators` (`Verdict::
+   LegacyInherited`). The user's own entry must already grant full control, effective on the
+   directory and inherited by files and subdirectories (`FA` or `GA`, `OI` and `CI`, not
+   inherit-only), so the narrowing never adds access. A read-only, inherit-only or
+   not-inheritable owner entry is refused like any other shape (re-check finding
+   M04-W1-RC01).
+   - At the first start of an M04 build it is narrowed, once, to the protected owner-only DACL
+     `D:P(A;OICI;GA;;;<user>)`. The narrowing goes through one `READ_CONTROL | WRITE_DAC`
+     handle whose own descriptor must judge `LegacyInherited` again. It only removes access
+     (`SYSTEM`, Administrators and the inheritance, all outside §1's claims) and keeps the
+     content. Files already inside keep what they inherited, which names no other principal.
+   - Every other shape stays refused as `state_dir_unsafe` and is never changed: a foreign
+     owner, a deny ACE, any other principal, inherited or protected. The refusal now says how
+     to fix it without losing the state, and the CLI's on-demand start names it as such
+     instead of a generic start failure.
+   - §1 item 7's "never repaired" is narrowed to exactly this: no widening, and no rewrite of
+     a list that grants someone else.
+   - **Proof:** `windows_state_dir_not_owner_only_is_refused` (Windows native: legacy narrowed
+     and started twice, an inherited Everyone grant and a protected Everyone grant refused
+     unchanged), and the pure table in `platform::state_dir_acl_tests`.
+   - **Undo on such a directory (review finding M04-W1-R02):** the CLI's own start
+     (`client::connect_as`) narrows it the same way, so `setup rollback` and `uninstall` run
+     on an installation from before M04. A directory that stays refused answers
+     `STATE_UNAVAILABLE`, reason `state_dir_unsafe`, with the same message as `service run`,
+     instead of a reasonless `SERVICE_UNAVAILABLE`. The owner fixes the list as the message
+     says, keeping the state, and runs the command again; Heimdall does not run rollback or
+     uninstall around the runtime. **Proof:** `inherited_state_dir_then_setup_rollback_and_uninstall`
+     (Windows native: `setup apply` and the login entry, the state directory given the
+     pre-M04 inherited list, then `setup rollback` removes the managed include and
+     `uninstall` the login entry).
+
+6. **Verification never leaves the direct route; a changed final key is a host-key change
+   through any route** (review finding M04-W1-R01, blocking).
+   - **The defect:** the supervisor's re-verification pass and `enroll verify` compared only a
+     direct evaluation. For a routed enrollment whose final host's key changed, the pass did
+     nothing (the record stayed `verified`, its grants active), and `enroll verify` minted the
+     verification certificates and ran a **direct** `ssh` to the approved host, around the
+     approved jump.
+   - **A changed final key** (`app::enrollment::host_key_changed`): a determined evaluation
+     of the pair's alias that names the approved `HostName`, `Port` and `User` but not exactly
+     the approved key is a host-key change **whatever the route**: direct, the catalog's
+     jump, or any other. Both paths use it, so the record is `held` (`host_key_changed`) from
+     the evaluation alone, with no session or certificate, and the pair's grants under its CA
+     are degraded, as in the direct case. A route change alone (another `HostName`, `Port` or
+     `User`) is still not one: the next remote step refuses it as `route_changed`, and the
+     evidence is invalidated at once.
+   - **No session outside the direct route; chosen: end `inconclusive`.** A verification's
+     `ssh` pins the approved host directly. So a verification opens a session only when the
+     alias evaluates direct, or, with no evaluator wired, when the catalog names no jump
+     (`verification_may_connect`). Otherwise it mints nothing, opens nothing and ends
+     `inconclusive`. **Not chosen:** verification through the approved hop, because §5 item 5
+     and §9 item 4 keep verification through a jump `route_unsupported` until M06-T03.
+     **Consequence:** a routed enrollment's evidence isn't renewed while it is routed. It
+     lapses at `fresh_until`, and the workaround of §5 item 5 applies: verify while the
+     destination is reached directly.
+   - **The jump hop's key** (reading I-12, ruled 2026-11-18 as built): a managed jump's pair is enrolled with
+     direct evidence of its own (§5 item 2). A change of its key holds **that** enrollment
+     and degrades every grant whose scope holds the jump pair, which is every grant that
+     reaches a final host through it. The final enrollment is not held for it: its own key is
+     unchanged, so `--approve-target-change` would have nothing to approve. A jump on existing
+     access has no approved key before catalog-pinned host identity (M06-T03, §9 item 3). The
+     use-time rule (reading I-4) then withholds the evidence while the hop has no single key.
+   - **Releasing a held routed enrollment** goes through the direct route too: remove the
+     jump, `enroll verify --approve-target-change` while the destination is reached directly,
+     then route it again; or `enroll remove`.
+   - **Proof:** `routed_enrollment_held_on_a_changed_final_key_and_never_verified_around_its_route`
+     (`e2e_enroll_m03`: no session, certificate or login, the pass holds it, the grant is
+     degraded) and `a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key`
+     (`e2e_route_m04`, the real binary: neither hop sees a login, `ex2` is held and the grant
+     degraded). Both are the review's probes. **Revert proof:** with the fix reverted, both
+     fail (exit 101): the first verification ran a direct session (fake ports: a host-key
+     mismatch observed through a login; the real binary: `verified` through a direct login).
+     Restored, both pass (exit 0). The pure rule is `enrollment::tests::route_matches_via_table`.
+   - **Two route tests changed with it** (found by the devbox run). The supervisor now holds a
+     routed enrollment within one pass of a final-key change, and a hold outlasts the key
+     coming back.
+     - `a15_proxyjump_through_managed_bastion` now expects the restored key to stay refused.
+       The test waits for the `host_key_changed` hold.
+     - `a15_proxyjump_substituted_host_keys_fail_before_authentication` (D03) puts its
+       substitutions in the **client's** copies of the configuration and known-hosts file. The
+       runtime keeps evaluating the originals, so the client's own lookup at each hop is still
+       what's tested, without racing the pass. That race already existed for the jump hop's
+       direct enrollment. The test also checks that nothing was held.
+
+**Residuals (ADR-0009 §2.1; probes named):**
+- **The spawn-lock window.** A concurrent std `Command::spawn` can inherit a listed spawn's
+  three child-side pipe ends during one `CreateProcessW`. It stays open until the remaining
+  spawn sites are converted: the owned `ssh` master and its `-O` calls, enrollment
+  verification, and the CLI-side children.
+  - **Probe:** `runtime_child_inherits_only_listed_handles`.
+- **The sub-uid row's container user can't traverse the 0700 directory,** so the peer-uid check
+  is exercised alone only by rootful root.
+  - **Probe:** `a15_container_mounted_flow`'s errno record.
+- **The forwarded-agent case runs only where the sshd keeps the socket outside the account's
+  `~/.ssh`.** OpenSSH 10.1 and later put a forwarded agent's listener under the account's
+  `~/.ssh/agent/`, and the fixture sshd runs as the owner. So `a15_forwarded_endpoint_bounded_to_binding`
+  runs where the sshd uses `/tmp` (the devbox's 9.6p1), or with an explicit scratch-account
+  opt-in.
+- **Known gap: no per-pair route status.** A routed pair's unsatisfied route dependency shows
+  only as a lost `destination_scope`, not as a status with its reason. A per-pair route-status
+  field is deferred to M07-T03 (stable JSON and codes), unless an exit claim needs it first.
+- **The login entry shows a console window briefly.** `service run --login` detaches from the
+  console the Run value opens (`FreeConsole`), so a window may still flash at login.
+
+## 11. Wave 2: WSL Mode B as built (2026-11-18; pending the wave's review)
+
+**Source:** M04 wave 2 (U4a, the transport in `crates/wsl/src/bridge`; U4b, the product wiring),
+merged onto `3e389a90`. The design both built against is `docs/architecture/m04-plan.md` U4 with
+reading I-11.
+
+**I-11, ruled 2026-11-18 (approved as read):**
+- **A Mode B binding is realized like a container binding.** It gets a per-binding directory
+  `<run>/b/<tag>/` inside the distribution, holding `agent.sock`, an `ssh_config` with
+  in-distribution paths (`IdentityAgent` names the socket, no `ForwardAgent`), `known_hosts`, the
+  public key and the certificates. Nothing is written into the distribution account's `~/.ssh`.
+- **The `ensure` result's descriptor** gives the socket and the config, plus `SSH_AUTH_SOCK` and
+  `GIT_SSH_COMMAND=ssh -F <config>`.
+- **`distribution_projection` stays `driver_unavailable` in M04.** A plan naming it, to apply or
+  to roll back, is refused with that reason, never planned (the revision-5 fail-closed table).
+  No `doctor` surface reports the item, so none claims it applied.
+- **Known limit, for the M04 exit draft:** plain `ssh <alias>` inside a Mode B distribution needs
+  the binding's config (`ssh -F`, `GIT_SSH_COMMAND`). There is no `~/.ssh/config` projection.
+
+**Decisions:**
+1. **Only an owner's `ensure` naming the environment starts a stopped distribution** (§3 item
+   9), and so does `wsl disable --start`, the owner's explicit cleanup start. `delegate`, `bind`
+   and `run` naming a stopped Mode B environment don't start it, and neither do the re-check or
+   the cleanup. ⟨Review M04-W2-R03, the contract owner's ruling⟩ **A background helper
+   relaunch never starts a distribution that a listing showed stopped.** After the helper is
+   lost, the supervisor relaunches it only after two consecutive listings, at least one
+   re-check (10 s) apart, show the distribution running, and a fresh listing is made
+   immediately before each `wsl.exe` call of the launch (the `wslpath` resolution and the
+   helper). Any stopped, absent or unreadable listing cancels the relaunch until the owner's
+   next `ensure` naming the environment, which is the explicit start. ⟨Fix re-check
+   M04-FX-RC02⟩ The admission is checked at the one boundary every non-owner helper start
+   passes through, so the supervisor's relaunch and continuing work's endpoint creation (a
+   re-issue's restoration) are gated alike, and it lists the distribution itself; an absent
+   distribution in a discovery, or an unreadable discovery, sets the block as a stopped
+   listing does. ⟨Windows fix round 5⟩ **The owner's `ensure` is never a background start.**
+   It starts the helper first (`WslRealizer::start`, which lifts the block), and its own
+   endpoint creation and realization carry the same authority (`MaterializeSpec::start`,
+   `Allowed` only for an `ensure`'s own materialization, its new activation or a follower's
+   own binding; `Forbidden` for a `delegate`, a re-issue and the slots): when the helper the
+   owner's start brought up is gone by then, they start one as the owner's start does, never
+   through the admission. A stop that begins after
+   the final pre-launch listing can still be raced, because `wsl.exe` offers no launch that
+   refuses a stopped distribution; the window is the time from that listing to `wsl.exe`'s
+   start. Recorded as a residual.
+2. **The re-check keeps the endpoints realized.** Every 10 s, while the distribution runs and
+   bindings remain, the runtime realizes each binding's current generation again on the live
+   helper. That's idempotent for the helper, and it recreates a deleted socket (m04-plan U4,
+   `a13_deleted_socket_recreated`). A binding withdrawn while that runs is withdrawn again, so
+   a re-check never brings back an ended binding's endpoint; ⟨review M04-W2-R02⟩ the same
+   post-check runs after a relaunch's replay and after a binding's first realization.
+   ⟨Review M04-MC3-R01⟩ Each endpoint generation is bound to the run directory its locator and
+   files were rendered for. A helper with another run directory (a replacement that chose
+   another base, say the home base after `XDG_RUNTIME_DIR` was refused at its start) never
+   realizes or replays it: a realization is refused (`wsl_bridge_run_dir_changed`), a replay
+   drops it, and its endpoint is invalidated, so no `ensure` answers the old paths as ready. The
+   next `ensure` creates the endpoint at the new base. Proof:
+   `wsl_mode_b_a_replacement_with_another_run_base_realizes_nothing_rendered_for_the_old`
+   (revert proof: either half neutralized fails, exit 101; restored, exit 0).
+3. **The leftovers of a stopped distribution are a retained obligation.** When `wsl disable`
+   can't reach a stopped distribution, its binding directories stay, holding public material
+   and a dead socket. The answer says `cleanup_pending`. A later disable reports it again, and
+   one carrying `start` removes it: the helper's start cleans up dead directories. That
+   knowledge lasts for the runtime's lifetime only (a residual, below).
+4. **Uninstall disables every active WSL distribution, Mode A or Mode B,** never starting one. A
+   distribution with a retained cleanup keeps uninstall incomplete, as Mode A's rollback does
+   (§10 item 3).
+5. **`gone` is debounced.** An environment retires as `gone` only when two consecutive discovery
+   listings miss its GUID, because `gone` is terminal.
+6. **Late stream frames are dropped** (U4a). A `data` or `close` frame for a stream that already
+   ended is ignored, because the two directions cross. Only a stream number never opened is a
+   protocol error.
+7. **Mode B has its own lock** (`<run>/bridge.lock`), so a long-lived Mode B helper never makes
+   Mode A's file requests answer `Busy`.
+8. **A test-only stand-in distribution** (`HEIMDALL_TEST_WSL_DIRECT`, debug builds only, refused
+   in release like every test variable): the runtime and the CLI see one distribution whose
+   helper is the binary's own `internal wsl-helper`, started directly. That lets Mode B run end
+   to end through the real binary on macOS and Linux. It's mechanism evidence; the A13 rows are
+   native.
+
+9. **⟨Review M04-W2-R01; fix re-check M04-FX-RC01⟩ Mode B answers paths only through a tree
+   no other principal can replace.** Every component of the run base (`$XDG_RUNTIME_DIR`, or
+   the state base), from `/` down, as it is reached, must pass OpenSSH's secure-path rule:
+   owned by root or the user, and not writable by group or others unless sticky. A symbolic
+   link is accepted only when root owns it and its target's own chain passes the same walk
+   (at most eight links deep); any other link is refused as `wsl_bridge_run_dir_linked`, with
+   a message naming `XDG_RUNTIME_DIR` or a base without links. Resolving the path first would
+   erase an intermediate link and the directory it sits in from the check. The mode bits carry a POSIX ACL's mask,
+   so an ACL granting another principal write access is refused too. A base that fails is
+   refused (`wsl_bridge_run_dir_unsafe`) before anything is created. Each realization also
+   checks that the binding's path names the directory its files are written through (device
+   and inode of the pinned handle), before writing and again after binding the socket; on a
+   mismatch the binding is withdrawn and nothing is answered. **Consequences:** a group-writable
+   ancestor, as `umask 002` leaves `~/.local` on a user-private-group system, makes the
+   fallback base unusable for Mode B, and so does a home reached through a link the user owns;
+   `$XDG_RUNTIME_DIR` (0700, systemd) is unaffected.
+   ⟨Windows run at `56ec9a9e`; the contract owner's ruling⟩ **The base is chosen once per helper
+   session, before its hello names `<run>`:** `XDG_RUNTIME_DIR` when it is set, absolute and its
+   whole chain passes the rule; otherwise the per-user base under the account's home,
+   `<state base>/heimdall/run` (`$XDG_STATE_HOME`, else `~/.local/state`), whose missing
+   components are created 0700 and whose whole chain is checked by the same rule at the first
+   realize. ⟨Review M04-MC3-R02⟩ The chain is checked as far as it exists before any of it is
+   created; each missing level is then created through the handle of the deepest existing
+   directory (which must be the account's own) and verified owner-only before the next. Nothing Heimdall did not create has its permissions changed, and nothing is created
+   under an `XDG_RUNTIME_DIR` that failed. When the home base fails too, the refusal names both
+   (`wsl_bridge_xdg_runtime_dir_and_home_unsafe`); when `XDG_RUNTIME_DIR` is unset, the home
+   base's refusals are the ones above. A run directory that leaves no room for an endpoint's
+   socket path within `sun_path` (`proto::MAX_SOCKET_PATH`, 103 bytes, which fits both Linux's
+   108 and macOS's 104) is refused by name, `wsl_bridge_run_dir_too_long`, on both sides of the
+   channel, never truncated. Proof: `channel_tests::mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others`,
+   `…mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe` (revert
+   proof: with the choice neutralized to `XDG_RUNTIME_DIR` whenever set, both fail, exit 101;
+   restored, exit 0) and `…mode_b_refuses_a_run_dir_too_long_for_a_socket_path`; natively, the
+   A13 rows (their failure diagnostics name the chosen base and each base's verdict).
+10. **⟨Review M04-W2-R04⟩ `GIT_SSH_COMMAND` carries the configuration path as one shell word**
+    (single-quoted when it holds anything outside `[A-Za-z0-9/._-]`), because Git runs it
+    through `sh`. The descriptor's path fields stay raw. The container's fixed path needs no
+    quoting, so its command is unchanged.
+11. **⟨Windows fix round⟩ The renderer joins in-container and in-distribution paths with `/`.**
+    It used the host's separator, so on Windows, the runtime that renders a Mode B binding's
+    files, every path came out with `\` and was refused: no Mode B binding could be realized on
+    Windows. The container renderer's tests are its native regression.
+12. **⟨Windows fix round 5⟩ A refused Mode B step is logged by its stable code.** Every A13 row
+    failed on the PC (`66e6e40f`) at the owner's `ensure` with `SERVICE_UNAVAILABLE`, whose
+    reason the error masks by design (adapter text is never echoed). The runtime now logs the
+    owner's start, endpoint creation and realization when refused, by step and stable code only
+    (a lower-case token; anything else is logged as `other`), and the Windows A13 rows print
+    those lines, the environment's row and the helper's run base (uid, whether
+    `XDG_RUNTIME_DIR` is set, each component's mode, owner and type) when an `ensure` is
+    refused.
+
+13. **⟨Windows runs at `56ec9a9e` and `98f13db9`⟩ A runtime the CLI gave up on advertises and
+    stays.** Five first commands failed `SERVICE_UNAVAILABLE` "the runtime did not become ready
+    in time" on the PC: the CLI waited 10 s, and the runtimes it started kept starting and were
+    found running afterwards, their parents gone. **The CLI now waits 30 s** for the
+    advertisement (`LauncherConfig::default`): what precedes it (the client probes, the store's
+    migrations, the session-lock reading, the issuer child's start) can legitimately take
+    longer than 10 s on a loaded host, and **the runtime logs each phase's time** when it
+    advertises ("the runtime starts", with the time before its own start; "the runtime
+    advertised its endpoints", with the store, projection, recovery, managed and advertise
+    phases and the total). A runtime that misses the wait is **not stopped**: it finishes
+    starting, advertises and stays, so once it serves it is never unseen (`service status`
+    reports it, the next command uses it, a second start loses the instance lock). The CLI
+    kills nothing it could only name by PID. **Test guards** (the exit suite's `World`, the
+    Windows suite's `StopRuntime`) stop every runtime their installation started, a runtime
+    that has not advertised yet included: `service stop` while one is alive for up to 30 s,
+    then each one still alive, recorded under the test configuration with its PID and start
+    token, is pinned, its token and `heimdall` image checked, and killed. Proof:
+    `runtime_guard_kills_a_recorded_runtime_service_stop_cannot_reach` and
+    `runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall` (`e2e_platform_m04`,
+    Unix); the Windows rows' failure messages carry the runtime's start-up timings.
+
+**Platform fact (the Windows run at `56ec9a9e`):** WSLg sets `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir`
+for the distribution's account, and that directory is mode 777 without the sticky bit (owned by
+uid 1000, under `/mnt/wslg`, mode 1777). Another Linux account could rename entries in it, so
+Mode B does not use it and uses the per-user home base (item 9). Every A13 row failed on the PC
+at `86cd513b` with `wsl_bridge_run_dir_unsafe` for this reason.
+
+**Platform fact (the Windows fix round, the PC's run at `02108f8c`):** profiles changed by
+sandboxing tools (observed: an inherited read-and-execute entry for a local sandbox group on
+`%LOCALAPPDATA%`, and Modify entries for sandbox accounts on a protected `%TEMP%`) make a
+pre-M04 state directory `state_dir_unsafe`. That's correct, because another principal could
+read it. The Windows harnesses give their scratch root the stock profile list (the user,
+SYSTEM and Administrators, protected, with full control inherited) so the suites are
+deterministic, and the tests that need a legacy or wider shape build it on their own parent.
+
+**Proof (mechanism; the native A13 rows are Windows'):**
+- `wsl_mode_b::mode_b_end_to_end_through_the_real_bridge_and_helper` (`e2e_platform_m04`, Unix):
+  - `wsl enable --mode-b` through its decision, then `ensure` in the environment;
+  - `ssh-add -l` and a real login through the helper's endpoint with the binding's config, the
+    sshd accepting the grant's certificate;
+  - a deleted socket recreated by the re-check;
+  - the endpoint withdrawn when the grant ends, then `wsl disable`.
+- U4a's helper-channel and bridge-relay tests (peer and `classify` checks, the 65th connection,
+  the generation rules, restart cleanup).
+- U4b's live tests (the decision, the descriptor, withdrawal by generation, disable with and
+  without `start`, the supervisor's not-running, respawn and `gone`), and the refusal tables.
+- `wsl_cmd::tests::uninstall_disables_mode_a_and_mode_b_distributions_never_starting_one`.
+
+**Review fixes' proof:** `channel_tests::mode_b_answers_paths_only_through_a_verified_unreplaced_tree`
+(R01; revert proof: with the fix reverted, and separately with only the identity check
+neutralized, it fails, exit 101; restored, exit 0),
+`wsl_mode_b_lost_helper_relaunches_only_after_two_running_listings` (R03),
+`wsl_mode_b_withdrawal_during_a_relaunch_leaves_no_endpoint` (R02), and
+`wsl_mode_b::git_ssh_command_carries_a_config_path_with_spaces_as_one_argument` (R04).
+The fix re-check's (`39f48be8`): `mode_b_refuses_a_run_base_reached_through_a_replaceable_link`
+(RC01; revert proof: with the walk reverted it fails, exit 101; restored, exit 0) and
+`wsl_mode_b_absent_or_unreadable_listings_and_endpoint_starts_respect_the_relaunch_block`
+(RC02); the Mode B harness's own self-test covers RC03 (an import recorded before it runs,
+and install directories kept until their distribution is known gone). Windows fix round 5:
+`wsl_mode_b_owner_ensure_is_never_a_background_start` (item 1; revert proof: with endpoint
+creation and realization forced back to `Forbidden`, as at `66e6e40f`, it fails, exit 101,
+`SERVICE_UNAVAILABLE` as on the PC; restored, exit 0) and
+`managed_driver_m03::tests::only_an_ensure_materializes_with_the_owner_start` (a `delegate`
+stays a background start).
+
+**Residuals:**
+- **A stop racing the last pre-launch listing** (item 1): `wsl.exe` has no launch that refuses
+  a stopped distribution, so a stop that begins after the final listing of a background
+  relaunch can still be started by that launch.
+- **The same Linux user and root** can still replace Mode B's tree (the accepted hostile
+  same-user residual of §3); item 9 closes it for other principals.
+- **Another Linux user and `wsl.exe -u`:** the `SO_PEERCRED` refusal of another uid, and the
+  non-claim of §3 for a process that becomes the user through `wsl.exe -u`, are native rows.
+- **Leftovers across a restart:** a retained Mode B cleanup isn't durable. If the runtime
+  restarts before the owner's `wsl disable --start`, the leftovers stay in the distribution's run
+  directory. With systemd's `XDG_RUNTIME_DIR` they're on a tmpfs that the distribution's next
+  shutdown clears; on the fallback path they stay until a helper starts there. They hold public
+  material only.
+- **The A03 Mode B lock row** (`a03_mode_b_fresh_logins_while_windows_locked`) needs a filter in
+  the Windows lock harness, which today launches only `e2e_exit_m03 lock::`. That's U7's
+  harness generalization (wave 3).
+- **A re-issue at a higher generation onto an existing Mode B endpoint** fails closed: the
+  realization and withdrawal use the spec's generation, and every binding is generation 1 today.
+- **The helper doesn't enforce the deadline.** The Windows signer owns expiry, so a skewed
+  Linux clock can't close endpoints early.
+- **The 64-stream cap per binding is enforced by the helper only.**
+- **`Bridge::drop` blocks up to 2 s.**

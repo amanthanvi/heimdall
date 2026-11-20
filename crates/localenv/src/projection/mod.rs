@@ -218,6 +218,11 @@ pub struct ProjectionConfig {
     pub managed: Option<Arc<dyn ManagedPairSource>>,
     /// Test-only switches.
     pub test: ProjectionTestConfig,
+    /// ⟨M04⟩ The WSL distribution this writer serves (design §3.2a): `None` for the native
+    /// writer, which refuses every intent naming a distribution; `Some` for the writer
+    /// inside a distribution's helper, which serves only that distribution's Git item
+    /// (Mode A) and refuses a file step of any other item.
+    pub distribution: Option<heimdall_contract::environment::DistributionGuid>,
     /// Test-only diagnostics (`None` in production): called with every Git observation
     /// a preview plans from, so a test that sees two digests differ can name what the
     /// observation could not read (its `unreadable` entries, never a value).
@@ -245,8 +250,19 @@ impl ProjectionConfig {
             keys: None,
             managed: None,
             test: ProjectionTestConfig::default(),
+            distribution: None,
             git_observed: None,
         }
+    }
+
+    /// ⟨M04⟩ This configuration as the writer of `distribution`'s Git item (Mode A).
+    #[must_use]
+    pub fn for_distribution(
+        mut self,
+        distribution: heimdall_contract::environment::DistributionGuid,
+    ) -> Self {
+        self.distribution = Some(distribution);
+        self
     }
 
     /// This configuration with Heimdall's state directory, where the original files'
@@ -294,6 +310,7 @@ impl std::fmt::Debug for ProjectionConfig {
             .field("managed", &self.managed.is_some())
             .field("queries", &self.queries)
             .field("test", &self.test)
+            .field("distribution", &self.distribution.is_some())
             .field("git_observed", &self.git_observed.is_some())
             .finish_non_exhaustive()
     }

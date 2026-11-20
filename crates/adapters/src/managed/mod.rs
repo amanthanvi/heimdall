@@ -41,6 +41,7 @@ pub mod files;
 pub mod prepare;
 pub mod reissue;
 pub mod report;
+pub mod route;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

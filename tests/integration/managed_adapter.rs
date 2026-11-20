@@ -359,6 +359,7 @@ fn prepare_pairs(pairs: &[AccessPair]) -> Vec<PreparePair> {
             account: p.account.clone(),
             identity: identity_record(),
             alias: Some(p.destination.as_str().to_owned()),
+            route: None,
         })
         .collect()
 }
@@ -394,6 +395,7 @@ fn approved_eval(p: &AccessPair) -> TargetEvaluation {
         port: 22,
         user: p.account.as_str().to_owned(),
         proxy: ProxyRoute::None,
+        proxy_jump: None,
         determinism: Determinism::Determined,
         host_keys: vec![RawHostKey {
             key_type: "ssh-ed25519".into(),
@@ -1208,6 +1210,7 @@ impl World {
                             .collect(),
                     },
                     environment_slots: false,
+                    start: heimdall_app::ports::DistributionStart::Forbidden,
                 },
             )
             .unwrap();
@@ -4869,6 +4872,7 @@ async fn stale_clear_never_unlists_the_current_binding() {
                         .collect(),
                 },
                 environment_slots: false,
+                start: heimdall_app::ports::DistributionStart::Forbidden,
             },
         )
         .unwrap();

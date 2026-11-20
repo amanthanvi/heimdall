@@ -694,12 +694,12 @@ async fn extension_profile_matches_adr_0005_3_4_table() {
         (&forwarding, pair("h9", "deploy"), &[]),
     ];
     for (grant, p, expected) in table {
-        let got = permitted_extensions(grant, &p);
+        let got = permitted_extensions(grant, &p, &BTreeSet::new());
         let want: BTreeSet<String> = expected.iter().map(|s| (*s).to_owned()).collect();
         assert_eq!(got, want, "{p:?}");
         assert_eq!(
             got,
-            heimdall_domain::issuance::extension_profile(grant, &p),
+            heimdall_domain::issuance::extension_profile(grant, &p, &BTreeSet::new()),
             "the wrapper is the domain profile"
         );
         for n in never {

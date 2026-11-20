@@ -175,6 +175,12 @@ path = "../../tests/integration/connections.rs"
 name = "integration_issuer_m03"
 path = "../../tests/integration/issuer_m03.rs"
 
+# ⟨M04⟩ U1 (m04-plan U1): the login entries against scratch roots (the per-platform round trip)
+# and the setup item through the real Operations.
+[[test]]
+name = "integration_login_entry_m04"
+path = "../../tests/integration/login_entry_m04.rs"
+
 # ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3): the real workspace observer over scratch files: symlinked
 # roots, refused symlink/FIFO/device manifests, a manifest swapped by a concurrent writer,
 # file identities.

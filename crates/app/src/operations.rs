@@ -258,6 +258,8 @@ mod verification_m03;
 // decision kinds' completion (each a child of `operations`, sharing the journal's
 // private helpers).
 mod decisions_m03;
+// ⟨M04⟩ U5: the local Linux-container binding recipe (ADR-0010 §4).
+pub mod container_m04;
 mod enrollment_m03;
 mod issuer_m03;
 mod managed_driver_m03;
@@ -282,8 +284,13 @@ pub use review_m05::Extension;
 mod slots_m05;
 mod stop_m05;
 mod trust_m05;
+// ⟨M04⟩ The M04 track's operation modules (ADR-0010; m04-plan): U3b's WSL requests.
+pub mod wsl_m04;
+// ⟨M04⟩ U1: the login entry's setup item and its `inspect capabilities` field.
+mod login_entry_m04;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
+pub use login_entry_m04::login_resource_id;
 // ⟨M05⟩ U6: the handover the runtime's slot cleanup commits (ADR-0011 §5.2).
 pub use slots_m05::{SlotHandover, slot_files_removed_or_hand_over_in};
 pub use uninstall_fence_m03::{
@@ -724,6 +731,10 @@ struct Inner {
     managed_ops: managed_state_m03::ManagedOpsState,
     /// ⟨M03; ADR-0008 §17.27 item 2⟩ The uninstall fence (`uninstall_fence_m03`).
     uninstall_fence: Arc<uninstall_fence_m03::UninstallFence>,
+    /// ⟨M04 U3b⟩ The WSL host (`wsl_m04`).
+    wsl: wsl_m04::WslState,
+    /// ⟨M04⟩ U1: the login entry's port and remembered previews (`login_entry_m04`).
+    login_entry: login_entry_m04::LoginEntryWiring,
     /// ⟨M05⟩ U2: the workspace observer, set once (`Operations::set_workspace_probe`);
     /// without one the requests and decisions that need it fail closed (`trust_m05`).
     workspace_probe: std::sync::OnceLock<Arc<dyn crate::ports::WorkspaceProbe>>,
@@ -3889,6 +3900,7 @@ fn catalog_pairs(
     pairs: &BTreeSet<AccessPair>,
 ) -> heimdall_store::Result<Result<Vec<PreparePair>, OpError>> {
     let mut out = Vec::new();
+    let routes = crate::catalog::route_view(tx)?;
     for p in pairs {
         let Some(d) = tx.destination(&p.destination)? else {
             continue;
@@ -3914,9 +3926,44 @@ fn catalog_pairs(
             account: p.account.clone(),
             identity: record,
             alias: Some(d.alias.clone()),
+            route: match pair_route(&routes, p, pairs) {
+                Ok(r) => r,
+                Err(e) => return Ok(Err(e)),
+            },
         });
     }
     Ok(Ok(out))
+}
+
+/// ⟨M04 U6⟩ The route of `pair` for a grant whose scope is `scope` (ADR-0010 §5
+/// item 2), or `route_dependency_out_of_scope` when its jump hop is neither a managed
+/// pair in the same scope nor existing access (also a jump that no longer resolves to
+/// a valid one: fail closed).
+pub(crate) fn pair_route(
+    view: &heimdall_domain::catalog::RouteCatalogView,
+    pair: &AccessPair,
+    scope: &BTreeSet<AccessPair>,
+) -> Result<Option<crate::ports::PairRoute>, OpError> {
+    let Some(route) = view.route_of(pair) else {
+        return Ok(None);
+    };
+    let out_of_scope = |_| {
+        OpError::new(
+            Code::CapabilityUnavailable,
+            "the pair's destination is reached through a jump whose access is neither a managed pair in this grant's scope nor existing access",
+        )
+        .with_reason(heimdall_contract::envelope::reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE)
+        .with_effect(EffectStatus::None)
+        .with_resource("destination", Some(pair.destination.to_string()))
+    };
+    let route = route.map_err(out_of_scope)?;
+    let access = view
+        .jump_access(&route, Some(scope))
+        .map_err(out_of_scope)?;
+    Ok(Some(crate::ports::PairRoute {
+        approved: route,
+        access,
+    }))
 }
 
 /// ⟨M02⟩ The one mechanism the catalog's pairs name (`None` when they name none),
@@ -5062,6 +5109,8 @@ enum Admitted {
     Backpressure,
     /// Another open or unresolved setup operation blocks it; nothing written.
     InProgress(Vec<OperationId>),
+    /// ⟨M04⟩ U5: the target environment refuses it (`environment_busy`); nothing written.
+    Refused(Box<OpError>),
 }
 
 /// ⟨M02⟩ U0b row 23: a setup admission (m02-plan §5 item 18). The operation is
@@ -5183,10 +5232,19 @@ impl Facts {
     fn with_eligibility(
         mut self,
         tx: &mut Txn<'_>,
+        grant: &GrantSnapshot,
         now: Timestamp,
     ) -> heimdall_store::Result<Self> {
+        // ⟨M04 U6⟩ Route and forwarding are not history: recomputed from the catalog and
+        // the grant in this transaction (a route is the catalog's, never stored facts).
+        let routes = crate::catalog::route_view(tx)?;
+        let forwarding = grant
+            .scope
+            .capabilities
+            .contains(&heimdall_contract::request::Capability::AgentForwarding);
         for pair in &mut self.integration.pairs {
             fresh_pair(tx, pair, now)?;
+            fresh_route(&routes, pair, &grant.scope.pairs, forwarding);
         }
         self.availability = availability_of(&self.integration.pairs);
         Ok(self)
@@ -5342,6 +5400,37 @@ fn no_endpoint() -> EndpointRef {
         kind: heimdall_contract::provider::EndpointKind::UnixSocket,
         locator: String::new(),
     }
+}
+
+/// ⟨M04 U6⟩ A result pair's route and forwarding (ADR-0010 §5), from the catalog and
+/// the grant: `route` when the pair's destination names a jump whose hop is a managed
+/// pair in `scope` or existing access; `agent_forwarding` when the grant has the
+/// `agent-forwarding` capability and the pair's endpoint is a Unix socket (Windows
+/// `ForwardAgent` to a named pipe stays `unsupported`, ADR-0010 §9 item 8).
+fn fresh_route(
+    view: &heimdall_domain::catalog::RouteCatalogView,
+    pair: &mut PairIntegration,
+    scope: &BTreeSet<AccessPair>,
+    forwarding: bool,
+) {
+    let ap = AccessPair {
+        destination: pair.destination.clone(),
+        account: pair.account.clone(),
+    };
+    pair.route = view.route_of(&ap).and_then(Result::ok).and_then(|r| {
+        let access = view.jump_access(&r, Some(scope)).ok()?;
+        Some(heimdall_contract::environment::RouteView {
+            jump: r.jump,
+            jump_alias: r.jump_alias,
+            jump_access: access,
+        })
+    });
+    pair.agent_forwarding = forwarding
+        && pair.mechanism == MANAGED_CERTIFICATE
+        && pair
+            .endpoint
+            .as_ref()
+            .is_some_and(|e| e.kind == heimdall_contract::provider::EndpointKind::UnixSocket);
 }
 
 /// ⟨M02⟩ Fill one pair's fresh fields (U0b row 5). An identity that left the
@@ -5572,15 +5661,25 @@ fn destination_view(
             port,
             account,
             identity,
-            ..
+            jump,
         } => (
             AliasDefinition::Managed,
-            Some(serde_json::json!({
-                "hostname": hostname,
-                "port": port,
-                "account": account,
-                "identity_id": identity,
-            })),
+            Some(match jump {
+                // ⟨M04 U6⟩ The route's jump destination (omitted without one).
+                Some(jump) => serde_json::json!({
+                    "hostname": hostname,
+                    "port": port,
+                    "account": account,
+                    "identity_id": identity,
+                    "jump": jump,
+                }),
+                None => serde_json::json!({
+                    "hostname": hostname,
+                    "port": port,
+                    "account": account,
+                    "identity_id": identity,
+                }),
+            }),
         ),
         DestinationDefinition::Observed => (AliasDefinition::Observed, None),
     };
@@ -5665,6 +5764,24 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
             "endpoint": endpoint,
             "interaction": interaction,
             "valid_until": valid_until,
+        }),
+        // ⟨M04⟩ U5: what the owner decides: the new environment, how it is realized and the
+        // disclosures (not a sandbox, engine access, same-UID use; ⟨U4b⟩ for Mode B, the same
+        // Windows user and the distribution's root, the interop owner, the uptime).
+        DecisionKind::AddEnvironment {
+            environment,
+            realization,
+            disclosures,
+        } => serde_json::json!({
+            "environment_id": environment,
+            "environment_kind": match realization {
+                heimdall_domain::environment::EnvironmentRealization::Wsl { .. } => {
+                    "wsl_distribution"
+                }
+                _ => "container",
+            },
+            "realization": realization,
+            "disclosures": disclosures,
         }),
         // M03 wave 0 (A1): fail closed until U0b: no M03 decision is created in wave 0; were one
         // stored, its recorded content is shown verbatim.
@@ -5815,6 +5932,8 @@ impl Operations {
             narrowing: narrowing::NarrowingState::default(),
             managed_ops: managed_state_m03::ManagedOpsState::default(),
             uninstall_fence: Arc::default(),
+            wsl: wsl_m04::WslState::default(),
+            login_entry: login_entry_m04::LoginEntryWiring::default(),
             workspace_probe: std::sync::OnceLock::new(),
             #[cfg(debug_assertions)]
             default_bind_pause: Mutex::new(None),
@@ -8456,6 +8575,8 @@ impl Operations {
             .unwrap_or_default();
         let adapters = self.adapter_infos();
         let cap = self.inner.revocation_cap.load(Ordering::SeqCst);
+        // ⟨M04⟩ U5: the container directory of the result's mount instruction.
+        let container_effects = self.container_effects();
         // ⟨M05⟩ U3: the work this binding is for (the work-stop check).
         let work = stop_m05::work_of(st);
         // ⟨Review M05-W2-R01⟩ The binding a delegation was made through.
@@ -8499,7 +8620,7 @@ impl Operations {
                     Some(f) => f,
                     None => Facts::conservative(&g, tx.grant_prepared_facts(&gid)?.as_ref(), now),
                 }
-                .with_eligibility(tx, now)?;
+                .with_eligibility(tx, &g, now)?;
                 // ⟨W4-C02⟩ A managed follower reports, and is held to its minimum by, its
                 // own claim at this commit's time.
                 if let Some(scope) = &follower_scope {
@@ -8669,6 +8790,19 @@ impl Operations {
                 if let Some(endpoint) = &follower_endpoint {
                     managed_driver_m03::name_follower_endpoint(&mut data.consumer, endpoint);
                 }
+                // ⟨M04⟩ U5 (design §7): a container binding's result carries the mount
+                // instruction and no host path.
+                let dir_of = |tag: &str| {
+                    container_effects
+                        .as_ref()
+                        .and_then(|e| e.container_directory(tag))
+                };
+                container_m04::finish_integration(
+                    tx,
+                    &binding.environment,
+                    &mut data.consumer,
+                    &dir_of,
+                )?;
                 let value = serde_json::to_value(&data)?;
                 settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention)?;
                 tx.append_stage_receipt(
@@ -8759,6 +8893,13 @@ impl Operations {
                 if !allow_new {
                     return Ok(Admitted::Backpressure);
                 }
+                // ⟨M04⟩ U5 (ADR-0010 §4 item 3): one active binding per container
+                // environment, before anything is written.
+                if kind == OperationKind::Ensure
+                    && let Err(e) = container_m04::admit_binding(tx, &environment, &request, now)?
+                {
+                    return Ok(Admitted::Refused(Box::new(e)));
+                }
                 let op = OperationRecord {
                     id: id.clone(),
                     kind,
@@ -8830,6 +8971,7 @@ impl Operations {
             )
             .with_retry_after(BACKPRESSURE_RETRY_MS)),
             Admitted::InProgress(blocking) => Err(setup_in_progress(&blocking)),
+            Admitted::Refused(e) => Err(*e),
         }
     }
 
@@ -9298,6 +9440,10 @@ impl Operations {
                         heimdall_contract::ipc::capability::ENROLLMENT_V1,
                         heimdall_contract::ipc::capability::MANAGED_CREDENTIALS_V1,
                         heimdall_contract::ipc::capability::CONNECTIONS_V1,
+                        // ⟨M04⟩ Revision 5's environment forms: U1's login entry setup item,
+                        // U3b's WSL and U5's container requests (the same set as
+                        // `server_capabilities()`).
+                        heimdall_contract::ipc::capability::ENVIRONMENTS_V1,
                         // ⟨M05⟩ W3: offered once every trusted-work form is served.
                         heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
                     ],
@@ -9309,15 +9455,37 @@ impl Operations {
                     "schema_version": heimdall_contract::SchemaVersion::current(),
                 }),
                 InspectSubject::Environments => {
-                    self.write(move |tx, _| {
-                        let record = tx.environment(&environment)?;
-                        Ok(serde_json::json!({
-                            "environment_id": environment,
-                            "enrolled": record.is_some(),
-                            "environments": record.into_iter().collect::<Vec<_>>(),
-                        }))
-                    })
-                    .await?
+                    // ⟨M04⟩ U5 (design §3): the owner sees every environment the runtime
+                    // knows (`items`, its own first, the `inspect-environments` schema),
+                    // beside M01's own-environment keys, which any other role gets alone.
+                    let owner = ctx.is_owner();
+                    let effects = self.container_effects();
+                    let data = self
+                        .write(move |tx, _| {
+                            let record = tx.environment(&environment)?;
+                            let mut data = serde_json::json!({
+                                "environment_id": environment,
+                                "enrolled": record.is_some(),
+                                "environments": record.into_iter().collect::<Vec<_>>(),
+                            });
+                            if owner {
+                                let dir_of = |tag: &str| {
+                                    effects.as_ref().and_then(|e| e.container_directory(tag))
+                                };
+                                let view =
+                                    container_m04::environments_view(tx, &environment, &dir_of)?;
+                                if let (Some(map), Ok(items)) =
+                                    (data.as_object_mut(), serde_json::to_value(view.items))
+                                {
+                                    map.insert("items".to_owned(), items);
+                                }
+                            }
+                            Ok(data)
+                        })
+                        .await?;
+                    // ⟨M04 U3b⟩ A WSL row's state is the distribution's running state, read
+                    // from the host's listing (which starts nothing), outside the transaction.
+                    self.wsl_running_states(data).await
                 }
                 // ⟨M02⟩ ADR-0007 §12.24 item 1: the catalog's destinations, each with its
                 // alias and its definition (`managed`, with the rendered fields, or
@@ -9754,6 +9922,7 @@ impl Operations {
         if capabilities {
             self.add_capabilities_lock(&mut done.data).await;
             self.label_capabilities_lock(&mut done).await;
+            self.add_capabilities_login(&mut done.data).await;
         }
         Ok(done)
     }
@@ -9914,6 +10083,10 @@ impl Operations {
             })
             .await??;
         }
+        // ⟨M04 U4b⟩ An `ensure` naming a WSL Mode B environment is the owner's own explicit
+        // action on it: its helper starts here (a stopped distribution too), never in the
+        // background (ADR-0010 §3 item 9, §10 item 2).
+        self.wsl_start_for_ensure(&environment).await?;
         // ⟨M03⟩ U0b row 9 (O): `connection: graceful` and a pair resolving to
         // `managed_certificate` (wave 0) are refused before any record is written.
         let precheck = self.ensure_precheck(&req).await?;
@@ -10378,7 +10551,7 @@ impl Operations {
                 // ⟨M02⟩ U0b rows 4 and 5: the grant's stored history, then fresh
                 // eligibility, in this settling transaction.
                 let facts = Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
-                    .with_eligibility(tx, now)?;
+                    .with_eligibility(tx, &g, now)?;
                 let mut data = ensure_data(&b, &g, &facts, bound);
                 // ⟨M05⟩ U6: a managed launch that joined a shared slot is labelled
                 // `ordinary_aliases: shared_environment_default` (ADR-0011 §5.2).
@@ -11904,6 +12077,20 @@ impl Operations {
                         }
                         Some(op)
                     }
+                    // ⟨M04⟩ U5: the container environment's precheck (nothing written).
+                    DecisionKind::AddEnvironment { .. } => {
+                        match container_m04::decision_precheck(tx, &d, verdict, &env)? {
+                            Ok(w) => {
+                                m03_waiting = Some(w);
+                                None
+                            }
+                            Err(e) => {
+                                return Ok(Err(
+                                    e.with_resource("decision", Some(did.to_string()))
+                                ));
+                            }
+                        }
+                    }
                     // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver checks the
                     // record first (`decisions_m03::precheck`); a refusal writes nothing,
                     // so the record stays pending and is not consumed.
@@ -12155,6 +12342,17 @@ impl Operations {
                         DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
                         _,
                     ) => {}
+                    // ⟨M04⟩ U5: approval inserts the managed row and the environment's
+                    // record in this transaction; a refusal rolls it back (nothing
+                    // consumed). The stable directory is created after the commit.
+                    (DecisionKind::AddEnvironment { .. }, _) => {
+                        if let Err(e) =
+                            container_m04::decision_apply(tx, emit, &record, verdict, now)?
+                        {
+                            *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) = Some(e);
+                            return Err(conflict("container environment refused by its driver"));
+                        }
+                    }
                     // ⟨M05⟩ U2: the workspace kinds' driver, in this transaction; a refusal
                     // rolls it back (nothing consumed).
                     (
@@ -12209,6 +12407,8 @@ impl Operations {
         if record.kind.is_m03() {
             self.m03_after_decision(&record, verdict).await;
         }
+        // ⟨M04⟩ U5: an approved container environment's directory, and its view.
+        let environment_view = self.container_after_decision(&record, verdict).await;
         // Resume the waiting operations, all at once (the record's own operation
         // first), under ONE overall bound for this request (⟨r2.5⟩ ADR-0006 §13.8
         // item 2): when it is reached the durable decision result is returned and
@@ -12223,22 +12423,36 @@ impl Operations {
             modes.push((id, interactive));
         }
         let resume: Vec<(OperationId, bool)> = modes;
+        // ⟨M04 U3b⟩ An approved projection change is the owner's attended decision on
+        // exactly that plan: its driver may start a stopped WSL distribution the intent
+        // names, while this request leads it (ADR-0010 §9 item 2).
+        let allowed = (verdict == Verdict::Approve
+            && matches!(record.kind, DecisionKind::ApplyProjection { .. }))
+        .then(|| {
+            let ids: Vec<OperationId> = resume.iter().map(|(id, _)| id.clone()).collect();
+            self.allow_distribution_start(&ids)
+        });
         self.lead_all_bounded(&resume, self.inner.config.limits.max_wait)
             .await;
+        drop(allowed);
         let mut operation_state = None;
         if let Some(id) = &op_id {
             operation_state = self.load_work(id).await.ok().map(|s| s.op.state);
         }
-        let mut done = Completed::ok(
-            Code::Ok,
-            serde_json::json!({
-                "decision_id": record.id,
-                "verdict": verdict,
-                "state": record.state,
-                "operation_id": op_id,
-                "operation_state": operation_state,
-            }),
-        );
+        let mut data = serde_json::json!({
+            "decision_id": record.id,
+            "verdict": verdict,
+            "state": record.state,
+            "operation_id": op_id,
+            "operation_state": operation_state,
+        });
+        // ⟨M04⟩ U5 (reading I-7): the approval of an `AddEnvironment` answers the same data
+        // as the request would have, `{"environment": <EnvironmentView>}`, beside the
+        // decision's own fields.
+        if let (Some(view), Some(map)) = (environment_view, data.as_object_mut()) {
+            map.insert("environment".to_owned(), view);
+        }
+        let mut done = Completed::ok(Code::Ok, data);
         done.operation_id = op_id;
         Ok(done)
     }
@@ -12535,6 +12749,18 @@ impl Operations {
     /// `managed_certificate`) is unchanged.
     pub async fn reserve_issuance(&self, req: IssuanceRequest) -> Result<IssuanceEntry, OpError> {
         self.reserve_issuance_with(req, None).await
+    }
+
+    /// ⟨M04 U6⟩ The in-scope pairs another in-scope pair uses as its managed jump
+    /// ([`heimdall_domain::catalog::jump_pairs_in_scope`]), read in a transaction of
+    /// its own: the request creation's input to `extension_profile` (the independent
+    /// check reads its own, inside its own transaction).
+    pub(crate) async fn jump_pairs_for(
+        &self,
+        scope: BTreeSet<AccessPair>,
+    ) -> Result<BTreeSet<AccessPair>, OpError> {
+        self.write(move |tx, _| crate::catalog::jump_pairs_of(tx, &scope))
+            .await
     }
 
     /// [`Operations::reserve_issuance`], with the CA the request names, if any.
@@ -12945,16 +13171,20 @@ impl Published {
 /// Extensions the grant permits for `pair` (ADR-0006 §13.5 ruling 3), derived
 /// from the grant's resolved scope (its profile-snapshot capabilities), never from
 /// request fields: `permit-pty` for an ordinary pair in the scope (ADR-0005 §3.4),
-/// and `permit-agent-forwarding` only with the `agent-forwarding` capability.
-/// Nothing else (no route data in M01, so no `permit-port-forwarding`; never
-/// `permit-X11-forwarding`). M03 replaces this with the §3.4 profile/route
-/// derivation.
+/// `permit-agent-forwarding` only with the `agent-forwarding` capability, and
+/// ⟨M04 U6⟩ `permit-port-forwarding` only for a pair in `jump_pairs` (the in-scope
+/// pairs another in-scope pair uses as its managed jump). Never
+/// `permit-X11-forwarding`.
 ///
 /// ⟨M03⟩ U0b row 2 (O): a wrapper over `heimdall_domain::issuance::extension_profile`
-/// (ADR-0008 D6 item 1), whose output is identical for every M01 grant.
+/// (ADR-0008 D6 item 1), whose output is identical for every grant without a route.
 #[must_use]
-pub fn permitted_extensions(grant: &GrantSnapshot, pair: &AccessPair) -> BTreeSet<String> {
-    heimdall_domain::issuance::extension_profile(grant, pair)
+pub fn permitted_extensions(
+    grant: &GrantSnapshot,
+    pair: &AccessPair,
+    jump_pairs: &BTreeSet<AccessPair>,
+) -> BTreeSet<String> {
+    heimdall_domain::issuance::extension_profile(grant, pair, jump_pairs)
 }
 
 /// Build `IssuanceCheck` from current store state inside the caller's transaction
@@ -13161,7 +13391,11 @@ fn issuance_predicate(
         }
     }
     let tombstoned = tx.denied_ancestor(&grant.id)?.is_some();
-    let permitted = permitted_extensions(grant, pair);
+    // ⟨M04 U6⟩ The jump pairs of the grant's scope, from this transaction's own read
+    // of the catalog: a catalog change after the request was created makes the
+    // request's extension set no longer a subset, and the check refuses.
+    let jump_pairs = crate::catalog::jump_pairs_of(tx, &grant.scope.pairs)?;
+    let permitted = permitted_extensions(grant, pair, &jump_pairs);
     // ⟨M03⟩ U0b row 2 (O): the CA inputs, read here (`None` on the M01 path).
     let cas = ca_issuance_m03::ca_facts(tx, &grant.id, pair, bounds)?;
     let check = IssuanceCheck {

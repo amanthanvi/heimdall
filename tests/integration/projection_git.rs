@@ -587,6 +587,8 @@ impl Fx {
                 .to_str()
                 .unwrap()
                 .to_owned(),
+
+            jump_alias: None,
         }
     }
 
@@ -4683,4 +4685,185 @@ fn git_preview_digest_is_stable_under_a_slow_git() {
     );
     assert_eq!(c.view.plan_digest, d.view.plan_digest);
     assert_eq!(c.view.plan_digest, a.view.plan_digest, "the complete plan");
+}
+
+// --- ⟨M04 U3a⟩ Mode A: the distribution's Git item inside the writer (design §3.2a) ----------
+
+fn distribution_guid() -> heimdall_contract::environment::DistributionGuid {
+    heimdall_contract::environment::DistributionGuid::parse("0b1c2d3e-1111-4222-8333-abcdef012345")
+        .unwrap()
+}
+
+fn distribution_intent(guid: &heimdall_contract::environment::DistributionGuid) -> PreviewIntent {
+    PreviewIntent::Apply {
+        include_git: false,
+        items: [ProjectionItem::DistributionGit].into_iter().collect(),
+        distribution: Some(guid.clone()),
+    }
+}
+
+/// A distribution's writer plans and runs the Git item alone (no B, no P, no key files), points
+/// Git at the client the helper's inventory names whatever Git's default SSH is, and rolls it
+/// back; the account's `~/.ssh` is never touched. Mode A's Git item, and the §3.2a
+/// preview and rollback rules.
+#[test]
+fn distribution_git_apply_and_rollback_leave_ssh_untouched() {
+    let fx = Fx::new();
+    let guid = distribution_guid();
+    let mut config = fx.config().for_distribution(guid.clone());
+    // The Mode A item applies whatever Git's default SSH is: it points Git at the Windows
+    // in-box client on purpose. The Unix test switch is off, so only §3.2a can allow it.
+    config.test.git_item_any_default = false;
+    let writer = LocalProjection::new(config);
+    let ssh_config = fx.home.ssh_dir.join("config");
+    let ssh_before = std::fs::read(&ssh_config).unwrap();
+    let ssh_dir_before: Vec<String> = snapshot_names(&fx.home.ssh_dir, "");
+
+    let plan = writer
+        .preview(&fx.spec(None), &distribution_intent(&guid))
+        .unwrap();
+    assert_eq!(
+        plan.view.git.as_ref().map(|g| g.applicability),
+        Some(GitApplicability::Applicable),
+        "{:?}",
+        plan.view.git.as_ref().and_then(|g| g.reason.clone())
+    );
+    let roles: Vec<FileRole> = plan.files.iter().map(|s| s.role).collect();
+    assert_eq!(
+        roles,
+        vec![
+            FileRole::GitManaged,
+            FileRole::GitLock,
+            FileRole::GitInclude
+        ]
+    );
+    let intent = plan.intent();
+    let sink = Sink::default();
+    let r = writer.apply(&intent, &mut sink.clone()).unwrap();
+    assert!(applied_git(&r.items), "{r:?} {:?}", sink.kinds());
+    assert_eq!(
+        fx.effective_ssh_command().as_deref(),
+        Some(ssh_command().as_str())
+    );
+    // Nothing of the SSH item exists: P and the key files are absent, and `~/.ssh` is as it was.
+    assert!(!fx.home.config_dir.join("ssh_config").exists());
+    assert!(!fx.home.config_dir.join("keys").exists());
+    assert_eq!(std::fs::read(&ssh_config).unwrap(), ssh_before);
+    assert_eq!(snapshot_names(&fx.home.ssh_dir, ""), ssh_dir_before);
+    assert!(!fx.lock().exists(), "the lock is released");
+
+    // Rollback names the same distribution and plans the Git item alone.
+    let mut record = record_of(&fx, &intent, &sink);
+    record.items.retain(|item, _| *item == ProjectionItem::Git);
+    let rollback = writer
+        .preview(
+            &fx.spec(Some(record)),
+            &PreviewIntent::Rollback {
+                keep_key_files: true,
+                items: [ProjectionItem::DistributionGit].into_iter().collect(),
+                distribution: Some(guid.clone()),
+            },
+        )
+        .unwrap()
+        .intent();
+    assert!(
+        rollback
+            .files
+            .iter()
+            .all(|s| s.role.item() == ProjectionItem::Git)
+    );
+    let r = writer.apply(&rollback, &mut Sink::default()).unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert_eq!(fx.effective_ssh_command(), None);
+    assert_eq!(std::fs::read(&ssh_config).unwrap(), ssh_before);
+    assert!(leftovers(&fx).is_empty(), "{:?}", leftovers(&fx));
+
+    // The same writer refuses another distribution's intent, an intent naming none, and any
+    // item but the Git one, before anything is read or written.
+    let other = heimdall_contract::environment::DistributionGuid::parse(
+        "0b1c2d3e-1111-4222-8333-abcdef012346",
+    )
+    .unwrap();
+    for bad in [
+        distribution_intent(&other),
+        PreviewIntent::Apply {
+            include_git: true,
+            items: Default::default(),
+            distribution: None,
+        },
+        PreviewIntent::Apply {
+            include_git: false,
+            items: [ProjectionItem::DistributionProjection]
+                .into_iter()
+                .collect(),
+            distribution: Some(guid.clone()),
+        },
+    ] {
+        assert!(
+            matches!(
+                writer.preview(&fx.spec(None), &bad),
+                Err(heimdall_app::ports::PreviewError::Unavailable(_))
+            ),
+            "{bad:?}"
+        );
+    }
+}
+
+/// The native writer refuses every intent naming a distribution, in `preview`, `apply` and
+/// `reconcile`, and a distribution's writer refuses a step of any other item: a wrong route
+/// must not edit the Windows user's files (defense in depth behind the setup driver's routing).
+#[test]
+fn native_writer_refuses_a_distribution_intent() {
+    let fx = Fx::new();
+    let guid = distribution_guid();
+    let native = fx.writer();
+    for bad in [
+        distribution_intent(&guid),
+        PreviewIntent::Rollback {
+            keep_key_files: false,
+            items: [ProjectionItem::DistributionGit].into_iter().collect(),
+            distribution: Some(guid.clone()),
+        },
+    ] {
+        assert!(
+            matches!(
+                native.preview(&fx.spec(None), &bad),
+                Err(heimdall_app::ports::PreviewError::Unavailable(_))
+            ),
+            "{bad:?}"
+        );
+    }
+    // An executable intent whose PreviewIntent names a distribution: refused before any write.
+    let mut intent = fx.plan().intent();
+    intent.intent = distribution_intent(&guid);
+    let before = fx.tree();
+    let sink = Sink::default();
+    assert!(matches!(
+        native.apply(&intent, &mut sink.clone()),
+        Err(ReconcileError::IntentInvalid(_))
+    ));
+    assert!(matches!(
+        native.reconcile(&intent, &[], &mut sink.clone()),
+        Err(ReconcileError::IntentInvalid(_))
+    ));
+    assert!(sink.receipts().is_empty());
+    assert_eq!(fx.tree(), before, "nothing was written");
+
+    // A distribution's writer refuses a native plan's SSH steps even when the intent names it.
+    let mut native_plan = fx.plan().intent();
+    native_plan.intent = distribution_intent(&guid);
+    let mut config = fx.config().for_distribution(guid);
+    config.test.git_item_any_default = false;
+    let dist = LocalProjection::new(config);
+    assert!(
+        native_plan
+            .files
+            .iter()
+            .any(|s| s.role.item() == ProjectionItem::Ssh)
+    );
+    assert!(matches!(
+        dist.apply(&native_plan, &mut Sink::default()),
+        Err(ReconcileError::IntentInvalid(_))
+    ));
+    assert_eq!(fx.tree(), before, "nothing was written");
 }

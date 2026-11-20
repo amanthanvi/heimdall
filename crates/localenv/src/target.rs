@@ -268,6 +268,7 @@ impl LocalTargetEvaluator {
                 port: 22,
                 user: String::new(),
                 proxy: ProxyRoute::None,
+                proxy_jump: None,
                 determinism: undetermined(undetermined_reason::ALIAS_INVALID),
                 host_keys: Vec::new(),
             };
@@ -329,6 +330,9 @@ impl LocalTargetEvaluator {
             }
         };
         let proxy = proxy_route(&evaluation, &mut reasons);
+        let proxy_jump = (proxy == ProxyRoute::Jump)
+            .then(|| proxy_jump_value(&evaluation))
+            .flatten();
         match evaluation.values.get(&KnownKeyword::CanonicalizeHostname) {
             None | Some(Resolved::Unset) => {}
             Some(Resolved::Determined(v))
@@ -360,6 +364,7 @@ impl LocalTargetEvaluator {
             port,
             user,
             proxy,
+            proxy_jump,
             determinism,
             host_keys: lookup.keys.into_iter().map(raw_host_key).collect(),
         }
@@ -526,6 +531,15 @@ fn expand_h(hostname: &str, alias: &str) -> Option<String> {
         }
     }
     Some(out)
+}
+
+/// ⟨M04 U6⟩ The raw `ProxyJump` value of a determined evaluation (its arguments
+/// joined by one space; a multi-hop `a,b` is one argument and stays as written).
+fn proxy_jump_value(evaluation: &Evaluation) -> Option<String> {
+    match evaluation.values.get(&KnownKeyword::ProxyJump) {
+        Some(Resolved::Determined(v)) if !v.args.is_empty() => Some(v.args.join(" ")),
+        _ => None,
+    }
 }
 
 fn proxy_route(evaluation: &Evaluation, reasons: &mut Vec<&'static str>) -> ProxyRoute {
@@ -738,6 +752,10 @@ mod tests {
         );
         let e = f.evaluator();
         assert_eq!(e.evaluate("jump").proxy, ProxyRoute::Jump);
+        // ⟨M04 U6⟩ The raw `ProxyJump` value rides along, only for a jump.
+        assert_eq!(e.evaluate("jump").proxy_jump.as_deref(), Some("bastion"));
+        assert_eq!(e.evaluate("cmd").proxy_jump, None);
+        assert_eq!(e.evaluate("direct").proxy_jump, None);
         assert_eq!(e.evaluate("jump").determinism, Determinism::Determined);
         assert_eq!(e.evaluate("cmd").proxy, ProxyRoute::Command);
         assert_eq!(e.evaluate("direct").proxy, ProxyRoute::None);

@@ -13,6 +13,14 @@
 //! `PermitLocalCommand`, `KnownHostsCommand`), no host-verification directive and no
 //! forwarding can ever be rendered.
 //!
+//! **⟨M04 U6⟩ A route** (ADR-0010 §5 item 1): [`Section::Routed`] wraps a section with the
+//! one `ProxyJump <jump alias>` line after its `User` line. The jump is an [`AliasName`]
+//! (a literal alias: no `,`, `@`, `:`, `%`), so a multi-hop, a `user@host:port` or a token
+//! form cannot be expressed; it names another section of P, so both hops resolve through
+//! Heimdall's own aliases. Nothing else about hosts is rendered: P never contains
+//! `ForwardAgent`, `StrictHostKeyChecking`, `UpdateHostKeys`, a known-hosts directive or
+//! `ProxyCommand`. `ForwardAgent` exists only as a launch option ([`forward_agent_options`]).
+//!
 //! **Paths** are always double-quoted, and `%` is written `%%` (OpenSSH expands tokens
 //! in `Include`, `IdentityFile` and `IdentityAgent`, F7, F15). A [`RenderPath`] holds
 //! the path text itself; the `%%` escaping is applied only where an OpenSSH directive
@@ -511,10 +519,14 @@ fn push_route(
     hostname: &HostName,
     port: Option<u16>,
     user: &str,
+    jump: Option<&AliasName>,
 ) -> Result<(), RenderError> {
     check_user(user)?;
     if port == Some(0) {
         return Err(RenderError::RefusedValue("port"));
+    }
+    if jump.is_some_and(|j| j.0.eq_ignore_ascii_case(alias.as_str())) {
+        return Err(RenderError::RefusedValue("jump"));
     }
     out.push('\n');
     out.push_str("Host ");
@@ -529,12 +541,22 @@ fn push_route(
     out.push_str("    User ");
     out.push_str(user);
     out.push('\n');
+    if let Some(jump) = jump {
+        out.push_str("    ProxyJump ");
+        out.push_str(jump.as_str());
+        out.push('\n');
+    }
     Ok(())
 }
 
 /// An existing-access section, exactly as M02 renders it.
-fn push_existing(out: &mut String, a: &ManagedAlias, style: PathStyle) -> Result<(), RenderError> {
-    push_route(out, &a.alias, &a.hostname, a.port, &a.user)?;
+fn push_existing(
+    out: &mut String,
+    a: &ManagedAlias,
+    style: PathStyle,
+    jump: Option<&AliasName>,
+) -> Result<(), RenderError> {
+    push_route(out, &a.alias, &a.hostname, a.port, &a.user, jump)?;
     if let Some(agent) = &a.identity_agent {
         if !agent.fits(style) {
             return Err(RenderError::RefusedValue("identity_agent"));
@@ -660,6 +682,15 @@ pub enum Section {
         /// applied (ADR-0008 D8 item 3). Refused in a Windows file (M-F7).
         control_path: Option<RenderPath>,
     },
+    /// ⟨M04 U6⟩ `section` reached through one jump: the same section plus `ProxyJump
+    /// <jump>` after its `User` line (module docs). The jump is another alias of P, never
+    /// the section's own, and a routed section is never itself wrapped again (one hop).
+    Routed {
+        /// The jump's alias.
+        jump: AliasName,
+        /// The section reached through it.
+        section: Box<Section>,
+    },
 }
 
 impl Section {
@@ -669,6 +700,7 @@ impl Section {
         match self {
             Section::ExistingAccess(a) => &a.alias,
             Section::ManagedCertificate { alias, .. } => alias,
+            Section::Routed { section, .. } => section.alias(),
         }
     }
 }
@@ -695,6 +727,7 @@ fn push_managed(
     control_path: Option<&RenderPath>,
     style: PathStyle,
     form: ManagedIdentityForm,
+    jump: Option<&AliasName>,
 ) -> Result<(), RenderError> {
     if !endpoint.fits(style) {
         return Err(RenderError::RefusedValue("identity_agent"));
@@ -706,7 +739,7 @@ fn push_managed(
     {
         return Err(RenderError::RefusedValue("control_path"));
     }
-    push_route(out, alias, hostname, port, user)?;
+    push_route(out, alias, hostname, port, user, jump)?;
     out.push_str("    IdentityAgent ");
     out.push_str(&endpoint.ssh_quoted());
     out.push('\n');
@@ -755,33 +788,55 @@ pub fn render_sections(
     }
     let mut out = String::from(MANAGED_HEADER);
     for s in sorted {
-        match s {
-            Section::ExistingAccess(a) => push_existing(&mut out, a, style)?,
-            Section::ManagedCertificate {
-                alias,
-                hostname,
-                port,
-                user,
-                endpoint,
-                key_pub,
-                cert,
-                control_path,
-            } => push_managed(
-                &mut out,
-                alias,
-                hostname,
-                *port,
-                user,
-                endpoint,
-                key_pub,
-                cert,
-                control_path.as_ref(),
-                style,
-                form,
-            )?,
-        }
+        push_section(&mut out, s, None, style, form)?;
     }
     Ok(out.into_bytes())
+}
+
+/// One section of P, reached through `jump` when it has one (module docs).
+fn push_section(
+    out: &mut String,
+    s: &Section,
+    jump: Option<&AliasName>,
+    style: PathStyle,
+    form: ManagedIdentityForm,
+) -> Result<(), RenderError> {
+    match s {
+        Section::ExistingAccess(a) => push_existing(out, a, style, jump),
+        Section::ManagedCertificate {
+            alias,
+            hostname,
+            port,
+            user,
+            endpoint,
+            key_pub,
+            cert,
+            control_path,
+        } => push_managed(
+            out,
+            alias,
+            hostname,
+            *port,
+            user,
+            endpoint,
+            key_pub,
+            cert,
+            control_path.as_ref(),
+            style,
+            form,
+            jump,
+        ),
+        Section::Routed {
+            jump: next,
+            section,
+        } => {
+            // One hop: a routed section never wraps a routed one.
+            if jump.is_some() || matches!(**section, Section::Routed { .. }) {
+                return Err(RenderError::RefusedValue("jump"));
+            }
+            push_section(out, section, Some(next), style, form)
+        }
+    }
 }
 
 /// [`render_sections`], wrapped as [`Rendered`] provenance for a `StepContent`.
@@ -848,6 +903,27 @@ pub fn managed_identity_options(
         out.push(option_value(keyword, path));
     }
     Ok(out)
+}
+
+/// ⟨M04 U6; ADR-0010 §5 item 4⟩ The launch option of a binding whose grant has the
+/// `agent-forwarding` capability: `-o ForwardAgent=<that binding's endpoint>`, quoted
+/// and `%`-escaped as P writes a path. Never `yes`, never `SSH_AUTH_SOCK`, never a
+/// personal agent: the value is the binding's own signing endpoint. A Windows pipe is
+/// refused: `ForwardAgent` to a named pipe stays unsupported (ADR-0010 §9 item 8).
+///
+/// # Errors
+/// [`RenderError::RefusedValue`] for a pipe, or an endpoint that does not fit `style`.
+pub fn forward_agent_options(
+    endpoint: &RenderPath,
+    style: PathStyle,
+) -> Result<Vec<String>, RenderError> {
+    if endpoint.kind == PathKind::Pipe || !endpoint.fits(style) {
+        return Err(RenderError::RefusedValue("forward_agent"));
+    }
+    Ok(vec![
+        "-o".to_owned(),
+        option_value("ForwardAgent", endpoint),
+    ])
 }
 
 /// Why an owned launch's arguments are refused before launch (ADR-0008 D8 item 2;
@@ -1262,6 +1338,103 @@ mod tests {
         ] {
             assert!(!text.contains(forbidden), "{forbidden}");
         }
+    }
+
+    /// ⟨M04 U6; ADR-0010 §5 items 1, 3, 4⟩ A routed section renders the one
+    /// `ProxyJump <jump alias>` line after `User`, for both section kinds; a jump is a
+    /// literal alias (no multi-hop, `user@`, `:port`, `%`), never the section's own and
+    /// never nested; and P never carries `ForwardAgent` or any host-trust directive:
+    /// `ForwardAgent` exists only as the launch option of a Unix-socket binding.
+    #[test]
+    fn managed_alias_renders_proxyjump_and_never_forwardagent_by_default() {
+        let jump = AliasName::parse("bastion").unwrap();
+        let routed = [
+            Section::Routed {
+                jump: jump.clone(),
+                section: Box::new(Section::ExistingAccess(alias("lab", "10.0.0.2"))),
+            },
+            Section::ExistingAccess(alias("bastion", "10.0.0.1")),
+        ];
+        let text = String::from_utf8(
+            render_sections(&routed, PathStyle::Unix, DEFAULT_MANAGED_IDENTITY_FORM).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            text.contains("    User deploy\n    ProxyJump bastion\n    IdentityAgent"),
+            "{text}"
+        );
+        assert_eq!(
+            text.matches("ProxyJump").count(),
+            1,
+            "only the routed alias"
+        );
+        for forbidden in [
+            "ForwardAgent",
+            "StrictHostKeyChecking",
+            "UpdateHostKeys",
+            "UserKnownHostsFile",
+            "GlobalKnownHostsFile",
+            "KnownHostsCommand",
+            "HostKeyAlias",
+            "ProxyCommand",
+        ] {
+            assert!(!text.contains(forbidden), "{forbidden}");
+        }
+        // A managed-certificate section takes the same line.
+        let cert = Section::Routed {
+            jump: jump.clone(),
+            section: Box::new(Section::ManagedCertificate {
+                alias: AliasName::parse("lab").unwrap(),
+                hostname: HostName::parse("10.0.0.2").unwrap(),
+                port: None,
+                user: "deploy".into(),
+                endpoint: RenderPath::unix(Path::new("/run/agent.sock")).unwrap(),
+                key_pub: RenderPath::unix(Path::new("/k/key.pub")).unwrap(),
+                cert: RenderPath::unix(Path::new("/k/cert.pub")).unwrap(),
+                control_path: None,
+            }),
+        };
+        let text = String::from_utf8(
+            render_sections(&[cert], PathStyle::Unix, DEFAULT_MANAGED_IDENTITY_FORM).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            text.contains("    ProxyJump bastion\n    IdentityAgent"),
+            "{text}"
+        );
+        assert!(!text.contains("ForwardAgent"));
+        // Refused: the section's own alias, a nested route, and every multi-hop or token
+        // form (an alias cannot express them).
+        let own = Section::Routed {
+            jump: AliasName::parse("lab").unwrap(),
+            section: Box::new(Section::ExistingAccess(alias("lab", "10.0.0.2"))),
+        };
+        assert_eq!(
+            render_sections(&[own], PathStyle::Unix, DEFAULT_MANAGED_IDENTITY_FORM),
+            Err(RenderError::RefusedValue("jump"))
+        );
+        let nested = Section::Routed {
+            jump: jump.clone(),
+            section: Box::new(Section::Routed {
+                jump: AliasName::parse("other").unwrap(),
+                section: Box::new(Section::ExistingAccess(alias("lab", "10.0.0.2"))),
+            }),
+        };
+        assert_eq!(
+            render_sections(&[nested], PathStyle::Unix, DEFAULT_MANAGED_IDENTITY_FORM),
+            Err(RenderError::RefusedValue("jump"))
+        );
+        for bad in ["a,b", "user@b", "b:22", "%h", "b c", ""] {
+            assert!(AliasName::parse(bad).is_err(), "{bad:?}");
+        }
+        // The launch option: the binding's own endpoint, never a pipe.
+        let sock = RenderPath::unix(Path::new("/run/b/ab/agent.sock")).unwrap();
+        assert_eq!(
+            forward_agent_options(&sock, PathStyle::Unix).unwrap(),
+            ["-o", "ForwardAgent=\"/run/b/ab/agent.sock\""]
+        );
+        let pipe = RenderPath::pipe("heimdall-x-b0123456789abcdef").unwrap();
+        assert!(forward_agent_options(&pipe, PathStyle::Windows).is_err());
     }
 
     #[test]

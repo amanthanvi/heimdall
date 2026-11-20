@@ -732,6 +732,212 @@ pub fn fallback_clearance(
     }
 }
 
+// --- routes: single-hop ProxyJump (M04 U6; ADR-0010 §5 item 1-2) ----------------------
+
+/// Why a route (a destination's jump) is refused. Pure and shared: the catalog upsert,
+/// resolution, readiness and `connect` all decide through [`RouteCatalogView`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteRefusal {
+    /// The jump has a jump of its own, or the destination is itself used as a jump
+    /// (`route_chain_unsupported`).
+    ChainUnsupported,
+    /// The jump is the destination itself, an observed destination, or its access is
+    /// neither a managed pair in the grant's scope nor existing access
+    /// (`route_dependency_out_of_scope`).
+    OutOfScope,
+    /// The jump names no catalog destination (`NOT_FOUND`, not a route reason).
+    UnknownJump,
+}
+
+impl RouteRefusal {
+    /// The stable `envelope::reason` of a route refusal; `None` for
+    /// [`RouteRefusal::UnknownJump`], which is a `NOT_FOUND`.
+    #[must_use]
+    pub const fn reason(self) -> Option<&'static str> {
+        match self {
+            Self::ChainUnsupported => {
+                Some(heimdall_contract::envelope::reason::ROUTE_CHAIN_UNSUPPORTED)
+            }
+            Self::OutOfScope => {
+                Some(heimdall_contract::envelope::reason::ROUTE_DEPENDENCY_OUT_OF_SCOPE)
+            }
+            Self::UnknownJump => None,
+        }
+    }
+}
+
+/// A destination's route as the **current catalog** states it: the jump destination,
+/// the alias P renders in `ProxyJump`, and the jump's pair (the jump destination and
+/// its managed account). This is what verified-scope evidence is compared with
+/// (`app::enrollment::route_matches_via`; reading I-5).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ApprovedRoute {
+    /// The jump destination.
+    pub jump: DestinationId,
+    /// Its alias.
+    pub jump_alias: String,
+    /// The jump hop's pair.
+    pub jump_pair: crate::scope::AccessPair,
+}
+
+/// The catalog facts a route decision reads: every destination and each managed
+/// pair's preferred mechanism. Built by the application inside one transaction.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RouteCatalogView {
+    /// Destinations by ID.
+    pub destinations: std::collections::BTreeMap<DestinationId, DestinationRecord>,
+    /// The stored preference of each pair that has one.
+    pub mechanisms: std::collections::BTreeMap<
+        crate::scope::AccessPair,
+        heimdall_contract::managed::PreferredMechanism,
+    >,
+}
+
+impl RouteCatalogView {
+    /// The managed pair of `destination`: it and its `Managed.account`.
+    #[must_use]
+    pub fn managed_pair(&self, destination: &DestinationId) -> Option<crate::scope::AccessPair> {
+        match &self.destinations.get(destination)?.definition {
+            DestinationDefinition::Managed { account, .. } => Some(crate::scope::AccessPair {
+                destination: destination.clone(),
+                account: account.clone(),
+            }),
+            DestinationDefinition::Observed => None,
+        }
+    }
+
+    /// Whether `jump` is a valid jump for `destination`: a managed destination other
+    /// than `destination` with no jump of its own, and `destination` itself is not
+    /// the jump of another destination (a chain either way is
+    /// [`RouteRefusal::ChainUnsupported`]).
+    ///
+    /// # Errors
+    /// [`RouteRefusal`].
+    pub fn check_jump(
+        &self,
+        destination: &DestinationId,
+        jump: &DestinationId,
+    ) -> Result<(), RouteRefusal> {
+        if jump == destination {
+            return Err(RouteRefusal::OutOfScope);
+        }
+        let Some(record) = self.destinations.get(jump) else {
+            return Err(RouteRefusal::UnknownJump);
+        };
+        match &record.definition {
+            DestinationDefinition::Observed => Err(RouteRefusal::OutOfScope),
+            DestinationDefinition::Managed { jump: Some(_), .. } => {
+                Err(RouteRefusal::ChainUnsupported)
+            }
+            DestinationDefinition::Managed { jump: None, .. } => {
+                if self
+                    .used_as_jump_by(destination)
+                    .iter()
+                    .any(|d| *d != destination)
+                {
+                    return Err(RouteRefusal::ChainUnsupported);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// The destinations whose stored definition names `id` as their jump.
+    #[must_use]
+    pub fn used_as_jump_by(&self, id: &DestinationId) -> Vec<&DestinationId> {
+        self.destinations
+            .values()
+            .filter(|d| {
+                matches!(&d.definition,
+                    DestinationDefinition::Managed { jump: Some(j), .. } if j == id)
+            })
+            .map(|d| &d.id)
+            .collect()
+    }
+
+    /// The route of the pair `pair` (its destination's managed pair only: the alias
+    /// P renders names that account). `None` without a jump or for another account;
+    /// `Some(Err(..))` when the stored jump no longer resolves to a valid jump.
+    #[must_use]
+    pub fn route_of(
+        &self,
+        pair: &crate::scope::AccessPair,
+    ) -> Option<Result<ApprovedRoute, RouteRefusal>> {
+        let record = self.destinations.get(&pair.destination)?;
+        let DestinationDefinition::Managed {
+            account,
+            jump: Some(jump),
+            ..
+        } = &record.definition
+        else {
+            return None;
+        };
+        if account != &pair.account {
+            return None;
+        }
+        Some(self.check_jump(&pair.destination, jump).and_then(|()| {
+            let jump_record = &self.destinations[jump];
+            let jump_pair = self.managed_pair(jump).ok_or(RouteRefusal::OutOfScope)?;
+            Ok(ApprovedRoute {
+                jump: jump.clone(),
+                jump_alias: jump_record.alias.clone(),
+                jump_pair,
+            })
+        }))
+    }
+
+    /// How `route`'s jump hop is accessed for a grant whose scope is `scope`
+    /// (ADR-0010 §5 item 2): a managed pair in `scope` that prefers
+    /// `managed_certificate`, or existing access (the pair prefers it, or has no
+    /// stored preference: its adopted fixed identity). A pair that prefers managed
+    /// certificates and is not in `scope` is
+    /// [`RouteRefusal::OutOfScope`]. With `scope` `None` (no grant: the catalog's own
+    /// reading) a managed-preference jump pair reads as [`JumpAccess::Managed`] and
+    /// the in-scope question is not asked.
+    ///
+    /// # Errors
+    /// [`RouteRefusal::OutOfScope`].
+    pub fn jump_access(
+        &self,
+        route: &ApprovedRoute,
+        scope: Option<&std::collections::BTreeSet<crate::scope::AccessPair>>,
+    ) -> Result<heimdall_contract::environment::JumpAccess, RouteRefusal> {
+        use heimdall_contract::environment::JumpAccess;
+        match self.mechanisms.get(&route.jump_pair) {
+            Some(heimdall_contract::managed::PreferredMechanism::ManagedCertificate) => {
+                if scope.is_none_or(|s| s.contains(&route.jump_pair)) {
+                    Ok(JumpAccess::Managed)
+                } else {
+                    Err(RouteRefusal::OutOfScope)
+                }
+            }
+            _ => Ok(JumpAccess::Existing),
+        }
+    }
+}
+
+/// The in-scope pairs that another in-scope pair uses as its managed jump: the pairs
+/// whose certificate carries `permit-port-forwarding` (ADR-0010 §5 item 2). **The one
+/// function** request creation (`app::managed::driver`) and the independent issuance
+/// check (`app::operations::permitted_extensions`) both call, each over the store
+/// state of its own transaction.
+#[must_use]
+pub fn jump_pairs_in_scope(
+    scope: &std::collections::BTreeSet<crate::scope::AccessPair>,
+    view: &RouteCatalogView,
+) -> std::collections::BTreeSet<crate::scope::AccessPair> {
+    scope
+        .iter()
+        .filter_map(|p| view.route_of(p)?.ok())
+        .filter(|route| {
+            scope.contains(&route.jump_pair)
+                && view.jump_access(route, Some(scope))
+                    == Ok(heimdall_contract::environment::JumpAccess::Managed)
+        })
+        .map(|route| route.jump_pair)
+        .collect()
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -1318,5 +1524,136 @@ mod tests {
         }
         let back: PreparedFacts = serde_json::from_value(value.take()).unwrap();
         assert_eq!(back, facts);
+    }
+    // --- routes (M04 U6) ---------------------------------------------------------
+
+    fn route_dest(
+        id: &str,
+        definition: DestinationDefinition,
+    ) -> (DestinationId, DestinationRecord) {
+        let id = DestinationId::parse(id).unwrap();
+        (
+            id.clone(),
+            DestinationRecord {
+                id,
+                alias: format!("alias-{}", "x"),
+                revision: 1,
+                definition,
+                label: None,
+                updated_at: now(),
+            },
+        )
+    }
+
+    fn managed(account: &str, jump: Option<&str>) -> DestinationDefinition {
+        DestinationDefinition::Managed {
+            hostname: "h".into(),
+            port: None,
+            account: AccountName::parse(account).unwrap(),
+            identity: IdentityId::from_random_bytes([1; 16]),
+            jump: jump.map(|j| DestinationId::parse(j).unwrap()),
+        }
+    }
+
+    fn rpair(d: &str, a: &str) -> crate::scope::AccessPair {
+        crate::scope::AccessPair {
+            destination: DestinationId::parse(d).unwrap(),
+            account: AccountName::parse(a).unwrap(),
+        }
+    }
+
+    fn view(
+        destinations: Vec<(DestinationId, DestinationRecord)>,
+        mechanisms: &[(&str, &str, heimdall_contract::managed::PreferredMechanism)],
+    ) -> RouteCatalogView {
+        let mut v = RouteCatalogView::default();
+        for (id, mut r) in destinations {
+            r.alias = format!("a-{}", id.as_str());
+            v.destinations.insert(id, r);
+        }
+        for (d, a, m) in mechanisms {
+            v.mechanisms.insert(rpair(d, a), *m);
+        }
+        v
+    }
+
+    /// ADR-0010 §5 item 1-2 (reading I-4): the jump is a managed destination with no
+    /// route of its own and not the destination itself; an observed jump, a missing
+    /// one, a chain in either direction and a managed jump outside the grant's scope
+    /// are each refused with their reason.
+    #[test]
+    fn route_chain_and_out_of_scope_jump_refused() {
+        use heimdall_contract::environment::JumpAccess;
+        use heimdall_contract::managed::PreferredMechanism::{Existing, ManagedCertificate};
+        let v = view(
+            vec![
+                route_dest("final", managed("deploy", Some("bastion"))),
+                route_dest("bastion", managed("jump", None)),
+                route_dest("other", managed("deploy", None)),
+                route_dest("watched", DestinationDefinition::Observed),
+            ],
+            &[("bastion", "jump", ManagedCertificate)],
+        );
+        let d = |s: &str| DestinationId::parse(s).unwrap();
+        assert_eq!(v.check_jump(&d("other"), &d("bastion")), Ok(()));
+        assert_eq!(
+            v.check_jump(&d("other"), &d("other")),
+            Err(RouteRefusal::OutOfScope)
+        );
+        assert_eq!(
+            v.check_jump(&d("other"), &d("watched")),
+            Err(RouteRefusal::OutOfScope)
+        );
+        assert_eq!(
+            v.check_jump(&d("other"), &d("nowhere")),
+            Err(RouteRefusal::UnknownJump)
+        );
+        // The jump has a jump of its own.
+        assert_eq!(
+            v.check_jump(&d("other"), &d("final")),
+            Err(RouteRefusal::ChainUnsupported)
+        );
+        // The destination is itself a jump: it cannot become route-bearing.
+        assert_eq!(
+            v.check_jump(&d("bastion"), &d("other")),
+            Err(RouteRefusal::ChainUnsupported)
+        );
+        assert_eq!(
+            RouteRefusal::ChainUnsupported.reason(),
+            Some("route_chain_unsupported")
+        );
+        assert_eq!(
+            RouteRefusal::OutOfScope.reason(),
+            Some("route_dependency_out_of_scope")
+        );
+        // A managed-preference jump pair outside the scope is out of scope; in the
+        // scope it is `managed`; an existing preference (or none) is `existing`.
+        let route = v.route_of(&rpair("final", "deploy")).unwrap().unwrap();
+        assert_eq!(route.jump_alias, "a-bastion");
+        assert_eq!(route.jump_pair, rpair("bastion", "jump"));
+        let alone = [rpair("final", "deploy")].into();
+        let both = [rpair("final", "deploy"), rpair("bastion", "jump")].into();
+        assert_eq!(
+            v.jump_access(&route, Some(&alone)),
+            Err(RouteRefusal::OutOfScope)
+        );
+        assert_eq!(v.jump_access(&route, Some(&both)), Ok(JumpAccess::Managed));
+        let mut existing = v.clone();
+        existing
+            .mechanisms
+            .insert(rpair("bastion", "jump"), Existing);
+        assert_eq!(
+            existing.jump_access(&route, Some(&alone)),
+            Ok(JumpAccess::Existing)
+        );
+        // Only the destination's managed account has the route.
+        assert!(v.route_of(&rpair("final", "other")).is_none());
+        // jump_pairs_in_scope: the jump pair only when both are in scope and managed.
+        assert_eq!(
+            jump_pairs_in_scope(&both, &v),
+            [rpair("bastion", "jump")].into()
+        );
+        assert!(jump_pairs_in_scope(&alone, &v).is_empty());
+        assert!(jump_pairs_in_scope(&both, &existing).is_empty());
     }
 }

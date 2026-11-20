@@ -10,6 +10,15 @@
 //! 3. Wait with bounded backoff for the advertisement; give up with
 //!    `SERVICE_UNAVAILABLE` after `start_timeout`.
 //!
+//! **A late runtime** (⟨M04, the Windows readiness failures⟩). The wait (30 s) covers a
+//! slow first start on a loaded host (the client probes, the store's migrations, the
+//! session-lock reading, the issuer child's start all come before the advertisement), and
+//! the runtime logs each phase's time when it advertises ("the runtime advertised its
+//! endpoints"). A runtime the client gave up on is not stopped: it finishes starting,
+//! advertises and stays, so it is never unseen once it serves (`service status` reports
+//! it, the next command uses it, and a second start loses the instance lock). The client
+//! never kills a process it cannot name by its own handle.
+//!
 //! Pure inspection commands never trigger a start (spec §13.1).
 //!
 //! **Single child.** Only the holder of `start.lock` spawns, and it re-validates
@@ -50,7 +59,9 @@ pub struct LauncherConfig {
 impl Default for LauncherConfig {
     fn default() -> Self {
         Self {
-            start_timeout: Duration::from_secs(10),
+            // ⟨M04, the Windows readiness failures⟩ 10 s was too short for a first start on a
+            // loaded Windows host (the PC's runs at 56ec9a9e and 98f13db9).
+            start_timeout: Duration::from_secs(30),
             initial_poll: Duration::from_millis(25),
         }
     }
@@ -170,45 +181,55 @@ pub async fn ensure_running_with(
 /// marking cannot cover every descriptor, its error is returned and nothing is
 /// spawned (`SERVICE_UNAVAILABLE`; review round 3, S04). The runtime also closes
 /// every descriptor above 2 at start-up
-/// ([`crate::platform::close_inherited_descriptors`]).
-///
-/// **Windows** (ADR-0006 §13.6 item 8): `DETACHED_PROCESS` (no console and no
-/// console window) and `CREATE_NEW_PROCESS_GROUP` (Ctrl-C/Ctrl-Break aimed at the
-/// client's group never reaches the service). Handle inheritance: the standard
-/// library creates every handle it opens non-inheritable and makes only the
-/// three `NUL` stdio handles it passes inheritable for the spawn, but
-/// `CreateProcess` also passes any handle the client **inherited** as
-/// inheritable, i.e. its own stdio; so the client first clears the inherit flag
-/// on its standard handles ([`crate::platform::disinherit_standard_handles`]).
-/// The client's files, locks and pipe handles (opened without inheritance) are
-/// never passed on. Residual: a non-standard handle the client itself inherited
-/// as inheritable from its own parent would still pass on; restricting the list
-/// (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`) is not reachable through the stable
-/// standard library (`CommandExt::raw_attribute` is unstable).
+/// ([`crate::platform::close_inherited_descriptors`]). **Windows:** see the
+/// Windows variant below.
+#[cfg(unix)]
 pub fn spawn_detached(program: &Path, args: &[&OsStr]) -> std::io::Result<std::process::Child> {
+    use std::os::unix::process::CommandExt as _;
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        cmd.process_group(0);
-        // Only the three null standard descriptors reach the child (see below);
-        // when that cannot be established nothing is spawned.
-        crate::platform::disinherit_descriptors_above_stdio()?;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP.
-        cmd.creation_flags(0x0000_0008 | 0x0000_0200);
-        // Only the NUL stdio handles may be inherited (see below).
-        crate::platform::disinherit_standard_handles();
-    }
+    cmd.process_group(0);
+    // Only the three null standard descriptors reach the child (see above);
+    // when that cannot be established nothing is spawned.
+    crate::platform::disinherit_descriptors_above_stdio()?;
     cmd.spawn()
+}
+
+/// [`spawn_detached`] on Windows (ADR-0006 §13.6 item 8; ⟨M04 U2⟩ ADR-0010 §1 item 6,
+/// closing ADR-0006 §13.9): `DETACHED_PROCESS` (no console and no console window) and
+/// `CREATE_NEW_PROCESS_GROUP` (Ctrl-C/Ctrl-Break aimed at the client's group never reaches
+/// the service).
+///
+/// **Handles:** the child is created through
+/// `heimdall_localenv::sys::spawn::spawn_listed` with an explicit
+/// `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` that holds only its three `NUL` standard handles,
+/// so no other handle this client holds as inheritable (its own stdio, or a handle it
+/// inherited from its parent) reaches the long-lived runtime. The previous clearing of the
+/// inherit flag on the client's standard handles
+/// ([`crate::platform::disinherit_standard_handles`]) is no longer needed and no longer
+/// done: the client's handles are left as they were.
+#[cfg(windows)]
+pub fn spawn_detached(
+    program: &Path,
+    args: &[&OsStr],
+) -> std::io::Result<heimdall_localenv::sys::spawn::ListedChild> {
+    use heimdall_localenv::sys::spawn::{ListedSpawn, ListedStdio, spawn_listed};
+    // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP.
+    const DETACHED_FLAGS: u32 = 0x0000_0008 | 0x0000_0200;
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args);
+    let options = ListedSpawn {
+        stdin: ListedStdio::Null,
+        stdout: ListedStdio::Null,
+        stderr: ListedStdio::Null,
+        env_clear: false,
+        creation_flags: DETACHED_FLAGS,
+    };
+    spawn_listed(&cmd, &options).map_err(std::io::Error::other)
 }
 
 /// Whether a validated advertisement exists (pid alive with its start time,

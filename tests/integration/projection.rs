@@ -353,6 +353,8 @@ impl Fx {
                 .to_str()
                 .unwrap()
                 .to_owned(),
+
+            jump_alias: None,
         }
     }
 
@@ -458,6 +460,7 @@ fn first_aliases(
             identity,
             endpoint: None,
             key_file,
+            jump_alias: None,
         });
     }
     out

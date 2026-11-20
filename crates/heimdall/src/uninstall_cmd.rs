@@ -429,6 +429,13 @@ const DECISION_RECOVERY: &[(&str, Option<&str>)] = &[
         ),
     ),
     ("declare_interaction", Some("a local catalog declaration")),
+    // ⟨M04⟩ U5: a container environment's approval writes the `managed_environments` row
+    // (a `Rows` recovery class), which is compared as rows; its directory is under the
+    // runtime directory's `c` tree, which the purge removes with the other runtime trees.
+    (
+        "add_environment",
+        Some("a local environment record, compared in `managed_environments`"),
+    ),
     // ⟨M05⟩ Revision 5 (joint wave 0): local trust records; none is created before M05
     // U2, and their approval's effect is in `workspaces` (compared as rows).
     ("trust_workspace", Some("a local workspace trust decision")),
@@ -450,6 +457,7 @@ fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'stati
         D::ApplyProjection { .. } => "apply_projection",
         D::DeclareInteraction { .. } => "declare_interaction",
         D::RegisterIssuer { .. } => "register_issuer",
+        D::AddEnvironment { .. } => "add_environment",
         D::RetireIssuer { .. } => "retire_issuer",
         D::EnrollAccount { .. } => "enroll_account",
         D::EnrollSystemForm { .. } => "enroll_system_form",
@@ -2419,7 +2427,10 @@ async fn uninstall_after_recovery<P: Prompter>(
     if !db.exists() {
         let _ = quarantine_listing(&dirs, true);
         let left = remaining(ctx, &dirs, false);
-        return report(true, false, false, None, left, Vec::new());
+        let mut out = report(true, false, false, None, left, Vec::new());
+        // ⟨M04 U1⟩ Even with no state store, Heimdall's own login entry goes (by exact data).
+        with_login_entry(&mut out, &remove_login_entry(ctx, &paths));
+        return out;
     }
     // M03 (U0b row 18; D4 item 6): the enrollments and the store items, read-only first.
     // A purge is refused while remote enrollments remain (unless kept with a fresh
@@ -2531,6 +2542,15 @@ async fn uninstall_after_recovery<P: Prompter>(
                 .unwrap_or(serde_json::Value::Null)
         });
     }
+    // ⟨M04 U3b⟩ WSL Mode A distributions (ADR-0010 §2 item 2: "removed by `wsl disable`
+    // and by uninstall"): each one's Git item is rolled back as `wsl disable` does, never
+    // starting a distribution. A stopped one keeps its rollback as a retained, reported
+    // obligation, and uninstall stays incomplete, so the state store that holds the
+    // obligation is kept (ADR-0010 §9 item 2: ownership is never dropped).
+    let wsl = crate::wsl_cmd::uninstall_distributions(&mut client, prompt, ctx).await;
+    if wsl.iter().any(|d| d["outcome"] != "disabled") {
+        complete = false;
+    }
     // The cleaner removes P and the key files; wait (bounded) for it to confirm.
     let deadline = Instant::now() + CLEANUP_WAIT;
     let mut absent = false;
@@ -2568,6 +2588,10 @@ async fn uninstall_after_recovery<P: Prompter>(
     if let Ok(r) = &retried {
         apply_retries(&mut inv, r);
     }
+    // ⟨M04 U1; ADR-0010 §1 item 2, §6⟩ Heimdall's own login entry is removed by uninstall,
+    // by its exact data, after the rollback and before the stop (so the entry never starts
+    // a runtime that uninstall is stopping). A foreign entry is never touched.
+    let login = remove_login_entry(ctx, &paths);
     // Stop the runtime gracefully (it removes its endpoints and advertisement); the
     // fence ends with it.
     let stopped = stop_runtime(ctx, client).await;
@@ -2640,6 +2664,15 @@ async fn uninstall_after_recovery<P: Prompter>(
         quarantine,
     );
     with_retries(&mut out, &retried);
+    with_login_entry(&mut out, &login);
+    if !wsl.is_empty()
+        && let Some(map) = out.env.data.as_object_mut()
+    {
+        map.insert(
+            "wsl_distributions".to_owned(),
+            serde_json::Value::Array(wsl),
+        );
+    }
     if purge {
         with_swept(&mut out, &paths.state_dir, &paths.runtime_dir);
     }
@@ -2831,6 +2864,89 @@ fn refuse(out: Outcome, message: &str) -> Outcome {
         }
     }
     Outcome::of(env).with_human(out.human)
+}
+
+/// ⟨M04 U1⟩ What uninstall did with Heimdall's login entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LoginRemoval {
+    /// The entry kind (`run_value`, `launch_agent`, `systemd_user`, `none`).
+    kind: &'static str,
+    /// Where it lives, when this host has one.
+    location: Option<String>,
+    /// Heimdall's own entry was removed.
+    removed: bool,
+    /// A non-owned entry is at Heimdall's name and was left untouched.
+    conflict: bool,
+    /// Removing it failed (a fixed sentence); the entry is still there.
+    error: Option<String>,
+}
+
+/// Remove Heimdall's own login entry by exact data (`LoginEntryPort::remove`): a foreign
+/// entry, even of a similar name, is never read as ours and is left alone.
+fn remove_login_entry(ctx: &Ctx, paths: &heimdall_runtime::Paths) -> LoginRemoval {
+    use heimdall_app::ports::{LoginEntryEffect, LoginEntryFailure, LoginEntryPort};
+    let none = |error: Option<String>| LoginRemoval {
+        kind: "none",
+        location: None,
+        removed: false,
+        conflict: false,
+        error,
+    };
+    let port = match crate::service_cmd::login_port(ctx, paths) {
+        Ok(Some(p)) => p,
+        Ok(None) => return none(None),
+        Err(m) => return none(Some(m)),
+    };
+    let kind = match port.kind() {
+        heimdall_contract::environment::LoginStartKind::RunValue => "run_value",
+        heimdall_contract::environment::LoginStartKind::LaunchAgent => "launch_agent",
+        heimdall_contract::environment::LoginStartKind::SystemdUser => "systemd_user",
+        _ => "none",
+    };
+    let mut r = LoginRemoval {
+        kind,
+        location: Some(port.location()),
+        removed: false,
+        conflict: false,
+        error: None,
+    };
+    match port.remove() {
+        Ok(LoginEntryEffect::Removed) => r.removed = true,
+        Ok(_) | Err(LoginEntryFailure::NoUserManager) => {}
+        Err(LoginEntryFailure::Conflict) => r.conflict = true,
+        Err(LoginEntryFailure::Failed(msg)) => r.error = Some(msg),
+    }
+    r
+}
+
+/// Add the login entry's fate to an uninstall result: the `login_entry` object in its
+/// data, and one human line when something happened or was left.
+fn with_login_entry(out: &mut Outcome, r: &LoginRemoval) {
+    if let serde_json::Value::Object(map) = &mut out.env.data {
+        map.insert(
+            "login_entry".to_owned(),
+            serde_json::json!({
+                "kind": r.kind,
+                "location": r.location,
+                "removed": r.removed,
+                "conflict": r.conflict,
+                "error": r.error,
+            }),
+        );
+    }
+    let at = r.location.as_deref().unwrap_or_default();
+    if r.removed {
+        out.human
+            .push_str(&format!("Login entry removed: {} at {at}\n", r.kind));
+    } else if r.conflict {
+        out.human.push_str(&format!(
+            "Login entry left in place: another entry is at Heimdall's name ({at}), and Heimdall does not touch what it did not write\n"
+        ));
+    } else if let Some(e) = &r.error {
+        out.human.push_str(&format!(
+            "Login entry NOT removed ({at}): {e}; remove it with `heimdall service autostart disable`\n"
+        ));
+    }
 }
 
 fn report(
@@ -5047,6 +5163,8 @@ mod tests {
             mode_a,
             mode_b: None,
             cleanup_pending: false,
+            account: None,
+            namespace: None,
             updated_at: t0(),
         }
     }
@@ -5318,8 +5436,9 @@ mod tests {
                 })
             })
             .collect();
-        // ⟨M05⟩ Revision 5 adds `TrustWorkspace` and `ReconcileWorkspace`.
-        assert_eq!(variants.len(), 13, "{variants:?}");
+        // ⟨M05⟩ Revision 5 adds `TrustWorkspace` and `ReconcileWorkspace`; ⟨M04 U5⟩
+        // `AddEnvironment`.
+        assert_eq!(variants.len(), 14, "{variants:?}");
         let snake = |v: &str| {
             let mut out = String::new();
             for (i, c) in v.chars().enumerate() {

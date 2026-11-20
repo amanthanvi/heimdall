@@ -323,14 +323,38 @@ where
     R: Read + IsTerminal,
     W: Write,
 {
+    run_observed(stdin, stdout, store, db, clock, &|_| {})
+}
+
+/// ⟨M04 merge-candidate run at 9de3169a⟩ [`run`], telling `observe` each phase it reaches
+/// before and around its first exchange: `hardened`, `db_opened` (or `db_open_failed`),
+/// `first_frame_read` (the `hello` arrived) and `first_reply_written` (its answer was
+/// written). Phase names only: nothing of a frame. The debug test configuration records
+/// them (`m03_cmd`), so a start that never answers its `hello` says where it stopped.
+#[must_use]
+pub fn run_observed<R, W>(
+    stdin: R,
+    stdout: W,
+    store: Box<dyn SecretStore>,
+    db: &Path,
+    clock: Arc<dyn Clock>,
+    observe: &dyn Fn(&'static str),
+) -> i32
+where
+    R: Read + IsTerminal,
+    W: Write,
+{
     if stdin.is_terminal() {
         return EXIT_USAGE;
     }
     // D1: the process mitigations before any key is loaded.
     let _hardening = heimdall_credential::sys::harden_process();
+    observe("hardened");
     let Ok(ro) = Store::open_read_only(db, Arc::new(NoFaults)) else {
+        observe("db_open_failed");
         return EXIT_UNAVAILABLE;
     };
+    observe("db_opened");
     let ro = Arc::new(ro);
     let gate = TimeGate::new(
         Arc::clone(&ro),
@@ -348,13 +372,18 @@ where
         signed_total: 0,
         refused_total: 0,
     };
-    let status = serve(&mut child, stdin, stdout);
+    let status = serve(&mut child, stdin, stdout, observe);
     child.cas.clear();
     status
 }
 
 /// The protocol loop (module docs).
-fn serve(child: &mut Child<'_>, mut input: impl Read, mut output: impl Write) -> i32 {
+fn serve(
+    child: &mut Child<'_>,
+    mut input: impl Read,
+    mut output: impl Write,
+    observe: &dyn Fn(&'static str),
+) -> i32 {
     let mut greeted = false;
     loop {
         let body = match read_frame(&mut input) {
@@ -362,6 +391,9 @@ fn serve(child: &mut Child<'_>, mut input: impl Read, mut output: impl Write) ->
             Read1::Eof => return 0,
             Read1::Broken => return EXIT_PROTOCOL,
         };
+        if !greeted {
+            observe("first_frame_read");
+        }
         let Ok(request) = Request::decode(&body) else {
             return EXIT_PROTOCOL;
         };
@@ -385,8 +417,12 @@ fn serve(child: &mut Child<'_>, mut input: impl Read, mut output: impl Write) ->
                 _ => return EXIT_PROTOCOL,
             }
         };
+        let first = matches!(response, Response::HelloAck { .. });
         if !reply(&mut output, &response) {
             return EXIT_PROTOCOL;
+        }
+        if first {
+            observe("first_reply_written");
         }
     }
 }

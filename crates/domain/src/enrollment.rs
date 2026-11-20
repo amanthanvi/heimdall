@@ -419,6 +419,12 @@ pub struct TargetEvaluation {
     pub user: String,
     /// Proxy.
     pub proxy: ProxyRoute,
+    /// ⟨M04 U6⟩ The raw `ProxyJump` value of the static evaluation, set only when
+    /// `proxy` is [`ProxyRoute::Jump`] (route-aware evidence compares it with the
+    /// catalog's jump alias exactly). Serde default, omitted when `None`, so every
+    /// stored record decodes unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_jump: Option<String>,
     /// Determinism.
     pub determinism: Determinism,
     /// Host keys found.

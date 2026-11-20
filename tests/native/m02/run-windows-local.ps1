@@ -42,9 +42,13 @@ Runs ON the PC (there is no remote route into WSL; §12.32 item 15). Its steps:
      gzip+base64 rendering bundle.b64 (printed between BEGIN/END markers for transfer).
   9. Remove the build, the toolchain and the WSL scratch, and check they are gone; only the
      bundle is kept until it has been imported (import-windows-bundle.py on the build host).
+     HKCU\Software\HeimdallTest, the parent of the tests' scratch registry keys, is removed only
+     when it has no subkey and no value (never recursively), and host.txt records
+     heimdalltest-parent=absent|empty-removed|nonempty-kept.
 
 Nothing is elevated (an elevated session is refused), and no service, firewall rule, registry
-value, ssh-agent, ~/.ssh or WSL configuration is touched; there is no `wsl --shutdown`. Only
+value (beyond the tests' own scratch keys under HKCU\Software\HeimdallTest), ssh-agent, ~/.ssh
+or WSL configuration is touched; there is no `wsl --shutdown`. Only
 processes this script started are stopped, through their own handles (the WSL sshd by its
 recorded PID, start time and configuration path). The pseudoconsole drivers
 (tests/native/windows-launch) need argvdump.exe (Go); they run only when -ArgvDump names one.
@@ -229,6 +233,46 @@ function Get-ProtectedMetadata([string]$Label, $Rules) {
 function Get-ToolEnvironmentOverrides([string]$RustupHome, [string]$CargoHome, [string]$GitConfig, [string]$Tmp) {
     return @{ RUSTUP_HOME = $RustupHome; CARGO_HOME = $CargoHome; GIT_CONFIG_NOSYSTEM = '1'; GIT_CONFIG_GLOBAL = $GitConfig; TEMP = $Tmp; TMP = $Tmp; TMPDIR = $Tmp
         CARGO_PROFILE_DEV_DEBUG = 'line-tables-only'; CARGO_PROFILE_TEST_DEBUG = 'line-tables-only' }
+}
+
+# ⟨M04 Windows fix round; ADR-0010 §11⟩ The icacls arguments that give the run's own root the
+# stock profile list, protected: full control, inherited by files and subdirectories, for the
+# user, SYSTEM and Administrators only. Every directory a test creates under it (TEMP and TMP
+# point inside it) then inherits what a stock %LOCALAPPDATA% gives, whatever the host profile
+# carries (sandboxing tools add principals there), so the suites' results do not depend on it.
+# Only the directory this run created is changed.
+function Get-StockProfileGrantArguments([string]$Dir, [string]$UserSid) {
+    return @($Dir, '/inheritance:r', '/grant:r', "*${UserSid}:(OI)(CI)F", '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F')
+}
+
+# ⟨M04 Windows fix round 5⟩ What becomes of HKCU\Software\HeimdallTest, the parent of the
+# tests' scratch registry keys, at the end of a run: 'absent'; 'remove' when it has no subkey
+# and no value; 'nonempty-kept' otherwise (a key another run still uses, or a value).
+function Get-ScratchParentAction([bool]$Exists, [int]$SubKeyCount, [int]$ValueCount) {
+    if (-not $Exists) { return 'absent' }
+    if ($SubKeyCount -eq 0 -and $ValueCount -eq 0) { return 'remove' }
+    return 'nonempty-kept'
+}
+
+# ⟨M04 Windows fix round 5⟩ Remove HKCU\Software\HeimdallTest when it is empty
+# (Get-ScratchParentAction), never recursively: RegistryKey.DeleteSubKey (RegDeleteKeyEx)
+# refuses a key that has subkeys. Returns heimdalltest-parent's value: absent, empty-removed
+# or nonempty-kept.
+function Remove-EmptyHeimdallTestParent {
+    $software = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software', $true)
+    if ($null -eq $software) { return 'absent' }
+    try {
+        $key = $software.OpenSubKey('HeimdallTest', $false)
+        $action = if ($null -eq $key) { Get-ScratchParentAction $false 0 0 } else {
+            try { Get-ScratchParentAction $true $key.SubKeyCount $key.ValueCount } finally { $key.Dispose() }
+        }
+        if ($action -ne 'remove') { return $action }
+        try { $software.DeleteSubKey('HeimdallTest', $false) } catch { return 'nonempty-kept' }
+        $left = $software.OpenSubKey('HeimdallTest', $false)
+        if ($null -eq $left) { return 'empty-removed' }
+        $left.Dispose()
+        return 'nonempty-kept'
+    } finally { $software.Dispose() }
 }
 
 # How many of the given files contain a carriage return (0 when every one is LF-only; a file
@@ -507,6 +551,9 @@ function Invoke-SelfTest([string]$OutDir) {
     # Every file goes through the same protection as in a real run.
     $files = (Protect-BundleFiles $files $rules).Files
     Check 'R09 every result file is protected (the host name in host.txt too)' ($files['host.txt'].Contains('on <winhost>'))
+    $sg = Get-StockProfileGrantArguments 'S\run' 'S-1-5-21-1-2-3-1001'
+    Check 'A01 the run root''s stock list: protected, full control inherited by files and subdirectories, the user, SYSTEM and Administrators only (ADR-0010 §11)' (
+        ($sg -join ' ') -ceq 'S\run /inheritance:r /grant:r *S-1-5-21-1-2-3-1001:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F')
     $te = Get-ToolEnvironmentOverrides 'S\rustup' 'S\cargo' 'S\empty.gitconfig' 'S\tmp'
     $canaryLabel = 'run ' + ('HEIMDALL_' + 'CANARY_') + 'labelvalue1 for fixtureuser'
     $pm = Get-ProtectedMetadata $canaryLabel $rules
@@ -580,6 +627,13 @@ function Invoke-SelfTest([string]$OutDir) {
         (Get-SshdStopScript).Contains('hm2_stop_recorded "$1/sshd-strict"') -and (Get-SshdAtEnd $stopOut2) -eq 'stopped' -and (Get-SshdAtEnd $stopOut2 'stopstrict') -eq 'gone' -and
         (Get-SshdAtEnd "stop=stopped`n" 'stopstrict') -eq 'no answer' -and (Test-StrictSshdAtEndOk 'gone' $true) -and (Test-StrictSshdAtEndOk 'none' $false) -and
         -not (Test-StrictSshdAtEndOk 'none' $true) -and -not (Test-StrictSshdAtEndOk 'mismatch' $false) -and -not (Test-StrictSshdAtEndOk 'no answer' $true))
+    Check 'K01 the scratch parent is removed only when it exists with no subkey and no value' (
+        (Get-ScratchParentAction $false 0 0) -eq 'absent' -and (Get-ScratchParentAction $true 0 0) -eq 'remove' -and
+        (Get-ScratchParentAction $true 1 0) -eq 'nonempty-kept' -and (Get-ScratchParentAction $true 0 1) -eq 'nonempty-kept')
+    $removeText = (Get-Command Remove-EmptyHeimdallTestParent).Definition
+    Check 'K02 the scratch parent''s removal is never recursive (DeleteSubKey; no DeleteSubKeyTree, -Recurse or reg delete)' (
+        $removeText.Contains('.DeleteSubKey(''HeimdallTest'', $false)') -and -not $removeText.Contains('DeleteSubKeyTree') -and
+        -not $removeText.Contains('-Recurse') -and -not ($removeText -match 'reg(\.exe)?\s+delete'))
     $meta = [ordered]@{ commit = ('0' * 40); label = 'windows-selftest'; started_at = '2026-11-06T00:00:00Z'; finished_at = '2026-11-06T00:00:01Z'; exit = 101 }
     $b = New-Bundle $files $meta
     Check 'B01 the bundle is framed by its markers with the payload sha256' ($b.Text.StartsWith($BeginMarker + "`nsha256-gzip: ") -and $b.Text.TrimEnd().EndsWith($EndMarker))
@@ -688,6 +742,10 @@ $run = Join-Path $rootItem.FullName ("hm-$Milestone-local-" + (New-RandomHex 8))
 # Exclusive: a directory that exists already (another run's) is never reused.
 if (Test-Path -LiteralPath $run) { Stop-Usage 'the run directory exists already' }
 [void][System.IO.Directory]::CreateDirectory($run)
+# ⟨M04 Windows fix round⟩ The stock profile list on this run's root, before anything is created
+# inside it (Get-StockProfileGrantArguments); recorded below, its SIDs redacted.
+$stockOut = (& (Join-Path $env:SystemRoot 'System32\icacls.exe') @(Get-StockProfileGrantArguments $run ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)) 2>&1 | Out-String)
+$stockRc = $LASTEXITCODE
 $src = Join-Path $run 'src'
 $tools = Join-Path $run 'toolchain'
 $wtmp = Join-Path $run 'tmp'
@@ -784,6 +842,10 @@ if ($null -eq $git) { Stop-Usage 'git.exe is not on PATH' }
 $git = $git.Source
 
 try {
+    # ⟨M04 Windows fix round⟩ The run root's stock profile list (set when the root was created).
+    Add-Command $stockRc 'icacls: the run root gets the protected stock profile list (the user, SYSTEM, Administrators; inherited by what is created inside)'
+    if ($stockRc -ne 0) { [void]$build.Append($stockOut); throw 'the run root''s list could not be set' }
+    Add-Fact 'run-root-sddl' ((Get-Acl -LiteralPath $run).Sddl)
     # Facts before anything runs.
     Add-Fact 'os' ((Invoke-Bounded (Join-Path $sys32 'cmd.exe') @('/d', '/c', 'ver') $null $run 30).Output.Trim())
     $groups = (Invoke-Bounded (Join-Path $sys32 'whoami.exe') @('/groups') $null $run 30).Output
@@ -1116,6 +1178,10 @@ try {
     $gone = -not ((Test-Path -LiteralPath $src) -or (Test-Path -LiteralPath $tools) -or (Test-Path -LiteralPath $wtmp))
     Add-Command $(if ($gone) { 0 } else { 1 }) 'remove the clone, the build and the toolchain from the run directory, then check they are absent'
     if (-not $gone) { $overall = 1 }
+    # ⟨M04 Windows fix round 5⟩ The tests' scratch registry keys' parent: removed when empty
+    # (never recursively), reported either way.
+    try { Add-Fact 'heimdalltest-parent' (Remove-EmptyHeimdallTestParent) }
+    catch { Add-Fact 'heimdalltest-parent' "unreadable ($($_.Exception.GetType().Name))" }
 
     # 7 and 8. Redact, mask, scan, bundle.
     $rules = Get-RunRedactionRules $wv $run $env:USERPROFILE $env:USERNAME $env:COMPUTERNAME ([System.Net.Dns]::GetHostName())

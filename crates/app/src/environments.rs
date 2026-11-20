@@ -12,13 +12,25 @@
 //! directory, the helper channel) is the M04 track's, in its own modules; this module only
 //! decides membership.
 
-use heimdall_contract::Code;
 use heimdall_contract::envelope::reason;
+use heimdall_contract::environment::EnvironmentRequest;
 use heimdall_contract::ids::EnvironmentId;
+use heimdall_contract::{Code, EffectStatus};
 use heimdall_domain::environment::EnvironmentAdmission;
 use heimdall_store::Txn;
 
-use crate::error::OpError;
+use crate::context::Caller;
+use crate::error::{OpError, OpResult};
+
+/// ⟨M04⟩ U5: where a container environment's directory is mounted inside the container
+/// (ADR-0010 §4 item 4).
+pub const CONTAINER_MOUNT_TARGET: &str = "/run/heimdall";
+/// ⟨M04⟩ U5: the signing endpoint inside the container.
+pub const CONTAINER_AGENT_SOCKET: &str = "/run/heimdall/agent.sock";
+/// ⟨M04⟩ U5: the OpenSSH configuration inside the container.
+pub const CONTAINER_CONFIG: &str = "/run/heimdall/ssh_config";
+/// ⟨M04⟩ U5: the known-hosts file inside the container (the only trust source there).
+pub const CONTAINER_KNOWN_HOSTS: &str = "/run/heimdall/known_hosts";
 
 /// Admit `target` for the runtime whose own environment is `own`, inside the caller's
 /// transaction: `Ok` when it is in the managed set; otherwise `NOT_FOUND` (an unmanaged
@@ -127,5 +139,42 @@ impl crate::Operations {
             self.end_if_invalid(g).await;
         }
         Ok(live)
+    }
+}
+
+impl crate::Operations {
+    /// ⟨M04⟩ `Request::Environment` (revision 5 §17.1 item 2): routes the container forms
+    /// to U5's module. The WSL forms stay `driver_unavailable` (the WSL unit routes them
+    /// at integration). Owner role first (authorization before capability); nothing is read
+    /// or written for a refusal.
+    ///
+    /// # Errors
+    /// The request's refusal; see `container_add` and `container_remove`.
+    pub async fn environment_request(
+        &self,
+        caller: &Caller,
+        req: EnvironmentRequest,
+    ) -> OpResult<serde_json::Value> {
+        if !caller.context.is_owner() {
+            return Err(OpError::new(
+                Code::CapabilityUnavailable,
+                "this request needs the owner role",
+            )
+            .with_effect(EffectStatus::None));
+        }
+        match req {
+            EnvironmentRequest::ContainerAdd { label } => self.container_add(caller, label).await,
+            EnvironmentRequest::ContainerRemove { environment_id } => {
+                self.container_remove(caller, environment_id).await
+            }
+            // ⟨M04 U3b⟩ WSL Mode A (`operations::wsl_m04`); Mode B answers
+            // `driver_unavailable` there until U4.
+            r @ (EnvironmentRequest::WslEnable { .. } | EnvironmentRequest::WslDisable { .. }) => {
+                self.wsl_request(caller, r).await
+            }
+            _ => Err(OpError::driver_unavailable(
+                "environment requests are not available in this build",
+            )),
+        }
     }
 }

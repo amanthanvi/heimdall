@@ -86,6 +86,7 @@ use heimdall_contract::{Code, OperationState, Timestamp};
 use heimdall_domain::catalog::{
     CatalogAction, CatalogIntent, DeclarationEndReason, DeclarationState, DestinationDefinition,
     DestinationRecord, IdentityRecord, IdentitySource, InteractionDeclaration, InteractionProfile,
+    RouteCatalogView, RouteRefusal, jump_pairs_in_scope,
 };
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
 use heimdall_domain::enrollment::{PairPreference, ProjectionStatus};
@@ -221,26 +222,13 @@ fn source_of(spec: &IdentitySourceSpec) -> Option<IdentitySource> {
 /// `CatalogRequest::validate`).
 fn check_request(req: &CatalogRequest) -> Result<(), OpError> {
     req.validate().map_err(|e| usage(&e.to_string()))?;
-    // ⟨M04, M05⟩ Revision 5 (ADR-0006 §17): a route's `jump` is M04's (U6) and refused
-    // before anything is written; ⟨M05⟩ `apply_import` is served (U7).
-    match req {
-        CatalogRequest::UpsertDestination { destination, .. }
-            if matches!(
-                destination.definition,
-                DestinationDefinitionSpec::Managed { jump: Some(_), .. }
-            ) =>
-        {
-            return Err(OpError::driver_unavailable(
-                "bastion routes are not available in this build",
-            ));
-        }
-        // ⟨M05⟩ U7: a bundle is checked as a file's bytes are (bounds, schema name, every
-        // value) before anything is admitted; a refusal writes nothing.
-        CatalogRequest::ApplyImport { bundle, .. } => {
-            crate::operations::portable_m05::validate_bundle(bundle)
-                .map_err(|e| usage(&e.to_string()))?;
-        }
-        _ => {}
+    // ⟨M04, M05⟩ Revision 5 (ADR-0006 §17): ⟨M04 U6⟩ a route's `jump` is checked in the
+    // upsert's own transaction (`route_checks`); ⟨M05⟩ U7: a bundle is checked as a file's
+    // bytes are (bounds, schema name, every value) before anything is admitted; a refusal
+    // writes nothing.
+    if let CatalogRequest::ApplyImport { bundle, .. } = req {
+        crate::operations::portable_m05::validate_bundle(bundle)
+            .map_err(|e| usage(&e.to_string()))?;
     }
     match req {
         CatalogRequest::UpsertDestination { destination, .. } => {
@@ -702,6 +690,100 @@ fn json<T: serde::Serialize>(v: &T) -> heimdall_store::Result<serde_json::Value>
     })
 }
 
+/// ⟨M04 U6⟩ The catalog facts a route decision reads (every destination and each
+/// managed pair's stored preference), inside the caller's transaction.
+pub(crate) fn route_view(tx: &mut Txn<'_>) -> heimdall_store::Result<RouteCatalogView> {
+    let mut view = RouteCatalogView::default();
+    for d in tx.destinations()? {
+        if let DestinationDefinition::Managed { account, .. } = &d.definition {
+            let pair = AccessPair {
+                destination: d.id.clone(),
+                account: account.clone(),
+            };
+            if let Some(p) = tx.pair_preference(&pair)? {
+                view.mechanisms.insert(pair, p.mechanism);
+            }
+        }
+        view.destinations.insert(d.id.clone(), d);
+    }
+    Ok(view)
+}
+
+/// ⟨M04 U6⟩ The in-scope pairs another in-scope pair uses as its managed jump
+/// (`heimdall_domain::catalog::jump_pairs_in_scope`), read in the caller's transaction:
+/// the one input of `extension_profile` that request creation and the independent
+/// issuance check both compute from the store.
+pub(crate) fn jump_pairs_of(
+    tx: &mut Txn<'_>,
+    scope: &BTreeSet<AccessPair>,
+) -> heimdall_store::Result<BTreeSet<AccessPair>> {
+    if scope.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+    let view = route_view(tx)?;
+    Ok(jump_pairs_in_scope(scope, &view))
+}
+
+/// A route refusal as the operation error: `route_chain_unsupported` and
+/// `route_dependency_out_of_scope` are `CAPABILITY_UNAVAILABLE`, an unknown jump
+/// `NOT_FOUND`.
+pub(crate) fn route_refused(r: RouteRefusal, destination: &DestinationId, why: &str) -> OpError {
+    match r.reason() {
+        Some(reason) => OpError::new(Code::CapabilityUnavailable, why.to_owned())
+            .with_reason(reason)
+            .with_effect(EffectStatus::None)
+            .with_resource("destination", Some(destination.to_string())),
+        None => not_found("destination", destination),
+    }
+}
+
+/// ⟨M04 U6; reading I-4⟩ The route rules of an upsert, over the stored catalog: a
+/// jump is a managed destination other than the destination, with no jump of its own
+/// (`route_chain_unsupported`; an observed or self jump is
+/// `route_dependency_out_of_scope`; an unknown one `NOT_FOUND`), and a destination
+/// another uses as its jump cannot become route-bearing or observed.
+fn route_checks(
+    tx: &mut Txn<'_>,
+    id: &DestinationId,
+    definition: &DestinationDefinition,
+) -> heimdall_store::Result<Option<OpError>> {
+    let jump = match definition {
+        DestinationDefinition::Managed { jump, .. } => jump.as_ref(),
+        DestinationDefinition::Observed => None,
+    };
+    let needs_view = jump.is_some()
+        || matches!(definition, DestinationDefinition::Observed)
+        || tx.destination(id)?.is_some();
+    if !needs_view {
+        return Ok(None);
+    }
+    let view = route_view(tx)?;
+    if !view.used_as_jump_by(id).is_empty() {
+        let refusal = match definition {
+            DestinationDefinition::Managed { jump: None, .. } => None,
+            DestinationDefinition::Managed { .. } => Some(RouteRefusal::ChainUnsupported),
+            DestinationDefinition::Observed => Some(RouteRefusal::OutOfScope),
+        };
+        if let Some(r) = refusal {
+            return Ok(Some(route_refused(
+                r,
+                id,
+                "another destination uses this destination as its jump",
+            )));
+        }
+    }
+    if let Some(j) = jump
+        && let Err(r) = view.check_jump(id, j)
+    {
+        return Ok(Some(route_refused(
+            r,
+            j,
+            "a jump is a managed destination with no jump of its own, other than the destination itself",
+        )));
+    }
+    Ok(None)
+}
+
 /// What an action's transaction needs besides the store.
 struct ActionCtx<'a> {
     now: Timestamp,
@@ -742,12 +824,16 @@ fn apply_action(
                         port: *port,
                         account: account.clone(),
                         identity: identity.clone(),
-                        // ⟨M04⟩ Refused before admission while routes are not built.
                         jump: jump.clone(),
                     }
                 }
                 _ => DestinationDefinition::Observed,
             };
+            // ⟨M04 U6; ADR-0010 §5 item 1, reading I-4⟩ The route rules, in this
+            // transaction.
+            if let Some(refused) = route_checks(tx, &destination.id, &definition)? {
+                return Ok(Step::Refused(Box::new(refused)));
+            }
             if let Some(other) = tx.destination_by_alias(&destination.alias)?
                 && other.id != destination.id
             {
@@ -785,6 +871,15 @@ fn apply_action(
         CatalogAction::RemoveDestination { id } => {
             // ⟨§17.22 item 16 (R2F-Q3)⟩ The destination's pair preferences return to
             // `pending` in this transaction (read before the row goes).
+            // ⟨M04 U6⟩ A destination another destination uses as its jump stays.
+            let view = route_view(tx)?;
+            if !view.used_as_jump_by(id).is_empty() {
+                return Ok(Step::Refused(Box::new(route_refused(
+                    RouteRefusal::ChainUnsupported,
+                    id,
+                    "another destination uses this destination as its jump",
+                ))));
+            }
             let preferences = preferences_of_destination(tx, id)?;
             let removed = tx.remove_destination(id)?;
             if removed {
