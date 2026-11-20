@@ -778,7 +778,18 @@ fn read_bundle(file: &Path) -> Result<RecoveryBundle, Outcome> {
     if !meta.is_file() || meta.len() > BUNDLE_MAX {
         return Err(bad("not a regular file of at most 8 MiB"));
     }
-    let bytes = std::fs::read(file).map_err(|e| bad(&format!("{:?}", e.kind())))?;
+    // ⟨M05; review M05-W4-R02⟩ The checked path is opened without waiting and its handle checked
+    // again (a FIFO swapped in after the check refuses at once); the read stays bounded.
+    let mut bytes = Vec::new();
+    {
+        use std::io::Read as _;
+        crate::input_file::open_regular(file)
+            .and_then(|f| f.take(BUNDLE_MAX + 1).read_to_end(&mut bytes))
+            .map_err(|e| bad(&format!("{:?}", e.kind())))?;
+    }
+    if bytes.len() as u64 > BUNDLE_MAX {
+        return Err(bad("not a regular file of at most 8 MiB"));
+    }
     let bundle: RecoveryBundle =
         serde_json::from_slice(&bytes).map_err(|_| bad("not a recovery bundle"))?;
     if bundle.schema != RECOVERY_BUNDLE_SCHEMA {

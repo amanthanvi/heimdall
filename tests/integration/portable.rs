@@ -1398,6 +1398,351 @@ async fn import_shows_host_key_fingerprints_and_trusts_nothing() {
     assert!(!format!("{stored:?}").contains(&fp('H')));
 }
 
+/// ⟨M05; ADR-0006 §17.11 items 23 and 24; ruling I-27⟩ A bastion destination's route travels:
+/// the export names its jump destination, and a jump route is never the same as a direct one.
+/// A second installation, which has no such route, gets the bastion (as an observed
+/// destination) and **skips** the routed one (`route_required`, the jump and the setup command
+/// shown; nothing written for it); a re-import into the exporting installation, which has the
+/// matching route, is a no-op (`unchanged`); a bundle saying a direct destination is reached
+/// through a jump is a conflict there, not "unchanged".
+#[tokio::test]
+async fn a_bastion_destination_round_trips_with_its_jump() {
+    let a = Inst::new(false).await;
+    let adopted = a
+        .catalog(serde_json::json!({
+            "action": "adopt_identity", "request_id": "j-id",
+            "identity": {
+                "source": {"kind": "public_key_file", "path": format!("{}/.ssh/id_j.pub", a.home.path().display())},
+                "public_key": public_key(9),
+            }
+        }))
+        .await
+        .unwrap();
+    let identity = adopted.data["identity_id"].as_str().unwrap().to_owned();
+    for (rid, id, host, jump) in [
+        ("j-d1", "bastion", "bastion.example.invalid", None),
+        (
+            "j-d2",
+            "lab-inner",
+            "inner.example.invalid",
+            Some("bastion"),
+        ),
+        ("j-d3", "lab-direct", "direct.example.invalid", None),
+    ] {
+        let mut definition = serde_json::json!({"kind": "managed", "hostname": host,
+                                                "account": "deploy", "identity": identity});
+        if let Some(j) = jump {
+            definition["jump"] = serde_json::json!(j);
+        }
+        a.catalog(serde_json::json!({
+            "action": "upsert_destination", "request_id": rid,
+            "destination": {"id": id, "alias": id, "definition": definition}
+        }))
+        .await
+        .unwrap_or_else(|e| panic!("{id}: {} {}", e.code, e.message));
+    }
+    let bundle = bundle_of(&a.export(false).await);
+    let jump_of = |b: &PortableBundle, id: &str| {
+        b.destinations
+            .iter()
+            .find(|d| d.id.as_str() == id)
+            .unwrap()
+            .jump
+            .clone()
+    };
+    assert_eq!(
+        jump_of(&bundle, "lab-inner").map(|j| j.to_string()),
+        Some("bastion".to_owned()),
+        "the export names the route's jump"
+    );
+    assert_eq!(jump_of(&bundle, "bastion"), None);
+    assert_eq!(jump_of(&bundle, "lab-direct"), None);
+
+    let b = Inst::new(false).await;
+    let res = b.import(&bundle, "j-imp").await.unwrap();
+    let inner = res.data["plan"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "lab-inner")
+        .unwrap()
+        .clone();
+    assert_eq!(inner["status"], "skipped", "{inner}");
+    assert_eq!(inner["reason"], "route_required", "{inner}");
+    assert_eq!(
+        inner["jump"], "bastion",
+        "the plan shows the route, never a direct one"
+    );
+    assert!(
+        inner["setup"]
+            .as_str()
+            .is_some_and(|c| c.contains("--jump bastion")),
+        "{inner}"
+    );
+    let written = b
+        .store
+        .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+        .unwrap();
+    assert!(
+        !format!("{written:?}").contains("lab-inner"),
+        "nothing is written for a skipped destination"
+    );
+    assert!(
+        statuses(&res.data)
+            .iter()
+            .any(|(k, id, st)| k == "destination" && id == "bastion" && st == "add"),
+        "{}",
+        res.data
+    );
+
+    // The exporting installation: a re-import is a no-op ...
+    let again = a.import(&bundle, "j-again").await.unwrap();
+    for id in ["bastion", "lab-inner", "lab-direct"] {
+        assert!(
+            statuses(&again.data)
+                .iter()
+                .any(|(k, i, st)| k == "destination" && i == id && st == "unchanged"),
+            "{id}: {}",
+            again.data
+        );
+    }
+    // ... and a bundle that routes the direct destination through the bastion differs.
+    let mut rerouted = bundle.clone();
+    for d in &mut rerouted.destinations {
+        if d.id.as_str() == "lab-direct" {
+            d.jump = Some(DestinationId::parse("bastion").unwrap());
+        }
+    }
+    let res = a.import(&rerouted, "j-rerouted").await.unwrap();
+    let direct = res.data["plan"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "lab-direct")
+        .unwrap()
+        .clone();
+    assert_eq!(direct["status"], "conflict", "{direct}");
+    assert_eq!(direct["reason"], "differs_locally", "{direct}");
+}
+
+/// ⟨M05; ADR-0006 §17.11 item 23⟩ A jump that does not resolve refuses its destination with a
+/// finding (`jump_unresolved`) and writes nothing for it: one naming a destination neither the
+/// bundle nor the catalog has, and one naming a bundle destination that is itself routed
+/// through a jump (a chain, `route_chain_unsupported`). A jump that resolves is still never
+/// written (ruling I-27: `skipped`, `route_required`). The rest of the bundle still applies.
+#[tokio::test]
+async fn an_unresolved_jump_refuses_its_destination_on_import() {
+    let b = Inst::new(false).await;
+    let mut bundle = bundle_of(&serde_json::from_slice(&hostile(serde_json::json!({}))).unwrap());
+    let base = bundle.destinations[0].clone();
+    let mk = |id: &str, jump: Option<&str>| {
+        let mut d = base.clone();
+        d.id = DestinationId::parse(id).unwrap();
+        d.alias = id.to_owned();
+        d.jump = jump.map(|j| DestinationId::parse(j).unwrap());
+        d
+    };
+    bundle.destinations = vec![
+        mk("plain", None),
+        mk("orphan", Some("nowhere")),
+        mk("hop1", Some("plain")),
+        mk("hop2", Some("hop1")),
+    ];
+    let before = b
+        .store
+        .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+        .unwrap();
+    let res = b.import(&bundle, "j-unres").await.unwrap();
+    let plan = res.data["plan"].as_array().unwrap().clone();
+    let of = |id: &str| plan.iter().find(|e| e["id"] == id).unwrap().clone();
+    assert_eq!(of("plain")["status"], "add");
+    assert_eq!(
+        (of("hop1")["status"].clone(), of("hop1")["reason"].clone()),
+        (
+            serde_json::json!("skipped"),
+            serde_json::json!("route_required")
+        ),
+        "a one-hop jump to a bundle destination resolves, and the routed destination is skipped"
+    );
+    for id in ["orphan", "hop2"] {
+        assert_eq!(of(id)["status"], "conflict", "{id}: {}", of(id));
+        assert_eq!(of(id)["reason"], "jump_unresolved", "{id}: {}", of(id));
+    }
+    let after = b
+        .store
+        .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+        .unwrap();
+    let text = format!("{after:?}");
+    assert!(
+        !text.contains("orphan") && !text.contains("hop2") && !text.contains("hop1"),
+        "nothing written for them"
+    );
+    assert!(text.contains("plain"));
+    assert_ne!(format!("{before:?}"), text);
+}
+
+/// ⟨M05; review M05-W4F-R03⟩ A jump resolves against the reconciliation result, never the
+/// raw bundle: a hop the bundle omits resolves to this catalog's managed direct destination
+/// (and the routed destination is then skipped, `route_required`, ruling I-27); a bundled hop
+/// that is itself refused (its alias collides with another destination here) or named twice
+/// leaves its routed destination `jump_unresolved`. Nothing is written for any of them.
+#[tokio::test]
+async fn a_jump_resolves_against_the_reconciled_hop() {
+    let b = Inst::new(false).await;
+    let adopted = b
+        .catalog(serde_json::json!({
+            "action": "adopt_identity", "request_id": "r3-id",
+            "identity": {
+                "source": {"kind": "public_key_file", "path": format!("{}/.ssh/id_r3.pub", b.home.path().display())},
+                "public_key": public_key(11),
+            }
+        }))
+        .await
+        .unwrap();
+    let identity = adopted.data["identity_id"].as_str().unwrap().to_owned();
+    // Here: a managed direct bastion, and another destination holding the alias `hop-alias`.
+    for (rid, id, alias) in [
+        ("r3-d1", "bastion", "bastion"),
+        ("r3-d2", "other", "hop-alias"),
+    ] {
+        b.catalog(serde_json::json!({
+            "action": "upsert_destination", "request_id": rid,
+            "destination": {"id": id, "alias": alias, "definition": {"kind": "managed",
+                "hostname": format!("{id}.example.invalid"), "account": "deploy", "identity": identity}}
+        }))
+        .await
+        .unwrap_or_else(|e| panic!("{id}: {} {}", e.code, e.message));
+    }
+    let mut bundle = bundle_of(&serde_json::from_slice(&hostile(serde_json::json!({}))).unwrap());
+    let base = bundle.destinations[0].clone();
+    let mk = |id: &str, alias: &str, jump: Option<&str>| {
+        let mut d = base.clone();
+        d.id = DestinationId::parse(id).unwrap();
+        d.alias = alias.to_owned();
+        d.hostname = None;
+        d.port = None;
+        d.account = None;
+        d.jump = jump.map(|j| DestinationId::parse(j).unwrap());
+        d
+    };
+    bundle.destinations = vec![
+        // The hop the bundle omits: this catalog's managed direct `bastion`.
+        mk("via-local", "via-local", Some("bastion")),
+        // A bundled hop refused for its alias, and its dependent.
+        mk("hop-colliding", "hop-alias", None),
+        mk("via-colliding", "via-colliding", Some("hop-colliding")),
+        // A bundled hop named twice, and its dependent.
+        mk("hop-twice", "hop-twice", None),
+        mk("hop-twice", "hop-twice-again", None),
+        mk("via-twice", "via-twice", Some("hop-twice")),
+    ];
+    let res = b.import(&bundle, "r3-imp").await.unwrap();
+    let plan = res.data["plan"].as_array().unwrap().clone();
+    let of = |id: &str| -> Vec<(String, String)> {
+        plan.iter()
+            .filter(|e| e["id"] == id)
+            .map(|e| {
+                (
+                    e["status"].as_str().unwrap_or("").to_owned(),
+                    e["reason"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        of("via-local"),
+        vec![("skipped".to_owned(), "route_required".to_owned())]
+    );
+    assert_eq!(
+        of("hop-colliding"),
+        vec![("conflict".to_owned(), "alias_collision".to_owned())]
+    );
+    assert_eq!(
+        of("via-colliding"),
+        vec![("conflict".to_owned(), "jump_unresolved".to_owned())],
+        "a refused hop does not resolve its dependent"
+    );
+    assert_eq!(
+        of("hop-twice"),
+        vec![("conflict".to_owned(), "duplicate_in_bundle".to_owned()); 2],
+        "both rows of a repeated ID are refused"
+    );
+    assert_eq!(
+        of("via-twice"),
+        vec![("conflict".to_owned(), "jump_unresolved".to_owned())],
+        "a hop named twice is ambiguous"
+    );
+    let written = format!(
+        "{:?}",
+        b.store
+            .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+            .unwrap()
+    );
+    for id in [
+        "via-local",
+        "via-colliding",
+        "hop-colliding",
+        "hop-twice",
+        "via-twice",
+    ] {
+        assert!(!written.contains(id), "{id} written");
+    }
+}
+
+/// ⟨M05; review M05-W4F-R03⟩ Every row of a repeated destination ID is refused, the first one
+/// too, before any alias is claimed: two new rows sharing an ID with different aliases write
+/// nothing, and neither alias is taken (a third destination may use one of them).
+#[tokio::test]
+async fn every_row_of_a_repeated_destination_id_is_refused() {
+    let b = Inst::new(false).await;
+    let mut bundle = bundle_of(&serde_json::from_slice(&hostile(serde_json::json!({}))).unwrap());
+    let base = bundle.destinations[0].clone();
+    let mk = |id: &str, alias: &str| {
+        let mut d = base.clone();
+        d.id = DestinationId::parse(id).unwrap();
+        d.alias = alias.to_owned();
+        d.jump = None;
+        d
+    };
+    bundle.destinations = vec![
+        mk("twin", "twin-a"),
+        mk("twin", "twin-b"),
+        mk("other", "twin-a"),
+    ];
+    let res = b.import(&bundle, "r3-twins").await.unwrap();
+    let plan = res.data["plan"].as_array().unwrap().clone();
+    let of = |id: &str| -> Vec<(String, String)> {
+        plan.iter()
+            .filter(|e| e["id"] == id)
+            .map(|e| {
+                (
+                    e["status"].as_str().unwrap_or("").to_owned(),
+                    e["reason"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        of("twin"),
+        vec![("conflict".to_owned(), "duplicate_in_bundle".to_owned()); 2]
+    );
+    assert_eq!(
+        of("other"),
+        vec![("add".to_owned(), "recorded_as_observed".to_owned())],
+        "a refused row claims no alias"
+    );
+    let written = format!(
+        "{:?}",
+        b.store
+            .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+            .unwrap()
+    );
+    assert!(
+        !written.contains("twin-b") && !written.contains("\"twin\""),
+        "{written}"
+    );
+}
+
 /// Import is one store transaction (M05-D07): a crash before the import's commit leaves
 /// no destination, no profile and no settled operation, and the same request, retried,
 /// applies the whole plan once.

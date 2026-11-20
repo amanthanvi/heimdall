@@ -157,6 +157,35 @@ pub(crate) fn quoted_field(s: &str) -> String {
     out
 }
 
+/// ⟨M05⟩ Review M05-W3-RC01: a JSON value pretty-printed for a **human** reader, inert. The
+/// text is `serde_json`'s pretty form with every bidirectional or invisible formatting
+/// character ([`is_invisible_format`]) written as its JSON escape (`\u202e`; a character
+/// beyond U+FFFF as its surrogate pair), so it can neither reorder nor hide the text around
+/// it, and the printed JSON still denotes exactly the same value (such characters only ever
+/// appear inside JSON strings). Plain text is byte-identical to `to_string_pretty`. For the
+/// recorded request a confirmation prompt shows and every human JSON dump; `--json` output
+/// is data and never passes through it.
+#[must_use]
+pub(crate) fn human_json(v: &serde_json::Value) -> String {
+    use std::fmt::Write as _;
+    let text = serde_json::to_string_pretty(v).unwrap_or_default();
+    if !text.chars().any(is_invisible_format) {
+        return text;
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    for c in text.chars() {
+        if is_invisible_format(c) {
+            let mut units = [0_u16; 2];
+            for u in c.encode_utf16(&mut units) {
+                let _ = write!(out, "\\u{u:04x}");
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Convert an error envelope to the generic value form.
 #[must_use]
 pub fn error_value(env: Envelope<ErrorData>) -> Envelope<serde_json::Value> {
@@ -204,9 +233,8 @@ pub fn emit<T: serde::Serialize>(envelope: &Envelope<T>, json: bool) {
         if let Some(effect) = field(error, "effect_status") {
             eprintln!("effect: {}", sanitize_for_terminal(&effect));
         }
-    } else if !data.is_null()
-        && let Ok(text) = serde_json::to_string_pretty(&data)
-    {
+    } else if !data.is_null() {
+        let text = human_json(&data);
         println!("{}", sanitize_for_terminal(&text));
         for line in m03_lines(&data) {
             println!("{}", sanitize_for_terminal(&line));
@@ -945,6 +973,43 @@ mod tests {
     /// and controls are escapes, quotes and backslashes are escaped, every bidirectional and
     /// invisible formatting character is removed (and a note says so), and what is left is
     /// unchanged by the terminal sanitizer. Plain text is just quoted, as JSON quotes it.
+    #[test]
+    fn human_json_is_inert_and_denotes_the_same_value() {
+        // ⟨M05⟩ Review M05-W3-RC01.
+        let plain = serde_json::json!({"cwd": "/w/r", "label": "naïve ☃ 日本", "n": 1});
+        assert_eq!(
+            human_json(&plain),
+            serde_json::to_string_pretty(&plain).unwrap(),
+            "plain text is byte-identical to the pretty form"
+        );
+        let hostile = serde_json::json!({
+            "cwd": "/w/r\nX\u{202e}cba\u{2066}",
+            "tag": "a\u{e0041}b\u{200d}c",
+        });
+        let text = human_json(&hostile);
+        assert!(!text.chars().any(is_invisible_format), "{text}");
+        assert!(
+            text.contains("\\u202e") && text.contains("\\u2066"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\\udb40\\udc41"),
+            "a tag character as its surrogate pair: {text}"
+        );
+        assert_eq!(
+            text.lines().count(),
+            4,
+            "a line break in a string stays escaped: {text}"
+        );
+        let back: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, hostile, "the printed JSON denotes the same value");
+        assert_eq!(
+            sanitize_for_terminal(&text),
+            text,
+            "nothing left for the sanitizer"
+        );
+    }
+
     #[test]
     fn a_data_field_is_one_inert_quoted_token() {
         let hostile = "/w/r\nOWNER-LINE\u{202e}cba\r\t\u{2028}\u{2029}\u{1b}[31m\u{85}\"\\\u{200b}\u{2066}x\u{2069}\u{e0041}\u{ad}";

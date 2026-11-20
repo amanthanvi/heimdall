@@ -1,0 +1,52 @@
+### hm-m05-c8084db7 packages
+missing-before= zsh sshd
+apt-install-exit=0
+missing-after= none
+
+### hm-m05-c8084db7 prepare
+os=Ubuntu 24.04.5 LTS
+pid1=init(hm-m05-c80
+missing-tools= none
+user=created (non-root, disposable home)
+heimdall-installed=yes
+listeners-loopback=0
+listeners-other=3
+
+### hm-m05-c8084db7 stage
+bundle-digest-in-distribution=match
+tar-members=959
+bindir-sha256=verified
+bindir-files=856
+heimdall-sha256=082369932ecbc74d4c44ec95d5bdb45153b1ab003925ea8541980da1c6a129d9
+
+### journeys output (tail)
+### wsl_hook_m05
+fact shell-bash=GNU bash, version 5.2.21(1)-release (x86_64-pc-linux-gnu)
+fact shell-zsh=zsh 5.9 (x86_64-ubuntu-linux-gnu)
+test m05_wsl_bash_and_zsh_present ... ok
+fact sshd=present
+detail m05_wsl_hook_never_evaluates_repository_text: e2e_cli_m05 exit=0
+---- m05_wsl_hook_never_evaluates_repository_text stdout ----
+test m05_wsl_hook_never_evaluates_repository_text ... ok
+detail m05_wsl_hook_creates_no_decision_when_uncovered: e2e_cli_m05 exit=0
+---- m05_wsl_hook_creates_no_decision_when_uncovered stdout ----
+test m05_wsl_hook_creates_no_decision_when_uncovered ... ok
+detail m05_wsl_hook_warms_the_default_so_the_first_ordinary_ssh_logs_in: e2e_hook_m05 exit=0
+---- m05_wsl_hook_warms_the_default_so_the_first_ordinary_ssh_logs_in stdout ----
+m05 observation: hook linux warm-up: the hook took 244 ms; the slot was held when it returned: true; held 4 ms later
+test m05_wsl_hook_warms_the_default_so_the_first_ordinary_ssh_logs_in ... ok
+detail m05_wsl_hook_warm_up_creates_no_decision_when_the_default_does_not_cover: e2e_hook_m05 exit=0
+---- m05_wsl_hook_warm_up_creates_no_decision_when_the_default_does_not_cover stdout ----
+test m05_wsl_hook_warm_up_creates_no_decision_when_the_default_does_not_cover ... ok
+detail m05_wsl_hook_without_a_runtime_prints_nothing_and_starts_none: e2e_hook_m05 exit=0
+---- m05_wsl_hook_without_a_runtime_prints_nothing_and_starts_none stdout ----
+test m05_wsl_hook_without_a_runtime_prints_nothing_and_starts_none ... ok
+detail m05_wsl_a29_hook_ignores_a_hostile_environment: adversarial_prompt_injection_cli exit=124
+---- m05_wsl_a29_hook_ignores_a_hostile_environment stdout ----
+  | 
+  | running 1 test
+test m05_wsl_a29_hook_ignores_a_hostile_environment ... FAILED
+fact leftover-processes=1
+test m05_wsl_no_leftover_processes ... FAILED
+### wsl_hook_m05 exit=1
+

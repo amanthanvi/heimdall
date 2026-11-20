@@ -1,0 +1,95 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running ../../tests/e2e/exit_m05.rs (target/debug/deps/e2e_exit_m05-ec481d3c4bc3953c)
+
+running 8 tests
+test worker_process_entry ... ok
+test u5::u5_ordinary_ssh_activates_the_personal_default ... ok
+test a28::a28_child_subset_refusals_and_no_owner_functions ... ok
+test a16::a04_default_and_profile_change_never_redirects_bindings ... ok
+test a16::a16_two_environments_defaults_and_cleanup ... ok
+test a28::a28_parent_end_cascades_child_login_fails ... ok
+test pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual ... ok
+test a02::a02_trusted_week_zero_further_prompts has been running for over 60 seconds
+test a02::a02_trusted_week_zero_further_prompts ... ok
+
+successes:
+
+---- u5::u5_ordinary_ssh_activates_the_personal_default stdout ----
+m05 started-pid runtime 35152
+m05 observation: i13 macos failed
+m05 started-pid stand-in-shell 35289
+m05 observation: u5 macos default_at_setup=1_decision activation_decisions=0 paused=nothing_activated resumed=activated
+
+---- a28::a28_child_subset_refusals_and_no_owner_functions stdout ----
+m05 started-pid runtime 35148
+m05 started-pid run-worker 35336
+m05 observation: a28 macos subset=server_enforced wider=refused longer=refused frames=agent_failure owner_functions=not_delegated
+
+---- a16::a04_default_and_profile_change_never_redirects_bindings stdout ----
+m05 started-pid runtime 35156
+m05 started-pid run-worker 35305
+m05 started-pid run-worker 35306
+m05 started-pid run-worker 35460
+m05 observation: a04 macos default_change=redirected_nothing profile_change=redirected_nothing new_request_revision=2
+
+---- a16::a16_two_environments_defaults_and_cleanup stdout ----
+m05 started-pid runtime 35149
+m05 started-pid runtime 35408
+m05 started-pid run-worker 35535
+m05 started-pid run-worker 35536
+m05 started-pid run-worker 35537
+m05 started-pid run-worker 35538
+m05 observation: a16 macos environments=2 jobs=4 pins_unchanged=true cross_routed=0 handover_generation=2 cleanup=clear
+
+---- a28::a28_parent_end_cascades_child_login_fails stdout ----
+m05 started-pid runtime 35153
+m05 started-pid run-worker 35314
+m05 observation: a28 macos parent_end=revoke child_grant_state=revoking child_next_login=refused states_settled_after_login_s=0
+m05 started-pid run-worker 35436
+m05 observation: a28 macos parent_end=cutoff child_grant_state=expired child_next_login=refused states_settled_after_login_s=0
+
+---- pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual stdout ----
+m05 started-pid runtime 35150
+
+---- a02::a02_trusted_week_zero_further_prompts stdout ----
+m05 started-pid runtime 35151
+m05 started-pid stand-in-shell 35330
+m05 started-pid stand-in-shell 35342
+m05 started-pid stand-in-shell 35350
+m05 started-pid issuer-child 35164
+m05 started-pid runtime 35489
+m05 observation: a02 macos decisions_after_first=0 pending_listed=0 attended_prompts=0 provider_prompts=0 recovered_runtime=true issuer_child_after_kill=exited
+
+
+successes:
+    a02::a02_trusted_week_zero_further_prompts
+    a16::a04_default_and_profile_change_never_redirects_bindings
+    a16::a16_two_environments_defaults_and_cleanup
+    a28::a28_child_subset_refusals_and_no_owner_functions
+    a28::a28_parent_end_cascades_child_login_fails
+    pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual
+    u5::u5_ordinary_ssh_activates_the_personal_default
+    worker_process_entry
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 153.72s
+
+     Running ../../tests/e2e/m05_hook.rs (target/debug/deps/e2e_hook_m05-471691590111118e)
+
+running 3 tests
+test hook_without_a_runtime_prints_nothing_and_starts_none ... ok
+test hook_warm_up_creates_no_decision_when_the_default_does_not_cover ... ok
+test hook_warms_the_default_so_the_first_ordinary_ssh_logs_in ... ok
+
+successes:
+
+---- hook_warms_the_default_so_the_first_ordinary_ssh_logs_in stdout ----
+m05 observation: hook macos warm-up: the hook took 59 ms; the slot was held when it returned: true; held 1 ms later
+
+
+successes:
+    hook_warm_up_creates_no_decision_when_the_default_does_not_cover
+    hook_warms_the_default_so_the_first_ordinary_ssh_logs_in
+    hook_without_a_runtime_prints_nothing_and_starts_none
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.53s
+

@@ -1,0 +1,18 @@
+exit 0: icacls: the run root gets the protected stock profile list (the user, SYSTEM, Administrators; inherited by what is created inside) [0 s]
+exit 0: the BINDIR tarball (-Bundle, -BundleSha256) sha256 equals the expected digest (912c72f965c0490ef01d840c07dc57bf88f93bd45f4069fe6562a7ccb99c8bc0) [0 s]
+exit 0: wsl --list: this run's name is not registered [0 s]
+exit 0: the tarball and the scripts are copied into the run directory, each equal to its source [0 s]
+exit 0: the pinned image downloaded over HTTPS [11 s]
+exit 0: the image is the pinned one (sha256) [0 s]
+exit 0: wsl --import hm-m05-c8084db7 (into the run directory, WSL 2) [9 s]
+exit 0: hm-m05-c8084db7: target-root.sh no-systemd [3 s]
+exit 0: hm-m05-c8084db7: packages (zsh, openssh-server, openssh-client, git, util-linux; apt allowed) [14 s]
+exit 0: hm-m05-c8084db7: target-root.sh prepare (tools, git, python3; the non-root user) [0 s]
+exit 0: the non-root user's facts (kept only as redaction rules) [1 s]
+exit 0: versions inside the distribution [0 s]
+exit 0: the tarball is checked inside the distribution, extracted, and BINDIR is verified against BINDIR.sha256 [3 s]
+exit 1: bash wsl-hook-journeys.sh <scratch> <BINDIR> as the non-root user -> 6 of 8 steps ok; the script exited 1; its exit line says 1; failed: m05_wsl_a29_hook_ignores_a_hostile_environment, m05_wsl_no_leftover_processes [907 s]
+exit 0: wsl --unregister hm-m05-c8084db7 (this run's, by exact name) [0 s]
+exit 0: the registered distributions equal the set before the run (only this run's was added and removed) [0 s]
+exit 0: canary-prefix scan over saved output and metadata (count = 0)
+exit 0: leak scan: saved files and metadata still naming a host, a user or a home (0)

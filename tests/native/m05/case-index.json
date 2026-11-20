@@ -1,0 +1,579 @@
+{
+  "description": "M05-U10 case index (m05-plan §3 \"Exit mapping\"): every M05 exit case and claim mapped to its Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description; read by tests/native/m05/m05-evidence.py, which is m02-evidence.py with the M05 constants, as m03-evidence.py is for M03). Patterns resolve into required-inventory.json from the build host's sources, never from run logs. Owner-input rows are blocked_rows naming m05-plan §7's B-IDs (B2, B7, B9, B12); rows that M04's exit closes (plan Q9) are deferred_with_decision. The wsl-distro platform runs the scenario target wsl_hook_m05 (tests/native/m05/wsl-hook-journeys.sh). G05 is not a group here: tests/evidence/m05-g05-agent-context.json is the hand-written gate record, and the exit claim cites it.",
+  "build_host": "macos",
+  "observation_targets": [
+    "e2e_hook_m05",
+    "e2e_exit_m05"
+  ],
+  "platforms": {
+    "macos": {
+      "runs": "cargo"
+    },
+    "linux": {
+      "runs": "cargo"
+    },
+    "windows": {
+      "runs": "cargo"
+    },
+    "wsl-distro": {
+      "runs": "scenario"
+    }
+  },
+  "build_host_paths": {
+    "heimdall_testkit-unit::repo::tests::unset_or_empty_is_the_compile_time_root": {
+      "neutral": true,
+      "reason": "asserts that the compile-time repository root (the build host's checkout) holds Cargo.toml and schemas/, which exists only where the binary was built; the HM_REPO_ROOT resolution it covers is platform-neutral and its sibling tests run everywhere"
+    }
+  },
+  "platform_only": {
+    "heimdall_runtime-unit::managed_store::live_tests::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(all(test, unix))] mod live_tests (crates/runtime/src/managed_store.rs): the in-process live journeys bind a real Unix-socket endpoint in a scratch runtime directory and run the system ssh against a disposable loopback sshd; native Windows has no Unix-socket endpoint, and the Windows rows of A02, A04, A16 and A28 are the exit suite's (e2e_exit_m05, ruling I-16)"
+    },
+    "e2e_cli_m05::hook_never_evaluates_repository_text": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/cli_m05.rs): the journey drives the real binary on a pseudo-terminal through script(1) (`Pty`, `run_pty`) for the typed `yes` and the interactive shells, and the file has no Windows pseudoconsole driver; native Windows has no shell integration (owner question Q6), and the Windows rows of these claims are the exit suite's (e2e_exit_m05, ruling I-16)"
+    },
+    "e2e_cli_m05::hook_creates_no_decision_when_uncovered": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/cli_m05.rs): the journey drives the real binary on a pseudo-terminal through script(1) (`Pty`, `run_pty`) for the typed `yes` and the interactive shells, and the file has no Windows pseudoconsole driver; native Windows has no shell integration (owner question Q6), and the Windows rows of these claims are the exit suite's (e2e_exit_m05, ruling I-16)"
+    },
+    "e2e_cli_m05::project_trust_status_reconcile_untrust": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/cli_m05.rs): the journey drives the real binary on a pseudo-terminal through script(1) (`Pty`, `run_pty`) for the typed `yes` and the interactive shells, and the file has no Windows pseudoconsole driver; native Windows has no shell integration (owner question Q6), and the Windows rows of these claims are the exit suite's (e2e_exit_m05, ruling I-16)"
+    },
+    "e2e_cli_m05::export_then_import_with_the_dry_run_preview": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/cli_m05.rs): the journey drives the real binary on a pseudo-terminal through script(1) (`Pty`, `run_pty`) for the typed `yes` and the interactive shells, and the file has no Windows pseudoconsole driver; native Windows has no shell integration (owner question Q6), and the Windows rows of these claims are the exit suite's (e2e_exit_m05, ruling I-16)"
+    },
+    "e2e_cli_m05::run_without_a_profile_reissues_after_the_trust_decision": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/cli_m05.rs): the journey drives the real binary on a pseudo-terminal through script(1) (`Pty`, `run_pty`) for the typed `yes` and the interactive shells, and the file has no Windows pseudoconsole driver; native Windows has no shell integration (owner question Q6), and the Windows rows of these claims are the exit suite's (e2e_exit_m05, ruling I-16)"
+    },
+    "e2e_cli_m05::workspace_paths_are_quoted_and_bidi_free": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/cli_m05.rs): the checkout's directory name holds a line break, which a Windows file system refuses, and the journey runs the real binary through the Unix harness; the rendering rule is also covered by the platform-neutral unit test m05_cmd::tests::workspace_paths_render_as_quoted_data"
+    },
+    "e2e_hook_m05::hook_warms_the_default_so_the_first_ordinary_ssh_logs_in": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/m05_hook.rs): a loopback sshd and Unix sockets through exit_m03's world; native Windows has no shell integration (owner question Q6), so the hook's warm-up has no Windows form (ordinary-ssh activation there is the exit suite's)"
+    },
+    "e2e_hook_m05::hook_warm_up_creates_no_decision_when_the_default_does_not_cover": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/m05_hook.rs): a loopback sshd and Unix sockets through exit_m03's world; native Windows has no shell integration (owner question Q6), so the hook's warm-up has no Windows form"
+    },
+    "e2e_delegation_m05::run_parent_binding_gives_the_worker_only_the_child_endpoint": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/m05_delegation.rs): two loopback sshds and Unix sockets; the Windows harness serves one account-form server per test thread, so the scope refusal has no second server there (the file's header records the rows as blocked on Windows)"
+    },
+    "e2e_delegation_m05::wider_or_longer_request_launches_nothing": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (tests/e2e/m05_delegation.rs): two loopback sshds and Unix sockets; the Windows harness serves one account-form server per test thread (the file's header records the rows as blocked on Windows)"
+    },
+    "integration_ipc_unix": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#![cfg(unix)] (tests/integration/ipc_unix.rs): Unix domain sockets and peer-uid checks; the target builds with zero tests on Windows, whose named-pipe equivalents are heimdall_ipc-unit's windows:: tests (this group's platform_required for Windows)"
+    },
+    "integration_runtime::instance_insecure_files_are_refused": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Tests POSIX modes and symlinks (#[cfg(unix)]). On Windows the state directory relies on the per-user %LOCALAPPDATA% ACL; M01 makes no Windows claim that the state directory is owner-only, and an explicit Windows ACL check with a native test is an M04 item (ADR-0006 §13.12 item 4)."
+    },
+    "integration_runtime::paths_tighten_existing_permissive_dirs_and_refuse_symlinks": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Tests POSIX modes and symlinks (#[cfg(unix)]). On Windows the state directory relies on the per-user %LOCALAPPDATA% ACL; M01 makes no Windows claim that the state directory is owner-only, and an explicit Windows ACL check with a native test is an M04 item (ADR-0006 §13.12 item 4)."
+    },
+    "adversarial_prompt_injection_cli::a29_cli_attended_decide_of_repository_references_applies_nothing": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Unix only (script(1) pseudo-terminal for the owner's typed `yes`; tests/adversarial/prompt_injection/cli.rs): the file has no Windows pty driver, and the non-terminal refusals of the same references run on every platform in a29_cli_decide_without_a_terminal_is_interaction_required"
+    },
+    "adversarial_prompt_injection_cli::a29_cli_a_fifo_bundle_is_refused_without_waiting": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Unix only (a FIFO bundle, made with mkfifo(3), which Windows does not have; finding A29-F1, fixed in W4: `import` refuses it at once)"
+    },
+    "adversarial_prompt_injection_cli::a29_cli_hook_stays_silent_with_hostile_state_variables": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Unix only (real bash and zsh; the shell integration is Unix-only, owner question Q6; finding A29-F2, fixed in W4: the script checks its own state variables before use)"
+    },
+    "adversarial_prompt_injection_cli::a29_cli_fifo_input_files_are_refused_without_waiting": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "review M05-W4-R02's FIFO inputs (`identity adopt --pub`, `service run`'s configuration): a FIFO is made with mkfifo(3), which Windows does not have; `input_file::open_regular` is the same code on every platform and its unit test runs everywhere"
+    }
+  },
+  "macro_tests": {},
+  "groups": {
+    "A02": {
+      "title": "A02: a normal working week after one project trust needs zero additional same-authority prompts (R-UX-02): re-enter, three shells through the hook, Git, ssh and scp, re-issue within a grant, runtime recovery, expiry and re-entry; the default's ordinary-ssh rows; decisions, attended prompts and provider prompts all count 0",
+      "requirement_ids": [
+        "R-UX-02"
+      ],
+      "tests": {
+        "e2e_context_m05": [
+          "a02_trusted_week_zero_same_authority_prompts"
+        ],
+        "heimdall_runtime-unit": [
+          "managed_store::live_tests::default_m05::ordinary_ssh_activates_default_under_personal_policy",
+          "managed_store::live_tests::default_m05::ordinary_ssh_after_expiry_starts_new_work",
+          "managed_store::live_tests::default_m05::paused_or_cut_off_default_never_activates_and_creates_no_decision",
+          "managed_store::live_tests::default_m05::concurrent_ssh_single_activation"
+        ],
+        "model_decision_budget": "*",
+        "e2e_hook_m05": "*",
+        "e2e_cli_m05": [
+          "project_trust_status_reconcile_untrust",
+          "hook_creates_no_decision_when_uncovered",
+          "run_without_a_profile_reissues_after_the_trust_decision"
+        ],
+        "e2e_exit_m05": [
+          "a02::a02_trusted_week_zero_further_prompts",
+          "u5::u5_ordinary_ssh_activates_the_personal_default"
+        ],
+        "wsl_hook_m05": [
+          "m05_wsl_bash_and_zsh_present",
+          "m05_wsl_hook_never_evaluates_repository_text",
+          "m05_wsl_hook_creates_no_decision_when_uncovered",
+          "m05_wsl_hook_warms_the_default_so_the_first_ordinary_ssh_logs_in",
+          "m05_wsl_hook_warm_up_creates_no_decision_when_the_default_does_not_cover",
+          "m05_wsl_hook_without_a_runtime_prints_nothing_and_starts_none",
+          "m05_wsl_no_leftover_processes"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "the step comparison with the G01 baseline worksheet (ADR-0001 §6): the human walkthrough that counts the baseline's prompts and chores",
+          "status": "blocked",
+          "blocked_on": "B7: the G01 baseline worksheet and the owner's walkthrough (m05-plan §7; ADR-0001 §6; the walkthrough itself is M09's)"
+        },
+        {
+          "platform": "a reboot or logout inside the A02 window (the runtime returns at login with no command)",
+          "status": "blocked",
+          "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (m05-plan §7; M04-T04 starts the runtime at login)"
+        },
+        {
+          "platform": "linux-arm64 native rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m05-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ],
+      "note": "Windows uses `run` and ordinary `ssh`, with no shell hook (owner question Q6); the hook journeys are Unix, and WSL runs them inside a disposable distribution (ruling I-19).",
+      "platform_required": {
+        "windows": {
+          "e2e_exit_m05": [
+            "a02::a02_trusted_week_zero_further_prompts",
+            "u5::u5_ordinary_ssh_activates_the_personal_default"
+          ]
+        }
+      }
+    },
+    "A04": {
+      "title": "A04: edits and branch switches in a trusted workspace make no decision; an added destination makes one decision showing only that pair; two live bindings stay unchanged; changing the default or the profile never redirects a live binding (R-UX-06, R-AU-03)",
+      "requirement_ids": [
+        "R-UX-06",
+        "R-AU-03"
+      ],
+      "tests": {
+        "e2e_context_m05": [
+          "a04_edits_branches_and_added_destination"
+        ],
+        "heimdall_runtime-unit": [
+          "managed_store::live_tests::slots_m05::a04_default_and_profile_change_never_redirects_bindings"
+        ],
+        "model_decision_budget": "*",
+        "e2e_exit_m05": [
+          "a16::a04_default_and_profile_change_never_redirects_bindings"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux-arm64 native rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m05-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_exit_m05": [
+            "a16::a04_default_and_profile_change_never_redirects_bindings"
+          ]
+        }
+      }
+    },
+    "A05": {
+      "title": "A05: expiry and re-entry under the same work ID is refused while distinct work proceeds with no decision; after a hard cutoff fresh work IDs, a restarted runtime, the hook and default activation are all refused, and clearing needs an attended decision (R-AU-02)",
+      "requirement_ids": [
+        "R-AU-02"
+      ],
+      "tests": {
+        "e2e_stop_m05": [
+          "a05_expiry_reentry_and_hard_cutoff",
+          "a05_stop_profile_revokes_and_blocks_until_resume"
+        ],
+        "model_precedence_m05": "*",
+        "model_authority": [
+          "a05_*"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux-arm64 native rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m05-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "A16": {
+      "title": "A16: concurrent work in two environments with default and profile changes mid-run keeps every running binding's pins; stopping one job leaves the other; cleanup leaves no binding or slot (R-AU-03). Two native environments in scratch homes, labelled two environments, one OS user",
+      "requirement_ids": [
+        "R-AU-03"
+      ],
+      "tests": {
+        "heimdall_runtime-unit": [
+          "managed_store::live_tests::slots_m05::a16_concurrent_environments_defaults_and_cleanup",
+          "managed_store::live_tests::slots_m05::two_jobs_share_a_pair_and_hand_over"
+        ],
+        "model_slot_accounting": "*",
+        "e2e_stop_m05": [
+          "stop_one_job_leaves_the_other"
+        ],
+        "e2e_exit_m05": [
+          "a16::a16_two_environments_defaults_and_cleanup",
+          "pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "the WSL pair and the container pair of A16 (two environments of different realizations)",
+          "status": "deferred_with_decision",
+          "decision": "m05-plan Q9: M04's exit closes the A16 WSL and container rows (A13 and A15 already cover those realizations); M05 ships the parametrized tests and records two native environments, honestly labelled"
+        },
+        {
+          "platform": "linux-arm64 native rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m05-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_exit_m05": [
+            "a16::a16_two_environments_defaults_and_cleanup"
+          ]
+        }
+      }
+    },
+    "A18": {
+      "title": "A18: copy, clone, worktree, symlink, move and submodule identity; an export has no authority or secrets and an import on a second installation creates intent only (R-EN-07)",
+      "requirement_ids": [
+        "R-EN-07"
+      ],
+      "tests": {
+        "e2e_context_m05": [
+          "a18_copy_clone_worktree_symlink_move_submodule"
+        ],
+        "integration_portable": [
+          "a18_export_has_no_authority_or_secrets",
+          "a18_import_on_second_installation_creates_intent_only"
+        ],
+        "e2e_portable_m05": "*",
+        "model_project_pure": "*",
+        "integration_workspace_observe": "*"
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux-arm64 native rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m05-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "A28": {
+      "title": "A28: a delegated child is server-enforced to its subset, a broader or longer child is refused, the child handle has no owner functions, the parent's end cascades and the child's next login fails, an existing-access child is labelled convenience (R-AU-07, R-SE-03)",
+      "requirement_ids": [
+        "R-AU-07",
+        "R-SE-03"
+      ],
+      "tests": {
+        "heimdall_runtime-unit": [
+          "managed_store::live_tests::delegation_m05::a28_child_subset_server_enforced",
+          "managed_store::live_tests::delegation_m05::a28_broader_or_longer_child_refused",
+          "managed_store::live_tests::delegation_m05::a28_child_handle_has_no_owner_functions",
+          "managed_store::live_tests::delegation_m05::a28_parent_end_cascades_child_login_fails",
+          "managed_store::live_tests::delegation_m05::a28_existing_access_child_labelled_convenience"
+        ],
+        "e2e_delegation_m05": "*",
+        "model_authority": [
+          "delegation_never_exceeds_or_outlives_parent",
+          "delegation_table"
+        ],
+        "e2e_exit_m05": [
+          "a28::a28_child_subset_refusals_and_no_owner_functions",
+          "a28::a28_parent_end_cascades_child_login_fails",
+          "pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "A28's forwarding row (M04-T06) and container row (M04-T05, owner_functions)",
+          "status": "deferred_with_decision",
+          "decision": "m05-plan Q9: M04's exit closes A28's forwarding and container rows; M05's record covers the managed rows"
+        },
+        {
+          "platform": "linux-arm64 native rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m05-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_exit_m05": [
+            "a28::a28_child_subset_refusals_and_no_owner_functions",
+            "a28::a28_parent_end_cascades_child_login_fails"
+          ]
+        }
+      }
+    },
+    "A29": {
+      "title": "A29: a repository file cannot become an approval instruction: a program without a terminal cannot decide, repository decision references find nothing, claims in names change nothing, self-authorizing manifests get nothing, hostile manifests, bundles, working directories and shell-hook environments are refused or inert (R-SE-01, R-SE-02); M01's A29-local rows are re-run by name",
+      "requirement_ids": [
+        "R-SE-01",
+        "R-SE-02",
+        "R-RT-03"
+      ],
+      "tests": {
+        "adversarial_prompt_injection": "*",
+        "adversarial_prompt_injection_cli": "*",
+        "model_trust_policy": [
+          "p9::p9_authority_is_created_or_widened_only_by_an_applied_attended_decision",
+          "trust_approval_refuses_a_changed_observation_without_consuming"
+        ],
+        "model_idempotency": [
+          "context_retries_converge_and_conflict_on_another_workspace_or_digest"
+        ],
+        "model_project_pure": "*",
+        "integration_workspace_observe": "*",
+        "integration_portable": [
+          "import_rejects_authority_sections",
+          "a_bundle_with_an_authority_section_is_refused_on_the_request_path",
+          "import_shows_host_key_fingerprints_and_trusts_nothing"
+        ],
+        "e2e_cli_m05": [
+          "hook_never_evaluates_repository_text",
+          "hook_creates_no_decision_when_uncovered",
+          "workspace_paths_are_quoted_and_bidi_free",
+          "export_then_import_with_the_dry_run_preview"
+        ],
+        "e2e_context_m05": [
+          "covered_only_creates_no_decision_when_uncovered"
+        ],
+        "heimdall-unit": [
+          "m05_cmd::tests::workspace_paths_render_as_quoted_data",
+          "tui::view::tests::m05::project_label_rendered_as_quoted_data"
+        ],
+        "heimdall_domain-unit": [
+          "workspace::tests::quoted_label_strips_controls_and_bounds"
+        ],
+        "wsl_hook_m05": [
+          "m05_wsl_bash_and_zsh_present",
+          "m05_wsl_hook_never_evaluates_repository_text",
+          "m05_wsl_a29_hook_ignores_a_hostile_environment"
+        ],
+        "model_operations": [
+          "a29_the_same_request_id_from_another_owner_is_a_distinct_key",
+          "a29_another_principals_binding_is_not_found_or_not_owner",
+          "a29_request_fields_never_widen_the_resolved_scope",
+          "a29_metadata_is_ignored_and_attendance_is_never_a_request_field",
+          "a29_only_an_interactive_session_may_attend"
+        ],
+        "model_authority": [
+          "limited_consumer_never_escalates",
+          "approval_delta_names_only_the_added_authority",
+          "effective_scope_within_every_bound"
+        ],
+        "integration_store": [
+          "cross_owner_request_id_is_a_distinct_key",
+          "references_are_ownership_aware",
+          "binding_release_is_idempotent_and_authorized_by_ownership",
+          "private_key_material_is_refused_and_never_reaches_the_file"
+        ],
+        "adversarial_ipc_frames": "*",
+        "adversarial_agent_frames": "*",
+        "integration_ipc_unix": [
+          "forged_peer_with_another_uid_is_rejected",
+          "same_user_peer_is_accepted_and_reported",
+          "hello_never_echoes_client_metadata",
+          "invalid_utf8_and_malformed_hello_are_rejected_without_echo",
+          "oversize_length_prefix_closes_before_allocation",
+          "oversize_frame_after_hello_closes_with_goodbye",
+          "foreign_owned_socket_is_never_probed_or_unlinked",
+          "bind_refuses_a_permissive_or_symlinked_directory",
+          "client_refuses_a_permissive_directory_or_socket",
+          "signing_endpoint_over_a_real_socket_is_distinct_and_peer_checked",
+          "schema_or_capability_mismatch_is_rejected_explicitly"
+        ],
+        "integration_runtime": [
+          "config_rejects_trusted_true",
+          "config_rejects_trusted_in_every_place",
+          "config_rejects_authority_widening_keys",
+          "config_errors_never_echo_values",
+          "u8b::caller_is_built_from_the_session_only",
+          "instance_insecure_files_are_refused",
+          "paths_tighten_existing_permissive_dirs_and_refuse_symlinks",
+          "redact_removes_canaries_wherever_they_appear",
+          "redact_removes_private_key_blocks",
+          "u8b::shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner"
+        ],
+        "e2e_cli_m01": [
+          "test_configuration_requires_an_explicit_home"
+        ]
+      },
+      "platform_required": {
+        "windows": {
+          "heimdall_ipc-unit": [
+            "windows::tests::connect_with_owner_accepts_a_same_user_server",
+            "windows::tests::connect_with_owner_refuses_an_unexpected_owner",
+            "windows::tests::connect_with_owner_refuses_bad_input_before_any_open",
+            "windows::tests::sid_mismatch_is_disconnected_and_listener_keeps_waiting",
+            "windows::tests::dacl_denies_unlisted_principal"
+          ]
+        }
+      },
+      "blocked_rows": [
+        {
+          "platform": "cross-user rows (a second OS user against the control socket and the Windows pipe, carried from M01's A29-local not_modelled row)",
+          "status": "blocked",
+          "blocked_on": "B2: the disposable second OS account (m05-plan §7; the M01 row names the second Windows account, ADR-0004 §3)"
+        },
+        {
+          "platform": "linux-arm64 native rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m05-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ],
+      "note": "Two A29 CLI tests are #[ignore]d findings (A29-F1, A29-F2: /tmp DONE of the A29 unit); an ignored required test keeps this row in_progress until the product fix removes the ignore or the case index narrows the target to names."
+    }
+  },
+  "exit_claims": {
+    "M05 exit cases (m05-plan §3)": {
+      "groups": [
+        "A02",
+        "A04",
+        "A05",
+        "A16",
+        "A18",
+        "A28",
+        "A29"
+      ],
+      "note": "m05-plan §3: every M05 exit case per platform, all rows from one build; G05 (tests/evidence/m05-g05-agent-context.json) is the cited hand-written gate record. Blocked while any owner-input row (B2, B7, B9, B12) is blocked (the lowest-row rule)."
+    }
+  },
+  "child_entries": {
+    "e2e_exit_m05::worker_process_entry": "worker re-execution entry point (a no-op without instructions; started by its parent case as M03's is, never required)"
+  },
+  "scenario_targets": {
+    "wsl_hook_m05": {
+      "platforms": [
+        "wsl-distro"
+      ],
+      "source": "tests/native/m05/wsl-hook-journeys.sh",
+      "steps": {
+        "m05_wsl_bash_and_zsh_present": "the disposable distribution has /bin/bash and /bin/zsh (zsh installed in this distribution only); the shell versions are facts",
+        "m05_wsl_hook_never_evaluates_repository_text": "e2e_cli_m05 hook_never_evaluates_repository_text (--exact): the static script in real interactive bash and zsh on a pseudo-terminal, hostile directory names, labels and manifest values; no canary file, the hook demonstrably ran, no decision",
+        "m05_wsl_hook_creates_no_decision_when_uncovered": "e2e_cli_m05 hook_creates_no_decision_when_uncovered (--exact): the hook in an uncovered workspace asks nothing and creates no decision",
+        "m05_wsl_hook_warms_the_default_so_the_first_ordinary_ssh_logs_in": "e2e_hook_m05 hook_warms_the_default_so_the_first_ordinary_ssh_logs_in (--exact): the hook's warm-up activates the default and the first ordinary ssh logs in",
+        "m05_wsl_hook_warm_up_creates_no_decision_when_the_default_does_not_cover": "e2e_hook_m05 hook_warm_up_creates_no_decision_when_the_default_does_not_cover (--exact)",
+        "m05_wsl_hook_without_a_runtime_prints_nothing_and_starts_none": "e2e_hook_m05 hook_without_a_runtime_prints_nothing_and_starts_none (--exact)",
+        "m05_wsl_a29_hook_ignores_a_hostile_environment": "adversarial_prompt_injection_cli a29_cli_hook_ignores_a_hostile_environment (--exact): hostile PWD, PS1, HEIMDALL_* and pre-set hook state in real bash and zsh; nothing echoed or evaluated, no decision",
+        "m05_wsl_no_leftover_processes": "no process started from the run's scratch copies of the binaries is left after the journeys (counted, never signalled by name)"
+      }
+    }
+  }
+}

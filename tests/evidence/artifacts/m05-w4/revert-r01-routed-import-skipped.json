@@ -1,0 +1,23 @@
+{
+ "name": "M05 W4, review M05-W4F-R01 under ruling I-27: import writes a routed destination it should skip (in `portable_m05::plan`, an arm `(Some(_), Status::Add) if true` added before the skip arm, writing it as an observed destination, `recorded_as_observed`), as the jump fix did before review M05-W4F-R01",
+ "file": "crates/app/src/operations/portable_m05.rs",
+ "observed_by": "the integrator on the W4 tree (056a1692 plus the re-check fixes); source restored byte-identical (checked with cmp)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall --test e2e_cli_m05 an_imported_routed_destination",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test an_imported_routed_destination_is_never_launched_by_its_bare_alias ... FAILED",
+   "connect must refuse the routed destination, never launch it; launched with argv Some(\"lab-inner \")",
+   "0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out"
+  ]
+ },
+ "also": "the test's scratch HOME holds a disposable direct `Host lab-inner` and the launcher is a stub that records its argv; reverted, `connect lab-inner` handed the bare alias to the launcher, which the direct alias would have won. This record replaces the one for the first fix (a pending-route marker), which ruling I-27 withdrew"
+}

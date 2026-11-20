@@ -20,6 +20,8 @@ mod delegate_cmd;
 mod dev_home_guard;
 mod doctor_cmd;
 mod enroll_cmd;
+// ⟨M05⟩ W4 (review M05-W4-R02): opening a user-named input file without ever waiting on it.
+mod input_file;
 mod issuer_cmd;
 mod launch_flow;
 mod m03_cmd;

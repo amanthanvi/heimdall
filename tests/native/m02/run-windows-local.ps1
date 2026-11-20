@@ -80,8 +80,9 @@ param(
     [string]$ArgvDump = '',
     [string]$Label = 'windows-11-x86_64 (native msvc, local mode)',
     # ⟨M03 wave 6⟩ The milestone run (tests/native/m03/run-windows-local.ps1 passes m03): the run
-    # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3).
-    [ValidateSet('m02', 'm03')][string]$Milestone = 'm02',
+    # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3). ⟨M05⟩
+    # tests/native/m05/run-windows-local.ps1 passes m05 (the run directory prefix only).
+    [ValidateSet('m02', 'm03', 'm05')][string]$Milestone = 'm02',
     [switch]$SelfTest,
     [string]$Out = ''
 )
@@ -139,9 +140,23 @@ function Invoke-Redaction([string]$Text, $Rules) {
     }
     # User and domain SIDs (local and Entra accounts), and non-loopback IPv4 addresses.
     $Text = [regex]::Replace($Text, 'S-1-(5-21|12-1)(-\d+){1,6}', 'S-1-<redacted>')
+    # M05 W4: a dotted quad is an address only when every part is an octet (0-255), and never in the
+    # value of a version fact (`<key>=` whose key names a version or a kernel, e.g. `wsl-version=`,
+    # `wsl-kernel=6.6.87.2-microsoft-standard-WSL2`): those are versions, kept as evidence.
+    $source = $Text
     $Text = [regex]::Replace($Text, '(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])', {
             param($m)
-            if ($m.Value.StartsWith('127.') -or $m.Value -eq '0.0.0.0') { $m.Value } else { '<addr>' }
+            if ($m.Value.StartsWith('127.') -or $m.Value -eq '0.0.0.0') { return $m.Value }
+            if (@($m.Value.Split('.') | Where-Object { [int]$_ -gt 255 }).Count -gt 0) { return $m.Value }
+            # The value of a version fact: the match's line (after an optional `fact ` prefix) is
+            # `<key>=<value>` with a key that ends in `version`, `kernel`, `kernel-release` or `-V`
+            # (case-insensitive: `wsl-version`, `wsl-kernel`, `git-version`, `sshd-V`). Only such a
+            # key: an address in any other fact (`wsl-version-note=…`) is masked. (Inline, so the
+            # runners that load Invoke-Redaction by name need no other helper.)
+            $start = if ($m.Index -eq 0) { 0 } else { $source.LastIndexOf("`n", $m.Index - 1) + 1 }
+            $key = [regex]::Match($source.Substring($start, $m.Index - $start), '^(?:fact )?([A-Za-z0-9_.-]+)=')
+            if ($key.Success -and [regex]::IsMatch($key.Groups[1].Value, '(?:version|kernel|kernel-release|-v)$', 'IgnoreCase')) { return $m.Value }
+            return '<addr>'
         })
     return $Text
 }
@@ -314,6 +329,16 @@ ak=$(wslpath -u "$2")
 lg=$(wslpath -u "$3")
 aks=$(wslpath -u "$4")
 lgs=$(wslpath -u "$5")
+# M05 W4: the sshd logs live on the WSL file system when Windows can name them there (log= and
+# strictlog=, their Windows paths): concurrent sshd children appending to one drvfs file lost
+# a line (two simultaneous logins left one Accepted line). Otherwise the drvfs paths, as before.
+if (umask 077 && : >"$d/sshd.log" && : >"$d/sshd_strict.log") &&
+    lw=$(wslpath -w "$d/sshd.log" 2>/dev/null) && lws=$(wslpath -w "$d/sshd_strict.log" 2>/dev/null); then
+    lg=$d/sshd.log
+    lgs=$d/sshd_strict.log
+    echo "log=$lw"
+    echo "strictlog=$lws"
+fi
 hm2_sanitize_env >/dev/null
 if hm2_sshd_start "$d/sshd" "$ak" "$lg" 6 "$d/registry/authorized_keys"; then
     p1=$HM2_SSHD_PID
@@ -354,6 +379,16 @@ function Test-StrictSshdAtEndOk([string]$AtEnd, [bool]$Started) {
 # 64 characters.
 function Test-PlainAccount([string]$Name) {
     return ($Name -cmatch '^(?!-)[A-Za-z0-9._-]{1,64}$')
+}
+
+# M05 W4: the sshd logs the tests read. The WSL file system's (log= and strictlog=, Windows paths
+# the start script reported) when both are there, since concurrent sshd children appending to
+# one drvfs file lose lines; otherwise the drvfs paths under the run directory.
+function Select-SshdLogs([hashtable]$Fx, [string]$Log, [string]$LogStrict) {
+    if ($Fx.ContainsKey('log') -and $Fx['log'] -and $Fx.ContainsKey('strictlog') -and $Fx['strictlog']) {
+        return @{ Log = $Fx['log']; Strict = $Fx['strictlog']; Fact = 'on the WSL file system (concurrent appends to a drvfs file lose lines)' }
+    }
+    return @{ Log = $Log; Strict = $LogStrict; Fact = 'on drvfs under the run directory (the WSL paths were not reported)' }
 }
 
 # The test environment's HM_FIXTURE_SSHD_* variables: none unless the default sshd is reachable
@@ -527,6 +562,8 @@ function Invoke-SelfTest([string]$OutDir) {
         "short host mac on macOS, mac-1, xmac`n" +
         "sid S-1-5-21-1111111111-2222222222-3333333333-1001 entra S-1-12-1-111-222-333-444 system S-1-5-18`n" +
         "addr 203.0.113.9 loop 127.0.0.1 any 0.0.0.0 version 1.2.3.4.5`n" +
+        "wsl-version=WSL version: 2.6.1.0`nwsl-kernel=6.6.87.2-microsoft-standard-WSL2`nfact kernel-release=6.6.87.2`n" +
+        "route=10.1.2.3 next 6.6.87.2 bad 999.1.1.1`nwsl-version-note=via 198.51.100.7`n" +
         "canary " + ("HEIMDALL_" + "CANARY_") + "selftest_value_1 end`n"
     $r = Invoke-Redaction $text $rules
     Check 'R01 the Windows home in its backslash, doubled, slash and /mnt forms, any case' (-not ($r -match '(?i)fixtureuser') -and ([regex]::Matches($r, '<winhome>')).Count -ge 4)
@@ -534,6 +571,9 @@ function Invoke-SelfTest([string]$OutDir) {
     Check 'R03 host names as whole words only (inside another word they stay)' ($r.Contains('host <winhost> fqdn <winhost>.example') -and $r.Contains('<wslhost> on macOS, <wslhost>-1, xmac'))
     Check 'R04 user and Entra SIDs masked, a well-known SID kept' ($r.Contains('sid S-1-<redacted>') -and $r.Contains('entra S-1-<redacted>') -and $r.Contains('S-1-5-18') -and -not $r.Contains('3333333333'))
     Check 'R05 non-loopback IPv4 masked, loopback and any kept, version numbers untouched' ($r.Contains('addr <addr>') -and $r.Contains('127.0.0.1') -and $r.Contains('0.0.0.0') -and $r.Contains('1.2.3.4.5'))
+    Check 'R05b a version fact keeps its version-shaped value (WSL version, kernel release); elsewhere a dotted quad of octets is an address, one with a part over 255 is not' (
+        $r.Contains("wsl-version=WSL version: 2.6.1.0`n") -and $r.Contains("wsl-kernel=6.6.87.2-microsoft-standard-WSL2`n") -and $r.Contains("fact kernel-release=6.6.87.2`n") -and
+        $r.Contains('route=<addr> next <addr> bad 999.1.1.1') -and $r.Contains('wsl-version-note=via <addr>'))
     $p = Protect-BundleFiles @{ 'tests.txt' = $text } $rules
     Check 'R06 a canary is counted and its value masked' ($p.Canaries -eq 1 -and $p.Files['tests.txt'].Contains('canary <canary> end') -and -not $p.Files['tests.txt'].Contains('HEIMDALL_CANARY_'))
     Check 'R07 nothing redacted is left (leak scan 0)' ($p.Leaks -eq 0)
@@ -587,6 +627,13 @@ function Invoke-SelfTest([string]$OutDir) {
         $fe['HM_FIXTURE_SSHD_STRICT_AUTHORIZED_KEYS'] -eq 'S\aks' -and $fe['HM_FIXTURE_SSHD_STRICT_LOG'] -eq 'S\logs' -and $fe.Count -eq 10)
     $noUser = @('', '-oProxyCommand=x', 'a b', "a`nHost *", 'dom\u', ('a' * 65)) | ForEach-Object { (Get-FixtureEnvironment $fxBoth $true $true 'a' 'l' 'as' 'ls' $_).ContainsKey('HM_FIXTURE_SSHD_USER') }
     $noStrict = Get-FixtureEnvironment $fxBoth $true $false 'a' 'l' 'as' 'ls' 'wslfixture'
+    # M05 W4: the sshd logs on the WSL file system when the start script reported both.
+    $onWsl = Select-SshdLogs @{ log = '\\wsl.localhost\d\s\sshd.log'; strictlog = '\\wsl.localhost\d\s\sshd_strict.log' } 'S\log' 'S\logs'
+    $oneOnly = Select-SshdLogs @{ log = '\\wsl.localhost\d\s\sshd.log' } 'S\log' 'S\logs'
+    $none = Select-SshdLogs @{} 'S\log' 'S\logs'
+    Check 'U04 the sshd logs are the WSL file system''s when both were reported, else the drvfs paths' (
+        $onWsl.Log -ceq '\\wsl.localhost\d\s\sshd.log' -and $onWsl.Strict -ceq '\\wsl.localhost\d\s\sshd_strict.log' -and
+        $oneOnly.Log -ceq 'S\log' -and $oneOnly.Strict -ceq 'S\logs' -and $none.Log -ceq 'S\log' -and $none.Strict -ceq 'S\logs')
     Check 'U02 no account unless it is a plain name; no strict variables unless the strict sshd is reachable; nothing unless the default one is' (
         -not ($noUser -contains $true) -and (Test-PlainAccount 'a.b_c-d') -and -not $noStrict.ContainsKey('HM_FIXTURE_SSHD_STRICT_PORT') -and
         $noStrict['HM_FIXTURE_SSHD_USER'] -ceq 'wslfixture' -and (Get-FixtureEnvironment $fxBoth $false $true 'a' 'l' 'as' 'ls' 'wslfixture').Count -eq 0)
@@ -1048,7 +1095,10 @@ try {
                 Add-Fact 'fixture-sshd-user' 'not exported: the WSL account is not a plain account name'
                 Add-Command 1 'HM_FIXTURE_SSHD_USER exported from the WSL account'
             }
-            $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $slog $akStrict $slogStrict $wv['wsluser']
+            # M05 W4: the logs on the WSL file system when the start script named them (log=).
+            $logs = Select-SshdLogs $fx $slog $slogStrict
+            Add-Fact 'fixture-sshd-log' $logs.Fact
+            $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $logs.Log $akStrict $logs.Strict $wv['wsluser']
             # ⟨M03 wave 4, W4-N01⟩ The enrollment registry on the WSL file system.
             if ($fixtureEnv.ContainsKey('HM_FIXTURE_SSHD_REGISTRY')) {
                 Add-Fact 'fixture-sshd-registry' 'exported as HM_FIXTURE_SSHD_REGISTRY and HM_FIXTURE_SSHD_REGISTRY_REMOTE (owner-only, WSL scratch)'
@@ -1084,7 +1134,8 @@ try {
         # ⟨M03 wave 4, W4-N01⟩ Every e2e_enroll_m03 test holds the one harness sshd (its
         # registry) for its whole run, some for over a minute; one thread keeps every wait for
         # the harness lease short of LoopbackSshd's 600 s bound.
-        if ($b.Name -eq 'e2e_enroll_m03') { $a += '--test-threads=1' }
+        # ⟨M05 W4⟩ e2e_exit_m05 the same way: its A02 week holds the lease for about 3 minutes.
+        if ($b.Name -eq 'e2e_enroll_m03' -or $b.Name -eq 'e2e_exit_m05') { $a += '--test-threads=1' }
         $a += '--show-output'
         $r = Invoke-Bounded $b.Exe $a $testEnv $b.Cwd $TimeoutSeconds -LeftoverRoot $run
         [void]$tests.Append((Format-TargetOutput $b.Name $r.Output $r.Code))

@@ -3,8 +3,8 @@
 R│Recorded 09:00:00Z (30s ago) ·      │
 S│expires 09:15:00Z (in 14m)          │
 W│Exactly what approve applies to:    │·
->│Use Development access automatically│l
- │for this project?                   │e
+>│Use dev access automatically for    │l
+ │this project?                       │e
  │Tab: deny · Esc: send nothing       │
  │Approve? Type yes to confirm [y/N]: │
  │_                                   │

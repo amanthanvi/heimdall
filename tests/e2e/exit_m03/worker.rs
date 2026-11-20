@@ -15,7 +15,20 @@
 //! * `signal {path}`: create the file (after the results so far are written);
 //! * `wait {path, timeout_s}`: wait for the file;
 //! * `dpapi {label, dir, environment, fingerprint}` (Windows): read the CA item through
-//!   the product's DPAPI store; result `{read: bool, matches: bool}`.
+//!   the product's DPAPI store; result `{read: bool, matches: bool}`;
+//! * ⟨M05 exit suite⟩ `env_names`: the names (never the values) of its environment
+//!   variables; result `{names}`;
+//! * ⟨M05⟩ `agent_frames {label, frames}`: on one connection to its own `SSH_AUTH_SOCK`,
+//!   each frame's payload sent framed and its one reply read, then an identities request;
+//!   result `{replies, listed}` (reply bytes and the identity count; `error` instead when
+//!   it has no endpoint or the connection broke);
+//! * ⟨M05⟩ `login` with `own_agent: true` (and `ssh_add`): the login through its **own**
+//!   `SSH_AUTH_SOCK` (a delegated child's endpoint): the first identity that endpoint lists
+//!   is written to a file beside the result and the client gets `-o IdentityAgent=<it>`
+//!   and `-o IdentityFile=<that file>` before the alias (with the projection's
+//!   `IdentitiesOnly`, so only that identity is offered); with `fallback`, an endpoint
+//!   that lists nothing still gets the identity the earlier login `fallback` used, so the
+//!   server decides; result as `login`.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
 use std::ffi::OsString;
@@ -57,6 +70,41 @@ pub fn agent_list(label: &str, endpoint: Option<&str>) -> Value {
         "program": crate::world::openssh("ssh-add"),
         "endpoint": endpoint,
     })
+}
+
+/// ⟨M05⟩ A `login` task through the worker's own `SSH_AUTH_SOCK` (module docs).
+pub fn own_agent_login(
+    label: &str,
+    cmd: &(PathBuf, Vec<OsString>, Vec<(OsString, OsString)>),
+    marker: &str,
+) -> Value {
+    let mut task = login(label, cmd, marker);
+    task["own_agent"] = Value::Bool(true);
+    task["ssh_add"] = json!(crate::world::openssh("ssh-add"));
+    task
+}
+
+/// ⟨M05⟩ [`own_agent_login`] that, when the endpoint lists nothing, still offers the
+/// identity the earlier login `fallback` of this worker used.
+pub fn own_agent_login_after(
+    label: &str,
+    cmd: &(PathBuf, Vec<OsString>, Vec<(OsString, OsString)>),
+    marker: &str,
+    fallback: &str,
+) -> Value {
+    let mut task = own_agent_login(label, cmd, marker);
+    task["fallback"] = json!(fallback);
+    task
+}
+
+/// ⟨M05⟩ An `env_names` task.
+pub fn env_names() -> Value {
+    json!({ "kind": "env_names" })
+}
+
+/// ⟨M05⟩ An `agent_frames` task: each of `frames` is one payload (without its length).
+pub fn agent_frames(label: &str, frames: &[Vec<u8>]) -> Value {
+    json!({ "kind": "agent_frames", "label": label, "frames": frames })
 }
 
 /// A `signal` task.
@@ -109,9 +157,31 @@ pub fn run(path: &Path) {
             "login" => {
                 let mut cmd = Command::new(task["program"].as_str().unwrap());
                 cmd.env_clear();
-                for a in task["args"].as_array().unwrap() {
-                    cmd.arg(a.as_str().unwrap());
+                let mut args: Vec<String> = task["args"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|a| a.as_str().unwrap().to_owned())
+                    .collect();
+                if task["own_agent"] == true {
+                    match own_identity(&task, &result_path) {
+                        Ok(extra) => {
+                            let at = args.len().saturating_sub(2);
+                            for (i, a) in extra.into_iter().enumerate() {
+                                args.insert(at + i, a);
+                            }
+                        }
+                        Err(why) => {
+                            let mut r = json!({ "exit": -2, "marker_seen": false, "error": why });
+                            r["kind"] = task["kind"].clone();
+                            r["label"] = label;
+                            results.push(r);
+                            write(&results);
+                            continue;
+                        }
+                    }
                 }
+                cmd.args(&args);
                 for kv in task["env"].as_array().unwrap() {
                     cmd.env(kv[0].as_str().unwrap(), kv[1].as_str().unwrap());
                 }
@@ -179,6 +249,12 @@ pub fn run(path: &Path) {
                 json!({ "seen": p.exists() })
             }
             "dpapi" => dpapi_read(&task),
+            "env_names" => json!({
+                "names": std::env::vars_os()
+                    .map(|(k, _)| k.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>(),
+            }),
+            "agent_frames" => agent_frames_run(&task),
             other => json!({ "error": format!("unknown task {other}") }),
         };
         let mut r = r;
@@ -186,6 +262,95 @@ pub fn run(path: &Path) {
         r["label"] = label;
         results.push(r);
         write(&results);
+    }
+}
+
+/// ⟨M05⟩ This process's own `SSH_AUTH_SOCK` as a testkit endpoint.
+fn own_endpoint() -> Option<heimdall_testkit::agent::Endpoint> {
+    let sock = std::env::var_os("SSH_AUTH_SOCK")?;
+    if cfg!(windows) {
+        Some(heimdall_testkit::agent::Endpoint::NamedPipe(
+            sock.to_string_lossy().into_owned(),
+        ))
+    } else {
+        Some(heimdall_testkit::agent::Endpoint::UnixSocket(
+            PathBuf::from(sock),
+        ))
+    }
+}
+
+/// ⟨M05⟩ The client options of an `own_agent` login (module docs): `-o IdentityAgent=…`
+/// (a pipe in the `//./pipe/<name>` form the in-box client keeps whole) and `-o
+/// IdentityFile=<the first listed identity, written beside the result>`.
+fn own_identity(task: &Value, result_path: &Path) -> Result<Vec<String>, String> {
+    let sock = std::env::var_os("SSH_AUTH_SOCK").ok_or("no SSH_AUTH_SOCK")?;
+    let mut cmd = Command::new(task["ssh_add"].as_str().ok_or("no ssh-add")?);
+    cmd.arg("-L").env_clear().env("SSH_AUTH_SOCK", &sock);
+    for k in ["SystemRoot", "PATH"] {
+        if let Some(v) = std::env::var_os(k) {
+            cmd.env(k, v);
+        }
+    }
+    #[cfg(windows)]
+    for (k, v) in crate::world::openssh_startup_env() {
+        cmd.env(k, v);
+    }
+    let out = run_bounded(&mut cmd, Duration::from_secs(20));
+    let label = task["label"].as_str().unwrap_or("own");
+    let file = match out.stdout.lines().find(|l| !l.trim().is_empty()) {
+        Some(first) => {
+            let file = result_path.with_file_name(format!("{label}-identity.pub"));
+            std::fs::write(&file, format!("{first}\n")).map_err(|e| e.kind().to_string())?;
+            file
+        }
+        // An endpoint that lists nothing (its key destroyed): the identity an earlier
+        // login of this worker used, so the server is still asked.
+        None => task["fallback"]
+            .as_str()
+            .map(|l| result_path.with_file_name(format!("{l}-identity.pub")))
+            .filter(|f| f.exists())
+            .ok_or("the endpoint lists no identity")?,
+    };
+    let agent = sock.to_string_lossy().replace('\\', "/");
+    Ok(vec![
+        "-o".to_owned(),
+        format!("IdentityAgent={agent}"),
+        "-o".to_owned(),
+        format!("IdentityFile={}", file.to_string_lossy().replace('\\', "/")),
+        "-o".to_owned(),
+        "IdentitiesOnly=yes".to_owned(),
+    ])
+}
+
+/// ⟨M05⟩ The `agent_frames` task (module docs).
+fn agent_frames_run(task: &Value) -> Value {
+    let Some(endpoint) = own_endpoint() else {
+        return json!({ "error": "no SSH_AUTH_SOCK" });
+    };
+    let mut conn =
+        match heimdall_testkit::agent::AgentConnection::connect(&endpoint, Duration::from_secs(10))
+        {
+            Ok(c) => c,
+            Err(e) => return json!({ "error": format!("connect: {}", e.kind()) }),
+        };
+    let mut replies = Vec::new();
+    for f in task["frames"].as_array().cloned().unwrap_or_default() {
+        let payload: Vec<u8> = f
+            .as_array()
+            .unwrap_or(&Vec::new())
+            .iter()
+            .filter_map(|b| b.as_u64().and_then(|b| u8::try_from(b).ok()))
+            .collect();
+        match conn.request(&payload) {
+            Ok(reply) => replies.push(reply),
+            Err(e) => {
+                return json!({ "replies": replies, "error": format!("request: {}", e.kind()) });
+            }
+        }
+    }
+    match conn.list() {
+        Ok(listed) => json!({ "replies": replies, "listed": listed.len() }),
+        Err(e) => json!({ "replies": replies, "error": format!("list: {}", e.kind()) }),
     }
 }
 

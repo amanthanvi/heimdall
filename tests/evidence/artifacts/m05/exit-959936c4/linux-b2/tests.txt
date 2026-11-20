@@ -1,0 +1,1333 @@
+### adversarial_agent_client_frames
+
+running 18 tests
+test a_foreign_peer_uid_is_refused ... ok
+test bounds_never_exceed_the_hard_maximums ... ok
+test an_oversized_reply_is_refused_from_its_header ... ok
+test a_well_formed_listing_round_trips_and_discards_comments ... ok
+test errors_never_carry_reply_content ... ok
+test identity_count_bound_is_1024 ... ok
+test malformed_answers_refuse_the_whole_reply ... ok
+test certificates_are_fingerprinted_by_the_certified_key ... ok
+test mutated_answers_stay_consistent ... ok
+test arbitrary_bodies_are_total ... ok
+test generated_answers_parse_exactly ... ok
+test unix_socket::absent_and_non_socket_endpoints_are_refused_without_contact ... ok
+test unix_socket::dropping_the_listing_closes_the_connection_and_spawns_nothing ... ok
+test unix_socket::one_request_over_a_real_socket_and_the_connection_closes ... ok
+test wrong_message_types_and_failures_are_distinct ... ok
+test unix_socket::a_slow_loris_reply_ends_at_the_bound ... ok
+test truncated_replies_are_refused ... ok
+test unix_socket::a_silent_agent_ends_at_the_default_bound ... ok
+
+successes:
+
+---- mutated_answers_stay_consistent stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_client_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- arbitrary_bodies_are_total stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_client_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- generated_answers_parse_exactly stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_client_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    a_foreign_peer_uid_is_refused
+    a_well_formed_listing_round_trips_and_discards_comments
+    an_oversized_reply_is_refused_from_its_header
+    arbitrary_bodies_are_total
+    bounds_never_exceed_the_hard_maximums
+    certificates_are_fingerprinted_by_the_certified_key
+    errors_never_carry_reply_content
+    generated_answers_parse_exactly
+    identity_count_bound_is_1024
+    malformed_answers_refuse_the_whole_reply
+    mutated_answers_stay_consistent
+    truncated_replies_are_refused
+    unix_socket::a_silent_agent_ends_at_the_default_bound
+    unix_socket::a_slow_loris_reply_ends_at_the_bound
+    unix_socket::absent_and_non_socket_endpoints_are_refused_without_contact
+    unix_socket::dropping_the_listing_closes_the_connection_and_spawns_nothing
+    unix_socket::one_request_over_a_real_socket_and_the_connection_closes
+    wrong_message_types_and_failures_are_distinct
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
+
+### adversarial_agent_client_frames exit=0
+### adversarial_agent_frames
+
+running 16 tests
+test a_valid_frame_after_an_oversize_header_is_never_read ... ok
+test disallowed_types_get_failure_and_the_connection_stays_usable ... ok
+test identities_answer_never_exceeds_the_frame_limit ... ok
+test control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse ... ok
+test m01_default_endpoint_lists_nothing_and_refuses_signing ... ok
+test oversize_signature_becomes_failure ... ok
+test oversize_zero_length_and_truncated_frames_close_without_reply ... ok
+test public_serve_closes_after_thirty_seconds_idle ... ok
+test report_section4_crafted_frame_corpus ... ok
+test shutdown_closes_promptly ... ok
+test classify_is_total ... ok
+test sign_request_reaches_the_signer_verbatim_and_answer_interoperates ... ok
+test sixty_fifth_identity_is_never_listed ... ok
+test sign_fields_are_exact ... ok
+test framer_survives_arbitrary_streams ... ok
+test idle_connection_closes_at_the_idle_timeout ... ok
+
+successes:
+
+---- classify_is_total stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- sign_fields_are_exact stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+---- framer_survives_arbitrary_streams stdout ----
+proptest: Failed to find absolute path of source file '"crates/ipc/../../tests/adversarial/agent_frames.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+
+
+successes:
+    a_valid_frame_after_an_oversize_header_is_never_read
+    classify_is_total
+    control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse
+    disallowed_types_get_failure_and_the_connection_stays_usable
+    framer_survives_arbitrary_streams
+    identities_answer_never_exceeds_the_frame_limit
+    idle_connection_closes_at_the_idle_timeout
+    m01_default_endpoint_lists_nothing_and_refuses_signing
+    oversize_signature_becomes_failure
+    oversize_zero_length_and_truncated_frames_close_without_reply
+    public_serve_closes_after_thirty_seconds_idle
+    report_section4_crafted_frame_corpus
+    shutdown_closes_promptly
+    sign_fields_are_exact
+    sign_request_reaches_the_signer_verbatim_and_answer_interoperates
+    sixty_fifth_identity_is_never_listed
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+### adversarial_agent_frames exit=0
+### e2e_consumer_m03
+
+running 7 tests
+test connect_uses_binding_endpoint_via_command_line ... ok
+test inherited_fork_after_authentication_yes_stays_in_foreground ... ok
+test run_ssh_conflicting_control_options_refused ... ok
+test run_ssh_with_f_refused_for_owned_connection ... ok
+test owned_launch_pins_fork_after_authentication_no ... ok
+test existing_access_ensure_bytes_match_base_goldens ... ok
+test connect_existing_access_pair_flow_unchanged_from_m02 ... ok
+
+successes:
+
+successes:
+    connect_existing_access_pair_flow_unchanged_from_m02
+    connect_uses_binding_endpoint_via_command_line
+    existing_access_ensure_bytes_match_base_goldens
+    inherited_fork_after_authentication_yes_stays_in_foreground
+    owned_launch_pins_fork_after_authentication_no
+    run_ssh_conflicting_control_options_refused
+    run_ssh_with_f_refused_for_owned_connection
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+### e2e_consumer_m03 exit=0
+### e2e_deadline_m03
+
+running 1 test
+test registration_failure_reasons_are_launch_failed_127 ... ok
+
+successes:
+
+successes:
+    registration_failure_reasons_are_launch_failed_127
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### e2e_deadline_m03 exit=0
+### e2e_delegation_m05
+
+running 4 tests
+test probe_process_entry ... ok
+test parent_binding_flags_are_validated_before_any_runtime_contact ... ok
+test wider_or_longer_request_launches_nothing ... ok
+test run_parent_binding_gives_the_worker_only_the_child_endpoint ... ok
+
+successes:
+
+successes:
+    parent_binding_flags_are_validated_before_any_runtime_contact
+    probe_process_entry
+    run_parent_binding_gives_the_worker_only_the_child_endpoint
+    wider_or_longer_request_launches_nothing
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.60s
+
+### e2e_delegation_m05 exit=0
+### e2e_setup_dispatch
+
+running 9 tests
+test e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher ... ok
+test e2e_declaration_validity_days_come_from_the_configuration ... ok
+test e2e_catalog_then_ensure_bind_carry_pairs_and_selection ... ok
+test e2e_setup_attended_apply_inspect_rollback_through_dispatcher ... ok
+test e2e_setup_without_capability_is_schema_unsupported ... ok
+test e2e_setup_preview_apply_decide_restart_through_dispatcher ... ok
+test e2e_supervisor_cleaner_deletes_after_rollback_through_the_service ... ok
+test declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher ... ok
+test simultaneous_setup_admissions_admit_exactly_one ... ok
+
+successes:
+
+successes:
+    declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher
+    e2e_catalog_then_ensure_bind_carry_pairs_and_selection
+    e2e_declaration_validity_days_come_from_the_configuration
+    e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher
+    e2e_setup_attended_apply_inspect_rollback_through_dispatcher
+    e2e_setup_preview_apply_decide_restart_through_dispatcher
+    e2e_setup_without_capability_is_schema_unsupported
+    e2e_supervisor_cleaner_deletes_after_rollback_through_the_service
+    simultaneous_setup_admissions_admit_exactly_one
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.24s
+
+### e2e_setup_dispatch exit=0
+### heimdall_adapters-unit
+
+running 19 tests
+test detect::tests::pipe_presence_retries_a_bounded_number_of_listings ... ok
+test detect::tests::passive_detection_never_claims_available_or_locked ... ok
+test detect::tests::relative_socket_paths_and_pipe_names_are_not_endpoints_on_unix ... ok
+test detect::tests::detected_endpoints_map_to_passive_statuses ... ok
+test detect::tests::ssh_auth_sock_comes_from_the_snapshot_only ... ok
+test integration::tests::auth_sock_values ... ok
+test integration::tests::adapter_errors_are_classified ... ok
+test integration::tests::descriptor_enforcement_is_never_fresh ... ok
+test managed::files::tests::slot_dir_level_is_the_projections ... ok
+test managed::report::tests::completion_bound_matches_d7_item_3 ... ok
+test managed::files::tests::content_checks ... ok
+test managed::files::tests::binding_cert_names_follow_the_slot_component ... ok
+test managed::report::tests::notes_and_multiplexing ... ok
+test state::tests::listing_states ... ok
+test tests::descriptors_state_the_existing_access_mechanisms ... ok
+test state::tests::non_exclusive_selection_without_clearance_is_a_fallback_refusal ... ok
+test state::tests::table_rows_apply_in_order ... ok
+test state::tests::unattended_is_never_met_without_verified_continuity ... ok
+test tests::without_an_endpoint_nothing_is_contacted_or_claimed ... ok
+
+successes:
+
+successes:
+    detect::tests::detected_endpoints_map_to_passive_statuses
+    detect::tests::passive_detection_never_claims_available_or_locked
+    detect::tests::pipe_presence_retries_a_bounded_number_of_listings
+    detect::tests::relative_socket_paths_and_pipe_names_are_not_endpoints_on_unix
+    detect::tests::ssh_auth_sock_comes_from_the_snapshot_only
+    integration::tests::adapter_errors_are_classified
+    integration::tests::auth_sock_values
+    integration::tests::descriptor_enforcement_is_never_fresh
+    managed::files::tests::binding_cert_names_follow_the_slot_component
+    managed::files::tests::content_checks
+    managed::files::tests::slot_dir_level_is_the_projections
+    managed::report::tests::completion_bound_matches_d7_item_3
+    managed::report::tests::notes_and_multiplexing
+    state::tests::listing_states
+    state::tests::non_exclusive_selection_without_clearance_is_a_fallback_refusal
+    state::tests::table_rows_apply_in_order
+    state::tests::unattended_is_never_met_without_verified_continuity
+    tests::descriptors_state_the_existing_access_mechanisms
+    tests::without_an_endpoint_nothing_is_contacted_or_claimed
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### heimdall_adapters-unit exit=0
+### heimdall_enroll-unit
+
+running 15 tests
+test remote::tests::argv_is_exactly_the_step_in_order ... ok
+test remote::tests::invalid_steps_are_refused_before_anything_runs ... ok
+test remote::tests::a_missing_client_is_a_spawn_error_and_abort_is_sticky ... ok
+test trace::tests::devbox_9_6p1_changed_host_key_trace_is_a_host_key_failure ... ok
+test remote::tests::excerpt_is_bounded_and_redacted ... ok
+test trace::tests::only_recorded_rows_have_patterns ... ok
+test trace::tests::versions_parse_with_their_family ... ok
+test trace::tests::windows_9_5p2_observed_attempts_parse_as_accepted_and_refused ... ok
+test trace::tests::windows_9_5p2_changed_and_unknown_host_key_traces_are_host_key_failures ... ok
+test verify::tests::classification_table_rows ... ok
+test verify::tests::measurement_bounds_the_lag ... ok
+test verify::tests::generated_config_pins_every_host_trust_option ... ok
+test verify::tests::implausible_clock_reading_is_unmeasured_never_not_behind ... ok
+test verify::tests::measure_command_tracks_the_scripts_clock_reading ... ok
+test verify::tests::verifier_without_a_client_is_unavailable ... ok
+
+successes:
+
+successes:
+    remote::tests::a_missing_client_is_a_spawn_error_and_abort_is_sticky
+    remote::tests::argv_is_exactly_the_step_in_order
+    remote::tests::excerpt_is_bounded_and_redacted
+    remote::tests::invalid_steps_are_refused_before_anything_runs
+    trace::tests::devbox_9_6p1_changed_host_key_trace_is_a_host_key_failure
+    trace::tests::only_recorded_rows_have_patterns
+    trace::tests::versions_parse_with_their_family
+    trace::tests::windows_9_5p2_changed_and_unknown_host_key_traces_are_host_key_failures
+    trace::tests::windows_9_5p2_observed_attempts_parse_as_accepted_and_refused
+    verify::tests::classification_table_rows
+    verify::tests::generated_config_pins_every_host_trust_option
+    verify::tests::implausible_clock_reading_is_unmeasured_never_not_behind
+    verify::tests::measure_command_tracks_the_scripts_clock_reading
+    verify::tests::measurement_bounds_the_lag
+    verify::tests::verifier_without_a_client_is_unavailable
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### heimdall_enroll-unit exit=0
+### heimdall_wsl-unit
+
+running 22 tests
+test channel_tests::a_host_without_wsl_answers_wsl_unavailable ... ok
+test channel_tests::helper_unavailable_when_no_linux_path_resolves ... ok
+test channel_tests::a_stopped_distribution_is_never_started_in_the_background ... ok
+wsl-helper: test channel_tests::helper_answers_mode_b_requests_and_ends_on_a_protocol_error ... ok
+the run directory's base or an ancestor can be replaced by another principal
+wsl-helper: no safe run directory for Mode B: XDG_RUNTIME_DIR can be replaced by another principal (a component writable by others and not sticky, not the account's or root's, or missing), and the home base (the account's state directory) can be replaced by another principal (a component writable by others and not sticky, not the account's or root's, or missing)
+test channel_tests::helper_hello_mismatch_ends_session ... ok
+wsl-helper: the run directory's base is reached through a symbolic link that is not root's, or whose target another principal can replace: set XDG_RUNTIME_DIR, or use a base without links
+wsl-helper: a live endpoint of live1 is not ours; left in place
+test channel_tests::mode_b_refuses_a_run_base_reached_through_a_replaceable_link ... ok
+test channel_tests::mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe ... ok
+test channel_tests::mode_b_refuses_a_run_dir_too_long_for_a_socket_path ... ok
+test discover::tests::lxss_entries_parse_to_guid_identity ... ok
+test discover::tests::wsl_running_list_utf16_parse ... ok
+test helper::identity::tests::append_windows_path_reads_the_interop_section_only ... ok
+wsl-helper: the endpoint directory's path no longer names the verified directory
+wsl-helper: could not remove b1 completely: wsl_withdraw_incomplete
+wsl-helper: an endpoint path is occupied; left in place
+test channel_tests::mode_b_answers_paths_only_through_a_verified_unreplaced_tree ... ok
+test helper::tests::heimdall_dir_is_owner_only_whatever_the_base_is ... ok
+test proto::tests::helper_sink_calls_are_validated_before_they_are_persisted ... ok
+test channel_tests::mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others ... ok
+test proto::tests::wire_mirrors_round_trip_losslessly ... ok
+test spawn::tests::child_environment_keeps_only_the_listed_variables ... ok
+test spawn::tests::commands_are_exact_and_refuse_option_like_names ... ok
+test spawn::tests::wslpath_output_must_be_one_absolute_path ... ok
+test helper::lock::tests::a_second_holder_is_busy_and_a_symlink_is_unsafe ... ok
+test channel_tests::helper_withdraw_of_old_generation_keeps_replacement ... ok
+test proto::tests::wsl_proto_bounds_and_unknown_frames_refused ... ok
+
+successes:
+
+successes:
+    channel_tests::a_host_without_wsl_answers_wsl_unavailable
+    channel_tests::a_stopped_distribution_is_never_started_in_the_background
+    channel_tests::helper_answers_mode_b_requests_and_ends_on_a_protocol_error
+    channel_tests::helper_hello_mismatch_ends_session
+    channel_tests::helper_unavailable_when_no_linux_path_resolves
+    channel_tests::helper_withdraw_of_old_generation_keeps_replacement
+    channel_tests::mode_b_answers_paths_only_through_a_verified_unreplaced_tree
+    channel_tests::mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe
+    channel_tests::mode_b_refuses_a_run_base_reached_through_a_replaceable_link
+    channel_tests::mode_b_refuses_a_run_dir_too_long_for_a_socket_path
+    channel_tests::mode_b_uses_the_home_base_when_xdg_runtime_dir_is_writable_by_others
+    discover::tests::lxss_entries_parse_to_guid_identity
+    discover::tests::wsl_running_list_utf16_parse
+    helper::identity::tests::append_windows_path_reads_the_interop_section_only
+    helper::lock::tests::a_second_holder_is_busy_and_a_symlink_is_unsafe
+    helper::tests::heimdall_dir_is_owner_only_whatever_the_base_is
+    proto::tests::helper_sink_calls_are_validated_before_they_are_persisted
+    proto::tests::wire_mirrors_round_trip_losslessly
+    proto::tests::wsl_proto_bounds_and_unknown_frames_refused
+    spawn::tests::child_environment_keeps_only_the_listed_variables
+    spawn::tests::commands_are_exact_and_refuse_option_like_names
+    spawn::tests::wslpath_output_must_be_one_absolute_path
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+### heimdall_wsl-unit exit=0
+### integration_connections
+
+running 43 tests
+test closing_matrix_is_the_d8_table ... ok
+test unix::descendant_walk_never_admits_a_child_under_a_reused_parent ... ok
+test unix::enabling_masters_needs_decision_and_setup_apply ... ok
+test unix::forward_through_master_refused_without_permit_port_forwarding ... ok
+test unix::concurrent_starts_of_one_slot_are_serialized ... ok
+test unix::foreign_master_at_stable_path_never_serves_after_revocation ... ok
+test unix::master_socket_removed_only_if_same_inode ... ok
+test unix::no_leftover_processes ... ok
+test unix::master_start_failure_retried_bounded_jittered_and_clients_connect_directly ... ok
+test unix::owned_connections_rows_cleared_on_exit ... ok
+test unix::ordinary_client_uses_owned_master_when_present_direct_otherwise ... ok
+test unix::owned_master_admits_sessions_before_deadline ... ok
+test unix::owned_master_closed_at_deadline_new_mux_session_refused ... ok
+test unix::owned_master_pins_fork_after_authentication_no ... ok
+test unix::owned_row_invariant_checked_at_insertion ... ok
+test unix::pass_discovery_failures_are_explicit ... ok
+test unix::panic_with_store_failure_leaks_no_process ... ok
+test unix::preaccepted_control_connection_closed_with_master ... ok
+test unix::process_that_execs_another_image_during_grace_is_not_killed ... ok
+test unix::remote_command_stalled_after_its_pidfile_leaves_no_process ... ok
+test unix::remote_process_survives_close_reported_not_terminated ... ok
+test unix::remote_command_stalled_before_its_pidfile_leaves_no_process ... ok
+test unix::restart_without_accepted_time_closes_masters ... ok
+test unix::revocation_closes_dedicated_under_both_policies ... ok
+test unix::run_of_non_ssh_program_reports_existing_connections_not_controlled ... ok
+test unix::runtime_restart_closes_masters_of_ended_grants_first ... ok
+test unix::slot_transfer_during_spawn_leaves_no_recorded_master ... ok
+test unix::o_stop_and_o_exit_behaviour_recorded_per_client ... ok
+test unix::start_master_refused_for_non_holder ... ok
+test unix::graceful_keeps_dedicated_connection_after_deadline_and_new_auth_refused ... ok
+test unix::strict_close_races_child_exit_cleanly ... ok
+test unix::strict_closes_dedicated_connection_at_deadline ... ok
+test unix::time_uncertain_closes_masters_keeps_graceful_dedicated ... ok
+test unix::two_successive_bindings_share_the_slot_mux_path_through_ordinary_ssh ... ok
+test unix::unix_failed_exec_is_not_an_owned_connection ... ok
+test unix::unix_connection_row_is_holder_pid_with_verified_image ... ok
+test unix::unmanaged_alias_master_reported_not_controlled ... ok
+test unix::unix_revoke_between_bind_and_exec_not_signalled_then_closed_after_exec ... ok
+test unix::unsafe_mux_directory_refuses_the_start_unrepaired ... ok
+test unix::unverifiable_holder_never_signalled ... ok
+test unix::user_controlmaster_ignored_for_managed_alias ... ok
+test unix::restart_closes_master_whose_deadline_passed_while_absent ... ok
+test unix::stale_close_never_controls_a_replacement_listener ... ok
+
+successes:
+
+---- unix::forward_through_master_refused_without_permit_port_forwarding stdout ----
+m03 observation: forward_through_master control_exit=Some(0) listener=true banner_through_forward=false
+m03 observation: forward_through_master server_lines=0
+
+---- unix::foreign_master_at_stable_path_never_serves_after_revocation stdout ----
+m03 observation: foreign_master_after_revocation ordinary_exit=Some(0) new_auth=true
+
+---- unix::panic_with_store_failure_leaks_no_process stdout ----
+
+thread '<unnamed>' (3363476) panicked at crates/runtime/../../tests/integration/connections.rs:2855:13:
+forced panic with the master up and the store failing
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- unix::remote_command_stalled_after_its_pidfile_leaves_no_process stdout ----
+m03 observation: stalled_remote_command stall=AfterPidfile pid=3363567 token=2e7a23db-b46c-4752-9061-22fcf4233b6e:292783091
+
+---- unix::remote_process_survives_close_reported_not_terminated stdout ----
+m03 observation: remote_process_after_close alive=true reported=NotTerminated
+
+---- unix::remote_command_stalled_before_its_pidfile_leaves_no_process stdout ----
+m03 observation: stalled_remote_command stall=BeforePidfile pid=3363602 token=2e7a23db-b46c-4752-9061-22fcf4233b6e:292783141
+
+---- unix::run_of_non_ssh_program_reports_existing_connections_not_controlled stdout ----
+m03 observation: run_non_ssh existing_connections=NotControlled
+
+---- unix::o_stop_and_o_exit_behaviour_recorded_per_client stdout ----
+m03 observation: o_stop client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" exit=Some(0) master_alive=true preaccepted_alive=true socket_left=false new_session_exit=Some(0) new_session_new_auth=true o_exit_after_stop_exit=Some(255)
+m03 observation: o_exit client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" exit=Some(0) master_gone=true preaccepted_ended=true socket_left=false
+
+---- unix::unmanaged_alias_master_reported_not_controlled stdout ----
+m03 observation: unmanaged_alias_master owned=false reported=NotControlled
+
+
+successes:
+    closing_matrix_is_the_d8_table
+    unix::concurrent_starts_of_one_slot_are_serialized
+    unix::descendant_walk_never_admits_a_child_under_a_reused_parent
+    unix::enabling_masters_needs_decision_and_setup_apply
+    unix::foreign_master_at_stable_path_never_serves_after_revocation
+    unix::forward_through_master_refused_without_permit_port_forwarding
+    unix::graceful_keeps_dedicated_connection_after_deadline_and_new_auth_refused
+    unix::master_socket_removed_only_if_same_inode
+    unix::master_start_failure_retried_bounded_jittered_and_clients_connect_directly
+    unix::no_leftover_processes
+    unix::o_stop_and_o_exit_behaviour_recorded_per_client
+    unix::ordinary_client_uses_owned_master_when_present_direct_otherwise
+    unix::owned_connections_rows_cleared_on_exit
+    unix::owned_master_admits_sessions_before_deadline
+    unix::owned_master_closed_at_deadline_new_mux_session_refused
+    unix::owned_master_pins_fork_after_authentication_no
+    unix::owned_row_invariant_checked_at_insertion
+    unix::panic_with_store_failure_leaks_no_process
+    unix::pass_discovery_failures_are_explicit
+    unix::preaccepted_control_connection_closed_with_master
+    unix::process_that_execs_another_image_during_grace_is_not_killed
+    unix::remote_command_stalled_after_its_pidfile_leaves_no_process
+    unix::remote_command_stalled_before_its_pidfile_leaves_no_process
+    unix::remote_process_survives_close_reported_not_terminated
+    unix::restart_closes_master_whose_deadline_passed_while_absent
+    unix::restart_without_accepted_time_closes_masters
+    unix::revocation_closes_dedicated_under_both_policies
+    unix::run_of_non_ssh_program_reports_existing_connections_not_controlled
+    unix::runtime_restart_closes_masters_of_ended_grants_first
+    unix::slot_transfer_during_spawn_leaves_no_recorded_master
+    unix::stale_close_never_controls_a_replacement_listener
+    unix::start_master_refused_for_non_holder
+    unix::strict_close_races_child_exit_cleanly
+    unix::strict_closes_dedicated_connection_at_deadline
+    unix::time_uncertain_closes_masters_keeps_graceful_dedicated
+    unix::two_successive_bindings_share_the_slot_mux_path_through_ordinary_ssh
+    unix::unix_connection_row_is_holder_pid_with_verified_image
+    unix::unix_failed_exec_is_not_an_owned_connection
+    unix::unix_revoke_between_bind_and_exec_not_signalled_then_closed_after_exec
+    unix::unmanaged_alias_master_reported_not_controlled
+    unix::unsafe_mux_directory_refuses_the_start_unrepaired
+    unix::unverifiable_holder_never_signalled
+    unix::user_controlmaster_ignored_for_managed_alias
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.65s
+
+### integration_connections exit=0
+### integration_enroll_verify
+
+running 52 tests
+test cli_child_entry ... ok
+test cli_killed_before_ready_never_sends_script ... ok
+test certificate_file_none_behaviour_recorded_per_client ... ok
+test effective_config_has_every_trust_pin ... ok
+test cli_death_ends_ssh_step_process ... ok
+test bare_cert_authority_line_is_verification_failed ... ok
+test existing_access_endpoint_change_refuses_step ... ok
+test gssapi_key_exchange_pinned_off_where_client_knows_it ... ok
+test destination_clock_skew_beyond_allowance_inconclusive_no_rollback ... ok
+test heimdall_endpoint_refused_as_existing_access ... ok
+test existing_access_endpoint_from_catalog_never_ssh_auth_sock ... ok
+test existing_identity_pin_used_after_projection_switch ... ok
+test host_key_mismatch_is_host_trust_changed_nothing_written ... ok
+test known_host_key_changed_after_approval_refused ... ok
+test known_hosts_command_none_is_a_keyword_per_client ... ok
+test log_attestation_reported_unavailable ... ok
+test maintenance_inside_managed_run_context_zero_managed_signatures ... ok
+test registry_guard_refuses_non_scratch_target ... ok
+test principals_not_enforced_detected_and_rolled_back ... ok
+test maintenance_invocation_never_contacts_heimdall_signer ... ok
+test principals_not_enforced_system_form_via_echoing_principals_command ... ok
+test retry_after_lost_reply_never_appends_twice ... ok
+test runner_refuses_without_spawning ... ok
+test reverification_failure_holds_never_removes ... ok
+test reverification_inconclusive_keeps_verified_with_finding ... ok
+test ssh_killed_before_append_reconciled_not_applied ... ok
+test remote_clock_measurement_bounds_lag ... ok
+test trace_patterns_keyed_by_release_family ... ok
+test step_pins_hostname_port_user_and_host_key ... ok
+test unrecorded_client_family_doctor_finding_names_version ... ok
+test unreachable_after_append_stays_unknown ... ok
+test ssh_killed_after_append_is_uncertain_then_reconciled_applied ... ok
+test user_config_hostname_change_cannot_redirect_append ... ok
+test strict_host_key_checking_overrides_user_accept_new ... ok
+test user_config_proxycommand_added_after_approval_refused ... ok
+test verification_inconclusive_leaves_applied_unverified ... ok
+test verification_known_host_ambiguous_refused ... ok
+test verification_host_key_mismatch_holds_no_rollback ... ok
+test verification_failed_when_server_reads_another_registry ... ok
+test verify_negative_inconclusive_when_port_closed_between_attempts ... ok
+test verify_negative_inconclusive_on_maxstartups_between_attempts ... ok
+test verify_negative_inconclusive_on_reset ... ok
+test verify_negative_inconclusive_on_maxstartups_during_negative ... ok
+test verify_on_account_without_log_access ... ignored, docker: the M00-T03 fixtures (tests/fixtures/ssh/up.sh); run with HM_DOCKER_TESTS=1 cargo test -p heimdall-enroll --test integration_enroll_verify -- --ignored verify_on_account_without_log_access
+test verify_negative_inconclusive_when_sshd_stopped_between_attempts ... ok
+test verify_unrecorded_client_trace_is_inconclusive ... ok
+test verify_negative_records_zero_signatures ... ok
+test verify_positive_one_signature_negative_zero ... ok
+test verify_never_reads_user_config ... ok
+test wrong_key_with_inherited_known_hosts_command_refused_before_mutation ... ok
+test wrong_key_with_inherited_no_host_authentication_for_localhost_refused ... ok
+test wrong_key_with_inherited_known_hosts_file_refused_before_mutation ... ok
+
+successes:
+
+---- certificate_file_none_behaviour_recorded_per_client stdout ----
+§17.3 item 2 row: client 9.6p1 — ssh -G certificatefile entries with the pin and an inherited managed file: ["none", "<managed>"]
+
+---- gssapi_key_exchange_pinned_off_where_client_knows_it stdout ----
+Q23 row: client 9.6p1 lists gssapikeyexchange: true
+
+---- known_hosts_command_none_is_a_keyword_per_client stdout ----
+Q22 row: client 9.6p1 — KnownHostsCommand=none is a keyword (PATH program never ran)
+
+---- remote_clock_measurement_bounds_lag stdout ----
+clock row: lag 90 s measured behind_upper_ms 91708 rtt_ms 208
+
+---- verify_positive_one_signature_negative_zero stdout ----
+M-F1 row: client 9.6p1 — positive 1 signature, negative 0, session-binds 2
+
+
+successes:
+    bare_cert_authority_line_is_verification_failed
+    certificate_file_none_behaviour_recorded_per_client
+    cli_child_entry
+    cli_death_ends_ssh_step_process
+    cli_killed_before_ready_never_sends_script
+    destination_clock_skew_beyond_allowance_inconclusive_no_rollback
+    effective_config_has_every_trust_pin
+    existing_access_endpoint_change_refuses_step
+    existing_access_endpoint_from_catalog_never_ssh_auth_sock
+    existing_identity_pin_used_after_projection_switch
+    gssapi_key_exchange_pinned_off_where_client_knows_it
+    heimdall_endpoint_refused_as_existing_access
+    host_key_mismatch_is_host_trust_changed_nothing_written
+    known_host_key_changed_after_approval_refused
+    known_hosts_command_none_is_a_keyword_per_client
+    log_attestation_reported_unavailable
+    maintenance_inside_managed_run_context_zero_managed_signatures
+    maintenance_invocation_never_contacts_heimdall_signer
+    principals_not_enforced_detected_and_rolled_back
+    principals_not_enforced_system_form_via_echoing_principals_command
+    registry_guard_refuses_non_scratch_target
+    remote_clock_measurement_bounds_lag
+    retry_after_lost_reply_never_appends_twice
+    reverification_failure_holds_never_removes
+    reverification_inconclusive_keeps_verified_with_finding
+    runner_refuses_without_spawning
+    ssh_killed_after_append_is_uncertain_then_reconciled_applied
+    ssh_killed_before_append_reconciled_not_applied
+    step_pins_hostname_port_user_and_host_key
+    strict_host_key_checking_overrides_user_accept_new
+    trace_patterns_keyed_by_release_family
+    unreachable_after_append_stays_unknown
+    unrecorded_client_family_doctor_finding_names_version
+    user_config_hostname_change_cannot_redirect_append
+    user_config_proxycommand_added_after_approval_refused
+    verification_failed_when_server_reads_another_registry
+    verification_host_key_mismatch_holds_no_rollback
+    verification_inconclusive_leaves_applied_unverified
+    verification_known_host_ambiguous_refused
+    verify_negative_inconclusive_on_maxstartups_between_attempts
+    verify_negative_inconclusive_on_maxstartups_during_negative
+    verify_negative_inconclusive_on_reset
+    verify_negative_inconclusive_when_port_closed_between_attempts
+    verify_negative_inconclusive_when_sshd_stopped_between_attempts
+    verify_negative_records_zero_signatures
+    verify_never_reads_user_config
+    verify_positive_one_signature_negative_zero
+    verify_unrecorded_client_trace_is_inconclusive
+    wrong_key_with_inherited_known_hosts_command_refused_before_mutation
+    wrong_key_with_inherited_known_hosts_file_refused_before_mutation
+    wrong_key_with_inherited_no_host_authentication_for_localhost_refused
+
+test result: ok. 51 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.88s
+
+### integration_enroll_verify exit=0
+### integration_ipc_signing_m03
+
+running 12 tests
+test capacity_reserved_before_release_check ... ok
+test enqueue_signed_reports_a_closed_queue ... ok
+test enqueue_after_release_check_never_waits ... ok
+test enqueue_timeout_closes_without_frame ... ok
+test may_release_refuses_while_pending ... ok
+test permit_dropped_only_after_enqueue ... ok
+test expiry_cancels_capacity_wait_and_replies_failure ... ok
+test permitless_signature_for_gated_grant_refused_and_recorded ... ok
+test release_check_false_sends_failure_not_signature ... ok
+test permitless_signature_for_ungated_m01_fixture_sent ... ok
+test session_bind_reaches_signer_and_answers_success_or_failure ... ok
+test signing_session_carries_peer_and_endpoint ... ok
+
+successes:
+
+successes:
+    capacity_reserved_before_release_check
+    enqueue_after_release_check_never_waits
+    enqueue_signed_reports_a_closed_queue
+    enqueue_timeout_closes_without_frame
+    expiry_cancels_capacity_wait_and_replies_failure
+    may_release_refuses_while_pending
+    permit_dropped_only_after_enqueue
+    permitless_signature_for_gated_grant_refused_and_recorded
+    permitless_signature_for_ungated_m01_fixture_sent
+    release_check_false_sends_failure_not_signature
+    session_bind_reaches_signer_and_answers_success_or_failure
+    signing_session_carries_peer_and_endpoint
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### integration_ipc_signing_m03 exit=0
+### integration_managed_identity_forms
+
+running 1 test
+test managed_identity_forms_observed_per_client ... ok
+
+successes:
+
+---- managed_identity_forms_observed_per_client stdout ----
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=control exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=d10_as_written exit=Some(255) signed=none sign_requests=0 accepted_cert_logins=0
+m03 observation: managed_identity_form_detail form=d10_as_written stderr_tail="@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | @         WARNING: UNPROTECTED PRIVATE KEY FILE!          @ | @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | Permissions 0664 for '<scratch>/managed/hm-intq10-dest/key.pub' are too open. | It is required that your private key files are NOT accessible by others. | This private key will be ignored. | Load key \"<scratch>/managed/hm-intq10-dest/key.pub\": bad permissions | <user>@127.0.0.1: Permission denied (publickey)."
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=certificate_as_identity_file exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=certificate_as_identity_file_and_certificate_file exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=key_stem_with_certificate_only exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=decoy_identity_file_and_certificate_file exit=Some(255) signed=none sign_requests=0 accepted_cert_logins=0
+m03 observation: managed_identity_form_detail form=decoy_identity_file_and_certificate_file stderr_tail="@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | @         WARNING: UNPROTECTED PRIVATE KEY FILE!          @ | @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ | Permissions 0664 for '<scratch>/managed/hm-intq10-dest/cert.pub' are too open. | It is required that your private key files are NOT accessible by others. | This private key will be ignored. | Load key \"<scratch>/managed/hm-intq10-dest/cert.pub\": bad permissions | <user>@127.0.0.1: Permission denied (publickey)."
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=context_d10_as_written_owner_only_files exit=Some(255) signed=none sign_requests=0 accepted_cert_logins=0
+m03 observation: managed_identity_form_detail form=context_d10_as_written_owner_only_files stderr_tail="Load key \"<scratch>/managed-private/hm-intq10-dest/key.pub\": error in libcrypto | <user>@127.0.0.1: Permission denied (publickey)."
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=context_verification_shape_key_and_certificate_listed exit=Some(0) signed=plain sign_requests=1 accepted_cert_logins=1
+m03 observation: managed_identity_form client="OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024" form=rendered_p_certificate_as_identity_file exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1
+
+
+successes:
+    managed_identity_forms_observed_per_client
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+### integration_managed_identity_forms exit=0
+### integration_portable
+
+running 13 tests
+test a_bundle_with_an_authority_section_is_refused_on_the_request_path ... ok
+test a18_export_has_no_authority_or_secrets ... ok
+test an_unresolved_jump_refuses_its_destination_on_import ... ok
+test a_bastion_destination_round_trips_with_its_jump ... ok
+test a18_import_on_second_installation_creates_intent_only ... ok
+test dry_run_writes_nothing_and_shows_the_plan ... ok
+test import_is_one_transaction_a_crash_before_commit_writes_nothing ... ok
+test import_never_widens_a_policy_of_the_same_profile ... ok
+test import_rejects_authority_sections ... ok
+test import_shows_host_key_fingerprints_and_trusts_nothing ... ok
+test import_reimport_is_a_noop_and_conflicts_are_reported_not_applied ... ok
+test set_default_profile_set_read_clear_and_never_moves_a_binding ... ok
+test p_import_never_changes_authority_never_overwrites_and_is_idempotent ... ok
+
+successes:
+
+successes:
+    a18_export_has_no_authority_or_secrets
+    a18_import_on_second_installation_creates_intent_only
+    a_bastion_destination_round_trips_with_its_jump
+    a_bundle_with_an_authority_section_is_refused_on_the_request_path
+    an_unresolved_jump_refuses_its_destination_on_import
+    dry_run_writes_nothing_and_shows_the_plan
+    import_is_one_transaction_a_crash_before_commit_writes_nothing
+    import_never_widens_a_policy_of_the_same_profile
+    import_reimport_is_a_noop_and_conflicts_are_reported_not_applied
+    import_rejects_authority_sections
+    import_shows_host_key_fingerprints_and_trusts_nothing
+    p_import_never_changes_authority_never_overwrites_and_is_idempotent
+    set_default_profile_set_read_clear_and_never_moves_a_binding
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.50s
+
+### integration_portable exit=0
+### integration_runtime_m03
+
+running 56 tests
+test bounded_obligation_completes_after_measured_bound_on_safe_time ... ok
+test bounded_obligation_never_moves_on_uncertain_time ... ok
+test config_refuses_lock_behavior_and_registry_path ... ok
+test bounded_complete_only_record_removed ... ok
+test bounded_obligation_consumes_no_attempt ... ok
+test inspect_destinations_carries_pair_preference ... ok
+test capabilities_offered_after_activation ... ok
+test installed_instances_become_lost_at_restart ... ok
+test issuer_crash::bind_endpoint_r3::existing_access_bind_result_unchanged_by_endpoint_wiring ... ok
+test issuer_endpoint_kind_reserved_never_bound ... ok
+test kept_cleanup_intents_retried_with_bounded_jittered_backoff ... ok
+test lost_instance_grant_degraded_credential_reissue_pending ... ok
+test issuer_crash::bind_endpoint_r3::managed_bind_result_names_live_binding_endpoint ... ok
+test issuer_crash::refused_activation_carries_issuer_store_reason ... ok
+test mixed_obligations_revoke_with_the_last_confirmation ... ok
+test platform_start_time_uses_shared_parser_semantics_unchanged ... ok
+test procstat_comm_with_spaces_parentheses_and_newline ... ok
+test nominally_expired_obligation_keeps_record_grant_still_revoked ... ok
+test round2::managed_report_selection_follows_alias_classification ... ok
+test pending_instances_destroyed_at_restart_entries_still_counted ... ok
+test issuer_crash::issuer_crash_blocks_reissue_not_signing ... ok
+test retirement_resumes_at_start_from_each_state ... ok
+test round2::windows_pipe_token_stable_across_runtime_restart ... ok
+test setup_switch::r2f_r3::manual_mode_apply_counts_as_applied_with_diagnostic ... ok
+test setup_switch::r2f_r3::removed_destination_preference_returns_to_pending ... ok
+test setup_switch::r2f_r3::existing_preference_recorded_applied_when_its_rendering_commits ... ok
+test setup_switch::setup_apply_managed_rendering_marks_only_that_pair_applied ... ok
+test setup_switch::r2f_r3::unchanged_apply_still_commits_generation_and_preference ... ok
+test setup_switch::stale_preview_cannot_mark_pair_applied ... ok
+test umask_anchors::production_anchors_are_owner_only_under_umask_002 ... ok
+test umask_anchors::umask_child_entry ... ok
+test step_and_reconcile_refused_for_non_owner_role ... ok
+test setup_switch::setup_rollback_or_existing_rendering_never_marks_managed_applied ... ok
+test w0_m03_requests_fail_closed_before_any_record ... ok
+test timed_out_remote_effect_intent_retried_after_backoff ... ok
+test unmeasured_obligation_becomes_nominally_expired_never_cleared ... ok
+test w0_new_decision_kinds_refused_not_consumed ... ok
+test w0_revision_5_requests_fail_closed_before_any_record ... ok
+test w0_open_enrollment_operations_stay_unresolved_at_restart ... ok
+test wave4::a_policy_cutoff_ends_its_grant_and_closes_its_connection_at_the_cutoff ... ok
+test wave4::connections_close_routed_for_owner_only_with_event ... ok
+test wave4::inspect_connections_lists_owned_rows_owner_only ... ok
+test w0_no_reachable_todo ... ok
+test wave4::ended_grant_held_slot_cleared_by_its_generation ... ok
+test wave4::released_binding_held_slot_cleared_after_grant_ends ... ok
+test wave4::runtime_start_without_ca_starts_no_issuer ... ok
+test wave4::sweep_closes_ended_grants_connections_with_reason_once ... ok
+test wave4::runtime_start_order_issuer_before_listen ... ok
+test wave4::service_stop_via_signal_fallback_still_zeroizes ... ok
+test wave4::shutdown_zeroizes_vault_and_stops_issuer ... ok
+test wave4::w4_issuer_child_entry ... ok
+test wave4::teardown_r3::dropped_started_service_stops_issuer_and_releases_vault ... ok
+test wave5_r2::inspect_capabilities_reports_lock_behavior_disclosure_and_acknowledgement ... ok
+test wave5_r2::inspect_destinations_preference_connection_policy_uses_runtime_wording ... ok
+test wave4::teardown_r3::failed_start_after_issuer_unwinds_and_stops_it ... ok
+test wave4::teardown_r3::failed_start_after_managed_start_unwinds_and_stops_issuer ... ok
+
+successes:
+
+successes:
+    bounded_complete_only_record_removed
+    bounded_obligation_completes_after_measured_bound_on_safe_time
+    bounded_obligation_consumes_no_attempt
+    bounded_obligation_never_moves_on_uncertain_time
+    capabilities_offered_after_activation
+    config_refuses_lock_behavior_and_registry_path
+    inspect_destinations_carries_pair_preference
+    installed_instances_become_lost_at_restart
+    issuer_crash::bind_endpoint_r3::existing_access_bind_result_unchanged_by_endpoint_wiring
+    issuer_crash::bind_endpoint_r3::managed_bind_result_names_live_binding_endpoint
+    issuer_crash::issuer_crash_blocks_reissue_not_signing
+    issuer_crash::refused_activation_carries_issuer_store_reason
+    issuer_endpoint_kind_reserved_never_bound
+    kept_cleanup_intents_retried_with_bounded_jittered_backoff
+    lost_instance_grant_degraded_credential_reissue_pending
+    mixed_obligations_revoke_with_the_last_confirmation
+    nominally_expired_obligation_keeps_record_grant_still_revoked
+    pending_instances_destroyed_at_restart_entries_still_counted
+    platform_start_time_uses_shared_parser_semantics_unchanged
+    procstat_comm_with_spaces_parentheses_and_newline
+    retirement_resumes_at_start_from_each_state
+    round2::managed_report_selection_follows_alias_classification
+    round2::windows_pipe_token_stable_across_runtime_restart
+    setup_switch::r2f_r3::existing_preference_recorded_applied_when_its_rendering_commits
+    setup_switch::r2f_r3::manual_mode_apply_counts_as_applied_with_diagnostic
+    setup_switch::r2f_r3::removed_destination_preference_returns_to_pending
+    setup_switch::r2f_r3::unchanged_apply_still_commits_generation_and_preference
+    setup_switch::setup_apply_managed_rendering_marks_only_that_pair_applied
+    setup_switch::setup_rollback_or_existing_rendering_never_marks_managed_applied
+    setup_switch::stale_preview_cannot_mark_pair_applied
+    step_and_reconcile_refused_for_non_owner_role
+    timed_out_remote_effect_intent_retried_after_backoff
+    umask_anchors::production_anchors_are_owner_only_under_umask_002
+    umask_anchors::umask_child_entry
+    unmeasured_obligation_becomes_nominally_expired_never_cleared
+    w0_m03_requests_fail_closed_before_any_record
+    w0_new_decision_kinds_refused_not_consumed
+    w0_no_reachable_todo
+    w0_open_enrollment_operations_stay_unresolved_at_restart
+    w0_revision_5_requests_fail_closed_before_any_record
+    wave4::a_policy_cutoff_ends_its_grant_and_closes_its_connection_at_the_cutoff
+    wave4::connections_close_routed_for_owner_only_with_event
+    wave4::ended_grant_held_slot_cleared_by_its_generation
+    wave4::inspect_connections_lists_owned_rows_owner_only
+    wave4::released_binding_held_slot_cleared_after_grant_ends
+    wave4::runtime_start_order_issuer_before_listen
+    wave4::runtime_start_without_ca_starts_no_issuer
+    wave4::service_stop_via_signal_fallback_still_zeroizes
+    wave4::shutdown_zeroizes_vault_and_stops_issuer
+    wave4::sweep_closes_ended_grants_connections_with_reason_once
+    wave4::teardown_r3::dropped_started_service_stops_issuer_and_releases_vault
+    wave4::teardown_r3::failed_start_after_issuer_unwinds_and_stops_it
+    wave4::teardown_r3::failed_start_after_managed_start_unwinds_and_stops_issuer
+    wave4::w4_issuer_child_entry
+    wave5_r2::inspect_capabilities_reports_lock_behavior_disclosure_and_acknowledgement
+    wave5_r2::inspect_destinations_preference_connection_policy_uses_runtime_wording
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+
+### integration_runtime_m03 exit=0
+### model_decision_budget
+
+running 2 tests
+test p10_trust_cooldown_no_record_until_owner_asks ... ok
+test p10_one_record_per_delta_none_during_a_cooldown ... ok
+
+successes:
+
+---- p10_trust_cooldown_no_record_until_owner_asks stdout ----
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- p10_one_record_per_delta_none_during_a_cooldown stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/decision_budget.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    p10_one_record_per_delta_none_during_a_cooldown
+    p10_trust_cooldown_no_record_until_owner_asks
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.68s
+
+### model_decision_budget exit=0
+### model_lifecycle
+
+running 12 tests
+test only_active_and_degraded_permit_use ... ok
+test outcome_unknown_is_quiescent_not_settled_until_reconciled ... ok
+test grant_table_matches_adr_0006_exactly ... ok
+test operation_table_matches_adr_0006_exactly ... ok
+test props::expired_and_revoked_are_absorbing ... ok
+test props::grant_traces_never_reactivate ... ok
+test props::stale_generations_fail_closed ... ok
+test rejected_transition_names_state_and_event ... ok
+test revoking_stays_pending_at_deadline_until_complete ... ok
+test props::delegation_is_narrower ... ok
+test props::operation_traces_are_absorbing ... ok
+test props::delegation_chains_stay_within_the_root ... ok
+
+successes:
+
+---- props::expired_and_revoked_are_absorbing stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::grant_traces_never_reactivate stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::stale_generations_fail_closed stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::delegation_is_narrower stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::operation_traces_are_absorbing stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props::delegation_chains_stay_within_the_root stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/lifecycle.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    grant_table_matches_adr_0006_exactly
+    only_active_and_degraded_permit_use
+    operation_table_matches_adr_0006_exactly
+    outcome_unknown_is_quiescent_not_settled_until_reconciled
+    props::delegation_chains_stay_within_the_root
+    props::delegation_is_narrower
+    props::expired_and_revoked_are_absorbing
+    props::grant_traces_never_reactivate
+    props::operation_traces_are_absorbing
+    props::stale_generations_fail_closed
+    rejected_transition_names_state_and_event
+    revoking_stays_pending_at_deadline_until_complete
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+### model_lifecycle exit=0
+### model_operations_m03
+
+running 44 tests
+test connection_policy_widening_classification ... ok
+test connection_absent_hash_unchanged_from_m02 ... ok
+test cancelled_verification_reservation_keeps_admission_until_store_write_finishes ... ok
+test enrollment_cancel_before_attempt_cancels ... ok
+test existing_access_prepare_contract_unchanged ... ok
+test enrollment_cancel_refused_writes_nothing ... ok
+test extension_profile_matches_adr_0005_3_4_table ... ok
+test degraded_reason_sign_rule_table ... ok
+test fence_acquisition_waits_for_verification_reservation_past_its_check ... ok
+test fence_acquisition_waits_for_grant_reservation_past_its_check ... ok
+test holder_registers_dedicated_only_for_verified_ssh ... ok
+test issuance_refuses_ca_not_verified_for_pair ... ok
+test issuance_refuses_ca_retiring ... ok
+test issuance_refuses_unknown_ca ... ok
+test issuing_ca_set_updated_by_e5_and_removal ... ok
+test lock_behavior_narrowing_immediate_widening_needs_decision ... ok
+test merged_policy_fail_closed_for_lock_and_connection ... ok
+test pending_projection_ensure_resolves_existing_with_warning ... ok
+test origin_lock_and_connection_add_only ... ok
+test mechanism_per_pair_resolution_table ... ok
+test pending_projection_refused_only_for_managed_only_minimums ... ok
+test publish_voids_when_ca_retired_between ... ok
+test publish_voids_when_enrollment_removed_between_reserve_and_publish ... ok
+test recheck2_cancelled_reservation_keeps_admission_until_store_write_finishes ... ok
+test recheck2_publication_must_not_rereserve_under_held_fence ... ok
+test reserve_selects_newest_verified_ca_for_pair ... ok
+test reserved_verification_never_published_after_restart ... ok
+test reservation_joined_during_acquisition_cannot_publish_after ... ok
+test reva_probe_pre_fence_reservation_publishes_under_held_fence ... ok
+test set_preference_refused_without_verified_enrollment ... ok
+test strict_request_hash_differs ... ok
+test unattended_requires_claim_and_continue ... ok
+test verification_reserve_refuses_ca_mismatch ... ok
+test unix_connection_row_written_at_bind_with_expected_image ... ok
+test verification_reserve_refuses_extensions_present ... ok
+test verification_entries_counted_in_pair_residual ... ok
+test verification_reserve_refuses_time_uncertain ... ok
+test verification_reserve_refuses_pair_mismatch ... ok
+test verification_reserve_refuses_operation_not_verifying ... ok
+test verification_reserve_refuses_too_many_entries ... ok
+test windows_holder_never_registers_connection_itself ... ok
+test verification_reserve_refuses_unknown_subject_key ... ok
+test verification_reserve_refuses_validity_too_long ... ok
+test verification_reserve_refuses_wrong_principal ... ok
+
+successes:
+
+successes:
+    cancelled_verification_reservation_keeps_admission_until_store_write_finishes
+    connection_absent_hash_unchanged_from_m02
+    connection_policy_widening_classification
+    degraded_reason_sign_rule_table
+    enrollment_cancel_before_attempt_cancels
+    enrollment_cancel_refused_writes_nothing
+    existing_access_prepare_contract_unchanged
+    extension_profile_matches_adr_0005_3_4_table
+    fence_acquisition_waits_for_grant_reservation_past_its_check
+    fence_acquisition_waits_for_verification_reservation_past_its_check
+    holder_registers_dedicated_only_for_verified_ssh
+    issuance_refuses_ca_not_verified_for_pair
+    issuance_refuses_ca_retiring
+    issuance_refuses_unknown_ca
+    issuing_ca_set_updated_by_e5_and_removal
+    lock_behavior_narrowing_immediate_widening_needs_decision
+    mechanism_per_pair_resolution_table
+    merged_policy_fail_closed_for_lock_and_connection
+    origin_lock_and_connection_add_only
+    pending_projection_ensure_resolves_existing_with_warning
+    pending_projection_refused_only_for_managed_only_minimums
+    publish_voids_when_ca_retired_between
+    publish_voids_when_enrollment_removed_between_reserve_and_publish
+    recheck2_cancelled_reservation_keeps_admission_until_store_write_finishes
+    recheck2_publication_must_not_rereserve_under_held_fence
+    reservation_joined_during_acquisition_cannot_publish_after
+    reserve_selects_newest_verified_ca_for_pair
+    reserved_verification_never_published_after_restart
+    reva_probe_pre_fence_reservation_publishes_under_held_fence
+    set_preference_refused_without_verified_enrollment
+    strict_request_hash_differs
+    unattended_requires_claim_and_continue
+    unix_connection_row_written_at_bind_with_expected_image
+    verification_entries_counted_in_pair_residual
+    verification_reserve_refuses_ca_mismatch
+    verification_reserve_refuses_extensions_present
+    verification_reserve_refuses_operation_not_verifying
+    verification_reserve_refuses_pair_mismatch
+    verification_reserve_refuses_time_uncertain
+    verification_reserve_refuses_too_many_entries
+    verification_reserve_refuses_unknown_subject_key
+    verification_reserve_refuses_validity_too_long
+    verification_reserve_refuses_wrong_principal
+    windows_holder_never_registers_connection_itself
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+### model_operations_m03 exit=0
+### model_setup
+
+running 51 tests
+test a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled ... ok
+test apply_after_base_change_is_config_conflict_and_nothing_written ... ok
+test a_rollback_is_refused_for_its_owner_file_change_alone ... ok
+test apply_executes_exactly_the_decided_plan_digest ... ok
+test apply_requires_decision_attended_and_unattended ... ok
+test catalog_alias_rename_keeps_destination_id ... ok
+test a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_driver ... ok
+test apply_through_operations_snapshots_the_original_user_file ... ok
+test changed_plan_same_request_is_request_conflict ... ok
+test crash_during_setup_admission_leaves_no_blocker ... ok
+test declaration_validity_follows_the_configured_days ... ok
+test declaration_written_from_decision_fields_only_and_stale_on_endpoint_change ... ok
+test declare_interaction_needs_attended_decision_and_lapses_on_endpoint_change_and_expiry ... ok
+test expired_projection_decision_expires_the_operation ... ok
+test expired_declaration_decision_expires_the_catalog_operation ... ok
+test git_item_reasons_are_contract_reasons ... ok
+test expired_projection_decision_expires_at_decide_tick_and_restart ... ok
+test held_first_adoption_reports_restored_files ... ok
+test held_item_is_outcome_unknown_with_the_held_repair_options ... ok
+test held_operation_blocks_setup_except_its_repair ... ok
+test held_repair_paused_before_the_writer_refuses_cancel_and_a_second_repair ... ok
+test include_target_glob_is_its_own_manual_reason ... ok
+test inspect_destinations_lists_the_catalog_with_alias_and_definition ... ok
+test inspect_profiles_lists_the_catalog_definitions ... ok
+test item_record_aliases_merged_when_p_unchanged ... ok
+test limited_consumer_refused ... ok
+test held_repair_preview_binds_content_fingerprints ... ok
+test held_repair_retry_continues_and_keep_closes_without_moving ... ok
+test profile_upsert_bumps_revision_and_does_not_widen_existing_grant ... ok
+test managed_file_edited_is_resolved_by_rollback_and_never_by_rerender ... ok
+test multi_operation_repair_is_offered_again_until_none_left ... ok
+test projection_events_carry_generation_and_change ... ok
+test remove_profile_refuses_new_work_and_keeps_pinned_snapshots ... ok
+test restart_child_aborts_inside_apply ... ok
+test remove_destination_marks_projection_stale_and_changes_no_file ... ok
+test rerender_repair_to_consented_state_needs_no_decision ... ok
+test rollback_after_match_exec_command_edit_needs_decision ... ok
+test restart_reconciles_attempted_apply_never_reapplies ... ok
+test rollback_exposing_inherited_hostname_and_agent_added_after_apply_needs_decision ... ok
+test rollback_to_consented_restore_needs_no_decision ... ok
+test same_request_id_replays_apply ... ok
+test second_setup_while_one_is_open_is_setup_in_progress ... ok
+test setup_in_progress_persists_across_restart ... ok
+test stale_declaration_decision_is_reissued_bound_to_the_current_identity ... ok
+test sink_refuses_consent_under_another_decision ... ok
+test supervisor_wakes_at_the_earliest_pending_decision_deadline ... ok
+test unreadable_receipt_leaves_setup_unresolved_and_reported ... ok
+test withdraw_declaration_needs_no_decision ... ok
+test verified_client_unavailable_at_apply_is_capability_unavailable ... ok
+test restart_reconciles_attempted_apply_never_reapplies_after_a_process_abort ... ok
+test a_rollback_of_a_p_well_over_the_bound_is_previewed_and_applied ... ok
+
+successes:
+
+successes:
+    a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_driver
+    a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled
+    a_rollback_is_refused_for_its_owner_file_change_alone
+    a_rollback_of_a_p_well_over_the_bound_is_previewed_and_applied
+    apply_after_base_change_is_config_conflict_and_nothing_written
+    apply_executes_exactly_the_decided_plan_digest
+    apply_requires_decision_attended_and_unattended
+    apply_through_operations_snapshots_the_original_user_file
+    catalog_alias_rename_keeps_destination_id
+    changed_plan_same_request_is_request_conflict
+    crash_during_setup_admission_leaves_no_blocker
+    declaration_validity_follows_the_configured_days
+    declaration_written_from_decision_fields_only_and_stale_on_endpoint_change
+    declare_interaction_needs_attended_decision_and_lapses_on_endpoint_change_and_expiry
+    expired_declaration_decision_expires_the_catalog_operation
+    expired_projection_decision_expires_at_decide_tick_and_restart
+    expired_projection_decision_expires_the_operation
+    git_item_reasons_are_contract_reasons
+    held_first_adoption_reports_restored_files
+    held_item_is_outcome_unknown_with_the_held_repair_options
+    held_operation_blocks_setup_except_its_repair
+    held_repair_paused_before_the_writer_refuses_cancel_and_a_second_repair
+    held_repair_preview_binds_content_fingerprints
+    held_repair_retry_continues_and_keep_closes_without_moving
+    include_target_glob_is_its_own_manual_reason
+    inspect_destinations_lists_the_catalog_with_alias_and_definition
+    inspect_profiles_lists_the_catalog_definitions
+    item_record_aliases_merged_when_p_unchanged
+    limited_consumer_refused
+    managed_file_edited_is_resolved_by_rollback_and_never_by_rerender
+    multi_operation_repair_is_offered_again_until_none_left
+    profile_upsert_bumps_revision_and_does_not_widen_existing_grant
+    projection_events_carry_generation_and_change
+    remove_destination_marks_projection_stale_and_changes_no_file
+    remove_profile_refuses_new_work_and_keeps_pinned_snapshots
+    rerender_repair_to_consented_state_needs_no_decision
+    restart_child_aborts_inside_apply
+    restart_reconciles_attempted_apply_never_reapplies
+    restart_reconciles_attempted_apply_never_reapplies_after_a_process_abort
+    rollback_after_match_exec_command_edit_needs_decision
+    rollback_exposing_inherited_hostname_and_agent_added_after_apply_needs_decision
+    rollback_to_consented_restore_needs_no_decision
+    same_request_id_replays_apply
+    second_setup_while_one_is_open_is_setup_in_progress
+    setup_in_progress_persists_across_restart
+    sink_refuses_consent_under_another_decision
+    stale_declaration_decision_is_reissued_bound_to_the_current_identity
+    supervisor_wakes_at_the_earliest_pending_decision_deadline
+    unreadable_receipt_leaves_setup_unresolved_and_reported
+    verified_client_unavailable_at_apply_is_capability_unavailable
+    withdraw_declaration_needs_no_decision
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.30s
+
+### model_setup exit=0
+### model_slot_accounting
+
+running 3 tests
+test join_and_handover_tables ... ok
+test model_traces_exercise_every_path ... ok
+test shared_slots_carry_one_grant_hand_over_to_the_latest_deadline_and_end_with_the_last_referencer ... ok
+
+successes:
+
+---- shared_slots_carry_one_grant_hand_over_to_the_latest_deadline_and_end_with_the_last_referencer stdout ----
+proptest: Failed to find absolute path of source file '"crates/domain/../../tests/model/slot_accounting.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    join_and_handover_tables
+    model_traces_exercise_every_path
+    shared_slots_carry_one_grant_hand_over_to_the_latest_deadline_and_end_with_the_last_referencer
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+### model_slot_accounting exit=0
+### model_time
+
+running 25 tests
+test backward_jump_is_time_uncertain_and_budget_still_runs_out ... ok
+test cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff ... ok
+test duration_retry_after_restart_hashes_equal_and_keeps_original_instant ... ok
+test deadline_errors_never_echo_input ... ok
+test forward_jump_without_continuous_progress_is_uncertain_and_wall_branch_expires ... ok
+test forward_jump_within_tolerance_only_ends_access_sooner ... ok
+test frozen_wall_checked_every_thirty_seconds_becomes_uncertain ... ok
+test props_rev2::a_clock_lying_by_d_while_reporting_synchronized_admits_at_most_d_past_the_true_bound ... ok
+test props_rev2::regression_synchronized_reboot_at_the_true_bound_is_not_admitted ... ok
+test reanchor_accepted_within_tolerance_ends_early_never_late ... ok
+test reboot_above_the_mark_needs_synchronized_time_and_keeps_the_bound ... ok
+test reboot_synchronized_slightly_below_mark_is_uncertain_until_confirmed ... ok
+test reboot_with_attended_confirmation_resolves_without_moving_the_deadline ... ok
+test reboot_with_wall_below_the_mark_is_refused_even_when_synchronized ... ok
+test restart_with_stuck_wall_must_not_extend_the_budget ... ok
+test rolled_back_clock_above_the_mark_after_downtime_is_refused_unsynchronized ... ok
+test same_boot_restart_keeps_the_deadline_and_the_remaining_budget ... ok
+test same_boot_skew_is_cleared_by_attended_confirmation_without_moving_anything ... ok
+test shorten_preserves_tolerance_margin_reviewer_counterexample ... ok
+test sleep_across_expiry_expires_and_is_never_extended ... ok
+test sleep_with_wall_running_expires_at_the_persisted_instant ... ok
+test stuck_wall_checked_often_and_restarted_still_expires_on_real_time ... ok
+test props::no_admission_past_real_duration ... ok
+test props_rev2::no_admission_after_true_bound_with_reboot_and_confirmation ... ok
+test props::generator_reaches_restart_reboot_reanchor_and_budget_expiry ... ok
+
+successes:
+
+---- props::no_admission_past_real_duration stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/time.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- props_rev2::no_admission_after_true_bound_with_reboot_and_confirmation stdout ----
+proptest: Failed to find absolute path of source file '"crates/testkit/../../tests/model/time.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    backward_jump_is_time_uncertain_and_budget_still_runs_out
+    cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff
+    deadline_errors_never_echo_input
+    duration_retry_after_restart_hashes_equal_and_keeps_original_instant
+    forward_jump_within_tolerance_only_ends_access_sooner
+    forward_jump_without_continuous_progress_is_uncertain_and_wall_branch_expires
+    frozen_wall_checked_every_thirty_seconds_becomes_uncertain
+    props::generator_reaches_restart_reboot_reanchor_and_budget_expiry
+    props::no_admission_past_real_duration
+    props_rev2::a_clock_lying_by_d_while_reporting_synchronized_admits_at_most_d_past_the_true_bound
+    props_rev2::no_admission_after_true_bound_with_reboot_and_confirmation
+    props_rev2::regression_synchronized_reboot_at_the_true_bound_is_not_admitted
+    reanchor_accepted_within_tolerance_ends_early_never_late
+    reboot_above_the_mark_needs_synchronized_time_and_keeps_the_bound
+    reboot_synchronized_slightly_below_mark_is_uncertain_until_confirmed
+    reboot_with_attended_confirmation_resolves_without_moving_the_deadline
+    reboot_with_wall_below_the_mark_is_refused_even_when_synchronized
+    restart_with_stuck_wall_must_not_extend_the_budget
+    rolled_back_clock_above_the_mark_after_downtime_is_refused_unsynchronized
+    same_boot_restart_keeps_the_deadline_and_the_remaining_budget
+    same_boot_skew_is_cleared_by_attended_confirmation_without_moving_anything
+    shorten_preserves_tolerance_margin_reviewer_counterexample
+    sleep_across_expiry_expires_and_is_never_extended
+    sleep_with_wall_running_expires_at_the_persisted_instant
+    stuck_wall_checked_often_and_restarted_still_expires_on_real_time
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.71s
+
+### model_time exit=0
+### model_timegate
+
+running 27 tests
+test admission_fails_closed_without_anchor_and_on_stale_observation ... ok
+test anchor_grant_refuses_an_observation_from_another_boot ... ok
+test anchor_grant_in_the_same_boot_keeps_the_minimum ... ok
+test backward_jump_is_time_uncertain_and_budget_still_runs_out ... ok
+test forward_jump_within_tolerance_only_ends_access_sooner ... ok
+test confirm_attended_refuses_values_outside_tolerance_and_never_moves_grant_anchor ... ok
+test forward_jump_without_continuous_progress_is_uncertain_and_wall_branch_expires ... ok
+test frozen_wall_checked_every_thirty_seconds_becomes_uncertain ... ok
+test reboot_above_the_mark_needs_synchronized_time_and_keeps_the_bound ... ok
+test reboot_synchronized_slightly_below_mark_is_uncertain_until_confirmed ... ok
+test reboot_with_attended_confirmation_resolves_without_moving_the_deadline ... ok
+test reboot_with_wall_below_the_mark_is_refused_even_when_synchronized ... ok
+test restart_with_stuck_wall_must_not_extend_the_budget ... ok
+test cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff ... ok
+test rolled_back_clock_above_the_mark_after_downtime_is_refused_unsynchronized ... ok
+test safe_persists_anchor_and_mark_atomically ... ok
+test same_boot_restart_keeps_the_deadline_and_the_remaining_budget ... ok
+test same_boot_skew_is_cleared_by_attended_confirmation_without_moving_anything ... ok
+test shorten_grant_never_lengthens ... ok
+test shorten_preserves_tolerance_margin_reviewer_counterexample_through_the_gate ... ok
+test sleep_across_expiry_expires_and_is_never_extended ... ok
+test sleep_with_wall_running_expires_at_the_persisted_instant ... ok
+test same_boot_restart_from_a_reopened_database_keeps_the_exact_budget ... ok
+test unsynchronized_safe_pass_advances_the_mark_and_keeps_the_anchor ... ok
+test stuck_wall_checked_often_and_restarted_still_expires_on_real_time ... ok
+test uncertain_persists_nothing ... ok
+test props_gate::no_admission_after_true_bound_through_the_gate ... ok
+
+successes:
+
+---- props_gate::no_admission_after_true_bound_through_the_gate stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/timegate.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    admission_fails_closed_without_anchor_and_on_stale_observation
+    anchor_grant_in_the_same_boot_keeps_the_minimum
+    anchor_grant_refuses_an_observation_from_another_boot
+    backward_jump_is_time_uncertain_and_budget_still_runs_out
+    confirm_attended_refuses_values_outside_tolerance_and_never_moves_grant_anchor
+    cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff
+    forward_jump_within_tolerance_only_ends_access_sooner
+    forward_jump_without_continuous_progress_is_uncertain_and_wall_branch_expires
+    frozen_wall_checked_every_thirty_seconds_becomes_uncertain
+    props_gate::no_admission_after_true_bound_through_the_gate
+    reboot_above_the_mark_needs_synchronized_time_and_keeps_the_bound
+    reboot_synchronized_slightly_below_mark_is_uncertain_until_confirmed
+    reboot_with_attended_confirmation_resolves_without_moving_the_deadline
+    reboot_with_wall_below_the_mark_is_refused_even_when_synchronized
+    restart_with_stuck_wall_must_not_extend_the_budget
+    rolled_back_clock_above_the_mark_after_downtime_is_refused_unsynchronized
+    safe_persists_anchor_and_mark_atomically
+    same_boot_restart_from_a_reopened_database_keeps_the_exact_budget
+    same_boot_restart_keeps_the_deadline_and_the_remaining_budget
+    same_boot_skew_is_cleared_by_attended_confirmation_without_moving_anything
+    shorten_grant_never_lengthens
+    shorten_preserves_tolerance_margin_reviewer_counterexample_through_the_gate
+    sleep_across_expiry_expires_and_is_never_extended
+    sleep_with_wall_running_expires_at_the_persisted_instant
+    stuck_wall_checked_often_and_restarted_still_expires_on_real_time
+    uncertain_persists_nothing
+    unsynchronized_safe_pass_advances_the_mark_and_keeps_the_anchor
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.68s
+
+### model_timegate exit=0
+### model_trust_policy
+
+running 9 tests
+test p9::p9_background_work_is_never_covered_by_revoke_on_lock ... ok
+test p9::p9_windows_minimal_input_hostile_then_unattended_trust ... ok
+test an_owner_extension_records_only_the_added_authority ... ok
+test an_approved_create_resumes_the_covered_waiter_without_a_second_decision ... ok
+test reconcile_moves_the_policy_to_a_new_record ... ok
+test trust_approval_refuses_a_changed_observation_without_consuming ... ok
+test trust_workspace_applies_the_record_it_was_created_from ... ok
+test trust_workspace_refuses_a_request_unlike_the_servers_view ... ok
+test p9::p9_authority_is_created_or_widened_only_by_an_applied_attended_decision ... ok
+
+successes:
+
+---- p9::p9_background_work_is_never_covered_by_revoke_on_lock stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/trust_policy.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+---- p9::p9_authority_is_created_or_widened_only_by_an_applied_attended_decision stdout ----
+proptest: Failed to find absolute path of source file '"crates/runtime/../../tests/model/trust_policy.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    an_approved_create_resumes_the_covered_waiter_without_a_second_decision
+    an_owner_extension_records_only_the_added_authority
+    p9::p9_authority_is_created_or_widened_only_by_an_applied_attended_decision
+    p9::p9_background_work_is_never_covered_by_revoke_on_lock
+    p9::p9_windows_minimal_input_hostile_then_unattended_trust
+    reconcile_moves_the_policy_to_a_new_record
+    trust_approval_refuses_a_changed_observation_without_consuming
+    trust_workspace_applies_the_record_it_was_created_from
+    trust_workspace_refuses_a_request_unlike_the_servers_view
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.49s
+
+### model_trust_policy exit=0
+all-tests-exit=0

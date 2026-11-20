@@ -220,3 +220,10 @@ passed for this platform and these versions.
    A29-local blocked on physical inputs.
 2. **M03-F1**, the claim update with version gating (section 4): the integrator, on a fresh branch from main, before
    the M09 release record.
+3. **A late scheduler pass at a grant's bound, found after this exit (M05 W4, ruling I-26).** A supervisor pass that
+   woke a few milliseconds before a grant's bound (its deadline, or a policy cutoff) found it not yet passed, ended
+   nothing, and then dropped the passed bound from its next wake, so it slept until the idle bound: a deadline or a
+   cutoff could be enforced up to 300 s late in the store and in what the pass tears down (A23's strict disconnect,
+   masters, slots); a new use was already refused at the bound. Fixed by I-26 (`supervisor::wake_for`) in M05's W4
+   final candidate. M03's E5–E9 evidence passed because unrelated events woke the supervisor in those runs. M03-F1's
+   claim entries (A23's `strict_disconnect` included) merge after that fix.

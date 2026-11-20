@@ -29,6 +29,12 @@
 #        `bash -n` of the scripts it sends into a distribution), when pwsh is available.
 #   M03  tests/native/m03/selftest.sh (the lock harness, the Windows lock harness's
 #        -SelfTest and the Linux wrapper; listed in that file's header).
+#   M05  tests/native/m05/selftest.sh (the evidence generator over synthetic logs, the wrappers and the
+#        WSL hook run's script in a fake world; listed in that file's header).
+#   M05W tests/native/m05/run-wsl-hook-windows.ps1 -SelfTest (the WSL hook harness's helpers, its
+#        reuse of the M02 and M04 runners' functions, `bash -n` of the scripts it sends into the
+#        distribution), when pwsh is available; the synthetic bundle it writes is then imported
+#        by tests/native/m02/import-windows-bundle.py as the build host would.
 #   M02  tests/native/m02/selftest.sh (its own checks, listed in that file's header: the
 #        helpers, run-linux/macos/windows/wsl-distro with stubs and a fake host tree, the
 #        scenario in its isolated mode when a debug heimdall and a sshd exist) and
@@ -436,6 +442,28 @@ else
     check "M03 selftest: tests/native/m03/selftest.sh exists" false
 fi
 
+# --- M05 harnesses (m05-plan U10 "evidence harness") --------------------------------------------
+
+m05_dir="$root/tests/native/m05"
+if [ -f "$m05_dir/selftest.sh" ]; then
+    bash "$m05_dir/selftest.sh" >"$T/m05-selftest.out" 2>&1 </dev/null
+    m05_rc=$?
+    cat "$T/m05-selftest.out"
+    m05_line=$(grep '^m05-selftest: ' "$T/m05-selftest.out" | tail -1)
+    m05_pass=$(printf '%s\n' "$m05_line" | sed -n 's/^m05-selftest: \([0-9][0-9]*\) passed.*/\1/p')
+    m05_fail=$(printf '%s\n' "$m05_line" | sed -n 's/^m05-selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+    if [ -n "$m05_pass" ] && [ -n "$m05_fail" ]; then
+        passes=$((passes + m05_pass))
+        fails=$((fails + m05_fail))
+        check "M05 selftest: its exit code agrees with its totals ($m05_pass passed, $m05_fail failed)" \
+            exit_agrees "$m05_rc" "$m05_fail"
+    else
+        check "M05 selftest: it ran to its summary line" false
+    fi
+else
+    check "M05 selftest: tests/native/m05/selftest.sh exists" false
+fi
+
 # --- M04 harnesses (ADR-0010 §11; the Mode B native rows) ---------------------------------
 
 m04_ps1="$root/tests/native/m04/run-mode-b-windows.ps1"
@@ -458,6 +486,42 @@ if [ -f "$m04_ps1" ]; then
     else
         echo "skip M04 selftest: run-mode-b-windows.ps1 -SelfTest needs pwsh"
     fi
+fi
+
+# --- M05 WSL hook harness (ruling I-19) ------------------------------------------------------
+
+m05w_ps1="$root/tests/native/m05/run-wsl-hook-windows.ps1"
+if [ -f "$m05w_ps1" ]; then
+    if command -v pwsh >/dev/null 2>&1; then
+        pwsh -NoProfile -NonInteractive -File "$m05w_ps1" -SelfTest -Out "$T/m05w-bundle.txt" >"$T/m05w-selftest.out" 2>&1 </dev/null
+        m05w_rc=$?
+        cat "$T/m05w-selftest.out"
+        m05w_line=$(grep '^selftest: ' "$T/m05w-selftest.out" | tail -1)
+        m05w_pass=$(printf '%s\n' "$m05w_line" | sed -n 's/^selftest: \([0-9][0-9]*\) passed.*/\1/p')
+        m05w_fail=$(printf '%s\n' "$m05w_line" | sed -n 's/^selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+        if [ -n "$m05w_pass" ] && [ -n "$m05w_fail" ]; then
+            passes=$((passes + m05w_pass))
+            fails=$((fails + m05w_fail))
+            check "M05 WSL hook harness: run-wsl-hook-windows.ps1 -SelfTest exit agrees with its totals ($m05w_pass passed, $m05w_fail failed)" \
+                exit_agrees "$m05w_rc" "$m05w_fail"
+        else
+            check "M05 WSL hook harness: run-wsl-hook-windows.ps1 -SelfTest ran to its summary line" false
+        fi
+        python3 -I "$root/tests/native/m02/import-windows-bundle.py" --bundle "$T/m05w-bundle.txt" --label exit-selftest \
+            --artifacts-root "$T/m05w-imported" --platform-dir wsl-distro --format heimdall-m05-wsl-hook-bundle/1 \
+            --commit 1111111111111111111111111111111111111111 >"$T/m05w-import.out" 2>&1
+        m05w_imp=$?
+        # shellcheck disable=SC2016  # the predicate is a single-quoted body for bash -c
+        check "M05 WSL hook harness: its bundle imports into <label>/wsl-distro/ with the M05 format (and not as an M02 bundle)" \
+            bash -c 'd=$2/exit-selftest/wsl-distro; [ "$1" = 0 ] && for f in tests.txt commands.txt host.txt build.txt skipped.txt canary-scan.txt; do [ -f "$d/$f" ] || exit 1; done &&
+                grep -q "^### wsl_hook_m05 exit=0$" "$d/tests.txt" &&
+                ! python3 -I "$3/tests/native/m02/import-windows-bundle.py" --bundle "$4" --label exit-wrong --artifacts-root "$2/wrong" --platform-dir wsl-distro >/dev/null 2>&1' \
+                _ "$m05w_imp" "$T/m05w-imported" "$root" "$T/m05w-bundle.txt"
+    else
+        echo "skip M05 WSL hook harness: run-wsl-hook-windows.ps1 -SelfTest needs pwsh"
+    fi
+else
+    check "M05 WSL hook harness: tests/native/m05/run-wsl-hook-windows.ps1 exists" false
 fi
 
 echo "native-harness-selftest: $passes passed, $fails failed"

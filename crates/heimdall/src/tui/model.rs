@@ -2635,6 +2635,44 @@ pub(crate) mod tests {
         );
     }
 
+    /// ⟨M05; ruling I-27⟩ After an import that skipped a routed destination, the runtime's
+    /// destination list (the `inspect destinations` answer the TUI is built from) has only what
+    /// import wrote: the TUI's connect refuses the skipped alias as an unknown destination and
+    /// hands nothing to `ssh`, while a listed one still connects.
+    #[test]
+    fn a_destination_an_import_skipped_is_never_connectable_from_the_tui() {
+        let mut app = App::new(now(), false);
+        app.runtime = Runtime::Connected;
+        let destinations = serde_json::json!({"destinations": [
+            {"destination_id": "bastion", "alias": "bastion", "definition": "observed"}
+        ]});
+        app.catalog = Catalog::from_answers(
+            &destinations,
+            &serde_json::Value::Null,
+            &serde_json::Value::Null,
+            &serde_json::Value::Null,
+            &serde_json::Value::Null,
+            &serde_json::Value::Null,
+            now(),
+        );
+        assert!(
+            app.catalog.destination("bastion").is_some(),
+            "{:?}",
+            app.catalog.destinations
+        );
+        assert!(app.connect("lab-inner".to_owned()).is_empty());
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap()
+                .contains("lab-inner: unknown destination")
+        );
+        assert_eq!(
+            app.connect("bastion".to_owned()),
+            [Effect::Connect("bastion".to_owned())]
+        );
+    }
+
     #[test]
     fn a_decision_the_runtime_just_issued_opens_once_listed() {
         let mut app = populated();

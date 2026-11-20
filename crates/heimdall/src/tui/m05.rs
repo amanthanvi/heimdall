@@ -43,7 +43,8 @@ use serde_json::Value;
 use super::data::{Catalog, Decision, clean, items, text, time};
 use super::keys::Key;
 
-/// The first-trust question's opening, with the profile's name (spec §5.2).
+/// The first-trust question's opening, with the profile's ID (spec §5.2's `<profile>`; ruling
+/// I-21: never its label, which any same-user program can set).
 fn first_trust_question(profile: &str) -> String {
     format!("Use {profile} access automatically for this project?")
 }
@@ -320,6 +321,22 @@ impl Listings {
             .and_then(|w| self.policy(w.policy_id.as_deref()?))
             .map(|p| p.profile.clone());
         StopContext { workspace, profile }
+    }
+}
+
+/// ⟨M05; ruling I-21⟩ A profile in a decision's text: its ID, which the record names, and the
+/// owner's label only as quoted data after it (`dev (label "Development")`). A label is catalog
+/// text any same-user program can set without a decision (`profile create --label`), so it is
+/// never part of a question or a title (ADR-0011 I5), as in the CLI.
+fn profile_detail(catalog: &Catalog, id: &str) -> String {
+    match catalog
+        .profiles
+        .iter()
+        .find(|p| p.id == id)
+        .and_then(|p| p.label.clone())
+    {
+        Some(label) => format!("{} (label {})", safe(id), quoted(&label)),
+        None => safe(id),
     }
 }
 
@@ -626,7 +643,7 @@ fn trust_lines(catalog: &Catalog, d: &Decision) -> Vec<Line<'static>> {
     let profile = t(p, "profile").unwrap_or_else(|| "?".to_owned());
     let background = p.get("background_work").and_then(Value::as_bool) == Some(true);
     let mut lines = vec![
-        bold(first_trust_question(&profile_name(catalog, &profile))),
+        bold(first_trust_question(&safe(&profile))),
         plain(if background {
             WORK_WHILE_LOCKED
         } else {
@@ -644,8 +661,8 @@ fn trust_lines(catalog: &Catalog, d: &Decision) -> Vec<Line<'static>> {
     }
     lines.push(bold("Detail: what approving grants"));
     lines.push(plain(format!(
-        "  Profile: {} ({profile})",
-        profile_name(catalog, &profile)
+        "  Profile: {}",
+        profile_detail(catalog, &profile)
     )));
     lines.push(plain(format!(
         "  Workspace: {}",
@@ -776,18 +793,15 @@ fn delta_lines(catalog: &Catalog, a: &Value) -> Vec<Line<'static>> {
 fn create_lines(catalog: &Catalog, a: &Value, d: &Decision) -> Vec<Line<'static>> {
     let profile = t(a, "profile").unwrap_or_else(|| "?".to_owned());
     let mut lines = vec![
-        bold(
-            first_trust_question(&profile_name(catalog, &profile))
-                .replace("this project", "your personal work"),
-        ),
+        bold(first_trust_question(&safe(&profile)).replace("this project", "your personal work")),
         plain(PAUSE_OR_REMOVE),
         plain(""),
         bold("Detail: a personal standing policy, as the runtime recorded this decision"),
     ];
     let Some(scope) = &d.scope else {
         lines.push(plain(format!(
-            "  Profile: {} ({profile})",
-            profile_name(catalog, &profile)
+            "  Profile: {}",
+            profile_detail(catalog, &profile)
         )));
         lines.push(bold(format!(
             "[!!] Approve is not offered here: {}",
@@ -796,8 +810,8 @@ fn create_lines(catalog: &Catalog, a: &Value, d: &Decision) -> Vec<Line<'static>
         return lines;
     };
     lines.push(plain(format!(
-        "  Profile: {} ({profile}) at revision {}",
-        profile_name(catalog, &profile),
+        "  Profile: {} at revision {}",
+        profile_detail(catalog, &profile),
         scope.profile_revision
     )));
     let recorded = serde_json::json!({
@@ -1532,7 +1546,7 @@ mod tests {
         let d = trust_decision("dec_t1", "/work/a", Some("lab"), true, true);
         let text = flat(&decision_lines(&catalog, &d).unwrap());
         assert!(
-            text.contains("Use Development access automatically for this project?"),
+            text.contains("Use dev access automatically for this project?"),
             "{text}"
         );
         assert!(
