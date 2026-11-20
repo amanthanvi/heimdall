@@ -463,9 +463,12 @@ fn a16_two_environments_defaults_and_cleanup() {
 
 /// The certificates the shared server accepted since `mark` (any world's), read once at
 /// least `want` are in its log or 30 s have passed. Every login counted has already
-/// succeeded (its marker came back), so its line is only waiting to be written: on Windows the
-/// harness's WSL `sshd` log, read from the Windows side, can show the last login's line a
-/// moment later (the W4 pre-final run read 3 of 4). The counts are asserted exactly after it.
+/// succeeded (its marker came back), so its line is only waiting to be written; the counts are
+/// asserted exactly after it. Both logins of one environment share its slot, so they are
+/// accepted with the same certificate (one serial): the holder's, reused within its validity.
+/// (On Windows the harness's WSL `sshd` used to log to a drvfs file, where two sshd children
+/// appending at once lost a line, and an environment showed one line for its two logins in both
+/// W4 Windows runs; the harness now keeps that log on the WSL file system.)
 fn server_accepted(w: &World, mark: u64, want: usize) -> Vec<heimdall_testkit::sshd::AcceptedCert> {
     let start = std::time::Instant::now();
     loop {

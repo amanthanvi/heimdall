@@ -205,12 +205,13 @@ pub(crate) fn render_plan(v: &serde_json::Value) -> String {
         "Imported:\n".to_owned()
     };
     out.push_str(&format!(
-        "  {}: {}, unchanged: {}, conflicts (never applied): {}, need a local key: {}\n",
+        "  {}: {}, unchanged: {}, conflicts (never applied): {}, need a local key: {}, skipped (a route to set up here first): {}\n",
         if dry { "would add" } else { "added" },
         n("added"),
         n("unchanged"),
         n("conflicts"),
         n("needs_local"),
+        n("skipped"),
     ));
     let entries = v
         .get("plan")
@@ -235,6 +236,10 @@ pub(crate) fn render_plan(v: &serde_json::Value) -> String {
         // ⟨M05; ADR-0006 §17.11 item 23⟩ A destination reached through a jump says so.
         if let Some(j) = e.get("jump").and_then(|j| j.as_str()) {
             line.push_str(&format!(", reached through the jump destination {j}"));
+        }
+        // ⟨M05; ruling I-27⟩ A skipped routed destination says how to set its route up.
+        if let Some(c) = e.get("setup").and_then(|c| c.as_str()) {
+            line.push_str(&format!("; set the route up here first: {c}"));
         }
         out.push_str(&line);
         out.push('\n');

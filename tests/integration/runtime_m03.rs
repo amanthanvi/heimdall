@@ -3606,10 +3606,10 @@ mod wave4 {
     /// the world's virtual wall and continuous clock, and tokio's paused monotonic clock. After
     /// the start passes settle (the pass before the cutoff put the next pass on the monotonic
     /// timer, the cutoff 30 s out) nothing commits; the wall clock then steps forward past the
-    /// cutoff, within the skew tolerance so time stays safe. The loop's bounded resume poll sees
-    /// wall progress the monotonic timer did not and runs the pass at once: the grant ends and
-    /// its strict dedicated connection closes within the poll interval of the step, not at the
-    /// old monotonic target.
+    /// cutoff, within the skew tolerance so time stays safe. The loop's bounded resume poll finds
+    /// the wall-clock instant the next pass was scheduled for already due and runs the pass at
+    /// once: the grant ends and its strict dedicated connection closes within the poll interval
+    /// of the step, not at the old monotonic target.
     #[tokio::test(start_paused = true)]
     async fn a_forward_wall_step_past_a_cutoff_ends_its_grant_at_the_next_poll() {
         let w = World::new().await;
@@ -3651,6 +3651,79 @@ mod wave4 {
         );
         token.cancel();
         running.await.unwrap();
+    }
+
+    /// ⟨M05; review M05-W4F-R02⟩ The real timed loop, its wall and continuous clock following
+    /// tokio's paused monotonic clock (in 100 ms steps), and five forward steps of the wall clock
+    /// of 1.5 s each, one per resume poll: each step is below the 2 s that a single poll counts as
+    /// a sleep, but together they bring the cutoff 7.5 s nearer on the wall clock than on the
+    /// monotonic timer the pass before it set. Each poll compares the wall-clock instant the next
+    /// pass was scheduled for with the current wall time, so the pass runs within one poll of
+    /// the cutoff on the wall clock, not at the old monotonic target.
+    #[tokio::test(start_paused = true)]
+    async fn small_forward_wall_steps_past_a_cutoff_end_its_grant_at_the_next_poll() {
+        let w = World::new().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut row = seed_row(&w, 0x9a, GrantState::Active);
+        let at = shift(t0(), 30);
+        strict_cutoff(&w, at);
+        let sup = w.supervisor().with_connections(connections(&w, dir.path()));
+        let token = CancellationToken::new();
+        let tick = Duration::from_millis(100);
+        let ticker = {
+            let clock = w.clock.clone();
+            let stop = token.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        () = stop.cancelled() => break,
+                        () = tokio::time::sleep(tick) => clock.advance(tick),
+                    }
+                }
+            })
+        };
+        let start = tokio::time::Instant::now();
+        let running = tokio::spawn(sup.run(token.clone()));
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(grant_state(&w, &row.grant).permits_use());
+        let poll = SupervisorConfig::default().resume_bound();
+        for _ in 0..5 {
+            let wall = w.clock.wall();
+            w.clock.set_wall(
+                wall.checked_add(jiff::SignedDuration::from_millis(1500))
+                    .unwrap(),
+            );
+            tokio::time::sleep(poll).await;
+        }
+        assert!(
+            matches!(row.child.try_wait(), Ok(None)),
+            "up before the cutoff on the wall clock"
+        );
+        // The wall clock now runs 7.5 s ahead of the monotonic one: it reaches the cutoff at
+        // 22.5 s of monotonic time; the pass before the cutoff set its timer for 30 s.
+        let ended = loop {
+            if grant_state(&w, &row.grant) == GrantState::Expired {
+                break start.elapsed();
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(29),
+                "the wall clock reached the cutoff and no pass ran: {:?}",
+                grant_state(&w, &row.grant)
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        let latest = Duration::from_millis(22_500) + poll + Duration::from_millis(500);
+        assert!(
+            ended <= latest,
+            "ended at {ended:?} of monotonic time (the cutoff on the wall clock: 22.5 s; latest {latest:?})"
+        );
+        assert!(
+            exited(&mut row.child),
+            "the strict connection closed at the cutoff on the wall clock"
+        );
+        token.cancel();
+        running.await.unwrap();
+        ticker.await.unwrap();
     }
 
     /// The world's clock, the wall read `ahead` of it: a supervisor reading this while the

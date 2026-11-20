@@ -3935,22 +3935,6 @@ fn catalog_pairs(
     Ok(Ok(out))
 }
 
-/// ⟨M05; review M05-W4F-R01; ADR-0006 §17.11 item 24⟩ The refusal of a pair, a `connect`
-/// or a `run` whose destination an import added with its route through `jump` pending: the
-/// owner defines the route here first (`destination add … --jump`, ADR-0010 §5's pins and
-/// checks); import never sets one up.
-pub(crate) fn route_pending_refusal(destination: &DestinationId, jump: &DestinationId) -> OpError {
-    OpError::new(
-        Code::CapabilityUnavailable,
-        format!(
-            "destination {destination} is reached through the jump destination {jump}, and that route is not set up here: define it with `heimdall destination add {destination} --hostname <host> --account <account> --identity <idn_…> --jump {jump}`"
-        ),
-    )
-    .with_reason(heimdall_contract::envelope::reason::ROUTE_PENDING)
-    .with_effect(EffectStatus::None)
-    .with_resource("destination", Some(destination.to_string()))
-}
-
 /// ⟨M04 U6⟩ The route of `pair` for a grant whose scope is `scope` (ADR-0010 §5
 /// item 2), or `route_dependency_out_of_scope` when its jump hop is neither a managed
 /// pair in the same scope nor existing access (also a jump that no longer resolves to
@@ -9968,15 +9952,7 @@ impl Operations {
                     {
                         pending.push((items.len(), d.alias.clone(), policy));
                     }
-                    let mut view = destination_view(&d, preference.as_ref());
-                    // ⟨M05; review M05-W4F-R01; ADR-0006 §17.11 item 24⟩ An imported
-                    // destination whose route is pending says so, with its jump.
-                    if let Some(j) = tx.route_pending(&d.id)?
-                        && let serde_json::Value::Object(map) = &mut view
-                    {
-                        map.insert("route_pending".to_owned(), serde_json::json!({ "jump": j }));
-                    }
-                    items.push(view);
+                    items.push(destination_view(&d, preference.as_ref()));
                 }
                 Ok((items, pending))
             })

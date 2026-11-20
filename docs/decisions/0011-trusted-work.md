@@ -156,19 +156,21 @@ checkout maps to the Windows record is M04's decision (WSL Mode A path handling)
   - Import is one journaled catalog reconciliation with a preview. It applies catalog intent only. It
     never trusts a host key: exported host-key fingerprints are shown in the preview for comparison,
     then discarded. Adding pairs to a profile never widens a policy (spec §6.2).
-  - **A routed destination imports as route-pending, never as direct** (review M05-W4F-R01, W4;
-    ADR-0006 revision 5.3 items 23 and 24). Import writes an observed destination, and for one
-    the bundle reaches through a jump it also records that jump as the destination's pending
-    route. While the route is pending, `ensure` (so `heimdall run`) and `heimdall connect` refuse it
-    with `route_pending`, and the personal default's activation skips it, naming the jump and the owner's
-    `destination add … --jump` that sets the route up; nothing is handed to `ssh`, where a direct
-    alias of the same name would win. Import never sets up a route by itself: the route comes only
-    from the owner's own definition, with ADR-0010 §5's pins and checks, and that definition (or
-    removing the destination) clears the pending route. Export keeps the pending jump, so a
-    round trip does not lose it. A jump resolves against the import's reconciled result
-    (review M05-W4F-R03): a hop the bundle refuses or names twice leaves its routed destination
-    `jump_unresolved`; a hop the bundle omits resolves to this catalog's managed direct
-    destination.
+  - **A routed destination is never imported** (ruling I-27, W4; ADR-0006 revision 5.3 items
+    23 and 24). Import writes a destination the bundle reaches through a jump only when this
+    catalog already has it with the same route (`unchanged`, a no-op). Otherwise the entry is
+    `skipped` (`route_required`), naming the jump and the owner's `destination add … --jump`
+    that sets the route up, and nothing of it is stored. No catalog row means nothing can reach
+    it by its bare alias, where a direct `ssh` alias of the same name would win: no listing, TUI
+    view, edit, `connect`, `ensure` or `run`. A new profile with a pair on it is skipped too,
+    since `ensure` treats a pair outside the catalog as existing access through the owner's
+    ordinary SSH configuration. The route comes only from the owner's own definition, with
+    ADR-0010 §5's pins and checks. (Review M05-W4F-R01 found that the first fix,
+    an observed row with a pending-route marker, still leaked through the TUI, a catalog edit
+    and a replayed `ensure`.) A jump resolves against the import's reconciled result (review
+    M05-W4F-R03): a hop the bundle refuses or names twice leaves its routed destination
+    `jump_unresolved`, a hop the bundle omits resolves to this catalog's managed direct
+    destination, and every row of a repeated ID is refused, the first one too.
 - **I5. A decision's action is fixed at creation, from server-side state.** Approval applies exactly
   that action. Repository or request text appears in a decision only as quoted, bounded data with
   control characters stripped, such as the project label. It is never the decision's title or action.
@@ -510,14 +512,16 @@ can still use the shared ordinary alias while another referencer holds it (R3).
   pause ends nothing, so it needs no wake. The re-check covers every state a bound still ends
   (`awaiting_approval`, `preparing`, `active`, `degraded`: the states `DeadlineReached` leaves),
   not only the usable ones; `revoking` keeps its own retry (review M05-W4F-R04).
-  - **A wall-clock step forward runs the pass at once** (review M05-W4F-R02, W4): the next pass
-    waits on the monotonic timer, computed from the wall instant of its bound, so a forward step
-    of the wall clock brings that bound nearer than the timer knows, and a strict connection could
-    outlive its cutoff by up to the step. The supervisor's bounded resume poll (at most every 2 s)
-    compares the wall clock's progress with the monotonic progress, as it already compares the
-    continuous clock's for a machine sleep, and a forward step runs the scheduler pass now. The
-    pass's tick keeps its safe-time and continuous-budget checks, so a step beyond the skew
-    tolerance ends nothing early and makes time uncertain instead.
+  - **A pass due on the wall clock runs at once** (review M05-W4F-R02, W4): the next pass waits
+    on the monotonic timer, computed from the wall instant it was scheduled for, so a wall clock
+    that moves forward faster than the timer (one step, or many small ones) brings that instant
+    nearer than the timer knows, and a strict connection could outlive its cutoff. At every
+    bounded resume poll (at most every 2 s) the supervisor compares that scheduled wall-clock
+    instant with the current wall time, and when it is due the scheduler pass runs now, whatever
+    each step's size. (The first fix compared each poll's wall progress with its monotonic
+    progress and missed steps below 2 s.) The monotonic wake stays, and the pass's tick keeps its
+    safe-time and continuous-budget checks, so a step beyond the skew tolerance ends nothing early
+    and makes time uncertain instead.
   - The next pass's delay is applied to a monotonic sample taken when the pass ends, so a slow
     pass never uses up the delay and runs the next pass straight after it (review M05-W4F-R05).
 - **Narrowing actions** are never blocked by uncertain time. Widening actions are refused while time

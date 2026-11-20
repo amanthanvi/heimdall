@@ -1398,11 +1398,12 @@ async fn import_shows_host_key_fingerprints_and_trusts_nothing() {
     assert!(!format!("{stored:?}").contains(&fp('H')));
 }
 
-/// ⟨M05; ADR-0006 §17.11 item 23⟩ A bastion destination's route travels: the export names
-/// its jump destination, the importer resolves it against the bundle (or its own catalog) and
-/// shows it, and a jump route is never the same as a direct one. A second installation gets
-/// both destinations (as observed ones, with the jump shown on the routed one); a re-import into
-/// the exporting installation is a no-op; a bundle saying a direct destination is reached
+/// ⟨M05; ADR-0006 §17.11 items 23 and 24; ruling I-27⟩ A bastion destination's route travels:
+/// the export names its jump destination, and a jump route is never the same as a direct one.
+/// A second installation, which has no such route, gets the bastion (as an observed
+/// destination) and **skips** the routed one (`route_required`, the jump and the setup command
+/// shown; nothing written for it); a re-import into the exporting installation, which has the
+/// matching route, is a no-op (`unchanged`); a bundle saying a direct destination is reached
 /// through a jump is a conflict there, not "unchanged".
 #[tokio::test]
 async fn a_bastion_destination_round_trips_with_its_jump() {
@@ -1466,10 +1467,25 @@ async fn a_bastion_destination_round_trips_with_its_jump() {
         .find(|e| e["id"] == "lab-inner")
         .unwrap()
         .clone();
-    assert_eq!(inner["status"], "add", "{inner}");
+    assert_eq!(inner["status"], "skipped", "{inner}");
+    assert_eq!(inner["reason"], "route_required", "{inner}");
     assert_eq!(
         inner["jump"], "bastion",
         "the plan shows the route, never a direct one"
+    );
+    assert!(
+        inner["setup"]
+            .as_str()
+            .is_some_and(|c| c.contains("--jump bastion")),
+        "{inner}"
+    );
+    let written = b
+        .store
+        .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+        .unwrap();
+    assert!(
+        !format!("{written:?}").contains("lab-inner"),
+        "nothing is written for a skipped destination"
     );
     assert!(
         statuses(&res.data)
@@ -1512,7 +1528,8 @@ async fn a_bastion_destination_round_trips_with_its_jump() {
 /// ⟨M05; ADR-0006 §17.11 item 23⟩ A jump that does not resolve refuses its destination with a
 /// finding (`jump_unresolved`) and writes nothing for it: one naming a destination neither the
 /// bundle nor the catalog has, and one naming a bundle destination that is itself routed
-/// through a jump (a chain, `route_chain_unsupported`). The rest of the bundle still applies.
+/// through a jump (a chain, `route_chain_unsupported`). A jump that resolves is still never
+/// written (ruling I-27: `skipped`, `route_required`). The rest of the bundle still applies.
 #[tokio::test]
 async fn an_unresolved_jump_refuses_its_destination_on_import() {
     let b = Inst::new(false).await;
@@ -1540,9 +1557,12 @@ async fn an_unresolved_jump_refuses_its_destination_on_import() {
     let of = |id: &str| plan.iter().find(|e| e["id"] == id).unwrap().clone();
     assert_eq!(of("plain")["status"], "add");
     assert_eq!(
-        of("hop1")["status"],
-        "add",
-        "a one-hop jump to a bundle destination resolves"
+        (of("hop1")["status"].clone(), of("hop1")["reason"].clone()),
+        (
+            serde_json::json!("skipped"),
+            serde_json::json!("route_required")
+        ),
+        "a one-hop jump to a bundle destination resolves, and the routed destination is skipped"
     );
     for id in ["orphan", "hop2"] {
         assert_eq!(of(id)["status"], "conflict", "{id}: {}", of(id));
@@ -1554,17 +1574,18 @@ async fn an_unresolved_jump_refuses_its_destination_on_import() {
         .unwrap();
     let text = format!("{after:?}");
     assert!(
-        !text.contains("orphan") && !text.contains("hop2"),
+        !text.contains("orphan") && !text.contains("hop2") && !text.contains("hop1"),
         "nothing written for them"
     );
-    assert!(text.contains("hop1") && text.contains("plain"));
+    assert!(text.contains("plain"));
     assert_ne!(format!("{before:?}"), text);
 }
 
 /// ⟨M05; review M05-W4F-R03⟩ A jump resolves against the reconciliation result, never the
-/// raw bundle: a hop the bundle omits resolves to this catalog's managed direct destination; a
-/// bundled hop that is itself refused (its alias collides with another destination here) or
-/// named twice leaves its routed destination `jump_unresolved`, never added.
+/// raw bundle: a hop the bundle omits resolves to this catalog's managed direct destination
+/// (and the routed destination is then skipped, `route_required`, ruling I-27); a bundled hop
+/// that is itself refused (its alias collides with another destination here) or named twice
+/// leaves its routed destination `jump_unresolved`. Nothing is written for any of them.
 #[tokio::test]
 async fn a_jump_resolves_against_the_reconciled_hop() {
     let b = Inst::new(false).await;
@@ -1630,7 +1651,7 @@ async fn a_jump_resolves_against_the_reconciled_hop() {
     };
     assert_eq!(
         of("via-local"),
-        vec![("add".to_owned(), "recorded_route_pending".to_owned())]
+        vec![("skipped".to_owned(), "route_required".to_owned())]
     );
     assert_eq!(
         of("hop-colliding"),
@@ -1641,17 +1662,85 @@ async fn a_jump_resolves_against_the_reconciled_hop() {
         vec![("conflict".to_owned(), "jump_unresolved".to_owned())],
         "a refused hop does not resolve its dependent"
     );
-    assert_eq!(of("hop-twice").len(), 2);
+    assert_eq!(
+        of("hop-twice"),
+        vec![("conflict".to_owned(), "duplicate_in_bundle".to_owned()); 2],
+        "both rows of a repeated ID are refused"
+    );
     assert_eq!(
         of("via-twice"),
         vec![("conflict".to_owned(), "jump_unresolved".to_owned())],
         "a hop named twice is ambiguous"
     );
-    let pending = b
-        .store
-        .transaction(|tx| tx.route_pending(&DestinationId::parse("via-local").unwrap()))
-        .unwrap();
-    assert_eq!(pending.map(|j| j.to_string()), Some("bastion".to_owned()));
+    let written = format!(
+        "{:?}",
+        b.store
+            .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+            .unwrap()
+    );
+    for id in [
+        "via-local",
+        "via-colliding",
+        "hop-colliding",
+        "hop-twice",
+        "via-twice",
+    ] {
+        assert!(!written.contains(id), "{id} written");
+    }
+}
+
+/// ⟨M05; review M05-W4F-R03⟩ Every row of a repeated destination ID is refused, the first one
+/// too, before any alias is claimed: two new rows sharing an ID with different aliases write
+/// nothing, and neither alias is taken (a third destination may use one of them).
+#[tokio::test]
+async fn every_row_of_a_repeated_destination_id_is_refused() {
+    let b = Inst::new(false).await;
+    let mut bundle = bundle_of(&serde_json::from_slice(&hostile(serde_json::json!({}))).unwrap());
+    let base = bundle.destinations[0].clone();
+    let mk = |id: &str, alias: &str| {
+        let mut d = base.clone();
+        d.id = DestinationId::parse(id).unwrap();
+        d.alias = alias.to_owned();
+        d.jump = None;
+        d
+    };
+    bundle.destinations = vec![
+        mk("twin", "twin-a"),
+        mk("twin", "twin-b"),
+        mk("other", "twin-a"),
+    ];
+    let res = b.import(&bundle, "r3-twins").await.unwrap();
+    let plan = res.data["plan"].as_array().unwrap().clone();
+    let of = |id: &str| -> Vec<(String, String)> {
+        plan.iter()
+            .filter(|e| e["id"] == id)
+            .map(|e| {
+                (
+                    e["status"].as_str().unwrap_or("").to_owned(),
+                    e["reason"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        of("twin"),
+        vec![("conflict".to_owned(), "duplicate_in_bundle".to_owned()); 2]
+    );
+    assert_eq!(
+        of("other"),
+        vec![("add".to_owned(), "recorded_as_observed".to_owned())],
+        "a refused row claims no alias"
+    );
+    let written = format!(
+        "{:?}",
+        b.store
+            .transaction(|tx| tx.raw_documents(RawDocuments::Destinations))
+            .unwrap()
+    );
+    assert!(
+        !written.contains("twin-b") && !written.contains("\"twin\""),
+        "{written}"
+    );
 }
 
 /// Import is one store transaction (M05-D07): a crash before the import's commit leaves

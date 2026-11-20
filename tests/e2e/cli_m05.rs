@@ -1289,14 +1289,17 @@ fn m05_help_and_shell_script_goldens() {
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
-/// ⟨M05; review M05-W4F-R01; ADR-0006 §17.11 item 24⟩ An imported destination reached
-/// through a jump keeps its route intent and is never launched by its bare alias. A bundle
-/// names `lab-inner` behind the bastion `bastion`; the receiving machine's own SSH
-/// configuration has a direct `lab-inner` alias (disposable), and the verified client is a stub
-/// first on `PATH` that records every launch. After the import, `connect lab-inner` refuses
-/// (`CAPABILITY_UNAVAILABLE`, `route_pending`, naming the bastion) and launches nothing, and a
-/// `run` of a profile with its pair is refused the same way; `connect bastion` (no route of
-/// its own) still launches, so the stub is live. A re-export keeps the jump.
+/// ⟨M05; ruling I-27; ADR-0006 §17.11 item 24⟩ Import never writes a destination reached
+/// through a jump that the receiver does not have with that route, so nothing can launch it by
+/// its bare alias. A bundle names `lab-inner` behind the bastion `bastion`; the receiving
+/// machine's own SSH configuration has a direct `lab-inner` alias (disposable), and the
+/// verified client is a stub first on `PATH` that records every launch. The import skips
+/// `lab-inner` (`route_required`, naming the jump and the setup command) and writes nothing for
+/// it: the destination list (the TUI's, which it connects from) has no such row, `connect
+/// lab-inner` refuses it as an unknown destination, the bundle's profile with its pair is
+/// skipped with it so `run --profile inner` is refused as unknown too, and nothing is launched; `connect bastion` (direct) still launches, so the stub is live. The
+/// receiver's export has no `lab-inner` either (the exporter's keeps the jump:
+/// `integration_portable::a_bastion_destination_round_trips_with_its_jump`).
 #[cfg(unix)]
 #[test]
 fn an_imported_routed_destination_is_never_launched_by_its_bare_alias() {
@@ -1393,17 +1396,6 @@ fn an_imported_routed_destination_is_never_launched_by_its_bare_alias() {
         "{}",
         String::from_utf8_lossy(&imported.stdout)
     );
-    let plan = envelope(&imported)["data"]["plan"].clone();
-    let inner = plan
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["id"] == "lab-inner")
-        .unwrap()
-        .clone();
-    assert_eq!(inner["status"], "add", "{inner}");
-    assert_eq!(inner["reason"], "recorded_route_pending", "{inner}");
-
     let refused = run(&["--json", "connect", "lab-inner"]);
     let env = envelope(&refused);
     assert_ne!(
@@ -1414,15 +1406,39 @@ fn an_imported_routed_destination_is_never_launched_by_its_bare_alias() {
             .ok()
             .map(|b| String::from_utf8_lossy(&b).replace('\0', " "))
     );
-    assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{env}");
-    assert_eq!(env["data"]["error"]["reason"], "route_pending", "{env}");
+    assert_eq!(env["code"], "NOT_FOUND", "{env}");
     assert!(
-        env.to_string().contains("bastion"),
-        "the refusal names the bastion: {env}"
+        env.to_string().contains("unknown destination"),
+        "an unknown destination: {env}"
     );
     assert!(
         !recorded.exists(),
         "nothing was launched for the routed destination"
+    );
+    let plan = envelope(&imported)["data"]["plan"].clone();
+    let inner = plan
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "lab-inner")
+        .unwrap()
+        .clone();
+    assert_eq!(inner["status"], "skipped", "{inner}");
+    assert_eq!(inner["reason"], "route_required", "{inner}");
+    assert_eq!(inner["jump"], "bastion", "{inner}");
+    assert!(
+        inner["setup"].as_str().is_some_and(|c| c
+            .starts_with("heimdall destination add lab-inner --id lab-inner ")
+            && c.ends_with(" --jump bastion")),
+        "the entry names the setup command: {inner}"
+    );
+    // Nothing is stored for it: the destination list, which the TUI lists and connects from.
+    let listed = run(&["--json", "inspect", "destinations"]);
+    assert_eq!(listed.status.code(), Some(0));
+    let listed = envelope(&listed).to_string();
+    assert!(
+        listed.contains("bastion") && !listed.contains("lab-inner"),
+        "{listed}"
     );
     let ran = run(&[
         "--json",
@@ -1436,10 +1452,20 @@ fn an_imported_routed_destination_is_never_launched_by_its_bare_alias() {
     ]);
     let env = envelope(&ran);
     assert_ne!(ran.status.code(), Some(0), "{env}");
-    assert_eq!(env["data"]["error"]["reason"], "route_pending", "{env}");
+    assert_eq!(env["code"], "NOT_FOUND", "{env}");
     assert!(!recorded.exists(), "`run` launched nothing either");
+    // The profile with its pair was skipped with it, so no request can name the pair.
+    let profile = plan
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "profile" && e["id"] == "inner")
+        .unwrap()
+        .clone();
+    assert_eq!(profile["status"], "skipped", "{profile}");
+    assert_eq!(profile["reason"], "route_required", "{profile}");
 
-    // The stub is live: a destination with no route of its own still launches.
+    // The stub is live: a direct destination still launches.
     let control = run(&["connect", "bastion"]);
     assert_eq!(
         control.status.code(),
@@ -1449,16 +1475,16 @@ fn an_imported_routed_destination_is_never_launched_by_its_bare_alias() {
     );
     assert_eq!(std::fs::read(&recorded).unwrap(), b"bastion\0");
 
-    // A re-export keeps the jump.
+    // The receiver's export has nothing for it.
     let exported = run(&["--json", "export"]);
     assert_eq!(exported.status.code(), Some(0));
     let bundle = envelope(&exported)["data"].clone();
-    let again = bundle["destinations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|d| d["id"] == "lab-inner")
-        .unwrap()
-        .clone();
-    assert_eq!(again["jump"], "bastion", "{again}");
+    assert!(
+        bundle["destinations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["id"] != "lab-inner"),
+        "{bundle}"
+    );
 }

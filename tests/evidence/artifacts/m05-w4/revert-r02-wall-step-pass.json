@@ -1,23 +1,25 @@
 {
- "name": "M05 W4, review M05-W4F-R02: the supervisor's resume poll no longer compares wall progress with monotonic progress (in `run_loops`, the wall-step check `if stepped > mono + SLEEP_DETECTION` disabled with `&& false`), as before the fix: a forward wall-clock step leaves the next pass on its old monotonic target",
+ "name": "M05 W4, review M05-W4F-R02 (re-check): the supervisor's resume poll no longer compares the wall-clock instant the next pass was scheduled for with the current wall time (in `run_loops`, the check `if next_wall.is_some_and(|w| clock.wall() >= w)` disabled with `&& false`), so the next pass waits on its monotonic target only",
  "file": "crates/runtime/src/supervisor.rs",
- "observed_by": "the integrator on the W4 tree (959936c4 plus the review fixes); source restored byte-identical (checked with cmp)",
- "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --test integration_runtime_m03 -- wave4::a_forward_wall_step",
+ "observed_by": "the integrator on the W4 tree (056a1692 plus the re-check fixes); source restored byte-identical (checked with cmp)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --test integration_runtime_m03 -- wave4::small_forward_wall_steps wave4::a_forward_wall_step",
  "reverted": {
   "label": "reverted",
   "exit": 101,
   "lines": [
    "test wave4::a_forward_wall_step_past_a_cutoff_ends_its_grant_at_the_next_poll ... FAILED",
+   "test wave4::small_forward_wall_steps_past_a_cutoff_end_its_grant_at_the_next_poll ... FAILED",
    "the step brought the cutoff forward and no pass ran: Degraded",
-   "0 passed; 1 failed; 0 ignored; 0 measured; 58 filtered out"
+   "the wall clock reached the cutoff and no pass ran: Degraded",
+   "0 passed; 2 failed; 0 ignored; 0 measured; 58 filtered out"
   ]
  },
  "restored": {
   "label": "restored",
   "exit": 0,
   "lines": [
-   "1 passed; 0 failed; 0 ignored; 0 measured; 58 filtered out"
+   "2 passed; 0 failed; 0 ignored; 0 measured; 58 filtered out"
   ]
  },
- "also": "the test drives `Supervisor::run` with the world's virtual wall and continuous clock and tokio's paused monotonic clock; reverted, the grant was still usable (`degraded`: the world wires no managed adapter) 20 s of monotonic time after the wall stepped 31 s past the cutoff, the old target being 25 s out; with the fix it ended, and its strict dedicated connection closed, within the 2 s resume poll"
+ "also": "both tests drive `Supervisor::run` with the world's virtual wall and continuous clock and tokio's paused monotonic clock. The first fix (056a1692: each poll's wall progress compared with its monotonic progress, a 2 s threshold), run against the same two tests, passed the single 31 s step and failed the five 1.5 s steps (exit 101, `the wall clock reached the cutoff and no pass ran: Degraded`), the gap the re-check found; with the fix the grant ends, and its strict dedicated connection closes, within one 2 s poll of the cutoff on the wall clock"
 }

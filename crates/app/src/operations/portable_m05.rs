@@ -20,7 +20,14 @@
 //!   that exists with other content (another alias; for a managed one, another host name,
 //!   port or account), or an alias another destination holds, is a **conflict**: reported,
 //!   never overwritten. A redacted bundle's placeholder alias (the destination ID) is not
-//!   compared.
+//!   compared. ⟨M05; ruling I-27⟩ A destination the bundle reaches through a jump is never
+//!   written: it is `unchanged` when this catalog already has it with the same route (a
+//!   managed destination through the same jump), and otherwise `skipped` (`route_required`),
+//!   its entry naming the jump and the owner's `destination add … --jump` that sets the route
+//!   up here. Nothing of it is stored, so nothing can connect to it by its bare alias, and a
+//!   new profile with a pair on it is `skipped` too (`route_required`): it would otherwise be a
+//!   request path to that destination through the owner's ordinary SSH configuration. Every
+//!   row whose ID the bundle repeats is refused (`duplicate_in_bundle`), the first one too.
 //! * **Identity references** (public fingerprint and provider kind) cannot be adopted from
 //!   a fingerprint alone (adoption needs the public key and endpoint), so nothing is written
 //!   for one: it is `unchanged` when the fingerprint is adopted here and `needs_local`
@@ -120,8 +127,7 @@ pub(crate) fn export_bundle(
                 Some(account.clone()),
                 jump.clone(),
             ),
-            // ⟨Review M05-W4F-R01⟩ An imported destination keeps its pending route's jump.
-            DestinationDefinition::Observed => (None, None, None, tx.route_pending(&d.id)?),
+            DestinationDefinition::Observed => (None, None, None, None),
         };
         input.destinations.push(PortableDestination {
             id: d.id,
@@ -170,6 +176,10 @@ pub(crate) enum Status {
     Conflict,
     /// An identity reference with no adopted key here: nothing can be written for it.
     NeedsLocal,
+    /// ⟨M05; ruling I-27⟩ A destination reached through a jump that this catalog does not
+    /// have with that route: nothing is written for it (`route_required`); the owner sets the
+    /// route up first.
+    Skipped,
 }
 
 /// One plan entry.
@@ -192,30 +202,25 @@ pub(crate) struct Entry {
     /// it, shown so a jump route is never read as a direct one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jump: Option<DestinationId>,
+    /// ⟨M05; ruling I-27⟩ For a `skipped` routed destination, the owner's command that sets
+    /// its route up here (its alias, ID and jump are the bundle's checked tokens; the host,
+    /// account and identity are left for the owner to fill in).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup: Option<String>,
 }
 
 /// A snapshot of the local catalog the plan is computed against.
 #[derive(Debug, Default)]
 pub(crate) struct Local {
     pub destinations: Vec<DestinationRecord>,
-    /// ⟨Review M05-W4F-R01⟩ The jump each imported destination's route is pending on.
-    pub route_pending: BTreeMap<DestinationId, DestinationId>,
     pub fingerprints: BTreeSet<String>,
     pub profiles: Vec<ProfileDefinition>,
 }
 
 impl Local {
     fn read(tx: &mut Txn<'_>) -> heimdall_store::Result<Self> {
-        let destinations = tx.destinations()?;
-        let mut route_pending = BTreeMap::new();
-        for d in &destinations {
-            if let Some(j) = tx.route_pending(&d.id)? {
-                route_pending.insert(d.id.clone(), j);
-            }
-        }
         Ok(Self {
-            destinations,
-            route_pending,
+            destinations: tx.destinations()?,
             fingerprints: tx
                 .identities()?
                 .into_iter()
@@ -230,9 +235,8 @@ impl Local {
 #[derive(Debug, Default)]
 pub(crate) struct Plan {
     pub entries: Vec<Entry>,
-    /// `(id, alias, jump)` of each destination to add (as an observed destination; with
-    /// `jump`, its route pending on it, review M05-W4F-R01).
-    pub add_destinations: Vec<(DestinationId, String, Option<DestinationId>)>,
+    /// `(id, alias)` of each destination to add (as an observed destination).
+    pub add_destinations: Vec<(DestinationId, String)>,
     pub add_profiles: Vec<(ProfileId, BTreeSet<AccessPair>)>,
 }
 
@@ -244,6 +248,7 @@ fn entry(kind: &'static str, id: String, status: Status, reason: Option<&'static
         reason,
         host_key_fingerprints: Vec::new(),
         jump: None,
+        setup: None,
     }
 }
 
@@ -251,12 +256,7 @@ fn entry(kind: &'static str, id: String, status: Status, reason: Option<&'static
 /// bundle carries is compared: a redacted bundle's alias is a placeholder, and the host
 /// name, port and account of a bundle that has them are compared with a managed record
 /// (an observed one has none to differ).
-fn same_destination(
-    local: &DestinationRecord,
-    d: &PortableDestination,
-    redacted: bool,
-    pending: Option<&DestinationId>,
-) -> bool {
+fn same_destination(local: &DestinationRecord, d: &PortableDestination, redacted: bool) -> bool {
     if !redacted && local.alias != d.alias {
         return false;
     }
@@ -274,9 +274,8 @@ fn same_destination(
                 // ⟨§17.11 item 23⟩ A route through a jump is never the same as a direct one.
                 && d.jump == *jump
         }
-        // ⟨Review M05-W4F-R01⟩ An observed destination matches only with the same pending
-        // route: a routed one is never the same as one reached by its own alias.
-        DestinationDefinition::Observed => d.jump.as_ref() == pending,
+        // ⟨Ruling I-27⟩ A routed destination is never the same as one reached by its alias.
+        DestinationDefinition::Observed => d.jump.is_none(),
     }
 }
 
@@ -294,7 +293,7 @@ fn parse_pairs(pairs: &[String]) -> Option<BTreeSet<AccessPair>> {
 }
 
 /// Plan the import of `bundle` against `local`. Pure and total: the same inputs give the
-/// same plan, and an entry that repeats an earlier one's ID in the bundle is a conflict.
+/// same plan, and every entry whose ID the bundle repeats is a conflict.
 pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
     let mut out = Plan::default();
     let by_id: BTreeMap<&DestinationId, &DestinationRecord> =
@@ -304,14 +303,15 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
         .iter()
         .map(|d| (d.alias.as_str(), &d.id))
         .collect();
-    let mut seen_ids: BTreeSet<&DestinationId> = BTreeSet::new();
     let mut claimed_aliases: BTreeSet<&str> = BTreeSet::new();
     // ⟨M05; review M05-W4F-R03⟩ First every destination is reconciled on its own (its ID, its
     // alias, its content); then each jump is resolved **against that result**, never against
     // the raw bundle: a hop the bundle names must itself be added or unchanged, named once,
     // and have no jump of its own; a hop the bundle omits must be a managed destination here
     // with no jump of its own. Anything else (a refused, colliding or duplicated hop, a chain,
-    // a missing one) refuses the routed destination (`jump_unresolved`).
+    // a missing one) refuses the routed destination (`jump_unresolved`). A routed destination
+    // that resolves is still never written (ruling I-27): unless this catalog has it with the
+    // same route, it is `skipped`.
     let counts: BTreeMap<&DestinationId, usize> =
         bundle
             .destinations
@@ -322,10 +322,12 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
             });
     let mut first: Vec<(Status, Option<&'static str>)> = Vec::new();
     for d in &bundle.destinations {
-        first.push(if !seen_ids.insert(&d.id) {
+        // ⟨Review M05-W4F-R03⟩ Every row of a repeated ID is refused, the first one too, before
+        // any of them claims an alias: none is written.
+        first.push(if counts.get(&d.id).is_some_and(|&n| n > 1) {
             (Status::Conflict, Some("duplicate_in_bundle"))
         } else if let Some(stored) = by_id.get(&d.id) {
-            if same_destination(stored, d, bundle.redacted, local.route_pending.get(&d.id)) {
+            if same_destination(stored, d, bundle.redacted) {
                 (Status::Unchanged, None)
             } else {
                 (Status::Conflict, Some("differs_locally"))
@@ -354,27 +356,31 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
                 matches!(
                     r.definition,
                     DestinationDefinition::Managed { jump: None, .. }
-                ) && !local.route_pending.contains_key(j)
+                )
             }),
         }
     };
+    // ⟨Ruling I-27⟩ The routed destinations this import skips: a new profile naming one is not
+    // written either (it would be a request path to the destination by its bare alias).
+    let mut skipped: BTreeSet<&DestinationId> = BTreeSet::new();
     for (d, &(status, reason)) in bundle.destinations.iter().zip(first.iter()) {
         let id = d.id.as_str().to_owned();
+        let mut setup = None;
         let (status, reason) = match (&d.jump, status) {
-            // Refused, never added as a direct route.
-            (Some(j), Status::Add | Status::Unchanged) if !hop_ok(j) => {
-                (Status::Conflict, Some("jump_unresolved"))
-            }
+            // Refused: its jump does not resolve.
+            (Some(j), Status::Add) if !hop_ok(j) => (Status::Conflict, Some("jump_unresolved")),
+            // ⟨Ruling I-27⟩ Never written, so never reachable by its bare alias: the owner sets
+            // its route up here first (with ADR-0010 §5's pins and checks).
             (Some(j), Status::Add) => {
-                // ⟨Review M05-W4F-R01⟩ Recorded with its route pending: observed, never
-                // launched by its bare alias, until the owner defines the route here.
-                out.add_destinations
-                    .push((d.id.clone(), d.alias.clone(), Some(j.clone())));
-                (Status::Add, Some("recorded_route_pending"))
+                setup = Some(format!(
+                    "heimdall destination add {} --id {} --hostname <host> --account <account> --identity <identity> --jump {j}",
+                    d.alias, d.id
+                ));
+                skipped.insert(&d.id);
+                (Status::Skipped, Some("route_required"))
             }
             (None, Status::Add) => {
-                out.add_destinations
-                    .push((d.id.clone(), d.alias.clone(), None));
+                out.add_destinations.push((d.id.clone(), d.alias.clone()));
                 (Status::Add, Some("recorded_as_observed"))
             }
             (_, st) => (st, reason),
@@ -382,6 +388,7 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
         let mut e = entry("destination", id, status, reason);
         e.host_key_fingerprints = d.host_key_fingerprints.clone();
         e.jump = d.jump.clone();
+        e.setup = setup;
         out.entries.push(e);
     }
     let mut seen_fingerprints: BTreeSet<&str> = BTreeSet::new();
@@ -413,6 +420,11 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
                         (Status::Conflict, Some("differs_locally"))
                     }
                 }
+                // ⟨Ruling I-27⟩ A new profile with a pair on a skipped routed destination is
+                // skipped too, until the owner has set that route up and imports again.
+                (Some(pairs), None) if pairs.iter().any(|a| skipped.contains(&a.destination)) => {
+                    (Status::Skipped, Some("route_required"))
+                }
                 (Some(pairs), None) => {
                     out.add_profiles.push((p.id.clone(), pairs.clone()));
                     (Status::Add, None)
@@ -439,7 +451,7 @@ pub(crate) fn apply_import(
 ) -> heimdall_store::Result<serde_json::Value> {
     let local = Local::read(tx)?;
     let plan = plan(bundle, &local);
-    for (id, alias, jump) in &plan.add_destinations {
+    for (id, alias) in &plan.add_destinations {
         tx.upsert_destination(&DestinationRecord {
             id: id.clone(),
             alias: alias.clone(),
@@ -448,11 +460,6 @@ pub(crate) fn apply_import(
             label: None,
             updated_at: now,
         })?;
-        // ⟨Review M05-W4F-R01⟩ Its route stays pending on the jump: no route is set up here
-        // (that is the owner's own `destination add --jump`, with its pins and checks).
-        if let Some(j) = jump {
-            tx.put_route_pending(id, j)?;
-        }
     }
     for (id, pairs) in &plan.add_profiles {
         // After the highest revision ever pinned (a profile removed earlier keeps its
@@ -498,6 +505,7 @@ fn result(plan: &Plan, dry_run: bool) -> serde_json::Value {
         "unchanged": count(Status::Unchanged),
         "conflicts": count(Status::Conflict),
         "needs_local": count(Status::NeedsLocal),
+        "skipped": count(Status::Skipped),
     });
     if dry_run {
         return serde_json::json!({
@@ -550,9 +558,10 @@ mod tests {
         }
     }
 
-    /// Entries keep the bundle's order; an entry repeating an ID or fingerprint is a
-    /// conflict and never a second write; host-key fingerprints stay on the destination's
-    /// entry (for comparison) and nowhere else.
+    /// Entries keep the bundle's order; an entry repeating a fingerprint or profile ID is a
+    /// conflict and never a second write, and every row of a repeated destination ID is a
+    /// conflict, the first too (review M05-W4F-R03); host-key fingerprints stay on the
+    /// destination's entries (for comparison) and nowhere else.
     #[test]
     fn duplicates_in_a_bundle_are_conflicts_and_fingerprints_ride_the_entry() {
         let mut b = bundle();
@@ -564,7 +573,7 @@ mod tests {
         assert_eq!(
             statuses,
             [
-                ("destination", Status::Add),
+                ("destination", Status::Conflict),
                 ("destination", Status::Conflict),
                 ("identity", Status::NeedsLocal),
                 ("identity", Status::Conflict),
@@ -572,7 +581,7 @@ mod tests {
                 ("profile", Status::Conflict),
             ]
         );
-        assert_eq!((p.add_destinations.len(), p.add_profiles.len()), (1, 1));
+        assert_eq!((p.add_destinations.len(), p.add_profiles.len()), (0, 1));
         assert_eq!(p.entries[0].host_key_fingerprints, vec![fp('A')]);
         assert!(p.entries[2].host_key_fingerprints.is_empty());
     }

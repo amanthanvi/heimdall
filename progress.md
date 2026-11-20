@@ -1126,6 +1126,11 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     platform, the verified client's `ssh -V`, the signer build), per-platform tests including out-of-range hosts and
     WSL, then the 19 drafted A07 and A23 entries, one Codex review, and targeted native reruns on macOS, the devbox and
     Windows. Plan §3 step 3 (the report test against the real table) moves with it.
+  - **M05-F1 (open; M07 hardening; ruled 2026-11-20 by the orchestrator in the M05 wave 4 re-check, finding
+    M05-W4F-RC-R03 without an import):** `destination remove` with live grants or bindings should refuse with a finding
+    listing them, or end them; the owner decides which. Today removing a destination ends neither, so a replayed
+    `ensure` can return the old binding until it is revoked or expires: access already held, continuing within its
+    limits, not an escalation, so not an M05 blocker.
 - **Next: three parallel tracks:**
   - M03 wave 6 (U13: the exit suite, native harnesses, evidence, the matrix and the claims update, then the M03 exit);
   - the M04 design and build;

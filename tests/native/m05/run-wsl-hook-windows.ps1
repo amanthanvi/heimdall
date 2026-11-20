@@ -22,7 +22,8 @@ Steps:
      the M02 pin, tests/native/m02/run-wsl-distro.sh), the three repository files (LF line
      endings), the scratch root and -Out.
   2. Create the run directory <ScratchRoot>\hm-m05-wsl-<12 hex> exclusively (the protected stock
-     profile list, as M04). Record the registered distributions and choose the one name
+     profile list, as M04). Record the registered distributions (the census must succeed: a failed
+     listing stops the run before anything is imported, exit 1) and choose the one name
      hm-m05-<8 hex>; refuse when it is registered already.
   3. Record a pending-import marker (the `attempted` list and <run>\pending-import.txt), then
      `wsl --import` it from the pinned image as WSL 2, into the run directory.
@@ -40,6 +41,12 @@ Steps:
      against the pattern, the before-list and the current list; never `wsl --shutdown`, never
      another distribution); check that the registered set equals the one before; remove the run
      directory this script created.
+     A registration is this run's only when its name is this run's AND the install directory WSL
+     recorded for it (the BasePath of HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss\{GUID}
+     whose DistributionName is the name, compared as a normalized full path) is this run's directory:
+     checked right after the import (a partial import included), before every phase that runs in it,
+     and before the terminate and the unregister. The same name under another directory is never
+     used, terminated or unregistered (a commands.txt line, exit 1; this run's directory is kept).
   7. One redacted bundle of the M02/M04 style (`heimdall-m05-wsl-hook-bundle/1`): tests.txt
      (the script's stdout), commands.txt (each step's exit), host.txt (image digest, distribution
      facts, versions), build.txt, skipped.txt, canary-scan.txt. It is written to -Out and printed
@@ -184,6 +191,96 @@ function Test-OwnRunDirectory([string]$Root, [string]$Dir) {
     if ([string]::IsNullOrWhiteSpace($Root) -or [string]::IsNullOrWhiteSpace($Dir)) { return $false }
     $parent = [System.IO.Path]::GetFullPath((Split-Path -Parent $Dir)).TrimEnd('\', '/')
     return (($parent -ceq [System.IO.Path]::GetFullPath($Root).TrimEnd('\', '/')) -and ((Split-Path -Leaf $Dir) -cmatch '^hm-m05-wsl-[0-9a-f]{12}\z'))
+}
+
+# ---- Ownership of a registration (review finding M05-W4F-RC-R04) ----------------------------------
+# Two disposable runs can draw the same name. A registration is this run's only when its name is this
+# run's (hm-m05-<8 hex>, absent from the census taken before the run) AND the install directory WSL
+# recorded for it (the BasePath of the current user's Lxss key) is this run's directory. The check is
+# made after the import (also a failed or timed-out one), before anything runs in the distribution,
+# and before the cleanup terminates or unregisters it.
+
+# A directory as a comparable string: the `\\?\` (and `\\.\`, `\??\`) prefix removed, `\\?\UNC\` read
+# as `\\`, `/` read as `\`, repeated and trailing separators dropped, lower-cased (Windows paths are
+# case-insensitive). $null for a blank, relative, `.`/`..`-bearing or otherwise unusable path. Pure
+# string work, so it runs (and is self-tested) off Windows.
+function ConvertTo-ComparablePath([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or $Path.Contains("`0")) { return $null }
+    $p = $Path.Trim().Replace('/', '\')
+    if ($p -match '^\\\\[?.]\\UNC\\(.+)$') { $p = '\\' + $Matches[1] }
+    elseif ($p -match '^\\\\[?.]\\(.+)$') { $p = $Matches[1] }
+    elseif ($p -match '^\\\?\?\\(.+)$') { $p = $Matches[1] }
+    $unc = $p.StartsWith('\\')
+    $parts = @($p -split '\\' | Where-Object { $_ -ne '' })
+    if ($parts.Count -eq 0 -or @($parts | Where-Object { $_ -ceq '.' -or $_ -ceq '..' }).Count -gt 0) { return $null }
+    if ($unc) {
+        if ($parts.Count -lt 2) { return $null }
+    } elseif ($parts[0] -notmatch '^[A-Za-z]:$') { return $null }
+    return (($(if ($unc) { '\\' } else { '' }) + ($parts -join '\')).ToLowerInvariant())
+}
+
+# The `{DistributionName, BasePath}` rows WSL keeps for the current user:
+# HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss\{GUID}. Throws when the key cannot be read.
+# (Windows only; the self-test feeds synthetic rows through the Source parameters below instead.)
+function Read-LxssRows {
+    $root = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Lxss')
+    if ($null -eq $root) { throw 'the Lxss registry key is not readable' }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    try {
+        foreach ($sub in $root.GetSubKeyNames()) {
+            $k = $root.OpenSubKey($sub)
+            if ($null -eq $k) { continue }
+            try {
+                $rows.Add([pscustomobject]@{ DistributionName = [string]$k.GetValue('DistributionName', ''); BasePath = [string]$k.GetValue('BasePath', '') })
+            } finally { $k.Dispose() }
+        }
+    } finally { $root.Dispose() }
+    return , $rows.ToArray()
+}
+
+# The comparable install directory WSL recorded for Name, or $null when it cannot be read: the rows
+# cannot be read, no row or more than one row carries the name, or the BasePath is unusable.
+function Get-DistributionInstallDirectory([string]$Name, [scriptblock]$Source = { Read-LxssRows }) {
+    try {
+        $rows = @(& $Source)
+        $match = @($rows | Where-Object { $null -ne $_ -and ([string]$_.DistributionName) -ieq $Name })
+        if ($match.Count -ne 1) { return $null }
+        return (ConvertTo-ComparablePath ([string]$match[0].BasePath))
+    } catch { return $null }
+}
+
+# Whether the registration called Name is this run's: its name is this runner's pattern and absent
+# from the census taken before the run ($Before, $null when that census failed: never owned), and
+# the install directory WSL recorded for it is this run's directory (Dir).
+function Test-OwnRegistration([string]$Name, [string]$Dir, $Before, [scriptblock]$Source = { Read-LxssRows }) {
+    if ($null -eq $Before) { return $false }
+    if (-not (Test-OwnDistributionName $Name)) { return $false }
+    if (@($Before) -contains $Name) { return $false }
+    $want = ConvertTo-ComparablePath $Dir
+    if ($null -eq $want) { return $false }
+    $have = Get-DistributionInstallDirectory $Name $Source
+    return ($null -ne $have -and $have -ceq $want)
+}
+
+# Throws unless the registration called Name is this run's (see Test-OwnRegistration).
+function Assert-OwnRegistration([string]$Name, [string]$Dir, $Before) {
+    if (-not (Test-OwnRegistration $Name $Dir $Before)) {
+        throw "refusing: $Name is not registered under this run's install directory (not used, not removed)"
+    }
+}
+
+# A script inside this run's distribution: only after the registration is shown to be this run's.
+function Invoke-OwnedInDistro([string]$Name, [string]$Dir, $Before, [string]$Account, [string]$Script, [string[]]$ScriptArgs, [int]$Seconds = 1800) {
+    Assert-OwnRegistration $Name $Dir $Before
+    return Invoke-InDistro $Name $Account $Script $ScriptArgs $Seconds
+}
+
+# The census before the run: the registered names, from a listing that succeeded. A failed listing
+# ($null from Get-RegisteredOrNull) is never an empty set: it stops the run before anything is imported.
+function Get-CensusOrThrow([scriptblock]$List = { Get-RegisteredOrNull }) {
+    $names0 = & $List
+    if ($null -eq $names0) { throw 'the registered distributions could not be listed (wsl --list --quiet failed); nothing imported' }
+    return , @($names0)
 }
 
 # The journeys script's stdout reduced to its own part: from its `### wsl_hook_m05` header to its last
@@ -540,6 +637,91 @@ function Invoke-SelfTest {
         $hook['packages'].Contains('apt-get -q -y install --no-install-recommends zsh openssh-server openssh-client git util-linux') -and
         $hook['packages'].IndexOf('policy-rc.d') -lt $hook['packages'].IndexOf('apt-get -q -y install') -and $hook['packages'].Contains('[ "$allow" != 1 ]') -and $hook['packages'].Contains('exit 3'))
     Check 'E07 every script sent in refuses outside the named distribution' (@(@('packages', 'user-facts', 'stage', 'journeys') | Where-Object { -not $hook[$_].Contains('WSL_DISTRO_NAME:-}" = "$1"') }).Count -eq 0)
+
+    # Ownership of a registration (M05-W4F-RC-R04): synthetic {DistributionName, BasePath} rows, no WSL.
+    $ownDir = 'C:\Users\fixtureuser\hm\hm-m05-wsl-0a1b2c3d4e5f\distros\hm-m05-0a1b2c3d'
+    $otherDir = 'C:\Users\fixtureuser\hm\hm-m05-wsl-ffffffffffff\distros\hm-m05-0a1b2c3d'
+    $mkRows = {
+        param([string]$P)
+        $rows0 = @([pscustomobject]@{ DistributionName = 'Ubuntu'; BasePath = 'C:\Users\fixtureuser\AppData\Local\wsl\ubuntu' },
+            [pscustomobject]@{ DistributionName = $own; BasePath = $P })
+        return { $rows0 }.GetNewClosure()
+    }
+    $srcOwn = & $mkRows "\\?\$ownDir"
+    $srcOther = & $mkRows $otherDir
+    Check 'P01 path normalization: the \\?\ and \\.\ and \??\ prefixes, case, trailing and repeated separators, forward slashes' (
+        (ConvertTo-ComparablePath "\\?\$ownDir") -ceq $ownDir.ToLowerInvariant() -and (ConvertTo-ComparablePath $ownDir.ToUpperInvariant()) -ceq $ownDir.ToLowerInvariant() -and
+        (ConvertTo-ComparablePath "$ownDir\") -ceq $ownDir.ToLowerInvariant() -and (ConvertTo-ComparablePath ($ownDir + '\\')) -ceq $ownDir.ToLowerInvariant() -and
+        (ConvertTo-ComparablePath ($ownDir.Replace('\', '/'))) -ceq $ownDir.ToLowerInvariant() -and (ConvertTo-ComparablePath "\\.\$ownDir") -ceq $ownDir.ToLowerInvariant() -and
+        (ConvertTo-ComparablePath "\??\$ownDir") -ceq $ownDir.ToLowerInvariant() -and (ConvertTo-ComparablePath 'C:\a\\b') -ceq 'c:\a\b' -and
+        (ConvertTo-ComparablePath '\\?\UNC\Srv\Share\X\') -ceq '\\srv\share\x' -and (ConvertTo-ComparablePath '\\Srv\Share\X') -ceq '\\srv\share\x')
+    Check 'P02 path normalization refuses blank, relative, dot-segment and rootless paths (a $null, never a guess)' (
+        $null -eq (ConvertTo-ComparablePath '') -and $null -eq (ConvertTo-ComparablePath $null) -and $null -eq (ConvertTo-ComparablePath '   ') -and
+        $null -eq (ConvertTo-ComparablePath 'relative\dir') -and $null -eq (ConvertTo-ComparablePath 'C:\a\..\b') -and $null -eq (ConvertTo-ComparablePath 'C:\a\.\b') -and
+        $null -eq (ConvertTo-ComparablePath '\\?\') -and $null -eq (ConvertTo-ComparablePath '\\srv') -and $null -eq (ConvertTo-ComparablePath "C:\a`0b") -and
+        $null -eq (ConvertTo-ComparablePath '\temp\x'))
+    Check 'O01 the name is this run''s and its install directory is this run''s (with or without the \\?\ prefix, any case): owned' (
+        (Test-OwnRegistration $own $ownDir @('Ubuntu') $srcOwn) -and (Test-OwnRegistration $own $ownDir.ToUpperInvariant() @() $srcOwn) -and
+        (Test-OwnRegistration $own "$ownDir\" @('Ubuntu') (& $mkRows $ownDir.ToUpperInvariant())))
+    Check 'O02 the right name under another run''s directory is NOT owned: never used, never terminated, never unregistered' (
+        -not (Test-OwnRegistration $own $ownDir @('Ubuntu') $srcOther) -and -not (Test-OwnRegistration $own $otherDir @('Ubuntu') $srcOwn))
+    Check 'O03 a name already in the census before the run is NOT owned, even under this run''s directory' (
+        -not (Test-OwnRegistration $own $ownDir @('Ubuntu', $own) $srcOwn) -and -not (Test-OwnRegistration $own $ownDir @($own) $srcOwn))
+    $srcThrows = { throw 'registry unreadable' }
+    Check 'O04 an unreadable directory is NOT owned: unreadable rows, no row, a blank or relative BasePath, the name twice, a failed census, a name not of this runner''s form' (
+        -not (Test-OwnRegistration $own $ownDir @('Ubuntu') $srcThrows) -and -not (Test-OwnRegistration $own $ownDir @('Ubuntu') { @() }) -and
+        -not (Test-OwnRegistration $own $ownDir @('Ubuntu') (& $mkRows '')) -and -not (Test-OwnRegistration $own $ownDir @('Ubuntu') (& $mkRows 'relative\dir')) -and
+        -not (Test-OwnRegistration $own $ownDir @('Ubuntu') { @([pscustomobject]@{ DistributionName = 'hm-m05-0a1b2c3d'; BasePath = 'C:\x' }, [pscustomobject]@{ DistributionName = 'HM-M05-0A1B2C3D'; BasePath = 'C:\x' }) }) -and
+        -not (Test-OwnRegistration $own $ownDir $null $srcOwn) -and -not (Test-OwnRegistration $own '' @('Ubuntu') $srcOwn) -and
+        -not (Test-OwnRegistration 'Ubuntu' 'C:\Users\fixtureuser\AppData\Local\wsl\ubuntu' @() $srcOwn) -and -not (Test-OwnRegistration 'hm-m04-0a1b2c3d-1' 'C:\x' @() { @([pscustomobject]@{ DistributionName = 'hm-m04-0a1b2c3d-1'; BasePath = 'C:\x' }) }))
+    Check 'O05 the install directory is looked up by name only (a row for another name, with this run''s directory, does not count)' (
+        $null -eq (Get-DistributionInstallDirectory $own { @([pscustomobject]@{ DistributionName = 'Ubuntu'; BasePath = $ownDir }) }) -and
+        (Get-DistributionInstallDirectory $own $srcOwn) -ceq $ownDir.ToLowerInvariant())
+    $ownThrew = $false
+    try { Assert-OwnRegistration $own $ownDir @('Ubuntu') } catch { $ownThrew = $_.Exception.Message -like '*not registered under this run''s install directory*' }
+    $ownedRefused = $false
+    try { [void](Invoke-OwnedInDistro $own $ownDir @('Ubuntu') 'root' 'true' @() 5) } catch { $ownedRefused = $_.Exception.Message -like '*not registered under this run''s install directory*' }
+    Check 'O06 Assert-OwnRegistration and Invoke-OwnedInDistro refuse before anything runs when the registration is not shown to be this run''s (no Lxss key for it here)' ($ownThrew -and $ownedRefused)
+    $lxss = (Get-Command Read-LxssRows -CommandType Function).ScriptBlock.ToString()
+    Check 'O07 the registry read is the current user''s Lxss key: HKCU Software\Microsoft\Windows\CurrentVersion\Lxss, DistributionName and BasePath' (
+        $lxss.Contains('CurrentUser.OpenSubKey(''Software\Microsoft\Windows\CurrentVersion\Lxss'')') -and $lxss.Contains("GetValue('DistributionName'") -and $lxss.Contains("GetValue('BasePath'"))
+    $censusMsg = ''
+    try { [void](Get-CensusOrThrow { $null }) } catch { $censusMsg = $_.Exception.Message }
+    $censusOk = Get-CensusOrThrow { , @('Ubuntu', 'Debian') }
+    $censusEmpty = Get-CensusOrThrow { , @() }
+    # The function boundary the run uses: wsl.exe's list through M04's Get-RegisteredOrNull. A failing
+    # `wsl --list --quiet` (exit 1) is a failed census, not an empty set; a succeeding one is the set.
+    $viaWsl = & {
+        function Invoke-WslExe([string[]]$Arguments, [int]$Seconds = 600) { return [pscustomobject]@{ Code = 1; Output = ''; TimedOut = $false } }
+        $failMsg = ''
+        try { [void](Get-CensusOrThrow) } catch { $failMsg = $_.Exception.Message }
+        $failNull = $null -eq (Get-RegisteredOrNull)
+        function Invoke-WslExe([string[]]$Arguments, [int]$Seconds = 600) { return [pscustomobject]@{ Code = 0; Output = "Ubuntu`r`n"; TimedOut = $false } }
+        $okNames = Get-CensusOrThrow
+        [pscustomobject]@{ FailMsg = $failMsg; FailNull = $failNull; Names = $okNames }
+    }
+    Check 'K01 a failed census (a $null listing, or wsl.exe''s list exiting nonzero) throws before an import; an empty successful listing is a valid empty set' (
+        $censusMsg.Contains('could not be listed') -and $viaWsl.FailMsg.Contains('could not be listed') -and $viaWsl.FailNull -and
+        ($viaWsl.Names -join ',') -ceq 'Ubuntu' -and ($censusOk -join ',') -ceq 'Ubuntu,Debian' -and $censusEmpty.Count -eq 0 -and $censusEmpty -is [array])
+    $mainText = $selfText.Remove($stFn.Extent.StartOffset, $stFn.Extent.EndOffset - $stFn.Extent.StartOffset)
+    $iCensus = $mainText.IndexOf('$before = Get-CensusOrThrow')
+    $iNames = $mainText.IndexOf('$names = @($distroName)')
+    $iImport = $mainText.IndexOf("'--import', `$distroName")
+    $iMarker = $mainText.IndexOf('WriteAllText($markerFile')
+    Check 'K02 in the run, the successful census comes first: before the name is chosen, the marker is written and `wsl --import` runs; no listing without a failure check feeds $before' (
+        $iCensus -gt 0 -and $iCensus -lt $iNames -and $iNames -gt 0 -and $iNames -lt $iMarker -and $iMarker -lt $iImport -and -not $mainText.Contains('$before = @(Get-Registered)'))
+    $iUnreg = $mainText.IndexOf("Invoke-WslExe @('--unregister', `$n)")
+    $iTermN = $mainText.IndexOf("Invoke-WslExe @('--terminate', `$n)")
+    $iGate = $mainText.IndexOf('if (-not (Test-OwnRegistration $n $dir $before))')
+    $mainAfterImport = $mainText.Substring($iImport)
+    $rawDistro = [regex]::Matches($mainAfterImport, 'Invoke-InDistro \$distroName').Count
+    $termDistro = [regex]::Matches($mainAfterImport, "Invoke-WslExe @\('--terminate', \`$distroName\)").Count
+    $assertedTerm = [regex]::Matches($mainAfterImport, "Assert-OwnRegistration \`$distroName \`$dir \`$before\s+\[void\]\(Invoke-WslExe @\('--terminate', \`$distroName\)").Count
+    Check 'K03 the ownership check gates every use: right after the import (the created list), every phase in the distribution, the mid-run terminates, and the cleanup''s terminate and unregister' (
+        $mainText.Contains('if (Test-OwnRegistration $distroName $dir $before)') -and $mainText.IndexOf('$created.Add($distroName)') -gt $iImport -and
+        $rawDistro -eq 0 -and $mainAfterImport.Contains('Invoke-OwnedInDistro $distroName $dir $before') -and
+        $termDistro -eq 2 -and $assertedTerm -eq 2 -and
+        $iGate -gt 0 -and $iGate -lt $iTermN -and $iTermN -lt $iUnreg)
     $paramNames = @($selfAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath.ToLowerInvariant() })
     $clashes = @($selfAst.FindAll({ param($a) $a -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true) |
             Where-Object { $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and ($paramNames -contains $_.Left.VariablePath.UserPath.ToLowerInvariant()) })
@@ -641,6 +823,7 @@ $overall = 0
 $created = [System.Collections.Generic.List[string]]::new()
 $attempted = [System.Collections.Generic.List[string]]::new()
 $before = @()
+$dir = ''
 $names = @()
 $wv = @{}
 $bundleSaved = $false
@@ -664,7 +847,9 @@ try {
     Add-Fact 'runner-sha256' ((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant())
 
     # The registered set, and this run's one name.
-    $before = @(Get-Registered)
+    # The census must have succeeded: a failed listing stops the run here, before anything is imported.
+    $before = Get-CensusOrThrow
+    Add-Command 0 "wsl --list --quiet: the census before the run ($($before.Count) registered)"
     $distroName = Get-DistributionName (New-RandomHex 4)
     $names = @($distroName)
     Add-DistributionFacts 'before'
@@ -701,44 +886,57 @@ try {
     [System.IO.File]::WriteAllText($markerFile, "$distroName`n", [System.Text.UTF8Encoding]::new($false))
     $attempted.Add($distroName)
     $r = $null
+    $foreign = $false
     try {
         $r = Invoke-WslExe @('--import', $distroName, $dir, $image, '--version', '2') 1800
     } finally {
-        # Recorded as this run's as soon as it is registered, whatever the exit code said.
-        $listed = Get-RegisteredOrNull
-        if ($null -ne $listed -and ($listed -contains $distroName) -and -not ($created -contains $distroName)) { $created.Add($distroName) }
+        # Recorded as this run's as soon as it is registered under this run's install directory,
+        # whatever the exit code said (a partial import included). The same name registered
+        # anywhere else is another run's: never recorded, never used, never removed.
+        if (Test-OwnRegistration $distroName $dir $before) {
+            if (-not ($created -contains $distroName)) { $created.Add($distroName) }
+        } else {
+            $listed = Get-RegisteredOrNull
+            if ($null -ne $listed -and ($listed -contains $distroName)) { $foreign = $true }
+        }
     }
     Add-Command $r.Code "wsl --import $distroName (into the run directory, WSL 2)"
+    if ($foreign) {
+        Add-Command 1 "$distroName is registered, but not under this run's install directory: another run's, so it is not used and not removed"
+        throw "$distroName is registered under another install directory; nothing was run in it"
+    }
     if ($r.Code -ne 0 -or -not ($created -contains $distroName)) { throw "the import of $distroName failed" }
     Add-DistributionFacts 'after-import'
 
     # As root, in this distribution only.
-    $r = Invoke-InDistro $distroName 'root' $m04Scripts['root-phase'] @($files, $distroName, 'no-systemd') 600
+    $r = Invoke-OwnedInDistro $distroName $dir $before 'root' $m04Scripts['root-phase'] @($files, $distroName, 'no-systemd') 600
     Add-Command $r.Code "$distroName`: target-root.sh no-systemd"
     if ($r.Code -ne 0) { throw 'no-systemd failed' }
+    Assert-OwnRegistration $distroName $dir $before
     [void](Invoke-WslExe @('--terminate', $distroName) 120)
     $aptFlag = if ($AllowApt) { '1' } else { '0' }
-    $r = Invoke-InDistro $distroName 'root' $hookScripts['packages'] @($distroName, $aptFlag) 3600
+    $r = Invoke-OwnedInDistro $distroName $dir $before 'root' $hookScripts['packages'] @($distroName, $aptFlag) 3600
     [void]$build.Append("### $distroName packages`n$($r.Output)`n")
     Add-Command $r.Code "$distroName`: packages (zsh, openssh-server, openssh-client, git, util-linux; apt $(if ($AllowApt) { 'allowed' } else { 'not allowed: check only' }))"
     if ($r.Code -eq 3) { $overall = 3; throw "$distroName lacks tools (-AllowApt installs them inside it)" }
     if ($r.Code -ne 0) { throw 'the packages step failed' }
-    $r = Invoke-InDistro $distroName 'root' $m04Scripts['root-phase'] @($files, $distroName, 'prepare', $User, $aptFlag) 3600
+    $r = Invoke-OwnedInDistro $distroName $dir $before 'root' $m04Scripts['root-phase'] @($files, $distroName, 'prepare', $User, $aptFlag) 3600
     [void]$build.Append("### $distroName prepare`n$($r.Output)`n")
     Add-Command $r.Code "$distroName`: target-root.sh prepare (tools, git, python3; the non-root user)"
     if ($r.Code -eq 3) { $overall = 3; throw "$distroName lacks tools (-AllowApt installs them inside it)" }
     if ($r.Code -ne 0) { throw 'prepare failed' }
+    Assert-OwnRegistration $distroName $dir $before
     [void](Invoke-WslExe @('--terminate', $distroName) 120)
 
     # As the non-root user: facts for the redaction, versions, the inputs, the journeys.
-    $r = Invoke-InDistro $distroName $User $hookScripts['user-facts'] @($distroName) 120
+    $r = Invoke-OwnedInDistro $distroName $dir $before $User $hookScripts['user-facts'] @($distroName) 120
     foreach ($l in ($r.Output -split "`n")) { if ($l -match '^([a-z]+)=(.*)$') { $wv[$Matches[1]] = $Matches[2].Trim() } }
     Add-Command $r.Code 'the non-root user''s facts (kept only as redaction rules)'
     if ($r.Code -ne 0 -or -not $wv['wsluser']) { throw 'the non-root user is not usable' }
-    $r = Invoke-InDistro $distroName $User $hookScripts['versions'] @() 120
+    $r = Invoke-OwnedInDistro $distroName $dir $before $User $hookScripts['versions'] @() 120
     foreach ($l in ($r.Output -replace "`r", '' -split "`n")) { if ($l -match '^([a-z0-9-]+)=(.*)$') { Add-Fact "wsl-$($Matches[1])" $Matches[2] } }
     Add-Command $r.Code 'versions inside the distribution'
-    $r = Invoke-InDistro $distroName $User $hookScripts['stage'] @($distroName, $files, $bundleCheck.Sha256) 600
+    $r = Invoke-OwnedInDistro $distroName $dir $before $User $hookScripts['stage'] @($distroName, $files, $bundleCheck.Sha256) 600
     [void]$build.Append("### $distroName stage`n$($r.Output)`n")
     foreach ($l in ($r.Output -replace "`r", '' -split "`n")) { if ($l -match '^(bindir-files|bindir-sha256|heimdall-sha256|tar-members|bundle-digest-in-distribution)=(.*)$') { Add-Fact "stage-$($Matches[1])" $Matches[2] } }
     Add-Command $r.Code 'the tarball is checked inside the distribution, extracted, and BINDIR is verified against BINDIR.sha256'
@@ -746,7 +944,7 @@ try {
 
     $scratch = Get-DistroScratch (New-RandomHex 4)
     if (-not (Test-ScratchLength $scratch)) { throw 'the scratch path is too long' }
-    $r = Invoke-InDistro $distroName $User $hookScripts['journeys'] @($distroName, $scratch) $TimeoutSeconds
+    $r = Invoke-OwnedInDistro $distroName $dir $before $User $hookScripts['journeys'] @($distroName, $scratch) $TimeoutSeconds
     $testsText = Format-JourneyTests $r.Output $r.Code $JourneyTarget
     $verdict = Get-JourneyVerdict $r.Output $r.Code $JourneyTarget $ExpectedSteps
     if (-not $verdict.Pass) { [void]$build.Append("### journeys output (tail)`n$((($r.Output -replace "`r", '') -split "`n" | Select-Object -Last 60) -join "`n")`n") }
@@ -769,6 +967,13 @@ try {
         if ($attempted.Count -gt 0) {
             $now = @(Get-Registered)
             foreach ($n in @(Select-RemovableDistributions $attempted.ToArray() $before $now)) {
+                # Never terminate or unregister a registration whose install directory is not this
+                # run's, even with the right name (its directory and marker are kept, below).
+                if (-not (Test-OwnRegistration $n $dir $before)) {
+                    Add-Command 1 "$n is registered, but its install directory is not this run's (or could not be read): not terminated, not unregistered; this run's install directory and pending-import.txt are kept"
+                    if ($overall -eq 0) { $overall = 1 }
+                    continue
+                }
                 [void](Invoke-WslExe @('--terminate', $n) 120)
                 $r = Invoke-WslExe @('--unregister', $n) 600
                 Add-Command $r.Code "wsl --unregister $n (this run's, by exact name)"

@@ -315,6 +315,16 @@ ak=$(wslpath -u "$2")
 lg=$(wslpath -u "$3")
 aks=$(wslpath -u "$4")
 lgs=$(wslpath -u "$5")
+# M05 W4: the sshd logs live on the WSL file system when Windows can name them there (log= and
+# strictlog=, their Windows paths): concurrent sshd children appending to one drvfs file lost
+# a line (two simultaneous logins left one Accepted line). Otherwise the drvfs paths, as before.
+if (umask 077 && : >"$d/sshd.log" && : >"$d/sshd_strict.log") &&
+    lw=$(wslpath -w "$d/sshd.log" 2>/dev/null) && lws=$(wslpath -w "$d/sshd_strict.log" 2>/dev/null); then
+    lg=$d/sshd.log
+    lgs=$d/sshd_strict.log
+    echo "log=$lw"
+    echo "strictlog=$lws"
+fi
 hm2_sanitize_env >/dev/null
 if hm2_sshd_start "$d/sshd" "$ak" "$lg" 6 "$d/registry/authorized_keys"; then
     p1=$HM2_SSHD_PID
@@ -355,6 +365,16 @@ function Test-StrictSshdAtEndOk([string]$AtEnd, [bool]$Started) {
 # 64 characters.
 function Test-PlainAccount([string]$Name) {
     return ($Name -cmatch '^(?!-)[A-Za-z0-9._-]{1,64}$')
+}
+
+# M05 W4: the sshd logs the tests read. The WSL file system's (log= and strictlog=, Windows paths
+# the start script reported) when both are there, since concurrent sshd children appending to
+# one drvfs file lose lines; otherwise the drvfs paths under the run directory.
+function Select-SshdLogs([hashtable]$Fx, [string]$Log, [string]$LogStrict) {
+    if ($Fx.ContainsKey('log') -and $Fx['log'] -and $Fx.ContainsKey('strictlog') -and $Fx['strictlog']) {
+        return @{ Log = $Fx['log']; Strict = $Fx['strictlog']; Fact = 'on the WSL file system (concurrent appends to a drvfs file lose lines)' }
+    }
+    return @{ Log = $Log; Strict = $LogStrict; Fact = 'on drvfs under the run directory (the WSL paths were not reported)' }
 }
 
 # The test environment's HM_FIXTURE_SSHD_* variables: none unless the default sshd is reachable
@@ -588,6 +608,13 @@ function Invoke-SelfTest([string]$OutDir) {
         $fe['HM_FIXTURE_SSHD_STRICT_AUTHORIZED_KEYS'] -eq 'S\aks' -and $fe['HM_FIXTURE_SSHD_STRICT_LOG'] -eq 'S\logs' -and $fe.Count -eq 10)
     $noUser = @('', '-oProxyCommand=x', 'a b', "a`nHost *", 'dom\u', ('a' * 65)) | ForEach-Object { (Get-FixtureEnvironment $fxBoth $true $true 'a' 'l' 'as' 'ls' $_).ContainsKey('HM_FIXTURE_SSHD_USER') }
     $noStrict = Get-FixtureEnvironment $fxBoth $true $false 'a' 'l' 'as' 'ls' 'wslfixture'
+    # M05 W4: the sshd logs on the WSL file system when the start script reported both.
+    $onWsl = Select-SshdLogs @{ log = '\\wsl.localhost\d\s\sshd.log'; strictlog = '\\wsl.localhost\d\s\sshd_strict.log' } 'S\log' 'S\logs'
+    $oneOnly = Select-SshdLogs @{ log = '\\wsl.localhost\d\s\sshd.log' } 'S\log' 'S\logs'
+    $none = Select-SshdLogs @{} 'S\log' 'S\logs'
+    Check 'U04 the sshd logs are the WSL file system''s when both were reported, else the drvfs paths' (
+        $onWsl.Log -ceq '\\wsl.localhost\d\s\sshd.log' -and $onWsl.Strict -ceq '\\wsl.localhost\d\s\sshd_strict.log' -and
+        $oneOnly.Log -ceq 'S\log' -and $oneOnly.Strict -ceq 'S\logs' -and $none.Log -ceq 'S\log' -and $none.Strict -ceq 'S\logs')
     Check 'U02 no account unless it is a plain name; no strict variables unless the strict sshd is reachable; nothing unless the default one is' (
         -not ($noUser -contains $true) -and (Test-PlainAccount 'a.b_c-d') -and -not $noStrict.ContainsKey('HM_FIXTURE_SSHD_STRICT_PORT') -and
         $noStrict['HM_FIXTURE_SSHD_USER'] -ceq 'wslfixture' -and (Get-FixtureEnvironment $fxBoth $false $true 'a' 'l' 'as' 'ls' 'wslfixture').Count -eq 0)
@@ -1049,7 +1076,10 @@ try {
                 Add-Fact 'fixture-sshd-user' 'not exported: the WSL account is not a plain account name'
                 Add-Command 1 'HM_FIXTURE_SSHD_USER exported from the WSL account'
             }
-            $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $slog $akStrict $slogStrict $wv['wsluser']
+            # M05 W4: the logs on the WSL file system when the start script named them (log=).
+            $logs = Select-SshdLogs $fx $slog $slogStrict
+            Add-Fact 'fixture-sshd-log' $logs.Fact
+            $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $logs.Log $akStrict $logs.Strict $wv['wsluser']
             # ⟨M03 wave 4, W4-N01⟩ The enrollment registry on the WSL file system.
             if ($fixtureEnv.ContainsKey('HM_FIXTURE_SSHD_REGISTRY')) {
                 Add-Fact 'fixture-sshd-registry' 'exported as HM_FIXTURE_SSHD_REGISTRY and HM_FIXTURE_SSHD_REGISTRY_REMOTE (owner-only, WSL scratch)'

@@ -153,18 +153,6 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
                 None,
             ));
         };
-        // ⟨M05; review M05-W4F-R01⟩ An imported destination whose route through a jump is
-        // pending is never handed to ssh by its bare alias: this machine's own configuration
-        // could reach it directly, bypassing the bastion.
-        if let Some(jump) = &known.route_pending {
-            return Err(Failure::new(
-                Code::CapabilityUnavailable,
-                &format!(
-                    "{alias} is reached through the jump destination {jump}, and that route is not set up here; define it first: heimdall destination add {alias} --hostname <host> --account <account> --identity <idn_…> --jump {jump}"
-                ),
-                Some(heimdall_contract::envelope::reason::ROUTE_PENDING),
-            ));
-        }
         if let Some(pair) = known.managed.clone() {
             let flow = ManagedConnect {
                 alias: &alias,
@@ -220,9 +208,6 @@ struct Known {
     managed: Option<AccessPairRef>,
     /// ⟨M04 U6⟩ The jump hop of the destination's single-hop route, when it has one.
     route: Option<RouteDep>,
-    /// ⟨M05; review M05-W4F-R01⟩ The jump an imported destination's route is pending on
-    /// (`route_pending.jump` in its view): such a destination is never launched.
-    route_pending: Option<String>,
 }
 
 /// ⟨M04 U6; ADR-0010 §5 item 2⟩ A destination's jump hop: its pair (the jump
@@ -672,11 +657,6 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Kn
             definition: definition_of(item),
             managed: managed_pair_of(item),
             route: route_of(item, &items),
-            route_pending: item
-                .get("route_pending")
-                .and_then(|r| r.get("jump"))
-                .and_then(|j| j.as_str())
-                .map(str::to_owned),
         }));
     }
     let record = launch_flow::projection_record(client).await?;
@@ -688,7 +668,6 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Kn
             definition: Definition::Managed,
             managed: None,
             route: None,
-            route_pending: None,
         }))
 }
 

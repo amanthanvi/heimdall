@@ -100,12 +100,6 @@ pub(super) fn resolve_pairs(
         if let Err(e) = super::pair_route(&routes, p, pairs) {
             return Ok(Err(e));
         }
-        // ⟨M05; review M05-W4F-R01⟩ An imported destination whose route through a jump is
-        // pending is never reached by its bare alias (existing access would take whatever
-        // route this machine's own configuration has): refused before anything is admitted.
-        if let Some(jump) = tx.route_pending(&p.destination)? {
-            return Ok(Err(super::route_pending_refusal(&p.destination, &jump)));
-        }
     }
     let mut managed = false;
     let mut pending_projection = false;

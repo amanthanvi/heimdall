@@ -1136,6 +1136,15 @@ fn a29_cli_hook_ignores_a_hostile_environment() {
 /// `RPROMPT` is left out: it is the shell's own to expand at every prompt, whatever the hook
 /// does (the binary got them above). Returns each shell's transcript (stdout and stderr);
 /// asserts that the session finished, leaked no canary and created no canary file.
+///
+/// ⟨M05 W4; the WSL pre-final run⟩ "No terminal" holds whatever terminal this test runs
+/// under: the shells run in a session of their own (`setsid -w`, util-linux, where it exists),
+/// so they have no controlling terminal. Under the terminal of a WSL session, an interactive
+/// `bash` that is not in the terminal's foreground process group (GNU `timeout` puts its
+/// command in a group of its own) stops itself and its whole process group with `SIGTTIN` to
+/// wait for the terminal: the run hung until the harness's 900 s bound. Each shell is also
+/// bounded here ([`SHELL_BOUND`]): one that does not finish is killed, by its handle, and the
+/// test fails with the shell's process state.
 #[cfg(unix)]
 fn shell_hook_transcripts(
     rt: &Rt,
@@ -1166,7 +1175,17 @@ fn shell_hook_transcripts(
             continue;
         }
         let mut script = format!("{init}\n");
-        let mut cmd = rt.command(shell);
+        let mut cmd = match ["/usr/bin/setsid", "/bin/setsid"]
+            .into_iter()
+            .find(|p| Path::new(p).exists())
+        {
+            Some(setsid) => {
+                let mut c = rt.command(setsid);
+                c.arg("-w").arg(shell);
+                c
+            }
+            None => rt.command(shell),
+        };
         cmd.args(argv).env("PATH", &path);
         for (i, d) in dirs.iter().enumerate() {
             script.push_str(&format!("cd -- \"$HM_D{i}\"\n"));
@@ -1191,11 +1210,11 @@ fn shell_hook_transcripts(
             let mut stdin = child.stdin.take().unwrap();
             stdin.write_all(script.as_bytes()).unwrap();
         }
-        let out = child.wait_with_output().unwrap();
+        let (stdout, stderr) = bounded_output(&mut child, shell);
         let transcript = format!(
             "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
         );
         assert_no_canary(&transcript);
         assert!(transcript.contains("HM-DONE"), "{shell}: {transcript}");
@@ -1207,6 +1226,52 @@ fn shell_hook_transcripts(
         "blocked: neither /bin/bash nor /bin/zsh is present"
     );
     runs
+}
+
+/// How long one shell of [`shell_hook_transcripts`] may take (it enters a few directories).
+#[cfg(unix)]
+const SHELL_BOUND: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The output of `child` (this test's own shell), read until it exits or [`SHELL_BOUND`]
+/// passes; then the child is killed by its handle and the test fails with its process state
+/// (`/proc/<pid>/stat` where there is one: `T` is stopped, for example by `SIGTTIN`).
+#[cfg(unix)]
+fn bounded_output(child: &mut std::process::Child, shell: &str) -> (Vec<u8>, Vec<u8>) {
+    use std::io::Read as _;
+    let read = |mut r: Box<dyn std::io::Read + Send>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = r.read_to_end(&mut buf);
+            buf
+        })
+    };
+    let out = read(Box::new(child.stdout.take().unwrap()));
+    let err = read(Box::new(child.stderr.take().unwrap()));
+    let start = std::time::Instant::now();
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            break;
+        }
+        if start.elapsed() > SHELL_BOUND {
+            let state = std::fs::read_to_string(format!("/proc/{}/stat", child.id()))
+                .ok()
+                .and_then(|s| {
+                    s.rsplit_once(") ")
+                        .and_then(|(_, rest)| rest.split(' ').next().map(str::to_owned))
+                })
+                .unwrap_or_else(|| "unknown".to_owned());
+            let _ = child.kill();
+            let _ = child.wait();
+            let (o, e) = (out.join().unwrap(), err.join().unwrap());
+            panic!(
+                "{shell}: did not finish within {SHELL_BOUND:?} (process state {state}): {}{}",
+                String::from_utf8_lossy(&o),
+                String::from_utf8_lossy(&e)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    (out.join().unwrap(), err.join().unwrap())
 }
 
 /// **Finding A29-F2** (fixed in W4: `activate_cmd`'s scripts check their own state variables

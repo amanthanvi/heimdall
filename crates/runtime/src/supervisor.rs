@@ -646,7 +646,9 @@ impl Supervisor {
         let mut last_safe: Option<bool> = None;
         let mut last_mono = start;
         let mut last_cont = self.state.as_ref().map(|(_, c)| c.continuous());
-        let mut last_wall = self.state.as_ref().map(|(_, c)| c.wall());
+        // ⟨M05; review M05-W4F-R02⟩ The wall-clock instant the next pass was scheduled for
+        // (`None` while it waits on a monotonic bound only: the idle cap, a failed pass's retry).
+        let mut next_wall: Option<Timestamp> = None;
         let resume_bound = self.config.resume_bound();
         loop {
             let mut wake = next_guard.min(next_pass).min(next_holder);
@@ -675,29 +677,22 @@ impl Supervisor {
             self.operations.events().retry_held();
             // A machine sleep shows as continuous progress the monotonic timer did
             // not see: run both passes now.
-            if let (Some((_, clock)), Some(prev), Some(prev_wall)) =
-                (&self.state, last_cont, last_wall)
-            {
+            if let (Some((_, clock)), Some(prev)) = (&self.state, last_cont) {
                 let cont = clock.continuous();
-                let wall = clock.wall();
                 let mono = now.saturating_duration_since(last_mono);
                 if cont.saturating_sub(prev) > mono + SLEEP_DETECTION {
                     next_guard = now;
                     next_pass = now;
                 }
-                // ⟨M05; review M05-W4F-R02⟩ A forward wall-clock step shows as wall progress
-                // the monotonic timer did not see. The next pass was scheduled on the monotonic
-                // timer from the wall instant of its bound, so the step brought that bound
-                // nearer than the timer knows: run the pass now (its tick keeps the safe-time
-                // and continuous-budget checks), never at the old target, which would keep a
-                // strict connection up past its wall cutoff by up to the step.
-                let stepped =
-                    Duration::try_from(wall.duration_since(prev_wall)).unwrap_or(Duration::ZERO);
-                if stepped > mono + SLEEP_DETECTION {
+                // ⟨M05; review M05-W4F-R02⟩ The next pass waits on the monotonic timer, set from
+                // the wall instant it was scheduled for. A wall clock that moved forward faster
+                // than the timer (one step, or many small ones) reaches that instant first: when
+                // it is due on the wall clock, the pass runs now, whatever each step's size. The
+                // pass's tick keeps its safe-time and continuous-budget checks.
+                if next_wall.is_some_and(|w| clock.wall() >= w) {
                     next_pass = now;
                 }
                 last_cont = Some(cont);
-                last_wall = Some(wall);
                 last_mono = now;
             }
             if now >= next_guard {
@@ -742,8 +737,12 @@ impl Supervisor {
                 // slow pass never uses up the delay and runs the next pass straight after it.
                 let done = Instant::now();
                 next_pass = match passed {
-                    Ok(next) => done + self.sleep_until_wall(next),
+                    Ok(next) => {
+                        next_wall = next;
+                        done + self.sleep_until_wall(next)
+                    }
                     Err(e) => {
+                        next_wall = None;
                         tracing::warn!(code = %e.code, "scheduler pass failed; retrying");
                         // Jittered like every supervisor-owned retry (§13.5).
                         let base = FAILED_PASS_RETRY.min(self.config.max_idle_sleep);

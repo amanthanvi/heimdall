@@ -47,16 +47,6 @@ fn basis_key(id: &DecisionId) -> String {
     format!("{META_M05_DECISION_BASIS}{}", id.as_str())
 }
 
-/// ⟨M05; review M05-W4F-R01⟩ The `meta` key prefix of an imported destination whose route is
-/// pending: a destination a portable bundle names as reached through a jump is recorded as
-/// observed with this row (the jump destination's ID), so it keeps its route intent, is never
-/// launched by its bare alias, and exports with its jump, until the owner defines it here.
-const META_M05_ROUTE_PENDING: &str = "m05_route_pending:";
-
-fn route_pending_key(id: &DestinationId) -> String {
-    format!("{META_M05_ROUTE_PENDING}{}", id.as_str())
-}
-
 impl Txn<'_> {
     // --- workspaces -----------------------------------------------------------------
 
@@ -400,37 +390,6 @@ impl Txn<'_> {
             self.bump_generation()?;
         }
         Ok(n > 0)
-    }
-
-    // --- ⟨M05; review M05-W4F-R01⟩ imported routes pending ---------------------------
-
-    /// Record that `destination` (an observed destination an import added) must be reached
-    /// through `jump`, whose route is not set up here yet. Catalog intent: it moves nothing.
-    pub fn put_route_pending(
-        &mut self,
-        destination: &DestinationId,
-        jump: &DestinationId,
-    ) -> Result<()> {
-        self.set_meta(&route_pending_key(destination), jump.as_str())
-    }
-
-    /// The jump an imported destination's route is pending on, when one is recorded.
-    pub fn route_pending(&mut self, destination: &DestinationId) -> Result<Option<DestinationId>> {
-        self.meta(&route_pending_key(destination))?
-            .map(|v| {
-                DestinationId::parse(&v)
-                    .map_err(|_| StoreError::Corrupt("a pending route names no destination".into()))
-            })
-            .transpose()
-    }
-
-    /// Clear a destination's pending route (the owner defined or removed it). Returns whether
-    /// one existed.
-    pub fn delete_route_pending(&mut self, destination: &DestinationId) -> Result<bool> {
-        Ok(self.tx.execute(
-            "DELETE FROM meta WHERE key = ?1",
-            [route_pending_key(destination)],
-        )? > 0)
     }
 
     // --- ⟨M05 U2⟩ decision bases ------------------------------------------------------
