@@ -43,3 +43,33 @@ pub use context::{Attendance, Caller};
 pub use error::{OpError, OpResult};
 pub use operations::{Operations, OperationsConfig, SetupAdmission};
 pub use timegate::{SafeNow, TimeGate};
+
+/// ⟨M03 E9⟩ ADR-0008 §17.43 (ruling I-24): a non-interactive child, one whose standard
+/// streams are all redirected or null, never gets a console window. `no_window!(command)`
+/// is `command` (a `std::process::Command` or a `tokio::process::Command`), on Windows with
+/// `CREATE_NO_WINDOW` set: a console program started by a parent with no console (the
+/// runtime runs `DETACHED_PROCESS`) otherwise gets a new console, which Windows hands off to
+/// the default terminal (a window or tab on the user's desktop), and the child's start waits
+/// on that hand-off. Elsewhere it is `command` itself. Never for a launch that shares the
+/// user's terminal (`connect`, `run`, an interactive enrollment step).
+#[cfg(windows)]
+#[macro_export]
+macro_rules! no_window {
+    ($command:expr) => {{
+        #[allow(unused_imports)]
+        use ::std::os::windows::process::CommandExt as _;
+        let mut command = $command;
+        // CREATE_NO_WINDOW.
+        command.creation_flags(0x0800_0000);
+        command
+    }};
+}
+
+/// ⟨M03 E9⟩ [`no_window!`] elsewhere: the command itself.
+#[cfg(not(windows))]
+#[macro_export]
+macro_rules! no_window {
+    ($command:expr) => {
+        $command
+    };
+}

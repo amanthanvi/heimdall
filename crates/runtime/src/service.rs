@@ -2920,7 +2920,7 @@ impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
             .client
             .as_ref()
             .ok_or_else(|| fail("no verified client"))?;
-        let mut child = std::process::Command::new(client)
+        let mut child = heimdall_app::no_window!(std::process::Command::new(client))
             .args(heimdall_app::enrollment::effective_config_args(step))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())

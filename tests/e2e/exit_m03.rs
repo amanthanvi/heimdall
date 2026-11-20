@@ -1147,3 +1147,83 @@ fn real_issuer_signs_verification_certificates_enroll_verify_passes() {
         c.serial
     );
 }
+
+/// ⟨M03 E9⟩ The helper process of [`windows_runtime_children_have_no_console_window`]: with
+/// `HM_CONSOLE_PROBE=<pid>|<file>` it attaches to that process's console and writes `none` (no
+/// console), `window` or `no-window` to the file; a no-op in the suite itself.
+#[cfg(windows)]
+#[test]
+fn console_probe_entry() {
+    let Some(spec) = std::env::var_os("HM_CONSOLE_PROBE") else {
+        return;
+    };
+    let spec = spec.to_string_lossy().into_owned();
+    let (pid, file) = spec.split_once('|').expect("<pid>|<file>");
+    let state = match heimdall_testkit::win::attached_console_window(pid.parse().unwrap()) {
+        None => "none",
+        Some(true) => "window",
+        Some(false) => "no-window",
+    };
+    std::fs::write(file, state).unwrap();
+}
+
+/// ⟨M03 E9⟩ Ruling I-24, ADR-0008 §17.43: the runtime runs `DETACHED_PROCESS` (no console),
+/// so a console child it starts without `CREATE_NO_WINDOW` gets a new console, which Windows
+/// hands off to the default terminal (a window or a Windows Terminal tab on the desktop, and a
+/// start that waits on it). Every child the world's runtime has running once it serves, its
+/// issuer child at least, has no console window: a helper process attaches to each child's
+/// console (`AttachConsole`) and reads `GetConsoleWindow`.
+#[cfg(windows)]
+#[test]
+fn windows_runtime_children_have_no_console_window() {
+    let (w, ca) = World::start(WorldOptions {
+        pairs: 1,
+        ..WorldOptions::default()
+    });
+    drop(ca);
+    let status = w.cli(&["--json", "service", "status"]);
+    let runtime = u32::try_from(
+        status.json()["data"]["pid"]
+            .as_u64()
+            .expect("the runtime's pid"),
+    )
+    .unwrap();
+    let children: Vec<(u32, String)> = heimdall_testkit::win::child_processes(runtime)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, image)| {
+            !image.eq_ignore_ascii_case("conhost.exe")
+                && !image.eq_ignore_ascii_case("OpenConsole.exe")
+        })
+        .collect();
+    assert!(
+        children
+            .iter()
+            .any(|(_, image)| image.eq_ignore_ascii_case("heimdall.exe")),
+        "the issuer child runs under the runtime: {children:?}"
+    );
+    let dir = w.subdir("console-probe");
+    let mut seen = Vec::new();
+    for (pid, image) in &children {
+        let file = dir.join(format!("{pid}.txt"));
+        let probe = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "console_probe_entry", "--test-threads=1"])
+            .env("HM_CONSOLE_PROBE", format!("{pid}|{}", file.display()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(probe.success(), "the console probe of {image} ran");
+        let state = std::fs::read_to_string(&file).unwrap();
+        assert_ne!(
+            state, "window",
+            "{image} (a child of the console-less runtime) has a console window"
+        );
+        seen.push(format!("{image}={state}"));
+    }
+    println!(
+        "m03 observation: windows_runtime_children_console {}",
+        seen.join(" ")
+    );
+}

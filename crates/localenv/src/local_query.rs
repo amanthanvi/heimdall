@@ -187,7 +187,7 @@ fn collect(rx: &mpsc::Receiver<Vec<u8>>, until: Instant) -> Vec<u8> {
 
 /// Run `spec` contained and bounded (module documentation).
 pub(crate) fn run_contained(spec: &Spec<'_>) -> Result<Finished, RunError> {
-    let mut cmd = Command::new(spec.program);
+    let mut cmd = heimdall_app::no_window!(Command::new(spec.program));
     cmd.args(&spec.args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

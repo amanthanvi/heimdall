@@ -901,6 +901,7 @@
         "e2e_enroll_m03": [
           "enroll_preview_apply_verify_setup_apply_ensure_ssh"
         ],
+        "e2e_exit_m03": [],
         "e2e_tui_m03": [
           "pty::time_confirmation_chore_shown_after_reboot"
         ],
@@ -1177,6 +1178,13 @@
           "windows_owned_multiplexing_reported_unavailable"
         ]
       }
+    },
+    "background-once": {
+      "windows": {
+        "e2e_exit_m03": [
+          "windows_runtime_children_have_no_console_window"
+        ]
+      }
     }
   },
   "platform_only": {
@@ -1369,6 +1377,9 @@
       "windows"
     ],
     "e2e_enroll_m03::windows::windows_verification_host_key_mismatch_holds_no_rollback": [
+      "windows"
+    ],
+    "e2e_exit_m03::windows_runtime_children_have_no_console_window": [
       "windows"
     ],
     "e2e_issuer_ceremony::d5_backup_restores_with_stock_ssh_keygen": [
@@ -2807,5 +2818,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "d21bcefa93cd1e665bc5e34b6f23882fd2a3d8645533aa6b6fd73d3270434c73"
+  "sources_sha256": "f37e357d1030e0b6e826ff8c910c2c87367759c908ef44ca683b8bc15c7a4b4f"
 }

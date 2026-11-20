@@ -4859,6 +4859,54 @@ the residual, so none could see it. This is a product gap from wave 0, not an E4
    ed25519 key's second line holds only a checkint byte and the CA's public key, which a
    certificate signed by that CA could match about once in 256 runs.
 
+### 17.43 Exit build E9: a background child never opens a console window (2026-11-19)
+
+**Source:** the E8 Windows harness run (`7b75c4c1`). The issuer child read `crashed`
+(`issuer_restarting`) in six `e2e_exit_m03` tests, 21 commands needed the fixtures' readiness retry,
+and the owner reported the PC unusable. The orchestrator traced it on the PC.
+
+1. **The platform fact.** A console program started by a process with no console gets a new console.
+   On a host whose default terminal is Windows Terminal (`HKCU\Console\%%Startup` names a
+   `DelegationConsole` and a `DelegationTerminal`), Windows hands that console off to the terminal:
+   a window or tab on the user's desktop, and the child's start waits on the hand-off.
+   - The runtime runs `DETACHED_PROCESS` (no console), and it spawned its non-interactive children
+     with no creation flags, so each got a new console. Observed on the PC: a `conhost.exe` under the
+     issuer child and under an `ssh.exe` the runtime started, and new `WindowsTerminal.exe` and
+     `OpenConsole.exe` processes.
+   - In the bad hour, a runtime's start-up before it advertised took 15.8–20.3 s, and the issuer child
+     never printed its first line within D3 item 7's 5 s hello bound. On the same host later, the
+     start-up took about 0.43 s and the hello about 0.13 s; a process that has a console starts in
+     about 30 ms. That tabs left by earlier runs slowed the hand-off is an inference, not proven.
+2. **The rule (orchestrator, I-24): an M03 product defect.** A background runtime never opens a
+   console window or a terminal tab on the user's desktop, and the issuer's availability never
+   depends on the terminal app. On Windows every non-interactive child Heimdall spawns (every
+   standard stream redirected or null) gets `CREATE_NO_WINDOW`, through one helper,
+   `heimdall_app::no_window!`:
+   - the issuer child (`issuer::client`);
+   - the runtime's verification `ssh` (`enroll::verify`) and its `ssh -G` (`runtime::service`);
+   - the runtime's owned connections, their `-O check` and `-O exit` included
+     (`runtime::connections`; a revocation's closes go through it);
+   - every local probe (`ssh -V`, `ssh -G`, `git` and the rest, `localenv::local_query`, which the
+     supervisor's probes use).
+
+   Unchanged:
+   - the runtime's own start (`DETACHED_PROCESS`);
+   - a launch that shares the user's terminal (`connect`, `run`, the launch crate);
+   - the CLI's enrollment steps (`enroll::remote` through the CLI's job containment). They run in
+     the CLI, whose children share the owner's console, and an interactive step needs it;
+   - `service stop`'s signal and the macOS keychain call, which are Unix-only and macOS-only.
+
+   D3 item 7's 5 s hello bound is unchanged.
+3. **Proof:** `e2e_exit_m03::windows_runtime_children_have_no_console_window` (Windows). Every child
+   the world's runtime has running once it serves, its issuer child at least, has no console window:
+   a helper process attaches to each child's console (`AttachConsole`) and reads
+   `GetConsoleWindow`. The orchestrator runs its revert proof on the PC.
+4. **Builds.** The helper is `cfg(windows)`. Elsewhere it is the command itself, and no line of a
+   file built there moved, so the macOS and Linux release `heimdall` are byte-identical to E8's,
+   which are E5's. E9 reruns the Windows harness only. The macOS, devbox, WSL and Docker evidence of
+   E5–E8 stands, and the macOS lock run at E8 binds to E9: E8..E9 changes `cfg(windows)` code and
+   Windows tests only.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

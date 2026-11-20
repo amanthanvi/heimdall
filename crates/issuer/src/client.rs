@@ -667,7 +667,7 @@ impl Inner {
         end_child(self.verifier(), slot.take(), Vec::new()).await;
         self.set_state(IssuerState::Starting, None);
         let c = &self.config.command;
-        let mut cmd = Command::new(&c.program);
+        let mut cmd = heimdall_app::no_window!(Command::new(&c.program));
         cmd.args(&c.args)
             .envs(c.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())
