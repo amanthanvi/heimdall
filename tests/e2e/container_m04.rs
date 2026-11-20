@@ -595,3 +595,75 @@ fn a15_container_mounted_flow() {
         }
     }
 }
+
+/// ⟨M04 U7⟩ A31 (the container integration's uninstall; engine-free, so it runs on every Linux
+/// host and in the container harness's distribution): `uninstall` with a container environment
+/// whose binding is live stops the runtime, and the binding's endpoint in the environment's
+/// stable directory (`agent.sock`) is gone afterwards. The directory itself, under the runtime
+/// directory's `c` tree, is removed by `uninstall --purge-state` with the other runtime trees
+/// (`uninstall_cmd`'s recovery table), so a plain uninstall reports the state as kept.
+#[test]
+fn a31_uninstall_with_a_live_container_binding() {
+    let (w, _ca) = World::start(WorldOptions {
+        pairs: 1,
+        per_pair_profiles: true,
+        ..WorldOptions::default()
+    });
+    let profile = w.profile_of(0);
+    let added = w.confirm(&["container", "add", "lab"]);
+    assert_eq!(added.code, 0, "container add: {}", w.redact(&added.stdout));
+    let listing = json(&w.cli(&["--json", "inspect", "environments"]));
+    let item = listing["data"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "container")
+        .cloned()
+        .expect("the container environment is listed");
+    let env_id = item["environment_id"].as_str().unwrap().to_owned();
+    let dir = PathBuf::from(item["realization"]["directory"].as_str().unwrap());
+    {
+        use heimdall_contract::ids::{EnvironmentId, PolicyId};
+        let environment = EnvironmentId::parse(&env_id).unwrap();
+        w.open_store()
+            .transaction(|tx| {
+                let mut rec = tx.environment(&environment)?.expect("its record");
+                rec.permissions.automatic_activation = true;
+                tx.upsert_environment(&rec)?;
+                let pid = PolicyId::parse(&format!("{}-1", world::POLICY)).unwrap();
+                let mut pol = tx.policy(&pid)?.expect("the pair's policy");
+                pol.environments.insert(environment.clone());
+                pol.revision = heimdall_domain::policy::PolicyRevision(pol.revision.0 + 1);
+                tx.upsert_policy(&pol, false)
+            })
+            .unwrap();
+    }
+    let first = ensure_in(&w, &profile, &env_id, "u1", "u1-r1", None);
+    assert!(first["binding_id"].as_str().is_some(), "{first}");
+    let socket = dir.join("agent.sock");
+    assert!(
+        UnixStream::connect(&socket).is_ok(),
+        "the binding's endpoint serves"
+    );
+    let out = w.cli(&["--json", "uninstall", "--keep-remote-enrollments"]);
+    assert_eq!(out.code, 0, "uninstall: {}", w.redact(&format!("{out:?}")));
+    let status = w.cli(&["--json", "service", "status"]);
+    assert_ne!(
+        status.code,
+        0,
+        "the runtime stopped: {}",
+        w.redact(&format!("{status:?}"))
+    );
+    let start = Instant::now();
+    while socket.exists() && start.elapsed() < Duration::from_secs(30) {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        !socket.exists(),
+        "the binding's endpoint is removed with the runtime"
+    );
+    assert!(
+        UnixStream::connect(&socket).is_err(),
+        "nothing answers at the endpoint"
+    );
+}

@@ -690,16 +690,19 @@ mod wsl_login {
         let distro = std::env::var("HM_FIXTURE_WSL_DISTRO").ok()?;
         let user = std::env::var("HM_WSL_LOGIN_USER").ok()?;
         let heimdall = std::env::var("HM_WSL_LOGIN_HEIMDALL").ok()?;
-        // Only the harness's disposable distribution: `hm-m0<N>-<hex>`, registered, and
-        // never an owner's.
+        // Only the harness's disposable distribution: `hm-m0<N>-<hex>`, or ⟨M04 U7⟩ the M04
+        // runner's `hm-m04-<hex>-<1|2>`, registered, and never an owner's.
         let well_formed = distro.strip_prefix("hm-m0").is_some_and(|rest| {
             let mut parts = rest.splitn(2, '-');
+            let hex_ok = |h: &str| h.len() >= 6 && h.chars().all(|c| c.is_ascii_hexdigit());
             matches!(
                 (parts.next(), parts.next()),
-                (Some(n), Some(hex)) if n.len() == 1
+                (Some(n), Some(tail)) if n.len() == 1
                     && n.chars().all(|c| c.is_ascii_digit())
-                    && hex.len() >= 6
-                    && hex.chars().all(|c| c.is_ascii_hexdigit())
+                    && (hex_ok(tail)
+                        || tail
+                            .rsplit_once('-')
+                            .is_some_and(|(h, k)| hex_ok(h) && (k == "1" || k == "2")))
             )
         });
         assert!(

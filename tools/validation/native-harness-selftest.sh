@@ -27,6 +27,8 @@
 #
 #   M04  tests/native/m04/run-mode-b-windows.ps1 -SelfTest (the Mode B runner's helpers and
 #        `bash -n` of the scripts it sends into a distribution), when pwsh is available.
+#        tests/native/m04/selftest.sh (container-engines.sh, the A15 in-distribution script, against
+#        stub engines, apt and /proc; its counts are added to this script's).
 #   M03  tests/native/m03/selftest.sh (the lock harness, the Windows lock harness's
 #        -SelfTest and the Linux wrapper; listed in that file's header).
 #   M02  tests/native/m02/selftest.sh (its own checks, listed in that file's header: the
@@ -458,6 +460,26 @@ if [ -f "$m04_ps1" ]; then
     else
         echo "skip M04 selftest: run-mode-b-windows.ps1 -SelfTest needs pwsh"
     fi
+fi
+
+m04_dir="$root/tests/native/m04"
+if [ -f "$m04_dir/selftest.sh" ]; then
+    bash "$m04_dir/selftest.sh" "$root" >"$T/m04-engines-selftest.out" 2>&1 </dev/null
+    m04e_rc=$?
+    cat "$T/m04-engines-selftest.out"
+    m04e_line=$(grep '^selftest: ' "$T/m04-engines-selftest.out" | tail -1)
+    m04e_pass=$(printf '%s\n' "$m04e_line" | sed -n 's/^selftest: \([0-9][0-9]*\) passed.*/\1/p')
+    m04e_fail=$(printf '%s\n' "$m04e_line" | sed -n 's/^selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+    if [ -n "$m04e_pass" ] && [ -n "$m04e_fail" ]; then
+        passes=$((passes + m04e_pass))
+        fails=$((fails + m04e_fail))
+        check "M04 selftest: tests/native/m04/selftest.sh exit agrees with its totals ($m04e_pass passed, $m04e_fail failed)" \
+            exit_agrees "$m04e_rc" "$m04e_fail"
+    else
+        check "M04 selftest: tests/native/m04/selftest.sh ran to its summary line" false
+    fi
+else
+    check "M04 selftest: tests/native/m04/selftest.sh exists" false
 fi
 
 echo "native-harness-selftest: $passes passed, $fails failed"
