@@ -131,7 +131,7 @@
       "commands_logs": [],
       "facts": [],
       "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
-      "unavailable": "pending: the macOS lock run at E8 waits for the owner (the session must read unlocked, then 960 s of console idle); these rows are rewritten when it completes. Earlier attempts are not evidence: the E5 run was killed with the session that started it, the E7 run was blocked (unlock_not_observed within 43200 s), and the first E8 attempt was refused because the screen was already locked"
+      "unavailable": "blocked: the owner must unlock the Mac within the lock procedure's 12 h bound, and the run starts only from an unlocked console that has been idle for 15 minutes (ADR-0004 §2). The watcher is armed (at E8, binding to E9). Four attempts so far, none evidence: the E5 run was killed with the session that started it; the E7 run was blocked (no unlock within 12 h); the first E8 attempt was refused before starting because the screen was already locked. The row is updated when the run happens"
     },
     "windows-lock": {
       "label": "windows-11-x86_64 lock procedure (release profile, product DPAPI store)",

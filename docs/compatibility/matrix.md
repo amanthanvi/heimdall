@@ -447,9 +447,9 @@ that target.
 
 ## M03 managed-certificate rows (Heimdall builds E5 `da51b055` to E9 `2b79aac1`, M03 exit candidate)
 
-> **Draft (2026-11-19).** macOS, the devbox and WSL ran at E5, Windows at E9, the macOS lock procedure at E8; the macOS
-> and Linux release `heimdall` are byte-identical from E5 to E9. The macOS lock row's values wait for the owner's
-> unlock; the records are `tests/evidence/m03-*.json`.
+> **Draft (2026-11-19).** macOS, the devbox and WSL ran at E5, Windows at E9; the macOS and Linux release `heimdall`
+> are byte-identical from E5 to E9. The macOS lock row is `blocked` on the owner's unlock (its watcher is armed at E8);
+> the records are `tests/evidence/m03-*.json`.
 
 These rows test Heimdall itself.
 - **Builds:** E5 `da51b0558a14e08f9af27e47ec0c34304e301b22` (the last change outside `cfg(windows)`; macOS, the
@@ -482,7 +482,7 @@ These rows test Heimdall itself.
 | M03-3 | Linux x86-64 (devbox, kernel 6.8, glibc 2.39, headless) | OpenSSH ssh 9.6p1 (Ubuntu-3ubuntu13.20), git 2.43.0, scp, sftp | as M03-1 | as M03-1 | not-tested | verified (A07 157, A09 250 (excl. 176: the Docker rows), A10 19 (excl. 2), A23 56, A33 9, fixed provider 88; 3094 / 0 / 204 over 88 binaries) | as M03-1 |
 | M03-4 | Windows 11 x64 (10.0.26300.9974), Medium integrity | in-box `ssh.exe` OpenSSH_for_Windows_9.5p2, System32 (a PATH-first 10.3p1 recorded as a candidate, not selected); Git for Windows 2.55.0.windows.3 | Heimdall's binding pipe; the real issuer child (debug test configuration) | as M03-1, plus the ConPTY interactive cases; the fixture sshds in WSL scratch | not-tested | verified at E9 (A07 155, A09 108, A10 5, A23 24, A33 6, fixed provider 79; 2646 / 0 / 18 over 87 binaries; no background child with a console window, ADR-0008 §17.43) | as M03-1 |
 | M03-5 | WSL2 disposable distribution (pinned Ubuntu 24.04.5 image, created and unregistered by name) | ordinary ssh, git, scp, sftp **without `-F`** (OpenSSH 9.6p1) | Heimdall's binding endpoint; the real issuer child; the CA **seeded** (I-6: `issuer init` refuses the scratch store on Linux, no plaintext fallback) | the managed scenario (`wsl_managed_ssh`): enrollment in both forms, verification, setup, ensure, ordinary clients, revocation, uninstall | not-tested | verified (`wsl_managed_ssh` 18 of 18, the managed residual step included; the M02 scenario `wsl_ordinary_ssh` 11 of 11 at the same build; A09 12, A10 3) | `m03-a09-enrollment.json`, `m03-a10-scope-issuer.json`, `m03-exit-fixed-provider.json` |
-| M03-6 | macOS 27.2.1 arm64, desktop locked (the lock procedure, ADR-0004 §2) | OpenSSH ssh 10.5p1 | the signer and issuer serving from memory; debug, scratch test store; the platform session-lock source | lock continuity: fresh logins (grant C), a new grant under lock (N), lock-revokes (R), the locked source-provider stand-in | not-tested | pending: the lock run at E8 waits for the owner (mechanism evidence only once it runs) | `m03-a03-lock-continuity.json`, `m03-p1-macos-screen-lock.json` |
+| M03-6 | macOS 27.2.1 arm64, desktop locked (the lock procedure, ADR-0004 §2) | OpenSSH ssh 10.5p1 | the signer and issuer serving from memory; debug, scratch test store; the platform session-lock source | lock continuity: fresh logins (grant C), a new grant under lock (N), lock-revokes (R), the locked source-provider stand-in | not-tested | blocked: the owner's unlock within the lock procedure's 12 h bound, from an unlocked console idle 15 minutes (the watcher is armed at E8, binding to E9; mechanism evidence only once it runs) | `m03-a03-lock-continuity.json`, `m03-p1-macos-screen-lock.json` |
 | M03-7 | Windows 11 x64, desktop locked | in-box `ssh.exe` | release profile, product DPAPI store; DPAPI unprotect at a forced issuer restart under lock | lock continuity, P-W1 | not-tested | blocked: B2, the disposable second Windows account (a release runtime projects into the account's own `~/.ssh`; I-9) | `m03-a03-lock-continuity.json`, `m03-pw1-windows-lock.json` |
 | M03-8 | macOS arm64, login keychain | any | release profile, the login keychain product store | K_ca custody, lock continuity | not-tested | blocked: B3, a disposable macOS standard user account | `m03-store-macos-keychain.json`, `m03-a03-lock-continuity.json` |
 | M03-9 | Linux desktop (GNOME, gnome-keyring, systemd-logind) | any | Secret Service product store; logind lock signal | K_ca custody, lock-revokes, issuer reachability | not-tested | blocked: B11, a Linux desktop host and a disposable account | `m03-store-linux-secret-service.json`, `m03-a03-lock-continuity.json`, `m03-a10-scope-issuer.json` |
@@ -496,10 +496,13 @@ These rows test Heimdall itself.
   logins are refused from the revocation on (0 of R's key IDs accepted after it). R reads `revoking` while its
   certificate's residual is pending; since E5 the managed residual settles (`bounded_by_expiry`), and the supervisor
   moves R to `revoked` once its `valid_before` (600 s after R's creation in the lock run) has passed. This run's
-  reading: pending the lock run at E8.
+  reading: the A03 macOS lock row is `blocked` on the owner's unlock.
 - **A background runtime's children got console windows on Windows; fixed at E9** (ADR-0008 §17.43, ruling I-24).
   `CREATE_NO_WINDOW` on every non-interactive child; that the new console's hand-off to Windows Terminal caused the
   E8 Windows failures is the most likely cause (inferred, not reproduced). The revert proof is pending.
+- **No claim-table entry in M03** (ruling I-25). The product matches an entry by field, value and OS/architecture
+  only, not by `os_floor`, `client_versions` or `signer_builds`, so the claim update is deferred to M03-F1 (version
+  gating, then the 19 drafted A07 and A23 entries); every claim-table field reads `unknown` until then.
 - **Seeded inputs.** The lock driver seeds a verified enrollment and the CA trust line before the lock (I-2); the WSL
   scenario seeds the CA after recording the product's refusal to register one on the scratch store (I-6).
 - **Windows `ssh.exe` needs `ProgramData`.** The in-box client exits 255 before printing anything without it

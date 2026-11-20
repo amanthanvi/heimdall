@@ -1,9 +1,9 @@
 # M03 exit draft — managed-certificate vertical slice
 
 > **Status: draft for the orchestrator's exit decision (2026-11-19).** The runs are E5's (the last change outside
-> `cfg(windows)`), E8's macOS lock run and E9's Windows harness; the macOS and Linux release `heimdall` are
-> byte-identical from E5 to E9. The records are `tests/evidence/m03-*.json`. Values marked **pending** wait for the
-> macOS lock run at E8 (the owner's unlock) or the Windows revert proof of E9's fix. The exit decision is the
+> `cfg(windows)`) and E9's Windows harness; the macOS and Linux release `heimdall` are
+> byte-identical from E5 to E9. The records are `tests/evidence/m03-*.json`. The macOS lock row is `blocked` on the owner's
+> unlock (section 5); the Windows revert proof of E9's fix is **pending**. The exit decision is the
 > orchestrator's, under the owner's delegation (ADR-0004).
 
 **Build:** E9, `2b79aac1b6bea72f886cef2331c9e3b5d0a123e8` on `m03/wave6`.
@@ -48,7 +48,7 @@ carrying a case-index rationale. "n/a" means the case declares no row there.
 
 | Exit case | macOS arm64 | Linux x86-64 (devbox) | Windows 11 x64 | WSL distribution | macOS lock | Rows blocked on owner inputs | Record |
 |---|---|---|---|---|---|---|---|
-| A03 lock continuity | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 1 | pending | B1, B2, B3, B4, B11 | `m03-a03-lock-continuity.json` |
+| A03 lock continuity | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 1 | blocked (the owner's unlock) | B1, B2, B3, B4, B11 | `m03-a03-lock-continuity.json` |
 | A07 revocation | verified, 157 | verified, 157 | verified, 155 (excl. 2) | verified, 3 | n/a | none (the disconnected-runner variant `deferred_with_decision` to M06) | `m03-a07-revocation.json` |
 | A09 enrollment | verified, 425 | verified, 250 (excl. 176, the Docker rows) | verified, 108 (excl. 324) | verified, 12 | n/a | B1, B4, B6 | `m03-a09-enrollment.json` |
 | A10 scope and issuer | verified, 21 | verified, 19 (excl. 2) | verified, 5 (excl. 16) | verified, 3 | n/a | B11 | `m03-a10-scope-issuer.json` |
@@ -63,15 +63,15 @@ carrying a case-index rationale. "n/a" means the case declares no row there.
 | K_ca custody, Windows DPAPI | verified, 2 | verified, 2 | verified, 2 | n/a | n/a | B2 (cross-user unprotect) | `m03-store-windows-dpapi.json` |
 | K_ca custody, Linux Secret Service | verified, 3 | verified, 3 | verified, 3 | n/a | n/a | B11 | `m03-store-linux-secret-service.json` |
 | Sleep, logout, reboot | verified, 14 | verified, 14 | verified, 14 | n/a | n/a | B3, B12 | `m03-sleep-logout-reboot.json` |
-| P1 macOS screen lock | n/a | n/a | n/a | n/a | pending | none | `m03-p1-macos-screen-lock.json` |
+| P1 macOS screen lock | n/a | n/a | n/a | n/a | blocked (the owner's unlock) | the owner's unlock | `m03-p1-macos-screen-lock.json` |
 | P-W1 Windows desktop lock | n/a | n/a | n/a | n/a | n/a | B2 (the Windows lock row) | `m03-pw1-windows-lock.json` |
 | All of the above together (878 indexed tests) | | | | | | the union | `m03-exit-claims.json` |
 
-**Record status** (the macOS lock row pending): `verified` are A07, A23, A33, R-AU-08, no self-renewal and honest
+**Record status:** `verified` are A07, A23, A33, R-AU-08, no self-renewal and honest
 limits; P1 is `verified` once its macOS lock row is; every other record is `blocked`, and every one of its rows that is
 not `verified` is blocked on a named owner input above, or `deferred_with_decision` with its ruling. The macOS lock
-rows of A03 and P1 read `blocked` (pending) until the lock run lands, and the records are then rewritten. No row is
-`in_progress`.
+rows of A03 and P1 are `blocked` on a physical input (the owner's unlock within the 12 h bound, from an unlocked
+console idle for 15 minutes) and are rewritten when the run happens. No row is `in_progress`.
 
 ## 2. Native runs
 
@@ -82,7 +82,7 @@ rows of A03 and P1 read `blocked` (pending) until the lock run lands, and the re
 | Windows 11 x64 (10.0.26300.9974), Medium integrity, native msvc (rustc 1.99.1, MSVC 18.11.2), in-box OpenSSH_for_Windows_9.5p2, Git for Windows 2.55.0.windows.3 | E9 | `run-windows-local.ps1` by an agent on the PC (local mode, BelowNormal priority, 4 test threads), 27 min 1 s | 0 | 2646 / 0 / 18 over 87 binaries, each `exit=0`; every `e2e_exit_m03` test that runs on Windows `ok` (9; the `lock::` steps ignored as designed), `windows_runtime_children_have_no_console_window` included; no readiness retry | 0 / 0 | `%USERPROFILE%\.ssh` and `.gitconfig` metadata equal before and after; no leftover `heimdall.exe` or `ssh.exe`; both fixture sshds stopped; WSL scratch, clone, build and toolchain removed and checked absent |
 | WSL 3.0.5.0, disposable distribution from the pinned Ubuntu 24.04.5 image: the M03 managed scenario | E5 | `tests/native/m03/run-wsl-distro.sh` (local mode), 252 s | 0 | `wsl_managed_ssh` 18 of 18 (the residual step: `revoking` at the revocation, no longer listed 3 s after `valid_before`; uninstall `OK`, both enrollments named) | 0 / 0 | the registered set equal before and after; 0 leftover heimdall processes |
 | The same, the M02 scenario at the same build | E5 | `tests/native/m02/run-wsl-distro.sh` (local mode), 76 s | 0 | `wsl_ordinary_ssh` 11 of 11 | 0 / 0 | the registered set equal before and after; 0 leftover heimdall processes |
-| macOS lock procedure (debug build, scratch test store, platform session-lock source) | E8 | `tests/native/m03/lock-macos.sh`, started by the orchestrator once the session read unlocked and the console was idle | pending | pending | pending | pending |
+| macOS lock procedure (debug build, scratch test store, platform session-lock source) | E8 | `tests/native/m03/lock-macos.sh`, armed by the orchestrator's watcher (it starts once the session reads unlocked and the console has been idle 15 minutes) | not run | blocked: the owner's unlock within the 12 h bound; four attempts, none evidence (E5 killed with its session, E7 no unlock within 12 h, E8 attempt 1 refused because the screen was already locked) | — | — |
 | Windows lock procedure | — | `tests/native/m03/lock-windows.ps1` | not run | blocked: B2 | — | — |
 | Windows revert proof of E9's fix (`m03/e9-revert-proof`, never merged: `windows_runtime_children_have_no_console_window` with `CREATE_NO_WINDOW` removed) | E9 minus the fix | `run-windows-local.ps1` with `HM_ONLY_BINARY` and `HM_TEST_FILTER` | pending | pending (expected to fail) | — | — |
 
@@ -99,7 +99,7 @@ rows of A03 and P1 read `blocked` (pending) until the lock run lands, and the re
    residual settles: R's obligation becomes `bounded_by_expiry` for its pair (unmeasured in the lock world, so
    `nominally_expired`, the record kept), and the supervisor moves R to `revoked` once its certificate's
    `valid_before` has passed. R's window, and so its certificate's validity, is 600 s, so the post-unlock check reads
-   `revoked`. This run's reading: pending (the lock run at E8).
+   `revoked`. Its post-unlock reading waits for the lock run (the A03 macOS lock row is `blocked`, section 5).
 4. **Seeded inputs.** The lock driver seeds a verified enrollment and the CA trust line before the lock (I-2). On Linux
    and WSL the scenario records the product's refusal to register a CA on the scratch store (`issuer_store_unavailable`,
    no plaintext fallback), then seeds the CA (I-6).
@@ -178,18 +178,42 @@ rows of A03 and P1 read `blocked` (pending) until the lock run lands, and the re
       harness reran.
     - **Pending:** the revert proof (the test with the fix removed, on the PC).
 
-## 4. The claim update (after the records)
+## 4. The claim update: deferred (ruling I-25)
 
-A separate integrator-reviewed commit to `crates/domain/src/claims.rs` (m03-plan U13; ADR-0008 D12 item 3):
-- only release-profile, product-store rows qualify for custody-dependent fields (F03; `tools/validation/claims_table.py`
-  checks each entry's `build_profile` and `store_kind` against its evidence row);
-- with the Windows lock row blocked on B2, it carries only the A07 and A23 fields;
-- every `RESIDUALS` limit is carried into the claims table and into section 3 above.
+The claim update is `deferred_with_decision`. M03 merges with `CLAIMS` empty, so every claim-table field reads
+`unknown` (or `not_verified` for `lock_continuity`), which ADR-0008 D12 item 2 requires for a value whose test has not
+passed for this platform and these versions.
+- **The reason.** The product matches a claim-table entry by field, value and OS/architecture only. `claims()`
+  (`crates/adapters/src/managed/prepare.rs`) and `claimed()`/`claim()` (`crates/adapters/src/managed/report.rs`) check
+  none of `os_floor`, `client_versions` or `signer_builds`. So any non-empty table would over-claim on every host of
+  that OS/architecture, whatever its OS release or OpenSSH client, WSL included. An empty table was not affected, which is
+  why no earlier check caught it.
+- **The entries are drafted and approved.** There are 19, for A07 and A23: `enforcement.revocation` and
+  `revocation.remote` on macOS aarch64, Linux x86_64 and Windows x86_64; A23's fields on macOS and Linux; on Windows,
+  A23 without `owned_multiplexing` or `graceful_dedicated_connections`. Each covers exactly the OS release and OpenSSH
+  client of its run, is a debug test-configured row (no custody field), and points at its record at `9176fc5e`.
+- **Follow-up unit M03-F1** (the integrator, after the merge, on a fresh branch from main; before the M09 release
+  record):
+  - version gating in `claims()` and `claimed()`/`claim()`: a host OS release reader per platform, the verified
+    client's `ssh -V`, and the signer build;
+  - tests per platform, including out-of-range hosts and WSL;
+  - then the 19 entries;
+  - one Codex review;
+  - targeted native reruns on macOS, the devbox and Windows.
+- **Plan §3 step 3 moves to M03-F1.** That step reruns `report_with_fixture_claim_table_reports_verified_with_record`
+  against the real table, with per-platform expectations.
+- **`a03_report_shows_verified_lock_continuity_on_this_platform` is not built,** and does not apply in M03. M03 adds no
+  `lock_continuity` claim: that needs a release-profile run on a product store (F03). The macOS row is mechanism
+  evidence on a test store, and the Windows release row is blocked on B2.
+- Every `RESIDUALS` limit stays listed in section 3 above.
 
 ## 5. Before the exit
 
-1. The macOS lock run's bundle at E8 (the owner's unlock), imported as `macos-lock/`; then `digests.txt`,
-   `m03-evidence.py --config tests/evidence/artifacts/m03/exit-da51b055/runs.json --write` and
-   `tools/validation/validate-records.py` again, and the pending lock cells above and in the matrix section.
-2. The Windows revert proof of E9's fix (the orchestrator, on the PC): its result in section 2 and item 19.
-3. The claim update commit.
+1. **The Windows revert proof** of E9's fix (the orchestrator, on the PC, `m03/e9-revert-proof` at `4043acb7`): its
+   row in section 2 and item 19. If the test does not fail without the fix, the test is fixed before the merge.
+2. **The merge** of `m03/wave6` into main, then the M03 exit record (this draft made final) and progress.md.
+3. **The macOS lock row of A03 and P1 stays `blocked`** on a physical input: the owner unlocking the Mac within the
+   procedure's 12 h bound, from an unlocked console idle for 15 minutes (ADR-0004 §2). The watcher is armed (at E8,
+   binding to E9). The row is updated when the run happens; M03 may exit with it `blocked`, as M01 exited with A08 and
+   A29-local blocked on physical inputs.
+4. **M03-F1**, the claim update with version gating (section 4).
