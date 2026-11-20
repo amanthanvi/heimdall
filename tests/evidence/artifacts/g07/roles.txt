@@ -1,0 +1,14 @@
+R1-owner-status	0	client=cl_owner role=owner op=status original="status" tty=no agent= heimdall_home=unset hm_client=unset allowed 
+R1-owner-approve	0	client=cl_owner role=owner op=approve original="approve grant-1" tty=no agent= heimdall_home=unset hm_client=unset allowed 
+R2-viewer-status	0	client=cl_viewer role=viewer op=status original="status" tty=no agent= heimdall_home=unset hm_client=unset allowed 
+R2-viewer-approve-wrong-role	77	client=cl_viewer role=viewer op=approve original="approve grant-1" tty=no agent= heimdall_home=unset hm_client=unset forbidden 
+R3-viewer-shell-command	64	client=cl_viewer role=viewer op=id; original="id; echo SHOULD-NOT-RUN" tty=no agent= heimdall_home=unset hm_client=unset unknown-op 
+R3b-viewer-pty	255	PTY allocation request failed on channel 0 
+R4-viewer-stdio-forward-W	255	channel 0: open failed: administratively prohibited: open failed stdio forwarding failed 
+R4b-viewer-remote-forward-R	255	Error: remote port forwarding failed for listen port 48036 
+R4c-control-socket-forward-unrestricted-positive-control	0	client_read=control-endpoint-reached ssh_stderr=
+R4c-control-socket-forward-viewer	0	client_read=closed-without-data ssh_stderr=channel 1: open failed: connect failed: open failed 
+R5-viewer-identity-override-attempts	0	client=cl_viewer role=viewer op=status original="status --client cl_owner" tty=no agent= heimdall_home=unset hm_client=unset allowed 
+R6-expired-invitation-key	255	<user>@127.0.0.1: Permission denied (publickey).  sshd_log_expiry_lines=0
+R7-unexpired-invitation-key	0	client=cl_invited role=viewer op=status original="status" tty=no agent= heimdall_home=unset hm_client=unset allowed 
+R8-viewer-after-line-removed	255	<user>@127.0.0.1: Permission denied (publickey). 

@@ -1299,6 +1299,12 @@ version = "0.1.0-m01"
 dependencies = [
  "heimdall-contract",
  "heimdall-domain",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -1329,6 +1335,7 @@ dependencies = [
  "heimdall-ipc",
  "heimdall-issuer",
  "heimdall-localenv",
+ "heimdall-project",
  "heimdall-sshconf",
  "heimdall-store",
  "heimdall-testkit",

@@ -874,6 +874,15 @@ pub trait SignatureAuthority: Send + Sync {
         &self,
         facts: &SignatureRequestFacts,
     ) -> Result<crate::managed::SignPermit, SignRefusal>;
+
+    /// ⟨M05⟩ U5 (ADR-0011 §3.2 (a), §10 item 4): the ordinary-`ssh` activation the
+    /// environment endpoint's `Signer::identities` calls before it lists, when the
+    /// runtime wired one ([`DefaultActivation`]). `None` (the default, and every M03
+    /// authority): the identities path is exactly M03's. Additive; no M03 implementor
+    /// changes.
+    fn default_activation(&self) -> Option<&dyn DefaultActivation> {
+        None
+    }
 }
 
 /// Which issuance table an entry lives in.
@@ -1618,4 +1627,141 @@ pub trait LoginEntryPort: Send + Sync {
     /// # Errors
     /// See [`LoginEntryFailure`].
     fn remove(&self) -> Result<LoginEntryEffect, LoginEntryFailure>;
+}
+
+// ---------------------------------------------------------------------------------
+// ⟨M05⟩ Workspace observation (ADR-0011 §2.2–§2.3; M05 U2)
+// ---------------------------------------------------------------------------------
+
+/// ⟨M05⟩ Observes the workspace containing a working directory (ADR-0011 §2.2–§2.3). The
+/// runtime implements it in wave 2 (heimdall-project + a no-follow file reader); until then
+/// `Operations` has none and the requests that need it fail closed
+/// (`CAPABILITY_UNAVAILABLE`, `driver_unavailable`, before any record).
+///
+/// The application reads `records` in a transaction, calls this outside any transaction
+/// (it performs file I/O), and the writing transaction re-checks what it relied on.
+pub trait WorkspaceProbe: Send + Sync {
+    /// Discover and observe the workspace of `cwd` in `environment`'s path namespace, and
+    /// match it against `records` (the environment's active workspace records).
+    ///
+    /// # Errors
+    /// [`ProbeError`].
+    fn probe(
+        &self,
+        environment: &EnvironmentId,
+        cwd: &str,
+        records: &[heimdall_domain::workspace::WorkspaceRecord],
+    ) -> Result<ProbedWorkspace, ProbeError>;
+}
+
+/// ⟨M05⟩ One observation of a working directory's workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbedWorkspace {
+    /// The workspace root; `None`: no root above the working directory (personal context).
+    pub root: Option<String>,
+    /// The root directory's identity; `None` on a filesystem without one (ADR-0011 R6).
+    pub root_identity: Option<heimdall_domain::projection::FileIdentity>,
+    /// The Git common directory's identity, when the root is a Git checkout.
+    pub git_common_identity: Option<heimdall_domain::projection::FileIdentity>,
+    /// The match against the records; `None` when `root` is `None`.
+    pub matched: Option<heimdall_domain::workspace::WorkspaceMatch>,
+    /// The manifest, when the root holds a valid one; `None` for a manifest-less root.
+    pub manifest: Option<ProbedManifest>,
+}
+
+/// ⟨M05⟩ A validated manifest as the probe read it (ADR-0011 §2.2): request data only,
+/// resolved by the application against the local catalog (I2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbedManifest {
+    /// The access digest of the bytes parsed (lowercase hex).
+    pub access_digest: String,
+    /// The profile the manifest names (a catalog reference).
+    pub profile: heimdall_contract::ids::ProfileId,
+    /// `destination:account` tokens, already validated as bounded tokens.
+    pub pairs: Vec<String>,
+    /// Environment labels.
+    pub environments: Vec<String>,
+    /// Capability names.
+    pub capabilities: Vec<String>,
+    /// `preferences.background_work`.
+    pub background_work: bool,
+    /// The `project` label, already stripped of control characters (quoted again by the
+    /// application before any decision shows it).
+    pub project_label: Option<String>,
+}
+
+/// ⟨M05⟩ Why an observation failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeError {
+    /// The filesystem has no stable identity (`workspace_identity_unavailable`).
+    IdentityUnavailable,
+    /// The manifest is refused: `manifest_invalid` or `manifest_authority_key`.
+    Manifest {
+        /// The stable reason.
+        reason: &'static str,
+    },
+    /// The working directory could not be read.
+    Io,
+}
+
+// ---------------------------------------------------------------------------------
+// ⟨M05⟩ Ordinary-`ssh` activation (ADR-0011 §3.1–§3.3, §10 item 4; M05 U5)
+// ---------------------------------------------------------------------------------
+
+/// ⟨M05⟩ The identities path's wait budget (ADR-0011 §3.2 (a); the U0b spike, m05-plan
+/// §1 U0b: `ssh` and Git received a delayed identities answer at 0.5, 1, 2, 5, 10 and
+/// 30 s on macOS, the devbox and Windows, so 2 s is far inside every observed bound).
+pub const DEFAULT_ACTIVATION_WAIT: Duration = Duration::from_secs(2);
+
+/// ⟨M05⟩ What one wait of [`DefaultActivation::ensure_default`] found. Nonsecret:
+/// stable reason words only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DefaultWait {
+    /// No personal `default` policy applies to the environment: nothing to activate.
+    NoDefault,
+    /// The covered scope was already active (returned at once).
+    Active,
+    /// The covered scope was activated within the wait.
+    Activated,
+    /// A pause (a `stop` pauses), a cutoff or uncertain time refused it at once; nothing
+    /// was started.
+    Blocked {
+        /// The stable reason (`policy_paused`, `policy_cutoff`, `time_uncertain`).
+        reason: String,
+    },
+    /// The policy covers nothing activatable here; no decision was created.
+    NotCovered,
+    /// The activation was refused or failed. Like a `NotCovered` one, it is remembered
+    /// against its basis (the policy, its revision, the authority generation): the
+    /// next requests of that basis get this answer at once until the retry interval
+    /// passes.
+    Failed {
+        /// The stable reason (an error reason, else its code).
+        reason: String,
+    },
+    /// The wait expired. The activation continues and, once committed, stays applied:
+    /// the next request uses it (ADR-0011 §10 item 7; a caller timeout is not a
+    /// cancellation).
+    Pending,
+}
+
+/// ⟨M05⟩ "Ensure the environment's default personal policy's covered scope is active,
+/// within this wait" (ADR-0011 §3.2 (a); m05-plan U5). The runtime implements it over
+/// `Operations` (`heimdall_runtime::default_activation`); the environment endpoint's
+/// `Signer::identities` calls it once per identities request through
+/// [`SignatureAuthority::default_activation`], then lists what is admitted by then.
+///
+/// **Contract.** Covered-or-nothing: it never creates a decision record and never
+/// activates anything a policy does not already cover; a pause, cutoff, stop or uncertain
+/// time refuses it before anything is started. It never fails the agent request: a wait
+/// that expires returns [`DefaultWait::Pending`] and the identities already admitted are
+/// listed. Concurrent calls for one environment share one activation (single-flight), and
+/// dropping the returned future never cancels it.
+pub trait DefaultActivation: Send + Sync {
+    /// Ensure the covered scope is active, waiting at most `wait` for it.
+    fn ensure_default(
+        &self,
+        wait: Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = DefaultWait> + Send + '_>>;
 }

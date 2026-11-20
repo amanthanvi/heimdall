@@ -1,0 +1,26 @@
+Print the shell integration script for `zsh` or `bash`
+
+Usage: heimdall shell init [OPTIONS] <SHELL>
+
+Arguments:
+  <SHELL>
+          The shell
+
+          Possible values:
+          - zsh:  Zsh
+          - bash: Bash
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+  -h, --help
+          Print help (see a summary with '-h')

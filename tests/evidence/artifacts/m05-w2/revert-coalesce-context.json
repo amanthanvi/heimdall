@@ -1,0 +1,24 @@
+{
+ "name": "M05 W2 (integrator, from U4's residual): single-flight equivalence is context-aware (EquivalenceKey::workspace and the leader's recorded context in the attach check); both removed",
+ "file": "crates/app/src/operations.rs (stage_coalesce), crates/app/src/ensure.rs (EquivalenceKey)",
+ "change_reverted": "EquivalenceKey.workspace set to None and the `lintent.workspace == resolved.workspace` attach condition removed",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --test e2e_context_m05 equivalent_work",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test equivalent_work_never_coalesces_across_contexts ... FAILED",
+   "thread 'equivalent_work_never_coalesces_across_contexts' (41713657) panicked at crates/runtime/../../tests/e2e/m05_context.rs:1104:5:",
+   "assertion `left != right` failed: personal work never attaches to a workspace grant",
+   "  left: GrantId(\"grant_a0b677d0bc8dcd145a2702d2aa1f046a\")",
+   " right: GrantId(\"grant_a0b677d0bc8dcd145a2702d2aa1f046a\")"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.44s"
+  ]
+ }
+}

@@ -1,0 +1,22 @@
+{
+ "name": "M05 W1 U6: slot-file cleanup no longer fenced by generation (a cleanup of N removes whatever generation is on disk)",
+ "file": "crates/adapters/src/managed/files.rs (clear_generation)",
+ "observed_by": "the U6 worker in its own worktree at base 1f72bb09 (DONE.md §5); files.rs restored byte-for-byte",
+ "command": "TMPDIR=/tmp cargo test --locked -p heimdall-runtime --lib slots_m05::two_jobs_share_a_pair_and_hand_over",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test managed_store::live_tests::slots_m05::two_jobs_share_a_pair_and_hand_over ... FAILED",
+   "panicked at crates/runtime/src/managed_store/live_tests/slots_m05.rs:392:5:",
+   "generation 1's cleanup never removed generation 2's files"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 1 passed; 0 failed"
+  ]
+ }
+}

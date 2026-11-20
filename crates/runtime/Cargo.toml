@@ -32,6 +32,9 @@ heimdall-issuer = { workspace = true }
 heimdall-enroll = { workspace = true }
 # M04 (ADR-0010 §2–§3; joint wave 0): the WSL realization; the runtime wires it (app never imports it).
 heimdall-wsl = { workspace = true }
+# ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3): the workspace observer implements the project crate's
+# `FsView` and the app's `WorkspaceProbe` (`workspace_observe.rs`).
+heimdall-project = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -86,6 +89,41 @@ path = "../../tests/integration/runtime.rs"
 [[test]]
 name = "model_operations"
 path = "../../tests/model/operations.rs"
+
+# ⟨M05⟩ U2 (ADR-0011 §2.1, §3.1, §4; P9): owner policy actions, trust and reconcile
+# decisions through a fake workspace probe, and the I1 invariant over random traces.
+[[test]]
+name = "model_trust_policy"
+path = "../../tests/model/trust_policy.rs"
+
+# ⟨M05⟩ U2 (ADR-0011 §4.2-§4.3; P10): concurrent scope-delta review, coalescing and the
+# cooldown through the real Operations.
+[[test]]
+name = "model_decision_budget"
+path = "../../tests/model/decision_budget.rs"
+
+# ⟨M05⟩ U3 (ADR-0011 §7; plan §6.3 #3): block precedence over random traces (stop of a work
+# and of a policy target, targeted pause and cutoff, resume and clear decisions, background
+# triggers, restarts, ruling I-1).
+[[test]]
+name = "model_precedence_m05"
+path = "../../tests/model/precedence_m05.rs"
+
+# ⟨M05⟩ U3 (ADR-0011 §7; ruling I-1): the A05 and stop journeys and the reuse of a work ID's
+# grant, in process through the real Operations.
+[[test]]
+name = "e2e_stop_m05"
+path = "../../tests/e2e/m05_stop.rs"
+
+# ⟨M05⟩ U7 (ADR-0011 §2.4 I4; A18): export and import of portable intent, `catalog
+# set_default_profile`, through the real Operations (model suite) and the dispatcher (journey).
+[[test]]
+name = "integration_portable"
+path = "../../tests/integration/portable.rs"
+
+[[test]]
+name = "e2e_portable_m05"
+path = "../../tests/e2e/m05_portable.rs"
 
 # M01-U5 events, cursors and subscriptions (A19 event cases).
 [[test]]
@@ -142,3 +180,16 @@ path = "../../tests/integration/issuer_m03.rs"
 [[test]]
 name = "integration_login_entry_m04"
 path = "../../tests/integration/login_entry_m04.rs"
+
+# ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3): the real workspace observer over scratch files: symlinked
+# roots, refused symlink/FIFO/device manifests, a manifest swapped by a concurrent writer,
+# file identities.
+[[test]]
+name = "integration_workspace_observe"
+path = "../../tests/integration/workspace_observe.rs"
+
+# ⟨M05⟩ U4 (ADR-0011 §2.3, §3.2–§3.4, §4.1, §5.3): `ensure` with `context` in process, with
+# the real probe over scratch Git repositories (A02, A04, A18, covered_only, mixed groups).
+[[test]]
+name = "e2e_context_m05"
+path = "../../tests/e2e/m05_context.rs"

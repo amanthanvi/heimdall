@@ -1,0 +1,6 @@
+373   bind(10, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
+373   sendto(10, "\236'\1\0\0\1\0\0\0\0\0\1\5relay\0\0\1\0\1\0\0)\4\320\0\0\0\0"..., 34, MSG_NOSIGNAL, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("127.0.0.11")}, 16) = 34
+373   bind(11, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
+372   connect(10, {sa_family=AF_INET, sin_port=htons(3340), sin_addr=inet_addr("172.21.0.3")}, 16) = -1 EINPROGRESS (Operation now in progress)
+372   sendto(11, "\310\217\1\0\0\1\0\0\0\0\0\1\5relay\0\0\34\0\1\0\0)\4\320\0\0\0\0"..., 34, MSG_NOSIGNAL, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("127.0.0.11")}, 16) = 34
+373   sendto(10, "GET /relay HTTP/1.1\r\nHost: relay"..., 208, MSG_NOSIGNAL, NULL, 0) = 208

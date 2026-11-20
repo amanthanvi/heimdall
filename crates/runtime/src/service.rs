@@ -850,6 +850,9 @@ impl Service {
                 tokio::spawn(async move { ops.drive_distribution_setups(&pending, false).await });
             }
         }
+        // ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3): the workspace observer behind `ensure` with
+        // `context`, `inspect workspace` and the workspace decisions.
+        operations.set_workspace_probe(Arc::new(crate::workspace_observe::RealWorkspaceProbe));
         // ⟨M03; ADR-0008 §17.25 item 19⟩ `inspect destinations`' D8 wording: the managed
         // adapter's own (`connection_policy_report`), so the destination view and the
         // ensure result say the same sentence. Without the managed wiring, none.
@@ -2617,6 +2620,23 @@ impl ManagedParts {
         let mut steps = Vec::new();
         let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(ops.clone());
         let supervisor_stop = stop.clone();
+        // ⟨M05⟩ U5 (ADR-0011 §3.2 (a)): the environment endpoint's identities path activates
+        // the personal default (covered only, single-flight, bounded wait).
+        let activation = crate::default_activation::DefaultActivator::new(
+            ops.clone(),
+            ops.environment().clone(),
+            crate::default_activation::owner_context(&owner),
+            crate::default_activation::launch_executable(
+                wired
+                    .and_then(|w| w.config.clients.selected(ClientKind::Ssh))
+                    .map(|c| c.path.as_path()),
+                crate::default_activation::FALLBACK_EXECUTABLE,
+            ),
+            stop.clone(),
+        );
+        let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(
+            crate::default_activation::ActivatingAuthority::new(authority, Arc::new(activation)),
+        );
         let registry = EndpointRegistry::new(
             self.layout.clone(),
             owner,
@@ -3481,6 +3501,7 @@ mod pair_source_tests {
                                 existing: ExistingConnectionsMode::Graceful,
                                 multiplexing: *multiplexing,
                             },
+                            default: false,
                         },
                         false,
                     )?;

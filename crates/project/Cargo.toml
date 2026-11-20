@@ -15,10 +15,29 @@ workspace = true
 [dependencies]
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
+serde = { workspace = true }
+# The raw JSON walk of the portable bundle (authority sections at any depth) and the
+# `Capability` name check both go through `serde_json::Value`.
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+# The manifest's value tree: duplicate keys are a syntax error in the `toml` crate, and the
+# authority-vocabulary scan walks the tree before the closed-schema decode.
+toml = { workspace = true }
 
-# No test target runs yet: `tools/validation/check.sh` fails any test target that runs zero
-# tests, so the M05 track enables the lib target's tests (and doctests) with its first
-# meaningful case (ADR-0010 §9 item 8, applied to M05 by ADR-0011 §10).
+[dev-dependencies]
+# U1 tests: fixed-seed properties over the pure API (ADR-0009 §2.3).
+proptest = { workspace = true }
+serde_json = { workspace = true }
+
+# The lib has no unit tests: every claim is in the model target below (a test target that
+# runs zero tests fails `tools/validation/check.sh`).
 [lib]
 test = false
 doctest = false
+
+# M05 wave 1 (U1): the manifest parser, the access digest, workspace discovery and
+# `match_workspace` over an in-memory `FsView`, and the portable bundle.
+[[test]]
+name = "model_project_pure"
+path = "../../tests/model/project_pure.rs"

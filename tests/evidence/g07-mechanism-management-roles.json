@@ -1,0 +1,59 @@
+{
+  "case_id": "G07-mechanism-management-roles",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-08",
+    "R-SE-06",
+    "R-SE-04"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "runner_host": "devbox: Ubuntu 24.04 x86_64, kernel 6.8.0-147-generic, OpenSSH 9.6p1 Ubuntu-3ubuntu13.20; linger=yes (pre-existing), KillUserProcesses=false, NTP synchronized, no Secret Service on the user bus",
+    "controller": "macOS 27 arm64 (OpenSSH 10.5p1) reaching the devbox through the owner's ordinary `ssh devbox` transport with ForwardAgent=no",
+    "fixture": "two unprivileged loopback sshd instances (destination, runner-host management) in one scratch dir; all keys generated on the devbox per run except the fixture CA (Mac scratch); scratch removed",
+    "probe_sources_sha256_prefix": {
+      "probe.sh": "fc9807ea908907fb (current; edited after the roles run: fwd_session split before the fwd rerun, orphan-client fix after cleanup)",
+      "runner.sh": "dbc86252ad9ed885",
+      "drive.sh": "d633479eecfb0a3d"
+    }
+  },
+  "provider_versions": [
+    "OpenSSH 9.6p1 sshd (unprivileged, UsePAM no)"
+  ],
+  "started_at": "2026-11-19T00:14:00-05:00",
+  "commands_or_harness": [
+    "prototypes/g07-runner-ssh/drive.sh phase1 (probe.sh readout|setup|roles)"
+  ],
+  "observed_result": {
+    "R1_owner_status_approve": "0/0 allowed",
+    "R2_viewer_status": "0 allowed",
+    "R2_viewer_approve": "77 forbidden",
+    "R3_viewer_shell_command": "64; forced command ran, `id` not executed",
+    "R3b_viewer_pty": "255 PTY allocation request failed",
+    "R4_viewer_stdio_forward_W": "255 administratively prohibited",
+    "R4b_viewer_remote_forward_R": "255 remote port forwarding failed",
+    "R4c_control_socket_streamlocal": "unrestricted positive control read 'control-endpoint-reached'; viewer read nothing (channel open failed)",
+    "R5_identity_override": "SetEnv HEIMDALL_HOME/HM_CLIENT and '--client cl_owner' in the command text: the bridge still saw client=cl_viewer and both variables unset (sshd's AcceptEnv filtered them). Agent forwarding was NOT actually requested: the client also set IdentityAgent=none, which disables forwarding (found later in the runner run), so R5 does not show a server-side refusal of agent forwarding",
+    "R6_expiry_time_past": "255 Permission denied",
+    "R7_expiry_time_future": "0 allowed as cl_invited",
+    "R8_line_removed": "255 Permission denied",
+    "rev3_sshd_T_effective_policy": "unprivileged `sshd -T -C user=\u2026` exits 1 (no hostkeys available: system host keys are root-only); with `-h <scratch readable host key>` it exits 0 and prints the account's effective policy (93 lines; authorizedkeyscommand none, forcecommand none, permituserenvironment no, acceptenv LANG LC_*, authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2)"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g07/roles.txt",
+    "tests/evidence/artifacts/g07/readout.txt",
+    "tests/evidence/artifacts/g07/sshd-T-readout.txt"
+  ],
+  "limitations": [
+    "MECHANISM PROBE: OpenSSH/logind behaviour with shell stand-ins on one fixture host; not A24/A25/A07 and not a G07 closure record",
+    "the bridge and runner are shell stand-ins for `heimdall remote serve` and the runner runtime; they exercise OpenSSH/logind semantics, not Heimdall code",
+    "probe sources were uncommitted at run time; devbox run 2026-11-19",
+    "the role table and one-use invitation consumption are Heimdall application logic, not exercised here; only sshd's per-key enforcement (restrict, command=, expiry-time, line removal) was",
+    "the first run left two orphaned `ssh -N -L` clients (probe bug: $! named the function subshell); found in the cleanup check and removed by exact PID; probe fixed",
+    "the cleanup was observed in the session (exact-PID kills, scratch removed, no remaining processes) but no standalone cleanup transcript was retained",
+    "the host readout describes the fixture host only; it does not establish product secret-store availability",
+    "R5 does not test a live agent-forwarding request against `restrict`; the positive and server-refused forwarding controls are planned in A25 (m06-plan U1)",
+    "sshd -T reflects the on-disk configuration readable by the account; a daemon started with another -f or not reloaded since an edit can differ (behaviour probes confirm; a mismatch fails closed)"
+  ]
+}

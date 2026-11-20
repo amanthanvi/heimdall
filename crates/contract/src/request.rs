@@ -1486,9 +1486,10 @@ impl Request {
             // ⟨M04, M05⟩ Revision 5's setup and catalog forms need their track's capability
             // instead of `setup/1` (W0-R04): a route's `jump` and the M04 setup items are
             // `environments/1`'s, `apply_import` is `trusted-work/1`'s.
-            Request::Catalog(CatalogRequest::ApplyImport { .. }) => {
-                Some(crate::ipc::capability::TRUSTED_WORK_V1)
-            }
+            // ⟨M05⟩ Revision 5.1 (§17.9): the default-profile preference is `trusted-work/1`'s.
+            Request::Catalog(
+                CatalogRequest::ApplyImport { .. } | CatalogRequest::SetDefaultProfile { .. },
+            ) => Some(crate::ipc::capability::TRUSTED_WORK_V1),
             Request::Catalog(CatalogRequest::UpsertDestination { destination, .. })
                 if matches!(
                     destination.definition,

@@ -269,8 +269,18 @@ mod uninstall_fence_m03;
 // so the track never edits this list (each answers `driver_unavailable` until filled).
 mod context_m05;
 mod default_activation_m05;
-mod portable_m05;
+// ⟨M05⟩ U5: the ordinary-`ssh` activation's outcome types, for the runtime's port.
+pub use default_activation_m05::{
+    DEFAULT_WORK_PREFIX, DefaultBasis, DefaultOutcome, DefaultState, blocked as default_blocked,
+    default_work_id,
+};
+// ⟨M05⟩ U7: `pub(crate)` so the catalog driver applies an import in its own transaction.
+pub(crate) mod portable_m05;
+// ⟨M05⟩ U7: the bundle file's parse for the CLI's import (wave 3).
+pub use portable_m05::parse_import_bundle;
 mod review_m05;
+// ⟨M05⟩ U2: the requester path's outcome (`Operations::raise_extension_for_test`).
+pub use review_m05::Extension;
 mod slots_m05;
 mod stop_m05;
 mod trust_m05;
@@ -281,6 +291,8 @@ mod login_entry_m04;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use login_entry_m04::login_resource_id;
+// ⟨M05⟩ U6: the handover the runtime's slot cleanup commits (ADR-0011 §5.2).
+pub use slots_m05::{SlotHandover, slot_files_removed_or_hand_over_in};
 pub use uninstall_fence_m03::{
     ACQUIRE_WAIT as UNINSTALL_FENCE_ACQUIRE_WAIT, FenceAcquired, FenceAdmission, FenceLease,
     RELEASE_STUCK_NEXT_COMMAND as UNINSTALL_FENCE_RELEASE_STUCK_NEXT_COMMAND,
@@ -723,6 +735,18 @@ struct Inner {
     wsl: wsl_m04::WslState,
     /// ⟨M04⟩ U1: the login entry's port and remembered previews (`login_entry_m04`).
     login_entry: login_entry_m04::LoginEntryWiring,
+    /// ⟨M05⟩ U2: the workspace observer, set once (`Operations::set_workspace_probe`);
+    /// without one the requests and decisions that need it fail closed (`trust_m05`).
+    workspace_probe: std::sync::OnceLock<Arc<dyn crate::ports::WorkspaceProbe>>,
+    /// ⟨Debug builds only; tests; review M05-W3-R02⟩ The one-shot pause at the entrance of
+    /// the default activation's bind (`Operations::debug_pause_next_default_bind`).
+    #[cfg(debug_assertions)]
+    default_bind_pause: Mutex<
+        Option<(
+            tokio::sync::oneshot::Sender<()>,
+            tokio::sync::oneshot::Receiver<()>,
+        )>,
+    >,
 }
 
 /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: marks one operation's preparation as running in
@@ -1225,7 +1249,8 @@ fn origin_of(r: &ResolvedIntent, caller: &CallerContext) -> Option<GrantOrigin> 
         lock_behavior: None,
         connection: None,
         // ⟨M05⟩ The context the intent was resolved in (personal: absent); the policy
-        // the authority rests on is recorded by M05 (U2/U6).
+        // the authority rests on is added for a standing-policy grant where the grant is
+        // created (`trust_m05::with_policy_id`); absent for a one-off approval.
         workspace: r.workspace.clone(),
         policy_id: None,
     })
@@ -2148,6 +2173,14 @@ impl Activation {
 /// **before** re-validation, so neither is reported as an expiry. Continuing use
 /// ([`Activation::Existing`]) ignores the pause and ends at `min(deadline,
 /// cutoff)` with `CREDENTIAL_EXPIRED`.
+///
+/// ⟨M05⟩ U3 (ADR-0011 §7.2 "Stop (work)"): `work` is the work the activation is for
+/// (the new binding's, or the existing binding's); a stopped one is refused
+/// `CREDENTIAL_EXPIRED` / `work_stopped` whatever the activation
+/// (`stop_m05::work_stop_refusal`). `parent` is the binding a delegation was made through
+/// (a new child's request, an existing child's record); its work, and its ancestors',
+/// must not be stopped either (review M05-W2-R01, `stop_m05::parent_work_refusal`).
+#[allow(clippy::too_many_arguments)]
 fn activation_refusal(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
@@ -2156,6 +2189,8 @@ fn activation_refusal(
     grant: &GrantSnapshot,
     now: Timestamp,
     activation: Activation,
+    work: Option<(&EnvironmentId, &WorkId)>,
+    parent: Option<&BindingId>,
 ) -> heimdall_store::Result<Option<Refusal>> {
     let expected_ok = if activation.attached() {
         grant.state.permits_use()
@@ -2182,6 +2217,18 @@ fn activation_refusal(
             authority_changed("the grant or an ancestor was revoked"),
             Some(GrantEvent::RevokeLocal),
         )));
+    }
+    if let Some((env, work_id)) = work
+        && let Some(error) = stop_m05::work_stop_refusal(tx, env, work_id)?
+    {
+        let event = (!activation.attached()).then_some(GrantEvent::PreparationFailed);
+        return Ok(Some(Refusal::new(error, event)));
+    }
+    // ⟨Review M05-W2-R01⟩ A delegation made through a binding whose work (or an ancestor
+    // binding's work) was stopped never activates, nor binds again.
+    if let Some(error) = stop_m05::parent_work_refusal(tx, parent)? {
+        let event = (!activation.attached()).then_some(GrantEvent::PreparationFailed);
+        return Ok(Some(Refusal::new(error, event)));
     }
     // ⟨M04, M05⟩ The grant's own environment (ADR-0010 §9 item 1; `environment` is the
     // runtime's own, for membership), in the intent's context (ADR-0011 §10 item 1).
@@ -4335,9 +4382,13 @@ struct WorkSpec {
     interactive: bool,
     parent_binding: Option<BindingId>,
     /// ⟨M05⟩ The policy context (ADR-0011 §10 item 1): personal for every request
-    /// without a workspace match (joint wave 0 refuses `context` before admission); a
-    /// delegation resolves in its parent's context instead.
+    /// without a workspace match; an `ensure` with `context` resolves in the context its
+    /// admission fixed (`context_m05::overlay`); a delegation resolves in its parent's
+    /// context instead.
     context: PolicyContext,
+    /// ⟨M05⟩ U4: the resolution an `ensure` with `context` was admitted with (its
+    /// capability restriction and route; `context_m05`). `None` for every other request.
+    m05: Option<Box<context_m05::Resolution>>,
 }
 
 impl WorkSpec {
@@ -4358,6 +4409,7 @@ impl WorkSpec {
                 interactive: r.interaction == InteractionMode::Interactive,
                 parent_binding: None,
                 context: PolicyContext::Personal,
+                m05: None,
             }),
             Request::Delegate(r) => Some(Self {
                 kind: OperationKind::Delegate,
@@ -4371,6 +4423,7 @@ impl WorkSpec {
                 interactive: false,
                 parent_binding: Some(r.parent_binding_id.clone()),
                 context: PolicyContext::Personal,
+                m05: None,
             }),
             _ => None,
         }
@@ -4456,6 +4509,12 @@ fn resolve_in(
                     OpError::new(Code::NotFound, "unknown binding").with_resource("binding", None)
                 );
             };
+            // ⟨M05⟩ U3: nothing is delegated from a stopped work's binding.
+            if let Some(e) =
+                stop_m05::work_stop_refusal(tx, &binding.environment, &binding.work_id)?
+            {
+                refuse!(e);
+            }
             let Some(snapshot) = tx.profile_snapshot(&binding.profile, binding.profile_revision)?
             else {
                 refuse!(
@@ -4541,7 +4600,14 @@ fn resolve_in(
     // stored preference first (`pair_mechanism_m03`); without one, exactly M02's rule.
     let resolved_pairs = match pair_mechanism_m03::resolve_pairs(tx, &pairs)? {
         Ok(r) => r,
-        Err(e) => refuse!(e),
+        // ⟨M05⟩ U4 (ADR-0011 §5.3): a `mixed_mechanisms` refusal names its groups.
+        Err(e) => refuse!(context_m05::with_mechanism_groups(
+            tx,
+            e,
+            &pairs,
+            &inp.adapters,
+            &inp.spec.required
+        )?),
     };
     let mechanism = resolved_pairs.mechanism;
     let adapter = select_adapter(&inp.adapters, &inp.spec.required, mechanism).cloned();
@@ -4576,6 +4642,9 @@ fn resolve_in(
             .copied()
             .collect();
     }
+    // ⟨M05⟩ U4: a context request asks for its manifest's (or workspace policy's)
+    // capabilities only.
+    let capabilities = context_m05::restrict_capabilities(&inp.spec, capabilities);
     let requested = Scope {
         pairs,
         capabilities,
@@ -4615,6 +4684,10 @@ fn resolve_in(
         Ok(d) => d,
         Err(e) => refuse!(OpError::from_deadline(&e)),
     };
+    // ⟨M05⟩ U3 (ADR-0011 §7.2 "Stop (work)"): a stopped work ID never reactivates.
+    if let Some(e) = stop_m05::work_stop_refusal(tx, &target, &inp.spec.work_id)? {
+        refuse!(e);
+    }
     if let Some(end) = work_deadline(tx, &target, &inp.spec.work_id)? {
         if dtime::is_expired(inp.now, end) {
             refuse!(OpError::new(
@@ -4824,6 +4897,9 @@ fn equivalent_waiting(
             || theirs.adapter != resolved.adapter
             || theirs.policy_revision != resolved.policy_revision
             || theirs.generation != resolved.generation
+            // ⟨M05⟩ U4: a request never joins a waiting grant of another context
+            // (ADR-0011 §5.1: the grant origin and the binding pin the context).
+            || theirs.workspace != resolved.workspace
         {
             continue;
         }
@@ -5471,7 +5547,7 @@ fn ensure_data(
         offline_until: facts.offline_until.min(end),
         refresh_dependency: facts.refresh_dependency,
         credential_mechanism: binding.mechanism.clone(),
-        enforcement: facts.enforcement.clone(),
+        enforcement: narrowing::child_enforcement(binding.parent.is_some(), &facts.enforcement),
         consumer: facts.integration.clone(),
         credential_availability: facts.availability,
         provider: facts.provider.clone(),
@@ -5724,6 +5800,54 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
     })
 }
 
+/// ⟨M05⟩ Revision 5.2 (§17.10 item 22; review M05-W3-R01): the scope a pending
+/// `WidenPolicy{create}` record's approval applies, read from its decision basis
+/// (`DecisionBasis::Create`, fixed at creation, ADR-0011 I5), never from the catalog's
+/// latest definition: the profile snapshot at the pinned revision (immutable once
+/// written), the record's environments and the lock behaviour approval gives the new
+/// policy (`trust_m05::apply_widening`, which reads the same basis and snapshot). `None`
+/// for every other record, and for a `create` whose basis or snapshot is gone (approval
+/// then refuses it as stale), so its view is unchanged and a consent surface refuses to
+/// approve what it cannot show. No other `WidenPolicy` kind pins a profile revision: a
+/// `set_max_window` or a targeted record changes no scope, and an `extend_scope` record,
+/// whose action is already exactly the authority it adds, is left out pending the contract
+/// owner's answer to item 22's question.
+///
+/// # Errors
+/// A store failure.
+fn decision_scope(
+    tx: &mut Txn<'_>,
+    d: &DecisionRecord,
+) -> heimdall_store::Result<Option<heimdall_contract::trust::DecisionScope>> {
+    let DecisionKind::WidenPolicy {
+        action:
+            PolicyAction::Create {
+                profile,
+                environments,
+                ..
+            },
+    } = &d.kind
+    else {
+        return Ok(None);
+    };
+    let Some(heimdall_domain::workspace::DecisionBasis::Create { profile_revision }) =
+        tx.decision_basis(&d.id)?
+    else {
+        return Ok(None);
+    };
+    let Some(snapshot) = tx.profile_snapshot(profile, profile_revision)? else {
+        return Ok(None);
+    };
+    Ok(Some(heimdall_contract::trust::DecisionScope {
+        profile_id: profile.clone(),
+        profile_revision,
+        pairs: snapshot.scope.pairs,
+        environments: environments.clone(),
+        capabilities: snapshot.scope.capabilities,
+        lock_behavior: heimdall_contract::managed::LockBehavior::default(),
+    }))
+}
+
 /// Facts the issuer supplies with a certificate request (ADR-0005 §3.5 refusal
 /// list items it alone knows). Used at reserve and again at publish. The
 /// permitted extensions are **not** a caller fact: they are derived inside the
@@ -5799,6 +5923,9 @@ impl Operations {
             uninstall_fence: Arc::default(),
             wsl: wsl_m04::WslState::default(),
             login_entry: login_entry_m04::LoginEntryWiring::default(),
+            workspace_probe: std::sync::OnceLock::new(),
+            #[cfg(debug_assertions)]
+            default_bind_pause: Mutex::new(None),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -6418,9 +6545,14 @@ impl Operations {
                 },
                 _ => return Ok(()),
             };
+            // ⟨M05⟩ U4: an `ensure` with `context` runs exactly the resolution its
+            // admission stored (never re-probed, after a restart too).
             let Some(spec) = st
                 .request()
                 .and_then(|r| WorkSpec::from_request(&r, &st.op.environment))
+                .and_then(|s| context_m05::overlay(s, &st.intent.request))
+                // ⟨M05⟩ U5: the internal default activation's covered-only resolution.
+                .and_then(|s| default_activation_m05::overlay(s, &st.intent.request))
             else {
                 return Err(internal("the stored request cannot be read"));
             };
@@ -6652,6 +6784,18 @@ impl Operations {
                             ),
                         )?;
                         emit.op(tx, &op)?;
+                        // ⟨M05⟩ Ruling I-1 (U3, `stop_m05`): an `ensure` whose work ID
+                        // holds an active grant with every pin equal attaches to it as a
+                        // separate reference, in this transaction.
+                        stop_m05::reuse_in(
+                            tx,
+                            &inp.environment,
+                            &inp.adapters,
+                            &op,
+                            inp.spec.kind,
+                            &inp.spec.work_id,
+                            now,
+                        )?;
                         Ok((Ok(Flow::Continue), none()))
                     }
                     Ok(Resolution::Approval(approval)) => {
@@ -6660,11 +6804,42 @@ impl Operations {
                             mut grant,
                             delta,
                         } = *approval;
+                        // ⟨M05⟩ U4: a `covered_only` request never creates a record
+                        // (ruling 3); a trusted workspace's manifest delta waits on its
+                        // coalesced `WidenPolicy{extend_scope}` instead of an
+                        // `ApproveAuthority` (ADR-0011 §4.1 option B).
+                        let routed = context_m05::on_approval(
+                            tx,
+                            emit,
+                            &inp.spec,
+                            &inp.environment,
+                            &op.environment,
+                            &delta,
+                            now,
+                            decision_id.clone(),
+                            lifetime,
+                        )?;
+                        if let context_m05::OnApproval::Fail(err) = &routed {
+                            settle_failed(tx, emit, &mut op, err, now, retention)?;
+                            tx.append_stage_receipt(
+                                &id,
+                                &receipt(
+                                    EnsureStage::ResolveMechanism,
+                                    now,
+                                    EffectReceipt::NotAttempted,
+                                ),
+                            )?;
+                            return Ok((Ok(Flow::Stop), none()));
+                        }
+                        let ordinary = matches!(routed, context_m05::OnApproval::Normal);
                         // Code review A07: one logical decision, one record (spec
                         // §5.5): an equivalent request already waiting joins its
                         // decision and its grant; this caller keeps its own operation.
-                        let joined =
-                            equivalent_waiting(tx, &op, &inp.spec, &resolved, &delta, now)?;
+                        let joined = if ordinary {
+                            equivalent_waiting(tx, &op, &inp.spec, &resolved, &delta, now)?
+                        } else {
+                            None
+                        };
                         let resolved = match joined {
                             Some(gid) => ResolvedIntent {
                                 grant: Some(gid),
@@ -6685,21 +6860,23 @@ impl Operations {
                                     )?;
                                     tx.set_grant_origin(&grant.id, &origin)?;
                                 }
-                                let decision = DecisionRecord {
-                                    id: decision_id,
-                                    kind: DecisionKind::ApproveAuthority {
-                                        operation: id.clone(),
-                                        delta,
-                                    },
-                                    generation: resolved.generation,
-                                    created_at: now,
-                                    expires_at: plus(now, lifetime),
-                                    state: DecisionState::Pending,
-                                    decided_at: None,
-                                };
-                                tx.insert_decision(&decision)?;
                                 emit.grant(tx, &grant, Some(&id))?;
-                                emit.decision(tx, &decision, Some(&id))?;
+                                if ordinary {
+                                    let decision = DecisionRecord {
+                                        id: decision_id,
+                                        kind: DecisionKind::ApproveAuthority {
+                                            operation: id.clone(),
+                                            delta,
+                                        },
+                                        generation: resolved.generation,
+                                        created_at: now,
+                                        expires_at: plus(now, lifetime),
+                                        state: DecisionState::Pending,
+                                        decided_at: None,
+                                    };
+                                    tx.insert_decision(&decision)?;
+                                    emit.decision(tx, &decision, Some(&id))?;
+                                }
                                 resolved
                             }
                         };
@@ -6767,6 +6944,8 @@ impl Operations {
                 .map(|a| a.mechanism.clone())
                 .unwrap_or_default(),
             deadline: resolved.deadline.effective.to_string(),
+            // ⟨M05⟩ Never equivalent across contexts (`EquivalenceKey::workspace`).
+            workspace: resolved.workspace.clone(),
         };
         let leader = match self.inner.singleflight.join_or_lead(key.clone()) {
             Err(_) => {
@@ -6804,6 +6983,8 @@ impl Operations {
                     && g.generation == resolved.generation
                     && g.scope == resolved.scope
                     && g.deadline.effective == resolved.deadline.effective
+                    // ⟨M05⟩ The leader resolved in the same context (`EquivalenceKey::workspace`).
+                    && lintent.workspace == resolved.workspace
                     && let Some(data) = lop
                         .result
                         .clone()
@@ -7342,6 +7523,14 @@ impl Operations {
                                 &intent.request,
                                 floor,
                             )?;
+                            // ⟨M05⟩ ADR-0011 §5.1: a standing-policy grant records the
+                            // policy its authority rests on.
+                            let origin =
+                                if matches!(g.source, AuthorizationSource::StandingPolicy { .. }) {
+                                    trust_m05::with_policy_id(tx, &op.environment, origin)?
+                                } else {
+                                    origin
+                                };
                             tx.set_grant_origin(&gid, &origin)?;
                         }
                         if let Some(rr) = intent.resolved.as_mut() {
@@ -7453,6 +7642,10 @@ impl Operations {
         let ident = identity.clone();
         let tok = token.clone();
         let retention = self.retention();
+        // ⟨M05⟩ U3: the work this attempt's binding is for (the work-stop check).
+        let work = stop_m05::work_of(st);
+        // ⟨Review M05-W2-R01⟩ The binding a delegation was made through.
+        let parent = stop_m05::parent_of(st);
         let attempt = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id2)? else {
@@ -7480,6 +7673,8 @@ impl Operations {
                     &g,
                     now,
                     Activation::NewGrant,
+                    work.as_ref().map(|(e, w)| (e, w)),
+                    parent.as_ref(),
                 )? {
                     Some(r) => r,
                     None => {
@@ -8086,6 +8281,10 @@ impl Operations {
         let retention = self.retention();
         let adapters = self.adapter_infos();
         let cap = self.inner.revocation_cap.load(Ordering::SeqCst);
+        // ⟨M05⟩ U3: the work this binding is for (the work-stop check).
+        let work = stop_m05::work_of(st);
+        // ⟨Review M05-W2-R01⟩ The binding a delegation was made through.
+        let parent = stop_m05::parent_of(st);
         let outcome = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id)? else {
@@ -8119,9 +8318,17 @@ impl Operations {
                 } else {
                     Activation::NewGrant
                 };
-                if let Some(refusal) =
-                    activation_refusal(tx, &env, &adapters, &resolved, &g, now, activation)?
-                {
+                if let Some(refusal) = activation_refusal(
+                    tx,
+                    &env,
+                    &adapters,
+                    &resolved,
+                    &g,
+                    now,
+                    activation,
+                    work.as_ref().map(|(e, w)| (e, w)),
+                    parent.as_ref(),
+                )? {
                     if !attached
                         && let Some(ev) = refusal.grant_event
                         && grant_try(&mut g, ev)
@@ -8359,6 +8566,10 @@ impl Operations {
         let cap = self.inner.revocation_cap.load(Ordering::SeqCst);
         // ⟨M04⟩ U5: the container directory of the result's mount instruction.
         let container_effects = self.container_effects();
+        // ⟨M05⟩ U3: the work this binding is for (the work-stop check).
+        let work = stop_m05::work_of(st);
+        // ⟨Review M05-W2-R01⟩ The binding a delegation was made through.
+        let parent = stop_m05::parent_of(st);
         let outcome = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id)? else {
@@ -8409,7 +8620,15 @@ impl Operations {
                 // event: the grant is not its own).
                 let follower_refused = follower_refusal.map(|e| Refusal::new(e, None));
                 let refusal = match activation_refusal(
-                    tx, &env, &adapters, &resolved, &g, now, activation,
+                    tx,
+                    &env,
+                    &adapters,
+                    &resolved,
+                    &g,
+                    now,
+                    activation,
+                    work.as_ref().map(|(e, w)| (e, w)),
+                    parent.as_ref(),
                 )? {
                     Some(r) => Some(r),
                     None => {
@@ -8484,7 +8703,10 @@ impl Operations {
                 if g.state == GrantState::Preparing {
                     grant_to(&mut g, GrantEvent::Prepared)?;
                     g.enforcement = EnforcementEvidence {
-                        report: facts.enforcement.clone(),
+                        report: narrowing::child_enforcement(
+                            g.parent.is_some(),
+                            &facts.enforcement,
+                        ),
                         evidence: Vec::new(),
                     };
                     put_grant(tx, emit, &g, Some(&id))?;
@@ -8525,6 +8747,8 @@ impl Operations {
                     state: BindingState::Active,
                 };
                 tx.insert_binding(&binding)?;
+                // ⟨M05⟩ ADR-0011 §5.1: the binding pins its context once.
+                trust_m05::pin_binding_context(tx, &binding_id, &gid)?;
                 // ADR-0006 §13.5 ruling 1: a delegated child holds an
                 // ownership-aware reference on its parent, owned by the child grant
                 // (keyed by the child's binding; dropped in `put_grant` when the
@@ -8545,6 +8769,8 @@ impl Operations {
                 }
                 tx.set_recovery_intent(&id, &intent)?;
                 let mut data = ensure_data(&binding, &g, &facts, bound);
+                // ⟨M05⟩ U4: a context request's result reports its context.
+                context_m05::decorate_commit(tx, &id, &gid, &mut data)?;
                 if signing_endpoint.is_some() {
                     data.consumer.signing_endpoint = signing_endpoint;
                 }
@@ -8812,6 +9038,34 @@ impl Operations {
         wait: WaitMode,
         environment: EnvironmentId,
     ) -> OpResult<EnsureData> {
+        let request_json =
+            serde_json::to_value(&request).map_err(|_| internal("request is not serializable"))?;
+        self.run_work_json(
+            caller,
+            kind,
+            request_json,
+            hash,
+            request_id,
+            wait,
+            environment,
+        )
+        .await
+    }
+
+    /// [`Self::run_work`] over the request object to store as the recovery intent's
+    /// request (⟨M05⟩ U4: an `ensure` with `context` stores its resolution beside the
+    /// request's own fields, `context_m05::RESOLUTION_KEY`).
+    #[allow(clippy::too_many_arguments)]
+    async fn run_work_json(
+        &self,
+        caller: &Caller,
+        kind: OperationKind,
+        request_json: serde_json::Value,
+        hash: heimdall_contract::canonical::RequestHash,
+        request_id: heimdall_contract::ids::RequestId,
+        wait: WaitMode,
+        environment: EnvironmentId,
+    ) -> OpResult<EnsureData> {
         let safe = self.inner.timegate.check().await?;
         let key = IdempotencyKey {
             caller: caller.context.clone(),
@@ -8819,8 +9073,6 @@ impl Operations {
             request_id,
         };
         self.hook_before(EnsureStage::Authenticate, EffectStatus::None)?;
-        let request_json =
-            serde_json::to_value(&request).map_err(|_| internal("request is not serializable"))?;
         let outcome = self
             .admit(
                 key,
@@ -8942,7 +9194,11 @@ impl Operations {
                     Ok(s) => s.wall(),
                     Err(u) => return Ok(Err(uncertain(&u).with_operation(id2.clone()))),
                 };
-                let Some(resolved) = tx.recovery_intent(&id2)?.and_then(|i| i.resolved) else {
+                let Some(intent) = tx.recovery_intent(&id2)? else {
+                    return Err(conflict("operation has no resolved intent"));
+                };
+                let stored = intent.request;
+                let Some(resolved) = intent.resolved else {
                     return Err(conflict("operation has no resolved intent"));
                 };
                 let grant = match &resolved.grant {
@@ -9001,7 +9257,7 @@ impl Operations {
                     .with_resource("policy", Some(p.id.to_string()))
                     .with_operation(id2.clone())));
                 }
-                let Some(g) = grant else {
+                let Some(mut g) = grant else {
                     return Err(conflict("awaiting operation has no grant on record"));
                 };
                 // What the waiting grant needs now, against current policy.
@@ -9014,6 +9270,31 @@ impl Operations {
                     let resumed =
                         proceed_covered(tx, emit, &env, &g, &owner, &resolved.profile, current, now)?;
                     return Ok(Ok(Waiting::Proceed(resumed)));
+                }
+                // ⟨M05⟩ U4: a trusted workspace's manifest delta answers with its
+                // coalesced `WidenPolicy{extend_scope}` (raised again when the last one
+                // expired unanswered), never an `ApproveAuthority`; once denied (its key
+                // cools down) the request ends as a denied approval does.
+                match context_m05::on_waiting(
+                    tx,
+                    emit,
+                    &stored,
+                    &env,
+                    &op.environment,
+                    &needed,
+                    now,
+                    decision_id.clone(),
+                    lifetime,
+                )? {
+                    context_m05::OnWaiting::Normal => {}
+                    context_m05::OnWaiting::Decision(d) => return Ok(Ok(Waiting::Decision(d))),
+                    context_m05::OnWaiting::Denied(err) => {
+                        if grant_try(&mut g, GrantEvent::DecisionDenied) {
+                            put_grant(tx, emit, &g, Some(&id2))?;
+                        }
+                        settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                        return Ok(Err(err.with_operation(id2.clone())));
+                    }
                 }
                 // R7: compare expiry and generation ourselves; a pending record is
                 // reused only while it still covers what is needed.
@@ -9094,10 +9375,25 @@ impl Operations {
         // ⟨M05⟩ Revision 5's subjects (`workspace`, `policies`, `export`) and its `cwd` and
         // `redact` parameters are M05's (U2, U4, U7); joint wave 0 refuses them before
         // anything is read, on any subject (W0-R04).
-        if req.uses_m05_form() {
+        // ⟨M05⟩ U2 serves `inspect policies` (without `cwd` or `redact`), U7 `inspect
+        // export` (with `redact`, without `cwd`); the other revision-5 forms stay U4's.
+        let policies_only =
+            req.subject == InspectSubject::Policies && req.cwd.is_none() && !req.redact;
+        // ⟨M05⟩ U4 serves `inspect workspace` (with `cwd`, without `redact`), U7 `inspect
+        // export` (with `redact`, without `cwd`).
+        let workspace_only = req.subject == InspectSubject::Workspace && !req.redact;
+        let export_only = req.subject == InspectSubject::Export && req.cwd.is_none();
+        if req.uses_m05_form() && !policies_only && !workspace_only && !export_only {
             return Err(OpError::driver_unavailable(
                 "this inspect subject is not available in this build",
             ));
+        }
+        // A bundle is a document: a `preview` would add a key to it.
+        if export_only && req.preview.is_some() {
+            return Err(
+                OpError::new(Code::UsageError, "inspect export takes no preview")
+                    .with_effect(EffectStatus::None),
+            );
         }
         let mut warnings = Vec::new();
         // Passive reads continue with a warning while time is uncertain (spec §6.4).
@@ -9137,6 +9433,8 @@ impl Operations {
                         // U3b's WSL and U5's container requests (the same set as
                         // `server_capabilities()`).
                         heimdall_contract::ipc::capability::ENVIRONMENTS_V1,
+                        // ⟨M05⟩ W3: offered once every trusted-work form is served.
+                        heimdall_contract::ipc::capability::TRUSTED_WORK_V1,
                     ],
                     "schemas": heimdall_contract::schema::public_schemas()
                         .iter()
@@ -9413,12 +9711,26 @@ impl Operations {
                     } else {
                         self.write(move |tx, _| {
                             let pending = tx.pending_decisions()?;
-                            Ok(serde_json::json!({
-                                "decisions": pending
-                                    .iter()
-                                    .map(|d| decision_view(d, now))
-                                    .collect::<Vec<_>>(),
-                            }))
+                            let mut decisions = Vec::with_capacity(pending.len());
+                            for d in &pending {
+                                let mut view = decision_view(d, now);
+                                // ⟨M05⟩ Revision 5.1 (§17.9 C1): a targeted widening lists
+                                // the policies it was created over.
+                                if let Some(policies) = stop_m05::listed_policies(tx, d)?
+                                    && let serde_json::Value::Object(map) = &mut view
+                                {
+                                    map.insert("policies".to_owned(), serde_json::json!(policies));
+                                }
+                                // ⟨M05⟩ Revision 5.2 (§17.10 item 22): a `create` record
+                                // shows the scope its approval applies.
+                                if let Some(scope) = decision_scope(tx, d)?
+                                    && let serde_json::Value::Object(map) = &mut view
+                                {
+                                    map.insert("scope".to_owned(), serde_json::json!(scope));
+                                }
+                                decisions.push(view);
+                            }
+                            Ok(serde_json::json!({ "decisions": decisions }))
                         })
                         .await?
                     }
@@ -9546,11 +9858,42 @@ impl Operations {
                         })?
                     }
                 }
-                // ⟨M05⟩ Refused at the top (`is_m05`).
-                InspectSubject::Workspace | InspectSubject::Policies | InspectSubject::Export => {
-                    return Err(OpError::driver_unavailable(
-                        "this inspect subject is not available in this build",
-                    ));
+                // ⟨M05⟩ U2: `inspect policies` (ADR-0011 §4.4), owner role only, like the
+                // other owner-sensitive subjects (decisions, enrollments).
+                InspectSubject::Policies => {
+                    if !ctx.is_owner() {
+                        serde_json::json!({ "items": [] })
+                    } else {
+                        let own = environment.clone();
+                        let view = self
+                            .write(move |tx, _| trust_m05::policies_view(tx, &own))
+                            .await?;
+                        serde_json::to_value(view)
+                            .map_err(|_| internal("the policies could not be rendered"))?
+                    }
+                }
+                // ⟨M05⟩ U4: `inspect workspace` (ADR-0011 §2.3).
+                InspectSubject::Workspace => {
+                    let view = self.inspect_workspace(caller, req.cwd.clone()).await?;
+                    serde_json::to_value(view)
+                        .map_err(|_| internal("the workspace could not be rendered"))?
+                }
+                // ⟨M05⟩ U7: `inspect export` (ADR-0011 §2.4 I4), owner role only: a bundle
+                // for any other role would read as a valid empty one, so it is refused.
+                InspectSubject::Export => {
+                    if !ctx.is_owner() {
+                        return Err(OpError::new(
+                            Code::CapabilityUnavailable,
+                            "the export needs the owner role",
+                        )
+                        .with_effect(EffectStatus::None));
+                    }
+                    let redact = req.redact;
+                    let bundle = self
+                        .write(move |tx, _| portable_m05::export_bundle(tx, redact, now))
+                        .await?;
+                    serde_json::to_value(bundle)
+                        .map_err(|_| internal("the export could not be rendered"))?
                 }
             };
         if let Some(preview) = req.preview {
@@ -9640,6 +9983,7 @@ impl Operations {
                 parent_binding: None,
                 // ⟨M05⟩ A preview without a workspace context is personal.
                 context: PolicyContext::Personal,
+                m05: None,
             },
             caller: caller.context.clone(),
             operation: OperationId::from_random_bytes([0; 16]),
@@ -9689,21 +10033,44 @@ impl Operations {
                 "too many destination/account pairs",
             ));
         }
-        // ⟨M04, M05⟩ Revision 5 forms (`context`, `covered_only`, no `profile`) are
-        // M05's; joint wave 0 refuses them before anything is read or written.
-        if req.uses_m05_form() {
-            return Err(OpError::driver_unavailable(
-                "trusted-work requests are not available in this build",
-            ));
+        // ⟨M05⟩ ADR-0006 §17.6 R5-Q1 (U2): `covered_only` requires `context`, refused
+        // before anything is read or written.
+        if req.covered_only && req.context.is_none() {
+            return Err(
+                OpError::new(Code::UsageError, "covered_only requires a context")
+                    .with_effect(EffectStatus::None),
+            );
+        }
+        // ⟨M05⟩ U4: `ensure` with `context` (ADR-0011 §3.2; `context_m05`).
+        if req.context.is_some() {
+            return self.ensure_in_context(caller, req).await;
+        }
+        // ⟨M05⟩ ADR-0006 §17.1 M05 item 1: `profile` may be absent only with `context`. A
+        // request with neither is a usage error, before anything is read or written
+        // (integrator, W2 question I-8; the joint wave 0 landing answered it
+        // `driver_unavailable` while no `ensure` form of M05 was served).
+        if req.profile.is_none() {
+            return Err(OpError::new(
+                Code::UsageError,
+                "an ensure names a profile, or a working directory (context) to resolve one from",
+            )
+            .with_effect(EffectStatus::None));
         }
         let own = self.inner.config.environment.clone();
         let environment = req.environment.clone().unwrap_or_else(|| own.clone());
         // ⟨M04⟩ ADR-0010 §9 item 1: the target must be in this runtime's managed set
         // (replacing M01's `environment != own`); nothing is written otherwise.
+        // ⟨M05⟩ U3: nor for a stopped work ID (`work_stopped`).
         {
             let (own2, target) = (own.clone(), environment.clone());
-            self.write(move |tx, _| crate::environments::admit(tx, &own2, &target))
-                .await??;
+            let work = req.work_id.clone();
+            self.write(move |tx, _| {
+                if let Err(e) = crate::environments::admit(tx, &own2, &target)? {
+                    return Ok(Err(e));
+                }
+                Ok(stop_m05::work_stop_refusal(tx, &target, &work)?.map_or(Ok(()), Err))
+            })
+            .await??;
         }
         // ⟨M04 U4b⟩ An `ensure` naming a WSL Mode B environment is the owner's own explicit
         // action on it: its helper starts here (a stopped distribution too), never in the
@@ -9755,6 +10122,20 @@ impl Operations {
     /// `bind` (materialize only in M01; launch is the CLI's job after ensure).
     /// Authorized by binding ownership or owner role.
     pub async fn bind(&self, caller: &Caller, req: BindRequest) -> OpResult<EnsureData> {
+        self.bind_with(caller, req, None).await
+    }
+
+    /// [`Self::bind`]; ⟨M05; review M05-W3-R02⟩ with `background`, the personal default's
+    /// background activation's bind (`default_activation_m05`): its marker is stored with
+    /// the request and hashed with it, so whichever pass would claim the slots refuses in
+    /// that transaction unless the activation may still claim then. `None` (every client
+    /// bind) is exactly the M03 bind.
+    async fn bind_with(
+        &self,
+        caller: &Caller,
+        req: BindRequest,
+        background: Option<&default_activation_m05::BackgroundBind>,
+    ) -> OpResult<EnsureData> {
         // ⟨M02⟩ U0b row 3 (m02-plan §5 items 5 and 16): a launch binding names an
         // absolute executable and, optionally, its holder process; `argv` never
         // crosses IPC. The holder is delivery metadata and stays out of the hash, so
@@ -9773,6 +10154,10 @@ impl Operations {
         };
         let safe = self.inner.timegate.check().await?;
         let own = self.inner.config.environment.clone();
+        let mut extra = serde_json::json!({ "binding_id": req.binding_id, "form": form_hashed });
+        if let Some(marker) = background {
+            default_activation_m05::mark(&mut extra, marker)?;
+        }
         let hash = compute_hash(
             OperationKind::Bind,
             &HashInput {
@@ -9784,7 +10169,7 @@ impl Operations {
                 work_id: None,
                 required_capabilities: &RequiredCapabilities::default(),
                 parent_binding: None,
-                extra: serde_json::json!({ "binding_id": req.binding_id, "form": form_hashed }),
+                extra,
             },
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
@@ -9800,6 +10185,10 @@ impl Operations {
                 let Some(b) = tx.binding(&bid)?.filter(|b| may_act_on(b, &ctx)) else {
                     return Ok(Ok(None));
                 };
+                // ⟨M05⟩ U3: a stopped work's binding is refused before any record.
+                if let Some(e) = stop_m05::work_stop_refusal(tx, &b.environment, &b.work_id)? {
+                    return Ok(Err(e));
+                }
                 Ok(crate::environments::admit(tx, &own2, &b.environment)?
                     .map(|()| Some(b.environment)))
             })
@@ -9821,8 +10210,11 @@ impl Operations {
             BindForm::Launch(launch) => Some(launch.holder.clone()),
             BindForm::Materialize => None,
         };
-        let request_json = serde_json::to_value(Request::Bind(req))
+        let mut request_json = serde_json::to_value(Request::Bind(req))
             .map_err(|_| internal("request is not serializable"))?;
+        if let Some(marker) = background {
+            default_activation_m05::mark(&mut request_json, marker)?;
+        }
         let outcome = self
             .admit(
                 key,
@@ -9865,6 +10257,8 @@ impl Operations {
         };
         // ⟨M03 wave 5⟩ U9-Q3 (a), as for `ensure`.
         self.label_grant_lock(&mut done, &grant).await;
+        // ⟨M05⟩ U6: a bind that joined a shared slot says so (ADR-0011 §5.2).
+        slots_m05::label_shared(&mut done);
         Ok(done)
     }
 
@@ -9945,6 +10339,9 @@ impl Operations {
         let Some(Request::Bind(req)) = st.request() else {
             return Err(internal("the stored request cannot be read"));
         };
+        // ⟨M05; review M05-W3-R02⟩ The personal default's background bind carries its
+        // marker in the stored request (`default_activation_m05::BIND_KEY`).
+        let background = default_activation_m05::stored_background(&st.intent.request);
         let gate = self.inner.timegate.in_txn();
         let id2 = id.clone();
         let env = self.inner.config.environment.clone();
@@ -10013,6 +10410,22 @@ impl Operations {
                             .with_resource("binding", None),
                     );
                 };
+                // ⟨M05; review M05-W3-R02⟩ The personal default's background bind is a
+                // background activation (ADR-0011 §7.2–§7.3), not continuing use: in the
+                // transaction that would claim its slots (this first pass), at this
+                // gate-certified `now`, it refuses unless the activation may still claim
+                // (pause, stop, cutoff, the planned default and the current work). A
+                // refusal claims nothing, writes no slot file and leaves the binding and
+                // its grant as they are; a client bind carries no marker.
+                if !slots_ready && let Some(marker) = &background {
+                    let refusal = match marker {
+                        Ok(m) => default_activation_m05::background_bind_refusal(tx, m, &b, now)?,
+                        Err(e) => Some(e.clone()),
+                    };
+                    if let Some(e) = refusal {
+                        return fail(tx, emit, &mut op, e);
+                    }
+                }
                 if b.state != BindingState::Active {
                     // ⟨M02⟩ ADR-0007 §12.26 item 3(a): a released binding names its
                     // reason.
@@ -10060,6 +10473,8 @@ impl Operations {
                     &g,
                     now,
                     Activation::Existing,
+                    Some((&b.environment, &b.work_id)),
+                    b.parent.as_ref(),
                 )?
                 .map(|r| r.error);
                 if refusal.is_none() {
@@ -10126,7 +10541,12 @@ impl Operations {
                 // eligibility, in this settling transaction.
                 let facts = Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
                     .with_eligibility(tx, &g, now)?;
-                let data = ensure_data(&b, &g, &facts, bound);
+                let mut data = ensure_data(&b, &g, &facts, bound);
+                // ⟨M05⟩ U6: a managed launch that joined a shared slot is labelled
+                // `ordinary_aliases: shared_environment_default` (ADR-0011 §5.2).
+                if matches!(req.form, BindForm::Launch(_)) && b.mechanism == MANAGED_CERTIFICATE {
+                    slots_m05::label_shared_in(tx, &b.id, &mut data)?;
+                }
                 let value = serde_json::to_value(&data)?;
                 // ⟨M02⟩ U0b row 4: the launch binding's holder, when given. ADR-0007
                 // §12.25 item 4 (T04): checked and registered in this settling
@@ -10175,18 +10595,24 @@ impl Operations {
         // (one binding names one environment; ADR-0010 §0 item 1, §9 item 1), which must
         // be in the managed set, as `ensure` and `bind` admit theirs: nothing is written
         // for an unmanaged or removed one (ADR-0006 §17.2 item 2; W0-R03).
+        // ⟨M05⟩ U3: nothing is written for a stopped work ID, the child's or its parent
+        // binding's (`work_stopped`).
+        let child_work = req.work_id.clone();
         let parent_environment = self
             .write(move |tx, _| {
-                let Some(environment) = tx
-                    .binding(&pb)?
-                    .filter(|b| may_act_on(b, &ctx))
-                    .map(|b| b.environment)
-                else {
+                let Some(parent) = tx.binding(&pb)?.filter(|b| may_act_on(b, &ctx)) else {
                     return Ok(None);
                 };
-                Ok(Some(
-                    crate::environments::admit(tx, &own, &environment)?.map(|()| environment),
-                ))
+                let environment = parent.environment;
+                if let Err(e) = crate::environments::admit(tx, &own, &environment)? {
+                    return Ok(Some(Err(e)));
+                }
+                for work in [&parent.work_id, &child_work] {
+                    if let Some(e) = stop_m05::work_stop_refusal(tx, &environment, work)? {
+                        return Ok(Some(Err(e)));
+                    }
+                }
+                Ok(Some(Ok(environment)))
             })
             .await?;
         let Some(parent_environment) = parent_environment else {
@@ -10667,9 +11093,8 @@ impl Operations {
     /// `revoke` (tombstone before acknowledgment; cascade; residual from the
     /// issuance log; spec §6.7).
     pub async fn revoke(&self, caller: &Caller, req: RevokeRequest) -> OpResult<RevokeData> {
-        // ⟨M05⟩ Revision 5: a `target` (stop a piece of work) is M05's (U3); joint wave
-        // 0 refuses it before anything is read or written. Exactly one of `grant_id`
-        // and `target` (ADR-0006 revision 5 §17).
+        // ⟨M05⟩ Revision 5: a `target` stops a piece of work (U3, `stop_m05`). Exactly
+        // one of `grant_id` and `target` (ADR-0006 revision 5 §17).
         if req.target.is_some() {
             if req.grant_id.is_some() {
                 return Err(OpError::new(
@@ -10677,9 +11102,7 @@ impl Operations {
                     "a revoke names a grant or a target, not both",
                 ));
             }
-            return Err(OpError::driver_unavailable(
-                "stopping a piece of work is not available in this build",
-            ));
+            return self.revoke_work(caller, req).await;
         }
         let Some(revoked_grant) = req.grant_id.clone() else {
             return Err(OpError::new(Code::UsageError, "a revoke names a grant"));
@@ -10782,10 +11205,9 @@ impl Operations {
         // phase 1; a later drive (restart recovery, a same-key retry) never calls
         // them again and completes from the record.
         let id2 = id.clone();
-        // ⟨M05⟩ A stored revoke always names its grant (a `target` is refused before
-        // admission in joint wave 0).
+        // ⟨M05⟩ U3: a stored revoke without a grant names a target (a work stop).
         let Some(root) = req.grant_id.clone() else {
-            return Err(internal("the stored revoke names no grant"));
+            return self.drive_work_stop(id).await;
         };
         let interrupted = Arc::clone(&self.inner.interrupted_rounds);
         // ⟨M03⟩ U0b rows 20 and 27 (G): phase 1 commits through the narrowing protocol
@@ -11330,6 +11752,14 @@ impl Operations {
             ));
         }
         if req.is_m05() {
+            // ⟨M05⟩ U2's actions (`trust_m05`); U3's targeted forms and `stop`
+            // (`stop_m05`).
+            if trust_m05::serves(&req) {
+                return self.policy_m05(caller, req).await;
+            }
+            if stop_m05::serves(&req) {
+                return self.policy_targeted(caller, req).await;
+            }
             return Err(OpError::driver_unavailable(
                 "this policy action is not available in this build",
             ));
@@ -11435,6 +11865,13 @@ impl Operations {
                 p.source = PolicySource::OwnerDecision { decided_at: now };
                 tx.upsert_policy(&p, true)?;
                 emit.policy(tx, &p)?;
+                // ⟨M05⟩ ADR-0011 §4.4: every applied change appends its history row.
+                trust_m05::record_change(
+                    tx,
+                    &p,
+                    heimdall_domain::workspace::PolicyChangeCause::Narrowing,
+                    now,
+                )?;
                 Ok(Ok(PolicyOutcome::Applied(Box::new(p), true)))
             })
             .await??;
@@ -11514,6 +11951,11 @@ impl Operations {
             Verdict::Approve => None,
             Verdict::Deny => Some(self.narrowing_now().await),
         };
+        // ⟨M05⟩ U2: an M05 record's preparation outside the transaction (the approval-time
+        // re-probe of a workspace decision; I/O never inside it).
+        let m05 = self
+            .decide_m05_prepare(&req.decision_id, req.verdict)
+            .await?;
         let gate = self.inner.timegate.in_txn();
         let env = self.inner.config.environment.clone();
         let adapters = self.adapter_infos();
@@ -11573,21 +12015,22 @@ impl Operations {
                             }
                         }
                     }
-                    // ⟨M05⟩ Revision 5: a revision-5 widening action, and the two new
-                    // kinds, are refused before completion (not consumed) until M05
-                    // U2 lands their driver (the M03 wave-0 pattern).
+                    // ⟨M05⟩ U2: a revision-5 widening action and the two workspace kinds
+                    // are checked before completion (`trust_m05::precheck`); a refusal
+                    // writes nothing, so the record stays pending, not consumed. U3's
+                    // actions are still refused there (the M03 wave-0 pattern).
                     DecisionKind::WidenPolicy { action } if action.is_m05() => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "this decision kind is not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
+                        if let Err(e) = trust_m05::precheck(tx, &d, verdict, &m05)? {
+                            return Ok(Err(e.with_resource("decision", Some(did.to_string()))));
+                        }
+                        None
                     }
                     DecisionKind::TrustWorkspace { .. }
                     | DecisionKind::ReconcileWorkspace { .. } => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "this decision kind is not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
+                        if let Err(e) = trust_m05::precheck(tx, &d, verdict, &m05)? {
+                            return Ok(Err(e.with_resource("decision", Some(did.to_string()))));
+                        }
+                        None
                     }
                     DecisionKind::WidenPolicy { .. } => None,
                     DecisionKind::ConfirmTime { .. } => {
@@ -11786,8 +12229,21 @@ impl Operations {
                             settle_failed(tx, emit, &mut op, &err, now, retention)?;
                         }
                     }
+                    // ⟨M05⟩ U2: exactly the recorded M05 action (approval), or a denial's
+                    // cooldown; the waiters the widening now covers resume with no further
+                    // decision. A refusal rolls the transaction back (nothing consumed).
+                    (DecisionKind::WidenPolicy { action }, _) if action.is_m05() => {
+                        match trust_m05::apply(tx, emit, &record, verdict, &m05, now)? {
+                            Ok(more) => resume.extend(more),
+                            Err(e) => {
+                                *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) =
+                                    Some(e);
+                                return Err(conflict("m05 decision refused by its driver"));
+                            }
+                        }
+                    }
                     (DecisionKind::WidenPolicy { action }, Verdict::Approve) => {
-                        if let Err(e) = apply_widening(tx, emit, action, now)? {
+                        if let Err(e) = apply_widening(tx, emit, action, &record.id, now)? {
                             return Ok(Err(e));
                         }
                     }
@@ -11886,19 +12342,19 @@ impl Operations {
                             return Err(conflict("container environment refused by its driver"));
                         }
                     }
-                    // ⟨M05⟩ Unreachable (refused before completion above); a backstop
-                    // that rolls the transaction back, so nothing is consumed.
+                    // ⟨M05⟩ U2: the workspace kinds' driver, in this transaction; a refusal
+                    // rolls it back (nothing consumed).
                     (
                         DecisionKind::TrustWorkspace { .. }
                         | DecisionKind::ReconcileWorkspace { .. },
                         _,
-                    ) => {
-                        *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) =
-                            Some(OpError::driver_unavailable(
-                                "this decision kind is not available in this build",
-                            ));
-                        return Err(conflict("m05 decision kind refused"));
-                    }
+                    ) => match trust_m05::apply(tx, emit, &record, verdict, &m05, now)? {
+                        Ok(more) => resume.extend(more),
+                        Err(e) => {
+                            *m03_refused2.lock().unwrap_or_else(PoisonError::into_inner) = Some(e);
+                            return Err(conflict("m05 decision refused by its driver"));
+                        }
+                    },
                     // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver, in this
                     // transaction. A refusal here rolls the whole transaction back
                     // (nothing consumed): it is returned as a store-level conflict
@@ -13045,6 +13501,7 @@ fn apply_widening(
     tx: &mut Txn<'_>,
     emit: &mut Emit,
     action: &PolicyAction,
+    decision: &heimdall_contract::ids::DecisionId,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<(), OpError>> {
     // ⟨M05⟩ A revision-5 action is never applied here: its decision kind is refused
@@ -13079,6 +13536,15 @@ fn apply_widening(
     p.source = PolicySource::OwnerDecision { decided_at: now };
     tx.upsert_policy(&p, false)?;
     emit.policy(tx, &p)?;
+    // ⟨M05⟩ ADR-0011 §4.4: the history row, cause the decision.
+    trust_m05::record_change(
+        tx,
+        &p,
+        heimdall_domain::workspace::PolicyChangeCause::Decision {
+            decision: decision.clone(),
+        },
+        now,
+    )?;
     Ok(Ok(()))
 }
 

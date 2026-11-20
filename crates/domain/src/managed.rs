@@ -1,5 +1,14 @@
 //! ⟨M03⟩ Managed pair slots, owned connections and the latched lock epoch
 //! (ADR-0008 D10 item 2, D8 item 2, D9; m03-plan §5 item 16; frozen in wave 0).
+//!
+//! ⟨M05⟩ U6 (ADR-0011 §5.2 as ruled in §10 item 6): a slot is shared by reference. A
+//! compatible launch bind joins a slot another binding materializes ([`slot_bind`]);
+//! when the materializer ends, the slot passes to the latest-deadline usable referencer
+//! under a new generation ([`SlotEvent::HandOver`], [`handover_target`]). The claim is
+//! exactly this: the slot carries one pair and one **materializer** grant (its
+//! certificate's principals and `valid_before` come from that grant only), and it ends
+//! when its last referencer drops. A shorter sibling is enforced on its bound contexts,
+//! not on the ordinary alias (`shared_environment_default`, R3).
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{BindingId, ConnectionId, GrantId};
@@ -86,6 +95,16 @@ pub enum SlotEvent {
         /// The holder's grant has ended.
         grant_ended: bool,
     },
+    /// ⟨M05⟩ ADR-0011 §5.2 (as ruled in §10 item 6): the files of the clearing
+    /// `generation` were removed while a usable referencer remains; the slot passes to
+    /// `to` (the latest-deadline one, [`handover_target`]) at the next generation, to
+    /// be re-materialized from `to`'s own grant.
+    HandOver {
+        /// The cleared generation.
+        generation: u64,
+        /// The referencer taking the slot.
+        to: BindingId,
+    },
 }
 
 /// Why a slot event is refused.
@@ -104,19 +123,23 @@ pub enum SlotRefusal {
     NotApplicable,
 }
 
-/// ADR-0008 D10 item 2:
+/// ADR-0008 D10 item 2, ⟨M05⟩ with ADR-0011 §5.2's handover (as ruled in §10 item 6):
 ///
 /// | Slot state | Event | Next |
 /// |---|---|---|
 /// | `free(g)` | claim by `b` | `held(b, g + 1)` (files written, then listed) |
-/// | `held(b, g)` | claim by another binding | refused, `managed_slot_held` |
+/// | `held(b, g)` | claim by another binding | refused, `managed_slot_held` (a launch bind decides with [`slot_bind`]: a compatible one joins instead) |
 /// | `held(b, g)` | claim by `b` again | `held(b, g)` (idempotent) |
 /// | `held(b, g)` | `b`'s grant ends or `b` is released | `clearing(g)` |
-/// | `clearing(g)` | files of `g` removed | `free(g)` |
+/// | `clearing(g)` | files of `g` removed, no usable referencer | `free(g)` |
+/// | `clearing(g)` | ⟨M05⟩ files of `g` removed, hand over to `n` ([`handover_target`]) | `held(n, g + 1)` (re-materialized from `n`'s own grant) |
 /// | any | restart | `held` stays `held` (degraded until re-issue) unless its grant ended (`clearing(g)`); `clearing` and `free` stay |
 ///
-/// A release or a file removal naming another holder or generation is refused
-/// (`StaleGeneration`); a generation overflow refuses (`NotApplicable`).
+/// A release, a file removal or a handover naming another holder or generation is
+/// refused (`StaleGeneration`), so a cleanup of generation `g` never moves a slot at
+/// `g + 1`; a generation overflow refuses (`NotApplicable`). The slot's references (who
+/// joined it, and their deadlines) live beside its state (`slot_references`): a join
+/// changes no state here, only that set.
 pub fn slot_transition(state: &SlotState, event: &SlotEvent) -> Result<SlotState, SlotRefusal> {
     match (state, event) {
         (SlotState::Free { generation }, SlotEvent::Claim { binding }) => Ok(SlotState::Held {
@@ -170,8 +193,103 @@ pub fn slot_transition(state: &SlotState, event: &SlotEvent) -> Result<SlotState
             })
         }
         (_, SlotEvent::Restart { .. }) => Ok(state.clone()),
+        (SlotState::Clearing { generation }, SlotEvent::HandOver { generation: g, to }) => {
+            if generation == g {
+                Ok(SlotState::Held {
+                    binding: to.clone(),
+                    generation: generation
+                        .checked_add(1)
+                        .ok_or(SlotRefusal::NotApplicable)?,
+                })
+            } else {
+                Err(SlotRefusal::StaleGeneration)
+            }
+        }
         _ => Err(SlotRefusal::NotApplicable),
     }
+}
+
+// --- ⟨M05⟩ shared slots (ADR-0011 §5.2 as ruled in §10 item 6) -------------------------
+
+/// What a managed launch bind does with one pair's slot (ADR-0011 §5.2, ruling D06).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SlotBind {
+    /// The slot is free: the binding claims it and materializes it (M03's claim).
+    Claim,
+    /// The binding already holds the slot (idempotent).
+    Hold,
+    /// Another binding materializes the slot and this one is compatible: it joins (a
+    /// reference is added; the slot, its generation and its files are unchanged).
+    Join,
+    /// The binding already references the slot (a repeated bind, or a slot clearing
+    /// towards a handover the binding is waiting for): nothing changes.
+    Referenced,
+}
+
+/// ⟨M05⟩ ADR-0011 §5.2 (ruling D06): the decision of a managed launch bind of `binding`
+/// on a slot in `state`. `references` says whether `binding` already references the
+/// slot; `compatible` whether it may share it: its active grant covers the pair **with
+/// the same mechanism** as the slot's materializer.
+///
+/// | Slot state | Binding | Decision |
+/// |---|---|---|
+/// | `free(g)` | any | [`SlotBind::Claim`] |
+/// | `held(b, g)` | `b` | [`SlotBind::Hold`] |
+/// | `held(m, g)`, `m ≠ b` | compatible, already references | [`SlotBind::Referenced`] |
+/// | `held(m, g)`, `m ≠ b` | compatible | [`SlotBind::Join`] |
+/// | `held(m, g)`, `m ≠ b` | incompatible | refused, [`SlotRefusal::ManagedSlotHeld`] |
+/// | `clearing(g)` | compatible, already references | [`SlotBind::Referenced`] (it waits for the handover) |
+/// | `clearing(g)` | otherwise | refused, [`SlotRefusal::NotApplicable`] (still being cleared; M03) |
+///
+/// An incompatible bind is always refused, a reference or not.
+///
+/// # Errors
+/// The [`SlotRefusal`] of the table.
+pub fn slot_bind(
+    state: &SlotState,
+    binding: &BindingId,
+    references: bool,
+    compatible: bool,
+) -> Result<SlotBind, SlotRefusal> {
+    match state {
+        SlotState::Free { .. } => Ok(SlotBind::Claim),
+        SlotState::Held {
+            binding: holder, ..
+        } if holder == binding => Ok(SlotBind::Hold),
+        SlotState::Held { .. } if !compatible => Err(SlotRefusal::ManagedSlotHeld),
+        SlotState::Held { .. } if references => Ok(SlotBind::Referenced),
+        SlotState::Held { .. } => Ok(SlotBind::Join),
+        SlotState::Clearing { .. } if compatible && references => Ok(SlotBind::Referenced),
+        SlotState::Clearing { .. } => Err(SlotRefusal::NotApplicable),
+    }
+}
+
+/// ⟨M05⟩ One referencer of a shared slot as the handover reads it (a `slot_references`
+/// row with its binding's and grant's state now).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotReferencer {
+    /// The referencing binding.
+    pub binding: BindingId,
+    /// Its grant's effective deadline now (cutoffs included).
+    pub deadline: Timestamp,
+    /// Whether it can carry the slot now: the binding is active in the slot's
+    /// environment with the slot's mechanism, and its grant permits use and has not
+    /// reached its deadline. An unusable referencer is dropped, never handed the slot.
+    pub usable: bool,
+}
+
+/// ⟨M05⟩ ADR-0011 §5.2 (ruling D06): the referencer a slot passes to when its
+/// materializer ends: the **usable** one with the **latest deadline** (ties: the
+/// lowest binding ID, so the choice is deterministic). `None`: no usable referencer
+/// remains and the slot clears (`clearing → free`).
+#[must_use]
+pub fn handover_target(referencers: &[SlotReferencer]) -> Option<&SlotReferencer> {
+    referencers.iter().filter(|r| r.usable).min_by(|a, b| {
+        b.deadline
+            .cmp(&a.deadline)
+            .then_with(|| a.binding.cmp(&b.binding))
+    })
 }
 
 // --- owned connections (ADR-0008 D8 item 2) ------------------------------------------

@@ -1,0 +1,24 @@
+build-profile=debug (test configuration; mechanism evidence only, F03)
+store-kind=scratch_test (the test store; the login-keychain product row is B3)
+lock-driver-sha256=55bfc331d9274c6ddd84c28b18f9ea0f068cbb94e06929cccb51d929dc75a64a
+heimdall-sha256=76e67caa45099944352bffaf5fb9a30cfe3893a99c0e6f06f06f572f747b653f
+lock-driver-protocol=one process (e2e_exit_m03 --ignored --test-threads=16 lock::), handshake files
+build-commit=7300cfa0199a3c463d825c214c7b38ce72b1a98e
+build-tree-changes=(git diff sha256 e3b0c44298fc1c14)
+lock-rule=ADR-0004 §2: locked by the harness only after >= 900 s console idle; the owner unlocks
+os=macOS 27.2.1 (26B131) arm64
+screen-lock-delay=immediate
+owner-ssh-before=42:a993f1dae5d85cf409dfca15
+keychain-list-before=89a3a221ca8d65588822245e
+idle-seconds-before-prepare=978
+lock-state-before=unlocked
+idle-seconds-before-lock=982
+lock-method=pmset displaysleepnow (locks only where a password is asked at once after display sleep)
+lock-observation=1s unlocked
+lock-observation=3s locked
+lock-observation=125s locked
+lock-run=blocked (unlock_not_observed: the session did not read unlocked within 43200s; post-unlock checks not run)
+step-failure=a03_post_unlock_follows_remaining_deadline: aborted: unlock_not_observed within 43200s 
+store-kind-recorded-by-product=linux_secret_service (the CA record's label; the issuer child reads the scratch test store)
+owner-ssh-after=42:a993f1dae5d85cf409dfca15
+keychain-list-after=89a3a221ca8d65588822245e

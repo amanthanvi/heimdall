@@ -63,6 +63,10 @@ pub struct EnvDelta {
     /// Variables set (names and values; nonsecret: socket paths and Git's command
     /// configuration).
     pub set: Vec<(OsString, OsString)>,
+    /// ⟨M05, U8⟩ Variables removed from the child's environment (names only): `run
+    /// --parent-binding` keeps every `HEIMDALL_*` locator of the runtime's control endpoint
+    /// out of the worker (ADR-0011 §6.2). Empty for every M02–M04 launch.
+    pub unset: Vec<OsString>,
     /// Settings another source keeps in force (names only, never values).
     pub overrides: Vec<ConsumerOverride>,
 }
@@ -148,6 +152,9 @@ pub(crate) fn child_command(
 ) -> std::process::Command {
     let mut command = std::process::Command::new(&program.path);
     command.args(args);
+    for name in &delta.unset {
+        command.env_remove(name);
+    }
     for (name, value) in &delta.set {
         command.env(name, value);
     }

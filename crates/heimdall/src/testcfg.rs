@@ -912,6 +912,7 @@ mod enabled {
                 // M03 wave 0 (A1): fail closed until U0b
                 lock_behavior: Default::default(),
                 connection: Default::default(),
+                default: false,
             };
             // `ops` (h1 only) is fully covered by its policy `pol-ops`, so a
             // preview of it is `allowed` (gap G17 e2e cases).

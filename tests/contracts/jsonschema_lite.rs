@@ -121,12 +121,23 @@ fn check(root: &Value, schema: &Value, inst: &Value, path: &str, errors: &mut Ve
                     }
                 }
             }
+            // Only `false` is supported: the closed file formats a public document nests
+            // (ADR-0006 section 17.9; `schema_export::public_schemas_tolerate_unknown_fields_
+            // except_the_closed_bundle_types` allows them by name), which refuse an unknown
+            // key. Every other public schema tolerates unknown fields (ADR-0006 section 9).
             "additionalProperties" => {
-                // The public schemas tolerate unknown fields; a restriction here
-                // would contradict ADR-0006 section 9, so surface it.
-                errors.push(format!(
-                    "{path}: additionalProperties {value} contradicts unknown-field tolerance"
-                ));
+                if value != &Value::Bool(false) {
+                    errors.push(format!(
+                        "{path}: additionalProperties {value} is not supported (only `false`)"
+                    ));
+                } else if let Some(map) = inst.as_object() {
+                    let props = obj.get("properties").and_then(Value::as_object);
+                    for name in map.keys() {
+                        if !props.is_some_and(|p| p.contains_key(name)) {
+                            errors.push(format!("{path}: unknown key `{name}` in a closed schema"));
+                        }
+                    }
+                }
             }
             "items" => {
                 if let Some(items) = inst.as_array() {
@@ -221,6 +232,10 @@ mod tests {
         });
         let good = json!({"n": 1, "k": "a", "xs": ["x"], "t": ["a", "b"], "o": null, "extra": 1});
         assert!(validate(&schema, &good).is_ok());
+        let closed = json!({"type": "object", "properties": {"a": {"type": "integer"}},
+                            "additionalProperties": false});
+        assert!(validate(&closed, &json!({"a": 1})).is_ok());
+        assert!(validate(&closed, &json!({"a": 1, "b": 2})).is_err());
         for bad in [
             json!({}),
             json!({"n": -1}),

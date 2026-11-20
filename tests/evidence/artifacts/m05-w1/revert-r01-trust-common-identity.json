@@ -1,0 +1,25 @@
+{
+ "name": "M05-W1-R01 (Codex review of 22dfb168, blocking): a trust approval re-checks the Git common directory's identity it was created from and records exactly that one; the check removed and the approval-time observation persisted again",
+ "file": "crates/app/src/operations/trust_m05.rs (check_trust, apply_trust)",
+ "change_reverted": "`same_common` ignored in check_trust and `observed.git_common_identity.or(recorded)` persisted in apply_trust, as at 22dfb168",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --test model_trust_policy",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test trust_approval_refuses_a_changed_observation_without_consuming ... FAILED",
+   "test p9::p9_authority_is_created_or_widened_only_by_an_applied_attended_decision ... FAILED",
+   "thread 'trust_approval_refuses_a_changed_observation_without_consuming' (43824243) panicked at crates/runtime/../../tests/model/trust_policy.rs:912:60:",
+   "Test failed: assertion failed: `(left == right)` left: `Some(Seen { identity: Some(Unix { dev: 41, ino: 100, birth: None }), git: Some(Unix { dev: 41, ino: 5011, birth: None }), digest: Some(\"…0001\") })`, right: `Some(Seen { identity: Some(Unix { dev: 41, ino: 100, birth: None }), git: Some(Unix { dev: 41, ino: 101, birth: None }), digest: Some(\"…0001\") })`: approved only against the observation it was created from",
+   "test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.87s"
+  ]
+ },
+ "regression_saved": "tests/model/trust_policy.proptest-regressions: cc cc4c416a… shrinks to steps = [Approved { which: 2, arg: 0, flip: 3 }]"
+}

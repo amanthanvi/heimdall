@@ -1,0 +1,50 @@
+{
+  "case_id": "G07-mechanism-runner-departure",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-05",
+    "R-AU-08",
+    "R-EN-08"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "runner_host": "devbox: Ubuntu 24.04 x86_64, kernel 6.8.0-147-generic, OpenSSH 9.6p1 Ubuntu-3ubuntu13.20; linger=yes (pre-existing), KillUserProcesses=false, NTP synchronized, no Secret Service on the user bus",
+    "controller": "macOS 27 arm64 (OpenSSH 10.5p1) reaching the devbox through the owner's ordinary `ssh devbox` transport with ForwardAgent=no",
+    "fixture": "two unprivileged loopback sshd instances (destination, runner-host management) in one scratch dir; all keys generated on the devbox per run except the fixture CA (Mac scratch); scratch removed",
+    "probe_sources_sha256_prefix": {
+      "probe.sh": "fc9807ea908907fb (current; edited after the roles run: fwd_session split before the fwd rerun, orphan-client fix after cleanup)",
+      "runner.sh": "dbc86252ad9ed885",
+      "drive.sh": "d633479eecfb0a3d"
+    }
+  },
+  "provider_versions": [
+    "OpenSSH 9.6p1 (runner ssh, ssh-agent, sshd)",
+    "ssh-keygen OpenSSH 10.5p1 (controller CA signing)"
+  ],
+  "started_at": "2026-11-19T00:17:31-05:00",
+  "commands_or_harness": [
+    "prototypes/g07-runner-ssh/drive.sh phase2 (runner-prep, CA signs K_env.pub on the Mac, runner-start), no controller session for 189 s, drive.sh collect, probe.sh fwd-rerun, drive.sh cleanup"
+  ],
+  "observed_result": {
+    "runner_survival": "runner and its agent, started with setsid nohup inside the controller's SSH session, kept running after that session ended (they stayed in the departed session's scope; KillUserProcesses=false)",
+    "managed_onward": "K_env held only in the runner's agent (key file shredded after load) with a certificate valid_before = issue+150 s: 35/45 ok, from 12 s before to 136 s after the controller left; every attempt from +141 s failed (Permission denied); valid_before was +137 s",
+    "fixed_onward": "runner-local key file: 45/45 ok through +180 s",
+    "forwarded_agent_control": "runner started inside a nested session with a forwarded fixture agent: preflight classified SSH_AUTH_SOCK as forwarded_agent_from_ssh_session(controller_dependency); 3/3 ok while the session lived; every attempt failed from +1 s after the session ended",
+    "openssh_note": "IdentityAgent=none disables agent forwarding even with ForwardAgent=<path> (first fwd attempt never received SSH_AUTH_SOCK)"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g07/"
+  ],
+  "limitations": [
+    "MECHANISM PROBE: OpenSSH/logind behaviour with shell stand-ins on one fixture host; not A24/A25/A07 and not a G07 closure record",
+    "the bridge and runner are shell stand-ins for `heimdall remote serve` and the runner runtime; they exercise OpenSSH/logind semantics, not Heimdall code",
+    "probe sources were uncommitted at run time; devbox run 2026-11-19",
+    "the runner restart/reboot rows (K_env loss, re-issue needs the controller) were not run; ADR-0005 \u00a73.7 already fixes them",
+    "the sshd log line naming the expiry reason was not retained before the scratch was removed; expiry is inferred from timing (+137 s valid_before, first failure +141 s, no failure before)",
+    "linger was already enabled for this account by its owner; a host without linger and with KillUserProcesses=yes was not tested",
+    "the controller's issuer is a fixture ssh-keygen CA on the Mac, not Heimdall's issuer",
+    "the cleanup was observed in the session (exact-PID kills, scratch removed, no remaining processes) but no standalone cleanup transcript was retained",
+    "the host readout describes the fixture host only; it does not establish product secret-store availability"
+  ]
+}

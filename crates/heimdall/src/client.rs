@@ -53,8 +53,13 @@ impl Ctx {
         }
     }
 
-    /// Resolve the directories without creating them.
+    /// Resolve the directories without creating them. A debug build first refuses the
+    /// account's real home when no explicit home was given (`dev_home_guard`; release
+    /// builds have no guard): `USAGE_ERROR`, before anything is created, read or started.
     pub fn paths(&self) -> Result<Paths, Box<Envelope<ErrorData>>> {
+        if let Some(message) = crate::dev_home_guard::refusal(self.home.is_some()) {
+            return Err(Box::new(error(Code::UsageError, &message)));
+        }
         let home = self.home.clone();
         Paths::resolve(&|name| {
             if name == HOME_ENV {

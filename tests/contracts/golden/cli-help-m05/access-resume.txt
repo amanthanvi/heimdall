@@ -1,0 +1,16 @@
+Resume automatic activation (widening: needs an owner decision)
+
+Usage: heimdall access resume [OPTIONS] <POLICY_ID|--profile <PROFILE>|--workspace|--all>
+
+Arguments:
+  [POLICY_ID]  Policy ID
+
+Options:
+      --json               Machine output: one JSON envelope on stdout (NDJSON for event streams)
+      --profile <PROFILE>  M05: every policy for this profile
+      --non-interactive    Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+      --workspace          M05: the policy of the workspace you are in
+      --all                M05: every policy
+      --home <DIR>         Override the Heimdall home directory (fixtures and tests) [env: HEIMDALL_HOME=]
+      --cwd <PATH>         M05, with `--workspace`: the directory whose workspace is meant (default the working directory)
+  -h, --help               Print help

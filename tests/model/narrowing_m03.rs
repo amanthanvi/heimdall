@@ -179,6 +179,7 @@ fn policy_rev(lock: LockBehavior, revision: u64) -> StandingPolicy {
         source: PolicySource::SetupDefault,
         lock_behavior: lock,
         connection: Default::default(),
+        default: false,
     }
 }
 

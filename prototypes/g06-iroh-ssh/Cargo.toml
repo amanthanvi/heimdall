@@ -1,0 +1,36 @@
+[package]
+name = "g06-iroh-ssh"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Disposable G06 probe (M06 design unit): ordinary OpenSSH over an embedded iroh endpoint, speaking the Pigeons wire protocol (ALPN /pigeons/0). Not production code; never imported by production."
+
+[dependencies]
+# Pinned exactly (G06 asks for "the exact release support of a pinned version").
+iroh = { version = "=1.4.2", default-features = false, features = ["tls-ring"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "net", "time", "signal"] }
+# Declared only so the `no-route-probe` feature can reach netwatch's netdev through feature unification.
+netdev = { version = "=0.47.0", default-features = false, optional = true }
+
+[features]
+default = []
+# iroh's portmapper (UPnP/PCP/NAT-PMP) compiled in, so the default-infrastructure run shows it.
+portmapper = ["iroh/portmapper"]
+# Scoped patch: netdev's default-route probe (wildcard UDP bind + connect) is skipped.
+no-route-probe = ["dep:netdev", "netdev/hm-no-route-probe"]
+
+# The patched netdev is extracted (checksum-verified) and patched by build.sh under target/.
+[patch.crates-io]
+netdev = { path = "target/patched/netdev-0.47.0" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"
+
+# Standalone: never part of the production workspace.
+[workspace]

@@ -138,6 +138,8 @@ fn one_of_every_request() -> Vec<Request> {
         "schemas/examples/request.environment.container-add.json",
         "schemas/examples/request.environment.container-remove.json",
         "schemas/examples/request.catalog.apply-import.json",
+        // ⟨rev5.1⟩ ADR-0006 §17.9.
+        "schemas/examples/request.catalog.set-default-profile.json",
     ]
     .iter()
     .map(|p| request(load(p)))
@@ -290,7 +292,14 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
             "setup" | "catalog" => {
                 // ⟨rev5⟩ `apply_import` is M05's form and needs `trusted-work/1` instead
                 // (ADR-0006 §17.6 R5-Q7; W0-R04).
-                let needs = if matches!(r, Request::Catalog(CatalogRequest::ApplyImport { .. })) {
+                // ⟨rev5.1⟩ So does `set_default_profile` (§17.9).
+                let needs = if matches!(
+                    r,
+                    Request::Catalog(
+                        CatalogRequest::ApplyImport { .. }
+                            | CatalogRequest::SetDefaultProfile { .. }
+                    )
+                ) {
                     capability::TRUSTED_WORK_V1
                 } else {
                     capability::SETUP_V1

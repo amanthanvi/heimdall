@@ -1,0 +1,91 @@
+### integration_session_lock
+
+running 1 test
+test macos_lock_signal_observed ... ok
+
+successes:
+
+---- macos_lock_signal_observed stdout ----
+m03 observation: {"epoch":1,"events":13,"events_off_thread":0,"initial_state":"Unlocked","latency_from_trigger_ms":null,"locked_entries":1,"observed":true,"observed_at_unix_ms":1795048729964,"observed_state":"Locked","os":"macos","row":"macos_lock_signal_observed","signal":"MacosScreenLock","unknown_entries":0,"waited_ms":3313}
+
+
+successes:
+    macos_lock_signal_observed
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 3.57s
+### integration_session_lock exit=0
+### e2e_exit_m03
+
+running 7 tests
+test lock::a03_lock_prepare ... ok
+test lock::a03_fresh_logins_while_locked_continue has been running for over 60 seconds
+test lock::a03_lock_cleanup has been running for over 60 seconds
+test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails has been running for over 60 seconds
+test lock::a03_new_grant_while_locked_under_standing_policy has been running for over 60 seconds
+test lock::a03_post_unlock_follows_remaining_deadline has been running for over 60 seconds
+test lock::a03_vault_stand_in_locked_agent_does_not_matter has been running for over 60 seconds
+test lock::a03_fresh_logins_while_locked_continue ... ok
+test lock::a03_new_grant_while_locked_under_standing_policy ... ok
+test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails ... ok
+test lock::a03_vault_stand_in_locked_agent_does_not_matter ... ok
+test lock::a03_post_unlock_follows_remaining_deadline ... FAILED
+test lock::a03_lock_cleanup ... ok
+
+successes:
+
+---- lock::a03_lock_prepare stdout ----
+m03 observation: a03 macos world three hosts with disjoint pairs (exit-1..3 on hosts 1..3), debug test configuration, session-lock source platform
+m03 observation: a03 macos issuer store scratch_test (HEIMDALL_TEST_SECRET_STORE=scratch; the CA record's label reads linux_secret_service); mechanism evidence only (F03)
+m03 observation: a03 macos policies exit-pol-1 continue (window 57600 s), exit-pol-2 revoke_on_lock (`access lock-behavior`, narrowing; window 600 s, R's certificate validity), exit-pol-3 continue (window 600 s; the standing policy for N)
+m03 observation: a03 macos stand_in disposable ssh-agent with one disposable key, locked with ssh-add -x (scratch askpass): lists 0 identities, refuses an add
+m03 observation: a03 macos grant C grant_e41b8e05bccccaa60cba2b923136ce3e host 1 continue, 57600 s left at the baseline; baseline login accepted, key ID heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_e41b8e05bccccaa60cba2b923136ce3e:3348833475780946041
+m03 observation: a03 macos grant R grant_2bcc7a3c0bfdd47c2e061a06e69f0d56 host 2 revoke_on_lock; baseline login accepted, key ID heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_2bcc7a3c0bfdd47c2e061a06e69f0d56:12830567630396779528
+m03 observation: a03 macos credential_prompt_processes_at_baseline 1 (names: SecurityAgent, coreautha)
+
+---- lock::a03_fresh_logins_while_locked_continue stdout ----
+m03 observation: a03 macos locked_login 1 host 1 accepted key_id heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_e41b8e05bccccaa60cba2b923136ce3e:3348833475780946041 serial 3348833475780946041 (grant C)
+m03 observation: a03 macos locked_login 2 host 1 accepted key_id heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_e41b8e05bccccaa60cba2b923136ce3e:3348833475780946041 serial 3348833475780946041 (grant C)
+m03 observation: a03 macos locked_login 3 host 1 accepted key_id heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_e41b8e05bccccaa60cba2b923136ce3e:3348833475780946041 serial 3348833475780946041 (grant C)
+
+---- lock::a03_new_grant_while_locked_under_standing_policy stdout ----
+m03 observation: a03 macos ensure_under_lock profile exit-3 ACCESS_READY grant grant_35ea1ae9262721e7464fdc4a9bfa74e6 (one certificate signed under lock, key ID heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_35ea1ae9262721e7464fdc4a9bfa74e6:18319064479194898941)
+m03 observation: a03 macos grant N grant_8023511f65ee71c3bd758d60aa3fef1a host 3 created under lock by run's ensure, 600 s left; locked_login 1 host 3 accepted key_id heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_8023511f65ee71c3bd758d60aa3fef1a:6703456641876996300 (grant N) (a grant of its own; the explicit ensure's grant has no binding)
+m03 observation: a03 macos locked_login 2 host 3 accepted key_id heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_8023511f65ee71c3bd758d60aa3fef1a:6703456641876996300 (grant N)
+
+---- lock::a03_lock_revokes_ends_grant_and_fresh_login_fails stdout ----
+m03 observation: a03 macos lock_revokes R revoked cause session_locked at -3 s from the harness's verified-lock flag (state revoking: local denial applied, its certificates' residual pending for 472 s more (ADR-0008 D7)); fresh login to host 2 refused; host 2 accepted none of R's key IDs since its baseline
+
+---- lock::a03_vault_stand_in_locked_agent_does_not_matter stdout ----
+m03 observation: a03 macos stand_in_locked lists 0 before and after; managed login host 1 accepted key_id heimdall:env_2e959d1ceb7595f46795b907575ff253:grant_e41b8e05bccccaa60cba2b923136ce3e:3348833475780946041 (grant C); stand-in contacts during the login unobservable (a real ssh-agent); new credential prompt processes 0 (names: SecurityAgent, coreautha)
+
+---- lock::a03_lock_cleanup stdout ----
+cleanup: workers ended 0, stopped through their handles 3
+cleanup: stand-in agent stopped through its handle
+cleanup: projection rollback: none owed (NotApplied)
+cleanup: service stop exit 0
+cleanup: fixtures stopped through their handles; both scratch directories removed
+
+
+successes:
+    lock::a03_fresh_logins_while_locked_continue
+    lock::a03_lock_cleanup
+    lock::a03_lock_prepare
+    lock::a03_lock_revokes_ends_grant_and_fresh_login_fails
+    lock::a03_new_grant_while_locked_under_standing_policy
+    lock::a03_vault_stand_in_locked_agent_does_not_matter
+
+failures:
+
+---- lock::a03_post_unlock_follows_remaining_deadline stdout ----
+
+thread 'lock::a03_post_unlock_follows_remaining_deadline' (63305912) panicked at crates/heimdall/../../tests/e2e/exit_m03/lock.rs:176:13:
+a03_post_unlock_follows_remaining_deadline: aborted: unlock_not_observed within 43200s
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    lock::a03_post_unlock_follows_remaining_deadline
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 42681.78s
+
+### e2e_exit_m03 exit=101

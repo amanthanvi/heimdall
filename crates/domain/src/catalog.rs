@@ -18,7 +18,9 @@ use heimdall_contract::Timestamp;
 use heimdall_contract::catalog::{
     CatalogRequest, DeclaredInteraction, DestinationSpec, IdentitySpec, ProfileSpec, WithdrawReason,
 };
-use heimdall_contract::ids::{AccountName, DecisionId, DestinationId, IdentityId, ProfileId};
+use heimdall_contract::ids::{
+    AccountName, DecisionId, DestinationId, EnvironmentId, IdentityId, ProfileId,
+};
 use heimdall_contract::provider::{
     Certainty, DeclarationRef, EndpointRef, EvidenceBasis, IdentitiesOnly, IdentityBacking,
     IdentityEntrySource, IdentitySelectionReport, InteractionKind, NoninteractiveEligibility,
@@ -380,6 +382,23 @@ pub enum CatalogAction {
         /// The preferred mechanism.
         mechanism: heimdall_contract::managed::PreferredMechanism,
     },
+    // ⟨M05⟩ Revision 5 / 5.1 (U7; ADR-0006 §17.1 item 4, §17.9). Add-only variants: no
+    // stored intent of an earlier revision names them.
+    /// ⟨M05⟩ Apply a portable bundle's catalog intent in one reconciliation (no decision:
+    /// it creates no authority; ADR-0011 I4).
+    ApplyImport {
+        /// The bundle.
+        bundle: heimdall_contract::project::PortableBundle,
+    },
+    /// ⟨M05⟩ Set or clear an environment's default-profile preference (no decision; a
+    /// preference, never authority; ADR-0011 §5.1).
+    SetDefaultProfile {
+        /// The environment; `None`: the runtime's own.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        environment: Option<EnvironmentId>,
+        /// The profile; `None` clears.
+        profile: Option<ProfileId>,
+    },
 }
 
 impl CatalogAction {
@@ -436,6 +455,18 @@ impl CatalogAction {
                 destination: destination.clone(),
                 account: account.clone(),
                 mechanism: *mechanism,
+            },
+            // ⟨M05⟩ U7
+            CatalogRequest::ApplyImport { bundle, .. } => CatalogAction::ApplyImport {
+                bundle: bundle.clone(),
+            },
+            CatalogRequest::SetDefaultProfile {
+                environment,
+                profile,
+                ..
+            } => CatalogAction::SetDefaultProfile {
+                environment: environment.clone(),
+                profile: profile.clone(),
             },
             _ => return None,
         })

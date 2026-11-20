@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PolicyTargetResult",
+  "description": "⟨M05⟩ Revision 5.1 (§17.9 C2): the typed result of a targeted policy action (`pause`,\n`resume`, `cutoff`, `clear_cutoff` with a `target`, and `stop`; ADR-0011 §7.3). The\nsingle-policy `policy_id` form keeps M01's result.",
+  "type": "object",
+  "properties": {
+    "changed": {
+      "description": "Whether anything changed (a policy, or, for `stop`, a grant revoked).",
+      "type": "boolean"
+    },
+    "policies": {
+      "description": "Every policy of the target after the action.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PolicyTargetEntry"
+      }
+    },
+    "revoked": {
+      "description": "`stop` only: the grants it revoked, cascade included.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/GrantId"
+      }
+    },
+    "target": {
+      "description": "The target the action named.",
+      "$ref": "#/$defs/PolicyTarget"
+    }
+  },
+  "required": [
+    "target",
+    "changed",
+    "policies"
+  ],
+  "$defs": {
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "PolicyTarget": {
+      "description": "What a narrowing or block action applies to (ADR-0011 §7.3 \"Targets\"; m05-plan §4\nitem 2), tagged by `kind`.",
+      "oneOf": [
+        {
+          "description": "One policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "kind",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "Every policy for a profile.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            },
+            "profile": {
+              "description": "Profile.",
+              "$ref": "#/$defs/ProfileId"
+            }
+          },
+          "required": [
+            "kind",
+            "profile"
+          ]
+        },
+        {
+          "description": "Every policy of a workspace.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "workspace"
+            },
+            "workspace": {
+              "description": "Workspace.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "kind",
+            "workspace"
+          ]
+        },
+        {
+          "description": "Every policy.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "all"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "PolicyTargetEntry": {
+      "description": "⟨M05⟩ Revision 5.1 (§17.9 C2): one policy of a targeted action's target, after it.",
+      "type": "object",
+      "properties": {
+        "changed": {
+          "description": "Whether this action changed it (a widening part waiting for a decision is not a\nchange).",
+          "type": "boolean"
+        },
+        "cutoff_at": {
+          "description": "Its hard cutoff; `null` when none.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "default": null
+        },
+        "paused": {
+          "description": "Whether it is paused.",
+          "type": "boolean"
+        },
+        "policy_id": {
+          "description": "Policy.",
+          "$ref": "#/$defs/PolicyId"
+        },
+        "revision": {
+          "description": "Its revision after the action.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "policy_id",
+        "revision",
+        "paused",
+        "changed"
+      ]
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "WorkspaceId": {
+      "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",
+      "type": "string"
+    }
+  }
+}

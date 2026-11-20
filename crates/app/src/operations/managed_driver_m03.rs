@@ -682,9 +682,12 @@ impl Operations {
                             if *binding == b.id)
                     })
                     .count();
+                // ⟨M05⟩ U6: a slot the binding joined belongs to its materializer; the
+                // slots-only restoration writes only the ones it holds.
+                let joined = super::slots_m05::referenced_not_held_in(tx, &b.id)?;
                 let holds = match held {
                     0 => false,
-                    n if n == b.scope.pairs.len() => true,
+                    n if n.saturating_add(joined) == b.scope.pairs.len() => true,
                     _ => {
                         return Ok(Err(OpError::new(
                             Code::ConfigConflict,
@@ -1096,6 +1099,9 @@ pub(super) fn release_binding_slots_in(
         return Ok(false);
     }
     tx.record_released_binding_cleanup(&binding.id)?;
+    // ⟨M05⟩ U6 (ADR-0011 §5.2): the released binding drops every slot reference it
+    // holds; a slot it materializes clears below and is handed over at its cleanup.
+    super::slots_m05::leave_all_in(tx, &binding.id)?;
     for slot in tx.slots_for_binding(&binding.id)? {
         if let heimdall_domain::managed::SlotState::Held {
             binding: holder,
@@ -1811,7 +1817,7 @@ impl Operations {
 /// The refusal of a managed launch bind whose slot for `pair` cannot be claimed (D10
 /// item 2; §17.21 item 2): `CONFIG_CONFLICT`, reason `managed_slot_held`, next
 /// `release_binding`, nothing written but the failed operation.
-fn slot_refusal(
+pub(super) fn slot_refusal(
     binding: &heimdall_contract::ids::BindingId,
     state: &heimdall_domain::managed::SlotState,
 ) -> OpError {
@@ -1834,9 +1840,12 @@ fn slot_refusal(
 }
 
 /// ⟨§17.21 item 2⟩ In the bind's transaction: every pair of the managed binding `b`
-/// must be claimable by it (`free`, or already held by it); any other state refuses
-/// ([`slot_refusal`]) before anything is claimed. Then each slot is claimed (CAS
-/// `free(g) → held(b, g + 1)`, idempotent for the holder).
+/// must be admitted before anything is written; a refusal is [`slot_refusal`]. Then
+/// each free slot is claimed (CAS `free(g) → held(b, g + 1)`, idempotent for the
+/// holder). ⟨M05⟩ U6 (ADR-0011 §5.2): a slot a **compatible** binding materializes is
+/// joined instead of refused (a slot reference; `super::slots_m05::claim_or_join_in`);
+/// an incompatible holder, or a slot still clearing that `b` does not reference, is
+/// refused as in M03.
 ///
 /// # Errors
 /// A store failure (the whole transaction rolls back).
@@ -1846,24 +1855,7 @@ pub(super) fn claim_bind_slots_in(
     b: &heimdall_domain::binding::BindingRecord,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<(), OpError>> {
-    use heimdall_domain::managed::{SlotEvent, slot_transition};
-    let claim = SlotEvent::Claim {
-        binding: b.id.clone(),
-    };
-    for pair in &b.scope.pairs {
-        let state = tx.slot(environment, pair)?;
-        if slot_transition(&state, &claim).is_err() {
-            return Ok(Err(slot_refusal(&b.id, &state)));
-        }
-    }
-    for pair in &b.scope.pairs {
-        if tx.claim_slot(environment, pair, &b.id, now)?.is_err() {
-            return Err(heimdall_store::StoreError::Corrupt(
-                "a checked slot claim was refused".into(),
-            ));
-        }
-    }
-    Ok(Ok(()))
+    super::slots_m05::claim_or_join_in(tx, environment, b, now)
 }
 
 impl Operations {

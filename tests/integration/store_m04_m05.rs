@@ -300,6 +300,7 @@ fn policy(rev: u64) -> StandingPolicy {
         source: PolicySource::OwnerDecision { decided_at: t0() },
         lock_behavior: Default::default(),
         connection: Default::default(),
+        default: false,
     }
 }
 

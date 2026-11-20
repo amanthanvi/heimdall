@@ -41,13 +41,15 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use heimdall_contract::envelope::{EffectStatus, Envelope, NextAction, Warning, reason};
-use heimdall_contract::ids::{DecisionId, OperationId, RequestId};
+use heimdall_contract::ids::{DecisionId, EnvironmentId, OperationId, ProfileId, RequestId};
+use heimdall_contract::managed::LockBehavior;
 use heimdall_contract::request::{
-    DecideRequest, InspectRequest, InspectSubject, ObserveRequest, Request, Verdict,
+    DecideRequest, InspectRequest, InspectSubject, ObserveRequest, PolicyAction, Request, Verdict,
 };
 use heimdall_contract::setup::{
     ConflictKind, PlanDigest, PreviewIntent, ProjectionItem, RepairResolution, SetupRequest,
 };
+use heimdall_contract::trust::DecisionScope;
 use heimdall_contract::{Code, ExitCode};
 
 use crate::cli::{Prompter, RepairArgs, Session, SetupArgs, SetupCommand, TerminalPrompt};
@@ -222,6 +224,31 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
     expect_digest: Option<&str>,
     operation: Option<OperationId>,
 ) -> Envelope<serde_json::Value> {
+    confirm_recorded(
+        s,
+        p,
+        ctx,
+        decision,
+        |_| Ok(preface.to_owned()),
+        expect_digest,
+        operation,
+    )
+    .await
+}
+
+/// [`confirm_and_decide`] with a preface built from the decision's own `inspect decisions`
+/// entry, the same listing whose recorded request is shown, so what the preface discloses
+/// is what approval applies (⟨M05⟩ review M05-W3-R01). `preface` answering `Err(why)`
+/// refuses: nothing is asked or sent, exit 3 "not confirmed (why)".
+async fn confirm_recorded<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    decision: &str,
+    preface: impl FnOnce(&serde_json::Value) -> Result<String, String>,
+    expect_digest: Option<&str>,
+    operation: Option<OperationId>,
+) -> Envelope<serde_json::Value> {
     if !ctx.interactive() {
         return not_confirmed(Some(decision), operation, non_interactive_reason(ctx));
     }
@@ -246,6 +273,10 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
             operation,
             "the decision is not pending in this runtime",
         );
+    };
+    let preface = match preface(&record) {
+        Ok(text) => text,
+        Err(why) => return not_confirmed(Some(decision), operation, &why),
     };
     let request = record
         .get("request")
@@ -396,6 +427,241 @@ async fn settle<S: Session>(
     env
 }
 
+// --- ⟨M05⟩ U5: the personal-default offer ----------------------------------------------
+
+/// ⟨M05⟩ U5: the disclosure of a personal default (spec §5.2's first-trust message, for
+/// ordinary `ssh`; ADR-0011 §3.3's re-entry sentence; the scope it covers), shown before
+/// the owner approves the `create {default: true}` decision. It is built **only from the
+/// scope the runtime recorded for that decision** (its `inspect decisions` entry's `scope`,
+/// ADR-0006 §17.10 item 22; review M05-W3-R01): the pairs and capabilities of the profile
+/// revision the record pinned, its environments and the lock behaviour approval applies.
+/// The offer's own catalog reads never reach it, so a profile edited between them and the
+/// decision can neither add an unshown destination nor show one approval would not add.
+pub(crate) fn personal_default_disclosure(scope: &DecisionScope, own: &EnvironmentId) -> String {
+    fn list(items: Vec<String>) -> String {
+        if items.is_empty() {
+            "none".to_owned()
+        } else {
+            items.join(", ")
+        }
+    }
+    let profile = scope.profile_id.as_str();
+    let pairs = list(
+        scope
+            .pairs
+            .iter()
+            .map(|p| format!("{}:{}", p.destination.as_str(), p.account.as_str()))
+            .collect(),
+    );
+    let capabilities = list(
+        scope
+            .capabilities
+            .iter()
+            .map(|c| {
+                serde_json::to_value(c)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_else(|| "?".to_owned())
+            })
+            .collect(),
+    );
+    let environments = if scope.environments.len() == 1 && scope.environments.contains(own) {
+        "this one only".to_owned()
+    } else {
+        list(
+            scope
+                .environments
+                .iter()
+                .map(|e| {
+                    if e == own {
+                        format!("{} (this one)", e.as_str())
+                    } else {
+                        e.as_str().to_owned()
+                    }
+                })
+                .collect(),
+        )
+    };
+    let lock = match scope.lock_behavior {
+        LockBehavior::Continue => {
+            "Work can continue while your desktop and password manager are locked, using your saved session limits"
+        }
+        _ => "A session lock ends this access; it works within your saved session limits",
+    };
+    format!(
+        "Use {profile} access automatically for ordinary ssh in this environment?\n\
+         {lock} (each use gets one bounded session window, 12 hours at most).\n\
+         Access starts again automatically when you next use it, within your saved limits; pause or set a stop time to end it.\n\
+         You can pause or remove access at any time.\n\
+         Destinations and accounts: {pairs}\n\
+         Capabilities: {capabilities}\n\
+         Environment: {environments}\n\
+         Profile: {profile} at revision {revision}, as the runtime recorded this decision (what approval applies)\n",
+        revision = scope.profile_revision,
+    )
+}
+
+/// The `error.message` of a refused envelope, else its code.
+fn refusal_text(env: &Envelope<serde_json::Value>) -> String {
+    env.data
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .map_or_else(|| env.code.to_string(), str::to_owned)
+}
+
+/// ⟨M05⟩ Why a `create` record without a recorded scope is never approved (review
+/// M05-W3-R01): the setup offer, the CLI's review and the TUI refuse it with this.
+pub(crate) const SCOPE_NOT_RECORDED: &str =
+    "the runtime did not record the scope this approval would apply, so it cannot be shown";
+
+/// ⟨M05⟩ The scope an `inspect decisions` entry records for a `create` (ADR-0006 §17.10
+/// item 22), if it carries a well-formed one. A missing or malformed `scope` is `None`,
+/// never a guess.
+pub(crate) fn recorded_scope(record: &serde_json::Value) -> Option<DecisionScope> {
+    serde_json::from_value(record.get("scope")?.clone()).ok()
+}
+
+/// ⟨M05⟩ U5 (ADR-0011 §3.1, §3.3, §3.4 "personal default at setup: 1 decision"; spec
+/// §5.2; m05-plan U5): after a successful `setup apply`, **on an interactive TTY only**,
+/// offer this environment a personal default: the owner `create {profile, environments:
+/// [this one], default: true}` decision, confirmed (as [`confirm_and_decide`] does) with
+/// [`personal_default_disclosure`] of the scope the runtime recorded for that decision and
+/// the exact recorded request, both from the same `inspect decisions` entry (ADR-0006 §3.1,
+/// §17.10 item 22; review M05-W3-R01). The profile listing only chooses the profile; it is
+/// never what the owner is shown. A record without a `scope` is refused before anything is
+/// asked (fail closed). Nothing is sent unattended or without a TTY, and nothing is offered
+/// when:
+/// * the runtime does not serve the trusted-work forms (`inspect policies` refused);
+/// * this environment already has a personal default;
+/// * no profile is evident: this environment's default-profile preference, else the
+///   catalog's only profile;
+/// * a personal policy for that profile already applies here (`create` would refuse it).
+///
+/// The setup result and its exit status are never changed: the returned note (for stderr)
+/// says what happened, `None` when nothing was offered. A refusal or anything but a typed
+/// `yes` creates nothing (the pending decision expires on its own).
+pub(crate) async fn offer_personal_default<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+) -> Option<String> {
+    if !ctx.interactive() {
+        return None;
+    }
+    let policies = inspect(s, InspectSubject::Policies).await.ok()?;
+    let own = inspect(s, InspectSubject::Environments)
+        .await
+        .ok()?
+        .get("environment_id")
+        .and_then(|v| v.as_str())
+        .and_then(|v| EnvironmentId::parse(v).ok())?;
+    let items = policies
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let personal_here = |q: &serde_json::Value| {
+        q.get("workspace_id").is_none_or(serde_json::Value::is_null)
+            && q.get("environments")
+                .and_then(|e| e.as_array())
+                .is_some_and(|e| e.iter().any(|x| x.as_str() == Some(own.as_str())))
+    };
+    if items.iter().any(|q| {
+        personal_here(q) && q.get("default").and_then(serde_json::Value::as_bool) == Some(true)
+    }) {
+        return None;
+    }
+    let preferred = policies
+        .get("default_profiles")
+        .and_then(|v| v.as_array())
+        .and_then(|d| {
+            d.iter()
+                .find(|x| x.get("environment_id").and_then(|e| e.as_str()) == Some(own.as_str()))
+        })
+        .and_then(|x| x.get("profile_id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let listed = inspect(s, InspectSubject::Profiles)
+        .await
+        .ok()?
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let chosen = match &preferred {
+        Some(id) => listed
+            .iter()
+            .find(|x| x.get("profile_id").and_then(|v| v.as_str()) == Some(id.as_str())),
+        None if listed.len() == 1 => listed.first(),
+        None => None,
+    };
+    let Some(chosen) = chosen else {
+        return (!listed.is_empty()).then(|| {
+            "No personal default was offered: choose this environment's default profile first, then run setup again.".to_owned()
+        });
+    };
+    let profile = chosen
+        .get("profile_id")
+        .and_then(|v| v.as_str())
+        .and_then(|v| ProfileId::parse(v).ok())?;
+    if items.iter().any(|q| {
+        personal_here(q) && q.get("profile").and_then(|v| v.as_str()) == Some(profile.as_str())
+    }) {
+        return Some(format!(
+            "No personal default was offered: a personal policy for {profile} already applies in this environment."
+        ));
+    }
+    if let Err(refused) = attend_first(s, ctx).await {
+        return Some(format!(
+            "No personal default was offered: {}",
+            refusal_text(&refused)
+        ));
+    }
+    let env = s
+        .request(Request::Policy(PolicyAction::Create {
+            profile: profile.clone(),
+            environments: [own.clone()].into_iter().collect(),
+            max_window: None,
+            default: true,
+        }))
+        .await;
+    let Some(decision) = pending_decision(&env) else {
+        return Some(format!(
+            "No personal default was created: {}",
+            refusal_text(&env)
+        ));
+    };
+    // Review M05-W3-R01: the disclosure is the scope the runtime pinned for this record,
+    // read with the record itself; without it nothing is asked or approved (fail closed).
+    let decided = confirm_recorded(
+        s,
+        p,
+        ctx,
+        &decision,
+        |record| match recorded_scope(record) {
+            Some(scope) if scope.profile_id == profile => {
+                Ok(personal_default_disclosure(&scope, &own))
+            }
+            Some(_) => Err("the recorded decision names another profile".to_owned()),
+            None => Err(SCOPE_NOT_RECORDED.to_owned()),
+        },
+        None,
+        env.operation_id.clone(),
+    )
+    .await;
+    Some(if decided.code == Code::Ok {
+        format!(
+            "Personal default created: ordinary ssh in this environment uses {profile} access automatically, within its saved limits."
+        )
+    } else {
+        format!(
+            "No personal default was created: {}",
+            refusal_text(&decided)
+        )
+    })
+}
+
 // --- setup ------------------------------------------------------------------------------
 
 /// Handle `setup` (module docs). Without an action, `apply`.
@@ -518,6 +784,13 @@ async fn effect(ctx: &Ctx, intent: PreviewIntent, given: Option<String>) -> Outc
         Err(o) => return o,
     };
     let out = setup_flow(&mut client, &mut TerminalPrompt, ctx, &intent, rid).await;
+    // ⟨M05⟩ U5: the one personal-default offer step, after a successful apply.
+    if matches!(intent, PreviewIntent::Apply { .. })
+        && out.exit == ExitCode::Success
+        && let Some(note) = offer_personal_default(&mut client, &mut TerminalPrompt, ctx).await
+    {
+        output::diagnostic(&note);
+    }
     finish_repair(ctx, &intent, out)
 }
 
@@ -1655,5 +1928,438 @@ mod tests {
             serde_json::to_value(request_conflict_explained(ok.clone(), &rid())).ok(),
             serde_json::to_value(ok).ok()
         );
+    }
+
+    // --- ⟨M05⟩ U5: the personal-default offer ---------------------------------------------
+
+    const ENV: &str = "env_00112233445566778899aabbccddeeff";
+
+    fn no_policies() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"items": []}))
+    }
+
+    fn own_environment() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"environment_id": ENV, "enrolled": true}))
+    }
+
+    fn one_profile() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"items": [{
+            "profile_id": "dev", "revision": 1, "label": null,
+            "pairs": [{"destination": "lab", "account": "deploy"}],
+            "capabilities": ["ssh-authentication"],
+        }]}))
+    }
+
+    /// The scope the runtime records for the `create` (ADR-0006 §17.10 item 22), pinned at
+    /// revision 2 of `dev`.
+    fn recorded(pairs: &[&str]) -> serde_json::Value {
+        serde_json::json!({
+            "profile_id": "dev", "profile_revision": 2,
+            "pairs": pairs.iter().map(|d| serde_json::json!({"destination": d, "account": "deploy"}))
+                .collect::<Vec<_>>(),
+            "environments": [ENV], "capabilities": ["ssh-authentication"],
+            "lock_behavior": "continue",
+        })
+    }
+
+    fn create_listing(scope: Option<serde_json::Value>) -> Envelope<serde_json::Value> {
+        let mut record = serde_json::json!({
+            "decision_id": DEC, "kind": "widen_policy", "state": "pending",
+            "expires_at": "2026-11-18T00:15:00Z",
+            "request": {"action": {"action": "create", "profile": "dev", "environments": [ENV], "default": true}},
+        });
+        if let Some(scope) = scope {
+            record["scope"] = scope;
+        }
+        Envelope::ok(serde_json::json!({ "decisions": [record] }))
+    }
+
+    fn offer(s: &mut Recorder, p: &mut Script, ctx: &Ctx) -> Option<String> {
+        block_on(offer_personal_default(s, p, ctx))
+    }
+
+    /// ⟨M05⟩ U5 (ADR-0011 §3.1, §3.3; spec §5.2): on an attended TTY, with no personal default
+    /// and one evident profile, setup sends one `create {profile, environments: [this one],
+    /// default: true}` and shows the disclosure — including "access starts again automatically
+    /// when you next use it, within your saved limits; pause or set a stop time to end it" —
+    /// with the exact recorded request; only a typed `yes` sends `Decide`, exactly once. The
+    /// destinations shown are the record's `scope` (review M05-W3-R01), not the profile
+    /// listing the offer read (`lab` only), which a catalog edit may have outrun.
+    #[test]
+    fn personal_default_offer_shows_the_disclosure_and_creates_only_on_yes() {
+        let mut s = Recorder::new()
+            .answer("inspect", no_policies())
+            .answer("inspect", own_environment())
+            .answer("inspect", one_profile())
+            .answer("other", approval(Code::ApprovalRequired))
+            .answer(
+                "inspect",
+                create_listing(Some(recorded(&["lab", "lab-new"]))),
+            );
+        let mut p = script(&[Answer::Yes]);
+        let note = offer(&mut s, &mut p, &tty()).unwrap_or_default();
+        assert_eq!(
+            s.sent,
+            [
+                "inspect", "inspect", "inspect", "attend", "policy", "inspect", "decide"
+            ]
+        );
+        assert!(note.starts_with("Personal default created"), "{note}");
+        assert_eq!(p.shown.len(), 1);
+        let shown = &p.shown[0];
+        for needle in [
+            "Use dev access automatically for ordinary ssh in this environment?",
+            "Access starts again automatically when you next use it, within your saved limits; pause or set a stop time to end it.",
+            "Destinations and accounts: lab:deploy, lab-new:deploy\n",
+            "Capabilities: ssh-authentication\n",
+            "Environment: this one only\n",
+            "Profile: dev at revision 2",
+            "\"default\": true",
+            "Approve exactly this request?",
+        ] {
+            assert!(shown.contains(needle), "missing {needle:?} in {shown}");
+        }
+        // Anything but `yes`: no `Decide`; nothing is created.
+        let mut s = Recorder::new()
+            .answer("inspect", no_policies())
+            .answer("inspect", own_environment())
+            .answer("inspect", one_profile())
+            .answer("other", approval(Code::ApprovalRequired))
+            .answer("inspect", create_listing(Some(recorded(&["lab"]))));
+        let mut p = script(&[Answer::No]);
+        let note = offer(&mut s, &mut p, &tty()).unwrap_or_default();
+        assert!(!s.sent.iter().any(|k| k == "decide"), "{:?}", s.sent);
+        assert!(
+            note.starts_with("No personal default was created"),
+            "{note}"
+        );
+    }
+
+    /// ⟨M05⟩ U5: attended only, and never twice: without a TTY (or with `--non-interactive`)
+    /// nothing is sent at all; with a personal default already in this environment, or a
+    /// runtime that does not serve the trusted-work forms, only the reads are sent, with no
+    /// `Attend`, no `create` and no prompt.
+    #[test]
+    fn personal_default_offer_is_never_made_unattended_or_twice() {
+        for ctx in [
+            Ctx {
+                stdin_tty: false,
+                ..tty()
+            },
+            Ctx {
+                non_interactive: true,
+                ..tty()
+            },
+        ] {
+            let mut s = Recorder::new();
+            let mut p = script(&[]);
+            assert_eq!(offer(&mut s, &mut p, &ctx), None);
+            assert!(s.sent.is_empty(), "{:?}", s.sent);
+        }
+        let existing = Envelope::ok(serde_json::json!({"items": [{
+            "policy_id": "pol-default", "revision": 1, "profile": "dev",
+            "environments": [ENV], "default": true,
+        }]}));
+        let mut s = Recorder::new()
+            .answer("inspect", existing)
+            .answer("inspect", own_environment());
+        let mut p = script(&[]);
+        assert_eq!(offer(&mut s, &mut p, &tty()), None);
+        assert_eq!(s.sent, ["inspect", "inspect"]);
+        let refused = output::error_value(
+            heimdall_app::OpError::new(Code::SchemaUnsupported, "trusted-work/1 is not offered")
+                .into_envelope(),
+        );
+        let mut s = Recorder::new().answer("inspect", refused);
+        let mut p = script(&[]);
+        assert_eq!(offer(&mut s, &mut p, &tty()), None);
+        assert_eq!(s.sent, ["inspect"]);
+    }
+
+    /// ⟨M05⟩ Review M05-W3-R01, fail closed: a `create` record without a well-formed
+    /// recorded `scope` (a runtime without ADR-0006 §17.10 item 22, or a basis that is gone)
+    /// is never approved: nothing is asked and no `Decide` is sent, and the note says why.
+    #[test]
+    fn personal_default_offer_without_a_recorded_scope_approves_nothing() {
+        let malformed = serde_json::json!({"profile_id": "dev", "pairs": []});
+        for scope in [None, Some(malformed)] {
+            let mut s = Recorder::new()
+                .answer("inspect", no_policies())
+                .answer("inspect", own_environment())
+                .answer("inspect", one_profile())
+                .answer("other", approval(Code::ApprovalRequired))
+                .answer("inspect", create_listing(scope));
+            let mut p = script(&[]);
+            let note = offer(&mut s, &mut p, &tty()).unwrap_or_default();
+            assert_eq!(
+                s.sent,
+                [
+                    "inspect", "inspect", "inspect", "attend", "policy", "inspect"
+                ]
+            );
+            assert!(p.shown.is_empty(), "nothing is asked: {:?}", p.shown);
+            assert!(
+                note.starts_with("No personal default was created")
+                    && note.contains("did not record the scope"),
+                "{note}"
+            );
+        }
+    }
+
+    /// ⟨M05⟩ Review M05-W3-R01, the reviewer's probe inverted (ADR-0006 §17.10 item 22).
+    /// A **real runtime**: the production `Service` in this process on its real control
+    /// endpoint in a scratch home, with the debug build's test configuration (fixture
+    /// environment, profiles `dev` = h1, h2, h3 and `ops`, policies `pol` = h1, h2 and
+    /// `pol-ops`); the offer runs over a real `Client`. The owner's profile `review` is h1
+    /// and this environment's default profile. A production `UpsertProfile` (h1, h2, h3)
+    /// commits after the offer read the profile and before its `create` reaches the
+    /// runtime, which pins the newer revision. The prompt's destination line is exactly the
+    /// scope the runtime recorded for that decision (h3 included), and approval creates a
+    /// default with exactly that scope. The `extend_scope` record raised afterwards carries
+    /// no `scope`.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
+    fn personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit() {
+        use heimdall_contract::catalog::{CatalogRequest, ProfileSpec};
+        use heimdall_contract::request::AccessPairRef;
+
+        struct Interleaved {
+            client: Client,
+            edit: Option<Request>,
+            decisions: Vec<serde_json::Value>,
+        }
+        impl Session for Interleaved {
+            async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+                if matches!(request, Request::Policy(PolicyAction::Create { .. }))
+                    && let Some(edit) = self.edit.take()
+                {
+                    let edited = self.client.request(edit).await;
+                    assert!(edited.code.is_success(), "the catalog edit: {edited:?}");
+                }
+                let listing = matches!(
+                    &request,
+                    Request::Inspect(i) if i.subject == InspectSubject::Decisions
+                );
+                let env = self.client.request(request).await;
+                if listing {
+                    self.decisions.push(env.data.clone());
+                }
+                env
+            }
+            async fn attend(&mut self) -> Envelope<serde_json::Value> {
+                self.client.attend().await
+            }
+        }
+        struct Capture(String);
+        impl Prompter for Capture {
+            async fn ask(&mut self, text: &str) -> Answer {
+                self.0.push_str(text);
+                Answer::Yes
+            }
+        }
+        let pairs = |names: &[&str]| -> BTreeSet<AccessPairRef> {
+            names
+                .iter()
+                .map(|d| AccessPairRef {
+                    destination: heimdall_contract::ids::DestinationId::parse(d).unwrap(),
+                    account: heimdall_contract::ids::AccountName::parse("deploy").unwrap(),
+                })
+                .collect()
+        };
+        let review = ProfileId::parse("review").unwrap();
+        let upsert = |names: &[&str], rid: &str| {
+            Request::Catalog(CatalogRequest::UpsertProfile {
+                profile: ProfileSpec {
+                    id: review.clone(),
+                    pairs: pairs(names),
+                    label: None,
+                },
+                request_id: RequestId::parse(rid).unwrap(),
+            })
+        };
+
+        let scratch = tempfile::tempdir().unwrap();
+        let ctx = Ctx {
+            json: false,
+            non_interactive: false,
+            home: Some(scratch.path().join("hm")),
+            stdin_tty: true,
+        };
+        let runtime = InProcessRuntime::start(&ctx);
+        let (note, shown, recorded, created) = block_on(async {
+            let mut client = crate::client::connect(&ctx, false).await.unwrap();
+            for request in [
+                upsert(&["h1"], "r01-review-1"),
+                Request::Catalog(CatalogRequest::SetDefaultProfile {
+                    environment: None,
+                    profile: Some(review.clone()),
+                    request_id: RequestId::parse("r01-default").unwrap(),
+                }),
+            ] {
+                let env = client.request(request).await;
+                assert!(env.code.is_success(), "{env:?}");
+            }
+            let mut session = Interleaved {
+                client,
+                edit: Some(upsert(&["h1", "h2", "h3"], "r01-review-2")),
+                decisions: Vec::new(),
+            };
+            let mut capture = Capture(String::new());
+            let note = offer_personal_default(&mut session, &mut capture, &ctx).await;
+            assert!(session.edit.is_none(), "the edit ran before the create");
+            let recorded: Vec<DecisionScope> = session
+                .decisions
+                .iter()
+                .flat_map(|l| l["decisions"].as_array().cloned().unwrap_or_default())
+                .filter_map(|d| recorded_scope(&d))
+                .collect();
+            let created = runtime
+                .store
+                .transaction(|tx| {
+                    Ok(tx
+                        .policies()?
+                        .into_iter()
+                        .find(|p| p.profile == review && p.default))
+                })
+                .unwrap();
+            // Another `WidenPolicy` record: `pol` gains h3 (its profile's third pair).
+            let extend = session
+                .client
+                .request(Request::Policy(PolicyAction::ExtendScope {
+                    policy_id: heimdall_contract::ids::PolicyId::parse("pol").unwrap(),
+                    pairs: pairs(&["h3"]),
+                    capabilities: BTreeSet::new(),
+                    environments: BTreeSet::new(),
+                    background_work: None,
+                }))
+                .await;
+            let extension = pending_decision(&extend).expect("an extend_scope record");
+            let listing = session
+                .client
+                .request(Request::Inspect(InspectRequest {
+                    subject: InspectSubject::Decisions,
+                    preview: None,
+                    cwd: None,
+                    redact: false,
+                }))
+                .await;
+            let entry = listing.data["decisions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|d| d["decision_id"] == extension.as_str())
+                .cloned()
+                .unwrap();
+            assert_eq!(entry["request"]["action"]["action"], "extend_scope");
+            assert!(entry.get("scope").is_none(), "no scope key: {entry}");
+            (note, capture.0, recorded, created)
+        });
+        runtime.stop();
+        assert!(
+            note.as_deref()
+                .is_some_and(|n| n.starts_with("Personal default created")),
+            "{note:?}"
+        );
+        let [scope] = recorded.as_slice() else {
+            panic!("one recorded create scope: {recorded:?}");
+        };
+        assert_eq!(
+            scope.pairs,
+            pairs(&["h1", "h2", "h3"]),
+            "the newer revision"
+        );
+        assert_eq!(scope.profile_revision, 2);
+        assert!(
+            shown.contains("Destinations and accounts: h1:deploy, h2:deploy, h3:deploy\n"),
+            "the disclosure is the recorded scope, h3 included: {shown}"
+        );
+        assert!(shown.contains("Profile: review at revision 2"), "{shown}");
+        let created = created.expect("the default was created");
+        assert_eq!(
+            created.scope.pairs, scope.pairs,
+            "approval applied what was shown"
+        );
+        assert_eq!(created.scope.capabilities, scope.capabilities);
+        assert_eq!(created.environments, scope.environments);
+        assert_eq!(created.lock_behavior, scope.lock_behavior);
+    }
+
+    /// The production runtime `Service` on its own thread and executor, in the scratch
+    /// Heimdall home of a [`Ctx`], with the debug build's test configuration (the fake
+    /// adapter, synchronized time, the fixture catalog) and no managed wiring (this process
+    /// is the test harness, never an issuer child). Stopped by its cancellation token when
+    /// dropped (a failing assertion included), before the scratch home goes.
+    #[cfg(debug_assertions)]
+    struct InProcessRuntime {
+        store: std::sync::Arc<heimdall_store::Store>,
+        token: tokio_util::sync::CancellationToken,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    #[cfg(debug_assertions)]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    impl InProcessRuntime {
+        fn start(ctx: &Ctx) -> Self {
+            use heimdall_runtime::service::{Service, ServiceOptions};
+            let paths = ctx.paths().unwrap();
+            let token = tokio_util::sync::CancellationToken::new();
+            let stop = token.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let thread = std::thread::spawn(move || {
+                let rt = Service::runtime().unwrap();
+                rt.block_on(async move {
+                    let clock = std::sync::Arc::new(
+                        heimdall_runtime::platform::SystemClock::try_new().unwrap(),
+                    );
+                    let mut options = ServiceOptions::with_clock(
+                        clock,
+                        std::sync::Arc::new(heimdall_runtime::platform::SystemTimeSync),
+                    );
+                    let env = |name: &str| match name {
+                        "HEIMDALL_TEST_ADAPTER" => Some("prepare".into()),
+                        "HEIMDALL_TEST_TIME_SYNC" => Some("synchronized".into()),
+                        _ => None,
+                    };
+                    let setup = crate::testcfg::prepare(&mut options, &paths, true, &env)
+                        .unwrap()
+                        .unwrap();
+                    let service = Service::start_with(
+                        paths,
+                        heimdall_runtime::config::Config::default(),
+                        options,
+                        stop,
+                    )
+                    .await
+                    .unwrap();
+                    setup.seed(&service).unwrap();
+                    let _ = tx.send(std::sync::Arc::clone(service.store()));
+                    let _ = service.run().await;
+                });
+            });
+            let store = rx.recv().expect("the runtime started");
+            Self {
+                store,
+                token,
+                thread: Some(thread),
+            }
+        }
+
+        fn stop(mut self) {
+            self.token.cancel();
+            if let Some(t) = self.thread.take() {
+                t.join().unwrap();
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    impl Drop for InProcessRuntime {
+        fn drop(&mut self) {
+            self.token.cancel();
+            if let Some(t) = self.thread.take() {
+                let _ = t.join();
+            }
+        }
     }
 }

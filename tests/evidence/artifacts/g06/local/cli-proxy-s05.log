@@ -1,0 +1,3 @@
+{"event":"ready","id":"406b22d9f665e09b63cd08faf76318704f18bb395b19dbaa1a6d215765efed77","bound":["172.19.0.3:40479"],"relay":"disabled","lookup":"none","portmapper":false}
+{"event":"connected","peer":"7606ea874b74288e40df9c4e7af0fa108bd2be55ec3ff57f0f2b2486ad5770ec","ms":0,"paths":[{"relay":false,"ip":true,"selected":true,"remote":"Ip(172.19.0.2:7000)"}]}
+{"event":"stream_open","ms":0}

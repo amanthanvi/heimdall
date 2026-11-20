@@ -2012,3 +2012,234 @@ The orchestrator owns revision 5 (ADR-0010 §9 item 9, ADR-0011 §10 item 10). T
   M05 U1), trust and policy actions, coalescing and cooldowns, stop and targets, context
   activation and the shell hook, ordinary-`ssh` activation, slot references, export and
   import, delegation labels (M05 U2–U9).
+
+### 17.9 Revision 5.1 (M05 wave 2)
+
+*Approved by the contract owner on 2026-11-18, with M05 wave 2 (orchestrator ruling I-6; M05
+U7; the "revision 5.1" delta items `dry_run`, the closed bundle, C1 and C2). Additive on revision 5, gated on
+`trusted-work/1`: every revision-5 document, stored record, request hash and golden is
+byte-identical (see "Byte identity" below), the code table stays at 30 rows, and the schema
+major stays `"1"` (§9).*
+
+| Item | What landed | Where |
+|---|---|---|
+| 13 | `CatalogRequest::SetDefaultProfile {environment?, profile, request_id}` (action `set_default_profile`): sets or clears an environment's **default-profile preference** (ADR-0011 §5.1). `environment` is omitted when absent (the runtime's own); `profile` is always written, `null` clears (a missing `profile` reads as `null`). Owner only, no decision, journaled under kind `catalog` (idempotent by `request_id`; the action is in the idempotency extras), `Admission::Journaled("catalog")`, capability `trusted-work/1` (`Request::required_capability`). Not widening: `is_widening_policy_action` is false | `contract::{catalog, request}`, `domain::catalog` (`CatalogAction::SetDefaultProfile`), `app::catalog` |
+| 14 | `PoliciesView.default_profiles: [DefaultProfileView {environment_id, profile_id}]`, ordered by environment ID, one per managed environment that has a preference; omitted when empty, so `inspect policies` is byte-identical until one is set. Schema `inspect-policies` regenerated | `contract::trust`, `schemas/public-api` |
+| 15 | `apply_import` and `inspect export` are served (no wire change): the shapes below | `app::operations::portable_m05` |
+| 16 | `CatalogRequest::ApplyImport.dry_run: bool` (default false, omitted when false): validates the bundle exactly as a real import does, computes the plan and answers it **marked as a dry run, writing nothing**. A read: no catalog row, operation, idempotency, event or journal record (the request ID is not consulted, so the same ID can then import for real). Owner only (`CAPABILITY_UNAVAILABLE` otherwise) and gated on `trusted-work/1` through the same `Request::required_capability` arm as a real import; a real import's result and hash are unchanged | `contract::catalog`, `app::catalog` (`Operations::catalog`), `app::operations::portable_m05::dry_run` |
+| 17 | **The portable bundle is closed:** `#[serde(deny_unknown_fields)]` on `PortableBundle`, `PortableDestination`, `PortableIdentity` and `PortableProfile`. A request that carries a bundle with an unknown or authority-bearing key at any level (`policies`, `trust`, `grants`, `policy`, ...) no longer decodes, as the file path (`heimdall_project::parse_bundle`) already refused it. A request that fails to decode is answered by the session as a malformed frame: a `USAGE_ERROR` goodbye, the connection closed, before any handler runs, so nothing is written (and the refusal text never echoes the peer's bytes: `heimdall_ipc::session::parse_frame`). `schemas/project/portable.schema.json` is now closed (`additionalProperties: false` on the four types), and `request` and `ipc.client-message` carry the same four closed definitions | `contract::project`, `schemas/project`, `schemas/public-api` |
+| 18 | **C1, the decision view of a targeted widening lists its policies.** A pending `WidenPolicy` record created by a targeted `resume`, `clear_cutoff` or a later `cutoff` with a `target` (U3) carries `policies: [PolicyRevisionRef {policy_id, revision}]` in its `inspect decisions` view, read from its decision basis (`DecisionBasis::Targeted`, fixed at creation, ADR-0011 I5): exactly the policies approval will apply, each at the revision it must still be at. Omitted for every other record (the key is absent, so every existing decision view is byte-identical). The decision view is an untyped JSON value with no published schema, so `PolicyRevisionRef` is the type and no schema changes | `contract::trust`, `app::operations` (`decision_view` call site in `inspect`), `app::operations::stop_m05::listed_policies` |
+| 19 | **C2, a typed result for the targeted policy actions** (`pause`, `resume`, `cutoff`, `clear_cutoff` with a `target`, and `stop`): `PolicyTargetResult {target: PolicyTarget, changed, policies: [PolicyTargetEntry {policy_id, revision, paused, cutoff_at, changed}], revoked?}`. It is exactly what U3 returned as untyped JSON: `cutoff_at` is always written (`null` when none), `revoked` (the grants a `stop` revoked, cascade included) only for `stop`. U3's result is built through the type, so its JSON is byte-identical. Schema `policy-target-result` published in `schemas/public-api/`. The M01 single-policy result (`policy_id`) is unchanged | `contract::{trust, schema}`, `app::operations::stop_m05::targeted_view` |
+| 20 | **Deferred to M07 (I-12, ruled 2026-11-18): the exported host-key fingerprint as a first-connect hint.** The fingerprint I-11.3 means is each destination's SSH **host key** fingerprint (algorithm and SHA-256) as the exporting installation knew it: not the destination ID, the CA fingerprint or a user key. Revision 5 already carries it (`PortableDestination.host_key_fingerprints`), and the `dry_run` plan (item 16) shows it for comparison; import then discards it, so an imported destination stays *observed* and no host key is ever trusted by an import (I4). The rest of the ruling — keeping the fingerprint as a hint, turning the owner's later attended host-trust confirmation into a one-step "matches what was exported", and refusing a mismatch at first connect — needs the export to read host keys from enrollment records (the catalog holds none) and the attended host-trust and known-hosts flows (`app/src/operations/enrollment_m03/*`, `localenv/src/known_hosts.rs`), which are M03's and M04's. It is not small, so under the ruling's own fallback it is **deferred to M07**, and no wire form changes for it in 5.1 | none |
+
+Examples (each round-trips and validates; `tests/contracts/rev5.rs`):
+`request.catalog.set-default-profile`, `request.catalog.apply-import.dry-run`,
+`inspect.policies.default-profile`, `policy-target-result`. Golden:
+`tests/contracts/golden/rev5-1.golden.json` (the four `set_default_profile` request forms,
+the capability, the kind, the view; the `dry_run` forms; the unknown key at each level of
+the bundle; the three shapes of `PolicyTargetResult`; the C1 policy list). Schemas
+regenerated by `heimdall schema export` (`request`, `ipc.client-message`,
+`inspect-policies`, `portable`; new: `policy-target-result`).
+
+**Capability gating.** Nothing here adds a capability. `dry_run` rides on `apply_import`,
+which `Request::required_capability` already names `trusted-work/1`; the closed bundle is
+the same request; C1 is a field of `inspect decisions`, which an owner already reads; C2 is
+the result of `policy` actions whose targeted forms already require `trusted-work/1`. A
+session that did not negotiate `trusted-work/1` gets `SCHEMA_UNSUPPORTED` for the request
+forms exactly as before, and the capability stays declared and not offered until the wave's
+gate.
+
+**Byte identity.** Every new field is `#[serde(default, skip_serializing_if = ...)]`
+(`dry_run` when false, `revoked` when `None`, the decision view's `policies` when the record
+has no targeted basis); `PolicyTargetEntry.cutoff_at` is the one field written as `null`
+because U3's result always wrote it. Therefore every revision-5 request, hash, example,
+golden and stored record is unchanged: the contract suite (`rev5_m01_m03_forms_unchanged`,
+`rev5_examples_round_trip_and_validate`, the `schema` check of `tools/validation/check.sh`)
+passes with no existing example or golden changed (U7's own `rev5-1.golden.json` gains
+keys, nothing is removed), `apply_import` re-encodes without
+`dry_run`, and the existing U3 journeys (`e2e_stop_m05`, `model_precedence_m05`) pass
+unchanged on the typed result. The only schema text that changes is the regenerated
+`request`, `ipc.client-message`, `inspect-policies` and `portable` documents, which gain
+the new fields and the four closed definitions, and the new `policy-target-result`. The
+contract suite's own validators change with the closure: the in-tree validator
+(`tests/contracts/jsonschema_lite.rs`) supports `additionalProperties: false` (it used to
+reject the keyword outright, as the tolerance rule), and the keyword check moves the
+tolerance rule to an explicit allowlist (below).
+
+**Why the bundle is closed although public requests tolerate unknown fields (§9).** §9's
+tolerance exists so that an older reader accepts a newer writer's additive fields. The
+portable bundle is not a wire message of that kind: it is a **file format** (ADR-0011 I4)
+that is written once, carried between installations and read by an importer that never
+trusts its contents, and the manifest is closed for the same reason (item 11). An unknown
+key in it is either a future field the importer cannot apply, which it must say so rather
+than drop, or an authority claim it must refuse, so the bundle fails whole on both paths:
+the file path already did, and `deny_unknown_fields` makes the request path do the same
+instead of silently ignoring a key (question 2 of the first draft). The closure is the
+four named definitions only: the public-API keyword check
+(`schema_export::public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types`)
+allows `additionalProperties: false` at exactly those definitions of `request` and
+`ipc.client-message`, and nowhere else, and the in-tree validator checks it there.
+
+**Proofs.** Contract: `rev5::rev5_1_dry_run_closed_bundle_and_typed_results` (`dry_run`
+omitted when false and written when true, both gated on `trusted-work/1`; an unknown key
+at each of the four bundle levels makes the request undecodable and the `portable` schema is
+closed at each; `PolicyTargetResult` and the C1 list round-trip and the result validates
+against its schema), `rev5::rev5_examples_round_trip_and_validate` (the two new examples),
+`schema_export::public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types`,
+`schema_export::checked_in_public_api_matches_the_model_exactly` and
+`checked_in_project_schemas_match_the_model_exactly` (the regenerated schemas).
+Application (`integration_portable`): `dry_run_writes_nothing_and_shows_the_plan` (every
+table's row count, the catalog and the authority tables identical before and after; the plan
+lists adds, an alias and a content conflict, the identity needing a local adoption and every
+exported host-key fingerprint; a following real import under the same request ID applies
+exactly that plan; a bad bundle and a non-owner are refused) and
+`a_bundle_with_an_authority_section_is_refused_on_the_request_path` (six hostile bundles:
+the session's decode refuses each and nothing is written). Journeys (`e2e_stop_m05`):
+`a_targeted_widenings_decision_view_lists_its_policies` (C1; a single-policy `resume` has no
+`policies` key) and `targeted_results_decode_into_the_typed_result` (C2: `pause`, `cutoff`
+and `stop` results decode into the type and re-encode to the same bytes, and only `stop`
+carries `revoked`); U3's targeted journeys pass unchanged.
+
+**Semantics (no ruling needed; stated for the record).**
+
+1. **Set.** The profile must exist in the catalog (`NOT_FOUND` otherwise) and the
+   environment must be in the runtime's managed set (§17.2: `NOT_FOUND`, reason
+   `environment_removed` for a removed one); a refusal settles the operation `failed`,
+   effect `none`, and writes nothing. Success answers `{environment_id, profile_id}`
+   (`profile_id` null when cleared). One transaction with the operation's settlement; no
+   authority generation moves; a binding or grant pinned at activation never reads the
+   preference (R-AU-03). Unlike a widening action it needs no safe time (it is classified
+   with the narrowing catalog actions).
+2. **`inspect export`** (`InspectRequest.redact`; `cwd` and `preview` are refused on this
+   subject) answers a `PortableBundle` of the local catalog, owner role only
+   (`CAPABILITY_UNAVAILABLE` for another role: an empty bundle would read as a real one).
+   `identities[].provider` is `native_agent`, `onepassword` or `unknown` (a public-key file
+   is no agent). `host_key_fingerprints` is empty: the catalog holds no host-key record, and
+   a host key lives with an enrollment, which never travels.
+3. **`catalog apply_import`** answers `{applied: {added, unchanged, conflicts,
+   needs_local}, plan: [{kind, id, status, reason?, host_key_fingerprints?}], reestablish}`
+   (an untyped result, like every catalog action's): `kind` is `destination`, `identity`
+   (its fingerprint) or `profile`; `status` is `add` (written), `unchanged`, `conflict`
+   (`reason`: `differs_locally`, `alias_collision`, `duplicate_in_bundle`, `invalid`; never
+   applied) or `needs_local` (an identity reference with no adopted key here; nothing can be
+   written for a fingerprint alone). A destination is added as an **observed** destination
+   named by its alias (a bundle carries no link from a destination to an identity, which a
+   managed one needs); a profile is added with the bundle's pairs and `ssh-authentication`.
+   An existing record is never changed, so no profile, grant, binding or policy widens
+   (spec §6.2). `reestablish` is the importer's fixed list, never the bundle's text. The
+   bundle is validated like a file's bytes before admission (`USAGE_ERROR`, nothing
+   written); exported host-key fingerprints are shown in the plan and trusted nowhere.
+   With `dry_run` (item 16) the same validation and the same plan are answered as
+   `{dry_run: true, would_apply: {added, unchanged, conflicts, needs_local}, plan, reestablish}`
+   (the counts are `would_apply`, never `applied`, so a dry run cannot be mistaken for an
+   applied import), with no operation ID, and nothing is written.
+
+**Questions for the contract owner** (none blocks the draft; each is a possible later
+revision):
+
+1. **The host-key hint (item 20): settled, deferred to M07.** I-12 ruled that I-11.3 means the
+   destination's SSH host-key fingerprint. Revision 5's `host_key_fingerprints` already carries
+   it and the `dry_run` plan shows it. Keeping it as a first-connect hint touches M03's and M04's
+   host-trust flows, so it waits for M07. An import still records an observed destination: the
+   bundle has no link to a local identity.
+2. **Authority sections over the wire: settled by item 17.** The first draft left the
+   typed bundle open on the request path (serde ignored an unknown key) and offered
+   `deny_unknown_fields` as the fix; the orchestrator accepted it.
+3. **Import preview: settled by item 16.** `dry_run` is the read the CLI's preview (wave 3)
+   uses; no new `inspect` subject.
+4. **Default-profile reads for an unmanaged environment** are refused like every other
+   request naming one; `default_profiles` lists the managed set only.
+
+### 17.10 Revision 5.2 (M05 wave 3)
+
+*Approved by the contract owner on 2026-11-18, with M05 wave 3 (orchestrator ruling I-14;
+M05 U9a); item 22 ruled by the contract owner on 2026-11-18 with the wave's fix round (review
+M05-W3-R01). Additive on revisions 5 and 5.1, gated on `trusted-work/1`: every revision-5 and
+5.1 document, stored record, request hash and golden is byte-identical (see "Byte identity"
+below), the code table stays at 30 rows, and the schema major stays `"1"` (§9).*
+
+| Item | What landed | Where |
+|---|---|---|
+| 21 | **The server-built trust proposal in `inspect workspace`.** `WorkspaceView.proposal: Option<TrustProposal>` (`#[serde(default, skip_serializing_if = "Option::is_none")]`): the proposal the **runtime** builds for the working directory, the manifest's request ∩ the profile's latest snapshot, its pair, environment and capability tokens resolved against the local catalog, exactly what `policy trust_workspace` computes and compares a request's `proposal` and `access_digest` with (ADR-0011 I5). It is built by the same code (`trust_m05::manifest_proposal`, shared by the decision builder and by `inspect workspace`). Owner only, like `access_digest`. Omitted when there is none: no workspace root, no manifest, a manifest that names a profile this catalog does not have, or a request that resolves to nothing (`manifest_invalid`); a request built without a proposal then reaches the decision builder, which refuses it with its stable reason. Gated on `trusted-work/1` like the rest of `inspect workspace` (`Request::required_capability`, unchanged) | `contract::trust`, `app::operations::{context_m05, trust_m05}` (`manifest_proposal_view`), `schemas/public-api/inspect-workspace.schema.json` |
+| 22 | **The scope of a `create` decision in `inspect decisions`.** A pending `WidenPolicy{create}` record's view gains `scope: DecisionScope {profile_id, profile_revision, pairs: [AccessPairRef], environments: [EnvironmentId], capabilities: [Capability], lock_behavior}`, read from its decision basis fixed at creation (`DecisionBasis::Create`, ADR-0011 I5; the stored basis, never a fresh catalog read): the profile revision the record pinned, that revision's snapshot (its pairs and capabilities; snapshots are immutable), the record's environments and the lock behaviour approval gives the new policy. It is exactly what approval applies (`trust_m05::apply_widening` reads the same basis and snapshot). Every list is always written, so an empty one means none. **Omitted for every other record**, and for a `create` whose basis or snapshot is gone (approval refuses that one as stale). No other `WidenPolicy` kind pins a profile revision, so none carries it: `set_max_window`, the targeted `resume`, `clear_cutoff` and later `cutoff` (revision 5.1 C1's `policies`) and the M01 single-policy forms change no scope. The rule: **present for `create` (and a targeted `WidenPolicy`, if it pins a profile revision); absent for `extend_scope`, whose recorded action is the added authority** (ruling I-14's normalization; a `scope` it cannot fill honestly would be worse). Like C1, a typed struct placed inside the untyped decision view: **no schema change**. Gated on `trusted-work/1` like the `create` request that raises the record | `contract::trust` (`DecisionScope`), `app::operations` (`decision_scope`, at the `decision_view` call site in `inspect`) |
+
+**Why (ADR-0011 §2.2).** The runtime reads the manifest and the client never does. Revisions 5
+and 5.1 gave the client no way to learn the proposal before a decision record exists, so
+the CLI's `project trust` and `access allow --workspace` ran the runtime's observer
+(`workspace_observe::RealWorkspaceProbe`) in process and recomputed the intersection to build
+the request. With item 21 they take the proposal and the access digest from `inspect
+workspace` and send them back unchanged; they run no observer and read no manifest. The
+runtime's refusal of any difference (I5) is unchanged and is still the only check that
+matters: the client's copy is a convenience, not an authority.
+
+Example: `inspect.workspace.proposal` (round-trips and validates;
+`tests/contracts/rev5.rs`). Golden: `tests/contracts/golden/rev5-2.golden.json` (a view with
+a proposal, the smallest proposal, and the two views that carry none: a manifest-less root
+and a non-workspace directory). Schema regenerated by `heimdall schema export`:
+`inspect-workspace` only (the other public schemas, `configuration` and `project` are
+unchanged).
+
+**Byte identity.** The field is skipped when `None`, so a view without a proposal, every
+revision-5 and 5.1 `inspect workspace` document, example (`inspect.workspace`) and golden is
+unchanged; a client built before this revision ignores the added key (§9). The only schema
+text that changes is `inspect-workspace`, which gains the optional `proposal` property and
+the `TrustProposal`, `AccessPairRef`, `AccountName`, `Capability`, `DestinationId`,
+`EnvironmentId` and `ProfileId` definitions it references.
+
+**Proofs.** Contract: `rev5::rev5_2_workspace_proposal` (the golden: each view round-trips
+exactly and validates against `inspect-workspace`, the key is written exactly when there is a
+proposal, the field is optional in the schema, `inspect workspace` still needs
+`trusted-work/1`), `rev5::rev5_examples_round_trip_and_validate` (the new example; the
+revision-5 example has no proposal), `schema_export::checked_in_public_api_matches_the_model_exactly`
+and the `schema` check of `tools/validation/check.sh`. Runtime
+(`e2e_context_m05`): `the_inspected_proposal_is_what_trust_workspace_accepts` (a request
+built only from `inspect workspace` raises the trust decision, whose recorded action is
+that proposal; one built from an answer the manifest outran is refused `USAGE_ERROR` with
+the store's row counts unchanged; a manifest-less root, an unknown profile and a
+non-workspace directory carry no proposal). CLI (`e2e_cli_m05`): the `project trust` journey,
+which now goes through `inspect workspace`; and `crates/heimdall/src/` names neither
+`RealWorkspaceProbe` nor `workspace_observe`.
+
+**Item 22: why (review M05-W3-R01).** The setup offer built its personal-default disclosure
+from its own `inspect profiles` read, while the runtime pinned the profile revision current
+when the `create` arrived. An ordinary owner catalog edit between the two (profile `review`
+gaining `h2` and `h3`) gave a prompt listing only `h1` and an approval that created a
+standing default covering `h3`: a consent mismatch caused by the owner's own action
+(ADR-0009 §2.1, blocking). Revisions 5 and 5.1 gave no consent surface the pinned scope of a
+`create` record: its view held only the action (profile, environments, window, default).
+With item 22 the setup offer, the CLI's `create` review (`access allow --profile` for a
+profile without a policy, and `heimdall decide approve`) and the TUI's `create` view render
+the disclosure **from the record's `scope`**, read with the record itself, and never from a
+client read; a `create` record without a well-formed `scope` is refused before anything is
+asked (`setup_cmd::SCOPE_NOT_RECORDED`; fail closed). This is the public consumer ruling I-3
+waited for: the basis stays an internal store row, and the view exposes what it fixes.
+
+Golden: `tests/contracts/golden/rev5-2.golden.json` `decision_scope` (two pinned `create`
+views, one with an empty capability list, and two records without a scope: an
+`extend_scope` and a targeted `resume`).
+
+**Byte identity (item 22).** The key is inserted only for a pinned `create`, so every other
+decision view, every revision-5 and 5.1 document, example and golden is unchanged; the
+published schemas are unchanged (no schema names `DecisionScope`); a client built before
+this revision ignores the added key (§9).
+
+**Proofs (item 22).** Contract: `rev5::rev5_2_decision_scope` (the golden: the scope
+round-trips exactly through `DecisionScope` with every list written, a missing list is
+refused rather than read as empty, the key is present exactly for the `create` forms, and no
+public schema names the type). CLI, the reviewer's probe inverted, against the production
+`Service` in process with the debug test configuration and a real `Client`
+(`setup_cmd::tests::personal_default_offer_shows_the_scope_recorded_after_a_catalog_edit`):
+a production `UpsertProfile` committed between the offer's profile read and its `create`
+is in the prompt (the destination line is exactly the recorded scope, `h3` included), the
+default approval creates has exactly that scope, and the `extend_scope` record raised after
+it has no `scope` key; reverting the offer to its own read makes it fail (exit 101), restored
+it passes. Fail closed: `setup_cmd::tests::personal_default_offer_without_a_recorded_scope_approves_nothing`,
+`m05_cmd::tests::a_create_review_shows_the_recorded_scope_or_refuses` and
+`tui::m05::tests::a_create_shows_its_recorded_scope_or_offers_no_approval`.
+
+**Ruled (item 22, `extend_scope`; the contract owner, 2026-11-18).** `scope` is absent for an
+`extend_scope` record. That kind pins no profile revision: its creation checks the request
+against the profile's latest definition and stores no revision, and its approval leaves the
+lock behaviour unchanged when the recorded `background_work` is absent, so `profile_revision`
+and `lock_behavior` would have no fixed value. Its recorded action is already exactly the
+authority it adds (ruling I-14), and the CLI and TUI show that action.

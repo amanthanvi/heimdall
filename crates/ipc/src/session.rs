@@ -122,12 +122,13 @@ pub fn server_capabilities() -> BTreeSet<String> {
         capability::SETUP_V1,
         // ⟨M04⟩ Revision 5's environment forms: U1's login entry setup item (a setup preview
         // naming an M04 item requires it), U3b's WSL requests, U5's container requests and
-        // U6's destination upsert naming a jump. `trusted-work/1` stays declared and not
-        // offered (M05).
+        // U6's destination upsert naming a jump.
         capability::ENVIRONMENTS_V1,
     ]
     .into_iter()
     .chain(capability::M03_DECLARED)
+    // ⟨M05⟩ W3 (ADR-0006 §17.8; m05-plan §4 item 10): every trusted-work form is served.
+    .chain([capability::TRUSTED_WORK_V1])
     .map(str::to_owned)
     .collect()
 }
@@ -1488,30 +1489,21 @@ mod tests {
         assert_eq!(bad_cap.unwrap_err().code, Code::SchemaUnsupported);
     }
 
-    /// ⟨M04 U5⟩ `environments/1` is offered (the container requests are served), so a hello
-    /// that requires it negotiates it; `trusted-work/1` stays declared and not offered until
-    /// M05, so a hello that requires it is refused `SCHEMA_UNSUPPORTED`.
+    /// ⟨M04 U5, M05 W3⟩ Revision 5's two capabilities are both offered: `environments/1`
+    /// (M04: the login entry item, the WSL and container requests, routes) and
+    /// `trusted-work/1` (M05: every trusted-work form, ADR-0006 §17.8), and a hello that
+    /// requires either negotiates it.
     #[test]
-    fn the_revision_5_offer_is_environments_only() {
+    fn the_revision_5_offer_is_environments_and_trusted_work() {
+        let offered = server_capabilities();
+        assert!(offered.contains(capability::ENVIRONMENTS_V1));
+        assert!(offered.contains(capability::TRUSTED_WORK_V1));
         let p = PrincipalInfo::OsUserUnix { uid: 501 };
-        assert!(server_capabilities().contains(capability::ENVIRONMENTS_V1));
-        assert!(!server_capabilities().contains(capability::TRUSTED_WORK_V1));
-        let ok = negotiate(
-            &hello(PROTOCOL_VERSION, "1", &[capability::ENVIRONMENTS_V1]),
-            p.clone(),
-            env(),
-            srv(),
-        )
-        .unwrap();
-        assert!(ok.capabilities.contains(capability::ENVIRONMENTS_V1));
-        let err = negotiate(
-            &hello(PROTOCOL_VERSION, "1", &[capability::TRUSTED_WORK_V1]),
-            p,
-            env(),
-            srv(),
-        )
-        .unwrap_err();
-        assert_eq!(err.code, Code::SchemaUnsupported);
+        for required in [capability::ENVIRONMENTS_V1, capability::TRUSTED_WORK_V1] {
+            let h = hello(PROTOCOL_VERSION, "1", &[required]);
+            let ok = negotiate(&h, p.clone(), env(), srv()).unwrap();
+            assert!(ok.capabilities.contains(required), "{required}");
+        }
     }
 
     /// Review F10: `required` must be within the negotiated set, not merely the

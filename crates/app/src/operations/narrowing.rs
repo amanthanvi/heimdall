@@ -1205,3 +1205,88 @@ impl Operations {
         Ok(n.value)
     }
 }
+
+/// ⟨M05, U8⟩ The labels of a delegated child's report (ADR-0011 §6.2–§6.3; spec §14.4).
+///
+/// `report` is what the child's own preparation reported for its own pairs. The child keeps
+/// its `destination_scope` (`verified_server_principals` when the managed adapter verified
+/// each pair's evidence, `client_routing` or `unenforced_intent` for existing access or an
+/// unverified managed pair; an unknown scope reads `unenforced_intent`: a child's pairs are
+/// never silently stronger than they are). Its `workload_isolation` is `shared_os_user`
+/// and its `owner_functions` `not_delegated`: a same-user child can open the owner's control
+/// endpoint itself, and a signer key filter is convenience, never isolation. A report that
+/// already says `unreachable` (an M04 container row, which mounts only the child endpoint)
+/// is left as that row built it. A non-delegated result is never passed here, so its
+/// `owner_functions` stays absent.
+#[must_use]
+pub(crate) fn child_enforcement(
+    delegated: bool,
+    report: &heimdall_contract::request::Enforcement,
+) -> heimdall_contract::request::Enforcement {
+    use heimdall_contract::request::{DestinationScopeEnforcement as Scope, WorkloadIsolation};
+    use heimdall_contract::trust::OwnerFunctions;
+
+    let mut out = report.clone();
+    if !delegated || out.owner_functions == Some(OwnerFunctions::Unreachable) {
+        return out;
+    }
+    if out.destination_scope == Scope::Unknown {
+        out.destination_scope = Scope::UnenforcedIntent;
+    }
+    out.workload_isolation = WorkloadIsolation::SharedOsUser;
+    out.owner_functions = Some(OwnerFunctions::NotDelegated);
+    out
+}
+
+#[cfg(test)]
+mod delegation_labels {
+    use heimdall_contract::request::{
+        DestinationScopeEnforcement as Scope, Enforcement, ExistingConnectionsPolicy,
+        NewAuthenticationExpiry, RevocationStatus, WorkloadIsolation,
+    };
+    use heimdall_contract::trust::OwnerFunctions;
+
+    use super::child_enforcement;
+
+    fn report(scope: Scope, isolation: WorkloadIsolation) -> Enforcement {
+        Enforcement::new(
+            scope,
+            NewAuthenticationExpiry::None,
+            isolation,
+            ExistingConnectionsPolicy::Unknown,
+            RevocationStatus::Unknown,
+        )
+    }
+
+    /// ADR-0011 §6.3: a child is `shared_os_user` and `not_delegated` whatever its parent
+    /// mechanism, keeps the scope its pairs truly have, never reads stronger than it is,
+    /// and a non-delegated report is untouched.
+    #[test]
+    fn child_labels_follow_the_table_and_never_overclaim() {
+        for scope in [
+            Scope::VerifiedServerPrincipals,
+            Scope::ClientRouting,
+            Scope::UnenforcedIntent,
+        ] {
+            let c = child_enforcement(true, &report(scope, WorkloadIsolation::Unknown));
+            assert_eq!(c.destination_scope, scope);
+            assert_eq!(c.workload_isolation, WorkloadIsolation::SharedOsUser);
+            assert_eq!(c.owner_functions, Some(OwnerFunctions::NotDelegated));
+        }
+        let unknown = child_enforcement(
+            true,
+            &report(Scope::Unknown, WorkloadIsolation::TestedIsolatedWorkload),
+        );
+        assert_eq!(unknown.destination_scope, Scope::UnenforcedIntent);
+        assert_eq!(unknown.workload_isolation, WorkloadIsolation::SharedOsUser);
+        let parent = report(Scope::ClientRouting, WorkloadIsolation::SharedOsUser);
+        assert_eq!(child_enforcement(false, &parent), parent);
+        assert_eq!(parent.owner_functions, None);
+        let mut container = report(
+            Scope::VerifiedServerPrincipals,
+            WorkloadIsolation::TestedIsolatedWorkload,
+        );
+        container.owner_functions = Some(OwnerFunctions::Unreachable);
+        assert_eq!(child_enforcement(true, &container), container);
+    }
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PortableBundle",
-  "description": "A portable bundle (ADR-0011 I4; `inspect export`, `catalog apply_import`): catalog\nintent only. Never policies, workspace records, environment permissions, grants,\ndecisions, enrollments, socket or home paths, or private material.",
+  "description": "A portable bundle (ADR-0011 I4; `inspect export`, `catalog apply_import`): catalog\nintent only. Never policies, workspace records, environment permissions, grants,\ndecisions, enrollments, socket or home paths, or private material.\n\n⟨M05⟩ Revision 5.1 (ADR-0006 §17.9): a **closed** file format (this type and the three\nit contains, `deny_unknown_fields`), as the manifest is: a request that carries a bundle\nwith an unknown or authority-bearing key at any level fails to decode, as the file path\n(`heimdall_project::parse_bundle`) already refuses it. Public requests otherwise tolerate\nunknown fields (§9); the bundle is a file format that travels inside one (ADR-0011 I4).",
   "type": "object",
   "properties": {
     "created_at": {
@@ -46,6 +46,7 @@
       "type": "string"
     }
   },
+  "additionalProperties": false,
   "required": [
     "schema",
     "created_at"
@@ -107,6 +108,7 @@
           "minimum": 0
         }
       },
+      "additionalProperties": false,
       "required": [
         "id",
         "alias"
@@ -125,6 +127,7 @@
           "type": "string"
         }
       },
+      "additionalProperties": false,
       "required": [
         "fingerprint",
         "provider"
@@ -146,6 +149,7 @@
           }
         }
       },
+      "additionalProperties": false,
       "required": [
         "id",
         "pairs"

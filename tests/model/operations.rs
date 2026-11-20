@@ -236,6 +236,7 @@ fn seed(store: &Store) {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )?;
@@ -2768,6 +2769,7 @@ async fn g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant() {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )
@@ -3322,6 +3324,7 @@ fn r136_second_policy(w: &World, id: &str) -> PolicyId {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )
@@ -4618,6 +4621,7 @@ fn r139_unrelated_policy(w: &World, revision: u64) {
                     // M03 wave 0 (A1): fail closed until U0b
                     lock_behavior: Default::default(),
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )
@@ -15208,6 +15212,8 @@ mod wave0_fail_closed {
             "catalog.withdraw_declaration",
             // ⟨rev5⟩ ADR-0006 revision 5 (m05-plan section 4 item 4).
             "catalog.apply_import",
+            // ⟨rev5.1⟩ ADR-0006 §17.9 (U7, ruling I-6).
+            "catalog.set_default_profile",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -15466,10 +15472,14 @@ mod wave0_fail_closed {
         }
     }
 
-    /// Every capability the server serves except `setup/1`.
+    /// Every capability the server serves except `setup/1` and ⟨M05⟩ `trusted-work/1`,
+    /// which the catalog's revision-5 actions (`apply_import`, `set_default_profile`)
+    /// require since M05 W3 offers it: a session that negotiated neither may send no Setup
+    /// and no Catalog request.
     pub(super) fn without_setup() -> BTreeSet<String> {
         let mut c = server_capabilities();
         c.remove(capability::SETUP_V1);
+        c.remove(capability::TRUSTED_WORK_V1);
         c
     }
 
@@ -15984,6 +15994,7 @@ fn workspace_policy_first() -> StandingPolicy {
         source: PolicySource::SetupDefault,
         lock_behavior: Default::default(),
         connection: Default::default(),
+        default: false,
     }
 }
 

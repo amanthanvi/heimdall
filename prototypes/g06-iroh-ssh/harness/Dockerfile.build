@@ -1,0 +1,3 @@
+# Disposable G06 build image (removed after the run).
+FROM rust:1.99-slim-trixie
+RUN apt-get update && apt-get install -y --no-install-recommends patch curl ca-certificates pkg-config && rm -rf /var/lib/apt/lists/*

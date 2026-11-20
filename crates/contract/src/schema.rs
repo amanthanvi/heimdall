@@ -56,6 +56,8 @@ pub fn public_schemas() -> Vec<NamedSchema> {
         named::<crate::environment::EnvironmentsView>("inspect-environments"),
         named::<crate::trust::WorkspaceView>("inspect-workspace"),
         named::<crate::trust::PoliciesView>("inspect-policies"),
+        // ⟨rev5.1⟩ ADR-0006 §17.9 C2: the typed result of a targeted policy action.
+        named::<crate::trust::PolicyTargetResult>("policy-target-result"),
     ]
 }
 

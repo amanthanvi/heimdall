@@ -1,0 +1,9 @@
+docker-server=29.9.3
+docker-client=29.9.3
+docker-container-hm-m00t03-bastion=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) 
+docker-container-hm-m00t03-ca1=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) 
+docker-container-hm-m00t03-ca2=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) 
+docker-container-hm-m00t03-enroll=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) 
+docker-container-hm-m00t03-enroll2=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) 
+docker-container-hm-m00t03-fixed=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) 
+docker-container-hm-m00t03-target=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026 Debian GNU/Linux 13 (trixie) 

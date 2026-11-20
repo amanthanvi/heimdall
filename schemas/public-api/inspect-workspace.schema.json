@@ -30,6 +30,17 @@
         }
       ]
     },
+    "proposal": {
+      "description": "⟨M05⟩ Revision 5.2 (§17.10 item 21): the proposal the server builds for this working\ndirectory: the manifest's request ∩ the profile's latest snapshot, exactly what a\n`trust_workspace` request is compared with (ADR-0011 §2.2, I5), so a client echoes\nit and never reads the manifest. Owner-only, like the digest; omitted when there is\nnone (no root, no manifest, an unknown profile, or a request that does not resolve),\nso every earlier document is unchanged.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TrustProposal"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "provenance": {
       "description": "Provenance.",
       "$ref": "#/$defs/ContextProvenance"
@@ -59,6 +70,48 @@
     "provenance"
   ],
   "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
     "ContextProvenance": {
       "description": "How much a context claim is worth (ADR-0011 R2): the working directory is a same-user\nclaim.",
       "oneOf": [
@@ -69,9 +122,62 @@
         }
       ]
     },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
     "PolicyId": {
       "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
       "type": "string"
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "TrustProposal": {
+      "description": "What the owner approves in a `TrustWorkspace` decision (ADR-0011 §2.1): the request\nthe workspace makes (its manifest ∩ the latest profile snapshot, or the trust record's\nown scope when there is no manifest), fixed at decision creation (I5).",
+      "type": "object",
+      "properties": {
+        "background_work": {
+          "description": "Lock behaviour requested by `preferences.background_work`, shown at review.",
+          "type": "boolean"
+        },
+        "capabilities": {
+          "description": "Capabilities.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "uniqueItems": true
+        },
+        "environments": {
+          "description": "Environments.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvironmentId"
+          },
+          "uniqueItems": true
+        },
+        "pairs": {
+          "description": "Pairs (a subset of the profile; empty means the whole profile).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          },
+          "uniqueItems": true
+        },
+        "profile": {
+          "description": "Profile.",
+          "$ref": "#/$defs/ProfileId"
+        }
+      },
+      "required": [
+        "profile"
+      ]
     },
     "WorkspaceId": {
       "description": "Workspace (adopted checkout) ID (spec §4.1 \"Workspace\").",

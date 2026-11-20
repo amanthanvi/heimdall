@@ -1,0 +1,21 @@
+{
+ "name": "M05 W3 fix round, ruling I-20: the default activation reuses any active binding of the current work again (in `current_binding`, the grant-origin check `if !ours { continue; }` replaced by `let _ = ours;`)",
+ "file": "crates/app/src/operations/default_activation_m05.rs",
+ "observed_by": "the integrator on the W3 main-merge tree with the fix round applied; source restored byte-identical (checked with cmp)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall-runtime --lib managed_store::live_tests::default_m05::the_default_never_reuses_a_binding_of_another_policy",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "assertion `left == right` failed: work 1's binding of another policy is not reused",
+   "left: WorkId(\"default:env_…:1\") / right: WorkId(\"default:env_…:2\")"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed; 0 failed; 0 ignored; 0 measured; 82 filtered out"
+  ]
+ }
+}

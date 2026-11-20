@@ -1,0 +1,10 @@
+openssh=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+kernel=Linux 6.8.0-147-generic arch=x86_64
+linger=yes
+kill_user_processes=b false
+set_self_linger_policy= implicit any: yes; implicit inactive: yes; implicit active: yes;
+user_manager=degraded
+sshd_acceptenv=AcceptEnv LANG LC_*;
+time_sync=yes
+secret_service=0
+session_type=tty

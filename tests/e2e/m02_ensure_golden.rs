@@ -247,6 +247,7 @@ fn seed(store: &Store) {
                     source: PolicySource::SetupDefault,
                     lock_behavior: LockBehavior::Continue,
                     connection: ConnectionPolicy::default(),
+                    default: false,
                 },
                 false,
             )?;

@@ -54,12 +54,20 @@
 //! the child inherits neither. Every failure before launch writes `prelaunch_failed`
 //! (when a side channel is open) and is reported on stderr; stdout is the child's.
 //!
-//! Readings applied: `--profile` is required (`run` without a profile has nothing to
-//! ensure; `connect` is the profile-free command); a request ID is minted and reported
-//! on stderr when absent; `--work-id` defaults to the request ID, so a retry with the
-//! same request ID replays the same `ensure` and `bind` (and the launch is the
-//! caller's explicit act: nothing relaunches on its own, R-RT-05). `argv` is read
-//! only to resolve the program and to pass it to the child; it never crosses IPC.
+//! Readings applied: a request ID is minted and reported on stderr when absent;
+//! `--work-id` defaults to the request ID, so a retry with the same request ID replays the
+//! same `ensure` and `bind` (and the launch is the caller's explicit act: nothing
+//! relaunches on its own, R-RT-05). `argv` is read only to resolve the program and to pass
+//! it to the child; it never crosses IPC.
+//!
+//! **⟨M05⟩ Without `--profile`** (ADR-0011 §3.1–§3.2; `run_m05`), step 3 is `ensure` with
+//! `context {cwd}` (this process's working directory, which the child inherits) and no
+//! profile, on a session that requires `trusted-work/1`: a trust or reconcile decision is
+//! shown and decided on a terminal and the same request is sent again (I-9), and a
+//! `mixed_mechanisms` answer is requested one `next.groups` group at a time under the same
+//! work ID. Each group's binding is bound (step 4) and checked (steps 4b, 7); the launch
+//! uses their merged integration (`run_m05::merge_consumers`), and the run records name
+//! the managed group's operation and binding when there is one, else the first group's.
 
 use std::ffi::OsString;
 
@@ -88,6 +96,17 @@ const ENSURE_TIMEOUT_MS: u64 = 30_000;
 
 /// Handle `run`.
 pub(crate) fn run(ctx: &Ctx, args: RunArgs) -> ExitCode {
+    run_with(ctx, args, prepare)
+}
+
+/// ⟨M05, U8⟩ [`run`] with the preparation step chosen by the caller: `run`
+/// ensures a profile ([`prepare`]); `run --parent-binding` delegates a child of a binding
+/// (`delegate_cmd::prepare`). The launch that follows is the same.
+pub(crate) fn run_with(
+    ctx: &Ctx,
+    args: RunArgs,
+    prepare: fn(&Ctx, &RunArgs, &LaunchHooks) -> Result<Prepared, Refused>,
+) -> ExitCode {
     let hooks = match testcfg::launch_hooks(&|n| std::env::var_os(n)) {
         Ok(h) => h,
         Err(m) => return launch_flow::fail(ctx, &mut None, Failure::usage(&m)),
@@ -125,26 +144,26 @@ pub(crate) fn run(ctx: &Ctx, args: RunArgs) -> ExitCode {
 }
 
 /// What a successful preparation hands to the launch.
-struct Prepared {
-    program: heimdall_launch::resolve::ResolvedProgram,
+pub(crate) struct Prepared {
+    pub(crate) program: heimdall_launch::resolve::ResolvedProgram,
     /// ⟨M03⟩ An owned launch's arguments (the pins, then the user's); `None`: the
     /// user's arguments unchanged.
-    args: Option<Vec<OsString>>,
-    delta: EnvDelta,
-    operation: Option<heimdall_contract::ids::OperationId>,
-    binding: Option<heimdall_contract::ids::BindingId>,
+    pub(crate) args: Option<Vec<OsString>>,
+    pub(crate) delta: EnvDelta,
+    pub(crate) operation: Option<heimdall_contract::ids::OperationId>,
+    pub(crate) binding: Option<heimdall_contract::ids::BindingId>,
     /// ⟨M03⟩ Windows: the contained launch of the verified `ssh` (module docs).
     #[cfg_attr(not(windows), allow(dead_code))]
-    contained: bool,
+    pub(crate) contained: bool,
 }
 
-type Ids = (
+pub(crate) type Ids = (
     Option<heimdall_contract::ids::OperationId>,
     Option<heimdall_contract::ids::BindingId>,
 );
 
 /// A failure, with the operation and binding its record names (once known).
-type Refused = (Failure, Option<Ids>);
+pub(crate) type Refused = (Failure, Option<Ids>);
 
 /// The total argument size `MAX_ARGV_BYTES` bounds: each argument's bytes and its
 /// terminating NUL, the program included.
@@ -156,7 +175,7 @@ fn argv_size(argv: &[OsString]) -> usize {
 
 /// ADR-0007 §12.15 item 7: the argument bound, checked before anything else (so
 /// before `ensure`).
-fn check_argv_bound(argv: &[OsString]) -> Result<(), Failure> {
+pub(crate) fn check_argv_bound(argv: &[OsString]) -> Result<(), Failure> {
     if argv_size(argv) > heimdall_launch::MAX_ARGV_BYTES {
         return Err(Failure::usage(
             "the argument vector is larger than 1 MiB; nothing was launched",
@@ -192,12 +211,30 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
             ))
         })?
         .to_owned();
-    let Some(profile) = args.profile.as_deref() else {
-        return Err(none(Failure::usage(
-            "run needs --profile (use `heimdall connect <alias>` without a profile)",
-        )));
+    // ⟨M05⟩ Without `--profile`: the working directory's context (module docs).
+    let profile = args
+        .profile
+        .as_deref()
+        .map(|p| ProfileId::parse(p).map_err(|_| none(Failure::usage("invalid profile"))))
+        .transpose()?;
+    let context = if profile.is_none() {
+        let text = cwd.to_str().ok_or_else(|| {
+            none(Failure::usage(
+                "the working directory's path is not valid Unicode; name the profile with --profile",
+            ))
+        })?;
+        let context = heimdall_contract::trust::WorkContext {
+            cwd: text.to_owned(),
+        };
+        if context.validate().is_err() {
+            return Err(none(Failure::usage(
+                "the working directory is longer than 4096 bytes; name the profile with --profile",
+            )));
+        }
+        Some(context)
+    } else {
+        None
     };
-    let profile = ProfileId::parse(profile).map_err(|_| none(Failure::usage("invalid profile")))?;
     let request_id = match args.request_id.as_deref() {
         Some(r) => RequestId::parse(r).map_err(|_| none(Failure::usage("invalid request ID")))?,
         None => {
@@ -213,8 +250,9 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         .to_request()
         .map_err(|d| none(Failure::of(d.env)))?;
     let interaction = launch_flow::interaction(ctx, &args.launch);
+    let by_context = context.is_some();
     let request = EnsureRequest {
-        profile: Some(profile),
+        profile,
         profile_revision: None,
         scope: Default::default(),
         environment: None,
@@ -228,29 +266,41 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         },
         // M03 wave 0 (A1): fail closed until U0b
         connection: None,
-        context: None,
+        context,
         covered_only: false,
     };
     let rt = crate::service_cmd::current_thread()
         .map_err(|e| none(Failure::of(output::error_value(e))))?;
     let check = launch_flow::no_interaction_path(ctx, &args.launch);
     let result = rt.block_on(async {
-        let mut client = connect_as(ctx, true, &[], interaction)
+        // ⟨M05⟩ A request by context needs `trusted-work/1` in the hello.
+        let extra: &[&str] = if by_context {
+            &[heimdall_contract::ipc::capability::TRUSTED_WORK_V1]
+        } else {
+            &[]
+        };
+        let mut client = connect_as(ctx, true, extra, interaction)
             .await
             .map_err(|e| none(Failure::of(output::error_value(*e))))?;
-        // 3. ensure.
-        let ensured = ensure_flow(&mut client, &mut TerminalPrompt, ctx, request, false).await;
-        if ensured.env.code != Code::AccessReady {
-            let ids = (ensured.env.operation_id.clone(), None);
-            return Err((Failure::of(ensured.env), Some(ids)));
-        }
-        let data: EnsureData = serde_json::from_value(ensured.env.data.clone()).map_err(|_| {
-            none(Failure::new(
-                Code::InternalError,
-                "the ensure result cannot be read",
-                None,
-            ))
-        })?;
+        // 3. ensure (⟨M05⟩ by context: each mechanism group; `run_m05`).
+        let ensured: Vec<crate::run_m05::Ensured> = if by_context {
+            crate::run_m05::ensure_by_context(&mut client, &mut TerminalPrompt, ctx, &request)
+                .await
+                .map_err(|env| {
+                    let ids = (env.operation_id.clone(), None);
+                    (Failure::of(env), Some(ids))
+                })?
+        } else {
+            let ensured = ensure_flow(&mut client, &mut TerminalPrompt, ctx, request, false).await;
+            if ensured.env.code != Code::AccessReady {
+                let ids = (ensured.env.operation_id.clone(), None);
+                return Err((Failure::of(ensured.env), Some(ids)));
+            }
+            vec![crate::run_m05::Ensured {
+                env: ensured.env,
+                request_id,
+            }]
+        };
         // 4. bind(launch), this process holding the reference.
         let holder =
             heimdall_runtime::platform::process_start_time(std::process::id()).map(|started_at| {
@@ -259,34 +309,66 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
                     started_at,
                 }
             });
-        let bound = client
-            .request(Request::Bind(BindRequest {
-                binding_id: data.binding_id.clone(),
-                form: BindForm::Launch(LaunchBinding { executable, holder }),
-                request_id,
-            }))
-            .await;
-        let ids = (bound.operation_id.clone(), Some(data.binding_id.clone()));
-        if bound.code != Code::AccessReady {
-            return Err((Failure::of(bound), Some(ids)));
-        }
-        let bound_data: EnsureData = serde_json::from_value(bound.data.clone()).map_err(|_| {
-            (
-                Failure::new(Code::InternalError, "the bind result cannot be read", None),
-                Some(ids.clone()),
+        let mut owned_args = None;
+        let mut groups: Vec<(EnsureData, Ids)> = Vec::new();
+        for one in ensured {
+            let data: EnsureData = serde_json::from_value(one.env.data.clone()).map_err(|_| {
+                none(Failure::new(
+                    Code::InternalError,
+                    "the ensure result cannot be read",
+                    None,
+                ))
+            })?;
+            let bound = client
+                .request(Request::Bind(BindRequest {
+                    binding_id: data.binding_id.clone(),
+                    form: BindForm::Launch(LaunchBinding {
+                        executable: executable.clone(),
+                        holder: holder.clone(),
+                    }),
+                    request_id: one.request_id,
+                }))
+                .await;
+            let ids = (bound.operation_id.clone(), Some(data.binding_id.clone()));
+            if bound.code != Code::AccessReady {
+                return Err((Failure::of(bound), Some(ids)));
+            }
+            let bound_data: EnsureData =
+                serde_json::from_value(bound.data.clone()).map_err(|_| {
+                    (
+                        Failure::new(Code::InternalError, "the bind result cannot be read", None),
+                        Some(ids.clone()),
+                    )
+                })?;
+            // ⟨M03⟩ 4b. A managed binding: the slot of every managed pair, and an owned
+            // launch's foreground pins and refusals (module docs).
+            let pinned = managed_checks(
+                &program,
+                &env,
+                &args.argv,
+                &data.binding_id,
+                &bound_data.consumer.pairs,
+                &mut BoundSlots::of(&bound),
             )
-        })?;
-        // ⟨M03⟩ 4b. A managed binding: the slot of every managed pair, and an owned
-        // launch's foreground pins and refusals (module docs).
-        let owned_args = managed_checks(
-            &program,
-            &env,
-            &args.argv,
-            &data.binding_id,
-            &bound_data.consumer.pairs,
-            &mut BoundSlots::of(&bound),
-        )
-        .map_err(|f| (f, Some(ids.clone())))?;
+            .map_err(|f| (f, Some(ids.clone())))?;
+            if pinned.is_some() {
+                owned_args = pinned;
+            }
+            groups.push((bound_data, ids));
+        }
+        // ⟨M05⟩ The records name the managed group when there is one, else the first.
+        let primary = groups
+            .iter()
+            .position(|(d, _)| launch_flow::is_managed(&d.consumer.pairs))
+            .unwrap_or(0);
+        let Some((bound_data, ids)) = groups.get(primary).cloned() else {
+            return Err(none(Failure::new(
+                Code::InternalError,
+                "the ensure result cannot be read",
+                None,
+            )));
+        };
+        let consumer = crate::run_m05::merge_consumers(groups.iter().map(|(d, _)| &d.consumer));
         // 5. Git's selection in the child's directory, with the child's environment.
         let ssh_paths = launch_flow::ssh_paths(hooks)
             .unwrap_or_else(|_| SshPaths::with_test_override(cwd.clone(), cwd.clone()));
@@ -313,7 +395,7 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
                 .map_err(|f| (f, Some(ids.clone())))?;
             let config =
                 launch_flow::static_config(ctx, hooks).map_err(|f| (f, Some(ids.clone())))?;
-            let pairs = &bound_data.consumer.pairs;
+            let pairs = &consumer.pairs;
             let selections: Vec<_> = pairs
                 .iter()
                 .map(|p| launch_flow::fresh_selection(&config, &record, p.alias.as_deref()))
@@ -329,20 +411,22 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
             }
         }
         // 7. The binding is still active (a replayed bind may name a released one;
-        // `confirm_binding_active` refuses it as `binding_released`).
-        launch_flow::confirm_binding_active(&mut client, &data.binding_id)
-            .await
-            .map_err(|f| (f, Some(ids.clone())))?;
+        // `confirm_binding_active` refuses it as `binding_released`); every group's.
+        for (d, group_ids) in &groups {
+            launch_flow::confirm_binding_active(&mut client, &d.binding_id)
+                .await
+                .map_err(|f| (f, Some(group_ids.clone())))?;
+        }
         drop(client);
         launch_flow::report_deadline(ctx, &bound_data);
         #[cfg(windows)]
         let contained = heimdall_launch::windows::launch_uses_kill_on_close_job(
-            launch_flow::is_managed(&bound_data.consumer.pairs),
+            launch_flow::is_managed(&consumer.pairs),
             launch_flow::is_verified_ssh(&program, &env),
         );
         #[cfg(not(windows))]
         let contained = false;
-        let delta = EnvDelta::from_integration(&bound_data.consumer, &env, &git, platform);
+        let delta = EnvDelta::from_integration(&consumer, &env, &git, platform);
         Ok(Prepared {
             program,
             args: owned_args,
@@ -424,7 +508,7 @@ pub(crate) fn require_slots(
 /// managed pair (M02, unchanged); otherwise the slot check, and for an owned launch the
 /// pinned arguments. On Windows an owned launch then goes through the contained spawn
 /// ([`Prepared::contained`]).
-fn managed_checks(
+pub(crate) fn managed_checks(
     program: &heimdall_launch::resolve::ResolvedProgram,
     env: &Env,
     argv: &[OsString],

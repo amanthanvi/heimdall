@@ -1,0 +1,4 @@
+case	exit	elapsed_ms	note
+I01-n0-defaults	0	416	ok-n0 connected="event":"connected","peer":"3b8bcfae3ed9b474298c0bc87dd017489f08337a9044d8a7e5e1b33117771342","ms":278,"paths":[{"relay":true,"ip":false,"selected":true,"remote":"Relay(https://use1-1.relay.n0.iroh.link./)"}]}
+I02a-pigeons-client-not-allowlisted	124	0	refused_peer_logged=yes
+I02b-pigeons-client-interop	124	60086	

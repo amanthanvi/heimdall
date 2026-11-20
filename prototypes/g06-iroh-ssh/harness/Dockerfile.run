@@ -1,0 +1,4 @@
+# Disposable G06 runtime image: OpenSSH + tracing tools only (removed after the run).
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server openssh-client tcpdump strace iproute2 procps ca-certificates && rm -rf /var/lib/apt/lists/* \
+ && useradd -m -s /bin/sh hm && mkdir -p /run/sshd

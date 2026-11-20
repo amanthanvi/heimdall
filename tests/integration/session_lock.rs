@@ -148,6 +148,7 @@ async fn operations(source: Arc<dyn SessionLockSource>) -> (Operations, Arc<Stor
                     source: PolicySource::SetupDefault,
                     lock_behavior: LockBehavior::Continue,
                     connection: Default::default(),
+                    default: false,
                 },
                 false,
             )

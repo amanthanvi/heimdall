@@ -1260,12 +1260,18 @@ impl Supervisor {
         };
         let environment = self.operations.environment().clone();
         let owed = match read_store(store, move |tx| {
-            let mut owed: std::collections::BTreeSet<GrantId> = tx
-                .held_slots_of_ended_grants(&environment)?
-                .into_iter()
-                .map(|(g, _)| g)
-                .collect();
-            owed.extend(tx.managed_cleanup_owed(&environment)?);
+            // ⟨M05⟩ U6: every environment of the managed set (ADR-0006 §17.2 item 4:
+            // cleanup runs per environment), so a released or ended slot holder in a
+            // managed environment is cleaned, and its slot handed over, as a native one.
+            let mut owed = std::collections::BTreeSet::<GrantId>::new();
+            for env in tx.managed_set(&environment)? {
+                owed.extend(
+                    tx.held_slots_of_ended_grants(&env)?
+                        .into_iter()
+                        .map(|(g, _)| g),
+                );
+                owed.extend(tx.managed_cleanup_owed(&env)?);
+            }
             Ok(owed)
         })
         .await

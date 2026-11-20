@@ -1,0 +1,22 @@
+{
+ "name": "M05 W1 (integrator, security finding on U2): a reconcile approval re-checks the observation the record was created from (ADR-0011 I5); the comparison disabled",
+ "file": "crates/app/src/operations/trust_m05.rs",
+ "change_reverted": "same_reconcile_observation returned true for any Reconcile basis",
+ "command": "TMPDIR=/tmp cargo test --locked -p heimdall-runtime --test model_trust_policy reconcile_moves",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test reconcile_moves_the_policy_to_a_new_record ... FAILED",
+   "thread 'reconcile_moves_the_policy_to_a_new_record' (38219600) panicked at crates/runtime/../../tests/model/trust_policy.rs:943:56:",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.02s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.02s"
+  ]
+ }
+}

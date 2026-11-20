@@ -1,0 +1,1 @@
+302   bind(9, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("172.19.0.3")}, 16) = 0

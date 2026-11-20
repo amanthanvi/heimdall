@@ -4,6 +4,13 @@
   "description": "`inspect policies` data.",
   "type": "object",
   "properties": {
+    "default_profiles": {
+      "description": "⟨M05⟩ Revision 5.1 (§17.9): the default-profile preference of each managed\nenvironment that has one, ordered by environment ID. Omitted when none is set,\nso every revision-5 document is unchanged.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DefaultProfileView"
+      }
+    },
     "items": {
       "description": "Every standing policy.",
       "type": "array",
@@ -19,6 +26,24 @@
     "DecisionId": {
       "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
       "type": "string"
+    },
+    "DefaultProfileView": {
+      "description": "⟨M05⟩ Revision 5.1 (§17.9): one environment's default-profile preference\n(`catalog set_default_profile`; ADR-0011 §5.1). A preference, never authority.",
+      "type": "object",
+      "properties": {
+        "environment_id": {
+          "description": "The environment.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "profile_id": {
+          "description": "Its default profile.",
+          "$ref": "#/$defs/ProfileId"
+        }
+      },
+      "required": [
+        "environment_id",
+        "profile_id"
+      ]
     },
     "EnvironmentId": {
       "description": "Stable environment ID (spec §4.1 \"Environment\").",

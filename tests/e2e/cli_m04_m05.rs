@@ -1,6 +1,8 @@
 //! M04 and M05 joint wave 0 (ADR-0010 §9 items 8–9; ADR-0011 §10 items 8–10): every new
 //! command and flag refuses as "not available in this build (planned for M04|M05)" through
-//! the **real binary** (`CARGO_BIN_EXE_heimdall`, or `HEIMDALL_E2E_BIN`).
+//! the **real binary** (`CARGO_BIN_EXE_heimdall`, or `HEIMDALL_E2E_BIN`). ⟨M05⟩ W3 (U9a)
+//! built every M05 command and deleted its rows; the M05 commands' own journeys and
+//! goldens are `tests/e2e/cli_m05.rs`.
 //!
 //! One table-driven test. Each row is a command line and the milestone that owns it; each
 //! must answer, with `--json`: exit 2, `USAGE_ERROR`, effect `none`, `next.action`
@@ -96,55 +98,6 @@ fn run(home: &Path, account: &Path, args: &[&str]) -> Out {
 /// stream its envelope is on.
 const M04: &[&[&str]] = &[];
 
-/// Every new M05 command line and flag (ADR-0011 §10 item 10; the m05-plan units).
-const M05: &[&[&str]] = &[
-    &["project", "trust"],
-    &["project", "status", "--cwd", "."],
-    &["project", "untrust", "--cwd", "."],
-    &["project", "reconcile"],
-    &["access", "allow", "--policy", "pol"],
-    &["access", "allow", "--profile", "dev"],
-    &["access", "allow", "--workspace", "--cwd", "."],
-    &["access", "stop", "--work", "w"],
-    &["access", "stop", "--policy", "pol"],
-    &["access", "stop", "--profile", "dev"],
-    &["access", "stop", "--workspace"],
-    &["access", "stop", "--all"],
-    &["access", "pause", "--profile", "dev"],
-    &["access", "pause", "--workspace"],
-    &["access", "pause", "--all"],
-    &["access", "resume", "--profile", "dev"],
-    &["access", "resume", "--workspace"],
-    &["access", "resume", "--all"],
-    &[
-        "access",
-        "cutoff",
-        "--profile",
-        "dev",
-        "--at",
-        "2030-01-01T00:00:00Z",
-    ],
-    &["access", "cutoff", "--workspace", "--clear"],
-    &["access", "cutoff", "--all", "--clear"],
-    &["activate", "--hook", "--cwd", "."],
-    &["shell", "init", "zsh"],
-    &["shell", "init", "bash"],
-    &["export"],
-    &["export", "--redact"],
-    &["import", "bundle.json"],
-];
-
-/// `run --parent-binding` (M05): the envelope is on stderr.
-const M05_RUN: &[&str] = &[
-    "run",
-    "--profile",
-    "dev",
-    "--parent-binding",
-    "bnd",
-    "--",
-    "true",
-];
-
 fn assert_refused(out: &Out, on_stderr: bool, expected: &str, line: &[&str]) {
     assert_eq!(out.code, 2, "{line:?}: {out:?}");
     let (stream, other) = if on_stderr {
@@ -170,8 +123,6 @@ fn m04_m05_new_commands_refuse_as_not_available_without_a_runtime() {
     std::fs::create_dir_all(&account).unwrap();
     let mut rows: Vec<(&[&str], &str, bool)> = Vec::new();
     rows.extend(M04.iter().map(|l| (*l, "M04", false)));
-    rows.extend(M05.iter().map(|l| (*l, "M05", false)));
-    rows.push((M05_RUN, "M05", true));
     for (i, (line, milestone, on_stderr)) in rows.iter().enumerate() {
         let home = scratch.path().join(format!("home-{i}"));
         let out = run(&home, &account, line);
@@ -208,13 +159,11 @@ fn m04_m05_new_commands_refuse_as_not_available_without_a_runtime() {
         assert_eq!(out.code, 2, "{line:?}: {out:?}");
         let env = Out::envelope(&out.stdout).unwrap();
         assert_eq!(env["code"], "USAGE_ERROR", "{line:?}");
-        for milestone in ["M04", "M05"] {
-            assert_ne!(
-                env["data"]["error"]["message"],
-                refusal(milestone),
-                "{line:?}: a parse error is not the refusal"
-            );
-        }
+        assert_ne!(
+            env["data"]["error"]["message"],
+            refusal("M04"),
+            "{line:?}: a parse error is not the refusal"
+        );
     }
     assert!(!home.exists(), "an existing-form refusal created the home");
 }

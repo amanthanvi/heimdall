@@ -1,0 +1,39 @@
+{
+  "case_id": "G06-windows-bind",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-SS-07",
+    "R-DI-07"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "host": "owner's Windows 11 PC (native, x86-64), run by the orchestrator",
+    "toolchain": "rustc 1.99.1 native",
+    "source": "probe source tar sha256 cd5a52ea\u2026ee494, build.sh --features no-route-probe (patched build only)",
+    "binaries": {
+      "W1 run 1": "55f32f0b5cfedd88dcb06d6cdc5105cf5b06ca875dee0ca33e1759e8f1a6cb9d",
+      "W1 run 2 (W1b)": "bbd314a32f6ebe086f7817b032d28aa6e7694a464d7f157b6609568ecf59a38e (differs from run 1: the exe embeds the build-root path ~442 times and the root name changed; unverified, run 1's exe was deleted)"
+    },
+    "fixture": "loopback direct, --relay disabled --lookup none, pwsh echo target on 127.0.0.1; no firewall rule touched; desktop not observable by the agent (prompts unobservable)"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": "docs/research/g06-iroh-pigeons.md \u00a78: W1 native bind trace (patched, loopback), W3 relay-only with an IP-literal TLS relay URL and certificate validation intact, W4 LAN direct with observer coverage or a recorded deferral, plus the in-box OpenSSH journey; W2 (stock prompt diagnosis) optional",
+  "observed_result": {
+    "W1_run1": "echo 23 B up / 23 B down, client exit 0. IP Helper sampler (GetExtendedUdpTable/GetExtendedTcpTable) every 50 ms: 55 samples over 2,762 ms, longest gap 63 ms; only loopback seen (server UDP 127.0.0.1:7000, client UDP 127.0.0.1:49394, server TCP 127.0.0.1:59023 to the target). One cmdlet cross-check reading showed server TCP 0.0.0.0:59023 (same port as its outbound connect to the target, state not recorded) - unexplained. Sampler bug: IPv6 TCP owner PID read from the wrong field, so run 1 did not cover IPv6 TCP",
+    "W1_run2_W1b": "three fresh connects, 30 B echoed each, client exits 0,0,0. Corrected sampler: 95 samples over 4,762 ms, longest gap 64 ms, with state and remote. UDP: server 127.0.0.1:7000 and one 127.0.0.1 port per client. TCP: server's outbound connects to the target SynSent then Established, always local 127.0.0.1. No 0.0.0.0 local entry in any state, no IPv6, no TCP Listen by the probe",
+    "W2_W3_W4_journey": "not run"
+  },
+  "evidence_paths": [
+    "docs/research/g06-iroh-pigeons.md \u00a78 (orchestrator-reported W1 facts; raw sampler output held by the orchestrator, not in this packet)"
+  ],
+  "limitations": [
+    "50 ms sampling can miss a transient socket; no ETW or Process Monitor trace was possible without an install or admin rights, so W1's native event-trace requirement (g06 \u00a78) is not met",
+    "run 1's 0.0.0.0 TCP reading is unexplained; it fits an outbound socket caught before its connect completed, but that is not proven. Design response: the product binds its outbound connect to the loopback SSH target to 127.0.0.1 (or ::1) before connecting (ADR-0012 \u00a72.3)",
+    "firewall prompts were not observable (no desktop view)",
+    "the Linux strace evidence (G06-iroh-ssh-linux-containers S08) remains the only syscall-level bind trace",
+    "started_at is null: the run time was not reported to this unit (the W1 facts arrived 2026-11-19)"
+  ],
+  "blocked_on": "W1 event trace: an ETW/Process Monitor capture on the Windows PC (needs an install or admin rights the run did not have). W3 (relay-only, IP-literal TLS relay, validation intact), W4 (LAN direct) and the in-box OpenSSH journey: not run; W4 and any non-loopback step need the owner at the Windows console to watch for and decline a firewall prompt"
+}

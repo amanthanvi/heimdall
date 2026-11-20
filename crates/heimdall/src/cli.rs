@@ -22,6 +22,13 @@
 //! owner is needed) answers its own usage or interaction error. None answers M01's
 //! wave-0 "not available" text (`tests/e2e/cli_m03.rs` guards the sources against it).
 //!
+//! **⟨M05⟩ M05 commands (m05-plan U9; ADR-0011 §2–§7).** `project`, `activate`, `shell
+//! init`, `export`, `import`, `access allow|stop|default-profile`, the `--profile`,
+//! `--workspace` and `--all` targets of `access pause|resume|cutoff`, and `run` without
+//! `--profile` are answered by `m05_cmd`, `activate_cmd`, `portable_cmd` and `run_m05`.
+//! The shell hook (`activate --hook`) never attends, prompts or decides (ADR-0011 §10
+//! item 3).
+//!
 //! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
 //! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007
 //! §12.30 item 5); otherwise it is `status`, which never starts the runtime.
@@ -74,9 +81,9 @@ use crate::client::{Client, Ctx, connect, error};
 use crate::output::{self, error_value};
 use crate::prompt::{self, Answer};
 use crate::{
-    activate_cmd, catalog_cmd, connect_cmd, connections_cmd, container_cmd, doctor_cmd, enroll_cmd,
-    issuer_cmd, m03_cmd, m05_cmd, portable_cmd, run_cmd, service_cmd, setup_cmd, tui,
-    uninstall_cmd, wsl_cmd,
+    activate_cmd, catalog_cmd, connect_cmd, connections_cmd, container_cmd, delegate_cmd,
+    doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd, m05_cmd, portable_cmd, run_cmd, service_cmd,
+    setup_cmd, tui, uninstall_cmd, wsl_cmd,
 };
 
 /// Heimdall: set up access once; your terminals, tools, and agents work across
@@ -217,7 +224,9 @@ pub enum Command {
 /// `run` arguments (ADR-0007 §8; m02-plan U8).
 #[derive(Debug, Args)]
 pub struct RunArgs {
-    /// Profile to ensure.
+    /// Profile to ensure. ⟨M05⟩ Without it, the working directory's workspace, else this
+    /// environment's default profile (ADR-0011 §3.1); a trust decision is asked on a
+    /// terminal.
     #[arg(long)]
     pub profile: Option<String>,
     /// Work ID.
@@ -228,9 +237,23 @@ pub struct RunArgs {
     #[arg(long)]
     pub request_id: Option<String>,
     /// M05: run the program with a narrower child binding of this parent binding
-    /// (ADR-0011 §6).
+    /// (ADR-0011 §6): the program gets only the child's signing endpoint and no
+    /// `HEIMDALL_*` variable. A wider scope or a later deadline is refused
+    /// (`DELEGATION_EXCEEDS_PARENT`) and nothing is launched.
     #[arg(long, value_name = "BINDING")]
     pub parent_binding: Option<String>,
+    /// M05, with `--parent-binding`: the child's `destination:account` pairs (repeatable;
+    /// a subset of the parent's; default all of them).
+    #[arg(
+        long = "scope",
+        value_name = "DEST:ACCOUNT",
+        requires = "parent_binding"
+    )]
+    pub scope: Vec<String>,
+    /// M05, with `--parent-binding`: the child's deadline, an absolute RFC 3339 instant
+    /// not later than the parent's (default the parent's).
+    #[arg(long, value_name = "INSTANT", requires = "parent_binding")]
+    pub until: Option<String>,
     /// Caller minimums.
     #[command(flatten)]
     pub require: RequireArgs,
@@ -636,6 +659,9 @@ pub enum AccessCommand {
     /// Stop now: end one work's access, or a policy's, a profile's, a workspace's or all
     /// (M05; ADR-0011 §7).
     Stop(AccessStopArgs),
+    /// The profile a new request without one uses: show, set or clear this environment's
+    /// preference; never authority (M05; ADR-0011 §5.1).
+    DefaultProfile(AccessDefaultProfileArgs),
 }
 
 /// The target of `access pause|resume|cutoff`: exactly one of a policy ID (the existing
@@ -659,6 +685,10 @@ pub struct AccessTarget {
     /// M05: every policy.
     #[arg(long)]
     pub all: bool,
+    /// M05, with `--workspace`: the directory whose workspace is meant (default the
+    /// working directory).
+    #[arg(long, value_name = "PATH", requires = "workspace")]
+    pub cwd: Option<PathBuf>,
 }
 
 impl AccessTarget {
@@ -716,6 +746,28 @@ pub struct AccessStopArgs {
     /// Stop every policy.
     #[arg(long)]
     pub all: bool,
+    /// With `--workspace`: the directory whose workspace is meant (default the working
+    /// directory).
+    #[arg(long, value_name = "PATH", requires = "workspace")]
+    pub cwd: Option<PathBuf>,
+    /// With `--work`: the idempotency request ID (a fresh one is minted and reported when
+    /// absent).
+    #[arg(long, requires = "work")]
+    pub request_id: Option<String>,
+}
+
+/// `access default-profile` arguments (M05; ADR-0011 §5.1; ADR-0006 §17.9 item 13).
+#[derive(Debug, Args)]
+pub struct AccessDefaultProfileArgs {
+    /// The profile to set; without it (and without `--clear`), show the current one.
+    #[arg(value_name = "PROFILE", conflicts_with = "clear")]
+    pub profile: Option<String>,
+    /// Clear the preference.
+    #[arg(long)]
+    pub clear: bool,
+    /// Idempotency request ID (a fresh one is minted and reported when absent).
+    #[arg(long)]
+    pub request_id: Option<String>,
 }
 
 /// `access lock-behavior` arguments (m03-plan §5 item 24).
@@ -1257,7 +1309,7 @@ pub enum ContainerCommand {
 #[derive(Debug, Subcommand)]
 pub enum ProjectCommand {
     /// Trust the workspace's manifest: an owner decision that shows the exact scope.
-    Trust(ProjectCwdArgs),
+    Trust(ProjectTrustArgs),
     /// Show the workspace, its trust state and its policy (read-only).
     Status(ProjectCwdArgs),
     /// Withdraw the workspace's trust.
@@ -1274,6 +1326,18 @@ pub struct ProjectCwdArgs {
     pub cwd: Option<PathBuf>,
 }
 
+/// `project trust` arguments (M05; ADR-0011 §2.1, §2.2 "Discovery").
+#[derive(Debug, Args)]
+pub struct ProjectTrustArgs {
+    /// The directory (default the working directory).
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<PathBuf>,
+    /// For a workspace without `.heimdall.toml`: the profile to trust it with (default
+    /// this environment's default profile). With a manifest, it must be the manifest's.
+    #[arg(long, value_name = "PROFILE")]
+    pub profile: Option<String>,
+}
+
 /// `activate` arguments (M05; ADR-0011 §3.2, §10 item 3).
 #[derive(Debug, Args)]
 pub struct ActivateArgs {
@@ -1284,6 +1348,22 @@ pub struct ActivateArgs {
     /// The directory the shell is in.
     #[arg(long, value_name = "PATH")]
     pub cwd: PathBuf,
+    /// With `--hook`: the shell that holds the activation (default the parent process).
+    #[arg(long, value_name = "PID", requires = "hook", hide = true)]
+    pub shell_pid: Option<u32>,
+    /// With `--hook`: the shell's work sequence number (the shell integration keeps it).
+    #[arg(
+        long,
+        value_name = "N",
+        requires = "hook",
+        hide = true,
+        default_value_t = 0
+    )]
+    pub seq: u64,
+    /// With `--hook`: the state the shell last showed (a status line is printed only when
+    /// the state changes).
+    #[arg(long, value_name = "STATE", requires = "hook", hide = true)]
+    pub last: Option<String>,
 }
 
 /// `shell` subcommands (M05; ADR-0011 §3.2).
@@ -1309,9 +1389,13 @@ pub enum ShellArg {
 /// `export` arguments (M05; ADR-0011 §2.4).
 #[derive(Debug, Args)]
 pub struct ExportArgs {
-    /// Redact socket and home paths.
+    /// Redact host names, addresses and labels.
     #[arg(long)]
     pub redact: bool,
+    /// Write the bundle to this new file (created exclusively, owner-only) instead of
+    /// stdout.
+    #[arg(long, value_name = "FILE")]
+    pub out: Option<PathBuf>,
 }
 
 /// `import` arguments (M05; ADR-0011 §2.4).
@@ -1320,6 +1404,12 @@ pub struct ImportArgs {
     /// The exported bundle.
     #[arg(value_name = "BUNDLE")]
     pub bundle: PathBuf,
+    /// Apply the previewed plan without asking (needed without a terminal).
+    #[arg(long)]
+    pub yes: bool,
+    /// Idempotency request ID (a fresh one is minted and reported when absent).
+    #[arg(long)]
+    pub request_id: Option<String>,
 }
 
 /// `schema` subcommands.
@@ -1465,9 +1555,9 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         // M02 commands: each handler owns its command (all wired in wave 4).
         Some(Command::Setup(args)) => return setup_cmd::run(&ctx, args),
         Some(Command::Connect(args)) => return connect_cmd::run(&ctx, args),
-        // M05 wave 0: `--parent-binding` is refused before any launch step.
+        // M05 (U8): `--parent-binding` delegates a child, then launches as `run` does.
         Some(Command::Run(args)) if args.parent_binding.is_some() => {
-            return m05_cmd::run_parent_binding(&ctx);
+            return delegate_cmd::run(&ctx, args);
         }
         Some(Command::Run(args)) => return run_cmd::run(&ctx, args),
         Some(Command::Doctor(args)) => return doctor_cmd::run(&ctx, args),
@@ -1481,28 +1571,31 @@ pub fn dispatch(cli: Cli) -> ExitCode {
             return wsl_cmd::helper(&ctx);
         }
         Some(Command::Internal(c)) => return m03_cmd::internal(&ctx, c),
-        // M04/M05 wave 0 (ADR-0010 §9 item 9; ADR-0011 §10 item 10): each new command is
-        // answered by its owner's handler before any runtime contact.
+        // M04/M05 (ADR-0010 §9 item 9; ADR-0011 §10 item 10): each new command is answered by
+        // its owner's handler before any runtime contact.
         // ⟨M04 U3b, U4b⟩ WSL Mode A (ADR-0010 §2) and Mode B (§3, decision-recorded).
         Some(Command::Wsl(WslCommand::Enable(a))) => return wsl_cmd::enable(&ctx, a),
         Some(Command::Wsl(WslCommand::Disable(a))) => return wsl_cmd::disable(&ctx, a),
         Some(Command::Wsl(WslCommand::Status)) => return wsl_cmd::status(&ctx),
         Some(Command::Container(c)) => return container_cmd::run(&ctx, c),
-        Some(Command::Project(_)) => return m05_cmd::refuse(&ctx),
-        Some(Command::Activate(_)) | Some(Command::Shell(_)) => {
-            return activate_cmd::refuse(&ctx);
+        // ⟨M05⟩ U9a (ADR-0011 §2–§7): each M05 command has its own handler and executor.
+        Some(Command::Project(c)) => return m05_cmd::project(&ctx, c),
+        Some(Command::Activate(a)) => return activate_cmd::activate(&ctx, &a),
+        Some(Command::Shell(ShellCommand::Init { shell })) => {
+            return activate_cmd::shell_init(&ctx, shell);
         }
-        Some(Command::Export(_)) | Some(Command::Import(_)) => {
-            return portable_cmd::refuse(&ctx);
-        }
-        Some(Command::Access(AccessCommand::Allow(_) | AccessCommand::Stop(_))) => {
-            return m05_cmd::refuse(&ctx);
+        Some(Command::Export(a)) => return portable_cmd::export(&ctx, &a),
+        Some(Command::Import(a)) => return portable_cmd::import(&ctx, &a),
+        Some(Command::Access(AccessCommand::Allow(a))) => return m05_cmd::allow(&ctx, &a),
+        Some(Command::Access(AccessCommand::Stop(a))) => return m05_cmd::stop(&ctx, &a),
+        Some(Command::Access(AccessCommand::DefaultProfile(a))) => {
+            return m05_cmd::default_profile(&ctx, &a);
         }
         Some(Command::Access(
-            AccessCommand::Pause { target }
-            | AccessCommand::Resume { target }
-            | AccessCommand::Cutoff { target, .. },
-        )) if target.policy_id().is_none() => return m05_cmd::refuse(&ctx),
+            command @ (AccessCommand::Pause { .. }
+            | AccessCommand::Resume { .. }
+            | AccessCommand::Cutoff { .. }),
+        )) if m05_cmd::is_targeted(&command) => return m05_cmd::targeted(&ctx, command),
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
@@ -1578,9 +1671,16 @@ pub(crate) fn fresh_request_id() -> Result<RequestId, Done> {
     }
 }
 
-/// The pending decision a result asks for, if any.
-fn pending_decision(env: &Envelope<serde_json::Value>) -> Option<String> {
+/// The pending decision a result asks for, if any. ⟨M05⟩ A `decision_cooldown` answer
+/// names the **denied** record (ADR-0011 §4.3), which is not pending: nothing is shown or
+/// decided for it.
+pub(crate) fn pending_decision(env: &Envelope<serde_json::Value>) -> Option<String> {
     if !matches!(env.code, Code::InteractionRequired | Code::ApprovalRequired) {
+        return None;
+    }
+    if env.data["error"]["reason"].as_str()
+        == Some(heimdall_contract::envelope::reason::DECISION_COOLDOWN)
+    {
         return None;
     }
     env.next.as_ref().and_then(|n| n.decision_ref.clone())
@@ -1722,8 +1822,8 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
         AccessCommand::ConnectionPolicy(a) => {
             policy(ctx, m03_cmd::connection_policy_action(&a)?).await
         }
-        // Answered in `dispatch` before the executor starts (M05 wave 0).
-        AccessCommand::Allow(_) | AccessCommand::Stop(_) => {
+        // ⟨M05⟩ Answered in `dispatch` by `m05_cmd` before the executor starts.
+        AccessCommand::Allow(_) | AccessCommand::Stop(_) | AccessCommand::DefaultProfile(_) => {
             Err(Done::of(usage("unsupported command")))
         }
         AccessCommand::Release { binding_id } => {
@@ -1808,9 +1908,9 @@ async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
     }
 }
 
-/// The policy ID of an `access pause|resume|cutoff` target. `dispatch` answers every M05
-/// target (`--profile`, `--workspace`, `--all`) before this runs, so only the policy-ID
-/// form arrives; anything else is a usage error here too.
+/// The policy ID of an `access pause|resume|cutoff` target. `dispatch` hands every M05
+/// target (`--profile`, `--workspace`, `--all`) to `m05_cmd::targeted` before this runs,
+/// so only the policy-ID form arrives; anything else is a usage error here too.
 fn policy_of(target: &AccessTarget) -> Result<&str, Done> {
     target
         .policy_id()
@@ -1895,7 +1995,7 @@ impl Prompter for TerminalPrompt {
 /// that needs an owner decision with `APPROVAL_REQUIRED` and `next.decision_ref`.
 /// Attendance authorizes nothing by itself (N04). `--non-interactive` or a
 /// non-TTY stdin never attends. `Err` carries the runtime's refusal.
-async fn attend_first<S: Session>(s: &mut S, ctx: &Ctx) -> Result<(), Done> {
+pub(crate) async fn attend_first<S: Session>(s: &mut S, ctx: &Ctx) -> Result<(), Done> {
     if !ctx.interactive() {
         return Ok(());
     }
@@ -1962,9 +2062,13 @@ pub(crate) async fn policy_flow<S: Session, P: Prompter>(
     action: PolicyAction,
 ) -> Done {
     // M01's actions keep M01's rule; the M03 actions attend only when widening
-    // (`PolicyAction::is_widening`), so a narrowing never sends `Attend`.
+    // (`PolicyAction::is_widening`), so a narrowing never sends `Attend`. ⟨M05⟩ So do the
+    // M05 narrowing actions (`stop`, `remove`, `narrow_scope`).
     let owner_present = match &action {
-        PolicyAction::Pause { .. } => false,
+        PolicyAction::Pause { .. }
+        | PolicyAction::Stop { .. }
+        | PolicyAction::Remove { .. }
+        | PolicyAction::NarrowScope { .. } => false,
         PolicyAction::SetLockBehavior { .. } | PolicyAction::SetConnectionPolicy { .. } => {
             action.is_widening()
         }
@@ -2088,7 +2192,7 @@ fn not_confirmed(
 /// session, which the caller already attended (ADR-0006 §3.1 N04, §13.6 item 7).
 /// Anything but `yes` sends nothing more: exit 3 `INTERACTION_REQUIRED` "not
 /// confirmed" with the reference.
-async fn confirm_and_decide<S: Session, P: Prompter>(
+pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
     ctx: &Ctx,
@@ -2128,6 +2232,13 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
                 .find(|d| d.get("decision_id").and_then(|v| v.as_str()) == Some(decision))
                 .cloned()
         });
+    // ⟨M05⟩ Review M05-W3-R01: a `create` whose recorded scope is missing cannot show what
+    // approval applies, so it is never approved here (it can still be denied).
+    if verdict == Verdict::Approve
+        && let Some(why) = record.as_ref().and_then(crate::m05_cmd::approve_block)
+    {
+        return not_confirmed(Some(decision), operation, why);
+    }
     let verb = match verdict {
         Verdict::Approve => "Approve",
         Verdict::Deny => "Deny",
@@ -2145,7 +2256,11 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
         .and_then(|r| r.get("request"))
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    let lock = if crate::enroll_cmd::carries_lock_disclosure(&recorded) {
+    // ⟨M05⟩ A `trust_workspace` record whose approval also acknowledges the M03 lock
+    // disclosure (`lock_disclosure: true`) needs the same conditional text.
+    let lock = if crate::enroll_cmd::carries_lock_disclosure(&recorded)
+        || crate::m05_cmd::acknowledges_lock(&recorded)
+    {
         let text = crate::m03_cmd::fetch_lock_disclosure_text(s).await;
         if text.is_none() && verdict == Verdict::Approve {
             return crate::m03_cmd::lock_text_unavailable(Some(decision), operation);
@@ -2161,7 +2276,12 @@ async fn confirm_and_decide<S: Session, P: Prompter>(
                     .unwrap_or_default();
             let field = |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("?").to_owned();
             let expired = r.get("expired").and_then(serde_json::Value::as_bool) == Some(true);
-            let human = crate::enroll_cmd::recorded_preview(&field("kind"), &recorded);
+            let human = format!(
+                "{}{}",
+                crate::enroll_cmd::recorded_preview(&field("kind"), &recorded),
+                // ⟨M05⟩ The first-trust, reconcile and policy-review texts (spec §5.2).
+                crate::m05_cmd::recorded_preview(r, lock.as_deref())
+            );
             let disclosures =
                 crate::enroll_cmd::recorded_disclosure_prose(&recorded, lock.as_deref());
             format!(
@@ -2499,9 +2619,10 @@ mod tests {
     const PROGRAM: &str = "<resolvable program>";
 
     /// An absolute path of a program that resolves (`run` resolves its program before
-    /// it looks at `--profile`, so a line meant to be refused for its missing profile
-    /// needs one): `/bin/sh` on Unix, and on Windows, where it does not exist, this
-    /// test binary.
+    /// it looks at its IDs, so a line meant to be refused for an invalid work ID needs
+    /// one): `/bin/sh` on Unix, and on Windows, where it does not exist, this test binary.
+    /// ⟨M05⟩ `run` without `--profile` is no longer refused: it activates by the working
+    /// directory (ADR-0011 §3.2), so it contacts the runtime.
     fn resolvable_program() -> String {
         if cfg!(windows) {
             std::env::current_exe()
@@ -2524,7 +2645,10 @@ mod tests {
             ExitCode::Usage,
         ),
         (&["connect", "--", "-oProxyCommand=x"], ExitCode::Usage),
-        (&["run", "--", PROGRAM], ExitCode::Usage),
+        (
+            &["run", "--work-id", "not a work id", "--", PROGRAM],
+            ExitCode::Usage,
+        ),
         (&["doctor", "--active-probe", "everything"], ExitCode::Usage),
         (&["tui"], ExitCode::Usage),
         (
@@ -2643,8 +2767,8 @@ mod tests {
 
     /// ⟨M02⟩ U8 (wave 3b): `run` and `connect` keep their argument trees, and every
     /// refusal that needs no runtime (an existing `--meta-file`, a descriptor that is
-    /// not open, a program that cannot run, a missing `--profile`, an option-like
-    /// alias) answers before any runtime contact: the Heimdall home is never created.
+    /// not open, a program that cannot run, an invalid work ID, an option-like alias)
+    /// answers before any runtime contact: the Heimdall home is never created.
     #[test]
     fn run_and_connect_parse_and_refuse_before_the_runtime() {
         let scratch = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -2682,7 +2806,10 @@ mod tests {
                 vec!["run", "--profile", "p", "--", &missing],
                 ExitCode::LaunchFailed,
             ),
-            (vec!["run", "--", &program], ExitCode::Usage),
+            (
+                vec!["run", "--work-id", "not a work id", "--", &program],
+                ExitCode::Usage,
+            ),
             (vec!["connect", "--", "-oProxyCommand=x"], ExitCode::Usage),
         ];
         for (i, line) in lines.iter().enumerate() {

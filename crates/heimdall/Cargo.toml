@@ -181,3 +181,29 @@ path = "../../tests/integration/wsl_helper_channel.rs"
 [[test]]
 name = "e2e_route_m04"
 path = "../../tests/e2e/route_m04.rs"
+
+# ⟨M05⟩ U8 (m05-plan U8; ADR-0011 §6): `run --parent-binding` through the real binary on two
+# loopback servers (the exit suite's world).
+[[test]]
+name = "e2e_delegation_m05"
+path = "../../tests/e2e/m05_delegation.rs"
+
+# ⟨M05⟩ U9a (m05-plan U9; ADR-0011 §2–§7, §10 items 3 and 9): the M05 command line, the
+# shell hook on a pseudo-terminal, the shell integration in real shells, and the M05 help
+# and shell-script goldens through the real binary.
+[[test]]
+name = "e2e_cli_m05"
+path = "../../tests/e2e/cli_m05.rs"
+
+# ⟨M05⟩ Ruling I-13, option 2 (ADR-0011 §3.2 (a), §10 item 3): `activate --hook` warms the
+# personal default, so the first ordinary `ssh` logs in, through the real binary on a loopback
+# server (the exit suite's world).
+[[test]]
+name = "e2e_hook_m05"
+path = "../../tests/e2e/m05_hook.rs"
+
+# ⟨M05⟩ W3 (ruling I-15): the debug-build guard against the account's real home, through the
+# real binary with every default-directory variable redirected into scratch.
+[[test]]
+name = "e2e_dev_home_guard"
+path = "../../tests/e2e/dev_home_guard.rs"

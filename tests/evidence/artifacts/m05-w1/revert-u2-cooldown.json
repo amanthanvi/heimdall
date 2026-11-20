@@ -1,0 +1,21 @@
+{
+ "name": "M05 W1 U2: raise_extension made to ignore the cooldown (ADR-0011 §4.3)",
+ "file": "crates/app/src/operations/review_m05.rs (raise_extension)",
+ "observed_by": "the U2 worker in its own worktree at base 1f72bb09 (DONE.md §5); sources restored byte-identical",
+ "command": "TMPDIR=/tmp cargo test --locked -p heimdall-runtime --test model_decision_budget",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "p10_one_record_per_delta_none_during_a_cooldown ... FAILED",
+   "Test failed: no record during a cooldown ({\"action\":\"extend_scope\",\"policy_id\":\"pol\",...})"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed"
+  ]
+ }
+}

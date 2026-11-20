@@ -184,6 +184,8 @@ fn every_schema_is_a_closed_set_of_supported_keywords() {
         "anyOf",
         "oneOf",
         "allOf",
+        // Only the closed bundle types (checked below), never a wire message.
+        "additionalProperties",
     ];
     fn walk(v: &Value, in_properties: bool, found: &mut BTreeSet<String>) {
         match v {
@@ -212,6 +214,66 @@ fn every_schema_is_a_closed_set_of_supported_keywords() {
             assert!(KNOWN.contains(&k.as_str()), "{}: keyword `{k}`", s.name);
         }
     }
+}
+
+/// ADR-0006 section 9: public documents tolerate unknown fields, so no public schema carries
+/// `additionalProperties`, except `false` on the four types of the portable bundle, a closed
+/// **file format** that travels inside `catalog apply_import` (revision 5.1, section 17.9;
+/// ADR-0011 I4: like the manifest, any unknown key refuses it).
+#[test]
+fn public_schemas_tolerate_unknown_fields_except_the_closed_bundle_types() {
+    const CLOSED: [&str; 4] = [
+        "PortableBundle",
+        "PortableDestination",
+        "PortableIdentity",
+        "PortableProfile",
+    ];
+    fn walk(v: &Value, path: &str, found: &mut Vec<(String, Value)>) {
+        match v {
+            Value::Object(map) => {
+                for (k, child) in map {
+                    let here = format!("{path}/{k}");
+                    if k == "additionalProperties" && path.rsplit('/').nth(1) != Some("properties")
+                    {
+                        found.push((path.to_owned(), child.clone()));
+                    }
+                    if matches!(k.as_str(), "default" | "examples" | "const" | "enum") {
+                        continue;
+                    }
+                    walk(child, &here, found);
+                }
+            }
+            Value::Array(items) => {
+                for (i, i_v) in items.iter().enumerate() {
+                    walk(i_v, &format!("{path}/{i}"), found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut closed_seen = BTreeSet::new();
+    for s in public_schemas() {
+        let doc = serde_json::to_value(&s.schema).unwrap();
+        let mut found = Vec::new();
+        walk(&doc, "", &mut found);
+        for (at, value) in found {
+            let def = at.strip_prefix("/$defs/").unwrap_or_default();
+            assert!(
+                value == Value::Bool(false) && CLOSED.contains(&def),
+                "{}: `additionalProperties` at {at} contradicts unknown-field tolerance",
+                s.name
+            );
+            closed_seen.insert((s.name, def.to_owned()));
+        }
+    }
+    let wanted: BTreeSet<_> = ["request", "ipc.client-message"]
+        .into_iter()
+        .flat_map(|n| CLOSED.map(|d| (n, d.to_owned())))
+        .collect();
+    assert_eq!(
+        closed_seen, wanted,
+        "exactly the request documents, exactly these types"
+    );
 }
 
 #[test]
