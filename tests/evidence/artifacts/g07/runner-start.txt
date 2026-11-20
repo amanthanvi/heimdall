@@ -1,0 +1,4 @@
+runner ssh-add rc=0
+runner agent identities: (ED25519) (ED25519-CERT) 
+nested session rc=0
+controller_departs_at=1795133864

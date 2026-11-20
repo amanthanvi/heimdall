@@ -1,0 +1,10 @@
+1795134113 start mode=fwd inherited_agent=forwarded_agent_from_ssh_session(controller_dependency) in_ssh_session=yes
+1795134114 forwarded rc=0 
+1795134118 forwarded rc=0 
+1795134122 forwarded rc=0 
+1795134126 forwarded rc=255 <user>@127.0.0.1: Permission denied (publickey).
+1795134130 forwarded rc=255 <user>@127.0.0.1: Permission denied (publickey).
+1795134134 forwarded rc=255 <user>@127.0.0.1: Permission denied (publickey).
+1795134138 forwarded rc=255 <user>@127.0.0.1: Permission denied (publickey).
+1795134143 forwarded rc=255 <user>@127.0.0.1: Permission denied (publickey).
+1795134147 forwarded rc=255 <user>@127.0.0.1: Permission denied (publickey).

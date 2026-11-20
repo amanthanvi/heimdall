@@ -1,0 +1,3 @@
+{"event":"ready","id":"a8afc3e9a55a133b67c6c26c4c04adec8fa0118c04de2bf4ba49dae43ceaef67","bound":["0.0.0.0:40779","[::]:39690"],"relay":"n0","lookup":"n0","portmapper":true}
+{"event":"connected","peer":"3b8bcfae3ed9b474298c0bc87dd017489f08337a9044d8a7e5e1b33117771342","ms":278,"paths":[{"relay":true,"ip":false,"selected":true,"remote":"Relay(https://use1-1.relay.n0.iroh.link./)"}]}
+{"event":"stream_open","ms":278}

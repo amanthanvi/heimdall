@@ -1,0 +1,6 @@
+{"event":"ready","id":"0fc77d3d9792a78a82388d467919a6fa2b029a9e8a15070d7b503d8f3a126ae6","bound":["172.19.0.3:56815"],"relay":"disabled","lookup":"none","portmapper":false}
+{"event":"connected","peer":"7606ea874b74288e40df9c4e7af0fa108bd2be55ec3ff57f0f2b2486ad5770ec","ms":0,"paths":[{"relay":false,"ip":true,"selected":true,"remote":"Ip(172.19.0.2:7000)"}]}
+{"event":"stream_open","ms":0}
+{"event":"conn_closed","ms":1,"reason":"ApplicationClosed(ApplicationClose { error_code: 403, reason: b\"not allowed\" })"}
+{"event":"session_end","ms":1,"paths":[{"relay":false,"ip":true,"selected":true,"remote":"Ip(172.19.0.2:7000)"}],"down_result":"Err(Custom { kind: Other, error: \"connection closed\" })","refused":true}
+{"event":"error","code":4,"message":"refused by peer allowlist"}

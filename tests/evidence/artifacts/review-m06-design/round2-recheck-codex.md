@@ -1,0 +1,78 @@
+FIX FIRST — M06-D-R01, R02, R03, R04, R05 and R06 remain blocking. New blockers are M06-RC-R01 through R04.
+
+Scoped re-check of the uncommitted revision 2 at base `144fa477`. ADR-0009 §2.1 governs severity. G06 and G07 can remain open during implementation. Evidence gaps below carry no merge blocker by themselves.
+
+## Original findings
+
+| Finding | Status | Resolving sections | Residual |
+|---|---|---|---|
+| M06-D-R01 | Partly resolved (blocking) | ADR-0012 §§3.2, 3.6–3.7, §9 items 1–2. M06 plan U1/A25. | Bridge identity, per-client namespaces and revocation checks are specified. The activation test sends one environment canary and infers that only locale variables are accepted. An adopted sshd with a narrower unsafe environment rule can pass that test while still letting a limited client affect shell startup before the bridge. Reaching the bridge also cannot prove which source supplied an equivalent forced command. Require an enforced sshd/account configuration or authoritative effective-policy verification before admitting the key, with behavior probes as confirmation. |
+| M06-D-R02 | Partly resolved (blocking) | ADR-0012 §§3.10, 4.4, §9 item 3. M06 plan U1/U2/A25. | The named amendment, binding, replay rules and local-only time confirmation are in place. A paired owner client speaking directly over its authenticated but unattended channel can submit `RemoteDecide` for its own pending decision. The runner checks the owner, reference, nonce, freshness and binding. Those checks are the same whether or not a local runtime confirmed the action. This assumes neither runner shell access nor a compromised controller. Keep widening runner-local until the remote path has an authorization boundary that an unattended paired client cannot use. Test denial at the runner, including terminal result replay. |
+| M06-D-R03 | Partly resolved (blocking) | ADR-0012 §3.9, G07 §2.2, M06 plan U1/A25. | Both fingerprint checks, durable consumption and exact-line reconciliation are specified. Pending keys can reach the bridge, but the contract needs an explicit pre-dispatch rule limiting them to activation and `join`, including retry identity checks before returning a recorded result. The new join-time check can also extend authority after a clock rollback (M06-RC-R01). |
+| M06-D-R04 | Partly resolved (blocking) | ADR-0012 §§5.2–5.4, M06 plan U2/U5a/A26. | Isolated management trust, the narrow ADR-0010 §5(b) exception and jump-hop requirements are specified. The projected-client rule permits `StrictHostKeyChecking=no` when the pin file is effective, so a normal inherited setting can allow SSH to proceed against a changed host despite the pin. It also leaves alternate global trust and alias overrides unaccounted for. Require effective strict checks, the expected alias and catalog-only trust at both hops, with context-owned multiplexing or none. Define how the fixed helper locates the active binding so it can enforce the same-grant jump requirement across concurrent grants. |
+| M06-D-R05 | Partly resolved (blocking) | ADR-0012 §§2.1–2.3, 2.8, 3.11. M06 plan U6a/U56/A26. | Per-endpoint policy closes the unapproved hint/address/relay paths on paper, with separate consent and an allowlisted loopback target. The runner can still lose track of live admission on a crash between state changes, and the new remote mutations lack an explicit consent check for broader exposure (M06-RC-R02 and R03). |
+| M06-D-R06 | Partly resolved (blocking) | ADR-0012 §§4.2, 4.5, 7.2–7.4, 8, §9 items 6–8. M06 plan U3/U4/A07. | The controller/CA pin, namespaced delivery and time-independent denial are specified. The issuing controller can reconnect after the second controller revoked the grant on the runner. The reconnect sequence drains its own outbox and samples time before reading the runner's report. This gives its issuer no required reconciliation barrier against stale reserve/publish. The runner will reject install, but the issuer's state and residuals can still diverge. Require authority reconciliation before new issuance and retain ADR-0005 §§3.5, 6.1–6.2's counted issuance history, clock uncertainty and immediate close of owned dedicated sessions on applied revoke. A bare D is insufficient as an authentication residual when destination clock error is unmeasured. See also M06-RC-R04. |
+| M06-D-R07 | Partly resolved (nonblocking residual) | ADR-0012 §§2.4, 2.7, 3.3–3.4, 12. M06 plan §§5–6. | The custody blockers are closed. Protected stores and fail-closed unavailability replace plaintext, and runner-only revocation preserves the device key. Complete spec §7.3's K_mgmt rotation and backup policy explicitly. For K_iroh loss, name the independently host-verified recovery path. If Iroh was the only configured route, a rotation notice over the old route cannot reach its peer. |
+| M06-D-R08 | Partly resolved (nonblocking) | ADR-0012 §§1.5, 5.5, §9 items 7–8. M06 plan U5a/A26. | The server-identification gate is a defensible variant for qualified OpenSSH paths. Define buffering for pre-identification server lines and a bounded wait. A peer that waits for the client's identification can otherwise make an approved route time out. Define late refusal relative to the forwarding boundary. The existing `route.failed_over` event cannot explain terminal failure without failover, and §9 item 7 lists reasons without a structured route-health result. |
+| M06-D-R09 | Resolved | ADR-0012 §§4.3, 4.5, G07 §§4–6, M06 plan U3/A24. | Clean launch, explicit local custody, unknown external provenance, a controller-dependent ordinary-path control and separate lifecycle evidence cover the finding. |
+| M06-D-R10 | Partly resolved (nonblocking) | G06 §§2–5, 9 and G06 probe records. M06 plan A26. | The requested artifact corrections are supported below. G06 §1 still says the three-way separation including management authorization was “demonstrated” by S03/S04/S09, which exercise endpoint admission and SSH host trust only. ADR-0012 §2.2 and G06 §5 cite S11 for an IP-literal no-DNS result, but S11 uses a host name. An implementer could treat the unrun literal-address control as verified. |
+| M06-D-R11 | Resolved | G07 §§1, 1.1, 8, both mechanism records, M06 plan §§3, 7. | Both records scope verification to the mechanisms. G07 stays open and names the product, lifecycle and native-store rows. The R5 agent-forwarding limitation and absence of a standalone cleanup transcript are disclosed. |
+| M06-D-R12 | Resolved | ADR-0012 §§2.6, 12 Q5, G06 §8, Windows record and M06 plan §§3, 7. | W1 sampling does not qualify its path. W3 and W4 have independent criteria and the in-box OpenSSH journey is required before any support label. |
+| M06-D-R13 | Partly resolved (nonblocking) | M06 plan basis, §§0–4, 7. | U5a/U6a are independent, U56 owns integration and the shared index has a clear owner. Targeted WSL checks and per-wave Windows/devbox runs are planned. §0 only lists `check.sh` at commits and omits ADR-0009 §2.4's separate Linux cross-check and umask targets. U2 and the wave table both schedule the second-controller flow, using an undefined U2b. Give that flow one owner and wave. Allocate the A26 endpoint participants to verified stores (M06-RC-R05). |
+
+## New findings from revision 2
+
+### M06-RC-R01 — Invitation expiry follows a reversible clock
+
+- **Blocking** under ADR-0009 §2.1. An ordinary wall-clock correction can let a remote recipient obtain durable owner authority after the approved enrollment window.
+- **Where** — ADR-0012 §3.9 items 2–4, in direct interaction with §§3.2 and 3.6. Both the SSH line expiry and the new join-time check use the runner's time, with no uncertainty or non-extending expiry rule specified for invitations.
+- **Scenario** — A valid recipient opens a pending session. The runner clock rolls back across the deadline before the recipient joins. The CAS can accept a late join and remove the expiry from the active SSH line.
+- **Smallest fix** — Bind pending expiry to a non-extending elapsed-time bound and the checked wall-time deadline. Reject uncertain time or loss of the boot anchor. Cover rollback between SSH authentication and join in the focused fault case.
+
+### M06-RC-R02 — Tombstone and live Iroh revocation have different commit points
+
+- **Blocking** under ADR-0009 §2.1. An ordinary crash or I/O failure can leave a revoked remote peer with continuing network admission outside the user's consent.
+- **Where** — ADR-0012 §2.3 item 3 says removal is atomic with the tombstone. §3.11 requires tombstone first, then allowlist removal, then line removal. §1.1 puts serving in a separate process.
+- **Scenario** — Revocation commits locally, then the runtime fails before the serving child sees the new admission state. A surviving child can keep admitting the stale endpoint or retain its existing connection. Atomic durable state alone does not close streams in that process.
+- **Smallest fix** — Use the tombstone as the durable admission authority and tie forwarding to a current runtime generation. Suspend admission and close affected streams before reporting Iroh revocation applied. Fail closed on lost authority, and replay closure before resuming service after recovery.
+
+### M06-RC-R03 — Exposure-widening operations lack a decision rule
+
+- **Blocking** under ADR-0009 §2.1. The new remote request surface can let a remote party expand public exposure without the separate consent §2.1 requires.
+- **Where** — ADR-0012 §§2.1–2.2, 2.8, §3.10's widening list and §9 item 6. M06 plan U56/A26.
+- **Scenario** — An unattended owner session adds a route using a new relay set or enables a listener with broader bind scope. The effective-policy check can accept those values if the mutation records its own consent. Nothing in the widening list requires that operation to obtain the bound owner decision.
+- **Smallest fix** — Make new or expanded exposure and external-roost adoption explicit widening actions. Bind the decision to the exact infrastructure and exposure delta, and require existing recorded consent for pure preference changes. Test the unattended negative case.
+
+### M06-RC-R04 — Grant tombstones cannot represent every narrowing effect
+
+- **Blocking** under ADR-0009 §2.1. An ordinary disconnect and reconnect can restore access outside an owner-set policy cutoff.
+- **Where** — ADR-0012 §§3.10, 7.2–7.4, 8.2, §9 item 6. Spec §§5.6, 6.1 and ADR-0005 §6.1.
+- **Scenario** — The second owner sets a policy cutoff while disconnected. The new effect key and acknowledgement describe one grant and require a tombstone. Tombstoning currently known grants leaves the policy unchanged, so a subsequent work ID can get fresh access under standing policy. Treating a pause as that same tombstone would instead revoke grants the pause should preserve.
+- **Smallest fix** — Key effects by typed target and generation. Apply and acknowledge the durable grant tombstone for revoke, and the durable policy revision for pause/cutoff. Reconcile both before approving or issuing new work.
+
+### M06-RC-R05 — A26 assigns an endpoint journey without a verified store
+
+- **Nonblocking** under ADR-0009 §2.1. This is a gate-evidence scheduling gap if protected-store unavailability stays fail-closed.
+- **Where** — ADR-0012 §§2.4, 2.7, 4.1. M06 plan U56 and §§3–5.
+- **Scenario** — U56 schedules the devbox through a private relay, and A26 lists the runner and containers alongside the persistent endpoint/restart journey. The current headless runner has no verified store, and the plan names no verified store for a product endpoint in the containers. Those runs cannot qualify protected endpoint persistence.
+- **Smallest fix** — Name the verified-store dialer and server for the product persistence journey. Use the devbox as the relay/SSH target where appropriate, or verify its expected no-store refusal. Label fixture-store variants as mechanism evidence.
+
+## Evidence and recorded rulings
+
+- **S01** — Final TSV, G06 §3 and the local JSON agree on exit 0 in 84 ms.
+- **S11** — Final TSV records exit 0 in 129 ms, 8 broadly counted datagram socket lines and 7 broadly counted bind lines. The retained trace shows two IPv4 wildcard-bound descriptors with DNS sends. The harness counted all `SOCK_DGRAM` and `bind(` matches respectively. The excerpt cannot reconstruct a netlink breakdown or prove IP-literal behavior.
+- **I02b** — The retained TSV records exit 124 at 60,086 ms. Two serving logs record distinct refused peer IDs. The current harness describes the allowlisted retry using the first refused ID and contains no allowlist-free run. No such run is present in the retained results.
+- **I01** — The stock n0/portmapper variant succeeded. The TSV records exit 0 in 416 ms overall, and the proxy log records relay selection at 278 ms. This supports stock-preset disclosure only. The archived digest prefixes and current source hashes match the two probe records. The current source hashes cannot establish the exact historical source snapshot because the probe was uncommitted.
+- **Footprint** — The only retained diff is for stock roost and has the fixture account path placeholder. The Heimdall footprint and uninstall claims were withdrawn. G06 §9 assigns product removal to A26.
+- **G07** — Both renamed JSON IDs and limits identify mechanism probes. Their `verified` statuses apply to the fixture mechanisms. G07 §1.1 and the M06 plan leave gate closure open for A24, A25, the A07 runner rows, version negotiation, native stores and the declared lifecycle.
+- **W1** — The record agrees with G06 §8 on the orchestrator's report. Run 1 echoed 23 bytes each way, exit 0. It sampled 55 times over 2,762 ms with a 63 ms maximum gap, missed IPv6 TCP and had one unexplained outbound TCP reading. Run 2 had three 30-byte echoes, all exit 0, and 95 samples over 4,762 ms with a 64 ms maximum gap. Both documents record loopback-only sampling with the stated limitations, no event trace, no prompt observation, and no W2/W3/W4 or in-box journey. The hash-change explanation remains unverified. Raw W1 sampler output was absent, so this establishes record consistency only. The record correctly remains `blocked`.
+- **Rulings** — The normative ADR and M06 plan agree that §2.7 was declined for V1. Spec §9.2 supports a verified-store remote serving host and contains no headless-serving requirement. DONE-r2 still calls §2.7 open. The other §12 rulings have corresponding design rules. Clarify Q6's “No public-relay test is run” as scoped to remaining design-unit probes or Pigeons interoperability. Read literally for all M06 work, it conflicts with the planned exact-traffic opt-in `n0-public` row. Identify which authorized capture can precede that row.
+
+## Checks run
+
+- Read-only `git status`, `git rev-parse --short=8 HEAD`, and `git show 31aadbea:docs/decisions/0010-platform-realization.md` (§5 filtered) — exit 0. Initial `ls -d` of the report directory exited 1 because it did not yet exist.
+- Python numbered reads and `rg` searches of the original review, DONE-r2, design, spec, plan and accepted ADR text — exit 0.
+- `python3 -IB tools/validation/validate-records.py` — exit 0, 106 records, 0 invalid.
+- Read-only Python checks of TSVs, refusal logs, trace fields, harness variant selection, diff inventory, digest manifest, current source hashes, G07 records and reported W1 parity — exit 0.
+- `git diff --check` — exit 0 for tracked changes. The design packet is untracked and was reviewed in place.
+- Read-only Python SHA-256 fingerprint of the scoped files and Git status — exit 0 before and after report creation, identical. No scratch, builds, network, SSH, containers, remote commands or native reruns.

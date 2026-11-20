@@ -1,0 +1,78 @@
+{
+  "case_id": "G06-iroh-ssh-linux-containers",
+  "status": "verified",
+  "requirement_ids": [
+    "R-SS-05",
+    "R-SS-07",
+    "R-SS-08",
+    "R-SE-04",
+    "R-DI-07"
+  ],
+  "build_commit": null,
+  "artifact_digest": "see tests/evidence/artifacts/g06/build/digests-sizes.txt",
+  "environment": {
+    "host": "macOS 27 arm64 build host, Docker Desktop linux VM (aarch64)",
+    "images": "debian:trixie-slim + openssh-server/client 10.0p2 (Debian-7+deb13u4), tcpdump, strace; build: rust:1.99-slim-trixie (rustc 1.99.1)",
+    "probe": "prototypes/g06-iroh-ssh (iroh =1.4.2 tls-ring, tokio =1.54.1), linux-aarch64 release builds",
+    "worktree_head": "144fa477",
+    "provenance": {
+      "source_sha256_prefix_current_files": {
+        "Cargo.toml": "fe3f6dc287ee31b2",
+        "Cargo.lock": "c46314ed7035f2d6",
+        "build.sh": "73d3cdc03cde71a3",
+        "src/main.rs": "3b13ef56b1968905",
+        "patches/netdev-0.47.0-hm-no-route-probe.patch": "ab4327333c484427",
+        "harness/run.sh": "ef75a7a5ab657751 (interop mode added after the inet run; local and inet functions unchanged since the final local run)"
+      },
+      "binaries_by_row": {
+        "g06-patched sha256 484df785305a120b\u2026": "S01-S07, S08-patched, S09-S12 (both sides), P01 client",
+        "g06-stock 09f6bb6064f82140\u2026": "S08-stock",
+        "g06-portmapper 44d342e67d5062e8\u2026": "I01 both sides, I02 server",
+        "iroh-relay 259d76d9c5f12aef\u2026": "S10-S12 private relay, P00-P02 relay",
+        "pigeons b469f03a52751256\u2026": "I02a/I02b client, P00 roost, P02 client"
+      },
+      "full_digests": "tests/evidence/artifacts/g06/build/digests-sizes.txt"
+    }
+  },
+  "provider_versions": [
+    "iroh 1.4.2",
+    "netwatch 0.20.2",
+    "netdev 0.47.0 (+hm-no-route-probe patch for 'patched')",
+    "iroh-relay 1.4.2 --dev",
+    "OpenSSH 10.0p2"
+  ],
+  "started_at": "2026-11-18T22:29:00-05:00",
+  "commands_or_harness": [
+    "prototypes/g06-iroh-ssh/build.sh [--features no-route-probe|portmapper] (in hm-g06-build container)",
+    "prototypes/g06-iroh-ssh/harness/run.sh <bins> <out> local"
+  ],
+  "observed_result": {
+    "S01_direct": "exit 0, 84 ms (retained final-run TSV), path ip selected",
+    "S02_restart_same_key": "exit 0, 88 ms, endpoint id unchanged",
+    "S03_not_allowlisted": "exit 255 in 51 ms, server logged refused",
+    "S04_endpoint_key_replaced": "exit 255, TLS invalid peer certificate UnknownIssuer",
+    "S05_helper_killed": "exit 255, session lost 4.6 s after kill; S05b new ssh after restart exit 0",
+    "S06_proxy_killed": "exit 255, 125 ms after kill",
+    "S07_unreachable_3s": "proxy exit 3, ssh 255 after 4.1 s",
+    "S08_stock": "exit 0; wildcard binds serve 2 / connect 2 plus connect to 10.254.254.254:1 and fdff::...:1",
+    "S08_patched": "wildcard binds 0 / 0, no probe connects, ssh exit 0",
+    "S09_hostkey_changed": "exit 255 (63 ms), REMOTE HOST IDENTIFICATION HAS CHANGED",
+    "S10_relay_private": "exit 0, selected path relay",
+    "S11_relay_only_bind_none": "exit 0, 129 ms. The trace (cli-strace-relayonly.net.txt) shows two AF_INET UDP sockets bound 0.0.0.0:0 whose only sends go to 127.0.0.11:53 (iroh's DNS resolver for the relay host name). The TSV's udp_sockets=8/udp_binds=7 also count NETLINK sockets and are not DNS-specific",
+    "S12_relay_down": "exit 255 after 9.1 s (9104 ms); capture: relay address and docker DNS only, no n0 names/addresses"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g06/local/",
+    "tests/evidence/artifacts/g06/build/"
+  ],
+  "limitations": [
+    "linux-arm64 containers on Docker Desktop's VM kernel only; linux-x64, macOS and Windows did not run this ssh suite",
+    "the probe stands in for heimdall transport connect|serve; install/remove/supervision/policy storage are M06-T04",
+    "direct paths across real NATs not exercised (single docker L2 segment)",
+    "the netdev patch's effect on NAT traversal on real networks is untested",
+    "started_at is approximate (from artifact mtimes, to the minute)",
+    "probe record (transport mechanism on a fixture), not A26; per-variant scope: g06-patched rows only, except S08-stock",
+    "probe sources were uncommitted at run time; provenance gives current-file hashes and the binary digest used per row",
+    "the docker-diff footprint transcripts of the local suite were not retained; no uninstall claim is made"
+  ]
+}

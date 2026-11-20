@@ -1,0 +1,2 @@
+{"event":"ready","id":"406b22d9f665e09b63cd08faf76318704f18bb395b19dbaa1a6d215765efed77","bound":["172.19.0.3:34416"],"relay":"disabled","lookup":"none","portmapper":false}
+{"event":"error","code":3,"message":"connect: the cryptographic handshake failed: error 48: invalid peer certificate: UnknownIssuer"}
