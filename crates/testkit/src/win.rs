@@ -348,6 +348,66 @@ fn wide_to_string(text: *const u16, max: usize) -> io::Result<String> {
     String::from_utf16(units).map_err(|_| io::Error::other("not UTF-16"))
 }
 
+/// ⟨M03 E9⟩ ADR-0008 §17.43 (ruling I-24): the processes whose parent is `parent`, as
+/// `(PID, image file name)` from a Toolhelp snapshot (a PID the system reused for a process
+/// whose parent was another `parent` before is listed too; callers check what they need).
+///
+/// # Errors
+/// The snapshot cannot be taken.
+pub fn child_processes(parent: u32) -> io::Result<Vec<(u32, String)>> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    // SAFETY: a snapshot of every process; the handle is closed below.
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let mut out = Vec::new();
+    // SAFETY: an all-zero PROCESSENTRY32W is valid; dwSize is set before the first call.
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = u32::try_from(std::mem::size_of::<PROCESSENTRY32W>()).unwrap_or(0);
+    // SAFETY: `snap` is a valid snapshot handle and `entry` a correctly sized buffer.
+    let mut more = unsafe { Process32FirstW(snap, &mut entry) } != 0;
+    while more {
+        if entry.th32ParentProcessID == parent {
+            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(0);
+            out.push((
+                entry.th32ProcessID,
+                String::from_utf16_lossy(&entry.szExeFile[..len]),
+            ));
+        }
+        // SAFETY: as above.
+        more = unsafe { Process32NextW(snap, &mut entry) } != 0;
+    }
+    // SAFETY: `snap` is this function's own handle.
+    unsafe { CloseHandle(snap) };
+    Ok(out)
+}
+
+/// ⟨M03 E9⟩ Whether process `pid` has a console **window**, as `GetConsoleWindow` reads it
+/// once attached to that process's console (`AttachConsole`): `None` when it has no console
+/// at all (or is gone). A console created with `CREATE_NO_WINDOW` has none; a new console
+/// that Windows handed off to the default terminal (conhost or Windows Terminal) has one.
+/// The calling process's own console is freed first and again at the end, so call this only
+/// in a helper process of its own.
+#[must_use]
+pub fn attached_console_window(pid: u32) -> Option<bool> {
+    use windows_sys::Win32::System::Console::{AttachConsole, FreeConsole, GetConsoleWindow};
+    // SAFETY: plain console calls on this (helper) process's own console attachment.
+    unsafe {
+        FreeConsole();
+        if AttachConsole(pid) == 0 {
+            return None;
+        }
+        let window = !GetConsoleWindow().is_null();
+        FreeConsole();
+        Some(window)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

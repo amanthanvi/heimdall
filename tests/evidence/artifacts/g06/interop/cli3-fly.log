@@ -1,0 +1,7 @@
+Error: No addressing information available
+
+Caused by:
+    0: No addressing information available
+    1: All address lookup services failed or produced no results
+           Service 'pkarr' failed: Error sending http request: error sending request for url (https://dns.iroh.link/pkarr/md91sf8qddzzu15jbzcc7gw6t4ga3487h73ctydo34ijut1rqbcy): client error (Connect): dns error: Resolve failed, IPv4: Failed to resolve, IPv6: Failed to resolve
+           Service 'dns' failed: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]

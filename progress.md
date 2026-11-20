@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M03 (managed credentials), waves 0–5 merged (wave 5 at f6ed0cee, 2026-11-15); next wave 6 (U13, the exit suite), in parallel with the M04 and M05 tracks (ADR-0009). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
+**Current milestone:** M04 and M05 (parallel tracks, ADR-0009). M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -15,6 +15,7 @@
 | M01-T01..T06 deterministic core | verified (M01 exit 2026-11-01, b89743ae) | `docs/architecture/m01-exit.md`; records A06, A07, A17-local and A19 are verified. A08 and A29-local are blocked only on M04 native sleep/logout/reboot and the second Windows account. 8 independent code-review rounds; the last one says ship |
 | M02-T00 design | verified (design gate closed 2026-11-01, 9c458501) | m02-plan.md and ADR-0007 rev 5; 4 independent design reviews, all findings ruled and applied |
 | M05-T01..T06 trusted work | in_progress | Design accepted with ADR-0011 §10's rulings; joint wave 0 with M04 merged (1f72bb09). Wave 1 (U1 project crate, U2 authority core, U6 shared slots, U8 A28 delegation evidence) merged 2026-11-18 after its Codex review (M05-W1-R01 fixed, e49f90d0), the Codex re-check (merge) and the targeted Windows runs (`model_trust_policy` 8/8, `model_project_pure` 41/41 at 931065e1). Wave 2 (U3 stop/targets/precedence, U4 context activation and the workspace observer, U7 export/import, ADR-0006 revision 5.1) merged 2026-11-18 after its Codex review (M05-W2-R01 fixed, 27bef72a), the Codex re-check (merge) and the targeted Windows runs at 27bef72a and 431681a6 (`integration_workspace_observe` 5/5, `e2e_context_m05` 7/7, `integration_portable` 11/11, `model_idempotency` 4/4, `e2e_stop_m05` 8/8). Wave 3 (U5 ordinary-`ssh` default activation; U9a every M05 command, the shell hook and its default warm-up, `trusted-work/1` offered; U9b the TUI views; revision 5.2; the debug-build account-home guard) committed 6be57b61, then merged with main (40c2c469); in review. Every unit stays `implemented_unverified` until wave 4's records (m05-plan §0a) |
+| M06-T00 design (G06, G07) | in_progress | ADR-0012 and m06-plan accepted at revision 3 (2026-11-20). Codex design review FIX FIRST → revision 2; Codex scoped re-check FIX FIRST → revision 3 under the orchestrator's rulings, checked by the orchestrator (ADR-0009: no third independent review); reviews archived in `tests/evidence/artifacts/review-m06-design/`. G06: Linux container mechanism rows verified; Windows W1 sampled loopback-only, record `blocked` (no event trace); W2–W4 need the owner at the console. G07: mechanism probes only, gate open on A24/A25/A07 runner rows. rustls 0.23.46 (iroh 1.4.2) has no advisory. Implementation starts after the M03 exit and the M04/M05 merges |
 
 ## Owner decisions under delegation (2026-10-31)
 
@@ -1105,6 +1106,26 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - `check.sh` once per commit;
   - parallel milestone tracks;
   - workers block on their own long commands.
+- **M03 wave 6 (U13), 2026-11-18/19.** Exit builds E5 (`da51b055`, the managed residual settles, ADR-0008 §17.42) to
+  E9 (`2b79aac1`, no console window for a background child on Windows, §17.43; ruling I-24); the macOS and Linux
+  release `heimdall` are byte-identical from E5 to E9. Native runs: macOS with Docker, the devbox and WSL M03/M02 at E5;
+  Windows at E9 (2646/0/18, no readiness retry). Records commit `9176fc5e` (18 records; `verified`: A07, A23, A33,
+  R-AU-08, no self-renewal, honest limits; the rest blocked only on named owner inputs). Exit record:
+  `docs/architecture/m03-exit.md`.
+  - **The Windows revert proof of E9's fix** (`m03/e9-revert-proof` at `4043acb7`, never merged) failed as required
+    (2026-11-20: the console-window test reads `window` without `CREATE_NO_WINDOW`), so the test guards the fix.
+  - **M03 exit, 2026-11-20, at E9 `2b79aac1`** (`docs/architecture/m03-exit.md`; `m03/wave6` merged into main by the
+    orchestrator).
+  - **The A03/P1 macOS lock row is `blocked`** on a physical input: the owner unlocking within the 12 h bound, from an
+    unlocked console idle 15 minutes. The orchestrator's watcher is armed (at E8, binding to E9); four attempts, none
+    evidence. M03 may exit with it `blocked` (the M01 precedent); it is updated when the run happens.
+  - **M03-F1 (open; the integrator, after the merge, on a fresh branch from main; before the M09 release record):**
+    the claim update, deferred by ruling I-25. The product matches claim-table entries by field, value and
+    OS/architecture only, never `os_floor`, `client_versions` or `signer_builds`, so a non-empty table would over-claim
+    (WSL included). M03-F1 adds version gating in `claims()` and `claimed()`/`claim()` (a host OS release reader per
+    platform, the verified client's `ssh -V`, the signer build), per-platform tests including out-of-range hosts and
+    WSL, then the 19 drafted A07 and A23 entries, one Codex review, and targeted native reruns on macOS, the devbox and
+    Windows. Plan §3 step 3 (the report test against the real table) moves with it.
 - **Next: three parallel tracks:**
   - M03 wave 6 (U13: the exit suite, native harnesses, evidence, the matrix and the claims update, then the M03 exit);
   - the M04 design and build;

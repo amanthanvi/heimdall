@@ -2742,6 +2742,15 @@ struct RoundAnswers {
     /// carried from its `RevokeOutcome` into the revoke result (one row per
     /// destination and account: the latest `valid_before` wins).
     remote_effects: Vec<heimdall_contract::managed::RemoteEffectReport>,
+    /// ⟨M03⟩ E5 (I-12; ADR-0008 D7 items 2–3): the calls the managed adapter answered
+    /// `Ok` with a residual still pending. Its local denial is done (D7 item 2 step
+    /// 4) and only the issued certificates' expiry is left, so this is no
+    /// confirmation: [`complete_round_in`] turns such an obligation into
+    /// `bounded_by_expiry` ones ([`bounded_obligations_in`]).
+    ended_locally: Vec<(GrantId, AdapterIdentity)>,
+    /// When the round's calls were made: a clock measurement's freshness is judged
+    /// at it (`None`: every clock is `unmeasured`).
+    at: Option<Timestamp>,
 }
 
 impl RoundAnswers {
@@ -3271,6 +3280,34 @@ fn complete_round_in(
         r.obligations.retain(|o| {
             !(o.kind.is_needs_remote_action() && confirmed(o) && o.cleared_by_claim(current))
         });
+        // ⟨M03⟩ E5 (I-12; ADR-0008 D7 item 3): a managed obligation whose adapter
+        // ended its grant locally on the current claim becomes the grant's
+        // `bounded_by_expiry` obligations, one per pair, which no round calls. One the
+        // record already holds with the same bound keeps its status.
+        let ended = |o: &RemoteObligation| {
+            answers
+                .ended_locally
+                .iter()
+                .any(|(g, a)| g == &o.grant && o.served_by(a))
+        };
+        let mut i = 0;
+        while i < r.obligations.len() {
+            let o = &r.obligations[i];
+            if o.kind.is_needs_remote_action()
+                && ended(o)
+                && o.cleared_by_claim(current)
+                && let Some(bounded) = bounded_obligations_in(tx, o, answers.at)?
+            {
+                r.obligations.remove(i);
+                let added: Vec<RemoteObligation> = bounded
+                    .into_iter()
+                    .filter(|b| !r.obligations.iter().any(|x| same_bound(x, b)))
+                    .collect();
+                r.obligations.extend(added);
+                continue;
+            }
+            i += 1;
+        }
         if current.is_some() {
             r.claimed_at = None;
             if let Some(m) = max_attempts {
@@ -3278,7 +3315,14 @@ fn complete_round_in(
                 stop_capped_obligations(&mut r, m);
             }
         }
-        pending.extend(r.obligations.iter().map(|o| o.grant.clone()));
+        // ⟨M03⟩ E5: a settled `bounded_by_expiry` obligation blocks nothing (§17.15),
+        // as in `settle_bounded_obligations`.
+        pending.extend(
+            r.obligations
+                .iter()
+                .filter(|o| !restart_m03::settled_bounded(o))
+                .map(|o| o.grant.clone()),
+        );
         if r.obligations.is_empty() {
             tx.clear_remote_revocation(root)?;
         } else {
@@ -3296,10 +3340,101 @@ fn complete_round_in(
     // own before its ancestor was revoked).
     for r in tx.remote_revocations()? {
         if &r.root != root {
-            pending.extend(r.grants.into_iter().filter(|g| grants.contains(g)));
+            if r.obligations.is_empty() {
+                pending.extend(r.grants.into_iter().filter(|g| grants.contains(g)));
+            } else {
+                pending.extend(
+                    r.obligations
+                        .iter()
+                        .filter(|o| grants.contains(&o.grant) && !restart_m03::settled_bounded(o))
+                        .map(|o| o.grant.clone()),
+                );
+            }
         }
     }
     complete_revocation_in(tx, emit, grants, &pending, answers.adapter_expiry, op)
+}
+
+/// ⟨M03⟩ E5 (I-12; ADR-0008 D7 item 3; D5 §6.5 item 4): the `bounded_by_expiry`
+/// obligations that replace `o`, the managed adapter's obligation for a grant
+/// whose local denial is done. There is one per pair with a `reserved` or `published`
+/// issuance entry, carrying:
+///
+/// * the pair's latest `valid_before`;
+/// * the clock measurement of the pair's latest enrollment evidence, while that
+///   evidence is fresh at `at` (`fresh_until > at`), and `unmeasured` otherwise.
+///
+/// Each starts `pending_until`, with no attempt counted. With no entry that counts,
+/// none: no certificate of the grant exists (a `voided` entry names none), so
+/// nothing is left for it (a cascade's parent whose residual is all its children's;
+/// they have their own obligations). `None` (`o` stays as it is, fail closed) after
+/// a key-only restore, whose log may lack entries (every residual is then
+/// `unbounded_unknown`).
+fn bounded_obligations_in(
+    tx: &mut Txn<'_>,
+    o: &RemoteObligation,
+    at: Option<Timestamp>,
+) -> heimdall_store::Result<Option<Vec<RemoteObligation>>> {
+    use heimdall_contract::managed::{DestinationClock, ResidualStatus};
+    use heimdall_domain::revocation::ObligationKind;
+    if tx.issuers()?.iter().any(|i| i.restored_without_log) {
+        return Ok(None);
+    }
+    let mut latest: BTreeMap<AccessPair, Timestamp> = BTreeMap::new();
+    for e in tx.issuance_entries(&o.grant)? {
+        if matches!(e.state, IssuanceState::Reserved | IssuanceState::Published) {
+            let v = latest.entry(e.pair).or_insert(e.bounds.valid_before);
+            *v = (*v).max(e.bounds.valid_before);
+        }
+    }
+    let mut out = Vec::with_capacity(latest.len());
+    for (pair, latest_valid_before) in latest {
+        let clock = tx
+            .enrollments_for_pair(&pair)?
+            .into_iter()
+            .filter_map(|e| e.evidence)
+            .max_by_key(|e| e.verified_at)
+            .filter(|e| at.is_some_and(|now| e.fresh_until > now))
+            .and_then(|e| e.clock)
+            .map_or(DestinationClock::Unmeasured, DestinationClock::Measured);
+        out.push(RemoteObligation {
+            grant: o.grant.clone(),
+            adapter: o.adapter.clone(),
+            reason: None,
+            attempts: Some(0),
+            stopped: false,
+            effect_round: None,
+            effect_seq: None,
+            kind: ObligationKind::BoundedByExpiry {
+                latest_valid_before,
+                clock,
+                status: ResidualStatus::PendingUntil,
+            },
+        });
+    }
+    Ok(Some(out))
+}
+
+/// Whether `a` and `b` are `bounded_by_expiry` obligations of the same grant and
+/// adapter with the same bound (`latest_valid_before` and clock), whatever their
+/// statuses.
+fn same_bound(a: &RemoteObligation, b: &RemoteObligation) -> bool {
+    use heimdall_domain::revocation::ObligationKind::BoundedByExpiry;
+    match (&a.kind, &b.kind) {
+        (
+            BoundedByExpiry {
+                latest_valid_before: la,
+                clock: ca,
+                ..
+            },
+            BoundedByExpiry {
+                latest_valid_before: lb,
+                clock: cb,
+                ..
+            },
+        ) => a.grant == b.grant && a.adapter == b.adapter && la == lb && ca == cb,
+        _ => false,
+    }
 }
 
 /// ⟨r2.14⟩ ADR-0006 §13.17: a credential effect that was applied, or may have been,
@@ -3428,7 +3563,9 @@ fn covering_records(
 
 /// ⟨r2.15⟩ Whether `o` owes `grant`'s remote effect to `adapter`.
 fn owes(o: &RemoteObligation, grant: &GrantId, adapter: &AdapterIdentity) -> bool {
-    &o.grant == grant && o.served_by(adapter)
+    // ⟨M03⟩ E5 (I-12): a `bounded_by_expiry` obligation owes no call (no round makes
+    // one), so it never owns a credential effect's cleanup.
+    o.kind.is_needs_remote_action() && &o.grant == grant && o.served_by(adapter)
 }
 
 /// ⟨r2.15⟩ Whether `r` holds a live obligation of `grant` for `adapter`: neither it
@@ -11031,7 +11168,10 @@ impl Operations {
     /// gone since the claim answers nothing), and the latest credential expiry the
     /// adapters reported.
     async fn run_round(&self, round: &Round, now: Timestamp) -> RoundAnswers {
-        let mut out = RoundAnswers::default();
+        let mut out = RoundAnswers {
+            at: Some(now),
+            ..RoundAnswers::default()
+        };
         let limit = self.adapter_limit();
         for call in &round.calls {
             let Some(adapter) = self.adapter(Some(&call.adapter)) else {
@@ -11046,6 +11186,10 @@ impl Operations {
                             out.adapter_expiry = Some(out.adapter_expiry.map_or(t, |e| e.max(t)));
                         }
                         let confirmed = o.remote_pending.is_empty();
+                        if !confirmed && call.adapter.mechanism == MANAGED_CERTIFICATE {
+                            out.ended_locally
+                                .push((call.grant.clone(), call.adapter.clone()));
+                        }
                         out.merge_remote_effects(o.remote_effects);
                         confirmed
                     }

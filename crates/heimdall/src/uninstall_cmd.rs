@@ -5828,7 +5828,18 @@ mod tests {
         args: &UninstallArgs,
         change: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> + 'static,
     ) -> (Result<(), Outcome>, Vec<String>) {
+        revalidate_from(pending_with_obligation(), args, change)
+    }
+
+    /// [`revalidate_across`] over a store holding `seeded` (a record of
+    /// [`remote_revocation`]'s root).
+    fn revalidate_from(
+        seeded: heimdall_domain::revocation::PendingRemoteRevocation,
+        args: &UninstallArgs,
+        change: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> + 'static,
+    ) -> (Result<(), Outcome>, Vec<String>) {
         let d = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let stored = seeded.clone();
         let db = database(d.path(), |tx| {
             seed_remote(tx)?;
             // A second revoked root, for a record added later (its tombstone is not in
@@ -5841,13 +5852,10 @@ mod tests {
                 remote_pending: Vec::new(),
                 cause: heimdall_domain::revocation::RevocationCause::Revoke,
             })?;
-            tx.set_remote_revocation(&pending_with_obligation())
+            tx.set_remote_revocation(&stored)
         });
         let confirmed = Inventory::read(&db).unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(
-            confirmed.remote_revocations,
-            vec![pending_with_obligation()]
-        );
+        assert_eq!(confirmed.remote_revocations, vec![seeded]);
         let db2 = db.clone();
         let mut s = FenceSession {
             acquired: Envelope::ok(serde_json::json!({ "fence": "held" })),
@@ -5927,6 +5935,55 @@ mod tests {
             tx.set_remote_revocation(&wider)
         });
         assert!(refused_as_changed(&r), "a covered grant added");
+    }
+
+    /// [`remote_revocation`] as a managed revoke leaves it (E5, I-12; ADR-0008 D7 item
+    /// 3): its adapter obligation turned into a `bounded_by_expiry` one, at `status`.
+    fn bounded_pending(
+        status: heimdall_contract::managed::ResidualStatus,
+    ) -> heimdall_domain::revocation::PendingRemoteRevocation {
+        let mut r = remote_revocation();
+        let mut o = obligation("managed-a");
+        o.adapter.mechanism = heimdall_app::operations::MANAGED_CERTIFICATE.to_owned();
+        o.attempts = Some(0);
+        o.effect_round = None;
+        o.effect_seq = None;
+        o.kind = heimdall_domain::revocation::ObligationKind::BoundedByExpiry {
+            latest_valid_before: t0()
+                .checked_add(Duration::from_secs(3600))
+                .unwrap_or_else(|_| panic!("time")),
+            clock: heimdall_contract::managed::DestinationClock::Unmeasured,
+            status,
+        };
+        r.obligations = vec![o];
+        r.claim_seq = Some(1);
+        r
+    }
+
+    /// `plain_uninstall_fence_compares_bounded_obligations` (E5, I-12; ADR-0008 §17.41):
+    /// the inventory reads a record of `bounded_by_expiry` obligations like any other;
+    /// round fields written on it still pass the plain check, and a residual that
+    /// settled since the confirmation (the obligation's kind, compared exactly) is a
+    /// change, refused.
+    #[test]
+    fn plain_uninstall_fence_compares_bounded_obligations() {
+        use heimdall_contract::managed::ResidualStatus;
+        let (r, _) = revalidate_from(
+            bounded_pending(ResidualStatus::PendingUntil),
+            &plain(),
+            |tx| {
+                tx.set_remote_revocation(&after_round(bounded_pending(
+                    ResidualStatus::PendingUntil,
+                )))
+            },
+        );
+        assert!(r.is_ok(), "round fields refused a plain uninstall");
+        let (r, _) = revalidate_from(
+            bounded_pending(ResidualStatus::PendingUntil),
+            &plain(),
+            |tx| tx.set_remote_revocation(&bounded_pending(ResidualStatus::BoundedComplete)),
+        );
+        assert!(refused_as_changed(&r), "a settled residual");
     }
 
     /// `purge_fence_refuses_retry_rounds_exactly` (ADR-0008 §17.33 item 3, W5-E01; §17.41):

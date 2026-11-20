@@ -1,8 +1,8 @@
-//! **Pending on M03 exit build E5** (the integrator's instruction, 2026-11-18): managed
-//! revocation end to end. Base `0e47249e` carries M03's E4 code, in which nothing creates
-//! the `bounded_by_expiry` obligations, so a revoked managed grant stays `revoking`
-//! forever; E5 fixes it in M03's managed revocation. Until E5 lands on this base the
-//! assertion below fails, so it is `#[ignore]`d, never relaxed or worked around.
+//! **Was pending on M03 exit build E5** (the integrator's instruction, 2026-11-18): managed
+//! revocation end to end. M03's E4 code created no `bounded_by_expiry` obligations, so a
+//! revoked managed grant stayed `revoking` forever; E5 fixed it in M03's managed revocation,
+//! and M03's exit at E9 brought it to main (`1c6412ac`). The assertion was `#[ignore]`d until
+//! then, never relaxed or worked around; it now runs as a required test.
 //!
 //! [`e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual`] holds the
 //! one assertion the other rows leave to it: a managed grant ended by the M05 paths the
@@ -27,7 +27,6 @@ const WINDOW: Duration = Duration::from_secs(45);
 
 #[cfg(any(unix, windows))]
 #[test]
-#[ignore = "pending M03 E5: bounded_by_expiry obligations (revoked managed grant stays revoking)"]
 fn e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual() {
     let (w, ca) = World::start(WorldOptions {
         pairs: 1,

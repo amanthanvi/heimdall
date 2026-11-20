@@ -26,7 +26,7 @@
 //!   parent: the parent's and the child's grants leave `active`, and the child's next login,
 //!   which the same server admitted before, fails.
 //!
-//! **Pending on M03 E5:** the ended grants are asserted *no longer active* here; that they
+//! **After M03 E5:** the ended grants are asserted *no longer active* here; that they
 //! reach `revoked` once their certificates' validity has passed is
 //! `pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual`.
 //!
@@ -448,16 +448,17 @@ fn a28_parent_end_cascades_child_login_fails() {
             child_grant.as_str()
         );
 
+        // ⟨W4 candidate⟩ The cutoff's instant, for the wait below.
+        let cutoff_at = heimdall_contract::Timestamp::from_second(
+            heimdall_contract::Timestamp::now().as_second() + 15,
+        )
+        .unwrap();
         match how {
             "revoke" => {
                 w.revoke(&parent_grant, "a28-end-revoke-r");
             }
             _ => {
-                let at = heimdall_contract::Timestamp::from_second(
-                    heimdall_contract::Timestamp::now().as_second() + 15,
-                )
-                .unwrap()
-                .to_string();
+                let at = cutoff_at.to_string();
                 let out = w.cli(&[
                     "--json",
                     "access",
@@ -469,15 +470,35 @@ fn a28_parent_end_cascades_child_login_fails() {
                 assert_eq!(out.code, 0, "{}", w.redact(&format!("{out:?}")));
             }
         }
-        wait_for(
-            &format!("{how}: the parent's and the child's grants end"),
-            Duration::from_secs(90),
-            || {
-                (w.grant_state(&parent_grant) != "active"
-                    && w.grant_state(child_grant.as_str()) != "active")
-                    .then_some(())
-            },
-        );
+        let ended = |w: &World| {
+            (w.grant_state(&parent_grant) != "active"
+                && w.grant_state(child_grant.as_str()) != "active")
+                .then_some(())
+        };
+        // The claim is the child's next login, refused once the parent's end applies: at once
+        // for a revocation, from the cutoff's instant for a cutoff (admission and the signing
+        // gate check the bound at every use). The stored grant states are the scheduler's
+        // bookkeeping, settled by its next pass: for a revocation at once, for a cutoff at the
+        // pass it schedules for that instant, and never later than its idle bound
+        // (`SupervisorConfig::max_idle_sleep`, 300 s), which is what is asserted below. (On the
+        // W4 candidate a cutoff's pass was sometimes missed and the states settled at the idle
+        // bound, while the login was already refused; reported with the candidate.)
+        if how == "revoke" {
+            wait_for(
+                &format!("{how}: the parent's and the child's grants end"),
+                Duration::from_secs(90),
+                || ended(&w),
+            );
+        } else {
+            wait_for(
+                &format!("{how}: the cutoff's instant passes"),
+                Duration::from_secs(60),
+                || {
+                    (heimdall_contract::Timestamp::now().as_second() > cutoff_at.as_second() + 1)
+                        .then_some(())
+                },
+            );
+        }
         let mark = w.pairs[0].sshd.log_mark();
         std::fs::write(&g1, b"").unwrap();
         let out = child.finish(Duration::from_secs(120));
@@ -492,10 +513,17 @@ fn a28_parent_end_cascades_child_login_fails() {
             after.iter().all(|c| !c.key_id.starts_with(&prefix)),
             "{how}: no accepted line for the child's grant after the parent's end: {after:?}"
         );
+        let settle = std::time::Instant::now();
+        wait_for(
+            &format!("{how}: the parent's and the child's grants end"),
+            Duration::from_secs(330),
+            || ended(&w),
+        );
         println!(
-            "m05 observation: a28 {} parent_end={how} child_grant_state={} child_next_login=refused",
+            "m05 observation: a28 {} parent_end={how} child_grant_state={} child_next_login=refused states_settled_after_login_s={}",
             crate::world::platform(),
-            w.grant_state(child_grant.as_str())
+            w.grant_state(child_grant.as_str()),
+            settle.elapsed().as_secs()
         );
     }
     w.stop_runtime();

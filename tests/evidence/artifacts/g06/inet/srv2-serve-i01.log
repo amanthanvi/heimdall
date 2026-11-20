@@ -1,0 +1,4 @@
+{"event":"ready","id":"3b8bcfae3ed9b474298c0bc87dd017489f08337a9044d8a7e5e1b33117771342","bound":["0.0.0.0:55957","[::]:45108"],"relay":"n0","lookup":"n0","portmapper":true}
+{"event":"session","peer":"a8afc3e9a55a133b67c6c26c4c04adec8fa0118c04de2bf4ba49dae43ceaef67","paths":[{"relay":true,"ip":false,"selected":true,"remote":"Relay(https://use1-1.relay.n0.iroh.link./)"}]}
+{"event":"refused","peer":"15645acc74f86a845ece00d3bef29f86d078a70b9ff20054007ae2eb3b246129"}
+{"event":"session_end","peer":"a8afc3e9a55a133b67c6c26c4c04adec8fa0118c04de2bf4ba49dae43ceaef67","bytes_up":0,"bytes_down":3721}

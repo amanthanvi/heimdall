@@ -1,0 +1,15 @@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+It is also possible that a host key has just been changed.
+The fingerprint for the ED25519 key sent by the remote host is
+SHA256:s3wvAf9841GWd2VmjKczIv0nZhn0s52I1HgIz6vD+4s.
+Please contact your system administrator.
+Add correct host key in /work/known_hosts to get rid of this message.
+Offending ED25519 key in /work/known_hosts:1
+  remove with:
+  ssh-keygen -f '/work/known_hosts' -R 'hm-dest-1'
+Host key for hm-dest-1 has changed and you have requested strict checking.
+Host key verification failed.

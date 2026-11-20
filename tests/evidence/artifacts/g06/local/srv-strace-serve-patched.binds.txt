@@ -1,0 +1,2 @@
+277   bind(9, {sa_family=AF_INET, sin_port=htons(7000), sin_addr=inet_addr("172.19.0.2")}, 16) = 0
+279   connect(11, {sa_family=AF_INET, sin_port=htons(22), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS (Operation now in progress)

@@ -445,6 +445,79 @@ that target.
       artifacts do not say what they are.
     - **The WSL version** is not recorded: `wsl-distro/host.txt` reads `wsl-version=WSL version: <addr>`.
 
+## M03 managed-certificate rows (Heimdall builds E5 `da51b055` to E9 `2b79aac1`, the M03 exit build E9)
+
+> **M03 exit (2026-11-20).** macOS, the devbox and WSL ran at E5, Windows at E9; the macOS and Linux release `heimdall`
+> are byte-identical from E5 to E9. The macOS lock row is `blocked` on the owner's unlock (its watcher is armed at E8);
+> the records are `tests/evidence/m03-*.json`.
+
+These rows test Heimdall itself.
+- **Builds:** E5 `da51b0558a14e08f9af27e47ec0c34304e301b22` (the last change outside `cfg(windows)`; macOS, the
+  devbox, WSL), E8 `7b75c4c12e925bf4049f67d10ce58ff3b63559e7` (the macOS lock procedure) and E9
+  `2b79aac1b6bea72f886cef2331c9e3b5d0a123e8` (Windows; ADR-0008 §17.43). The E9 `crates/` and `tests/` `*.rs` sources
+  digest is `f37e357d…7a4b4f` (`tests/native/m03/required-inventory.json`). Release `heimdall` (macOS) `e9eabf99…343355`
+  from E5 to E8 at the release worktree, E8 = E9 when built in one worktree (macOS `b9a40f70…6f3557`, Linux
+  `6b3af383…8043ba`); the test-configured Linux `heimdall` (devbox and WSL, E5) `6e20ec76…fd061c`; Windows
+  `heimdall.exe` (E9) `782520ae…1b7705`.
+- **Records:** `tests/evidence/m03-*.json`. **Artifacts:** `tests/evidence/artifacts/m03/exit-da51b055/`; `runs.json`
+  holds the configuration, and `digests.txt` lists every artifact file. **Exit record:** `docs/architecture/m03-exit.md`.
+
+- **Label.** Every row stays `not-tested`: ADR-0001 §9 keeps every platform at `not-tested` until ADR-0001 §5 (floors)
+  and §6 (baseline worksheet) close, and both are still `blocked`.
+- **What `verified` means** (as for M02). Every required test that applies on that platform ran and passed in this
+  run. A test excluded on a platform carries a case-index rationale, and a planned test that does not exist reads as not
+  run (ADR-0007 §12.47 item 1). It is not an independent review of the units.
+- **Debug builds are mechanism evidence.** The macOS, devbox, Windows and WSL rows run the debug test configuration;
+  macOS and Linux use the scratch test store. No row here carries a custody claim. Only a release-profile run on a
+  product store kind can (ADR-0008 D12 item 3, F03), and in M03 that is the Windows DPAPI lock row, blocked on B2.
+- **The servers.** Loopback fixture sshds per run (`LoopbackSshd`, account form, a `cert-authority,principals=` line for
+  the run's CA); on Windows the fixture sshds run in WSL scratch, reached on 127.0.0.1; in the WSL distribution, root
+  sshds on 127.0.0.1 with StrictModes on. On macOS the Docker fixtures add OpenSSH_10.0p2 on Debian 13 containers
+  (every port on 127.0.0.1). The devbox has no Docker (B8).
+
+| # | Environment | Client | Signer / issuer | Mechanism | Label | M03 evidence (E5; Windows E9; the lock run E8) | Record |
+|---|---|---|---|---|---|---|---|
+| M03-1 | macOS 27.2.1 (26B131) arm64 | OpenSSH ssh 10.5p1 (system), Apple Git 2.54.0, scp, sftp | Heimdall's binding endpoint; the real issuer child on the scratch test store (debug) | managed certificate: enrollment and verification, activation, re-issue and revocation through the real issuer child, fresh logins | not-tested | verified (A07 157, A09 425, A10 21, A23 56, A33 9, fixed provider 88; `check.sh` 3126 / 0 / 199) | `m03-a07-revocation.json`, `m03-a09-enrollment.json`, `m03-a10-scope-issuer.json`, `m03-a23-deadline-connections.json`, `m03-a33-secrets.json`, `m03-exit-fixed-provider.json` |
+| M03-2 | macOS 27.2.1 arm64 with the Docker fixtures (bash, dash, busybox, Debian dash shells; OpenSSH_10.0p2) | OpenSSH ssh 10.5p1 | as M03-1 | the enrollment registry protocol per target shell; verification on an account without log access | not-tested | verified (part of A09 macOS: the Docker phase, 176 passed, 0 failed) | `m03-a09-enrollment.json` |
+| M03-3 | Linux x86-64 (devbox, kernel 6.8, glibc 2.39, headless) | OpenSSH ssh 9.6p1 (Ubuntu-3ubuntu13.20), git 2.43.0, scp, sftp | as M03-1 | as M03-1 | not-tested | verified (A07 157, A09 250 (excl. 176: the Docker rows), A10 19 (excl. 2), A23 56, A33 9, fixed provider 88; 3094 / 0 / 204 over 88 binaries) | as M03-1 |
+| M03-4 | Windows 11 x64 (10.0.26300.9974), Medium integrity | in-box `ssh.exe` OpenSSH_for_Windows_9.5p2, System32 (a PATH-first 10.3p1 recorded as a candidate, not selected); Git for Windows 2.55.0.windows.3 | Heimdall's binding pipe; the real issuer child (debug test configuration) | as M03-1, plus the ConPTY interactive cases; the fixture sshds in WSL scratch | not-tested | verified at E9 (A07 155, A09 108, A10 5, A23 24, A33 6, fixed provider 79; 2646 / 0 / 18 over 87 binaries; no background child with a console window, ADR-0008 §17.43) | as M03-1 |
+| M03-5 | WSL2 disposable distribution (pinned Ubuntu 24.04.5 image, created and unregistered by name) | ordinary ssh, git, scp, sftp **without `-F`** (OpenSSH 9.6p1) | Heimdall's binding endpoint; the real issuer child; the CA **seeded** (I-6: `issuer init` refuses the scratch store on Linux, no plaintext fallback) | the managed scenario (`wsl_managed_ssh`): enrollment in both forms, verification, setup, ensure, ordinary clients, revocation, uninstall | not-tested | verified (`wsl_managed_ssh` 18 of 18, the managed residual step included; the M02 scenario `wsl_ordinary_ssh` 11 of 11 at the same build; A09 12, A10 3) | `m03-a09-enrollment.json`, `m03-a10-scope-issuer.json`, `m03-exit-fixed-provider.json` |
+| M03-6 | macOS 27.2.1 arm64, desktop locked (the lock procedure, ADR-0004 §2) | OpenSSH ssh 10.5p1 | the signer and issuer serving from memory; debug, scratch test store; the platform session-lock source | lock continuity: fresh logins (grant C), a new grant under lock (N), lock-revokes (R), the locked source-provider stand-in | not-tested | blocked: the owner's unlock within the lock procedure's 12 h bound, from an unlocked console idle 15 minutes (the watcher is armed at E8, binding to E9; mechanism evidence only once it runs) | `m03-a03-lock-continuity.json`, `m03-p1-macos-screen-lock.json` |
+| M03-7 | Windows 11 x64, desktop locked | in-box `ssh.exe` | release profile, product DPAPI store; DPAPI unprotect at a forced issuer restart under lock | lock continuity, P-W1 | not-tested | blocked: B2, the disposable second Windows account (a release runtime projects into the account's own `~/.ssh`; I-9) | `m03-a03-lock-continuity.json`, `m03-pw1-windows-lock.json` |
+| M03-8 | macOS arm64, login keychain | any | release profile, the login keychain product store | K_ca custody, lock continuity | not-tested | blocked: B3, a disposable macOS standard user account | `m03-store-macos-keychain.json`, `m03-a03-lock-continuity.json` |
+| M03-9 | Linux desktop (GNOME, gnome-keyring, systemd-logind) | any | Secret Service product store; logind lock signal | K_ca custody, lock-revokes, issuer reachability | not-tested | blocked: B11, a Linux desktop host and a disposable account | `m03-store-linux-secret-service.json`, `m03-a03-lock-continuity.json`, `m03-a10-scope-issuer.json` |
+| M03-10 | any | any | 1Password vault as the existing access | enrollment, lock continuity (vault locked) | not-tested | blocked: B1 | `m03-a09-enrollment.json`, `m03-a03-lock-continuity.json` |
+| M03-11 | Windows 11 x64 | any | the Windows system ssh-agent as the existing access | enrollment, lock continuity | not-tested | blocked: B4 | `m03-a09-enrollment.json`, `m03-a03-lock-continuity.json` |
+| M03-12 | any | any | a touch-required hardware key as the existing access | enrollment | not-tested | blocked: B6 | `m03-a09-enrollment.json` |
+
+### M03 limitations and residuals
+
+- **Lock-revokes grant R** (the rulings on I-11 and I-12; ADR-0008 §17.42). Local revocation is immediate: R's fresh
+  logins are refused from the revocation on (0 of R's key IDs accepted after it). R reads `revoking` while its
+  certificate's residual is pending; since E5 the managed residual settles (`bounded_by_expiry`), and the supervisor
+  moves R to `revoked` once its `valid_before` (600 s after R's creation in the lock run) has passed. This run's
+  reading: the A03 macOS lock row is `blocked` on the owner's unlock.
+- **A background runtime's children got console windows on Windows; fixed at E9** (ADR-0008 §17.43, ruling I-24).
+  `CREATE_NO_WINDOW` on every non-interactive child; that the new console's hand-off to Windows Terminal caused the
+  E8 Windows failures is the most likely cause (inferred, not reproduced). The revert proof (the fix removed) fails the
+  console-window test, so the test guards the fix.
+- **No claim-table entry in M03** (ruling I-25). The product matches an entry by field, value and OS/architecture
+  only, not by `os_floor`, `client_versions` or `signer_builds`, so the claim update is deferred to M03-F1 (version
+  gating, then the 19 drafted A07 and A23 entries); every claim-table field reads `unknown` until then.
+- **Seeded inputs.** The lock driver seeds a verified enrollment and the CA trust line before the lock (I-2); the WSL
+  scenario seeds the CA after recording the product's refusal to register one on the scratch store (I-6).
+- **Windows `ssh.exe` needs `ProgramData`.** The in-box client exits 255 before printing anything without it
+  (bisected 2026-11-18). The exit suite's minimal Windows environments carry it by name. A runtime started with a
+  stripped environment would lose verification as `inconclusive`; the product hardening is M04 U2's.
+- **Not built in wave 6:** the WSL "`wsl --terminate` as a restart" row (m03-plan §4.2). The process-restart property runs
+  natively on macOS, the devbox and Windows.
+- **Named residuals** (`crates/domain/src/claims.rs` `RESIDUALS`, each with what remains and what is not yet shown
+  natively): `windows_purge_entry_replaced_between_check_and_delete`, `purge_entry_placed_in_quarantine_is_deleted`,
+  `purge_recovery_copy_and_marker_forged_together`, `purge_recovery_copy_overwritten_between_check_and_unlink`,
+  `purge_restore_copy_log_placed_between_check_and_rename`, `uninstall_fence_release_stuck_until_holder_work_ends`,
+  `uninstall_sweep_uses_cli_runtime_dir_not_recorded_locators`, `holder_approval_spawns_waiting_work_with_the_holder_lease`,
+  `issuer_cleanup_cancelled_kill_on_drop_signals_unreaped_child` and `issuer_request_hold_absent_for_leader_and_lease_work`.
+
 ## Mechanism observations (not product support)
 
 These rows record OpenSSH and platform mechanism behavior observed on fixtures during the gate experiments. They inform

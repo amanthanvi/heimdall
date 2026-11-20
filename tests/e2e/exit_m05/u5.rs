@@ -28,7 +28,7 @@
 //! preference, never authority), so the hook's own activation outside a workspace is
 //! quiet and only its warm-up of the personal default acts, as `e2e_hook_m05` arranges it.
 //!
-//! **Pending on M03 E5:** the stopped default work's grant is asserted *no longer active*
+//! **After M03 E5:** the stopped default work's grant is asserted *no longer active*
 //! here; that it reaches `revoked` once its certificate's validity has passed is
 //! `pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual`.
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]

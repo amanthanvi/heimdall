@@ -23,7 +23,14 @@ Runs ON the PC (there is no remote route into WSL; §12.32 item 15). Its steps:
      removed, the in-box OpenSSH is first on PATH, HEIMDALL_E2E_BIN, HM_FIXTURE_HOOK,
      HM_FIXTURE_SSHD_* (HM_FIXTURE_SSHD_STRICT_* for the strict sshd, HM_FIXTURE_SSHD_USER for
      the WSL account the sshds authenticate) and HM_REPO_ROOT (the clone) are set, TEMP/TMP
-     are in scratch.
+     are in scratch. ⟨M03 E5⟩ A binary's output pipes are drained for at most 60 s after it
+     ends (or is stopped at its timeout): a process it started that outlives it keeps them
+     open (on Windows a test's runtime inherits the test binary's pipe handles; the residual
+     of spawn_detached, crates/runtime/src/launcher.rs). Then, and after a timeout, every
+     heimdall*.exe whose image is under the run directory and whose parent is gone is
+     recorded (PID, parent PID, creation time, role) and stopped by its exact PID, its
+     creation time re-checked first: the only processes this script stops that it did not
+     start itself. What was read is kept either way.
   6. Record `ssh -V` (Windows in-box, Windows PATH-first, WSL), `git --version` (Windows, WSL;
      scratch HOME, GIT_CONFIG_NOSYSTEM=1), the toolchain and the OS.
   7. Redact <winuser>, <winhost> (whole words), <winhome>, the WSL user (also exported as
@@ -370,6 +377,91 @@ function Get-CtrlCInheritedFact([string]$ReportJson) {
     return 'unknown (the driver report has no ctrl-c-inherited fact)'
 }
 
+# ⟨M03 E5⟩ The bound on draining a child's stdout and stderr once it has ended (Invoke-Bounded).
+$script:DrainSeconds = 60
+
+# ⟨M03 E5⟩ Copy a pipe into memory as it arrives, so what was read survives a drain that does
+# not finish (a process the child started still holds the pipe).
+function Start-PipeCopy([System.IO.Stream]$Stream) {
+    $buffer = [System.IO.MemoryStream]::new()
+    return [pscustomobject]@{ Stream = $Stream; Buffer = $buffer; Task = $Stream.CopyToAsync($buffer) }
+}
+
+# ⟨M03 E5⟩ Wait for a pipe copy until DEADLINE (UTC); $true when it reached the end of the pipe.
+function Wait-PipeCopy($Copy, [DateTime]$Deadline) {
+    $ms = [Math]::Max(0, [int]($Deadline - [DateTime]::UtcNow).TotalMilliseconds)
+    try { return $Copy.Task.Wait($ms) } catch { return $true }
+}
+
+# ⟨M03 E5⟩ What a pipe copy read (UTF-8), its pipe closed first when the copy is unfinished.
+function Close-PipeCopy($Copy) {
+    if (-not $Copy.Task.IsCompleted) {
+        try { $Copy.Stream.Dispose() } catch {}
+        try { [void]$Copy.Task.Wait(5000) } catch {}
+    }
+    return [System.Text.Encoding]::UTF8.GetString($Copy.Buffer.ToArray())
+}
+
+# ⟨M03 E5⟩ The role of a heimdall process from its command line, as a fixed word (the command
+# line itself is never recorded): runtime (`service run`), issuer-child (`internal issuer`) or
+# other.
+function Get-HeimdallRole([string]$CommandLine) {
+    if ($CommandLine -match '(^|\s)service\s+run(\s|$)') { return 'runtime' }
+    if ($CommandLine -match '(^|\s)internal\s+issuer(\s|$)') { return 'issuer-child' }
+    return 'other'
+}
+
+# ⟨M03 E5⟩ Whether IMAGE lies under ROOT (both full paths; case-insensitive, as on Windows).
+function Test-UnderRoot([string]$Image, [string]$Root) {
+    if ([string]::IsNullOrEmpty($Image) -or [string]::IsNullOrEmpty($Root)) { return $false }
+    $r = $Root.TrimEnd('\', '/') + '\'
+    return $Image.StartsWith($r, [StringComparison]::OrdinalIgnoreCase)
+}
+
+# ⟨M03 E5⟩ Whether a process whose parent is PARENT (a process record, or $null when no process
+# has that PID) and which was created at CREATED is an orphan: no parent, or a parent created
+# after it (its PID was reused).
+function Test-ParentGone($Parent, [DateTime]$Created) {
+    return ($null -eq $Parent) -or ($Parent.CreationDate -gt $Created)
+}
+
+# ⟨M03 E5⟩ The leftover heimdall*.exe processes of this run: image under ROOT, parent gone.
+# Windows only (Win32_Process); nonsecret fields only.
+function Get-LeftoverHeimdall([string]$Root) {
+    if (-not $IsWindows) { return @() }
+    $out = @()
+    foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name LIKE 'heimdall%.exe'" -ErrorAction SilentlyContinue)) {
+        if (-not (Test-UnderRoot ([string]$p.ExecutablePath) $Root)) { continue }
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$p.ParentProcessId)" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not (Test-ParentGone $parent $p.CreationDate)) { continue }
+        $out += [pscustomobject]@{ Pid = [int]$p.ProcessId; Ppid = [int]$p.ParentProcessId; Created = $p.CreationDate; Role = (Get-HeimdallRole ([string]$p.CommandLine)) }
+    }
+    return $out
+}
+
+# ⟨M03 E5⟩ Stop each leftover by its exact PID after re-reading it: the same PID with the same
+# creation time, else it is left alone (it ended, or the PID now names another process).
+# ⟨M03 E7⟩ An empty sweep reaches here as $null (a function's empty output), which `@()`
+# would turn into one $null element: only leftover records are taken. READER re-reads a PID
+# (the Win32_Process record, or $null when no process has it; the self-test passes its own).
+function Stop-LeftoverHeimdall($Leftovers, [scriptblock]$Reader = { param($Id) Get-CimInstance Win32_Process -Filter "ProcessId = $Id" -ErrorAction SilentlyContinue | Select-Object -First 1 }) {
+    $done = @()
+    foreach ($l in @($Leftovers | Where-Object { $null -ne $_ -and $null -ne $_.PSObject.Properties['Pid'] })) {
+        $now = & $Reader $l.Pid
+        $outcome = 'gone'
+        if ($null -ne $now -and $null -ne $now.PSObject.Properties['CreationDate'] -and $now.CreationDate -eq $l.Created) {
+            try { Stop-Process -Id $l.Pid -Force -ErrorAction Stop; $outcome = 'stopped' } catch { $outcome = 'stop-failed' }
+        }
+        $done += [pscustomobject]@{ Pid = $l.Pid; Ppid = $l.Ppid; Created = $l.Created; Role = $l.Role; Outcome = $outcome }
+    }
+    return $done
+}
+
+# ⟨M03 E5⟩ One leftover as recorded.
+function Format-Leftover($L) {
+    return "pid $($L.Pid) parent $($L.Ppid) created $($L.Created.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')) $($L.Role) $($L.Outcome)"
+}
+
 # -SelfTest: the helpers on synthetic data (no host, no network, no toolchain)
 # ---------------------------------------------------------------------------------------------
 
@@ -505,6 +597,64 @@ function Invoke-SelfTest([string]$OutDir) {
         [System.IO.File]::WriteAllText((Join-Path $OutDir 'bundle.b64'), $b.Text, [System.Text.UTF8Encoding]::new($false))
         [System.IO.File]::WriteAllText((Join-Path $OutDir 'bundle.json'), $b.Json, [System.Text.UTF8Encoding]::new($false))
     }
+    # ⟨M03 E5⟩ The bounded drain and the leftover sweep's pure parts.
+    Check 'L01 a leftover heimdall process is named by its role only (runtime, issuer-child, other)' (
+        (Get-HeimdallRole 'C:\S\run\src\target\debug\heimdall.exe service run') -eq 'runtime' -and
+        (Get-HeimdallRole '"C:\S\run\tmp\.tmpAB\heimdall.exe" internal issuer') -eq 'issuer-child' -and
+        (Get-HeimdallRole 'heimdall.exe --json access ensure --profile dev') -eq 'other' -and
+        (Get-HeimdallRole 'heimdall.exe services running') -eq 'other')
+    Check 'L02 only an image under the run directory counts (case-insensitive; a sibling directory does not)' (
+        (Test-UnderRoot 'C:\S\run\src\target\debug\heimdall.exe' 'C:\S\run') -and
+        (Test-UnderRoot 'c:\s\RUN\tmp\.tmpAB\heimdall.exe' 'C:\S\run\') -and
+        -not (Test-UnderRoot 'C:\S\run2\heimdall.exe' 'C:\S\run') -and
+        -not (Test-UnderRoot '' 'C:\S\run') -and -not (Test-UnderRoot 'C:\S\run\heimdall.exe' ''))
+    $born = [DateTime]::new(2026, 11, 18, 12, 52, 50, [DateTimeKind]::Utc)
+    Check 'L03 a parent is gone when no process has its PID, or the one that has it is newer (a reused PID)' (
+        (Test-ParentGone $null $born) -and
+        -not (Test-ParentGone ([pscustomobject]@{ CreationDate = $born.AddSeconds(-5) }) $born) -and
+        (Test-ParentGone ([pscustomobject]@{ CreationDate = $born.AddSeconds(5) }) $born))
+    # ⟨M03 E7⟩ The sweep's final pass on an empty result, and a leftover that vanished (or
+    # whose PID now names a newer process) before it was stopped: nothing is stopped and
+    # nothing throws under strict mode.
+    $none = @(Stop-LeftoverHeimdall $null { param($Id) throw 'never read' })
+    $empty = @(Stop-LeftoverHeimdall @() { param($Id) throw 'never read' })
+    $nothing = @(Stop-LeftoverHeimdall (& { }) { param($Id) throw 'never read' })
+    Check 'L04 an empty sweep (null, empty, or a function''s empty output) stops and reads nothing' ($none.Count -eq 0 -and $empty.Count -eq 0 -and $nothing.Count -eq 0)
+    $ghost = [pscustomobject]@{ Pid = 999999; Ppid = 1; Created = $born; Role = 'runtime' }
+    $vanished = @(Stop-LeftoverHeimdall @($ghost, $null) { param($Id) $null })
+    $reused = @(Stop-LeftoverHeimdall @($ghost) { param($Id) [pscustomobject]@{ CreationDate = $born.AddSeconds(30) } })
+    Check 'L05 a leftover that vanished, or whose PID now names a newer process, is recorded gone and never stopped' (
+        $vanished.Count -eq 1 -and $vanished[0].Outcome -eq 'gone' -and $reused.Count -eq 1 -and $reused[0].Outcome -eq 'gone' -and
+        (Format-Leftover $vanished[0]) -eq 'pid 999999 parent 1 created 2026-11-18T12:52:50Z runtime gone')
+    if (-not $IsWindows) {
+        $drain = {
+            param([string]$Script, [int]$Bound)
+            $psi = [System.Diagnostics.ProcessStartInfo]::new('/bin/sh')
+            foreach ($a in @('-c', $Script)) { $psi.ArgumentList.Add($a) }
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $sp = [System.Diagnostics.Process]::Start($psi)
+            $so = Start-PipeCopy $sp.StandardOutput.BaseStream
+            $se = Start-PipeCopy $sp.StandardError.BaseStream
+            [void]$sp.WaitForExit(10000)
+            $t0 = [DateTime]::UtcNow
+            $dr = (Wait-PipeCopy $so $t0.AddSeconds($Bound)) -and (Wait-PipeCopy $se $t0.AddSeconds($Bound))
+            $waited = ([DateTime]::UtcNow - $t0).TotalSeconds
+            $txt = Close-PipeCopy $so
+            [void](Close-PipeCopy $se)
+            # The holder is this check's own grandchild: stopped by the exact PID it printed.
+            $holder = [regex]::Match($txt, 'holder (\d+)').Groups[1].Value
+            if ($holder) { try { Stop-Process -Id ([int]$holder) -Force -ErrorAction Stop } catch {} }
+            $sp.Dispose()
+            return [pscustomobject]@{ Drained = $dr; Waited = $waited; Text = $txt; Holder = $holder }
+        }
+        $held = & $drain 'echo first; sleep 30 & echo "holder $!"; exit 0' 2
+        Check 'D01 a drain that a leftover process holds ends at its bound and keeps what was read' (
+            -not $held.Drained -and $held.Waited -lt 5 -and $held.Text.StartsWith('first') -and $held.Holder)
+        $plain = & $drain 'echo all; exit 0' 10
+        Check 'D02 a child with no leftover drains to the end of its pipes' ($plain.Drained -and $plain.Text -eq "all`n" -and $plain.Waited -lt 5)
+    }
     Write-Host "run-windows-local selftest: $($script:stPass) passed, $($script:stFail) failed"
 }
 
@@ -583,7 +733,7 @@ function New-ChildEnvironment([hashtable]$Set) {
 
 # Run a program (no shell) with an environment and a timeout; returns exit code and output.
 # On a timeout the process tree this call started is killed through its own handle.
-function Invoke-Bounded([string]$File, [string[]]$Arguments, [hashtable]$Environment, [string]$Cwd, [int]$Seconds, [string]$StdIn = $null) {
+function Invoke-Bounded([string]$File, [string[]]$Arguments, [hashtable]$Environment, [string]$Cwd, [int]$Seconds, [string]$StdIn = $null, [string]$LeftoverRoot = $null) {
     $psi = [System.Diagnostics.ProcessStartInfo]::new($File)
     foreach ($a in $Arguments) { $psi.ArgumentList.Add($a) }
     $psi.UseShellExecute = $false
@@ -596,18 +746,30 @@ function Invoke-Bounded([string]$File, [string[]]$Arguments, [hashtable]$Environ
         foreach ($k in $Environment.Keys) { $psi.Environment[$k] = $Environment[$k] }
     }
     $p = [System.Diagnostics.Process]::Start($psi)
-    $o = $p.StandardOutput.ReadToEndAsync()
-    $e = $p.StandardError.ReadToEndAsync()
+    $o = Start-PipeCopy $p.StandardOutput.BaseStream
+    $e = Start-PipeCopy $p.StandardError.BaseStream
     if ($null -ne $StdIn) { $p.StandardInput.Write(($StdIn -replace "`r`n", "`n")) }
     $p.StandardInput.Close()
     $timedOut = -not $p.WaitForExit($Seconds * 1000)
-    if ($timedOut) { $p.Kill($true); $p.WaitForExit() }
-    $p.WaitForExit()
-    $code = if ($timedOut) { 124 } else { $p.ExitCode }
-    $text = $o.Result + $e.Result
+    if ($timedOut) { $p.Kill($true); [void]$p.WaitForExit(30000) }
+    # ⟨M03 E5⟩ The pipes, bounded: a process the child started may still hold them.
+    $deadline = [DateTime]::UtcNow.AddSeconds($script:DrainSeconds)
+    $drained = (Wait-PipeCopy $o $deadline) -and (Wait-PipeCopy $e $deadline)
+    $leftovers = @()
+    if ($LeftoverRoot -and ($timedOut -or -not $drained)) {
+        $leftovers = @(Stop-LeftoverHeimdall (Get-LeftoverHeimdall $LeftoverRoot))
+        if (-not $drained) {
+            $deadline = [DateTime]::UtcNow.AddSeconds($script:DrainSeconds)
+            $drained = (Wait-PipeCopy $o $deadline) -and (Wait-PipeCopy $e $deadline)
+        }
+    }
+    $code = if ($timedOut -or -not $p.HasExited) { 124 } else { $p.ExitCode }
+    $text = (Close-PipeCopy $o) + (Close-PipeCopy $e)
     if ($timedOut) { $text += "`n(timed out after $Seconds s; the process tree this run started was stopped)`n" }
+    if (-not $drained) { $text += "`n(its output pipes were still open $($script:DrainSeconds) s after it ended: a process it started outlived it; what was read is kept)`n" }
+    foreach ($l in $leftovers) { $text += "(leftover: $(Format-Leftover $l))`n" }
     $p.Dispose()
-    return [pscustomobject]@{ Code = $code; Output = $text; TimedOut = $timedOut }
+    return [pscustomobject]@{ Code = $code; Output = $text; TimedOut = $timedOut; Drained = $drained; Leftovers = $leftovers }
 }
 
 function Invoke-Wsl([string]$Script, [string[]]$ScriptArgs, [int]$Seconds = 300) {
@@ -861,11 +1023,18 @@ try {
         # ⟨M03 wave 4, W4-N01⟩ Every e2e_enroll_m03 test holds the one harness sshd (its
         # registry) for its whole run, some for over a minute; one thread keeps every wait for
         # the harness lease short of LoopbackSshd's 600 s bound.
-        if ($b.Name -eq 'e2e_enroll_m03') { $a += '--test-threads=1' }
+        # ⟨M05 W4⟩ e2e_exit_m05 the same way: its A02 week holds the lease for about 3 minutes.
+        if ($b.Name -eq 'e2e_enroll_m03' -or $b.Name -eq 'e2e_exit_m05') { $a += '--test-threads=1' }
         $a += '--show-output'
-        $r = Invoke-Bounded $b.Exe $a $testEnv $b.Cwd $TimeoutSeconds
+        $r = Invoke-Bounded $b.Exe $a $testEnv $b.Cwd $TimeoutSeconds -LeftoverRoot $run
         [void]$tests.Append((Format-TargetOutput $b.Name $r.Output $r.Code))
         if ($r.Code -ne 0) { $arc = $r.Code }
+        # ⟨M03 E5⟩ A binary that left a process holding its pipes, or leftovers a timeout found.
+        if (-not $r.Drained -or $r.Leftovers.Count -gt 0) {
+            Add-Command 1 "$($b.Name): output pipes $(if ($r.Drained) { 'drained' } else { 'still open' }) after it ended; leftover heimdall processes under the run directory with their parent gone: $($r.Leftovers.Count)"
+            foreach ($l in $r.Leftovers) { Add-Fact "leftover-$($b.Name)-$($l.Pid)" (Format-Leftover $l) }
+            $overall = 1
+        }
     }
     if ($ArgvDump) {
         $drv = Join-Path $src 'tests\native\windows-launch\Invoke-WindowsLaunch.ps1'
@@ -890,6 +1059,12 @@ try {
     } else {
         [void]$skipped.Append("windows_launch: not run (the pseudoconsole drivers need argvdump.exe, built with Go; pass -ArgvDump)`n")
     }
+    # ⟨M03 E5⟩ What is left after every binary and driver ran (each recorded and stopped by exact PID).
+    $after = @(Stop-LeftoverHeimdall (Get-LeftoverHeimdall $run))
+    Add-Fact 'leftover-heimdall-after-tests' $after.Count
+    foreach ($l in $after) { Add-Fact "leftover-after-tests-$($l.Pid)" (Format-Leftover $l) }
+    Add-Command $(if ($after.Count -eq 0) { 0 } else { 1 }) "no heimdall process left under the run directory with its parent gone after the tests ($($after.Count) recorded and stopped by exact PID)"
+    if ($after.Count -gt 0) { $overall = 1 }
     Add-Command $arc 'every test binary natively, each under its timeout (overall exit = last failing binary''s exit, 0 if all passed)'
     if ($arc -ne 0) { $overall = 1 }
     Add-Fact 'test-pipes-after' (& $pipes)

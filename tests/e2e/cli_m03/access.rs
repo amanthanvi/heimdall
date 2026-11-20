@@ -102,9 +102,58 @@ impl Rt {
         ]
     }
 
+    /// ⟨M03 E7⟩ Fixture readiness: a command refused with `SERVICE_UNAVAILABLE`, effect
+    /// `none` and "the runtime did not become ready in time" changed nothing; the runtime
+    /// it started on demand may still come up (a debug build's cold start can exceed the
+    /// CLI's readiness wait under parallel load on Windows; M04 widens that wait). Then
+    /// the runtime gets up to 60 s to serve (`service status`, which never starts one),
+    /// and that same command is retried once, with a `fixture:` line. Any other failure
+    /// is never retried.
+    #[allow(clippy::print_stdout)] // the `fixture:` lines, for the evidence record
     fn run(&self, args: &[&str]) -> Out {
         let env = self.env();
         let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let out = run(&self.home, &self.account, args, &env);
+        let refused = out
+            .stdout
+            .lines()
+            .rev()
+            .find_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+            .is_some_and(|v| {
+                v["code"] == "SERVICE_UNAVAILABLE"
+                    && v["data"]["error"]["effect_status"] == "none"
+                    && v["data"]["error"]["message"] == "the runtime did not become ready in time"
+            });
+        if !refused {
+            return out;
+        }
+        let name = args
+            .iter()
+            .filter(|a| !a.starts_with('-') && !a.contains(['/', '\\']))
+            .take(3)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let start = std::time::Instant::now();
+        while run(
+            &self.home,
+            &self.account,
+            &["--json", "service", "status"],
+            &env,
+        )
+        .code
+            != 0
+        {
+            if start.elapsed() >= Duration::from_secs(60) {
+                println!("fixture: runtime not ready after 60 s; `{name}` is not retried");
+                return out;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        println!(
+            "fixture: runtime became ready after {} s; `{name}` retried once",
+            start.elapsed().as_secs()
+        );
         run(&self.home, &self.account, args, &env)
     }
 
@@ -285,17 +334,44 @@ impl Rt {
 impl Drop for Rt {
     fn drop(&mut self) {
         // The runtime this test started, in this test's own home (a no-op when none ran).
+        // ⟨M03 E6⟩ In the environment `run()` gives every command (on Windows `SystemRoot`,
+        // `PATH`, `TEMP` and `TMP`), and checked: a runtime left running outlives the test,
+        // and on Windows it holds the test binary's output pipes (it inherited them through
+        // the CLI that started it).
         let env = self.env();
         let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let _ = std::process::Command::new(bin())
-            .args(["--json", "service", "stop"])
+        let mut cmd = std::process::Command::new(bin());
+        cmd.args(["--json", "service", "stop"])
             .env_clear()
             .env("HEIMDALL_HOME", &self.home)
             .env("HOME", &self.account)
-            .env("PATH", "/usr/bin:/bin")
-            .envs(env)
-            .stdin(std::process::Stdio::null())
-            .output();
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .stdin(std::process::Stdio::null());
+        if cfg!(windows) {
+            for k in ["SystemRoot", "PATH", "TEMP", "TMP"] {
+                if let Some(v) = std::env::var_os(k) {
+                    cmd.env(k, v);
+                }
+            }
+        } else {
+            cmd.env("PATH", "/usr/bin:/bin");
+        }
+        cmd.envs(env);
+        let out = cmd.output();
+        // Never a panic here while the test is already panicking: the envelope is read
+        // without `Out::json`.
+        let stopped = out.as_ref().is_ok_and(|o| {
+            o.status.success()
+                && String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .rev()
+                    .find_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+                    .is_some_and(|v| v["data"]["running"] == false)
+        });
+        if !stopped && !std::thread::panicking() {
+            let code = out.as_ref().map_or(-1, |o| o.status.code().unwrap_or(-1));
+            panic!("`service stop` did not stop this test's runtime (exit {code})");
+        }
         let _ = &self.scratch;
     }
 }

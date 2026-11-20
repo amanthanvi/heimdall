@@ -17,9 +17,9 @@
 //! * [`a28`]: A28's managed rows (the real-binary versions of
 //!   `managed_store::live_tests::delegation_m05`);
 //! * [`u5`]: ordinary `ssh` activates the personal default (U5; rulings I-2, I-13, I-20);
-//! * [`pending_e5`]: the one assertion pending on M03 exit build E5 (a revoked or stopped
-//!   managed grant reaches `revoked` after its certificate's residual), `#[ignore]`d until
-//!   E5 lands on this base.
+//! * [`pending_e5`]: the assertion that waited for M03 exit build E5 (a revoked or stopped
+//!   managed grant reaches `revoked` after its certificate's residual); E5 is on this base,
+//!   so it runs.
 //!
 //! **Platforms.** Every row is `cfg(any(unix, windows))`. Windows runs need the harness's
 //! WSL fixture sshd (`HM_FIXTURE_SSHD_*` with its enrollment registry, and

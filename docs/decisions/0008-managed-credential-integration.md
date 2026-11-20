@@ -4824,6 +4824,89 @@ Wave 5 merges under §17.33 item 6. From wave 6 on, delivery follows ADR-0009.
    - a revoked managed grant reads `revoking` until its certificates' residual passes, then `revoked` (I-11);
    - on Windows, the live runtime's empty `service.lock` cannot be read by another process, and the A33 and A10 scans record it as a locked empty file.
 
+### 17.42 Exit build E5: the managed residual settles (2026-11-18)
+
+**Source:** the E4 macOS lock run. The owner unlocked after about 6 hours, and grant R still read
+`revoking` about 4 hours after its certificates' latest `valid_before`. D7 item 3's
+`bounded_by_expiry` settlement existed (`settle_bounded_obligations`), but no product path created
+the obligation: a managed revocation's residual stayed `needs_remote_action`, its retry rounds
+stopped after the cap, and the grant never reached `revoked`. Earlier lock runs had all ended inside
+the residual, so none could see it. This is a product gap from wave 0, not an E4 regression.
+
+1. **The ruling (orchestrator, I-12): fixed as a product change.** When the managed adapter's
+   `revoke()` answers with a residual still pending, the round's completion replaces that obligation
+   with one `bounded_by_expiry` obligation per pair:
+   - its `latest_valid_before` is the pair's latest reserved or published certificate's;
+   - its clock basis is the latest enrollment measurement while `fresh_until > now`, otherwise
+     `unmeasured` (which settles as `nominally_expired`, the record kept).
+
+   After a key-only restore the obligation stays `needs_remote_action`, as at E4. A grant with no
+   counted issuance entry clears. `owes()` counts only `needs_remote_action` obligations, and a
+   settled bounded obligation no longer keeps its grant `revoking`, so §17.41 item 5's
+   "`revoking` until the residual passes, then `revoked`" now holds end to end.
+2. **Uninstall.** §17.41 item 1's plain-path fence still compares an obligation's kind exactly. So a
+   residual that settles between the owner's confirmation and the fence refuses the plain uninstall
+   with `uninstall_inventory_changed`, as a changed `needs_remote_action` obligation does. The window
+   is seconds long, and the owner confirms again. Proof: `plain_uninstall_fence_compares_bounded_obligations`.
+3. **Proof:** two `managed_adapter` regressions and the mixed-order `runtime_m03` regression, each
+   failing against E4's code and passing with the fix. The end-to-end
+   `managed_revoke_reaches_revoked_once_the_residual_passes` (a 90 s certificate, through the real
+   binary) runs on every platform, and in WSL as the M03 scenario step of the same name.
+4. **The lock run is shortened.** R's window and certificate validity, and N's window, are 600 s,
+   with a 120 s residual margin. The post-unlock check therefore sees `revoked` inside a lock of
+   about 15–25 minutes, not hours.
+5. **Test-only:** A33's `k_ca` needles are the PEM lines that carry private-seed bytes. The
+   ed25519 key's second line holds only a checkint byte and the CA's public key, which a
+   certificate signed by that CA could match about once in 256 runs.
+
+### 17.43 Exit build E9: a background child never opens a console window (2026-11-19)
+
+**Source:** the E8 Windows harness run (`7b75c4c1`). The issuer child read `crashed`
+(`issuer_restarting`) in six `e2e_exit_m03` tests, 21 commands needed the fixtures' readiness retry,
+and the owner reported the PC unusable. The orchestrator traced it on the PC.
+
+1. **The platform fact.** A console program started by a process with no console gets a new console.
+   On a host whose default terminal is Windows Terminal (`HKCU\Console\%%Startup` names a
+   `DelegationConsole` and a `DelegationTerminal`), Windows hands that console off to the terminal:
+   a window or tab on the user's desktop, and the child's start waits on the hand-off.
+   - The runtime runs `DETACHED_PROCESS` (no console), and it spawned its non-interactive children
+     with no creation flags, so each got a new console. Observed on the PC: a `conhost.exe` under the
+     issuer child and under an `ssh.exe` the runtime started, and new `WindowsTerminal.exe` and
+     `OpenConsole.exe` processes.
+   - In the bad hour, a runtime's start-up before it advertised took 15.8–20.3 s, and the issuer child
+     never printed its first line within D3 item 7's 5 s hello bound. On the same host later, the
+     start-up took about 0.43 s and the hello about 0.13 s; a process that has a console starts in
+     about 30 ms. That tabs left by earlier runs slowed the hand-off is an inference, not proven.
+2. **The rule (orchestrator, I-24): an M03 product defect.** A background runtime never opens a
+   console window or a terminal tab on the user's desktop, and the issuer's availability never
+   depends on the terminal app. On Windows every non-interactive child Heimdall spawns (every
+   standard stream redirected or null) gets `CREATE_NO_WINDOW`, through one helper,
+   `heimdall_app::no_window!`:
+   - the issuer child (`issuer::client`);
+   - the runtime's verification `ssh` (`enroll::verify`) and its `ssh -G` (`runtime::service`);
+   - the runtime's owned connections, their `-O check` and `-O exit` included
+     (`runtime::connections`; a revocation's closes go through it);
+   - every local probe (`ssh -V`, `ssh -G`, `git` and the rest, `localenv::local_query`, which the
+     supervisor's probes use).
+
+   Unchanged:
+   - the runtime's own start (`DETACHED_PROCESS`);
+   - a launch that shares the user's terminal (`connect`, `run`, the launch crate);
+   - the CLI's enrollment steps (`enroll::remote` through the CLI's job containment). They run in
+     the CLI, whose children share the owner's console, and an interactive step needs it;
+   - `service stop`'s signal and the macOS keychain call, which are Unix-only and macOS-only.
+
+   D3 item 7's 5 s hello bound is unchanged.
+3. **Proof:** `e2e_exit_m03::windows_runtime_children_have_no_console_window` (Windows). Every child
+   the world's runtime has running once it serves, its issuer child at least, has no console window:
+   a helper process attaches to each child's console (`AttachConsole`) and reads
+   `GetConsoleWindow`. The orchestrator runs its revert proof on the PC.
+4. **Builds.** The helper is `cfg(windows)`. Elsewhere it is the command itself, and no line of a
+   file built there moved, so the macOS and Linux release `heimdall` are byte-identical to E8's,
+   which are E5's. E9 reruns the Windows harness only. The macOS, devbox, WSL and Docker evidence of
+   E5–E8 stands, and the macOS lock run at E8 binds to E9: E8..E9 changes `cfg(windows)` code and
+   Windows tests only.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

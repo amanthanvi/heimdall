@@ -27,7 +27,7 @@
 //!   the new revision, a request for the removed pair is refused, `run` without a profile
 //!   uses the new default); no decision is created.
 //!
-//! **Pending on M03 E5:** a stopped job's grant is asserted *no longer active* here; that
+//! **After M03 E5:** a stopped job's grant is asserted *no longer active* here; that
 //! it reaches `revoked` once its certificate's validity has passed is
 //! `pending_e5::e5_revoked_and_stopped_managed_grants_reach_revoked_after_the_residual`.
 //!

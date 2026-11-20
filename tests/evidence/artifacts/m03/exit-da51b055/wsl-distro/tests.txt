@@ -1,0 +1,95 @@
+### wsl_managed_ssh
+fact mode=disposable-distribution
+fact os=Linux
+fact ssh-V=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)
+fact git-version=git version 2.43.0 (exit 0)
+fact heimdall-version=heimdall 0.1.0-m01 (exit 0)
+setup key exit=0
+setup provider-agent-holds-the-disposable-key exit=0
+setup scratch-git-repository exit=0
+setup root-sshds-started-by-m03-sshd-start exit=0
+fact root-sshd-account-strictmodes=yes
+fact root-sshd-system-strictmodes=yes
+fact root-sshd-account-authorizedkeysfile=.ssh/authorized_keys
+fact root-sshd-system-authorizedkeysfile=.ssh/authorized_keys
+fact root-sshd-account-trustedusercakeys=none
+fact root-sshd-system-trustedusercakeys=set
+fact root-sshd-account-authorizedprincipalsfile=none
+fact root-sshd-system-authorizedprincipalsfile=set
+fact sshd-V=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)
+setup server-ports-and-host-keys exit=0
+fact user-config-sha256-before=aab01c0fe48558fcd8d9162241642e0f4770aa967634956e83bc6e479d1a5c77
+fact product-issuer-init=exit 4, CAPABILITY_UNAVAILABLE, issuer_store_unavailable
+fact product-key-material-files=0
+test m03_wsl_product_store_unavailable_no_plaintext_fallback ... ok
+fact time-confirmation-before-adopt=needed (exit 0)
+fact identity-adopt=OK (exit 0)
+setup identity-adopt-from-agent exit=0
+fact destination-add-account-form=OK (exit 0)
+setup destination-add-account-form exit=0
+fact destination-add-system-form=OK (exit 0)
+setup destination-add-system-form exit=0
+fact setup-apply-existing=OK (exit 0)
+setup setup-apply-existing-access exit=0
+fact issuer-init-scratch-store=exit 4, CAPABILITY_UNAVAILABLE, issuer_store_unavailable
+fact ca-provisioning=seeded-scratch-store (issuer init cannot register a test store on this platform)
+setup ca-key-in-the-scratch-store-and-its-active-record exit=0
+fact profile-create=OK (exit 0)
+setup profile-create exit=0
+fact issuer-status=ready (exit 0)
+setup issuer-ready exit=0
+fact time-confirm=OK (exit 0)
+setup time-confirm exit=0
+fact enroll-account-form=exit 0, OK, state verified, 
+fact account-registry=enrollment lines 1, existing-access lines 1
+test m03_wsl_enroll_account_form_verified ... ok
+fact account-form-registry=resolved by remote_home, server certificate acceptances through it 2
+test m03_wsl_account_form_registry_is_the_default_path ... ok
+fact enroll-system-form=exit 0, OK, state manual_pending
+fact enroll-verify-system-form=exit 0, OK, state verified, 
+fact system-form-server-acceptances-via-trusted-user-ca=2
+test m03_wsl_enroll_system_form_verified ... ok
+fact destination-prefer-account-form=OK (exit 0), 
+fact destination-prefer-system-form=OK (exit 0), 
+fact setup-apply-managed=OK (exit 0)
+fact user-config=the account's real ~/.ssh/config
+fact user-config-sha256-after-apply=f69039172f1807f393851959368aa03f6af6f85951033c32f8b97bb5becffb08
+fact managed-alias-heimdall-entries=account 1, system 1
+test m03_wsl_setup_apply_projects_the_managed_aliases ... ok
+fact ensure-acct-decision=approved (exit 0), operation succeeded
+fact ensure-acct=OK (exit 0), operation succeeded, ACCESS_READY
+fact ensure-sys-decision=approved (exit 0), operation succeeded
+fact ensure-sys=OK (exit 0), operation succeeded, ACCESS_READY
+fact issuer-child-processes=1
+test m03_wsl_access_ensure_signed_by_the_real_issuer_child ... ok
+fact slots-held-by-heimdall-run=no
+fact grants=3
+test m03_wsl_ordinary_ssh_managed_alias_without_f ... ok
+test m03_wsl_ordinary_git_managed_alias_without_f ... ok
+test m03_wsl_ordinary_scp_managed_alias_without_f ... ok
+test m03_wsl_ordinary_sftp_managed_alias_without_f ... ok
+test m03_wsl_system_form_ordinary_ssh_by_trusted_user_ca ... ok
+fact attributed-logins=account form 6 of 6 (plain publickey 0), system form 1 of 1 (plain publickey 0)
+test m03_wsl_logins_attributed_to_the_grant_certificate ... ok
+fact strictmodes-group-writable=exit 0, refusals logged 0 (registry group: private; recorded, not asserted)
+fact strictmodes-world-writable=exit 255, refusals logged 1
+test m03_wsl_strictmodes_refuses_a_world_writable_registry ... ok
+fact lock-behavior-revoke-on-lock=exit 4, CAPABILITY_UNAVAILABLE, lock_signal_unavailable
+test m03_wsl_revoke_on_lock_refused_lock_signal_unavailable ... ok
+fact access-revoke=OK (exit 0)
+fact access-revoke=OK (exit 0)
+fact access-revoke=OK (exit 0)
+fact after-revoke=fresh logins exit account 255, system 255; accepted since 0
+fact holder=exit 0
+test m03_wsl_revoke_then_fresh_login_refused ... ok
+fact ensure-residual-decision=approved (exit 0), operation succeeded
+fact ensure-residual=OK (exit 0), operation succeeded, ACCESS_READY
+fact residual-grant=revoke exit 0, revoking at the revocation, valid_before 89 s later
+fact residual-grant-after=absent at valid_before+3 s
+test m03_wsl_managed_revoke_revoked_once_the_residual_passes ... ok
+fact uninstall=OK (exit 0), enrollments named 2 of 2
+fact user-config-sha256-after-uninstall=aab01c0fe48558fcd8d9162241642e0f4770aa967634956e83bc6e479d1a5c77
+test m03_wsl_uninstall_lists_the_remote_enrollments ... ok
+test m03_wsl_uninstall_restores_the_users_config_bytes ... ok
+fact leftover-heimdall-processes=0
+### wsl_managed_ssh exit=0
