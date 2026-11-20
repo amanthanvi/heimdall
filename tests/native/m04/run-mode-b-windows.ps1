@@ -412,6 +412,15 @@ function Wait-SshReachable([scriptblock]$Probe, [int]$Seconds, [int]$IntervalMs,
     }
 }
 
+# ⟨U7a Windows job 2⟩ Whether a harness sshd that Windows never reached is restarted once: only on
+# the first try, only when the diagnosis says it is alive and listening on 127.0.0.1 inside the
+# distribution while every attempt from Windows was refused (WSL's localhost relay did not forward
+# the port: seen in three Windows runs, NAT mode). Anything else is not a relay symptom and fails
+# the run at once, as before.
+function Test-RelayRetry([int]$Try, [hashtable]$Diag, [string]$LastVerdict) {
+    return ($Try -eq 1 -and $Diag['process'] -eq 'alive' -and $Diag['listening'] -eq '127.0.0.1' -and $LastVerdict -eq 'refused')
+}
+
 # ⟨Windows run at 86cd513b⟩ The networking settings in a .wslconfig's [wsl2] section, read only:
 # `networkingMode` and `localhostForwarding`, each its value (a word; anything else is `other`)
 # or `unset` (WSL's defaults are NAT and forwarding on). Nothing else of the file is kept.
@@ -547,7 +556,7 @@ cd "$d" || exit 1
 HEIMDALL_E2E_BIN="$d/heimdall" HM_FIXTURE_HOOK="$d/hm-fixture-hook" HM_REPO_ROOT="$repo" \
 HEIMDALL_M04_CONTAINER_ENGINE="$2" HEIMDALL_M04_CONTAINER_IMAGE="$3" \
     "$d/e2e_platform_m04" --exact container::a15_container_mounted_flow container::a31_uninstall_with_a_live_container_binding \
-    --test-threads=1 --nocapture 2>&1
+    --test-threads=1 --show-output 2>&1
 '@
         # As the non-root user: remove exactly the harness sshd's directory.
         'sshd-dir-remove' = @'
@@ -731,6 +740,20 @@ function Invoke-SelfTest {
     $wr = Wait-SshReachable { 'refused' } 90 2000 { $script:fakeNow } { param($Ms) $script:fakeNow += $Ms / 1000 }
     Check 'W02 a sshd never reachable is given up after 90 s, with every attempt kept' (
         -not $wr.Ok -and $wr.Count -eq 46 -and $wr.Attempts[-1] -ceq 'attempt 46: refused (90.0 s)')
+    Check 'W04 the sshd is restarted once only for the relay symptom (try 1, alive, listening on 127.0.0.1, refused from Windows)' (
+        (Test-RelayRetry 1 @{ process = 'alive'; listening = '127.0.0.1' } 'refused') -and
+        -not (Test-RelayRetry 2 @{ process = 'alive'; listening = '127.0.0.1' } 'refused') -and
+        -not (Test-RelayRetry 1 @{ process = 'gone'; listening = '127.0.0.1' } 'refused') -and
+        -not (Test-RelayRetry 1 @{ process = 'alive'; listening = 'no' } 'refused') -and
+        -not (Test-RelayRetry 1 @{ process = 'alive'; listening = '127.0.0.1' } 'timeout') -and
+        -not (Test-RelayRetry 1 @{} ''))
+    $selfText2 = [System.IO.File]::ReadAllText($PSCommandPath)
+    Check 'W05 the restart stops the first sshd by its recorded identity and removes exactly its directory before the second try' (
+        $selfText2.Contains('if (Test-RelayRetry $sshdTry $diag $lastVerdict) {') -and $selfText2.Contains('(Get-SshdStopScript) + "`n") @($sshdWslDir) 120') -and
+        $selfText2.Contains('for ($sshdTry = 1; $sshdTry -le 2; $sshdTry++) {'))
+    Check 'O01 no command this runner executes passes --nocapture (it splits libtest''s result lines): the tests run with --show-output' (
+        -not ((Get-DistroScripts)['a15-run'].Contains('--nocapture')) -and ((Get-DistroScripts)['a15-run'].Contains('--show-output')) -and
+        (@((Get-TestPlan) | Where-Object { $_.Args -contains '--nocapture' }).Count -eq 0))
     Check 'W03 .wslconfig: only [wsl2] networkingMode and localhostForwarding are read, as words' (
         (Get-WslConfigNetworking "[experimental]`r`nnetworkingMode=nat`r`n[wsl2]`r`nmemory=8GB`r`nnetworkingMode = mirrored # note`r`n;localhostForwarding=false`r`n") -ceq 'networkingMode=mirrored; localhostForwarding=unset' -and
         (Get-WslConfigNetworking '') -ceq 'networkingMode=unset; localhostForwarding=unset' -and
@@ -1256,7 +1279,8 @@ try {
 
     # 6. The harness sshd in -2 (the two-distribution scenarios).
     if ($names.Count -eq 2) {
-        # 6. The harness sshd in -2, as the user.
+        # 6. The harness sshd in -2, as the user. ⟨U7a Windows job 2⟩ At most two tries (Test-RelayRetry).
+        for ($sshdTry = 1; $sshdTry -le 2; $sshdTry++) {
         $fxName = 'hm-m04-fx-' + (New-RandomHex 4)
         $r = Invoke-InDistro $names[1] $User $scripts['sshd-dir'] @($fxName) 300
         foreach ($l in ($r.Output -split "`n")) { if ($l -match '^([a-z-]+)=(.*)$') { $wv[$Matches[1]] = $Matches[2].Trim() } }
@@ -1299,7 +1323,7 @@ try {
             $port = [int]$fx['port']
             $waitClock = [System.Diagnostics.Stopwatch]::StartNew()
             $reach = Wait-SshReachable { Test-SshBanner $port } 90 2000 { $waitClock.Elapsed.TotalSeconds } { param($Ms) Start-Sleep -Milliseconds $Ms }
-            [void]$build.Append("### harness sshd reachability from Windows (127.0.0.1)`n$(($reach.Attempts -join "`n"))`n")
+            [void]$build.Append("### harness sshd reachability from Windows (127.0.0.1), try $sshdTry`n$(($reach.Attempts -join "`n"))`n")
             foreach ($a in $reach.Attempts) { Write-Host "harness sshd $a" }
         }
         if ($null -eq $reach -or -not $reach.Ok) {
@@ -1309,19 +1333,42 @@ try {
                 $last = ($reach.Attempts[-1] -split ': ', 2)[1]
                 'not reachable from Windows ({0} attempts in {1} s; last: {2})' -f $reach.Count, [int]$reach.Seconds, $last
             }
-            Add-Fact 'fixture-sshd' "unavailable: $why"
             # Why: the recorded sshd, a listener inside the distribution, WSL's networking mode.
+            $diag = @{}
             try {
                 $d = Invoke-InDistro $names[1] $User ($remoteLib + "`n" + $scripts['sshd-diagnosis'] + "`n") @($sshdWslDir, [string]$fx['port']) 120
                 foreach ($l in ($d.Output -replace "`r", '' -split "`n")) {
-                    if ($l -match '^(sshd-process|sshd-listening|networking-mode)=(.*)$') { Add-Fact "fixture-sshd-$($Matches[1] -replace '^sshd-', '')" $Matches[2] }
+                    if ($l -match '^(sshd-process|sshd-listening|networking-mode)=(.*)$') { $diag[$Matches[1] -replace '^sshd-', ''] = $Matches[2].Trim() }
                 }
-            } catch { Add-Fact 'fixture-sshd-diagnosis' "failed ($($_.Exception.GetType().Name))" }
+            } catch { $diag['diagnosis'] = "failed ($($_.Exception.GetType().Name))" }
+            $lastVerdict = if ($null -ne $reach -and $reach.Attempts.Count) { (($reach.Attempts[-1] -split ': ', 2)[1] -split ' ')[0] } else { '' }
+            $tag = if ($sshdTry -eq 1) { 'fixture-sshd' } else { "fixture-sshd-try$sshdTry" }
+            Add-Fact $tag "unavailable: $why"
+            foreach ($k in ($diag.Keys | Sort-Object)) { Add-Fact "$tag-$k" $diag[$k] }
+            if (Test-RelayRetry $sshdTry $diag $lastVerdict) {
+                # Harness-only: this sshd stopped by its recorded identity, its directory removed,
+                # and one more sshd started on a new port; both tries stay on record.
+                Add-Command 1 "harness sshd try $sshdTry`: alive and listening on 127.0.0.1 inside the distribution, refused from Windows throughout (WSL's localhost relay); stopped and restarted once on a new port"
+                $r = Invoke-InDistro $names[1] $User ($remoteLib + "`n" + (Get-SshdStopScript) + "`n") @($sshdWslDir) 120
+                Add-Fact "$tag-stopped" (Get-SshdAtEnd $r.Output)
+                $r = Invoke-InDistro $names[1] $User $scripts['sshd-dir-remove'] @($sshdWslDir) 120
+                Add-Command $r.Code "remove exactly the first harness sshd's directory"
+                if (-not $sshdProc.WaitForExit(30000)) { $sshdProc.Kill($true); $sshdProc.WaitForExit() }
+                if ($null -ne $sshdErr) { [void]$sshdErr.Wait(5000) }
+                $sshdProc.Dispose()
+                $sshdProc = $null
+                $sshdErr = $null
+                $sshdWslDir = ''
+                continue
+            }
             $wslconfig = Join-Path $env:USERPROFILE '.wslconfig'
             Add-Fact 'wslconfig-networking' $(if (Test-Path -LiteralPath $wslconfig -PathType Leaf) { Get-WslConfigNetworking (Get-Content -LiteralPath $wslconfig -Raw) } else { 'no .wslconfig (NAT, localhost forwarding on)' })
             Add-Command 1 'harness sshd in the second distribution reachable from Windows on 127.0.0.1'
             throw 'the harness sshd is unavailable'
         }
+        break
+        }
+        Add-Fact 'fixture-sshd-tries' ([string]$sshdTry)
         Add-Command 0 "harness sshd in the second distribution reachable from Windows on 127.0.0.1 (attempt $($reach.Count), $([int]$reach.Seconds) s)"
         $strictClock = [System.Diagnostics.Stopwatch]::StartNew()
         $strictOk = $fx.ContainsKey('strictport') -and ((Wait-SshReachable { Test-SshBanner ([int]$fx['strictport']) } 30 2000 { $strictClock.Elapsed.TotalSeconds } { param($Ms) Start-Sleep -Milliseconds $Ms }).Ok)
@@ -1400,7 +1447,9 @@ public static long IdleSeconds() {
             if (-not (Test-Path -LiteralPath $product)) { throw 'the heimdall binary was not built' }
             # The product's own read-only query (writes nothing; a scratch home that is never created).
             $lockEnv = New-ChildEnvironment @{ HEIMDALL_HOME = (Join-Path $run 'lock-home') }
-            $a = @('test', '--locked', '-p', 'heimdall', '--test', $Driver, '--', '--ignored', '--exact', $Filter, '--nocapture', '--test-threads=1')
+            # --show-output, never --nocapture: libtest's `test <name> ... ok` stays one line (the
+            # evidence generator reads it), and the driver's output follows it.
+            $a = @('test', '--locked', '-p', 'heimdall', '--test', $Driver, '--', '--ignored', '--exact', $Filter, '--show-output', '--test-threads=1')
             $denv = New-TestEnvironment @{ HM_LOCK_STATE_DIR = $lockState }
             $psi = [System.Diagnostics.ProcessStartInfo]::new($cargo)
             foreach ($x in $a) { $psi.ArgumentList.Add($x) }

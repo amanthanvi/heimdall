@@ -1344,6 +1344,35 @@ def make_bundle(files=None, commit="1" * 40, label="windows-synthetic", tamper=N
     return "agent report text before\n" + "\n".join(lines) + "\nand after\n"
 
 
+def make_m04_bundle(files=None, commit="1" * 40, label="windows-synthetic (M04 Mode B)", fmt=None, begin=None,
+                    end=None, drop=()):
+    """A bundle as run-mode-b-windows.ps1 writes it: the M04 format, its markers and its file set
+    (the M02 set plus distributions.txt). `fmt`, `begin`, `end` and `drop` build mixed bundles."""
+    import base64
+    import gzip
+    import hashlib
+    base = {
+        "tests.txt": "### a15-podman\ntest container::a31_x ... ok\n### a15-podman exit=0\n",
+        "commands.txt": "exit 0: wsl --import this run's distribution\n",
+        "host.txt": "os=Microsoft Windows [Version 10.0.26100.1000]\nwsl-version=WSL version: <addr>\n",
+        "build.txt": "",
+        "skipped.txt": "",
+        "distributions.txt": "registered-set-equal-to-before=yes\n",
+        "canary-scan.txt": "canary-prefix occurrences in saved output: 0\n",
+    }
+    base.update(files or {})
+    for name in drop:
+        del base[name]
+    doc = {"format": fmt or wb.M04_FORMAT, "commit": commit, "label": label, "exit": 0,
+           "files": base, "sha256": {k: hashlib.sha256(v.encode()).hexdigest() for k, v in base.items()}}
+    packed = gzip.compress(json.dumps(doc).encode())
+    b64 = base64.b64encode(packed).decode()
+    lines = [begin or wb.M04_BEGIN, "sha256-gzip: " + hashlib.sha256(packed).hexdigest()]
+    lines += [b64[i:i + 76] for i in range(0, len(b64), 76)]
+    lines.append(end or wb.M04_END)
+    return "agent report text before\n" + "\n".join(lines) + "\nand after\n"
+
+
 class WindowsBundle(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="m02wb")
@@ -1359,6 +1388,52 @@ class WindowsBundle(unittest.TestCase):
         self.assertEqual(len(digest), 64)
         self.assertEqual(n, 1)
         self.assertFalse((self.root / "exit-x" / ".windows-import").exists())
+
+    def test_a_mode_b_bundle_imports_into_a_wsl_platform_directory(self):
+        # ⟨M04 U7b⟩ The Mode B runner's format, markers and file set (distributions.txt), and the
+        # `wsl-containers` platform directory the container run imports as.
+        cfg_path = Path(self.tmp.name) / "runs.json"
+        cfg_path.write_text(json.dumps({"artifacts_root": str(self.root / "exit-x"),
+                                        "platforms": {"wsl-containers": {"label": "old", "unavailable": "not run"}}}))
+        dest, digest, n = wb.import_bundle(make_m04_bundle(), "exit-x", self.root, config=cfg_path,
+                                           commit="1" * 40, platform="wsl-containers")
+        self.assertEqual(dest, self.root / "exit-x" / "wsl-containers")
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(wb.M04_FILES))
+        self.assertIn("distributions.txt", wb.M04_FILES)
+        self.assertEqual(ev.parse_log(dest / "tests.txt"), {"a15-podman": {"container::a31_x": "ok"}})
+        self.assertEqual(n, 1)
+        self.assertEqual(len(digest), 64)
+        plat = json.loads(cfg_path.read_text())["platforms"]["wsl-containers"]
+        self.assertNotIn("unavailable", plat)
+        self.assertEqual(plat["logs"], ["wsl-containers/tests.txt"])
+        self.assertEqual(plat["label"], "windows-synthetic (M04 Mode B)")
+        # The M02 format still imports into the same kind of directory, and a bad directory is refused.
+        wb.import_bundle(make_bundle(), "exit-y", self.root, platform="wsl")
+        for bad in ("linux", "wsl_x", "wsl-", "windowsx", "wsl-A"):
+            with self.assertRaises(wb.Refused):
+                wb.import_bundle(make_m04_bundle(), "exit-z", self.root, platform=bad)
+
+    def test_a_mixed_bundle_is_refused_and_nothing_is_written(self):
+        # ⟨M04 U7b⟩ A format keeps its own markers and file set: M04 payload with the M02 file set,
+        # M02 payload with the M04 file set, a payload under the other format's markers, and both
+        # formats' markers in one report.
+        cases = {
+            "M04 format with the M02 file set": make_m04_bundle(drop=("distributions.txt",)),
+            "M02 format with the M04 file set": make_m04_bundle(fmt=wb.FORMAT),
+            "M02 markers around an M04 payload": make_m04_bundle(begin=wb.BEGIN, end=wb.END),
+            "M04 markers around an M02 payload": make_bundle().replace(wb.BEGIN, wb.M04_BEGIN).replace(wb.END, wb.M04_END),
+            "both formats' markers": make_bundle() + make_m04_bundle(),
+            "an unknown format": make_m04_bundle(fmt="heimdall-m04-other/1"),
+        }
+        for why, text in cases.items():
+            with self.subTest(why):
+                with self.assertRaises(wb.Refused):
+                    wb.import_bundle(text, "exit-x", self.root, commit="1" * 40, platform="windows-modeb")
+                self.assertFalse((self.root / "exit-x" / "windows-modeb").exists(), why)
+                self.assertFalse((self.root / "exit-x" / ".windows-modeb-import").exists(), why)
+        # The shared checks still apply to the M04 format: a canary prefix is refused.
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(make_m04_bundle({"distributions.txt": "HEIMDALL_CANARY_x\n"}), "exit-x", self.root)
 
     def test_the_config_is_pointed_at_the_files_and_loses_its_unavailable_mark(self):
         cfg_path = Path(self.tmp.name) / "runs.json"

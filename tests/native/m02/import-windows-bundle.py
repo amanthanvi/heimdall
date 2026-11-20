@@ -7,20 +7,24 @@ Usage (from the repository root, with `python3 -I`):
                            [--artifacts-root DIR]
 
 REPORT is any text that contains the bundle between its BEGIN and END markers (the local
-agent's report, or bundle.b64 itself). The import:
+agent's report, or bundle.b64 itself). Two formats are accepted (FORMATS): the M02 local-mode
+runner's and, from M04, tests/native/m04/run-mode-b-windows.ps1's
+`heimdall-m04-mode-b-windows-bundle/1` (its own markers; the M02 file set plus
+distributions.txt). A format must sit between its own markers and carry exactly its own file
+set; every other check applies to both unchanged. The import:
   * decodes the gzip+base64 payload and checks its sha256 line, the bundle format, the commit
     (40 hexadecimal digits; with --commit, exactly that one) and every file's sha256;
-  * accepts exactly the result files the runner writes (no path, no other name);
+  * accepts exactly the result files the format's runner writes (no path, no other name);
   * refuses a bundle that still carries a canary prefix, an unmasked user or domain SID, or a
     non-loopback IPv4 address (the runner redacts and masks those before anything leaves the
     PC; their presence is a defect, so nothing is written);
   * checks that the files are what m02-evidence.py reads: tests.txt has at least one
     "### <target>" result and its exit line, commands.txt has "exit N: ..." lines and host.txt
     has key=value facts;
-  * writes them into <artifacts-root>/<label>/windows/ (default artifacts root
-    tests/evidence/artifacts/m02), created exclusively: an existing, non-empty directory is
-    never overwritten;
-  * with --config, points that run configuration's `windows` platform at the files (logs,
+  * writes them into <artifacts-root>/<label>/<platform-dir>/ (default `windows`; `windows-<word>`
+    or, from M04, `wsl-<word>`; default artifacts root tests/evidence/artifacts/m02), created
+    exclusively: an existing, non-empty directory is never overwritten;
+  * with --config, points that run configuration's platform at the files (logs,
     commands_logs, facts, the bundle's label and artifact digest) and drops its
     `unavailable` mark, so `m02-evidence.py --config RUNS.json` reads them.
 Exit: 0 on success, 1 when the bundle is refused (nothing written), 2 for a usage error.
@@ -40,6 +44,17 @@ FORMAT = "heimdall-m02-windows-local-bundle/1"
 BEGIN = "-----BEGIN HEIMDALL M02 WINDOWS BUNDLE-----"
 END = "-----END HEIMDALL M02 WINDOWS BUNDLE-----"
 FILES = ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "canary-scan.txt")
+# ⟨M04 U7b⟩ The accepted bundle formats: {format: (begin marker, end marker, exact file set)}. The
+# M02 entry is the original; the Mode B runner (tests/native/m04/run-mode-b-windows.ps1,
+# $BundleFormat/$BeginMarker/$EndMarker/$BundleFiles) adds distributions.txt.
+M04_FORMAT = "heimdall-m04-mode-b-windows-bundle/1"
+M04_BEGIN = "-----BEGIN HEIMDALL M04 MODE B WINDOWS BUNDLE-----"
+M04_END = "-----END HEIMDALL M04 MODE B WINDOWS BUNDLE-----"
+M04_FILES = ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "distributions.txt", "canary-scan.txt")
+FORMATS = {
+    FORMAT: (BEGIN, END, FILES),
+    M04_FORMAT: (M04_BEGIN, M04_END, M04_FILES),
+}
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 MAX_PAYLOAD = 64 * 1024 * 1024
@@ -118,9 +133,15 @@ def load_generator():
 
 
 def decode(text):
-    """The bundle document from a report that contains it between the markers."""
+    """The bundle document from a report that contains it between the markers of one of the
+    accepted formats (FORMATS); the document's own format must be the one those markers name."""
     if len(text) > MAX_REPORT:
         raise Refused("the report is larger than the bundle bound")
+    present = [f for f, (begin, _, _) in FORMATS.items() if begin in text]
+    if len(present) > 1:
+        raise Refused("BEGIN markers of more than one bundle format")
+    fmt = present[0] if present else FORMAT
+    BEGIN, END, _ = FORMATS[fmt]
     start = text.find(BEGIN)
     end = text.find(END, start + 1 if start >= 0 else 0)
     if start < 0 or end < 0:
@@ -155,13 +176,16 @@ def decode(text):
         doc = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         raise Refused(f"the payload is not UTF-8 JSON: {e}") from None
+    if isinstance(doc, dict) and doc.get("format") != fmt:
+        raise Refused(f"the payload is not a {fmt} bundle, which these markers name")
     return doc
 
 
 def validate(doc, commit=None):
     """The checked files {name: text} of a decoded bundle."""
-    if not isinstance(doc, dict) or doc.get("format") != FORMAT:
-        raise Refused(f"not a {FORMAT} bundle")
+    if not isinstance(doc, dict) or doc.get("format") not in FORMATS:
+        raise Refused("not an accepted bundle format")
+    names = FORMATS[doc["format"]][2]
     c = doc.get("commit")
     if not isinstance(c, str) or not re.fullmatch(r"[0-9a-f]{40}", c):
         raise Refused("the bundle names no 40-hex commit")
@@ -176,10 +200,10 @@ def validate(doc, commit=None):
     files, sums = doc.get("files"), doc.get("sha256")
     if not isinstance(files, dict) or not isinstance(sums, dict):
         raise Refused("the bundle has no files")
-    if set(files) != set(FILES) or set(sums) != set(FILES):
+    if set(files) != set(names) or set(sums) != set(names):
         raise Refused("the bundle's files are not exactly the result files")
     out = {}
-    for name in FILES:
+    for name in names:
         text = files[name]
         if not isinstance(text, str):
             raise Refused(f"{name} is not text")
@@ -223,11 +247,12 @@ def import_bundle(text, label, artifacts_root, config=None, commit=None, platfor
     """(directory, digest, tests) after writing the files; raises Refused before writing.
 
     ⟨M03 wave 6⟩ `platform` is the platform directory and runs.json platform name (default
-    `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`)."""
+    `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`; ⟨M04⟩ the
+    Mode B runner's as `windows-modeb`, `windows-lock`, `wsl-containers` or `wsl-login`)."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", label or ""):
         raise Refused("the label must be [A-Za-z0-9._-] and not start with punctuation")
-    if not re.fullmatch(r"windows(-[a-z0-9]+)?", platform or ""):
-        raise Refused("the platform directory must be windows or windows-<word>")
+    if not re.fullmatch(r"(windows|wsl)(-[a-z0-9]+)?", platform or ""):
+        raise Refused("the platform directory must be windows, wsl, windows-<word> or wsl-<word>")
     doc = decode(text)
     files = validate(doc, commit)
     dest = Path(artifacts_root) / label / platform
@@ -252,7 +277,7 @@ def import_bundle(text, label, artifacts_root, config=None, commit=None, platfor
         stage.rmdir()
         raise
     h = hashlib.sha256()
-    for name in FILES:
+    for name in FORMATS[doc["format"]][2]:
         h.update(name.encode() + b"\0" + (dest / name).read_bytes() + b"\0")
     digest = h.hexdigest()
     if target:
@@ -292,7 +317,7 @@ def main(argv=None):
     ap.add_argument("--commit", help="the exit commit the bundle must name")
     ap.add_argument("--artifacts-root", default=str(ROOT / "tests" / "evidence" / "artifacts" / "m02"))
     ap.add_argument("--platform-dir", default="windows",
-                    help="the platform directory and runs.json platform (windows, or windows-<word> such as windows-lock)")
+                    help="the platform directory and runs.json platform (windows, wsl, or windows-<word> / wsl-<word> such as windows-lock, wsl-containers)")
     a = ap.parse_args(argv)
     try:
         text = read_report(a.bundle)
@@ -307,7 +332,7 @@ def main(argv=None):
     except Refused as e:
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1
-    print(f"imported {len(FILES)} files ({n} test results) into {dest}; artifact digest {digest}")
+    print(f"imported {sum(1 for _ in dest.iterdir())} files ({n} test results) into {dest}; artifact digest {digest}")
     return 0
 
 
