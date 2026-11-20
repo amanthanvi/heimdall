@@ -1,0 +1,15 @@
+case	exit	elapsed_ms	note
+S01-direct	0	84	ok-direct
+S02-restart-same-key	0	88	id_unchanged=yes ok-restart
+S03-not-allowlisted	255	51	refused_logged=1
+S04-endpoint-replaced	255	58	Connection closed by UNKNOWN port 65535 
+S05-helper-killed-mid-session	255	4593	ms_after_kill; session_total_ms=7316
+S05b-after-restart	0	90	ok-after-restart
+S06-proxy-cancelled	255	125	ms_after_kill
+S07-unreachable	255	4083	proxy="code":3
+S08-trace-stock	0	163	ok-trace serve_wildcard_binds=2 connect_wildcard_binds=2 serve_probe_connects=1 connect_probe_connects=1
+S08-trace-patched	0	155	ok-trace serve_wildcard_binds=0 connect_wildcard_binds=0 serve_probe_connects=0 connect_probe_connects=0
+S09-hostkey-changed	255	63	Host key verification failed;REMOTE HOST IDENTIFICATION HAS CHANGED;
+S10-relay-path	0	3147	ok-relay selected="relay":true,"ip":false,"selected":true
+S11-relay-only-no-udp	0	129	ok-relay-only udp_sockets=8 udp_binds=7
+S12-relay-down	255	9104	packets=      72 iroh_names=0 dst_set=> 127.0.0.1.35507: > 127.0.0.1.45538: > 127.0.0.1.47248: > 127.0.0.1.47844: > 127.0.0.1.48765: > 127.0.0.1.49567: > 127.0.0.1.49576: > 127.0.0.1.51745: > 127.0.0.1.51989: > 127.0.0.1.54105: > 127.0.0.1.54919: > 127.0.0.1.55251: > 127.0.0.1.55312: > 127.0.0.1.57130: > 127.0.0.1.60014: > 127.0.0.11.50870: > 172.21.0.2.56542: > 172.21.0.2.57160: > 172.21.0.2.57162: > 172.21.0.2.57172: > 172.21.0.2.57178: > 172.21.0.2.57188: > 172.21.0.2.57198: > 172.21.0.2.57202: > 172.21.0.2.57218: > 172.21.0.2.57224: > 172.21.0.2.57240: > 172.21.0.2.57242: > 172.21.0.2.57252: > 172.21.0.2.57260: > 172.21.0.2: > 172.21.0.3.3340: > 172.21.0.3.7842: > 172.21.0.3.80: 

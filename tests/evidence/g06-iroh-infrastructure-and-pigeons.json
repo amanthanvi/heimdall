@@ -1,0 +1,71 @@
+{
+  "case_id": "G06-iroh-infrastructure-and-pigeons",
+  "status": "verified",
+  "requirement_ids": [
+    "R-SS-07",
+    "R-SS-08",
+    "R-DI-07"
+  ],
+  "build_commit": null,
+  "artifact_digest": "see tests/evidence/artifacts/g06/build/digests-sizes.txt",
+  "environment": {
+    "host": "macOS 27 arm64 build host, Docker Desktop linux VM (aarch64)",
+    "images": "debian:trixie-slim + openssh-server/client 10.0p2 (Debian-7+deb13u4), tcpdump, strace; build: rust:1.99-slim-trixie (rustc 1.99.1)",
+    "probe": "prototypes/g06-iroh-ssh (iroh =1.4.2 tls-ring, tokio =1.54.1), linux-aarch64 release builds",
+    "worktree_head": "144fa477",
+    "network": "I01/I02: one ordinary docker bridge with outbound internet (n0 public relays/DNS); P00-P02: --internal networks + private iroh-relay --dev",
+    "provenance": {
+      "source_sha256_prefix_current_files": {
+        "Cargo.toml": "fe3f6dc287ee31b2",
+        "Cargo.lock": "c46314ed7035f2d6",
+        "build.sh": "73d3cdc03cde71a3",
+        "src/main.rs": "3b13ef56b1968905",
+        "patches/netdev-0.47.0-hm-no-route-probe.patch": "ab4327333c484427",
+        "harness/run.sh": "ef75a7a5ab657751 (interop mode added after the inet run; local and inet functions unchanged since the final local run)"
+      },
+      "binaries_by_row": {
+        "g06-patched sha256 484df785305a120b\u2026": "S01-S07, S08-patched, S09-S12 (both sides), P01 client",
+        "g06-stock 09f6bb6064f82140\u2026": "S08-stock",
+        "g06-portmapper 44d342e67d5062e8\u2026": "I01 both sides, I02 server",
+        "iroh-relay 259d76d9c5f12aef\u2026": "S10-S12 private relay, P00-P02 relay",
+        "pigeons b469f03a52751256\u2026": "I02a/I02b client, P00 roost, P02 client"
+      },
+      "full_digests": "tests/evidence/artifacts/g06/build/digests-sizes.txt"
+    }
+  },
+  "provider_versions": [
+    "iroh 1.4.2 (portmapper feature for I01)",
+    "iroh-pigeons 0.2.3 (crates.io, cargo install --locked)",
+    "pigeons repo a94fb5f (lockfile audited)",
+    "cargo-audit 0.22.1, advisory-db 472a4c9a"
+  ],
+  "started_at": "2026-11-18T22:31:00-05:00",
+  "commands_or_harness": [
+    "prototypes/g06-iroh-ssh/harness/run.sh <bins> <out> inet",
+    "prototypes/g06-iroh-ssh/harness/run.sh <bins> <out> interop",
+    "cargo-audit audit --json -f <lockfile>"
+  ],
+  "observed_result": {
+    "I01_n0_defaults": "exit 0; first path Relay(use1-1.relay.n0.iroh.link), 278 ms; outbound: 4 n0 relays (TCP443, UDP7842, TCP80 once), dns.iroh.link TCP443, SSDP 239.255.255.250:1900, UDP to the peer's public IP (redacted). Built with the portmapper feature and iroh's n0 preset: disclosure evidence for that preset only, not for any future Heimdall n0-public profile",
+    "I02a_pigeons_fly_vs_allowlisted_probe_server": "the probe server's allowlist named only the probe client; stock `pigeons fly` was refused (refusal logged in srv2-serve-i01.log); fly did not exit on refusal: ssh timed out, exit 124 (elapsed not timed by the harness)",
+    "I02b": "RAN: the server restarted with the I02a refused peer ID added (allowlist still active); `pigeons fly` presented a different endpoint ID (srv2-serve-i02.log names another refused peer) and was refused again; exit 124 at 60,086 ms. No allowlist-free attempt was made (boundary)",
+    "P01_probe_client_to_stock_roost_internal": "exit 0 (wire-compatible /pigeons/0)",
+    "P02_pigeons_fly_no_lookup": "exit 255: all address lookup services failed",
+    "roost_footprint": "retained stock-roost diff (interop/docker-diff-srv3.txt, fixture account path redacted): /etc/pigeons/endpoint_id, /root/.ssh/pigeons_ed25519{,.pub}; this is Pigeons' footprint, not Heimdall's",
+    "cargo_audit": "probe lock 358 pkgs: 0 vulns, unmaintained chrono; pigeons lock 472 pkgs: 0 vulns, unmaintained atomic-polyfill, chrono, paste; rustls 0.23.46 in both"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g06/inet/",
+    "tests/evidence/artifacts/g06/interop/",
+    "tests/evidence/artifacts/g06/build/"
+  ],
+  "limitations": [
+    "linux-arm64 containers on Docker Desktop's VM kernel only; linux-x64, macOS and Windows did not run this ssh suite",
+    "the probe stands in for heimdall transport connect|serve; install/remove/supervision/policy storage are M06-T04",
+    "DNS names were not decoded by tcpdump (Docker embedded DNS on a non-53 port); destinations were mapped to n0 host names with dig on the same day",
+    "the owner's public IP seen in the hole-punch attempt is redacted",
+    "started_at is approximate (from artifact mtimes, to the minute)",
+    "probe record; interop scope proven: probe client -> stock roost over a private relay (P01); reverse direction refused by design (rotating fly identities)",
+    "probe sources were uncommitted at run time; provenance gives current-file hashes and the binary digest used per row"
+  ]
+}

@@ -1,0 +1,5 @@
+{"event":"ready","id":"406b22d9f665e09b63cd08faf76318704f18bb395b19dbaa1a6d215765efed77","bound":[],"relay":"http://relay:3340","lookup":"none","portmapper":false}
+{"event":"connected","peer":"7606ea874b74288e40df9c4e7af0fa108bd2be55ec3ff57f0f2b2486ad5770ec","ms":5,"paths":[{"relay":true,"ip":false,"selected":true,"remote":"Relay(http://relay:3340/)"}]}
+{"event":"stream_open","ms":5}
+{"event":"stdin_done","ms":48,"result":"Ok(3789)"}
+{"event":"session_end","ms":48,"paths":[{"relay":true,"ip":false,"selected":true,"remote":"Relay(http://relay:3340/)"}],"down_result":"Ok(3781)","refused":false}

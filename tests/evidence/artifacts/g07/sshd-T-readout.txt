@@ -1,0 +1,23 @@
+# devbox (Ubuntu 24.04, OpenSSH 9.6p1), run as the unprivileged account, 2026-11-19 (revision 3 probe; read-only)
+# 1) sshd -T -C "user=<user>,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=22"
+rc=1 lines=0
+sshd: no hostkeys available -- exiting.
+# (system host keys are mode -rw------- root; /etc/ssh/sshd_config is -rw-r--r--)
+# 2) the same, plus -h <scratch fixture host key generated for this check, deleted after>
+rc=0 lines=93 stderr_lines=0
+usepam yes
+permittty yes
+allowtcpforwarding yes
+allowagentforwarding yes
+disableforwarding no
+allowstreamlocalforwarding yes
+forcecommand none
+authorizedkeyscommand none
+authorizedprincipalscommand none
+authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2
+acceptenv LANG
+acceptenv LC_*
+authenticationmethods any
+permituserenvironment no
+# sshd_config.d: 4 files, all -rw-r--r-- (names withheld)
+# scratch dir created with mktemp under the account home, removed in the same command ("cleaned")
