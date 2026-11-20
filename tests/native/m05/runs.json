@@ -148,7 +148,8 @@
       "summary": "Concurrent environments: defaults do not redirect running work; stopping one job leaves the other; cleanup leaves no binding or slot (R-AU-03). Two native environments in scratch homes, labelled two environments, one OS user.",
       "limitations": [
         "deferred_with_decision to M04's exit (m05-plan Q9): the WSL pair and the container pair.",
-        "Blocked: the arm64 rows (B9)."
+        "Blocked: the arm64 rows (B9).",
+        "A handover inside a second environment is no longer proven: M04 adapted slots_m05::a16_concurrent_environments_defaults_and_cleanup (ADR-0010 §4 item 3 allows one binding per container), so the second environment's second job is refused environment_busy and its slot clears instead of handing over. Still proven: the native share and handover, separate slots and references per environment, defaults and pins, per-environment cleanup. A16's container row is M04's (ADR-0011; m05-plan Q9)."
       ]
     },
     "A18": {

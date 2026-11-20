@@ -2919,6 +2919,17 @@
           "description": "Destination ID.",
           "$ref": "#/$defs/DestinationId"
         },
+        "jump": {
+          "description": "⟨M05⟩ Revision 5.3 (ADR-0006 §17.11 item 23): the jump destination of a managed\ndestination reached through a single-hop jump (its route's `jump`), as a reference to\nthat destination's ID. Import resolves it against the bundle or the local catalog, or\nrefuses the destination (`jump_unresolved`); a jump route is never imported as a direct\none. Omitted for a direct or observed destination.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DestinationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "port": {
           "description": "Port.",
           "type": [

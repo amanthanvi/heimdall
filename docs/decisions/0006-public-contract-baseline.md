@@ -2243,3 +2243,25 @@ against the profile's latest definition and stores no revision, and its approval
 lock behaviour unchanged when the recorded `background_work` is absent, so `profile_revision`
 and `lock_behavior` would have no fixed value. Its recorded action is already exactly the
 authority it adds (ruling I-14), and the CLI and TUI show that action.
+
+### 17.11 Revision 5.3 (M05 wave 4)
+
+*Ruled by the contract owner on 2026-11-20, with M05 wave 4's final candidate (the portable
+bundle dropped a route's jump). Additive on revisions 5, 5.1 and 5.2, gated on `trusted-work/1`
+like the bundle it extends: every earlier document, stored record, request hash and golden is
+byte-identical, the code table stays at 30 rows, and the schema major stays `"1"` (§9).*
+
+| Item | What landed | Where |
+|---|---|---|
+| 23 | **A route's jump in the portable bundle.** `PortableDestination.jump: Option<DestinationId>` (`#[serde(default, skip_serializing_if = "Option::is_none")]`): the jump destination of a managed destination reached through a single-hop jump (its route's `jump`, revision 5's ADR-0010 §5 item 1), as a reference to that destination's ID; omitted for a direct or observed destination. **Export** writes it (plain and redacted: it is an ID, never a host name). **Import** resolves it against the bundle (a destination there with no jump of its own) or the local catalog (a managed destination with no jump of its own); otherwise it refuses that destination with the finding `jump_unresolved` (a `conflict` entry; nothing is written for it), and a chain is unresolved too (`route_chain_unsupported`). An import entry shows the `jump` it names, and a local managed destination matches a bundle's only when their jumps are equal (a direct and a routed destination are `differs_locally`, never `unchanged`). A jump route is never imported as a direct one: import still writes only observed destinations (§17.9), now with the route shown in the plan. The bundle schema's closed `PortableDestination` gains the optional `jump` property | `contract::project` (`PortableDestination`), `project::portable` (the closed key list; a destination is never its own jump), `app::operations::portable_m05` (export, plan), `schemas/project/portable.schema.json`, `schemas/public-api/{request,ipc.client-message}.schema.json` (the bundle `apply_import` carries) |
+
+**Why.** A bastion destination exported without its jump read, on import and in the plan, as a
+destination reached directly: the owner could re-create it as direct, bypassing the bastion, and
+a direct local destination compared `unchanged` with a routed one.
+
+**Proofs.** `integration_portable::a_bastion_destination_round_trips_with_its_jump` (the export
+names the jump; a second installation's plan adds both destinations and shows the jump; a
+re-import into the exporter is a no-op; a bundle routing the direct destination through the
+bastion is `differs_locally`) and `an_unresolved_jump_refuses_its_destination_on_import` (an
+unknown jump and a two-hop chain are `jump_unresolved`, nothing is written for them, the rest
+applies); `schema_export::checked_in_public_api_matches_the_model_exactly` and the `schema` check.

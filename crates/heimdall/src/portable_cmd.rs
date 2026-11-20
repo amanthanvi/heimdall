@@ -232,6 +232,10 @@ pub(crate) fn render_plan(v: &serde_json::Value) -> String {
         if let Some(r) = e.get("reason").and_then(|r| r.as_str()) {
             line.push_str(&format!(" ({r})"));
         }
+        // ⟨M05; ADR-0006 §17.11 item 23⟩ A destination reached through a jump says so.
+        if let Some(j) = e.get("jump").and_then(|j| j.as_str()) {
+            line.push_str(&format!(", reached through the jump destination {j}"));
+        }
         out.push_str(&line);
         out.push('\n');
     }

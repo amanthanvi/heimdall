@@ -76,6 +76,8 @@ const DESTINATION_KEYS: &[&str] = &[
     "port",
     "account",
     "host_key_fingerprints",
+    // ⟨M05⟩ Revision 5.3 (ADR-0006 §17.11 item 23): the route's jump destination.
+    "jump",
 ];
 const IDENTITY_KEYS: &[&str] = &["fingerprint", "provider"];
 const PROFILE_KEYS: &[&str] = &["id", "pairs"];
@@ -258,6 +260,8 @@ fn validate(bundle: &PortableBundle) -> Result<(), BundleError> {
             && d.hostname.as_deref().is_none_or(valid_hostname)
             && d.host_key_fingerprints.len() <= MAX_BUNDLE_ENTRIES
             && d.host_key_fingerprints.iter().all(|f| valid_fingerprint(f))
+            // ⟨M05; §17.11 item 23⟩ A destination is never its own jump.
+            && d.jump.as_ref() != Some(&d.id)
     });
     let identities = bundle.identities.iter().all(|i| {
         valid_fingerprint(&i.fingerprint)

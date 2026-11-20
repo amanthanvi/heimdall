@@ -136,6 +136,19 @@ impl Job {
     }
 }
 
+/// ⟨W4 pre-final, Windows⟩ A job dropped on a failing path still tells its worker to end
+/// (the `go` and `end` files) before its `heimdall run` is killed through its handle: the
+/// worker `run` started is its own process and would otherwise wait on, holding the test's
+/// output pipes open after the test ended.
+impl Drop for Job {
+    fn drop(&mut self) {
+        if self.worker.is_some() {
+            let _ = std::fs::write(&self.go, b"");
+            let _ = std::fs::write(&self.end, b"");
+        }
+    }
+}
+
 /// The login labelled `label` succeeded (its marker came back).
 fn logged_in(w: &World, results: &[Value], label: &str, what: &str) {
     let r = worker::result(results, "login", Some(label));
@@ -261,7 +274,7 @@ fn a16_two_environments_defaults_and_cleanup() {
         );
         assert!(matches!(m05::slot(w, 1), SlotState::Free { .. }));
     }
-    let accepted = server_accepted(&a, mark);
+    let accepted = server_accepted(&a, mark, 4);
     accepted_for(
         &a,
         &accepted,
@@ -318,7 +331,7 @@ fn a16_two_environments_defaults_and_cleanup() {
             logged_in(w, &r, "after", &j.work);
         }
     }
-    let accepted = server_accepted(&a, mark);
+    let accepted = server_accepted(&a, mark, 4);
     accepted_for(
         &a,
         &accepted,
@@ -387,7 +400,7 @@ fn a16_two_environments_defaults_and_cleanup() {
     );
     let out = m05::ssh(&b, 0, "true");
     assert_eq!(out.code, 0, "B's alias: {}", b.redact(&out.stderr));
-    let accepted = server_accepted(&a, mark);
+    let accepted = server_accepted(&a, mark, 2);
     accepted_for(&a, &accepted, 1, &kept_binding.grant, "A after the stop");
     accepted_for(
         &b,
@@ -448,9 +461,20 @@ fn a16_two_environments_defaults_and_cleanup() {
     b.stop_runtime();
 }
 
-/// The certificates the shared server accepted since `mark` (any world's).
-fn server_accepted(w: &World, mark: u64) -> Vec<heimdall_testkit::sshd::AcceptedCert> {
-    w.accepted_since(0, mark)
+/// The certificates the shared server accepted since `mark` (any world's), read once at
+/// least `want` are in its log or 30 s have passed. Every login counted has already
+/// succeeded (its marker came back), so its line is only waiting to be written: on Windows the
+/// harness's WSL `sshd` log, read from the Windows side, can show the last login's line a
+/// moment later (the W4 pre-final run read 3 of 4). The counts are asserted exactly after it.
+fn server_accepted(w: &World, mark: u64, want: usize) -> Vec<heimdall_testkit::sshd::AcceptedCert> {
+    let start = std::time::Instant::now();
+    loop {
+        let all = w.accepted_since(0, mark);
+        if all.len() >= want || start.elapsed() > Duration::from_secs(30) {
+            return all;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 #[cfg(any(unix, windows))]
@@ -555,7 +579,7 @@ fn a04_default_and_profile_change_never_redirects_bindings() {
     }
     accepted_for(
         &w,
-        &server_accepted(&w, mark),
+        &server_accepted(&w, mark, 2),
         2,
         &holder_grant,
         "after the changes",

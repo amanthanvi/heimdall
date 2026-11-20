@@ -1121,8 +1121,11 @@ async fn a29_hostile_manifest_files_are_refused_explicitly_and_bounded() {
         ),
     ];
     let mut special: Vec<(&str, PathBuf)> = Vec::new();
-    for (name, bytes) in &cases {
-        let repo = w.s.init_repo(name, None).unwrap();
+    // Each checkout is named by its index, not its case: a case named `nul` is a reserved
+    // device name on Windows, where no directory can have it (the W4 pre-final run's
+    // `NotADirectory`).
+    for (i, (name, bytes)) in cases.iter().enumerate() {
+        let repo = w.s.init_repo(&format!("hostile-{i}"), None).unwrap();
         std::fs::write(repo.join(".heimdall.toml"), bytes).unwrap();
         special.push((name, repo));
     }

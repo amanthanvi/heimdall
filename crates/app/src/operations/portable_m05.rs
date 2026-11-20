@@ -107,14 +107,20 @@ pub(crate) fn export_bundle(
 ) -> heimdall_store::Result<PortableBundle> {
     let mut input = BundleInput::default();
     for d in tx.destinations()? {
-        let (hostname, port, account) = match &d.definition {
+        let (hostname, port, account, jump) = match &d.definition {
             DestinationDefinition::Managed {
                 hostname,
                 port,
                 account,
+                jump,
                 ..
-            } => (Some(hostname.clone()), *port, Some(account.clone())),
-            _ => (None, None, None),
+            } => (
+                Some(hostname.clone()),
+                *port,
+                Some(account.clone()),
+                jump.clone(),
+            ),
+            _ => (None, None, None, None),
         };
         input.destinations.push(PortableDestination {
             id: d.id,
@@ -125,6 +131,8 @@ pub(crate) fn export_bundle(
             // The catalog holds no host-key record; a host key lives with an enrollment,
             // which never travels.
             host_key_fingerprints: Vec::new(),
+            // ⟨M05; ADR-0006 §17.11 item 23⟩ A route's jump travels as its destination ID.
+            jump,
         });
     }
     for i in tx.identities()? {
@@ -179,6 +187,10 @@ pub(crate) struct Entry {
     /// and then dropped.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub host_key_fingerprints: Vec<String>,
+    /// ⟨M05; ADR-0006 §17.11 item 23⟩ A destination's jump destination, as the bundle names
+    /// it, shown so a jump route is never read as a direct one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jump: Option<DestinationId>,
 }
 
 /// A snapshot of the local catalog the plan is computed against.
@@ -219,6 +231,7 @@ fn entry(kind: &'static str, id: String, status: Status, reason: Option<&'static
         status,
         reason,
         host_key_fingerprints: Vec::new(),
+        jump: None,
     }
 }
 
@@ -235,11 +248,14 @@ fn same_destination(local: &DestinationRecord, d: &PortableDestination, redacted
             hostname,
             port,
             account,
+            jump,
             ..
         } => {
             d.hostname.as_ref().is_none_or(|h| h == hostname)
                 && d.port.is_none_or(|p| Some(p) == *port)
                 && d.account.as_ref().is_none_or(|a| a == account)
+                // ⟨§17.11 item 23⟩ A route through a jump is never the same as a direct one.
+                && d.jump == *jump
         }
         _ => true,
     }
@@ -271,10 +287,34 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
         .collect();
     let mut seen_ids: BTreeSet<&DestinationId> = BTreeSet::new();
     let mut claimed_aliases: BTreeSet<&str> = BTreeSet::new();
+    // ⟨M05; ADR-0006 §17.11 item 23⟩ Where a jump may resolve: a destination of the bundle
+    // with no jump of its own, or one of the local catalog's (a managed one with no jump of its
+    // own; an observed one has no route Heimdall knows and cannot be a jump).
+    let bundle_jumps: BTreeMap<&DestinationId, bool> = bundle
+        .destinations
+        .iter()
+        .map(|d| (&d.id, d.jump.is_none()))
+        .collect();
+    let resolves = |d: &PortableDestination| match &d.jump {
+        None => true,
+        Some(j) => {
+            bundle_jumps.get(j).copied().unwrap_or(false)
+                || by_id.get(j).is_some_and(|r| {
+                    matches!(
+                        r.definition,
+                        DestinationDefinition::Managed { jump: None, .. }
+                    )
+                })
+        }
+    };
     for d in &bundle.destinations {
         let id = d.id.as_str().to_owned();
         let (status, reason) = if !seen_ids.insert(&d.id) {
             (Status::Conflict, Some("duplicate_in_bundle"))
+        } else if !resolves(d) {
+            // Refused, never added as a direct route: the jump it names is neither in the
+            // bundle nor here, or is itself routed through a jump (`route_chain_unsupported`).
+            (Status::Conflict, Some("jump_unresolved"))
         } else if let Some(stored) = by_id.get(&d.id) {
             if same_destination(stored, d, bundle.redacted) {
                 (Status::Unchanged, None)
@@ -292,6 +332,7 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
         };
         let mut e = entry("destination", id, status, reason);
         e.host_key_fingerprints = d.host_key_fingerprints.clone();
+        e.jump = d.jump.clone();
         out.entries.push(e);
     }
     let mut seen_fingerprints: BTreeSet<&str> = BTreeSet::new();
@@ -441,6 +482,7 @@ mod tests {
                 port: None,
                 account: Some(AccountName::parse("deploy").unwrap()),
                 host_key_fingerprints: vec![fp('A')],
+                jump: None,
             }],
             identities: vec![PortableIdentity {
                 fingerprint: fp('B'),

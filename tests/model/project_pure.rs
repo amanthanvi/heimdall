@@ -1975,6 +1975,7 @@ fn bundle_input() -> impl Strategy<Value = BundleInput> {
                 port,
                 account: account.map(|a| AccountName::parse(&a).unwrap()),
                 host_key_fingerprints: fps.into_iter().map(fingerprint).collect(),
+                jump: None,
             },
         );
     let identity = (
@@ -2113,6 +2114,7 @@ fn bundle_fixed_cases() {
             port: Some(2222),
             account: Some(AccountName::parse("deploy").unwrap()),
             host_key_fingerprints: vec![fingerprint(1)],
+            jump: None,
         }],
         identities: vec![PortableIdentity {
             fingerprint: fingerprint(2),

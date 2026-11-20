@@ -491,7 +491,10 @@ can still use the shared ordinary alias while another referencer holds it (R3).
   and a usable grant whose bound has passed is re-checked a second later: a timer wake can land
   a few milliseconds before the wall bound, so that pass ends nothing, and the bound used to be
   dropped from the next wake (the W4 candidate saw a cut-off grant stay `active` for 302 s while
-  its next login was already refused). A pause ends nothing, so it needs no wake.
+  its next login was already refused). The re-check covers **every grant bound**, a grant's own
+  deadline and its anchored bound included, not only cutoffs: before it, a just-passed deadline
+  could also be enforced up to 300 s late (M01/M03 behaviour, recorded in `m03-exit.md` §5). A
+  pause ends nothing, so it needs no wake.
 - **Narrowing actions** are never blocked by uncertain time. Widening actions are refused while time
   is uncertain (ADR-0006 §13.6 item 6).
 
