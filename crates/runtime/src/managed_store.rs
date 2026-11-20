@@ -68,6 +68,9 @@ pub struct StoreSources {
     floor: Arc<RwLock<LockBehavior>>,
     /// The issuer client whose last observed status `issuer()` reports.
     issuer: Arc<RwLock<Option<Arc<dyn IssuerPort>>>>,
+    /// ⟨M03-F1⟩ The verified `ssh` client's version (`10.5p1`), against which the claim
+    /// table's client ranges are judged; `None` until the runtime selects one.
+    client_version: Arc<RwLock<Option<String>>>,
 }
 
 impl std::fmt::Debug for StoreSources {
@@ -88,7 +91,17 @@ impl StoreSources {
             terms: Arc::default(),
             floor: Arc::new(RwLock::new(LockBehavior::Continue)),
             issuer: Arc::default(),
+            client_version: Arc::default(),
         }
+    }
+
+    /// ⟨M03-F1⟩ Set the verified `ssh` client's version that `ManagedSourceRead::host`
+    /// reports (ADR-0008 D12 item 2; `None`: no claim applies).
+    pub fn set_client_version(&self, version: Option<String>) {
+        *self
+            .client_version
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = version;
     }
 
     /// Set the R3 lock floor joined into every recorded lock behaviour (call before
@@ -156,6 +169,15 @@ impl StoreSources {
 }
 
 impl ManagedSourceRead for StoreSources {
+    fn host(&self) -> heimdall_domain::claims::HostFacts {
+        heimdall_adapters::managed::prepare::default_host(
+            self.client_version
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
+        )
+    }
+
     fn enrollments(&self, pairs: &[AccessPair]) -> Vec<EnrollmentRecord> {
         self.read(|tx| {
             let mut out = Vec::new();
@@ -1672,6 +1694,9 @@ mod live_tests {
         }
         fn slots(&self, pairs: &[AccessPair]) -> Vec<heimdall_app::ports::ManagedSlot> {
             self.inner.slots(pairs)
+        }
+        fn host(&self) -> heimdall_domain::claims::HostFacts {
+            self.inner.host()
         }
         fn claims(&self) -> Vec<heimdall_domain::claims::Claim> {
             self.inner.claims()

@@ -115,6 +115,46 @@ pub fn account_home() -> Result<PathBuf, SysError> {
     }
 }
 
+/// ⟨M03-F1⟩ The host's OS release, against which a claim's `os_floor` is judged (ADR-0008
+/// D12 item 2): the macOS product version (`SystemVersion.plist`), the Linux kernel
+/// release (`/proc/sys/kernel/osrelease`, which in WSL is the WSL kernel's), the Windows
+/// `major.minor.build` (the registry's `CurrentVersion` key, read only). `None` when it
+/// cannot be read: no claim applies then.
+#[must_use]
+pub fn os_release() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let text =
+            std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok()?;
+        plist_product_version(&text)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let text = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok()?;
+        let release = text.trim();
+        (!release.is_empty()).then(|| release.to_owned())
+    }
+    #[cfg(windows)]
+    {
+        windows::os_release()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        None
+    }
+}
+
+/// ⟨M03-F1⟩ The `ProductVersion` string of a macOS `SystemVersion.plist`.
+#[must_use]
+pub fn plist_product_version(text: &str) -> Option<String> {
+    let after = text.split("<key>ProductVersion</key>").nth(1)?;
+    let start = after.find("<string>")? + "<string>".len();
+    let end = after[start..].find("</string>")?;
+    let version = after[start..start + end].trim();
+    let ok = !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.');
+    ok.then(|| version.to_owned())
+}
+
 /// The real user ID of this process.
 #[cfg(unix)]
 #[must_use]
@@ -1064,6 +1104,67 @@ mod windows {
             .map_err(|_| SysError::new("LookupAccountSidW", "account name is not UTF-16"))
     }
 
+    /// ⟨M03-F1⟩ `major.minor.build` from `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`
+    /// (`CurrentMajorVersionNumber`, `CurrentMinorVersionNumber`, `CurrentBuildNumber`), read
+    /// only; `None` when a value is missing.
+    pub(super) fn os_release() -> Option<String> {
+        use windows_sys::Win32::System::Registry::{
+            HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
+        };
+        let wide = |s: &str| -> Vec<u16> { OsStr::new(s).encode_wide().chain(Some(0)).collect() };
+        let key = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+        let dword = |name: &str| -> Option<u32> {
+            let name = wide(name);
+            let mut value: u32 = 0;
+            let mut len = u32::try_from(std::mem::size_of::<u32>()).ok()?;
+            // SAFETY: valid NUL-terminated key and value names; `value` is writable storage of
+            // `len` bytes and `len` a valid in/out size.
+            let rc = unsafe {
+                RegGetValueW(
+                    HKEY_LOCAL_MACHINE,
+                    key.as_ptr(),
+                    name.as_ptr(),
+                    RRF_RT_REG_DWORD,
+                    ptr::null_mut(),
+                    (&raw mut value).cast::<c_void>(),
+                    &raw mut len,
+                )
+            };
+            (rc == 0).then_some(value)
+        };
+        let build = {
+            let name = wide("CurrentBuildNumber");
+            let mut buf = [0u16; 64];
+            let mut len = u32::try_from(std::mem::size_of_val(&buf)).ok()?;
+            // SAFETY: as above; `buf` is writable storage of `len` bytes.
+            let rc = unsafe {
+                RegGetValueW(
+                    HKEY_LOCAL_MACHINE,
+                    key.as_ptr(),
+                    name.as_ptr(),
+                    RRF_RT_REG_SZ,
+                    ptr::null_mut(),
+                    buf.as_mut_ptr().cast::<c_void>(),
+                    &raw mut len,
+                )
+            };
+            if rc != 0 {
+                return None;
+            }
+            let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            String::from_utf16(&buf[..n]).ok()?
+        };
+        let build = build.trim();
+        if build.is_empty() || !build.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        Some(format!(
+            "{}.{}.{build}",
+            dword("CurrentMajorVersionNumber")?,
+            dword("CurrentMinorVersionNumber")?
+        ))
+    }
+
     pub(super) fn account_home() -> Result<PathBuf, SysError> {
         let token = process_token()?;
         let mut size: u32 = 0;
@@ -1541,6 +1642,37 @@ mod windows {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    /// ⟨M03-F1⟩ A macOS `SystemVersion.plist` gives its `ProductVersion`; anything that is
+    /// not a dotted number is refused.
+    #[test]
+    fn plist_product_version_reads_the_product_version() {
+        let plist = "<plist><dict>\n\t<key>ProductBuildVersion</key>\n\t<string>26B131</string>\n\t<key>ProductVersion</key>\n\t<string>27.2.1</string>\n</dict></plist>";
+        assert_eq!(
+            super::plist_product_version(plist).as_deref(),
+            Some("27.2.1")
+        );
+        assert_eq!(
+            super::plist_product_version("<key>ProductVersion</key><string>x</string>"),
+            None
+        );
+        assert_eq!(
+            super::plist_product_version("<key>ProductName</key><string>macOS</string>"),
+            None
+        );
+    }
+
+    /// ⟨M03-F1⟩ The host's OS release reads on every supported platform (a claim's floor
+    /// is judged against it), and never as an empty string.
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
+    #[test]
+    fn os_release_reads_on_this_platform() {
+        let release = super::os_release().expect("the OS release");
+        assert!(
+            release.starts_with(|c: char| c.is_ascii_digit()),
+            "{release}"
+        );
+    }
+
     #[test]
     fn account_home_is_absolute_and_never_read_from_home_variable() {
         let home = super::account_home().unwrap();

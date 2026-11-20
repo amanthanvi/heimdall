@@ -17,9 +17,9 @@
 //! is not the platform's product store: test-store evidence never satisfies a
 //! product-store claim (F03).
 //!
-//! **The M03 baseline table is empty.** Keep each entry as one `Claim { … }` struct
-//! literal with every field written out, string literals only, so the validator can
-//! read it without a Rust parser.
+//! **The M03 baseline table was empty**; the M03 claim update adds the A07 and A23 fields
+//! ([`CLAIMS`]). Keep each entry as one `Claim { … }` struct literal with every field
+//! written out, string literals only, so the validator can read it without a Rust parser.
 
 /// The build profile of the run that produced a claim's evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -89,8 +89,415 @@ pub fn product_store_kinds(os: &str) -> &'static [&'static str] {
     }
 }
 
-/// The claim table. Empty in the M03 baseline (ADR-0008 D12 item 3).
-pub const CLAIMS: &[Claim] = &[];
+/// The claim table (ADR-0008 D12 item 3). ⟨M03 claim update⟩ The A07 and A23 fields (m03-plan §3, "claim
+/// update"), each from its `verified` row of the M03 exit records at the records commit:
+/// `enforcement.revocation` and `revocation.remote` from A07; `new_signing_expiry`,
+/// `new_authentication_expiry`, `existing_connections` and `owned_multiplexing` from A23. The rows are
+/// debug test-configured runs, so no entry is for a custody field (`lock_continuity` stays
+/// `not_verified`, F03). Each covers exactly the OS release and OpenSSH client the run used. Windows has
+/// no `owned_multiplexing` entry (no masters there) and no `graceful_dedicated_connections` entry (its
+/// A23 row proves the strict deadline only).
+pub const CLAIMS: &[Claim] = &[
+    Claim {
+        field: "enforcement.revocation",
+        value: "bounded_by_credential_expiry",
+        platform: Platform {
+            os: "macos",
+            arch: "aarch64",
+        },
+        os_floor: "27.2.1",
+        client_versions: VersionRange {
+            min: "10.5p1",
+            max: "10.5p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a07-revocation.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "revocation.remote",
+        value: "bounded_by_credential_expiry",
+        platform: Platform {
+            os: "macos",
+            arch: "aarch64",
+        },
+        os_floor: "27.2.1",
+        client_versions: VersionRange {
+            min: "10.5p1",
+            max: "10.5p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a07-revocation.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "enforcement.revocation",
+        value: "bounded_by_credential_expiry",
+        platform: Platform {
+            os: "linux",
+            arch: "x86_64",
+        },
+        os_floor: "6.8.0",
+        client_versions: VersionRange {
+            min: "9.6p1",
+            max: "9.6p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a07-revocation.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "revocation.remote",
+        value: "bounded_by_credential_expiry",
+        platform: Platform {
+            os: "linux",
+            arch: "x86_64",
+        },
+        os_floor: "6.8.0",
+        client_versions: VersionRange {
+            min: "9.6p1",
+            max: "9.6p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a07-revocation.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "enforcement.revocation",
+        value: "bounded_by_credential_expiry",
+        platform: Platform {
+            os: "windows",
+            arch: "x86_64",
+        },
+        os_floor: "10.0.26300",
+        client_versions: VersionRange {
+            min: "9.5p2",
+            max: "9.5p2",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a07-revocation.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "revocation.remote",
+        value: "bounded_by_credential_expiry",
+        platform: Platform {
+            os: "windows",
+            arch: "x86_64",
+        },
+        os_floor: "10.0.26300",
+        client_versions: VersionRange {
+            min: "9.5p2",
+            max: "9.5p2",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a07-revocation.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "new_signing_expiry",
+        value: "signer",
+        platform: Platform {
+            os: "macos",
+            arch: "aarch64",
+        },
+        os_floor: "27.2.1",
+        client_versions: VersionRange {
+            min: "10.5p1",
+            max: "10.5p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "new_authentication_expiry",
+        value: "credential_and_signer",
+        platform: Platform {
+            os: "macos",
+            arch: "aarch64",
+        },
+        os_floor: "27.2.1",
+        client_versions: VersionRange {
+            min: "10.5p1",
+            max: "10.5p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "existing_connections",
+        value: "strict_disconnect",
+        platform: Platform {
+            os: "macos",
+            arch: "aarch64",
+        },
+        os_floor: "27.2.1",
+        client_versions: VersionRange {
+            min: "10.5p1",
+            max: "10.5p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "existing_connections",
+        value: "graceful_dedicated_connections",
+        platform: Platform {
+            os: "macos",
+            arch: "aarch64",
+        },
+        os_floor: "27.2.1",
+        client_versions: VersionRange {
+            min: "10.5p1",
+            max: "10.5p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "owned_multiplexing",
+        value: "closed_at_deadline",
+        platform: Platform {
+            os: "macos",
+            arch: "aarch64",
+        },
+        os_floor: "27.2.1",
+        client_versions: VersionRange {
+            min: "10.5p1",
+            max: "10.5p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "new_signing_expiry",
+        value: "signer",
+        platform: Platform {
+            os: "linux",
+            arch: "x86_64",
+        },
+        os_floor: "6.8.0",
+        client_versions: VersionRange {
+            min: "9.6p1",
+            max: "9.6p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "new_authentication_expiry",
+        value: "credential_and_signer",
+        platform: Platform {
+            os: "linux",
+            arch: "x86_64",
+        },
+        os_floor: "6.8.0",
+        client_versions: VersionRange {
+            min: "9.6p1",
+            max: "9.6p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "existing_connections",
+        value: "strict_disconnect",
+        platform: Platform {
+            os: "linux",
+            arch: "x86_64",
+        },
+        os_floor: "6.8.0",
+        client_versions: VersionRange {
+            min: "9.6p1",
+            max: "9.6p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "existing_connections",
+        value: "graceful_dedicated_connections",
+        platform: Platform {
+            os: "linux",
+            arch: "x86_64",
+        },
+        os_floor: "6.8.0",
+        client_versions: VersionRange {
+            min: "9.6p1",
+            max: "9.6p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "owned_multiplexing",
+        value: "closed_at_deadline",
+        platform: Platform {
+            os: "linux",
+            arch: "x86_64",
+        },
+        os_floor: "6.8.0",
+        client_versions: VersionRange {
+            min: "9.6p1",
+            max: "9.6p1",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "new_signing_expiry",
+        value: "signer",
+        platform: Platform {
+            os: "windows",
+            arch: "x86_64",
+        },
+        os_floor: "10.0.26300",
+        client_versions: VersionRange {
+            min: "9.5p2",
+            max: "9.5p2",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "new_authentication_expiry",
+        value: "credential_and_signer",
+        platform: Platform {
+            os: "windows",
+            arch: "x86_64",
+        },
+        os_floor: "10.0.26300",
+        client_versions: VersionRange {
+            min: "9.5p2",
+            max: "9.5p2",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+    Claim {
+        field: "existing_connections",
+        value: "strict_disconnect",
+        platform: Platform {
+            os: "windows",
+            arch: "x86_64",
+        },
+        os_floor: "10.0.26300",
+        client_versions: VersionRange {
+            min: "9.5p2",
+            max: "9.5p2",
+        },
+        signer_builds: VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        },
+        build_profile: BuildProfile::Debug,
+        store_kind: None,
+        record: "tests/evidence/m03-a23-deadline-connections.json",
+        record_commit: "9176fc5e57f970ec3f2c5cc81435a030272725dc",
+    },
+];
 
 /// ⟨ADR-0008 §17.33 items 6-7⟩ Why a [`Residual`] is accepted rather than fixed (the
 /// §17.33 item 6 "record, and do not block the merge" categories).
@@ -304,6 +711,86 @@ pub const RESIDUALS: &[Residual] = &[
     },
 ];
 
+/// ⟨M03-F1⟩ The running Heimdall build, against which a claim's `signer_builds` is judged.
+pub const SIGNER_BUILD: &str = env!("CARGO_PKG_VERSION");
+
+/// ⟨M03-F1⟩ What a claim's ranges are judged against on this host (ADR-0008 D12 item 2: a
+/// value whose test has not passed for this platform **and these versions** is `unknown`).
+/// A fact that could not be read is `None`, and no entry applies on it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HostFacts {
+    /// The running platform.
+    pub platform: Platform,
+    /// The host's OS release: the macOS product version, the Linux kernel release, the
+    /// Windows `major.minor.build`.
+    pub os_release: Option<String>,
+    /// The verified OpenSSH client's version, as `10.5p1`.
+    pub client_version: Option<String>,
+    /// The running Heimdall build ([`SIGNER_BUILD`]).
+    pub signer_build: String,
+}
+
+/// ⟨M03-F1⟩ Whether `claim` applies on `host`: the same platform, an OS release at least
+/// its `os_floor`, a client within its `client_versions` and a build within its
+/// `signer_builds`. A fact the host could not read never satisfies a bound.
+#[must_use]
+pub fn applies(claim: &Claim, host: &HostFacts) -> bool {
+    let floor = |v: Option<&str>| v.is_some_and(|v| compare_versions(v, claim.os_floor).is_ge());
+    claim.platform == host.platform
+        && floor(host.os_release.as_deref())
+        && host
+            .client_version
+            .as_deref()
+            .is_some_and(|v| in_range(v, &claim.client_versions))
+        && in_range(&host.signer_build, &claim.signer_builds)
+}
+
+/// ⟨M03-F1⟩ The entries of `table` that apply on `host` ([`applies`]).
+#[must_use]
+pub fn applicable(table: &[Claim], host: &HostFacts) -> Vec<Claim> {
+    table.iter().filter(|c| applies(c, host)).copied().collect()
+}
+
+/// ⟨M03-F1⟩ Whether `version` lies within `range` (an empty bound is open).
+fn in_range(version: &str, range: &VersionRange) -> bool {
+    (range.min.is_empty() || compare_versions(version, range.min).is_ge())
+        && (range.max.is_empty() || compare_versions(version, range.max).is_le())
+}
+
+/// ⟨M03-F1⟩ Two version texts compared part by part: a run of digits as a number, any
+/// other run as text; when one is a prefix of the other, the longer is the greater
+/// (`10.5p1` > `9.6p1`, `6.8.0-147-generic` > `6.8.0`, `6.6.87` < `6.8.0`).
+#[must_use]
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    fn parts(s: &str) -> Vec<(bool, &str)> {
+        let mut out = Vec::new();
+        let mut start = 0;
+        let bytes = s.as_bytes();
+        for i in 1..=bytes.len() {
+            if i == bytes.len() || bytes[i].is_ascii_digit() != bytes[start].is_ascii_digit() {
+                out.push((bytes[start].is_ascii_digit(), &s[start..i]));
+                start = i;
+            }
+        }
+        out
+    }
+    let (pa, pb) = (parts(a), parts(b));
+    for (x, y) in pa.iter().zip(pb.iter()) {
+        let o = match (x, y) {
+            ((true, x), (true, y)) => {
+                let (x, y) = (x.trim_start_matches('0'), y.trim_start_matches('0'));
+                x.len().cmp(&y.len()).then_with(|| x.cmp(y))
+            }
+            ((_, x), (_, y)) => x.cmp(y),
+        };
+        if o != Ordering::Equal {
+            return o;
+        }
+    }
+    pa.len().cmp(&pb.len())
+}
+
 /// The entries of [`CLAIMS`] for one field and platform.
 pub fn claims_for<'a>(
     field: &'a str,
@@ -318,9 +805,141 @@ pub fn claims_for<'a>(
 mod tests {
     use super::*;
 
+    /// ⟨M03-F1⟩ Host facts for `os`/`arch` with the given release and client, this build.
+    fn host(os: &'static str, arch: &'static str, release: &str, client: &str) -> HostFacts {
+        HostFacts {
+            platform: Platform { os, arch },
+            os_release: Some(release.to_owned()),
+            client_version: Some(client.to_owned()),
+            signer_build: SIGNER_BUILD.to_owned(),
+        }
+    }
+
     #[test]
-    fn baseline_table_is_empty() {
-        assert!(CLAIMS.is_empty());
+    fn versions_compare_by_parts() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        assert_eq!(compare_versions("10.5p1", "9.6p1"), Greater);
+        assert_eq!(compare_versions("10.5p1", "10.5p1"), Equal);
+        assert_eq!(compare_versions("10.5p2", "10.5p1"), Greater);
+        assert_eq!(compare_versions("10.5p1", "10.5"), Greater);
+        assert_eq!(compare_versions("6.8.0-147-generic", "6.8.0"), Greater);
+        assert_eq!(
+            compare_versions("6.6.87.2-microsoft-standard-WSL2", "6.8.0"),
+            Less
+        );
+        assert_eq!(
+            compare_versions("5.15.167.4-microsoft-standard-WSL2", "6.8.0"),
+            Less
+        );
+        assert_eq!(compare_versions("27.2.1", "27.10"), Less);
+        assert_eq!(compare_versions("10.0.26300", "10.0.26300"), Equal);
+        assert_eq!(compare_versions("10.0.22631", "10.0.26300"), Less);
+        assert_eq!(compare_versions("0.1.0-m01", "0.1.0-m01"), Equal);
+        assert_eq!(compare_versions("0.1.0-m04", "0.1.0-m01"), Greater);
+    }
+
+    /// ⟨M03-F1⟩ ADR-0008 D12 item 2: the real table's entries apply only on their platform
+    /// with an OS release at least the floor, the client and the build in range; a WSL
+    /// kernel (below the Linux floor), another client, another build, another platform or
+    /// a fact the host could not read gets none.
+    #[test]
+    fn real_table_applies_only_within_its_ranges() {
+        let fields = |h: &HostFacts| {
+            let mut f: Vec<String> = applicable(CLAIMS, h)
+                .iter()
+                .map(|c| format!("{}={}", c.field, c.value))
+                .collect();
+            f.sort();
+            f
+        };
+        let a07_a23 = [
+            "enforcement.revocation=bounded_by_credential_expiry",
+            "existing_connections=graceful_dedicated_connections",
+            "existing_connections=strict_disconnect",
+            "new_authentication_expiry=credential_and_signer",
+            "new_signing_expiry=signer",
+            "owned_multiplexing=closed_at_deadline",
+            "revocation.remote=bounded_by_credential_expiry",
+        ];
+        let mac = host("macos", "aarch64", "27.2.1", "10.5p1");
+        let linux = host("linux", "x86_64", "6.8.0-147-generic", "9.6p1");
+        let windows = host("windows", "x86_64", "10.0.26300", "9.5p2");
+        assert_eq!(fields(&mac), a07_a23);
+        assert_eq!(fields(&linux), a07_a23);
+        assert_eq!(
+            fields(&windows),
+            [
+                "enforcement.revocation=bounded_by_credential_expiry",
+                "existing_connections=strict_disconnect",
+                "new_authentication_expiry=credential_and_signer",
+                "new_signing_expiry=signer",
+                "revocation.remote=bounded_by_credential_expiry",
+            ],
+            "no owned masters and no graceful mode on Windows"
+        );
+        // A later OS release is above the floor.
+        assert_eq!(fields(&host("macos", "aarch64", "27.3", "10.5p1")), a07_a23);
+        for (what, h) in [
+            (
+                "a WSL kernel",
+                host(
+                    "linux",
+                    "x86_64",
+                    "6.6.87.2-microsoft-standard-WSL2",
+                    "9.6p1",
+                ),
+            ),
+            ("an older macOS", host("macos", "aarch64", "27.1", "10.5p1")),
+            (
+                "another client",
+                host("macos", "aarch64", "27.2.1", "10.6p1"),
+            ),
+            (
+                "an older client",
+                host("linux", "x86_64", "6.8.0-147-generic", "9.5p1"),
+            ),
+            (
+                "an older Windows build",
+                host("windows", "x86_64", "10.0.22631", "9.5p2"),
+            ),
+            (
+                "another architecture",
+                host("linux", "aarch64", "6.8.0", "9.6p1"),
+            ),
+            (
+                "another build",
+                HostFacts {
+                    signer_build: "0.1.0-m04".to_owned(),
+                    ..mac.clone()
+                },
+            ),
+            (
+                "no OS release",
+                HostFacts {
+                    os_release: None,
+                    ..mac.clone()
+                },
+            ),
+            (
+                "no verified client",
+                HostFacts {
+                    client_version: None,
+                    ..mac.clone()
+                },
+            ),
+        ] {
+            assert!(fields(&h).is_empty(), "{what}: {:?}", fields(&h));
+        }
+    }
+
+    #[test]
+    fn table_holds_no_custody_claim() {
+        // ⟨M03 claim update⟩ Only the A07 and A23 fields, from debug-profile runs: no custody field.
+        assert!(!CLAIMS.is_empty());
+        for c in CLAIMS {
+            assert!(!CUSTODY_FIELDS.contains(&c.field), "{c:?}");
+            assert!(c.record.starts_with("tests/evidence/m03-a"), "{c:?}");
+        }
         let p = Platform {
             os: "macos",
             arch: "aarch64",

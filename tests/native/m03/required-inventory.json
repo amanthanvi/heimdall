@@ -728,7 +728,8 @@
         ],
         "integration_managed_adapter": [
           "report_for_local_managed_binding_with_empty_claim_table",
-          "report_with_fixture_claim_table_reports_verified_with_record"
+          "report_with_fixture_claim_table_reports_verified_with_record",
+          "report_with_the_real_claim_table_reports_verified_with_record"
         ],
         "integration_managed_signer": [
           "environment_endpoint_lists_only_materialized_bindings"
@@ -886,6 +887,7 @@
           "offline_until_beyond_bound_capability_unavailable",
           "report_for_local_managed_binding_with_empty_claim_table",
           "report_with_fixture_claim_table_reports_verified_with_record",
+          "report_with_the_real_claim_table_reports_verified_with_record",
           "unattended_minimum_requires_claim_continue_and_no_interaction"
         ],
         "model_operations_m03": [
@@ -2818,5 +2820,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "f37e357d1030e0b6e826ff8c910c2c87367759c908ef44ca683b8bc15c7a4b4f"
+  "sources_sha256": "2b55042d21eabd770ad63243e85587bd6d811f779b74f50236bec2cd670023e0"
 }

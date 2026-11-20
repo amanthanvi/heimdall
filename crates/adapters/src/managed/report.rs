@@ -18,9 +18,12 @@
 //!   `issuer_isolation: same_user_process`, and the computed residual facts.
 //!
 //! **Per-field rule (D12 item 2):** a value whose test has not passed for this
-//! platform reads `unknown` (`not_verified` for `lock_continuity`). The claims handed
-//! to [`compute`] are the applicable ones (the adapter's `read_sources` selects them
-//! for the running platform); [`claimed`] still checks field, value and platform.
+//! platform and these versions reads `unknown` (`not_verified` for `lock_continuity`).
+//! The claims handed to [`compute`] are the applicable ones (the adapter's
+//! `read_sources` selects them for the host); ⟨M03-F1⟩ [`claimed`] and [`claim`] judge
+//! each entry again against [`ReportContext::host`]: its platform, an OS release at
+//! least its floor, a client and a build within its ranges
+//! (`heimdall_domain::claims::applies`).
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{AccountName, DestinationId};
@@ -37,7 +40,7 @@ use heimdall_contract::request::{
     AccessPairRef, DestinationScopeEnforcement, Enforcement, ExistingConnectionsPolicy,
     NewAuthenticationExpiry, RefreshDependency, RevocationStatus, WorkloadIsolation,
 };
-use heimdall_domain::claims::{Claim, Platform};
+use heimdall_domain::claims::{Claim, HostFacts, Platform, applies};
 use heimdall_domain::enrollment::EnrollmentEvidence;
 use heimdall_domain::grant::GrantSnapshot;
 use heimdall_domain::issuance::{IssuanceEntry, IssuanceState};
@@ -54,25 +57,25 @@ pub fn current_platform() -> Platform {
     }
 }
 
-/// Whether `claims` hold an entry for `field` = `value` on `platform`.
+/// Whether `claims` hold an entry for `field` = `value` that applies on `host` (its
+/// platform, OS release floor, client and build ranges; ⟨M03-F1⟩ ADR-0008 D12 item 2).
 #[must_use]
-pub fn claimed(claims: &[Claim], platform: &Platform, field: &str, value: &str) -> bool {
-    claims
-        .iter()
-        .any(|c| c.field == field && c.value == value && c.platform == *platform)
+pub fn claimed(claims: &[Claim], host: &HostFacts, field: &str, value: &str) -> bool {
+    claim(claims, host, field, value).is_some()
 }
 
-/// The claim-table entry for `field` = `value` on `platform`, if any.
+/// The claim-table entry for `field` = `value` that applies on `host`, if any
+/// (⟨M03-F1⟩ [`heimdall_domain::claims::applies`]).
 #[must_use]
 pub fn claim<'a>(
     claims: &'a [Claim],
-    platform: &Platform,
+    host: &HostFacts,
     field: &str,
     value: &str,
 ) -> Option<&'a Claim> {
     claims
         .iter()
-        .find(|c| c.field == field && c.value == value && c.platform == *platform)
+        .find(|c| c.field == field && c.value == value && applies(c, host))
 }
 
 // --- revoke additions (§5 item 9; F15) ------------------------------------------------
@@ -112,19 +115,13 @@ pub fn revoke_notes() -> Vec<RevokeNote> {
 #[must_use]
 pub fn owned_multiplexing(
     policy: &ConnectionPolicy,
-    platform: Platform,
+    host: &HostFacts,
     claims: &[Claim],
 ) -> OwnedMultiplexing {
     match policy.multiplexing {
         MultiplexingMode::Disabled => OwnedMultiplexing::Disabled,
-        _ if platform.os == "windows" => OwnedMultiplexing::Unavailable,
-        _ if claimed(
-            claims,
-            &platform,
-            FIELD_OWNED_MULTIPLEXING,
-            "closed_at_deadline",
-        ) =>
-        {
+        _ if host.platform.os == "windows" => OwnedMultiplexing::Unavailable,
+        _ if claimed(claims, host, FIELD_OWNED_MULTIPLEXING, "closed_at_deadline") => {
             OwnedMultiplexing::ClosedAtDeadline
         }
         _ => OwnedMultiplexing::Unknown,
@@ -343,10 +340,11 @@ pub enum SelectionClass {
 pub const MANAGED_SELECTION_CLASSIFIED: bool = true;
 
 /// Platform facts [`compute`] reports conditions from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportContext {
-    /// The running platform.
-    pub platform: Platform,
+    /// ⟨M03-F1⟩ The running host: its platform, and the facts a claim's ranges are judged
+    /// against (ADR-0008 D12 item 2; [`heimdall_domain::claims::applies`]).
+    pub host: HostFacts,
     /// The grant's lock behaviour (its origin's).
     pub lock_behavior: LockBehavior,
     /// The effective connection policy.
@@ -483,8 +481,8 @@ pub fn compute(
     ctx: &ReportContext,
     evidence: &[PairEvidence<'_>],
 ) -> ManagedReport {
-    let platform = ctx.platform;
-    let has = |field: &str, value: &str| claimed(claims, &platform, field, value);
+    let platform = ctx.host.platform;
+    let has = |field: &str, value: &str| claimed(claims, &ctx.host, field, value);
     let deadline = grant.deadline.effective;
     let covered = prepared
         .certificates
@@ -562,7 +560,7 @@ pub fn compute(
         (FIELD_REVOCATION, "bounded_by_credential_expiry"),
         (FIELD_REVOCATION_REMOTE, "bounded_by_credential_expiry"),
     ] {
-        if let Some(c) = claim(claims, &platform, field, value) {
+        if let Some(c) = claim(claims, &ctx.host, field, value) {
             entries.push(EvidenceEntry {
                 field: field.to_owned(),
                 source: EvidenceSource::ClaimTable,
@@ -612,7 +610,7 @@ pub fn compute(
         } else {
             NewSigningExpiry::Unknown
         }),
-        owned_multiplexing: Some(owned_multiplexing(&ctx.policy, platform, claims)),
+        owned_multiplexing: Some(owned_multiplexing(&ctx.policy, &ctx.host, claims)),
         remote_processes: Some(RemoteProcesses::NotTerminated),
         unmanaged_connections: Some(UnmanagedConnections::NotControlled),
         issuer_isolation: Some(IssuerIsolation::SameUserProcess),
@@ -682,14 +680,13 @@ mod tests {
             revoke_notes(),
             vec![RevokeNote::OrdinaryConnectionsNotClosed]
         );
-        let mac = Platform {
-            os: "macos",
-            arch: "aarch64",
+        let host = |os: &'static str, arch: &'static str| HostFacts {
+            platform: Platform { os, arch },
+            os_release: None,
+            client_version: None,
+            signer_build: String::new(),
         };
-        let win = Platform {
-            os: "windows",
-            arch: "x86_64",
-        };
+        let (mac, win) = (&host("macos", "aarch64"), &host("windows", "x86_64"));
         let masters = ConnectionPolicy {
             existing: ExistingConnectionsMode::Graceful,
             multiplexing: MultiplexingMode::OwnedMasters,

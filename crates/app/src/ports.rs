@@ -1334,6 +1334,9 @@ pub struct ManagedSources {
     pub slots: Vec<ManagedSlot>,
     /// The applicable claim-table entries (ADR-0008 D12).
     pub claims: Vec<Claim>,
+    /// ⟨M03-F1⟩ The facts the entries' ranges were judged against (the report judges them
+    /// again; ADR-0008 D12 item 2). `None`: no claim applies.
+    pub host: Option<heimdall_domain::claims::HostFacts>,
     /// The issuer's status.
     pub issuer: Option<IssuerStatusSnapshot>,
     /// The effect driver's results. `None`: `prepare_from` refuses with

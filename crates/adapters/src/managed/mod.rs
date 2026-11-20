@@ -61,7 +61,7 @@ use heimdall_contract::request::{
     NewAuthenticationExpiry, RevocationStatus, WorkloadIsolation,
 };
 use heimdall_credential::endpoints::EndpointLayout;
-use heimdall_domain::claims::{Claim, Platform};
+use heimdall_domain::claims::{Claim, HostFacts, Platform};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::grant::{GrantOrigin, GrantSnapshot};
 use heimdall_domain::issuance::{IssuanceEntry, IssuanceState};
@@ -88,11 +88,11 @@ pub fn managed_capabilities() -> BTreeSet<Capability> {
         .collect()
 }
 
-/// `lock_continuity` from the claim table for `platform` (`Unknown` without an
-/// entry; the M03 baseline table is empty).
+/// `lock_continuity` from the claim table for `host` (`Unknown` without an entry that
+/// applies there; ⟨M03-F1⟩ judged by its platform, OS release, client and build).
 #[must_use]
-pub fn lock_continuity_from(claims: &[Claim], platform: &Platform) -> LockContinuity {
-    if report::claimed(claims, platform, report::FIELD_LOCK_CONTINUITY, "verified") {
+pub fn lock_continuity_from(claims: &[Claim], host: &HostFacts) -> LockContinuity {
+    if report::claimed(claims, host, report::FIELD_LOCK_CONTINUITY, "verified") {
         LockContinuity::Verified
     } else {
         LockContinuity::Unknown
@@ -236,7 +236,13 @@ impl ManagedCertificateAdapter {
                 report: advertised_enforcement(),
                 evidence: Vec::new(),
             },
-            lock_continuity: lock_continuity_from(&claims, &platform),
+            lock_continuity: lock_continuity_from(
+                &claims,
+                &HostFacts {
+                    platform,
+                    ..sources.host()
+                },
+            ),
             remote_credential_effect: true,
         };
         Self {

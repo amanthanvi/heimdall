@@ -721,8 +721,16 @@ def _has(bad, *needles):
 def _t_empty():
     with open(CLAIMS_RS, encoding="utf-8") as f:
         source = f.read()
-    entries, bad = check_source(source, ROOT, ROOT, load_schema())
-    # The real baseline is empty; a nonempty real table is validated by the main step.
+    # ⟨M03 claim update⟩ The baseline form: the real file with its table emptied validates
+    # (the real table's entries are validated by the main step).
+    empty = re.sub(
+        r"(pub\s+const\s+CLAIMS\s*:\s*&\s*\[\s*Claim\s*\]\s*=\s*&\s*\[).*?(\n\];)",
+        r"\1\2",
+        source,
+        count=1,
+        flags=re.S,
+    )
+    entries, bad = check_source(empty, ROOT, ROOT, load_schema())
     return len(entries) == 0 and not bad, bad
 
 

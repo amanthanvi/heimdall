@@ -31,7 +31,7 @@ use heimdall_contract::provider::{
 };
 use heimdall_contract::request::{ConsumerIntegration, PairIntegration};
 use heimdall_credential::endpoints::{EndpointLayout, EndpointTag};
-use heimdall_domain::claims::{CLAIMS, Claim, Platform};
+use heimdall_domain::claims::{CLAIMS, Claim, HostFacts, Platform, SIGNER_BUILD, applicable};
 use heimdall_domain::enrollment::{EnrollmentRecord, EnrollmentState, TargetEvaluation};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::issuance::IssuanceEntry;
@@ -76,12 +76,20 @@ pub trait ManagedSourceRead: Send + Sync {
         Vec::new()
     }
 
+    /// ⟨M03-F1⟩ The facts claim ranges are judged against (ADR-0008 D12 item 2): by
+    /// default this platform, its OS release and this build, with **no** verified
+    /// client, so no entry applies ([`default_host`]). The runtime's sources name the
+    /// verified `ssh` client's version.
+    fn host(&self) -> HostFacts {
+        default_host(None)
+    }
+
     /// The applicable claim-table entries: by default the compiled table's entries
-    /// for the running platform (`heimdall_domain::claims::CLAIMS`; empty in the M03
-    /// baseline). A test source may supply a fixture table.
+    /// that apply on [`Self::host`] (`heimdall_domain::claims::CLAIMS`, judged by
+    /// `heimdall_domain::claims::applies`: the platform, the OS release floor, the
+    /// client and build ranges). A test source may supply a fixture table.
     fn claims(&self) -> Vec<Claim> {
-        let p = current_platform();
-        CLAIMS.iter().filter(|c| c.platform == p).copied().collect()
+        applicable(CLAIMS, &self.host())
     }
 
     /// The issuer's last observed status.
@@ -209,6 +217,9 @@ impl ManagedSourceRead for WithEvidenceFeed {
     }
     fn slots(&self, pairs: &[AccessPair]) -> Vec<ManagedSlot> {
         self.inner.slots(pairs)
+    }
+    fn host(&self) -> HostFacts {
+        self.inner.host()
     }
     fn claims(&self) -> Vec<Claim> {
         self.inner.claims()
@@ -362,6 +373,7 @@ pub fn snapshot(sources: &dyn ManagedSourceRead, pairs: &[PreparePair]) -> Integ
             issuing_cas: sources.issuing_cas(&pairs),
             slots: sources.slots(&pairs),
             claims: sources.claims(),
+            host: Some(sources.host()),
             issuer: sources.issuer(),
             prepared: sources.prepared(&pairs),
         }),
@@ -668,7 +680,11 @@ pub fn outcome(
     };
     let evidence = pair_evidence(managed, &pairs, prepared);
     let ctx = ReportContext {
-        platform,
+        // ⟨M03-F1⟩ The snapshot's host facts, on the adapter's platform.
+        host: HostFacts {
+            platform,
+            ..managed.host.clone().unwrap_or_else(|| default_host(None))
+        },
         lock_behavior: terms.lock_behavior,
         policy: terms.policy,
         issuer_ready: issuer_ready(managed),
@@ -704,4 +720,21 @@ pub fn outcome(
         managed: Some(result_facts(&report)),
     };
     Ok((outcome, report))
+}
+
+/// ⟨M03-F1⟩ This host's facts for claim ranges (ADR-0008 D12 item 2): the running
+/// platform, its OS release (`heimdall_localenv::sys::os_release`, read once), this
+/// build ([`SIGNER_BUILD`]) and `client_version`, the verified OpenSSH client's version
+/// (`None`: no claim applies).
+#[must_use]
+pub fn default_host(client_version: Option<String>) -> HostFacts {
+    static OS_RELEASE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    HostFacts {
+        platform: current_platform(),
+        os_release: OS_RELEASE
+            .get_or_init(heimdall_localenv::sys::os_release)
+            .clone(),
+        client_version,
+        signer_build: SIGNER_BUILD.to_owned(),
+    }
 }
