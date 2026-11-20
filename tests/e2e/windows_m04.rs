@@ -2576,35 +2576,49 @@ echo a12-done
                 .find_map(|l| l.strip_prefix("interrupt-rc="))
                 .expect("the interrupt line");
             let (rc, secs) = interrupt.split_once(" interrupt-seconds=").unwrap();
+            let late = out.contains(&format!("hm-a12-late-{n}"));
+            // The Windows side of the interrupted session: `ssh.exe` processes whose command line
+            // carries this run's marker, until none is left (bounded).
+            let left = || {
+                let probe = Command::new(
+                    Path::new(&system_root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"),
+                )
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &format!(
+                        "@(Get-CimInstance Win32_Process -Filter \"Name = 'ssh.exe'\" | Where-Object {{ $_.CommandLine -like '*hm-a12-late-{n}*' }}).Count"
+                    ),
+                ])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+                String::from_utf8_lossy(&probe.stdout)
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap_or(u32::MAX)
+            };
+            let first_left = left();
+            let probe_start = Instant::now();
+            let mut now_left = first_left;
+            while now_left != 0 && probe_start.elapsed() < Duration::from_secs(20) {
+                std::thread::sleep(Duration::from_millis(500));
+                now_left = left();
+            }
+            // ⟨M04 U7⟩ What the interrupt did, for the record (the exit run's A12 row).
+            println!(
+                "m04 observation: a12 windows ctrl_c=sigint_after_s=5 client_exit={rc} client_seconds={secs} remote_late_output={late} ssh_exe_left_at_first_probe={first_left} ssh_exe_left_after_wait={now_left} wait_s={}",
+                probe_start.elapsed().as_secs()
+            );
             assert_eq!(
                 rc, "124",
                 "the interrupted client ended on the signal: {shown}"
             );
             assert!(secs.parse::<u64>().unwrap() < 20, "promptly: {shown}");
-            assert!(
-                !out.contains(&format!("hm-a12-late-{n}")),
-                "the remote command was cut short"
-            );
+            assert!(!late, "the remote command was cut short");
             assert!(has("a12-done"), "{shown}");
-            eventually(
-                "no ssh.exe of the interrupted session is left",
-                Duration::from_secs(20),
-                || {
-                    let probe = Command::new(Path::new(&system_root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
-                    .args([
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-Command",
-                        &format!(
-                            "@(Get-CimInstance Win32_Process -Filter \"Name = 'ssh.exe'\" | Where-Object {{ $_.CommandLine -like '*hm-a12-late-{n}*' }}).Count"
-                        ),
-                    ])
-                    .stdin(Stdio::null())
-                    .output()
-                    .unwrap();
-                    String::from_utf8_lossy(&probe.stdout).trim() == "0"
-                },
-            );
+            assert_eq!(now_left, 0, "no ssh.exe of the interrupted session is left");
         }
 
         /// ⟨M04 U7⟩ A31 (M04's integrations): `uninstall` with a **live** Mode B binding withdraws

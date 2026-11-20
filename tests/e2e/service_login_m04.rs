@@ -621,6 +621,9 @@ mod wsl_login {
     struct Done {
         code: i32,
         stdout: String,
+        /// ⟨M04 U7⟩ A failing step names itself here (`failed-step=…`), with the user
+        /// manager's facts (`diag …`).
+        stderr: String,
     }
 
     fn wsl(args: &[&str]) -> Done {
@@ -631,7 +634,40 @@ mod wsl_login {
         Done {
             code: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         }
+    }
+
+    /// ⟨M04 U7⟩ The preamble of every login script.
+    ///
+    /// **The debug-build home guard** (ruling I-15, `dev_home_guard`): this row's binary is the
+    /// test-configured (debug-assertions) build, which refuses the account's real home without
+    /// an explicit `HEIMDALL_HOME`. The real home is the point of this row (the entry is the
+    /// account's own, and the runtime it starts at login uses the default directories), and the
+    /// account is the harness's disposable one, so the guard's own opt-in is set, inside the
+    /// disposable distribution only: exported for the CLI, in the running user manager
+    /// (`systemctl --user set-environment`) and in the account's `environment.d`, which the
+    /// next login's user manager reads, so the unit's runtime has it too. A release build has
+    /// no guard; the product's unit is unchanged.
+    ///
+    /// `fail STEP [OUTPUT]` names the failing step on stderr, with the first 400 bytes of its
+    /// output and the user manager's facts: the uid, `XDG_RUNTIME_DIR`, whether the user bus
+    /// socket exists, `systemctl --user is-system-running`, and the session and user as logind
+    /// sees them.
+    const PREAMBLE: &str = r#"export HEIMDALL_DEV_ALLOW_ACCOUNT_HOME=1
+diag() { echo "diag uid=$(id -u) xdg_runtime_dir=${XDG_RUNTIME_DIR:-unset}"; if [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then echo "diag user-bus=present"; else echo "diag user-bus=absent"; fi; echo "diag user-manager=$(systemctl --user is-system-running 2>&1 | head -n 1)"; echo "diag session=$(loginctl show-session "${XDG_SESSION_ID:-}" -p Type -p Class -p State 2>&1 | tr '\n' ' ')"; echo "diag user=$(loginctl show-user "$(id -un)" -p State -p Linger 2>&1 | tr '\n' ' ')"; }
+fail() { echo "failed-step=$1" >&2; if [ -n "${2:-}" ]; then printf 'output: %.400s\n' "$2" >&2; fi; diag >&2; exit 1; }
+"#;
+
+    /// ⟨M04 U7⟩ A script as one line (`wsl.exe` carries it as one argument): its non-empty
+    /// lines joined with `; ` (every line is a whole statement).
+    fn one_line(script: &str) -> String {
+        script
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 
     /// `wsl.exe` lists in UTF-16LE.
@@ -768,16 +804,24 @@ mod wsl_login {
         // stop the runtime that `enable` started on demand, so that what is found later is
         // not left over.
         let install = format!(
-            "set -e; {h} --json service autostart status | grep -q '\"installed\":false'; \
-             printf 'yes\\n' | script -q -e -c '{h} service autostart enable' /dev/null >/dev/null; \
-             {h} --json service autostart status | grep -q '\"installed\":true'; \
-             systemctl --user is-enabled heimdall.service; \
-             test -f \"$HOME/.config/systemd/user/heimdall.service\"; \
-             {h} service stop >/dev/null 2>&1 || true; \
-             if {h} service status >/dev/null 2>&1; then echo runtime-still-up; exit 1; fi"
+            r#"{PREAMBLE}
+mkdir -p "$HOME/.config/environment.d" && printf 'HEIMDALL_DEV_ALLOW_ACCOUNT_HOME=1\n' > "$HOME/.config/environment.d/90-heimdall-dev-home.conf" || fail environment-d
+o=$(systemctl --user set-environment HEIMDALL_DEV_ALLOW_ACCOUNT_HOME=1 2>&1) || fail user-manager-environment "$o"
+o=$({h} --json service autostart status 2>&1); printf '%s' "$o" | grep -q '"installed":false' || fail autostart-status-before "$o"
+printf 'yes\n' | script -q -e -c '{h} service autostart enable' /dev/null > /tmp/hm-a08-enable.out 2>&1 || fail autostart-enable "$(cat /tmp/hm-a08-enable.out)"
+o=$({h} --json service autostart status 2>&1); printf '%s' "$o" | grep -q '"installed":true' || fail autostart-status-after "$o"
+o=$(systemctl --user is-enabled heimdall.service 2>&1) || fail unit-enabled "$o"
+test -f "$HOME/.config/systemd/user/heimdall.service" || fail unit-file
+{h} service stop >/dev/null 2>&1 || true
+if {h} service status >/dev/null 2>&1; then echo runtime-still-up; fail runtime-still-up; fi
+"#
         );
-        let first = run.login(&install);
-        assert_eq!(first.code, 0, "{first:?}");
+        let first = run.login(&one_line(&install));
+        assert_eq!(
+            first.code, 0,
+            "session 1 (install): exit {}, stdout {:?}, stderr:\n{}",
+            first.code, first.stdout, first.stderr
+        );
 
         // The distribution stops: only this one.
         let stopped = wsl(&["--terminate", &run.distro]);
@@ -792,25 +836,38 @@ mod wsl_login {
         // entry, which starts the runtime. `service status` never starts one, so a runtime
         // seen here was started by the entry.
         let again = format!(
-            "for i in $(seq 1 60); do \
-               if {h} --json service status 2>/dev/null | grep -q '\"running\":true'; then \
-                 systemctl --user is-active heimdall.service; \
-                 test \"$({h} --json service status | grep -o '\"pid\":[0-9]*' | sort -u | wc -l)\" = 1; \
-                 exit 0; \
-               fi; sleep 1; done; echo no-runtime-at-login; exit 1"
+            r#"{PREAMBLE}
+for i in $(seq 1 60); do if {h} --json service status 2>/dev/null | grep -q '"running":true'; then systemctl --user is-active heimdall.service; test "$({h} --json service status | grep -o '"pid":[0-9]*' | sort -u | wc -l)" = 1 || fail one-runtime; exit 0; fi; sleep 1; done
+echo no-runtime-at-login
+echo "diag unit=$(systemctl --user is-active heimdall.service 2>&1)" >&2
+journalctl --user -u heimdall.service -n 20 --no-pager 2>&1 | sed 's/^/journal: /' >&2
+fail no-runtime-at-login
+"#
         );
-        let second = run.login(&again);
-        assert_eq!(second.code, 0, "no runtime at the next login: {second:?}");
+        let second = run.login(&one_line(&again));
+        assert_eq!(
+            second.code, 0,
+            "no runtime at the next login: exit {}, stdout {:?}, stderr:\n{}",
+            second.code, second.stdout, second.stderr
+        );
         assert!(second.stdout.contains("active"), "{second:?}");
 
         // Clean up inside the disposable distribution (the harness unregisters it anyway),
         // and lingering was never turned on.
-        let cleanup = run.login(&format!(
-            "{h} service stop >/dev/null 2>&1; {h} --json service autostart disable | grep -q '\"removed\":true'; \
-             ! systemctl --user is-enabled heimdall.service >/dev/null 2>&1; \
-             test ! -e \"$HOME/.config/systemd/user/heimdall.service\""
-        ));
-        assert_eq!(cleanup.code, 0, "{cleanup:?}");
+        let cleanup = run.login(&one_line(&format!(
+            r#"{PREAMBLE}
+{h} service stop >/dev/null 2>&1
+o=$({h} --json service autostart disable 2>&1); printf '%s' "$o" | grep -q '"removed":true' || fail autostart-disable "$o"
+if systemctl --user is-enabled heimdall.service >/dev/null 2>&1; then fail unit-still-enabled; fi
+test ! -e "$HOME/.config/systemd/user/heimdall.service" || fail unit-file-left
+rm -f "$HOME/.config/environment.d/90-heimdall-dev-home.conf"
+"#
+        )));
+        assert_eq!(
+            cleanup.code, 0,
+            "cleanup: exit {}, stdout {:?}, stderr:\n{}",
+            cleanup.code, cleanup.stdout, cleanup.stderr
+        );
         assert!(!linger(&run).contains("yes"), "lingering is never enabled");
     }
 }
