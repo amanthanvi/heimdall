@@ -1288,3 +1288,177 @@ fn m05_help_and_shell_script_goldens() {
     );
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
+
+/// ⟨M05; review M05-W4F-R01; ADR-0006 §17.11 item 24⟩ An imported destination reached
+/// through a jump keeps its route intent and is never launched by its bare alias. A bundle
+/// names `lab-inner` behind the bastion `bastion`; the receiving machine's own SSH
+/// configuration has a direct `lab-inner` alias (disposable), and the verified client is a stub
+/// first on `PATH` that records every launch. After the import, `connect lab-inner` refuses
+/// (`CAPABILITY_UNAVAILABLE`, `route_pending`, naming the bastion) and launches nothing, and a
+/// `run` of a profile with its pair is refused the same way; `connect bastion` (no route of
+/// its own) still launches, so the stub is live. A re-export keeps the jump.
+#[cfg(unix)]
+#[test]
+fn an_imported_routed_destination_is_never_launched_by_its_bare_alias() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::Builder::new().prefix("hjp").tempdir().unwrap();
+    let root = dir.path();
+    let home = root.join("h");
+    let user = root.join("u");
+    let bin = root.join("bin");
+    for d in [&user, &bin, &user.join(".ssh")] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(user.join(".gitconfig"), b"").unwrap();
+    // The receiver's own direct route to the target (it must never be used).
+    std::fs::write(
+        user.join(".ssh").join("config"),
+        "Host lab-inner\n    HostName 127.0.0.1\n    Port 9\n",
+    )
+    .unwrap();
+    let recorded = root.join("argv");
+    let stub = bin.join("ssh");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf '%s\\0' \"$@\" >> \"$HM_JUMP_ARGV\"\nexit 0\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let bundle = root.join("bundle.json");
+    std::fs::write(
+        &bundle,
+        serde_json::json!({
+            "schema": "heimdall-portable/1",
+            "created_at": "2026-11-20T09:00:00Z",
+            "redacted": false,
+            "destinations": [
+                {"id": "bastion", "alias": "bastion", "hostname": "bastion.example.invalid", "account": "deploy"},
+                {"id": "lab-inner", "alias": "lab-inner", "hostname": "inner.example.invalid", "account": "deploy", "jump": "bastion"}
+            ],
+            "identities": [],
+            "profiles": [{"id": "inner", "pairs": ["lab-inner:deploy"]}],
+            "reestablish": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let heimdall = std::env::var("HEIMDALL_E2E_BIN")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned());
+    let run = |args: &[&str]| {
+        let out = Command::new(&heimdall)
+            .args(args)
+            .env_clear()
+            .env("HOME", &user)
+            .env("HEIMDALL_HOME", &home)
+            .env("HEIMDALL_TEST_ADAPTER", "prepare")
+            .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", user.join(".gitconfig"))
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("HM_JUMP_ARGV", &recorded)
+            .current_dir(root)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_no_canary(&String::from_utf8_lossy(&out.stdout));
+        assert_no_canary(&String::from_utf8_lossy(&out.stderr));
+        out
+    };
+    struct Stop<'a>(&'a dyn Fn(&[&str]) -> std::process::Output);
+    impl Drop for Stop<'_> {
+        fn drop(&mut self) {
+            let _ = (self.0)(&["service", "stop"]);
+        }
+    }
+    let _stop = Stop(&run);
+    // The last envelope on stdout, else on stderr (a launch command keeps stdout for the
+    // child it launches).
+    let envelope = |out: &std::process::Output| -> Value {
+        [&out.stdout, &out.stderr]
+            .into_iter()
+            .find_map(|b| {
+                String::from_utf8_lossy(b)
+                    .lines()
+                    .rev()
+                    .find_map(|l| serde_json::from_str::<Value>(l).ok())
+            })
+            .unwrap_or(Value::Null)
+    };
+    let imported = run(&["--json", "import", "--yes", bundle.to_str().unwrap()]);
+    assert_eq!(
+        imported.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&imported.stdout)
+    );
+    let plan = envelope(&imported)["data"]["plan"].clone();
+    let inner = plan
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "lab-inner")
+        .unwrap()
+        .clone();
+    assert_eq!(inner["status"], "add", "{inner}");
+    assert_eq!(inner["reason"], "recorded_route_pending", "{inner}");
+
+    let refused = run(&["--json", "connect", "lab-inner"]);
+    let env = envelope(&refused);
+    assert_ne!(
+        refused.status.code(),
+        Some(0),
+        "connect must refuse the routed destination, never launch it; launched with argv {:?}",
+        std::fs::read(&recorded)
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).replace('\0', " "))
+    );
+    assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{env}");
+    assert_eq!(env["data"]["error"]["reason"], "route_pending", "{env}");
+    assert!(
+        env.to_string().contains("bastion"),
+        "the refusal names the bastion: {env}"
+    );
+    assert!(
+        !recorded.exists(),
+        "nothing was launched for the routed destination"
+    );
+    let ran = run(&[
+        "--json",
+        "run",
+        "--profile",
+        "inner",
+        "--",
+        "/bin/sh",
+        "-c",
+        "true",
+    ]);
+    let env = envelope(&ran);
+    assert_ne!(ran.status.code(), Some(0), "{env}");
+    assert_eq!(env["data"]["error"]["reason"], "route_pending", "{env}");
+    assert!(!recorded.exists(), "`run` launched nothing either");
+
+    // The stub is live: a destination with no route of its own still launches.
+    let control = run(&["connect", "bastion"]);
+    assert_eq!(
+        control.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&control.stderr)
+    );
+    assert_eq!(std::fs::read(&recorded).unwrap(), b"bastion\0");
+
+    // A re-export keeps the jump.
+    let exported = run(&["--json", "export"]);
+    assert_eq!(exported.status.code(), Some(0));
+    let bundle = envelope(&exported)["data"].clone();
+    let again = bundle["destinations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == "lab-inner")
+        .unwrap()
+        .clone();
+    assert_eq!(again["jump"], "bastion", "{again}");
+}

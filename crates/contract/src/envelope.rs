@@ -696,6 +696,11 @@ pub mod reason {
     pub const NOT_COVERED: &str = "not_covered";
     /// ⟨M05⟩ `CREDENTIAL_EXPIRED`: the work ID was stopped and never reactivates.
     pub const WORK_STOPPED: &str = "work_stopped";
+    /// ⟨M05⟩ Revision 5.3 (ADR-0006 §17.11 item 24; review M05-W4F-R01):
+    /// `CAPABILITY_UNAVAILABLE`: an imported destination is reached through a jump whose
+    /// route is not set up here; it is never launched by its bare alias (the owner defines
+    /// the route with `destination add --jump`).
+    pub const ROUTE_PENDING: &str = "route_pending";
 
     /// ⟨M05⟩ Revision 5's M05 reasons with their codes (a reason used with either of two
     /// codes, by session attendance, appears once per code), kept separate from [`ALL`],
@@ -714,6 +719,7 @@ pub mod reason {
         (DECISION_COOLDOWN, Code::InteractionRequired),
         (NOT_COVERED, Code::InteractionRequired),
         (WORK_STOPPED, Code::CredentialExpired),
+        (ROUTE_PENDING, Code::CapabilityUnavailable),
     ];
 }
 

@@ -292,6 +292,7 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
         "issuer_bundle_sha256:",
         Some("the bundles this installation wrote; the bundle is re-checked under the lock"),
     ),
+    ("m05_route_pending:", None),
     (
         "m05_decision_basis:",
         Some(

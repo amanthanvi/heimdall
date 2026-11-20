@@ -3255,6 +3255,11 @@ mod wave4 {
     }
 
     fn seed_row(w: &World, n: u8, state: GrantState) -> Row {
+        seed_row_until(w, n, state, shift(t0(), 3600))
+    }
+
+    /// [`seed_row`] with the grant's effective deadline at `effective`.
+    fn seed_row_until(w: &World, n: u8, state: GrantState, effective: Timestamp) -> Row {
         let caller = ctx(ClientRole::Owner);
         let scope = Scope {
             pairs: [pair("h1", "deploy")].into_iter().collect(),
@@ -3268,7 +3273,7 @@ mod wave4 {
             deadline: Deadline {
                 intent: heimdall_contract::request::DeadlineIntent::Duration("1h".into()),
                 resolved_at: t0(),
-                effective: shift(t0(), 3600),
+                effective,
             },
             parent: None,
             source: AuthorizationSource::StandingPolicy {
@@ -3548,24 +3553,8 @@ mod wave4 {
         let mut row = seed_row(&w, 0x95, GrantState::Active);
         let sup = w.supervisor().with_connections(connections(&w, dir.path()));
         let at = shift(t0(), 30);
-        w.store
-            .transaction(|tx| {
-                let mut p = tx.policy(&PolicyId::parse("pol").unwrap())?.unwrap();
-                p.revision = PolicyRevision(2);
-                p.cutoff_at = Some(at);
-                // Strict existing connections (A23's strict_disconnect): dedicated
-                // connections close at the grant's bound.
-                p.connection.existing = heimdall_contract::managed::ExistingConnectionsMode::Strict;
-                tx.upsert_policy(&p, true).map(|_| ())
-            })
-            .unwrap();
-        let state = |w: &World| {
-            w.store
-                .transaction(|tx| tx.grant(&row.grant))
-                .unwrap()
-                .unwrap()
-                .state
-        };
+        strict_cutoff(&w, at);
+        let state = |w: &World| grant_state(w, &row.grant);
         let next = sup.scheduler_pass().await.unwrap();
         assert!(
             next.is_some_and(|t| t <= at),
@@ -3588,6 +3577,224 @@ mod wave4 {
         assert!(
             exited(&mut row.child),
             "the owned connection closed at the cutoff"
+        );
+    }
+
+    /// The policy `pol` (revision 2) with a cutoff at `at` and strict existing connections
+    /// (A23's strict_disconnect: dedicated connections close at the grant's bound).
+    fn strict_cutoff(w: &World, at: Timestamp) {
+        w.store
+            .transaction(|tx| {
+                let mut p = tx.policy(&PolicyId::parse("pol").unwrap())?.unwrap();
+                p.revision = PolicyRevision(2);
+                p.cutoff_at = Some(at);
+                p.connection.existing = heimdall_contract::managed::ExistingConnectionsMode::Strict;
+                tx.upsert_policy(&p, true).map(|_| ())
+            })
+            .unwrap();
+    }
+
+    fn grant_state(w: &World, grant: &GrantId) -> GrantState {
+        w.store
+            .transaction(|tx| tx.grant(grant))
+            .unwrap()
+            .unwrap()
+            .state
+    }
+
+    /// ⟨M05; review M05-W4F-R02⟩ The real timed loop (`Supervisor::run`), its clocks injected:
+    /// the world's virtual wall and continuous clock, and tokio's paused monotonic clock. After
+    /// the start passes settle (the pass before the cutoff put the next pass on the monotonic
+    /// timer, the cutoff 30 s out) nothing commits; the wall clock then steps forward past the
+    /// cutoff, within the skew tolerance so time stays safe. The loop's bounded resume poll sees
+    /// wall progress the monotonic timer did not and runs the pass at once: the grant ends and
+    /// its strict dedicated connection closes within the poll interval of the step, not at the
+    /// old monotonic target.
+    #[tokio::test(start_paused = true)]
+    async fn a_forward_wall_step_past_a_cutoff_ends_its_grant_at_the_next_poll() {
+        let w = World::new().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut row = seed_row(&w, 0x96, GrantState::Active);
+        let at = shift(t0(), 30);
+        strict_cutoff(&w, at);
+        let sup = w.supervisor().with_connections(connections(&w, dir.path()));
+        let token = CancellationToken::new();
+        let running = tokio::spawn(sup.run(token.clone()));
+        // The start passes and any pass their own commits schedule, the wall still at t0.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(grant_state(&w, &row.grant).permits_use());
+        assert!(
+            matches!(row.child.try_wait(), Ok(None)),
+            "up before the step"
+        );
+        let stepped = tokio::time::Instant::now();
+        w.clock.set_wall(shift(at, 1));
+        let ended = loop {
+            if grant_state(&w, &row.grant) == GrantState::Expired {
+                break stepped.elapsed();
+            }
+            assert!(
+                stepped.elapsed() < Duration::from_secs(20),
+                "the step brought the cutoff forward and no pass ran: {:?}",
+                grant_state(&w, &row.grant)
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        let latency = SupervisorConfig::default().resume_bound() + Duration::from_millis(500);
+        assert!(
+            ended <= latency,
+            "ended {ended:?} after the step (normal latency {latency:?})"
+        );
+        assert!(
+            exited(&mut row.child),
+            "the strict connection closed at the cutoff on the wall clock"
+        );
+        token.cancel();
+        running.await.unwrap();
+    }
+
+    /// The world's clock, the wall read `ahead` of it: a supervisor reading this while the
+    /// operations read the world's clock sees a bound cross between the tick and the wake read.
+    struct AheadClock {
+        inner: Arc<VirtualClock>,
+        ahead: jiff::SignedDuration,
+    }
+
+    impl Clock for AheadClock {
+        fn wall(&self) -> Timestamp {
+            self.inner.wall().checked_add(self.ahead).unwrap()
+        }
+        fn continuous(&self) -> Duration {
+            self.inner.continuous()
+        }
+        fn boot_id(&self) -> heimdall_domain::time::BootId {
+            self.inner.boot_id()
+        }
+    }
+
+    /// ⟨M05; review M05-W4F-R04⟩ A `preparing` grant's deadline passes between the tick (the
+    /// operations' wall, half a second before it) and the wake read (the supervisor's, half a
+    /// second after): the tick ends nothing, and the pass still asks for a re-check a second
+    /// later, since the bound still ends a `preparing` grant (`DeadlineReached`); the re-check
+    /// ends it (`expired`).
+    #[tokio::test]
+    async fn a_preparing_grant_crossing_its_bound_after_the_tick_is_rechecked_and_ends() {
+        let w = World::new().await;
+        let at = shift(t0(), 30);
+        let row = seed_row_until(&w, 0x98, GrantState::Preparing, at);
+        let ahead = Arc::new(AheadClock {
+            inner: w.clock.clone(),
+            ahead: jiff::SignedDuration::from_secs(1),
+        });
+        let sup = Supervisor::new(w.ops.clone(), SupervisorConfig::default())
+            .with_state(w.store.clone(), ahead.clone())
+            .with_jitter(Arc::new(FixedJitter(1.0)));
+        w.clock.advance(Duration::from_millis(29_500));
+        let next = sup.scheduler_pass().await.unwrap();
+        assert_eq!(
+            grant_state(&w, &row.grant),
+            GrantState::Preparing,
+            "the tick read the wall before the bound"
+        );
+        assert_eq!(
+            next,
+            Some(
+                ahead
+                    .wall()
+                    .checked_add(jiff::SignedDuration::from_secs(1))
+                    .unwrap()
+            ),
+            "the passed bound of a grant it still ends is re-checked, not dropped"
+        );
+        w.clock.advance(Duration::from_secs(1));
+        let _ = sup.scheduler_pass().await.unwrap();
+        assert_eq!(grant_state(&w, &row.grant), GrantState::Expired);
+    }
+
+    /// The world's clock, its `boot_id` read (only the scheduler's wake read takes it, on the
+    /// blocking pool) slow by `slow` and logged as `(start, end)`: a slow pass, observable.
+    struct SlowWakeClock {
+        inner: Arc<VirtualClock>,
+        slow: Duration,
+        reads: std::sync::Mutex<Vec<(std::time::Instant, std::time::Instant)>>,
+    }
+
+    impl Clock for SlowWakeClock {
+        fn wall(&self) -> Timestamp {
+            self.inner.wall()
+        }
+        fn continuous(&self) -> Duration {
+            self.inner.continuous()
+        }
+        fn boot_id(&self) -> heimdall_domain::time::BootId {
+            let start = std::time::Instant::now();
+            std::thread::sleep(self.slow);
+            self.reads
+                .lock()
+                .unwrap()
+                .push((start, std::time::Instant::now()));
+            self.inner.boot_id()
+        }
+    }
+
+    /// ⟨M05; review M05-W4F-R05⟩ The real timed loop, with persistent uncertain time (the wall
+    /// stepped beyond the skew tolerance after a safe reading) and a usable grant whose deadline
+    /// has passed: the tick ends nothing and every pass asks for the passed bound's re-check a
+    /// second out. Each pass is slow (its wake read takes longer than that second). The delay is
+    /// applied to a fresh monotonic sample, so a second passes between one pass's end and the
+    /// next pass's start; passes never run back to back.
+    #[tokio::test]
+    async fn a_slow_pass_never_runs_the_next_pass_straight_after_it() {
+        let w = World::new().await;
+        let row = seed_row_until(&w, 0x99, GrantState::Active, shift(t0(), 60));
+        assert_eq!(
+            w.supervisor().time_guard_pass().await.unwrap(),
+            heimdall_domain::time::TimeStatus::Safe
+        );
+        w.clock.set_wall(shift(t0(), 120));
+        assert!(
+            matches!(
+                w.supervisor().time_guard_pass().await.unwrap(),
+                heimdall_domain::time::TimeStatus::Uncertain(_)
+            ),
+            "time is uncertain from here on"
+        );
+        let clock = Arc::new(SlowWakeClock {
+            inner: w.clock.clone(),
+            slow: Duration::from_millis(1100),
+            reads: std::sync::Mutex::new(Vec::new()),
+        });
+        let sup = Supervisor::new(w.ops.clone(), SupervisorConfig::default())
+            .with_state(w.store.clone(), clock.clone())
+            .with_jitter(Arc::new(FixedJitter(1.0)));
+        let token = CancellationToken::new();
+        let running = tokio::spawn(sup.run(token.clone()));
+        let started = std::time::Instant::now();
+        while clock.reads.lock().unwrap().len() < 4 {
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "passes stopped"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        token.cancel();
+        running.await.unwrap();
+        let reads = clock.reads.lock().unwrap().clone();
+        let gaps: Vec<Duration> = reads
+            .windows(2)
+            .map(|p| p[1].0.saturating_duration_since(p[0].1))
+            .collect();
+        // The first gap may follow the start passes' own commits (debounced); the rest are the
+        // re-check's.
+        for gap in &gaps[1..] {
+            assert!(
+                *gap >= Duration::from_millis(900),
+                "a pass ran straight after a slow one: gaps {gaps:?}"
+            );
+        }
+        assert!(
+            grant_state(&w, &row.grant).permits_use(),
+            "uncertain time ended nothing"
         );
     }
 

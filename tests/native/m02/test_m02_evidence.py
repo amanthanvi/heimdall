@@ -1576,6 +1576,70 @@ class WindowsBundle(unittest.TestCase):
         self.assertIn("observation selftest=1", tests)
 
 
+    def test_the_m05_wsl_hook_bundle_imports_as_wsl_distro_and_only_under_its_own_format(self):
+        # ⟨M05 wave 4, ruling I-19⟩ tests/native/m05/run-wsl-hook-windows.ps1's bundle: the same six
+        # files, its own format and markers, platform directory `wsl-distro`.
+        fmt = wb.FORMAT_M05_WSL_HOOK
+        begin, end = wb.MARKERS[fmt]
+        files = {
+            "tests.txt": "### wsl_hook_m05\ntest m05_wsl_bash_and_zsh_present ... ok\n### wsl_hook_m05 exit=0\n",
+            "commands.txt": "exit 0: bash wsl-hook-journeys.sh <scratch> <BINDIR> as the non-root user\n",
+            "host.txt": "image-sha256=bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e\n",
+            "build.txt": "", "skipped.txt": "", "canary-scan.txt": "canary-prefix occurrences in saved output and metadata: 0\n",
+        }
+        text = make_bundle(files, commit="2" * 40, label="windows-11-x86_64 (WSL 2, M05 hook journeys)")
+        # make_bundle frames an M02 bundle: re-frame the same document with the M05 format and markers.
+        import base64
+        import gzip
+        import hashlib
+        doc = wb.decode(text)
+        doc["format"] = fmt
+        packed = gzip.compress(json.dumps(doc).encode())
+        b64 = base64.b64encode(packed).decode()
+        lines = [begin, "sha256-gzip: " + hashlib.sha256(packed).hexdigest()] + [b64[i:i + 76] for i in range(0, len(b64), 76)] + [end]
+        m05 = "report before\n" + "\n".join(lines) + "\nafter\n"
+        cfg_path = Path(self.tmp.name) / "runs.json"
+        cfg = {"artifacts_root": str(self.root / "exit-x"),
+               "platforms": {"wsl-distro": {"label": "wsl2", "unavailable": "not run", "logs": [], "artifact_digest": None}}}
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        dest, digest, n = wb.import_bundle(m05, "exit-x", self.root, config=cfg_path, commit="2" * 40, platform="wsl-distro", fmt=fmt)
+        self.assertEqual(dest, self.root / "exit-x" / "wsl-distro")
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(wb.FILES))
+        self.assertEqual(ev.parse_log(dest / "tests.txt"), {"wsl_hook_m05": {"m05_wsl_bash_and_zsh_present": "ok"}})
+        platform = json.loads(cfg_path.read_text(encoding="utf-8"))["platforms"]["wsl-distro"]
+        self.assertEqual(platform["logs"], ["wsl-distro/tests.txt"])
+        self.assertEqual(platform["facts"], ["wsl-distro/host.txt"])
+        self.assertNotIn("unavailable", platform)
+        self.assertEqual(platform["artifact_digest"], digest)
+        # Each bundle is refused under the other's format (nothing is written), and an unknown format or
+        # platform is refused.
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(m05, "exit-y", self.root, platform="wsl-distro")
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(text, "exit-y", self.root, platform="wsl-distro", fmt=fmt)
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(m05, "exit-y", self.root, platform="wsl-distro", fmt="heimdall-unknown/1")
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(m05, "exit-y", self.root, platform="wsl-other", fmt=fmt)
+        self.assertFalse((self.root / "exit-y").exists())
+
+    def test_the_m05_wsl_hook_harness_selftest_bundle_imports(self):
+        # The harness's own bundle writer (run-wsl-hook-windows.ps1 -SelfTest -Out FILE), when PowerShell 7
+        # is installed here; a skip otherwise.
+        import shutil
+        pwsh = shutil.which("pwsh")
+        if not pwsh:
+            self.skipTest("pwsh is not installed on this host")
+        out = Path(self.tmp.name) / "m05-bundle.txt"
+        r = subprocess.run([pwsh, "-NoProfile", "-File", str(HERE.parent / "m05" / "run-wsl-hook-windows.ps1"), "-SelfTest", "-Out", str(out)],
+                           capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("0 failed", r.stdout)
+        dest, _, n = wb.import_bundle(out.read_text(), "exit-m05w", self.root, commit="1" * 40, platform="wsl-distro", fmt=wb.FORMAT_M05_WSL_HOOK)
+        self.assertEqual(n, 1)
+        self.assertEqual(ev.parse_log(dest / "tests.txt"), {"wsl_hook_m05": {"m05_wsl_bash_and_zsh_present": "ok"}})
+
+
 class PlatformTests(unittest.TestCase):
     def sym(self, crate, path, disambiguator="s1a_"):
         out = "_RNv" + "Nt" * (len(path) - 1) + "C" + disambiguator + pt.ident(crate)

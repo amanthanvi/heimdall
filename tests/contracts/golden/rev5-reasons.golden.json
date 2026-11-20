@@ -108,6 +108,10 @@
   {
    "reason": "work_stopped",
    "code": "CREDENTIAL_EXPIRED"
+  },
+  {
+   "reason": "route_pending",
+   "code": "CAPABILITY_UNAVAILABLE"
   }
  ],
  "m05_warnings": [

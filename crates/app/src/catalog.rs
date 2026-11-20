@@ -863,6 +863,9 @@ fn apply_action(
                         updated_at: now,
                     };
                     tx.upsert_destination(&record)?;
+                    // ⟨M05; review M05-W4F-R01⟩ The owner's own definition replaces an
+                    // imported destination's pending route.
+                    tx.delete_route_pending(&record.id)?;
                     record
                 }
             };
@@ -882,6 +885,8 @@ fn apply_action(
             }
             let preferences = preferences_of_destination(tx, id)?;
             let removed = tx.remove_destination(id)?;
+            // ⟨M05; review M05-W4F-R01⟩ A removed destination keeps no pending route.
+            tx.delete_route_pending(id)?;
             if removed {
                 for mut p in preferences {
                     if p.projection != ProjectionStatus::Pending {

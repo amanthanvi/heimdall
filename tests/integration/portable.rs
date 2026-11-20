@@ -1561,6 +1561,99 @@ async fn an_unresolved_jump_refuses_its_destination_on_import() {
     assert_ne!(format!("{before:?}"), text);
 }
 
+/// ⟨M05; review M05-W4F-R03⟩ A jump resolves against the reconciliation result, never the
+/// raw bundle: a hop the bundle omits resolves to this catalog's managed direct destination; a
+/// bundled hop that is itself refused (its alias collides with another destination here) or
+/// named twice leaves its routed destination `jump_unresolved`, never added.
+#[tokio::test]
+async fn a_jump_resolves_against_the_reconciled_hop() {
+    let b = Inst::new(false).await;
+    let adopted = b
+        .catalog(serde_json::json!({
+            "action": "adopt_identity", "request_id": "r3-id",
+            "identity": {
+                "source": {"kind": "public_key_file", "path": format!("{}/.ssh/id_r3.pub", b.home.path().display())},
+                "public_key": public_key(11),
+            }
+        }))
+        .await
+        .unwrap();
+    let identity = adopted.data["identity_id"].as_str().unwrap().to_owned();
+    // Here: a managed direct bastion, and another destination holding the alias `hop-alias`.
+    for (rid, id, alias) in [
+        ("r3-d1", "bastion", "bastion"),
+        ("r3-d2", "other", "hop-alias"),
+    ] {
+        b.catalog(serde_json::json!({
+            "action": "upsert_destination", "request_id": rid,
+            "destination": {"id": id, "alias": alias, "definition": {"kind": "managed",
+                "hostname": format!("{id}.example.invalid"), "account": "deploy", "identity": identity}}
+        }))
+        .await
+        .unwrap_or_else(|e| panic!("{id}: {} {}", e.code, e.message));
+    }
+    let mut bundle = bundle_of(&serde_json::from_slice(&hostile(serde_json::json!({}))).unwrap());
+    let base = bundle.destinations[0].clone();
+    let mk = |id: &str, alias: &str, jump: Option<&str>| {
+        let mut d = base.clone();
+        d.id = DestinationId::parse(id).unwrap();
+        d.alias = alias.to_owned();
+        d.hostname = None;
+        d.port = None;
+        d.account = None;
+        d.jump = jump.map(|j| DestinationId::parse(j).unwrap());
+        d
+    };
+    bundle.destinations = vec![
+        // The hop the bundle omits: this catalog's managed direct `bastion`.
+        mk("via-local", "via-local", Some("bastion")),
+        // A bundled hop refused for its alias, and its dependent.
+        mk("hop-colliding", "hop-alias", None),
+        mk("via-colliding", "via-colliding", Some("hop-colliding")),
+        // A bundled hop named twice, and its dependent.
+        mk("hop-twice", "hop-twice", None),
+        mk("hop-twice", "hop-twice-again", None),
+        mk("via-twice", "via-twice", Some("hop-twice")),
+    ];
+    let res = b.import(&bundle, "r3-imp").await.unwrap();
+    let plan = res.data["plan"].as_array().unwrap().clone();
+    let of = |id: &str| -> Vec<(String, String)> {
+        plan.iter()
+            .filter(|e| e["id"] == id)
+            .map(|e| {
+                (
+                    e["status"].as_str().unwrap_or("").to_owned(),
+                    e["reason"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        of("via-local"),
+        vec![("add".to_owned(), "recorded_route_pending".to_owned())]
+    );
+    assert_eq!(
+        of("hop-colliding"),
+        vec![("conflict".to_owned(), "alias_collision".to_owned())]
+    );
+    assert_eq!(
+        of("via-colliding"),
+        vec![("conflict".to_owned(), "jump_unresolved".to_owned())],
+        "a refused hop does not resolve its dependent"
+    );
+    assert_eq!(of("hop-twice").len(), 2);
+    assert_eq!(
+        of("via-twice"),
+        vec![("conflict".to_owned(), "jump_unresolved".to_owned())],
+        "a hop named twice is ambiguous"
+    );
+    let pending = b
+        .store
+        .transaction(|tx| tx.route_pending(&DestinationId::parse("via-local").unwrap()))
+        .unwrap();
+    assert_eq!(pending.map(|j| j.to_string()), Some("bastion".to_owned()));
+}
+
 /// Import is one store transaction (M05-D07): a crash before the import's commit leaves
 /// no destination, no profile and no settled operation, and the same request, retried,
 /// applies the whole plan once.

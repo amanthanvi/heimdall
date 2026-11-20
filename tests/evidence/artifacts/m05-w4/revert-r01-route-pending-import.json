@@ -1,0 +1,23 @@
+{
+ "name": "M05 W4, review M05-W4F-R01: import no longer records an imported routed destination's route as pending on its jump (in `portable_m05` apply, the `put_route_pending` write disabled with `.filter(|_| false)`), as before the fix: the destination is stored as a plain observed destination",
+ "file": "crates/app/src/operations/portable_m05.rs",
+ "observed_by": "the integrator on the W4 tree (959936c4 plus the review fixes); source restored byte-identical (checked with cmp)",
+ "command": "TMPDIR=<short scratch dir> cargo test --locked -p heimdall --test e2e_cli_m05 an_imported_routed_destination",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test an_imported_routed_destination_is_never_launched_by_its_bare_alias ... FAILED",
+   "connect must refuse the routed destination, never launch it; launched with argv Some(\"lab-inner \")",
+   "0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out"
+  ]
+ },
+ "also": "the test's scratch HOME holds a disposable direct `Host lab-inner` and the launcher is a stub that records its argv; reverted, `connect lab-inner` handed the bare alias to the launcher, which the direct alias would have won"
+}

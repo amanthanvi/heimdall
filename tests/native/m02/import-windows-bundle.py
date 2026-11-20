@@ -4,7 +4,12 @@ into tests/evidence/artifacts/m02/<label>/windows/ and feed it to the evidence g
 
 Usage (from the repository root, with `python3 -I`):
   import-windows-bundle.py --bundle REPORT --label LABEL [--config RUNS.json] [--commit HEX]
-                           [--artifacts-root DIR]
+                           [--artifacts-root DIR] [--platform-dir DIR] [--format FORMAT]
+
+--format selects the bundle's format and markers: the default is the M02 local-mode bundle; the M05
+WSL hook harness (tests/native/m05/run-wsl-hook-windows.ps1, ruling I-19) writes
+`heimdall-m05-wsl-hook-bundle/1`, imported with `--format heimdall-m05-wsl-hook-bundle/1
+--platform-dir wsl-distro` (the same six result files).
 
 REPORT is any text that contains the bundle between its BEGIN and END markers (the local
 agent's report, or bundle.b64 itself). The import:
@@ -39,6 +44,12 @@ from pathlib import Path
 FORMAT = "heimdall-m02-windows-local-bundle/1"
 BEGIN = "-----BEGIN HEIMDALL M02 WINDOWS BUNDLE-----"
 END = "-----END HEIMDALL M02 WINDOWS BUNDLE-----"
+# ⟨M05 wave 4, ruling I-19⟩ The WSL hook harness's bundle: the same six files, its own format and markers.
+FORMAT_M05_WSL_HOOK = "heimdall-m05-wsl-hook-bundle/1"
+MARKERS = {
+    FORMAT: (BEGIN, END),
+    FORMAT_M05_WSL_HOOK: ("-----BEGIN HEIMDALL M05 WSL HOOK BUNDLE-----", "-----END HEIMDALL M05 WSL HOOK BUNDLE-----"),
+}
 FILES = ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "canary-scan.txt")
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -117,17 +128,18 @@ def load_generator():
     return mod
 
 
-def decode(text):
-    """The bundle document from a report that contains it between the markers."""
+def decode(text, fmt=FORMAT):
+    """The bundle document from a report that contains it between the markers of `fmt`."""
+    begin_marker, end_marker = MARKERS[fmt]
     if len(text) > MAX_REPORT:
         raise Refused("the report is larger than the bundle bound")
-    start = text.find(BEGIN)
-    end = text.find(END, start + 1 if start >= 0 else 0)
+    start = text.find(begin_marker)
+    end = text.find(end_marker, start + 1 if start >= 0 else 0)
     if start < 0 or end < 0:
         raise Refused("no bundle between the BEGIN and END markers")
-    if text.find(BEGIN, start + 1) >= 0 and text.find(BEGIN, start + 1) < end:
+    if text.find(begin_marker, start + 1) >= 0 and text.find(begin_marker, start + 1) < end:
         raise Refused("a second BEGIN marker before the END marker")
-    lines = [l.strip() for l in text[start + len(BEGIN):end].splitlines() if l.strip()]
+    lines = [l.strip() for l in text[start + len(begin_marker):end].splitlines() if l.strip()]
     if not lines or not lines[0].startswith("sha256-gzip: "):
         raise Refused("the payload's sha256 line is missing")
     want = lines[0][len("sha256-gzip: "):].strip().lower()
@@ -158,10 +170,10 @@ def decode(text):
     return doc
 
 
-def validate(doc, commit=None):
+def validate(doc, commit=None, fmt=FORMAT):
     """The checked files {name: text} of a decoded bundle."""
-    if not isinstance(doc, dict) or doc.get("format") != FORMAT:
-        raise Refused(f"not a {FORMAT} bundle")
+    if not isinstance(doc, dict) or doc.get("format") != fmt:
+        raise Refused(f"not a {fmt} bundle")
     c = doc.get("commit")
     if not isinstance(c, str) or not re.fullmatch(r"[0-9a-f]{40}", c):
         raise Refused("the bundle names no 40-hex commit")
@@ -219,17 +231,21 @@ def config_target(config, dest):
     return cfg_path, cfg
 
 
-def import_bundle(text, label, artifacts_root, config=None, commit=None, platform="windows"):
+def import_bundle(text, label, artifacts_root, config=None, commit=None, platform="windows", fmt=FORMAT):
     """(directory, digest, tests) after writing the files; raises Refused before writing.
 
     ⟨M03 wave 6⟩ `platform` is the platform directory and runs.json platform name (default
-    `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`)."""
+    `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`).
+    ⟨M05 wave 4⟩ `fmt` is the bundle format (a key of MARKERS); the M05 WSL hook bundle imports
+    as platform `wsl-distro`."""
+    if fmt not in MARKERS:
+        raise Refused(f"unknown bundle format {fmt!r}")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", label or ""):
         raise Refused("the label must be [A-Za-z0-9._-] and not start with punctuation")
-    if not re.fullmatch(r"windows(-[a-z0-9]+)?", platform or ""):
-        raise Refused("the platform directory must be windows or windows-<word>")
-    doc = decode(text)
-    files = validate(doc, commit)
+    if not re.fullmatch(r"windows(-[a-z0-9]+)?|wsl-distro", platform or ""):
+        raise Refused("the platform directory must be windows, windows-<word> or wsl-distro")
+    doc = decode(text, fmt)
+    files = validate(doc, commit, fmt)
     dest = Path(artifacts_root) / label / platform
     if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
         raise Refused(f"{dest} exists and is not empty: an import never overwrites")
@@ -292,7 +308,9 @@ def main(argv=None):
     ap.add_argument("--commit", help="the exit commit the bundle must name")
     ap.add_argument("--artifacts-root", default=str(ROOT / "tests" / "evidence" / "artifacts" / "m02"))
     ap.add_argument("--platform-dir", default="windows",
-                    help="the platform directory and runs.json platform (windows, or windows-<word> such as windows-lock)")
+                    help="the platform directory and runs.json platform (windows, windows-<word> such as windows-lock, or wsl-distro)")
+    ap.add_argument("--format", default=FORMAT, choices=sorted(MARKERS),
+                    help="the bundle format (default: the M02 local-mode bundle)")
     a = ap.parse_args(argv)
     try:
         text = read_report(a.bundle)
@@ -303,7 +321,7 @@ def main(argv=None):
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1
     try:
-        dest, digest, n = import_bundle(text, a.label, a.artifacts_root, a.config, a.commit, a.platform_dir)
+        dest, digest, n = import_bundle(text, a.label, a.artifacts_root, a.config, a.commit, a.platform_dir, a.format)
     except Refused as e:
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1

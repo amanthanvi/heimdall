@@ -120,7 +120,8 @@ pub(crate) fn export_bundle(
                 Some(account.clone()),
                 jump.clone(),
             ),
-            _ => (None, None, None, None),
+            // ⟨Review M05-W4F-R01⟩ An imported destination keeps its pending route's jump.
+            DestinationDefinition::Observed => (None, None, None, tx.route_pending(&d.id)?),
         };
         input.destinations.push(PortableDestination {
             id: d.id,
@@ -197,14 +198,24 @@ pub(crate) struct Entry {
 #[derive(Debug, Default)]
 pub(crate) struct Local {
     pub destinations: Vec<DestinationRecord>,
+    /// ⟨Review M05-W4F-R01⟩ The jump each imported destination's route is pending on.
+    pub route_pending: BTreeMap<DestinationId, DestinationId>,
     pub fingerprints: BTreeSet<String>,
     pub profiles: Vec<ProfileDefinition>,
 }
 
 impl Local {
     fn read(tx: &mut Txn<'_>) -> heimdall_store::Result<Self> {
+        let destinations = tx.destinations()?;
+        let mut route_pending = BTreeMap::new();
+        for d in &destinations {
+            if let Some(j) = tx.route_pending(&d.id)? {
+                route_pending.insert(d.id.clone(), j);
+            }
+        }
         Ok(Self {
-            destinations: tx.destinations()?,
+            destinations,
+            route_pending,
             fingerprints: tx
                 .identities()?
                 .into_iter()
@@ -219,8 +230,9 @@ impl Local {
 #[derive(Debug, Default)]
 pub(crate) struct Plan {
     pub entries: Vec<Entry>,
-    /// `(id, alias)` of each destination to add (as an observed destination).
-    pub add_destinations: Vec<(DestinationId, String)>,
+    /// `(id, alias, jump)` of each destination to add (as an observed destination; with
+    /// `jump`, its route pending on it, review M05-W4F-R01).
+    pub add_destinations: Vec<(DestinationId, String, Option<DestinationId>)>,
     pub add_profiles: Vec<(ProfileId, BTreeSet<AccessPair>)>,
 }
 
@@ -239,7 +251,12 @@ fn entry(kind: &'static str, id: String, status: Status, reason: Option<&'static
 /// bundle carries is compared: a redacted bundle's alias is a placeholder, and the host
 /// name, port and account of a bundle that has them are compared with a managed record
 /// (an observed one has none to differ).
-fn same_destination(local: &DestinationRecord, d: &PortableDestination, redacted: bool) -> bool {
+fn same_destination(
+    local: &DestinationRecord,
+    d: &PortableDestination,
+    redacted: bool,
+    pending: Option<&DestinationId>,
+) -> bool {
     if !redacted && local.alias != d.alias {
         return false;
     }
@@ -257,7 +274,9 @@ fn same_destination(local: &DestinationRecord, d: &PortableDestination, redacted
                 // ⟨§17.11 item 23⟩ A route through a jump is never the same as a direct one.
                 && d.jump == *jump
         }
-        _ => true,
+        // ⟨Review M05-W4F-R01⟩ An observed destination matches only with the same pending
+        // route: a routed one is never the same as one reached by its own alias.
+        DestinationDefinition::Observed => d.jump.as_ref() == pending,
     }
 }
 
@@ -287,36 +306,26 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
         .collect();
     let mut seen_ids: BTreeSet<&DestinationId> = BTreeSet::new();
     let mut claimed_aliases: BTreeSet<&str> = BTreeSet::new();
-    // ⟨M05; ADR-0006 §17.11 item 23⟩ Where a jump may resolve: a destination of the bundle
-    // with no jump of its own, or one of the local catalog's (a managed one with no jump of its
-    // own; an observed one has no route Heimdall knows and cannot be a jump).
-    let bundle_jumps: BTreeMap<&DestinationId, bool> = bundle
-        .destinations
-        .iter()
-        .map(|d| (&d.id, d.jump.is_none()))
-        .collect();
-    let resolves = |d: &PortableDestination| match &d.jump {
-        None => true,
-        Some(j) => {
-            bundle_jumps.get(j).copied().unwrap_or(false)
-                || by_id.get(j).is_some_and(|r| {
-                    matches!(
-                        r.definition,
-                        DestinationDefinition::Managed { jump: None, .. }
-                    )
-                })
-        }
-    };
+    // ⟨M05; review M05-W4F-R03⟩ First every destination is reconciled on its own (its ID, its
+    // alias, its content); then each jump is resolved **against that result**, never against
+    // the raw bundle: a hop the bundle names must itself be added or unchanged, named once,
+    // and have no jump of its own; a hop the bundle omits must be a managed destination here
+    // with no jump of its own. Anything else (a refused, colliding or duplicated hop, a chain,
+    // a missing one) refuses the routed destination (`jump_unresolved`).
+    let counts: BTreeMap<&DestinationId, usize> =
+        bundle
+            .destinations
+            .iter()
+            .fold(BTreeMap::new(), |mut m, d| {
+                *m.entry(&d.id).or_insert(0) += 1;
+                m
+            });
+    let mut first: Vec<(Status, Option<&'static str>)> = Vec::new();
     for d in &bundle.destinations {
-        let id = d.id.as_str().to_owned();
-        let (status, reason) = if !seen_ids.insert(&d.id) {
+        first.push(if !seen_ids.insert(&d.id) {
             (Status::Conflict, Some("duplicate_in_bundle"))
-        } else if !resolves(d) {
-            // Refused, never added as a direct route: the jump it names is neither in the
-            // bundle nor here, or is itself routed through a jump (`route_chain_unsupported`).
-            (Status::Conflict, Some("jump_unresolved"))
         } else if let Some(stored) = by_id.get(&d.id) {
-            if same_destination(stored, d, bundle.redacted) {
+            if same_destination(stored, d, bundle.redacted, local.route_pending.get(&d.id)) {
                 (Status::Unchanged, None)
             } else {
                 (Status::Conflict, Some("differs_locally"))
@@ -327,8 +336,48 @@ pub(crate) fn plan(bundle: &PortableBundle, local: &Local) -> Plan {
             (Status::Conflict, Some("alias_collision"))
         } else {
             claimed_aliases.insert(d.alias.as_str());
-            out.add_destinations.push((d.id.clone(), d.alias.clone()));
-            (Status::Add, Some("recorded_as_observed"))
+            (Status::Add, None)
+        });
+    }
+    let hop_ok = |j: &DestinationId| -> bool {
+        match counts.get(j) {
+            Some(1) => bundle
+                .destinations
+                .iter()
+                .zip(&first)
+                .find(|(h, _)| &h.id == j)
+                .is_some_and(|(h, (st, _))| {
+                    h.jump.is_none() && matches!(st, Status::Add | Status::Unchanged)
+                }),
+            Some(_) => false,
+            None => by_id.get(j).is_some_and(|r| {
+                matches!(
+                    r.definition,
+                    DestinationDefinition::Managed { jump: None, .. }
+                ) && !local.route_pending.contains_key(j)
+            }),
+        }
+    };
+    for (d, &(status, reason)) in bundle.destinations.iter().zip(first.iter()) {
+        let id = d.id.as_str().to_owned();
+        let (status, reason) = match (&d.jump, status) {
+            // Refused, never added as a direct route.
+            (Some(j), Status::Add | Status::Unchanged) if !hop_ok(j) => {
+                (Status::Conflict, Some("jump_unresolved"))
+            }
+            (Some(j), Status::Add) => {
+                // ⟨Review M05-W4F-R01⟩ Recorded with its route pending: observed, never
+                // launched by its bare alias, until the owner defines the route here.
+                out.add_destinations
+                    .push((d.id.clone(), d.alias.clone(), Some(j.clone())));
+                (Status::Add, Some("recorded_route_pending"))
+            }
+            (None, Status::Add) => {
+                out.add_destinations
+                    .push((d.id.clone(), d.alias.clone(), None));
+                (Status::Add, Some("recorded_as_observed"))
+            }
+            (_, st) => (st, reason),
         };
         let mut e = entry("destination", id, status, reason);
         e.host_key_fingerprints = d.host_key_fingerprints.clone();
@@ -390,7 +439,7 @@ pub(crate) fn apply_import(
 ) -> heimdall_store::Result<serde_json::Value> {
     let local = Local::read(tx)?;
     let plan = plan(bundle, &local);
-    for (id, alias) in &plan.add_destinations {
+    for (id, alias, jump) in &plan.add_destinations {
         tx.upsert_destination(&DestinationRecord {
             id: id.clone(),
             alias: alias.clone(),
@@ -399,6 +448,11 @@ pub(crate) fn apply_import(
             label: None,
             updated_at: now,
         })?;
+        // ⟨Review M05-W4F-R01⟩ Its route stays pending on the jump: no route is set up here
+        // (that is the owner's own `destination add --jump`, with its pins and checks).
+        if let Some(j) = jump {
+            tx.put_route_pending(id, j)?;
+        }
     }
     for (id, pairs) in &plan.add_profiles {
         // After the highest revision ever pinned (a profile removed earlier keeps its

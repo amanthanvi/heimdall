@@ -646,6 +646,7 @@ impl Supervisor {
         let mut last_safe: Option<bool> = None;
         let mut last_mono = start;
         let mut last_cont = self.state.as_ref().map(|(_, c)| c.continuous());
+        let mut last_wall = self.state.as_ref().map(|(_, c)| c.wall());
         let resume_bound = self.config.resume_bound();
         loop {
             let mut wake = next_guard.min(next_pass).min(next_holder);
@@ -674,14 +675,29 @@ impl Supervisor {
             self.operations.events().retry_held();
             // A machine sleep shows as continuous progress the monotonic timer did
             // not see: run both passes now.
-            if let (Some((_, clock)), Some(prev)) = (&self.state, last_cont) {
+            if let (Some((_, clock)), Some(prev), Some(prev_wall)) =
+                (&self.state, last_cont, last_wall)
+            {
                 let cont = clock.continuous();
+                let wall = clock.wall();
                 let mono = now.saturating_duration_since(last_mono);
                 if cont.saturating_sub(prev) > mono + SLEEP_DETECTION {
                     next_guard = now;
                     next_pass = now;
                 }
+                // ⟨M05; review M05-W4F-R02⟩ A forward wall-clock step shows as wall progress
+                // the monotonic timer did not see. The next pass was scheduled on the monotonic
+                // timer from the wall instant of its bound, so the step brought that bound
+                // nearer than the timer knows: run the pass now (its tick keeps the safe-time
+                // and continuous-budget checks), never at the old target, which would keep a
+                // strict connection up past its wall cutoff by up to the step.
+                let stepped =
+                    Duration::try_from(wall.duration_since(prev_wall)).unwrap_or(Duration::ZERO);
+                if stepped > mono + SLEEP_DETECTION {
+                    next_pass = now;
+                }
                 last_cont = Some(cont);
+                last_wall = Some(wall);
                 last_mono = now;
             }
             if now >= next_guard {
@@ -720,13 +736,18 @@ impl Supervisor {
                 self.managed_pass(last_safe == Some(false)).await;
             }
             if now >= next_pass {
-                next_pass = match self.scheduler_pass().await {
-                    Ok(next) => now + self.sleep_until_wall(next),
+                let passed = self.scheduler_pass().await;
+                // ⟨M05; review M05-W4F-R05⟩ The delay is measured from the pass's end (the wall
+                // read it is computed from), so it is applied to a fresh monotonic sample: a
+                // slow pass never uses up the delay and runs the next pass straight after it.
+                let done = Instant::now();
+                next_pass = match passed {
+                    Ok(next) => done + self.sleep_until_wall(next),
                     Err(e) => {
                         tracing::warn!(code = %e.code, "scheduler pass failed; retrying");
                         // Jittered like every supervisor-owned retry (§13.5).
                         let base = FAILED_PASS_RETRY.min(self.config.max_idle_sleep);
-                        now + base.mul_f64(0.5 + 0.5 * self.jitter.unit().clamp(0.0, 1.0))
+                        done + base.mul_f64(0.5 + 0.5 * self.jitter.unit().clamp(0.0, 1.0))
                     }
                 };
                 // ⟨M03⟩ U0b row 8: the managed re-issue hook (a no-op while the
@@ -738,7 +759,7 @@ impl Supervisor {
                     match self.cleanup_pass().await {
                         Ok(report) => {
                             if let Some(due) = report.next_due_in {
-                                next_pass = next_pass.min(now + due);
+                                next_pass = next_pass.min(Instant::now() + due);
                             }
                         }
                         Err(e) => tracing::warn!(code = %e.code, "cleanup pass failed"),
@@ -1331,16 +1352,16 @@ impl Supervisor {
                     }
                 };
                 for g in tx.grants_due(Timestamp::MAX)? {
-                    let usable = g.state.permits_use();
-                    consider(wake_for(g.deadline.effective, wall, usable));
+                    let ends = ends_at_bound(g.state);
+                    consider(wake_for(g.deadline.effective, wall, ends));
                     if let Some(a) = tx.grant_anchor(&g.id)? {
-                        consider(wake_for(a.bound, wall, usable));
+                        consider(wake_for(a.bound, wall, ends));
                         if a.anchor.boot_id == boot {
                             let left = a.budget_end.saturating_sub(continuous);
                             if let Ok(span) = jiff::SignedDuration::try_from(left)
                                 && let Ok(t) = wall.checked_add(span)
                             {
-                                consider(wake_for(t, wall, usable));
+                                consider(wake_for(t, wall, ends));
                             }
                         }
                     }
@@ -2036,32 +2057,42 @@ struct ManagedSupervision {
     end_cleanup: Option<Arc<dyn heimdall_adapters::managed::EndCleanup>>,
 }
 
-/// Wait for the next committed change (`true`), or forever once the publisher is
-/// gone. A lagged receiver counts as a change.
-/// ⟨M05; ruling I-26⟩ How soon a pass re-checks a usable grant whose bound has passed but
-/// which the last pass did not end.
+/// ⟨M05; ruling I-26⟩ How soon a pass re-checks a grant whose bound has passed but which the
+/// last pass did not end.
 const PASSED_BOUND_RECHECK: jiff::SignedDuration = jiff::SignedDuration::from_secs(1);
 
 /// ⟨M05; ruling I-26⟩ The wake a bound asks for, read at `wall`: the bound itself while it is
-/// ahead; once it has passed, a re-check [`PASSED_BOUND_RECHECK`] from now for a grant that is
-/// still usable, and none otherwise. A timer wake can land a few milliseconds before the wall
+/// ahead; once it has passed, a re-check [`PASSED_BOUND_RECHECK`] from now for a grant its bound
+/// still ends ([`ends_at_bound`]), and none otherwise. A timer wake can land a few milliseconds before the wall
 /// bound (the monotonic sleep and the wall clock differ), so that pass's tick finds the bound
 /// not yet passed and ends nothing; by the time the next wake is read the bound is behind the
 /// wall clock. Dropping it then left the grant usable in the store, its owned connections up,
 /// until the idle bound (`max_idle_sleep`, 300 s); the re-check ends it at the next pass. A
-/// grant that is not usable (ended, revoking) and every other kind of instant keep the old rule,
-/// so nothing passed is re-checked forever. While time is uncertain the tick ends nothing, so
-/// a passed bound is re-checked once per [`PASSED_BOUND_RECHECK`] until time is safe again.
-fn wake_for(bound: Timestamp, wall: Timestamp, usable: bool) -> Option<Timestamp> {
+/// grant its bound no longer ends (terminal, or `revoking`, which keeps its own retry) and every
+/// other kind of instant keep the old rule, so nothing passed is re-checked forever. While time
+/// is uncertain the tick ends nothing, so a passed bound is re-checked once per
+/// [`PASSED_BOUND_RECHECK`] until time is safe again.
+fn wake_for(bound: Timestamp, wall: Timestamp, ends: bool) -> Option<Timestamp> {
     if bound > wall {
         Some(bound)
-    } else if usable {
+    } else if ends {
         wall.checked_add(PASSED_BOUND_RECHECK).ok()
     } else {
         None
     }
 }
 
+/// ⟨M05; review M05-W4F-R04⟩ Whether a grant's passed bound still ends it: the states that
+/// accept `DeadlineReached` and leave by it (`awaiting_approval`, `preparing`, `active`,
+/// `degraded`; spec §6.3), read from the transition table itself. `revoking` stays `revoking`
+/// on it (its revocation keeps its own retry), and a terminal state has no such transition.
+fn ends_at_bound(state: heimdall_contract::GrantState) -> bool {
+    use heimdall_domain::lifecycle::{GrantEvent, grant_transition};
+    grant_transition(state, GrantEvent::DeadlineReached).is_ok_and(|next| next != state)
+}
+
+/// Wait for the next committed change (`true`), or forever once the publisher is
+/// gone. A lagged receiver counts as a change.
 async fn recv_change(
     events: &mut Option<
         tokio::sync::broadcast::Receiver<Arc<heimdall_app::events::SequencedEvent>>,
@@ -2249,5 +2280,28 @@ mod wake_tests {
             None,
             "nothing ended is re-checked"
         );
+    }
+
+    /// ⟨M05; review M05-W4F-R04⟩ The passed-bound re-check covers every state a bound still
+    /// ends (spec §6.3: `awaiting_approval`, `preparing`, `active`, `degraded`), not only the
+    /// usable ones; `revoking` keeps its own retry and nothing terminal is re-checked.
+    #[test]
+    fn a_passed_bound_is_rechecked_for_every_state_it_still_ends() {
+        use heimdall_contract::GrantState as G;
+        for s in [G::AwaitingApproval, G::Preparing, G::Active, G::Degraded] {
+            assert!(ends_at_bound(s), "{s:?}");
+        }
+        for s in [
+            G::Requested,
+            G::Revoking,
+            G::Revoked,
+            G::Expired,
+            G::Released,
+            G::Denied,
+            G::Cancelled,
+            G::Failed,
+        ] {
+            assert!(!ends_at_bound(s), "{s:?}");
+        }
     }
 }
