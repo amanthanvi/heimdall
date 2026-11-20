@@ -56,11 +56,8 @@ pub use timegate::{SafeNow, TimeGate};
 #[macro_export]
 macro_rules! no_window {
     ($command:expr) => {{
-        #[allow(unused_imports)]
-        use ::std::os::windows::process::CommandExt as _;
-        let mut command = $command;
-        // CREATE_NO_WINDOW.
-        command.creation_flags(0x0800_0000);
+        // REVERT PROOF ONLY (m03/e9-revert-proof, never merged): no CREATE_NO_WINDOW.
+        let command = $command;
         command
     }};
 }
