@@ -48,11 +48,14 @@ use heimdall_domain::managed::{OwnedConnection, OwnedConnectionState};
 use heimdall_domain::scope::AccessPair;
 
 /// The running platform's claim-table row (`Platform::os`: `macos`, `linux`,
-/// `windows`; `arch`: `aarch64`, `x86_64`, as `std::env::consts` names them).
+/// `windows`, or `wsl` for a Linux host under WSL, which no row names
+/// (`heimdall_localenv::sys::claim_platform_os`); `arch`: `aarch64`, `x86_64`, as
+/// `std::env::consts` names them).
 #[must_use]
 pub fn current_platform() -> Platform {
     Platform {
-        os: std::env::consts::OS,
+        // ⟨M03-F1 R02⟩ `wsl` under WSL: no native Linux entry applies there.
+        os: heimdall_localenv::sys::claim_platform_os(),
         arch: std::env::consts::ARCH,
     }
 }

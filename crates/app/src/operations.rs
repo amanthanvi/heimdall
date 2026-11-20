@@ -5448,6 +5448,17 @@ fn ensure_data(
     // closed; M01/M02 results unchanged).
     let is_managed = binding.mechanism.as_str() == ca_issuance_m03::MANAGED_CERTIFICATE;
     let managed = facts.managed.as_ref().filter(|_| is_managed);
+    let enforcement = narrowing::child_enforcement(binding.parent.is_some(), &facts.enforcement);
+    // ⟨M03-F1 R01⟩ A managed binding's claim-table values hold only when this process's
+    // adapter judged them against the current host (its report, `facts.managed`). Facts
+    // from history (`Facts::conservative`: a bind after a restart, re-issue or repair) or
+    // from a leader's result (`Facts::from_data`) carry the stored verdict, which stays
+    // the grant's history; the current result reads those fields `unknown`.
+    let enforcement = if is_managed && managed.is_none() {
+        heimdall_domain::claims::without_claimed_values(&enforcement)
+    } else {
+        enforcement
+    };
     EnsureData {
         binding_id: binding.id.clone(),
         environment_id: binding.environment.clone(),
@@ -5458,7 +5469,7 @@ fn ensure_data(
         offline_until: facts.offline_until.min(end),
         refresh_dependency: facts.refresh_dependency,
         credential_mechanism: binding.mechanism.clone(),
-        enforcement: narrowing::child_enforcement(binding.parent.is_some(), &facts.enforcement),
+        enforcement,
         consumer: facts.integration.clone(),
         credential_availability: facts.availability,
         provider: facts.provider.clone(),
@@ -14871,6 +14882,9 @@ mod tests {
     /// `managed_certificate` binding only; after a restart (`Facts::conservative`, the
     /// stored facts) and from a leader's result (`Facts::from_data`) they stay absent,
     /// and any other mechanism's result is unchanged even if an outcome carried them.
+    /// ⟨M03-F1 R01⟩ The same holds for the claim-table values of `enforcement`: only this
+    /// process's report carries them; a result built from the grant's stored verdict or a
+    /// leader's result reads them `unknown`, and the grant keeps its history.
     #[test]
     fn ensure_data_carries_managed_facts_only_from_this_process_outcome() {
         use heimdall_contract::managed::{
@@ -14878,6 +14892,29 @@ mod tests {
         };
         let now: Timestamp = "2026-10-02T00:10:00Z".parse().unwrap();
         let deadline: Timestamp = "2026-10-02T02:10:00Z".parse().unwrap();
+        // The verdict a host in a claim's ranges reports, as the grant stored it.
+        let claimed = {
+            use heimdall_contract::managed::{NewSigningExpiry, OwnedMultiplexing};
+            use heimdall_contract::request::{
+                DestinationScopeEnforcement, ExistingConnectionsPolicy, NewAuthenticationExpiry,
+                RevocationStatus, WorkloadIsolation,
+            };
+            let mut e = heimdall_contract::request::Enforcement::new(
+                DestinationScopeEnforcement::Unknown,
+                NewAuthenticationExpiry::CredentialAndSigner,
+                WorkloadIsolation::SharedOsUser,
+                ExistingConnectionsPolicy::StrictDisconnect,
+                RevocationStatus::BoundedByCredentialExpiry,
+            );
+            e.new_signing_expiry = Some(NewSigningExpiry::Signer);
+            e.owned_multiplexing = Some(OwnedMultiplexing::ClosedAtDeadline);
+            EnforcementEvidence {
+                report: e,
+                evidence: Vec::new(),
+            }
+        };
+        let history = heimdall_domain::claims::without_claimed_values(&claimed.report);
+        assert_ne!(history, claimed.report);
         let grant = GrantSnapshot {
             id: GrantId::from_random_bytes([0x18; 16]),
             environment: EnvironmentId::from_random_bytes([0x17; 16]),
@@ -14897,7 +14934,7 @@ mod tests {
             },
             generation: heimdall_domain::policy::AuthorityGeneration(1),
             state: GrantState::Active,
-            enforcement: EnforcementEvidence::unknown(),
+            enforcement: claimed.clone(),
         };
         let binding = |mechanism: &str| BindingRecord {
             id: heimdall_contract::ids::BindingId::from_random_bytes([0x19; 16]),
@@ -14926,7 +14963,7 @@ mod tests {
             usable_until: deadline,
             offline_until: deadline,
             refresh_dependency: RefreshDependency::LocalIssuer,
-            enforcement: EnforcementEvidence::unknown(),
+            enforcement: claimed.clone(),
             credential_ref: "fixture".to_owned(),
             availability: CredentialAvailability::ThroughDeadline,
             provider: None,
@@ -14953,6 +14990,7 @@ mod tests {
         assert_eq!(fresh.connection_policy, Some(policy));
         assert_eq!(fresh.lock_continuity, Some(LockContinuityReport::Verified));
         assert!(fresh.refresh_condition.is_some() && fresh.revocation.is_some());
+        assert_eq!(fresh.enforcement, claimed.report, "judged by this process");
         let absent = |d: &EnsureData| {
             d.lock_continuity.is_none()
                 && d.conditions.is_empty()
@@ -14969,13 +15007,15 @@ mod tests {
             deadline,
         );
         assert!(absent(&restarted), "{restarted:?}");
+        assert_eq!(
+            restarted.enforcement, history,
+            "the stored verdict is history"
+        );
+        assert_eq!(grant.enforcement, claimed, "and the grant keeps it");
         // From a leader's result (an attached binding).
-        assert!(absent(&ensure_data(
-            &managed,
-            &grant,
-            &Facts::from_data(&fresh),
-            deadline
-        )));
+        let follower = ensure_data(&managed, &grant, &Facts::from_data(&fresh), deadline);
+        assert!(absent(&follower));
+        assert_eq!(follower.enforcement, history);
         // Another mechanism: never, so M01/M02 results stay byte-identical.
         let other = ensure_data(
             &binding("fake_agent"),
@@ -14984,5 +15024,9 @@ mod tests {
             deadline,
         );
         assert!(absent(&other), "{other:?}");
+        assert_eq!(
+            other.enforcement, claimed.report,
+            "another mechanism: unchanged"
+        );
     }
 }

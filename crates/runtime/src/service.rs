@@ -2340,13 +2340,11 @@ impl ManagedParts {
         control_locator: String,
     ) -> Result<ManagedRuntime, ServiceError> {
         let mut steps = Vec::new();
-        // ⟨M03-F1⟩ The verified ssh client's version: the claim table's client ranges are
-        // judged against it (ADR-0008 D12 item 2; no client, no claim).
-        self.sources.set_client_version(
-            wired
-                .and_then(|w| w.config.clients.selected(ClientKind::Ssh))
-                .and_then(|c| c.version.as_ref())
-                .map(heimdall_localenv::local_query::version_text),
+        // ⟨M03-F1⟩ The verified ssh client: the claim table's client ranges are judged
+        // against its version, bound to its executable's identity (ADR-0008 D12 item 2,
+        // R03; no client, no claim).
+        self.sources.set_verified_client(
+            wired.and_then(|w| crate::managed_store::VerifiedClient::selected(&w.config.clients)),
         );
         let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(ops.clone());
         // ⟨M05⟩ U5 (ADR-0011 §3.2 (a)): the environment endpoint's identities path activates

@@ -4287,6 +4287,7 @@ async fn verified_client_unavailable_at_apply_is_capability_unavailable() {
         source: ClientSource::Path,
         version: None,
         sha256: None,
+        identity: None,
         selected: true,
     };
     config.clients = ClientInventory {

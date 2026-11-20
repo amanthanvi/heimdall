@@ -92,6 +92,10 @@ pub struct ClientCandidate {
     pub source: ClientSource,
     /// Its version, when a local query ran.
     pub version: Option<OpenSshVersion>,
+    /// ⟨M03-F1 R03⟩ The executable's identity, read before its version query and the same
+    /// after it (`None` when no query ran, or when it changed or could not be read; then
+    /// `version` is `None` too). The runtime binds the version to it.
+    pub identity: Option<crate::sys::ExecutableIdentity>,
     /// SHA-256 of the executable, lowercase hex.
     pub sha256: Option<String>,
     /// Whether it is the client Heimdall selects.
@@ -258,10 +262,19 @@ pub fn resolve_clients_on(
         let found = candidates_for(env, config, kind, platform);
         let chosen = chosen_index(&found, kind, platform);
         for (i, (path, source)) in found.into_iter().enumerate() {
-            let version = if kind == ClientKind::Ssh && queries == LocalQueries::Enabled {
-                run_version(&path).ok()
+            let (version, identity) = if kind == ClientKind::Ssh && queries == LocalQueries::Enabled
+            {
+                // ⟨M03-F1 R03⟩ The version belongs to the file only if the file stayed the
+                // same across its query.
+                let before = crate::sys::executable_identity(&path);
+                let version = run_version(&path).ok();
+                let after = crate::sys::executable_identity(&path);
+                match (version, before) {
+                    (Some(v), Some(b)) if after.as_ref() == Some(&b) => (Some(v), Some(b)),
+                    _ => (None, None),
+                }
             } else {
-                None
+                (None, None)
             };
             let sha256 = sha256_file(&path);
             candidates.push(ClientCandidate {
@@ -270,6 +283,7 @@ pub fn resolve_clients_on(
                 source,
                 version,
                 sha256,
+                identity,
                 selected: chosen == Some(i),
             });
         }
@@ -595,6 +609,7 @@ mod tests {
                 source: ClientSource::System32,
                 version,
                 sha256: None,
+                identity: None,
                 selected: true,
             }],
         }
@@ -696,6 +711,7 @@ mod tests {
             source: ClientSource::Path,
             version: Some(observed.version),
             sha256: None,
+            identity: None,
             selected: true,
         };
         // A file with neither encoding needs no row.

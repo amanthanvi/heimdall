@@ -408,6 +408,9 @@ struct FixtureManaged {
     revoke_rows: Mutex<Vec<RemoteEffectReport>>,
     /// ⟨§17.21 item 1⟩ `prepare_from` refuses (after the driver ran) while set.
     fail_prepare: std::sync::atomic::AtomicBool,
+    /// ⟨M03-F1 R01⟩ While set, `prepare_from` judges as a host inside the claim table's
+    /// ranges: the claim-gated values, with the adapter's report.
+    in_range: std::sync::atomic::AtomicBool,
 }
 
 impl FixtureManaged {
@@ -429,6 +432,7 @@ impl FixtureManaged {
             seen_managed: Mutex::new(Vec::new()),
             revoke_rows: Mutex::new(Vec::new()),
             fail_prepare: std::sync::atomic::AtomicBool::new(false),
+            in_range: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -526,8 +530,15 @@ impl CredentialAdapter for FixtureManaged {
             } else {
                 match prepared {
                     Some(p) if p.certificates.len() == req.scope.pairs.len() => {
+                        let in_range = self.in_range.load(Ordering::SeqCst);
                         Ok(PrepareOutcome {
                             credential_ref: p.instance.to_string(),
+                            enforcement: if in_range {
+                                in_range_evidence()
+                            } else {
+                                evidence()
+                            },
+                            managed: in_range.then(report_facts),
                             ..outcome_for(&req)
                         })
                     }
@@ -1630,4 +1641,107 @@ async fn credential_instances_found_by_grant_query_not_fingerprint() {
         "both gate holds released"
     );
     assert_eq!(of(&b.grant_id)[0].state, CredentialState::Installed);
+}
+
+// =================================================================================
+// ⟨M03-F1 R01⟩ A stored verdict is history
+// =================================================================================
+
+/// The verdict a host inside the claim table's ranges reports (the claim-gated values).
+fn in_range_evidence() -> EnforcementEvidence {
+    use heimdall_contract::managed::{NewSigningExpiry, OwnedMultiplexing};
+    use heimdall_contract::request::{
+        ExistingConnectionsPolicy, NewAuthenticationExpiry, RevocationStatus,
+    };
+    let mut e = evidence();
+    e.report.new_authentication_expiry = NewAuthenticationExpiry::CredentialAndSigner;
+    e.report.existing_connections = ExistingConnectionsPolicy::StrictDisconnect;
+    e.report.revocation = RevocationStatus::BoundedByCredentialExpiry;
+    e.report.new_signing_expiry = Some(NewSigningExpiry::Signer);
+    e.report.owned_multiplexing = Some(OwnedMultiplexing::ClosedAtDeadline);
+    e
+}
+
+/// The managed adapter's report that accompanies a fresh judgment.
+fn report_facts() -> heimdall_app::ports::ManagedResultFacts {
+    use heimdall_contract::managed::{
+        ConnectionPolicyReport, ExistingConnectionsMode, LockContinuityReport, MultiplexingMode,
+        RefreshCondition, RefreshTrigger,
+    };
+    heimdall_app::ports::ManagedResultFacts {
+        lock_continuity: LockContinuityReport::NotVerified,
+        conditions: Vec::new(),
+        refresh_condition: RefreshCondition {
+            needed_only_after: RefreshTrigger::SignerRestart,
+            source: RefreshDependency::LocalIssuer,
+        },
+        revocation: serde_json::from_value(serde_json::json!({
+            "local": "immediate",
+            "remote": "bounded_by_credential_expiry",
+            "destination_clock": "unmeasured",
+        }))
+        .unwrap(),
+        evidence: Vec::new(),
+        connection_policy: ConnectionPolicyReport {
+            existing: ExistingConnectionsMode::Strict,
+            multiplexing: MultiplexingMode::Disabled,
+            wording: "Connections Heimdall started are closed at the deadline.".to_owned(),
+        },
+    }
+}
+
+/// ⟨M03-F1 R01⟩ A grant created while the client was inside the claim table's ranges stores
+/// the claim-gated verdict. After a restart with a client outside them (the fixture's
+/// fresh judgment claims nothing) and the re-issue, a fresh `bind` builds its result from
+/// the stored grant (`Facts::conservative`): it reads every claim-gated field `unknown`,
+/// and the grant keeps its verdict as history.
+#[tokio::test]
+async fn fresh_bind_after_reissue_never_carries_the_stored_claim_values() {
+    use heimdall_contract::request::{BindForm, BindRequest};
+    let w = World::new().await;
+    w.adapter.in_range.store(true, Ordering::SeqCst);
+    let (data, _) = w.ensure("f1-r01", &[h1()]).await;
+    let gid = data.grant_id.clone();
+    let claimed = in_range_evidence().report;
+    assert_eq!(
+        data.enforcement, claimed,
+        "judged by this process, in range"
+    );
+    let stored = || {
+        w.store
+            .transaction(|tx| tx.grant(&gid))
+            .unwrap()
+            .unwrap()
+            .enforcement
+            .report
+    };
+    assert_eq!(stored(), claimed, "the grant records the verdict");
+    // The new runtime's client is outside every range.
+    w.adapter.in_range.store(false, Ordering::SeqCst);
+    let ops2 = start(&w.store, &w.clock, &w.sync, &w.adapter).await;
+    let effects2 = FixtureEffects::new(w.timeline.clone());
+    wire(&ops2, &effects2, &w.issuer);
+    assert_eq!(
+        ops2.managed_reissue_pass().await.unwrap(),
+        vec![gid.clone()]
+    );
+    assert_eq!(w.grant_state(&gid), GrantState::Active);
+    let bound = ops2
+        .bind(
+            &owner(),
+            BindRequest {
+                binding_id: data.binding_id.clone(),
+                form: BindForm::Materialize,
+                request_id: RequestId::parse("r-f1-r01-bind").unwrap(),
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("bind: {} {}", e.code, e.message))
+        .data;
+    assert_eq!(
+        bound.enforcement,
+        heimdall_domain::claims::without_claimed_values(&claimed),
+        "a result built from the stored verdict claims nothing"
+    );
+    assert_eq!(stored(), claimed, "the stored verdict stays history");
 }

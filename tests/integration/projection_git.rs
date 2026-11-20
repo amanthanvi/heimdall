@@ -489,6 +489,7 @@ impl Fx {
                     source: ClientSource::Path,
                     version: None,
                     sha256: None,
+                    identity: None,
                     selected: true,
                 },
                 ClientCandidate {
@@ -497,6 +498,7 @@ impl Fx {
                     source: ClientSource::Path,
                     version: None,
                     sha256: None,
+                    identity: None,
                     selected: true,
                 },
             ],

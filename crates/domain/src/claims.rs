@@ -11,8 +11,10 @@
 //! reviewed integrator commit after its native evidence record is `verified`
 //! (m03-plan §3, "claim update"). `tools/validation/claims_table.py` (the `check.sh`
 //! step `claims-table`) parses [`CLAIMS`] from this file's source and fails unless every
-//! entry's record exists, validates, is `verified` for that platform row and names a
-//! commit that is an ancestor of `HEAD`. It also fails an entry for a custody-dependent
+//! entry's record exists **at the commit it cites**, validates, is `verified` for that
+//! platform row there, names a commit that is an ancestor of `HEAD`, and ⟨M03-F1 R06⟩ has
+//! bounds equal to that record's host facts: the OS floor its OS release, the client range
+//! its client's version, the pinned signer build the workspace version at that commit. It also fails an entry for a custody-dependent
 //! field (`lock_continuity`) whose build profile is not `release` or whose store kind
 //! is not the platform's product store: test-store evidence never satisfies a
 //! product-store claim (F03).
@@ -33,7 +35,8 @@ pub enum BuildProfile {
 /// The platform row a claim covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Platform {
-    /// Operating system: `macos`, `linux` or `windows`.
+    /// Operating system: `macos`, `linux` or `windows`. ⟨M03-F1 R02⟩ A host under WSL is
+    /// `wsl`, which no table row names.
     pub os: &'static str,
     /// Architecture: `aarch64` or `x86_64`.
     pub arch: &'static str,
@@ -147,7 +150,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "linux",
             arch: "x86_64",
         },
-        os_floor: "6.8.0",
+        os_floor: "6.8.0-147-generic",
         client_versions: VersionRange {
             min: "9.6p1",
             max: "9.6p1",
@@ -168,7 +171,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "linux",
             arch: "x86_64",
         },
-        os_floor: "6.8.0",
+        os_floor: "6.8.0-147-generic",
         client_versions: VersionRange {
             min: "9.6p1",
             max: "9.6p1",
@@ -189,7 +192,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "windows",
             arch: "x86_64",
         },
-        os_floor: "10.0.26300",
+        os_floor: "10.0.26300.9974",
         client_versions: VersionRange {
             min: "9.5p2",
             max: "9.5p2",
@@ -210,7 +213,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "windows",
             arch: "x86_64",
         },
-        os_floor: "10.0.26300",
+        os_floor: "10.0.26300.9974",
         client_versions: VersionRange {
             min: "9.5p2",
             max: "9.5p2",
@@ -336,7 +339,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "linux",
             arch: "x86_64",
         },
-        os_floor: "6.8.0",
+        os_floor: "6.8.0-147-generic",
         client_versions: VersionRange {
             min: "9.6p1",
             max: "9.6p1",
@@ -357,7 +360,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "linux",
             arch: "x86_64",
         },
-        os_floor: "6.8.0",
+        os_floor: "6.8.0-147-generic",
         client_versions: VersionRange {
             min: "9.6p1",
             max: "9.6p1",
@@ -378,7 +381,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "linux",
             arch: "x86_64",
         },
-        os_floor: "6.8.0",
+        os_floor: "6.8.0-147-generic",
         client_versions: VersionRange {
             min: "9.6p1",
             max: "9.6p1",
@@ -399,7 +402,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "linux",
             arch: "x86_64",
         },
-        os_floor: "6.8.0",
+        os_floor: "6.8.0-147-generic",
         client_versions: VersionRange {
             min: "9.6p1",
             max: "9.6p1",
@@ -420,7 +423,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "linux",
             arch: "x86_64",
         },
-        os_floor: "6.8.0",
+        os_floor: "6.8.0-147-generic",
         client_versions: VersionRange {
             min: "9.6p1",
             max: "9.6p1",
@@ -441,7 +444,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "windows",
             arch: "x86_64",
         },
-        os_floor: "10.0.26300",
+        os_floor: "10.0.26300.9974",
         client_versions: VersionRange {
             min: "9.5p2",
             max: "9.5p2",
@@ -462,7 +465,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "windows",
             arch: "x86_64",
         },
-        os_floor: "10.0.26300",
+        os_floor: "10.0.26300.9974",
         client_versions: VersionRange {
             min: "9.5p2",
             max: "9.5p2",
@@ -483,7 +486,7 @@ pub const CLAIMS: &[Claim] = &[
             os: "windows",
             arch: "x86_64",
         },
-        os_floor: "10.0.26300",
+        os_floor: "10.0.26300.9974",
         client_versions: VersionRange {
             min: "9.5p2",
             max: "9.5p2",
@@ -719,10 +722,11 @@ pub const SIGNER_BUILD: &str = env!("CARGO_PKG_VERSION");
 /// A fact that could not be read is `None`, and no entry applies on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HostFacts {
-    /// The running platform.
+    /// The running platform. ⟨M03-F1 R02⟩ A Linux host under WSL is `os: "wsl"`, a platform
+    /// no table row names, so it never matches a native Linux entry.
     pub platform: Platform,
-    /// The host's OS release: the macOS product version, the Linux kernel release, the
-    /// Windows `major.minor.build`.
+    /// The host's OS release in its platform's format ([`os_release_key`]): the macOS
+    /// `ProductVersion`, the Linux kernel release, the Windows `major.minor.build.UBR`.
     pub os_release: Option<String>,
     /// The verified OpenSSH client's version, as `10.5p1`.
     pub client_version: Option<String>,
@@ -731,18 +735,24 @@ pub struct HostFacts {
 }
 
 /// ⟨M03-F1⟩ Whether `claim` applies on `host`: the same platform, an OS release at least
-/// its `os_floor`, a client within its `client_versions` and a build within its
-/// `signer_builds`. A fact the host could not read never satisfies a bound.
+/// its `os_floor` (both in that platform's format, compared at the floor's full
+/// granularity), a client within its `client_versions` and exactly its pinned signer build.
+/// A fact the host could not read, or one that is malformed, never satisfies a bound.
 #[must_use]
 pub fn applies(claim: &Claim, host: &HostFacts) -> bool {
-    let floor = |v: Option<&str>| v.is_some_and(|v| compare_versions(v, claim.os_floor).is_ge());
+    let os = claim.platform.os;
+    let floor = os_release_key(os, claim.os_floor);
+    let release = host
+        .os_release
+        .as_deref()
+        .and_then(|r| os_release_key(os, r));
     claim.platform == host.platform
-        && floor(host.os_release.as_deref())
+        && matches!((release, floor), (Some(r), Some(f)) if r >= f)
         && host
             .client_version
             .as_deref()
-            .is_some_and(|v| in_range(v, &claim.client_versions))
-        && in_range(&host.signer_build, &claim.signer_builds)
+            .is_some_and(|v| client_in_range(v, &claim.client_versions))
+        && signer_pinned(&host.signer_build, &claim.signer_builds)
 }
 
 /// ⟨M03-F1⟩ The entries of `table` that apply on `host` ([`applies`]).
@@ -751,44 +761,148 @@ pub fn applicable(table: &[Claim], host: &HostFacts) -> Vec<Claim> {
     table.iter().filter(|c| applies(c, host)).copied().collect()
 }
 
-/// ⟨M03-F1⟩ Whether `version` lies within `range` (an empty bound is open).
-fn in_range(version: &str, range: &VersionRange) -> bool {
-    (range.min.is_empty() || compare_versions(version, range.min).is_ge())
-        && (range.max.is_empty() || compare_versions(version, range.max).is_le())
+/// ⟨M03-F1 R04, R05⟩ The numeric key an OS release is ordered by, parsed strictly in the
+/// format of the platform `os`; `None` for a malformed text or a platform without one
+/// (`wsl` among them), so no entry applies on it.
+/// * `macos`: the `ProductVersion`, two or three dot-separated numbers (`27.2` is `27.2.0`).
+/// * `linux`: the kernel release `major.minor.patch`, an optional `-ABI` number and an
+///   optional flavour (`6.8.0-147-generic` is `[6, 8, 0, 147]`; `6.8.0-rc1` and `6.8.0` have
+///   ABI 0). The flavour is checked for its characters and not ordered.
+/// * `windows`: exactly `major.minor.build.UBR`.
+#[must_use]
+pub fn os_release_key(os: &str, release: &str) -> Option<Vec<u64>> {
+    let numbers = |s: &str| -> Option<Vec<u64>> {
+        s.split('.')
+            .map(|p| {
+                (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+                    .then(|| p.parse().ok())
+                    .flatten()
+            })
+            .collect()
+    };
+    match os {
+        "macos" => {
+            let mut key = numbers(release).filter(|k| (2..=3).contains(&k.len()))?;
+            key.resize(3, 0);
+            Some(key)
+        }
+        "windows" => numbers(release).filter(|k| k.len() == 4),
+        "linux" => {
+            // `major.minor.patch`: the longest prefix of digits and dots, then three numbers.
+            let head_len = release
+                .bytes()
+                .position(|b| !(b.is_ascii_digit() || b == b'.'))
+                .unwrap_or(release.len());
+            let (head, rest) = release.split_at(head_len);
+            // A fourth dotted number (as in `6.6.87.2-microsoft…`) belongs to the flavour.
+            let mut parts: Vec<&str> = head.splitn(4, '.').collect();
+            let flavour_dot = (parts.len() == 4).then(|| parts.pop()).flatten();
+            let mut key = numbers(&parts.join(".")).filter(|k| k.len() == 3)?;
+            let rest = match flavour_dot {
+                Some(extra) => format!(".{extra}{rest}"),
+                None => rest.to_owned(),
+            };
+            let separator = |b: u8| matches!(b, b'-' | b'.' | b'+' | b'~' | b'_');
+            // An optional `-ABI`: digits, then the end or a separator.
+            let mut tail = rest.as_str();
+            let mut abi = 0;
+            if let Some(after) = tail.strip_prefix('-') {
+                let n = after.bytes().take_while(u8::is_ascii_digit).count();
+                if n > 0 && after.as_bytes().get(n).is_none_or(|b| separator(*b)) {
+                    abi = after[..n].parse().ok()?;
+                    tail = &after[n..];
+                }
+            }
+            // An optional flavour: a separator and at least one ordinary character.
+            if !tail.is_empty() {
+                let (first, flavour) = (tail.as_bytes()[0], &tail[1..]);
+                let ordinary = |b: u8| b.is_ascii_alphanumeric() || separator(b);
+                if !separator(first) || flavour.is_empty() || !flavour.bytes().all(ordinary) {
+                    return None;
+                }
+            }
+            key.push(abi);
+            Some(key)
+        }
+        _ => None,
+    }
 }
 
-/// ⟨M03-F1⟩ Two version texts compared part by part: a run of digits as a number, any
-/// other run as text; when one is a prefix of the other, the longer is the greater
-/// (`10.5p1` > `9.6p1`, `6.8.0-147-generic` > `6.8.0`, `6.6.87` < `6.8.0`).
+/// ⟨M03-F1 R04⟩ The numeric key of an OpenSSH version, exactly `major.minorpN`
+/// (`10.5p1` is `[10, 5, 1]`); `None` for anything else.
 #[must_use]
-pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    fn parts(s: &str) -> Vec<(bool, &str)> {
-        let mut out = Vec::new();
-        let mut start = 0;
-        let bytes = s.as_bytes();
-        for i in 1..=bytes.len() {
-            if i == bytes.len() || bytes[i].is_ascii_digit() != bytes[start].is_ascii_digit() {
-                out.push((bytes[start].is_ascii_digit(), &s[start..i]));
-                start = i;
-            }
+pub fn client_version_key(version: &str) -> Option<[u64; 3]> {
+    let (number, patch) = version.split_once('p')?;
+    let (major, minor) = number.split_once('.')?;
+    let n = |s: &str| {
+        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse().ok())
+            .flatten()
+    };
+    Some([n(major)?, n(minor)?, n(patch)?])
+}
+
+/// ⟨M03-F1⟩ Whether the client `version` lies within `range` (an empty bound is open; a
+/// malformed version or bound never matches).
+fn client_in_range(version: &str, range: &VersionRange) -> bool {
+    let Some(v) = client_version_key(version) else {
+        return false;
+    };
+    // An empty bound is open (`Some(None)`); a malformed one is `None`.
+    let bound = |b: &str| {
+        if b.is_empty() {
+            Some(None)
+        } else {
+            client_version_key(b).map(Some)
         }
-        out
+    };
+    match (bound(range.min), bound(range.max)) {
+        (Some(min), Some(max)) => min.is_none_or(|m| v >= m) && max.is_none_or(|m| v <= m),
+        _ => false,
     }
-    let (pa, pb) = (parts(a), parts(b));
-    for (x, y) in pa.iter().zip(pb.iter()) {
-        let o = match (x, y) {
-            ((true, x), (true, y)) => {
-                let (x, y) = (x.trim_start_matches('0'), y.trim_start_matches('0'));
-                x.len().cmp(&y.len()).then_with(|| x.cmp(y))
-            }
-            ((_, x), (_, y)) => x.cmp(y),
-        };
-        if o != Ordering::Equal {
-            return o;
-        }
+}
+
+/// ⟨M03-F1 R04⟩ Signer builds are identities, not ordered versions: a claim covers exactly
+/// the build its range pins (`min` = `max`, non-empty), so `0.1.0-m1` is not `0.1.0-m01`.
+fn signer_pinned(build: &str, range: &VersionRange) -> bool {
+    !range.min.is_empty() && range.min == range.max && build == range.min
+}
+
+/// ⟨M03-F1 R01⟩ `enforcement` with every value only a claim-table entry produces reset to
+/// `unknown`: `new_authentication_expiry: credential_and_signer`, `existing_connections:
+/// strict_disconnect` or `graceful_dedicated_connections`, `revocation:
+/// bounded_by_credential_expiry`, `new_signing_expiry: signer` and `owned_multiplexing:
+/// closed_at_deadline` (the managed report's claim-gated values). A stored verdict is
+/// history: a current result built from it carries none of them unless they were judged
+/// again against the current host. Every other value is kept.
+#[must_use]
+pub fn without_claimed_values(
+    enforcement: &heimdall_contract::request::Enforcement,
+) -> heimdall_contract::request::Enforcement {
+    use heimdall_contract::managed::{NewSigningExpiry, OwnedMultiplexing};
+    use heimdall_contract::request::{
+        ExistingConnectionsPolicy as E, NewAuthenticationExpiry as N, RevocationStatus as R,
+    };
+    let mut e = enforcement.clone();
+    if e.new_authentication_expiry == N::CredentialAndSigner {
+        e.new_authentication_expiry = N::Unknown;
     }
-    pa.len().cmp(&pb.len())
+    if matches!(
+        e.existing_connections,
+        E::StrictDisconnect | E::GracefulDedicatedConnections
+    ) {
+        e.existing_connections = E::Unknown;
+    }
+    if e.revocation == R::BoundedByCredentialExpiry {
+        e.revocation = R::Unknown;
+    }
+    if e.new_signing_expiry == Some(NewSigningExpiry::Signer) {
+        e.new_signing_expiry = Some(NewSigningExpiry::Unknown);
+    }
+    if e.owned_multiplexing == Some(OwnedMultiplexing::ClosedAtDeadline) {
+        e.owned_multiplexing = Some(OwnedMultiplexing::Unknown);
+    }
+    e
 }
 
 /// The entries of [`CLAIMS`] for one field and platform.
@@ -816,32 +930,94 @@ mod tests {
     }
 
     #[test]
-    fn versions_compare_by_parts() {
-        use std::cmp::Ordering::{Equal, Greater, Less};
-        assert_eq!(compare_versions("10.5p1", "9.6p1"), Greater);
-        assert_eq!(compare_versions("10.5p1", "10.5p1"), Equal);
-        assert_eq!(compare_versions("10.5p2", "10.5p1"), Greater);
-        assert_eq!(compare_versions("10.5p1", "10.5"), Greater);
-        assert_eq!(compare_versions("6.8.0-147-generic", "6.8.0"), Greater);
+    fn version_keys_parse_strictly_per_platform() {
+        let key = |os: &str, r: &str| os_release_key(os, r);
+        assert_eq!(key("macos", "27.2.1"), Some(vec![27, 2, 1]));
+        assert_eq!(key("macos", "27.2"), Some(vec![27, 2, 0]));
+        assert_eq!(key("linux", "6.8.0-147-generic"), Some(vec![6, 8, 0, 147]));
+        assert_eq!(key("linux", "6.8.0-1-generic"), Some(vec![6, 8, 0, 1]));
+        assert_eq!(key("linux", "6.8.0-rc1"), Some(vec![6, 8, 0, 0]));
         assert_eq!(
-            compare_versions("6.6.87.2-microsoft-standard-WSL2", "6.8.0"),
-            Less
+            key("linux", "6.11.0-29-lowlatency"),
+            Some(vec![6, 11, 0, 29])
         );
         assert_eq!(
-            compare_versions("5.15.167.4-microsoft-standard-WSL2", "6.8.0"),
-            Less
+            key("linux", "6.6.87.2-microsoft-standard-WSL2"),
+            Some(vec![6, 6, 87, 0])
         );
-        assert_eq!(compare_versions("27.2.1", "27.10"), Less);
-        assert_eq!(compare_versions("10.0.26300", "10.0.26300"), Equal);
-        assert_eq!(compare_versions("10.0.22631", "10.0.26300"), Less);
-        assert_eq!(compare_versions("0.1.0-m01", "0.1.0-m01"), Equal);
-        assert_eq!(compare_versions("0.1.0-m04", "0.1.0-m01"), Greater);
+        assert_eq!(
+            key("windows", "10.0.26300.9974"),
+            Some(vec![10, 0, 26300, 9974])
+        );
+        // ⟨R04⟩ One negative per format: malformed or incomplete releases have no key.
+        for (os, bad) in [
+            ("macos", "27.3."),
+            ("macos", "27"),
+            ("macos", "27.2.1.1"),
+            ("macos", "27.2.1 (26B131)"),
+            ("linux", "unreadable"),
+            ("linux", "6.8"),
+            ("linux", "6.8.0."),
+            ("linux", "6.8.0 -147"),
+            ("linux", "6.8.0-147-gen eric"),
+            ("windows", "10.0.26300"),
+            ("windows", "10.0.26300.9974."),
+            ("windows", "10.0.26300.99x4"),
+            ("wsl", "6.12.0-microsoft-standard-WSL2"),
+            ("plan9", "4"),
+        ] {
+            assert_eq!(key(os, bad), None, "{os} {bad:?}");
+        }
+        assert_eq!(client_version_key("10.5p1"), Some([10, 5, 1]));
+        assert_eq!(client_version_key("9.5p2"), Some([9, 5, 2]));
+        for bad in [
+            "9.6p1broken",
+            "9.6",
+            "9.6p",
+            "p1",
+            "9.6p1 ",
+            "OpenSSH_9.6p1",
+            "9..6p1",
+        ] {
+            assert_eq!(client_version_key(bad), None, "{bad:?}");
+        }
+        let pinned = VersionRange {
+            min: "0.1.0-m01",
+            max: "0.1.0-m01",
+        };
+        assert!(signer_pinned("0.1.0-m01", &pinned));
+        assert!(
+            !signer_pinned("0.1.0-m1", &pinned),
+            "an identity, not a number"
+        );
+        let open = VersionRange {
+            min: "0.1.0-m01",
+            max: "",
+        };
+        assert!(!signer_pinned("0.1.0-m01", &open), "only a pinned build");
+    }
+
+    /// ⟨M03-F1⟩ Every entry's bounds are well formed: its floor has a key in its platform's
+    /// format, its client bounds are OpenSSH versions and its signer build is pinned.
+    #[test]
+    fn every_entry_bound_is_well_formed() {
+        for c in CLAIMS {
+            assert!(os_release_key(c.platform.os, c.os_floor).is_some(), "{c:?}");
+            for b in [c.client_versions.min, c.client_versions.max] {
+                assert!(client_version_key(b).is_some(), "{c:?}");
+            }
+            assert!(
+                signer_pinned(c.signer_builds.min, &c.signer_builds),
+                "{c:?}"
+            );
+        }
     }
 
     /// ⟨M03-F1⟩ ADR-0008 D12 item 2: the real table's entries apply only on their platform
-    /// with an OS release at least the floor, the client and the build in range; a WSL
-    /// kernel (below the Linux floor), another client, another build, another platform or
-    /// a fact the host could not read gets none.
+    /// with an OS release at least the floor (the exact tested release, at its full
+    /// granularity), the client in range and exactly the pinned build; WSL (its own
+    /// platform), an older revision, another client, build or platform, a malformed fact
+    /// or one the host could not read gets none.
     #[test]
     fn real_table_applies_only_within_its_ranges() {
         let fields = |h: &HostFacts| {
@@ -863,7 +1039,7 @@ mod tests {
         ];
         let mac = host("macos", "aarch64", "27.2.1", "10.5p1");
         let linux = host("linux", "x86_64", "6.8.0-147-generic", "9.6p1");
-        let windows = host("windows", "x86_64", "10.0.26300", "9.5p2");
+        let windows = host("windows", "x86_64", "10.0.26300.9974", "9.5p2");
         assert_eq!(fields(&mac), a07_a23);
         assert_eq!(fields(&linux), a07_a23);
         assert_eq!(
@@ -877,17 +1053,64 @@ mod tests {
             ],
             "no owned masters and no graceful mode on Windows"
         );
-        // A later OS release is above the floor.
+        // ⟨R05⟩ The floor is inclusive (ADR-0008 D12): a later release is covered.
         assert_eq!(fields(&host("macos", "aarch64", "27.3", "10.5p1")), a07_a23);
+        assert_eq!(
+            fields(&host("linux", "x86_64", "6.8.0-150-generic", "9.6p1")),
+            a07_a23
+        );
+        assert_eq!(
+            fields(&host("windows", "x86_64", "10.0.26300.9975", "9.5p2")).len(),
+            5
+        );
         for (what, h) in [
+            // ⟨R02⟩ WSL is its own platform: no native Linux entry, whatever its kernel.
             (
-                "a WSL kernel",
+                "WSL with a kernel above the Linux floor and the Linux client",
+                host("wsl", "x86_64", "6.12.0-microsoft-standard-WSL2", "9.6p1"),
+            ),
+            (
+                "WSL's kernel read as Linux (below the floor)",
                 host(
                     "linux",
                     "x86_64",
                     "6.6.87.2-microsoft-standard-WSL2",
                     "9.6p1",
                 ),
+            ),
+            // ⟨R05⟩ Older revisions of the tested release are below the floor.
+            (
+                "an older ABI of the Linux release",
+                host("linux", "x86_64", "6.8.0-1-generic", "9.6p1"),
+            ),
+            (
+                "a release candidate of the Linux release",
+                host("linux", "x86_64", "6.8.0-rc1", "9.6p1"),
+            ),
+            (
+                "an older UBR of the Windows build",
+                host("windows", "x86_64", "10.0.26300.9973", "9.5p2"),
+            ),
+            (
+                "a Windows release without its UBR",
+                host("windows", "x86_64", "10.0.26300", "9.5p2"),
+            ),
+            (
+                "an older macOS revision",
+                host("macos", "aarch64", "27.2", "10.5p1"),
+            ),
+            // ⟨R04⟩ Malformed facts never satisfy a bound.
+            (
+                "a malformed macOS release",
+                host("macos", "aarch64", "27.3.", "10.5p1"),
+            ),
+            (
+                "an unreadable Linux release",
+                host("linux", "x86_64", "unreadable", "9.6p1"),
+            ),
+            (
+                "an incomplete client token",
+                host("linux", "x86_64", "6.8.0-147-generic", "9.6p1broken"),
             ),
             ("an older macOS", host("macos", "aarch64", "27.1", "10.5p1")),
             (
@@ -900,16 +1123,23 @@ mod tests {
             ),
             (
                 "an older Windows build",
-                host("windows", "x86_64", "10.0.22631", "9.5p2"),
+                host("windows", "x86_64", "10.0.22631.4890", "9.5p2"),
             ),
             (
                 "another architecture",
-                host("linux", "aarch64", "6.8.0", "9.6p1"),
+                host("linux", "aarch64", "6.8.0-147-generic", "9.6p1"),
             ),
             (
                 "another build",
                 HostFacts {
                     signer_build: "0.1.0-m04".to_owned(),
+                    ..mac.clone()
+                },
+            ),
+            (
+                "a build that only compares equal as a number",
+                HostFacts {
+                    signer_build: "0.1.0-m1".to_owned(),
                     ..mac.clone()
                 },
             ),

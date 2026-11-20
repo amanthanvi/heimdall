@@ -1119,9 +1119,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - **The A03/P1 macOS lock row is `blocked`** on a physical input: the owner unlocking within the 12 h bound, from an
     unlocked console idle 15 minutes. The orchestrator's watcher is armed (at E8, binding to E9); four attempts, none
     evidence. M03 may exit with it `blocked` (the M01 precedent); it is updated when the run happens.
-  - **M03-F1 (`in_progress` on `m03/f1-claims`: gating, the OS release reader, the 19 entries and the real-table
-    report test implemented; `check.sh` 3326 passed, 0 failed, 199 ignored at the commit; the Codex review and the
-    native reruns pending; the integrator, before the M09 release record):**
+  - **M03-F1 (`in_progress` on `m03/f1-claims`; the integrator, before the M09 release record):** gating, the OS
+    release reader, the 19 entries and the real-table report test at `fb3b5294`. The Codex review said FIX FIRST
+    (R01-R03 blocking, R04-R06 nonblocking); the fix round covers all six: stored verdicts are history (R01), WSL is
+    its own platform (R02), the client version is bound to its executable's identity (R03), strict parsers and exact
+    signer builds (R04), exact floors at full granularity (R05), the validator reads each record at its cited
+    revision and checks the bounds (R06). The scoped re-check, the native reruns and the record follow. The unit:
     the claim update, deferred by ruling I-25. The product matches claim-table entries by field, value and
     OS/architecture only, never `os_floor`, `client_versions` or `signer_builds`, so a non-empty table would over-claim
     (WSL included). M03-F1 adds version gating in `claims()` and `claimed()`/`claim()` (a host OS release reader per

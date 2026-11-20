@@ -68,9 +68,36 @@ pub struct StoreSources {
     floor: Arc<RwLock<LockBehavior>>,
     /// The issuer client whose last observed status `issuer()` reports.
     issuer: Arc<RwLock<Option<Arc<dyn IssuerPort>>>>,
-    /// ⟨M03-F1⟩ The verified `ssh` client's version (`10.5p1`), against which the claim
-    /// table's client ranges are judged; `None` until the runtime selects one.
-    client_version: Arc<RwLock<Option<String>>>,
+    /// ⟨M03-F1⟩ The verified `ssh` client, against whose version the claim table's client
+    /// ranges are judged; `None` until the runtime selects one, and again once its
+    /// executable is found replaced, removed or unreadable (R03).
+    client: Arc<RwLock<Option<VerifiedClient>>>,
+}
+
+/// ⟨M03-F1 R03⟩ The verified `ssh` client: the executable the runtime selected, its identity
+/// when its `ssh -V` ran (`heimdall_localenv::clients::ClientCandidate::identity`) and the
+/// version that run reported (`10.5p1`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedClient {
+    /// The selected executable.
+    pub path: std::path::PathBuf,
+    /// Its identity when the version was observed.
+    pub identity: heimdall_localenv::sys::ExecutableIdentity,
+    /// The observed version.
+    pub version: String,
+}
+
+impl VerifiedClient {
+    /// The selected `ssh` of `inventory` with a version bound to its identity, if any.
+    #[must_use]
+    pub fn selected(inventory: &heimdall_localenv::clients::ClientInventory) -> Option<Self> {
+        let c = inventory.selected(heimdall_localenv::clients::ClientKind::Ssh)?;
+        Some(Self {
+            path: c.path.clone(),
+            identity: c.identity.clone()?,
+            version: heimdall_localenv::local_query::version_text(c.version.as_ref()?),
+        })
+    }
 }
 
 impl std::fmt::Debug for StoreSources {
@@ -91,17 +118,30 @@ impl StoreSources {
             terms: Arc::default(),
             floor: Arc::new(RwLock::new(LockBehavior::Continue)),
             issuer: Arc::default(),
-            client_version: Arc::default(),
+            client: Arc::default(),
         }
     }
 
-    /// ⟨M03-F1⟩ Set the verified `ssh` client's version that `ManagedSourceRead::host`
+    /// ⟨M03-F1⟩ Set the verified `ssh` client whose version `ManagedSourceRead::host`
     /// reports (ADR-0008 D12 item 2; `None`: no claim applies).
-    pub fn set_client_version(&self, version: Option<String>) {
-        *self
-            .client_version
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = version;
+    pub fn set_verified_client(&self, client: Option<VerifiedClient>) {
+        *self.client.write().unwrap_or_else(PoisonError::into_inner) = client;
+    }
+
+    /// ⟨M03-F1 R03⟩ The verified client's version, if its executable still has the identity
+    /// it had when the version was observed. A replaced, removed or unreadable executable
+    /// withholds it, and the client stays withheld until the runtime verifies one again
+    /// ([`Self::set_verified_client`]).
+    #[must_use]
+    pub fn verified_client_version(&self) -> Option<String> {
+        let mut client = self.client.write().unwrap_or_else(PoisonError::into_inner);
+        let c = client.as_ref()?;
+        if heimdall_localenv::sys::executable_identity(&c.path).as_ref() == Some(&c.identity) {
+            Some(c.version.clone())
+        } else {
+            *client = None;
+            None
+        }
     }
 
     /// Set the R3 lock floor joined into every recorded lock behaviour (call before
@@ -170,12 +210,7 @@ impl StoreSources {
 
 impl ManagedSourceRead for StoreSources {
     fn host(&self) -> heimdall_domain::claims::HostFacts {
-        heimdall_adapters::managed::prepare::default_host(
-            self.client_version
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone(),
-        )
+        heimdall_adapters::managed::prepare::default_host(self.verified_client_version())
     }
 
     fn enrollments(&self, pairs: &[AccessPair]) -> Vec<EnrollmentRecord> {
@@ -934,6 +969,103 @@ mod tests {
                 )
             })
             .unwrap();
+    }
+
+    /// ⟨M03-F1 R03⟩ The client version is bound to the selected executable's identity.
+    /// While the scratch `ssh` the runtime verified is in place, a fresh prepare judges the
+    /// claim table with its version (the entries of this platform apply when the host is
+    /// in their OS range); once the file is replaced during the same runtime, the next
+    /// fresh prepare has no client and no entry applies, and the client stays withheld
+    /// (even when the original bytes come back) until the runtime verifies one again.
+    #[cfg(unix)]
+    #[test]
+    fn replaced_client_withholds_the_claims_until_verified_again() {
+        use heimdall_adapters::managed::prepare::ManagedSourceRead as _;
+        use heimdall_localenv::clients::{ClientsConfig, resolve_clients};
+        use heimdall_localenv::local_query::LocalQueries;
+        use std::os::unix::fs::PermissionsExt;
+        let w = world();
+        let dir = tempfile::tempdir().unwrap();
+        // The version of this platform's entries (any OpenSSH version where none exists).
+        let platform = heimdall_adapters::managed::report::current_platform();
+        let version = heimdall_domain::claims::CLAIMS
+            .iter()
+            .find(|c| c.platform == platform)
+            .map_or("10.5p1", |c| c.client_versions.min);
+        let ssh = dir.path().join("ssh");
+        let script = format!("#!/bin/sh\necho 'OpenSSH_{version}, scratch client' >&2\nexit 0\n");
+        let install = |body: &str| {
+            let staged = dir.path().join("ssh.staged");
+            std::fs::write(&staged, body).unwrap();
+            std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::rename(&staged, &ssh).unwrap();
+        };
+        install(&script);
+        let verify = || {
+            let inventory = resolve_clients(
+                &heimdall_localenv::env::Env::from_vars([("PATH", dir.path().as_os_str())]),
+                &heimdall_localenv::paths::SshPaths::with_test_override(
+                    dir.path().to_path_buf(),
+                    dir.path().to_path_buf(),
+                ),
+                &ClientsConfig {
+                    ssh: Some(ssh.clone()),
+                    ..ClientsConfig::default()
+                },
+                LocalQueries::Enabled,
+            );
+            crate::managed_store::VerifiedClient::selected(&inventory)
+        };
+        let verified = verify().expect("a verified scratch client");
+        assert_eq!(verified.version, version);
+        w.sources.set_verified_client(Some(verified));
+        let applies_here = heimdall_domain::claims::CLAIMS.iter().any(|c| {
+            heimdall_domain::claims::applies(
+                c,
+                &heimdall_domain::claims::HostFacts {
+                    client_version: Some(version.to_owned()),
+                    ..w.sources.host()
+                },
+            )
+        });
+        assert_eq!(w.sources.host().client_version.as_deref(), Some(version));
+        assert_eq!(!w.sources.claims().is_empty(), applies_here);
+        // Through the production adapter's wiring: the snapshot a fresh prepare computes from.
+        let adapter = heimdall_adapters::managed::ManagedCertificateAdapter::new(
+            "managed-f1",
+            Arc::new(w.sources.clone()),
+            None,
+            None,
+        );
+        let snapshot = || {
+            use heimdall_app::ports::CredentialAdapter as _;
+            adapter
+                .read_sources(&[])
+                .managed
+                .expect("the managed sources")
+        };
+        let fresh = snapshot();
+        assert_eq!(
+            fresh.host.and_then(|h| h.client_version).as_deref(),
+            Some(version)
+        );
+        assert_eq!(!fresh.claims.is_empty(), applies_here);
+        // Replaced during the same runtime: a fresh prepare has no client, so no claim.
+        install(&format!("{script}# replaced\n"));
+        let replaced = snapshot();
+        assert_eq!(replaced.host.and_then(|h| h.client_version), None);
+        assert!(replaced.claims.is_empty());
+        assert_eq!(w.sources.host().client_version, None);
+        assert!(w.sources.claims().is_empty());
+        // The original bytes again: still withheld (a new file), until verified again.
+        install(&script);
+        assert_eq!(w.sources.host().client_version, None);
+        assert!(w.sources.claims().is_empty());
+        w.sources.set_verified_client(verify());
+        assert_eq!(w.sources.host().client_version.as_deref(), Some(version));
+        // Removed: withheld.
+        std::fs::remove_file(&ssh).unwrap();
+        assert_eq!(w.sources.host().client_version, None);
     }
 
     /// U6-Q5 amended (§17.20 item 14): the production sources never default a

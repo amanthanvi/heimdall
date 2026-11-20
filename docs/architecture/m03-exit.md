@@ -183,6 +183,19 @@ console idle for 15 minutes) and are rewritten when the run happens. No row is `
     - **Revert proof (observed):** with `CREATE_NO_WINDOW` removed (`m03/e9-revert-proof` at `4043acb7`, never merged)
       the test fails, the issuer child reading `window`; with the fix it passes (E9). So the test guards the fix.
 
+20. **The claim table's OS floors extend upward (M03-F1, ruling on R05; ADR-0008 D12 item 3).** D12 gives each entry an
+    OS release *floor*, so a later OS release with the same pinned client and signer build is covered without its own
+    run. That is D12's accepted design, not tested evidence for the later release.
+    - **Each floor is the exact tested release, at full granularity:** the macOS `ProductVersion` (`27.2.1`), the Linux
+      kernel release with its ABI number (`6.8.0-147-generic`), and the Windows build with its UBR (`10.0.26300.9974`).
+    - **They are compared at that granularity** (`heimdall_domain::claims::os_release_key`), so an older revision of the
+      tested release never matches (`6.8.0-1-generic`, `6.8.0-rc1`, `10.0.26300.9973`, `27.2`). The Linux flavour is
+      checked for its characters but not ordered.
+    - **The client and the signer build are exact.** The client range is the tested version, and the signer build is a
+      pinned identity, never an ordered version.
+    - **WSL is its own platform** (`wsl`), and the table has no WSL entries, so a native Linux entry never applies under
+      WSL, whatever its kernel (R02).
+
 ## 4. The claim update: deferred (ruling I-25)
 
 The claim update is `deferred_with_decision`. M03 merges with `CLAIMS` empty, so every claim-table field reads

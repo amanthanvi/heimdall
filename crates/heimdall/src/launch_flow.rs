@@ -965,6 +965,7 @@ mod tests {
                         portable: Some(1),
                     }),
                     sha256: None,
+                    identity: None,
                     selected: true,
                 }],
             };

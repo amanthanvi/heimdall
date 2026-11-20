@@ -841,6 +841,7 @@ fn bom_and_crlf_acceptance() {
             source: ClientSource::Path,
             version: Some(h.version),
             sha256: None,
+            identity: None,
             selected: true,
         }],
     };

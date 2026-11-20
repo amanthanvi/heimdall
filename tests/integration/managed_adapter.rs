@@ -1890,9 +1890,14 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
 /// ⟨M03-F1⟩ Host facts every [`fixture_claim`] applies on (an OS release above its floor, a
 /// client within its range, this build) on `platform`.
 fn fixture_host(platform: Platform) -> HostFacts {
+    let release = match platform.os {
+        "macos" => "99.0",
+        "windows" => "99.0.0.0",
+        _ => "99.0.0-1-generic",
+    };
     HostFacts {
         platform,
-        os_release: Some("99".to_owned()),
+        os_release: Some(release.to_owned()),
         client_version: Some("10.5p1".to_owned()),
         signer_build: SIGNER_BUILD.to_owned(),
     }
@@ -1903,12 +1908,20 @@ fn fixture_claim(platform: Platform, field: &'static str, value: &'static str) -
         field,
         value,
         platform,
-        os_floor: "0",
+        // ⟨M03-F1⟩ Bounds in each platform's format; the signer build pinned.
+        os_floor: match platform.os {
+            "macos" => "1.0",
+            "windows" => "1.0.0.0",
+            _ => "1.0.0",
+        },
         client_versions: VersionRange {
-            min: "9.5",
+            min: "9.5p1",
             max: "",
         },
-        signer_builds: VersionRange { min: "0", max: "" },
+        signer_builds: VersionRange {
+            min: SIGNER_BUILD,
+            max: SIGNER_BUILD,
+        },
         build_profile: BuildProfile::Release,
         store_kind: None,
         record: "tests/evidence/fixture-claim.json",
@@ -2144,12 +2157,25 @@ async fn report_with_the_real_claim_table_reports_verified_with_record() {
         s.enforcement.existing_connections,
         ExistingConnectionsPolicy::StrictDisconnect
     );
-    // Outside the ranges nothing is claimed.
+    // Outside the ranges nothing is claimed, with multiplexing disabled and with owned
+    // masters (each caller of the gate: `existing_connections`, `owned_multiplexing`).
+    let older = match platform.os {
+        "macos" => "27.1",
+        "windows" => "10.0.26300.9973",
+        _ => "6.8.0-1-generic",
+    };
     for (what, host) in [
         (
-            "an OS release below the floor",
+            "an older release than the floor",
             HostFacts {
-                os_release: Some("0.1".to_owned()),
+                os_release: Some(older.to_owned()),
+                ..in_range.clone()
+            },
+        ),
+        (
+            "a malformed OS release",
+            HostFacts {
+                os_release: Some("unreadable".to_owned()),
                 ..in_range.clone()
             },
         ),
@@ -2167,40 +2193,75 @@ async fn report_with_the_real_claim_table_reports_verified_with_record() {
                 ..in_range.clone()
             },
         ),
+        (
+            "WSL with a kernel above the Linux floor",
+            HostFacts {
+                platform: Platform {
+                    os: "wsl",
+                    arch: platform.arch,
+                },
+                os_release: Some("6.12.0-microsoft-standard-WSL2".to_owned()),
+                ..in_range.clone()
+            },
+        ),
     ] {
-        let o = report::compute(&g, prepared, CLAIMS, &context(&host, strict), &[]);
-        let e = &o.enforcement;
-        assert_eq!(e.new_signing_expiry(), NewSigningExpiry::Unknown, "{what}");
-        assert_eq!(
-            e.new_authentication_expiry,
-            NewAuthenticationExpiry::Unknown,
-            "{what}"
-        );
-        assert_eq!(
-            e.existing_connections,
-            ExistingConnectionsPolicy::Unknown,
-            "{what}"
-        );
-        assert_eq!(e.revocation, RevocationStatus::Unknown, "{what}");
-        assert_eq!(o.revocation.remote, RemoteRevocation::Unknown, "{what}");
-        assert!(
-            o.evidence
-                .iter()
-                .all(|x| x.source != EvidenceSource::ClaimTable),
-            "{what}"
-        );
+        for policy in [strict, graceful] {
+            let o = report::compute(&g, prepared, CLAIMS, &context(&host, policy), &[]);
+            let e = &o.enforcement;
+            assert_eq!(e.new_signing_expiry(), NewSigningExpiry::Unknown, "{what}");
+            assert_eq!(
+                e.new_authentication_expiry,
+                NewAuthenticationExpiry::Unknown,
+                "{what}"
+            );
+            assert_eq!(
+                e.existing_connections,
+                ExistingConnectionsPolicy::Unknown,
+                "{what} {policy:?}"
+            );
+            let multiplexing = match policy.multiplexing {
+                MultiplexingMode::Disabled => OwnedMultiplexing::Disabled,
+                _ if host.platform.os == "windows" => OwnedMultiplexing::Unavailable,
+                _ => OwnedMultiplexing::Unknown,
+            };
+            assert_eq!(e.owned_multiplexing(), multiplexing, "{what} {policy:?}");
+            assert_eq!(e.revocation, RevocationStatus::Unknown, "{what}");
+            assert_eq!(o.revocation.remote, RemoteRevocation::Unknown, "{what}");
+            assert!(
+                o.evidence
+                    .iter()
+                    .all(|x| x.source != EvidenceSource::ClaimTable),
+                "{what}"
+            );
+            // ⟨R01⟩ The values a stored verdict loses are exactly the claim-gated ones.
+            let judged = report::compute(&g, prepared, CLAIMS, &context(&in_range, policy), &[]);
+            if host.platform == platform {
+                assert_eq!(
+                    heimdall_domain::claims::without_claimed_values(&judged.enforcement),
+                    o.enforcement,
+                    "{what} {policy:?}"
+                );
+            }
+        }
     }
     w.finish(&[data.grant_id]).await;
 }
 
 /// ⟨M03-F1⟩ What the real claim table gives on **this** host (evidence for the native
-/// reruns): the host's OS release, the `ssh` on `PATH` and this build, and the entries that
-/// apply. It asserts only that the host facts read; which entries apply depends on the host.
+/// reruns): the host's claim platform and OS release, the `ssh` the runtime would select
+/// (`[clients]` unset: on Windows the System32 client, elsewhere `PATH`; ⟨R06⟩ never a
+/// separate `PATH` search) with its version from a successful `ssh -V`, this build, and
+/// the entries that apply. It asserts only that the host facts read; which entries apply
+/// depends on the host.
 #[test]
 #[allow(clippy::print_stdout)] // an observation for the evidence record
 fn real_claim_table_on_this_host_recorded() {
     let os_release = heimdall_localenv::sys::os_release();
-    let ssh = heimdall_testkit::home::find_program("ssh");
+    let ssh = heimdall_localenv::clients::selected_path(
+        &heimdall_localenv::env::Env::capture(),
+        &heimdall_localenv::clients::ClientsConfig::default(),
+        heimdall_localenv::clients::ClientKind::Ssh,
+    );
     let client = ssh
         .as_deref()
         .and_then(|p| heimdall_localenv::local_query::run_version(p).ok())

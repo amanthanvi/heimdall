@@ -277,6 +277,7 @@ impl Fx {
                     source: ClientSource::Path,
                     version: Some(version),
                     sha256: None,
+                    identity: None,
                     selected: true,
                 }],
             };
@@ -4853,6 +4854,7 @@ fn accepting_client(fx: &Fx) -> ProjectionConfig {
                 portable: Some(1),
             }),
             sha256: None,
+            identity: None,
             selected: true,
         }],
     };
@@ -4877,6 +4879,7 @@ fn windows_bom_crlf_client(fx: &Fx) -> ProjectionConfig {
                 portable: Some(2),
             }),
             sha256: None,
+            identity: None,
             selected: true,
         }],
     };
@@ -8073,6 +8076,7 @@ fn the_writer_snapshots_the_global_git_file_before_its_first_edit() {
         source: ClientSource::Path,
         version: None,
         sha256: None,
+        identity: None,
         selected: true,
     };
     config.clients = ClientInventory {
@@ -8197,6 +8201,7 @@ fn a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies() {
         source: ClientSource::Path,
         version: None,
         sha256: None,
+        identity: None,
         selected: true,
     };
     config.clients = ClientInventory {

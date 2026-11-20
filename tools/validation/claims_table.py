@@ -17,7 +17,11 @@ record, record_commit }` literal. An entry that cannot be parsed (unknown or mis
 duplicated field, wrong literal kind) is a failure; it is never skipped.
 
 For every entry (D12 item 3):
-  * `record` resolves inside the repository, exists, and validates against
+  * `record` is a normalized repository-relative path, and the record is read **at its cited
+    revision**: `git -C <repo> show <record_commit>:<record>` (never the working tree). A record
+    absent at that revision, or one that does not parse, fails the entry. Every record check
+    below runs on that revision's content;
+  * the record validates against
     `tests/evidence/record.schema.json` (tests/g02/minischema.py, as validate-records.py);
   * the record's status is `verified` **for that platform row**: the record's
     `observed_result.rows` (a list, or a mapping keyed by platform) is searched for rows
@@ -29,6 +33,16 @@ For every entry (D12 item 3):
     through that row, as the evidence README says.)
   * `record_commit` is a commit that is an ancestor of HEAD
     (`git merge-base --is-ancestor <commit> HEAD`);
+  * ⟨M03-F1-R06⟩ the version bounds equal the record's normalized host facts at that revision
+    (`environment.host_facts.<platform.os>`), exactly:
+      - `os_floor` == the OS release of `os` (macOS ProductVersion, the Linux kernel release,
+        the Windows version number);
+      - `client_versions.min` and `.max` == the OpenSSH client version (`ssh-V`; on Windows
+        `ssh-V-inbox`, the in-box client the harness selects; never `ssh-V-path-first`);
+      - `signer_builds.min` and `.max` == the `[workspace.package]` `version` of `Cargo.toml` at
+        the same revision (signer builds are pinned identities, so min != max fails).
+    A missing fact, a value that does not normalize (the version token must be complete) or a
+    mismatch fails the entry, naming the bound and the record's value;
   * for custody-dependent fields (`CUSTODY_FIELDS`, read from the same file): the build
     profile is `Release` and `store_kind` is one of the platform's product store kinds
     (`product_store_kinds(os)`, read from the same file and checked against the mirror
@@ -56,9 +70,13 @@ build fixture tables and records in a `tempfile.mkdtemp()` directory removed aft
   claims_table_rejects_residual_without_its_test
   claims_table_residual_positive_control
   claims_table_residual_tokio_test_with_args_and_code_citation
+  claims_table_rejects_bounds_unrelated_to_the_record
+  claims_table_reads_the_record_at_its_cited_revision
+  claims_table_host_fact_normalizers_are_strict
 """
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -549,14 +567,141 @@ def git_is_ancestor(commit, repo):
     return r.returncode == 0
 
 
-def check_entries(entries, custody, kinds, record_root, repo, schema):
+def git_show(repo, commit, path):
+    """(text, None) for `path` as committed at `commit`, or (None, reason). No shell; the
+    content is the committed blob, never the working tree."""
+    if not re.fullmatch(r"[0-9a-f]{7,64}", commit or ""):
+        return None, "record_commit %r is not a hexadecimal commit id" % (commit,)
+    r = subprocess.run(
+        ["git", "-C", repo, "show", "--no-textconv", "%s:%s" % (commit, path)],
+        capture_output=True, check=False,
+    )
+    if r.returncode != 0:
+        return None, "`git show %s:%s` failed" % (commit, path)
+    try:
+        return r.stdout.decode("utf-8"), None
+    except UnicodeDecodeError:
+        return None, "%s at %s is not UTF-8" % (path, commit)
+
+
+def repo_relative(path):
+    """`path` when it is a normalized, relative, in-repository path; otherwise None."""
+    if not path or "\\" in path or "\0" in path or path.startswith("/"):
+        return None
+    norm = posixpath.normpath(path)
+    if norm != path or norm == "." or norm == ".." or norm.startswith("../"):
+        return None
+    return path
+
+
+# ⟨M03-F1-R06⟩ Normalizers for the record's host facts. Each returns the bare version token,
+# or None when the fact does not have the expected shape. The token must be complete: it is
+# followed by end of input, a space or a comma, never by more version-like characters.
+
+def norm_os_release(osn, fact):
+    if not isinstance(fact, str):
+        return None
+    if osn == "macos":  # "macOS 27.2.1 (26B131) arm64" -> the ProductVersion
+        m = re.fullmatch(r"macOS (\d+(?:\.\d+)+)(?: .*)?", fact)
+    elif osn == "linux":  # "Linux 6.8.0-147-generic x86_64" -> the kernel release
+        m = re.fullmatch(r"Linux (\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[._+~-][0-9A-Za-z]+)*)?)(?: .*)?", fact)
+    elif osn == "windows":  # "Microsoft Windows [Version 10.0.26300.9974]"
+        m = re.fullmatch(r"Microsoft Windows \[Version (\d+(?:\.\d+){2,3})\]", fact)
+    else:
+        return None
+    return m.group(1) if m else None
+
+
+def norm_client_version(osn, fact):
+    """`OpenSSH_10.5p1, LibreSSL ...` -> `10.5p1`; Windows `OpenSSH_for_Windows_9.5p2, ...`."""
+    if not isinstance(fact, str) or osn not in OS_VALUES:
+        return None
+    prefix = "OpenSSH_for_Windows_" if osn == "windows" else "OpenSSH_"
+    m = re.fullmatch(re.escape(prefix) + r"(\d+\.\d+(?:p\d+)?)(?:[ ,].*)?", fact)
+    return m.group(1) if m else None
+
+
+# The host fact that names the client the harness ran, per platform. Windows' `ssh-V-path-first`
+# is a candidate that was not selected and is never read.
+CLIENT_FACT_KEY = {"macos": "ssh-V", "linux": "ssh-V", "windows": "ssh-V-inbox"}
+
+
+def workspace_version(cargo_text):
+    """The `version` under `[workspace.package]`, or None (absent, duplicated or empty)."""
+    in_section, found = False, []
+    for line in cargo_text.splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            in_section = re.fullmatch(r"\[\s*workspace\s*\.\s*package\s*\]\s*(#.*)?", s) is not None
+        elif in_section:
+            m = re.fullmatch(r'version\s*=\s*"([^"\\]*)"\s*(#.*)?', s)
+            if m:
+                found.append(m.group(1))
+    return found[0] if len(found) == 1 and found[0] else None
+
+
+def _host_fact(record, osn, key):
+    env = record.get("environment")
+    facts = env.get("host_facts") if isinstance(env, dict) else None
+    per_os = facts.get(osn) if isinstance(facts, dict) else None
+    value = per_os.get(key) if isinstance(per_os, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def check_bounds(tag, e, record, rec, cargo_text, cargo_error):
+    """Failures for the entry's version bounds against the record's host facts at its revision."""
+    bad = []
+    osn = e["platform"]["os"]
+    if osn not in OS_VALUES:
+        return bad  # reported elsewhere
+
+    def expect(bound, actual, expected, source):
+        if expected is None:
+            return
+        if actual != expected:
+            bad.append("%s: %s %r does not equal %s %r" % (tag, bound, actual, source, expected))
+
+    def fact(key):
+        value = _host_fact(record, osn, key)
+        if value is None:
+            bad.append("%s: record %s has no environment.host_facts.%s.%s to check the bounds against" % (tag, rec, osn, key))
+        return value
+
+    where = "record %s host_facts.%s" % (rec, osn)
+    os_fact = fact("os")
+    if os_fact is not None:
+        release = norm_os_release(osn, os_fact)
+        if release is None:
+            bad.append("%s: os_floor cannot be checked: %s.os = %r has no complete OS release" % (tag, where, os_fact))
+        expect("os_floor", e["os_floor"], release, "the OS release in %s.os (%r) =" % (where, os_fact))
+    key = CLIENT_FACT_KEY[osn]
+    client_fact = fact(key)
+    if client_fact is not None:
+        client = norm_client_version(osn, client_fact)
+        if client is None:
+            bad.append("%s: client_versions cannot be checked: %s.%s = %r has no complete client version" % (tag, where, key, client_fact))
+        for bound in ("min", "max"):
+            expect("client_versions.%s" % bound, e["client_versions"][bound], client,
+                   "the client version in %s.%s (%r) =" % (where, key, client_fact))
+    if cargo_error is not None:
+        bad.append("%s: signer_builds cannot be checked: %s" % (tag, cargo_error))
+    else:
+        signer = workspace_version(cargo_text)
+        if signer is None:
+            bad.append("%s: signer_builds cannot be checked: Cargo.toml at the cited revision has no single [workspace.package] version" % tag)
+        for bound in ("min", "max"):
+            expect("signer_builds.%s" % bound, e["signer_builds"][bound], signer,
+                   "the [workspace.package] version at the cited revision =")
+    return bad
+
+
+def check_entries(entries, custody, kinds, repo, schema):
     """Return a list of failure strings (empty when the table is valid)."""
     bad = []
     if custody != MIRROR_CUSTODY_FIELDS:
         bad.append("CUSTODY_FIELDS %r disagrees with the validator's mirror %r" % (custody, MIRROR_CUSTODY_FIELDS))
     if kinds != MIRROR_PRODUCT_STORE_KINDS:
         bad.append("product_store_kinds %r disagrees with the validator's mirror %r" % (kinds, MIRROR_PRODUCT_STORE_KINDS))
-    real_root = os.path.realpath(record_root)
     for n, e in enumerate(entries):
         tag = "entry %d (%s=%s, %s/%s)" % (n, e["field"], e["value"], e["platform"]["os"], e["platform"]["arch"])
         osn, arch = e["platform"]["os"], e["platform"]["arch"]
@@ -576,53 +721,58 @@ def check_entries(entries, custody, kinds, record_root, repo, schema):
                     "%s: a custody-dependent field needs a product store kind of %s (%s); found %r"
                     % (tag, osn, ", ".join(MIRROR_PRODUCT_STORE_KINDS.get(osn, [])) or "none", sk)
                 )
-        # record: exists inside the repo, validates, verified for the platform row
+        # record: read at its cited revision, validates, verified for the platform row
         rec = e["record"]
-        path = os.path.realpath(os.path.join(real_root, rec))
-        if not rec or os.path.isabs(rec) or not (path == real_root or path.startswith(real_root + os.sep)):
+        commit = e["record_commit"]
+        record = None
+        if repo_relative(rec) is None:
             bad.append("%s: record path %r is empty, absolute or outside the repository" % (tag, rec))
-        elif not os.path.isfile(path):
-            bad.append("%s: record %s does not exist" % (tag, rec))
         else:
-            try:
-                with open(path, encoding="utf-8") as f:
-                    record = json.load(f)
-            except (OSError, ValueError) as exc:
-                bad.append("%s: record %s is not readable JSON (%s)" % (tag, rec, exc))
-                record = None
-            if record is not None:
-                errors = minischema.validate(schema, record)
-                if errors:
-                    bad.append("%s: record %s does not validate: %s" % (tag, rec, "; ".join(errors[:3])))
-                rows = [r for r in record_rows(record) if row_platform(r) == (osn, arch)]
-                if not rows:
-                    bad.append("%s: record %s has no row for platform %s/%s" % (tag, rec, osn, arch))
-                for r in rows:
-                    if r.get("status") != "verified":
-                        bad.append(
-                            "%s: record %s row for %s/%s is %r, not verified"
-                            % (tag, rec, osn, arch, r.get("status"))
-                        )
-                # ⟨M03 wave 6, W6-R03⟩ A custody claim's declaration must match the
-                # provenance its evidence row recorded (the run's `build-profile` and
-                # `store-kind` facts, carried into the row by the evidence generator): a
-                # debug or test-store run never feeds a custody field, whatever the entry says.
-                if rows and (e["field"] in custody or e["field"] in MIRROR_CUSTODY_FIELDS):
-                    prov = [
-                        r for r in rows
-                        if _first_word(r.get("build_profile")) == "release"
-                        and _first_word(r.get("store_kind")) == (e["store_kind"] or "")
-                    ]
-                    if not prov:
-                        found = ", ".join(
-                            "%s/%s" % (_first_word(r.get("build_profile")) or "unrecorded",
-                                       _first_word(r.get("store_kind")) or "unrecorded")
-                            for r in rows
-                        )
-                        bad.append(
-                            "%s: record %s has no %s/%s row whose recorded run is a release build on store kind %r (the rows record %s)"
-                            % (tag, rec, osn, arch, e["store_kind"], found)
-                        )
+            text, err = git_show(repo, commit, rec)
+            if text is None:
+                bad.append("%s: record %s does not exist at record_commit %s (%s)" % (tag, rec, commit, err))
+            else:
+                try:
+                    record = json.loads(text)
+                except ValueError as exc:
+                    bad.append("%s: record %s at %s is not readable JSON (%s)" % (tag, rec, commit, exc))
+        if record is not None and not isinstance(record, dict):
+            bad.append("%s: record %s at %s is not a JSON object" % (tag, rec, commit))
+        elif record is not None:
+            errors = minischema.validate(schema, record)
+            if errors:
+                bad.append("%s: record %s does not validate: %s" % (tag, rec, "; ".join(errors[:3])))
+            rows = [r for r in record_rows(record) if row_platform(r) == (osn, arch)]
+            if not rows:
+                bad.append("%s: record %s has no row for platform %s/%s" % (tag, rec, osn, arch))
+            for r in rows:
+                if r.get("status") != "verified":
+                    bad.append(
+                        "%s: record %s row for %s/%s is %r, not verified"
+                        % (tag, rec, osn, arch, r.get("status"))
+                    )
+            # ⟨M03 wave 6, W6-R03⟩ A custody claim's declaration must match the
+            # provenance its evidence row recorded (the run's `build-profile` and
+            # `store-kind` facts, carried into the row by the evidence generator): a
+            # debug or test-store run never feeds a custody field, whatever the entry says.
+            if rows and (e["field"] in custody or e["field"] in MIRROR_CUSTODY_FIELDS):
+                prov = [
+                    r for r in rows
+                    if _first_word(r.get("build_profile")) == "release"
+                    and _first_word(r.get("store_kind")) == (e["store_kind"] or "")
+                ]
+                if not prov:
+                    found = ", ".join(
+                        "%s/%s" % (_first_word(r.get("build_profile")) or "unrecorded",
+                                   _first_word(r.get("store_kind")) or "unrecorded")
+                        for r in rows
+                    )
+                    bad.append(
+                        "%s: record %s has no %s/%s row whose recorded run is a release build on store kind %r (the rows record %s)"
+                        % (tag, rec, osn, arch, e["store_kind"], found)
+                    )
+            cargo_text, cargo_error = git_show(repo, commit, "Cargo.toml")
+            bad.extend(check_bounds(tag, e, record, rec, cargo_text or "", cargo_error))
         if not git_is_ancestor(e["record_commit"], repo):
             bad.append("%s: record_commit %r is not a commit that is an ancestor of HEAD" % (tag, e["record_commit"]))
     return bad
@@ -639,19 +789,37 @@ def load_schema():
 def check_source(source, record_root, repo, schema):
     entries, custody, kinds = parse_claims(source)
     residuals = parse_residuals(source)
-    bad = check_entries(entries, custody, kinds, record_root, repo, schema)
+    bad = check_entries(entries, custody, kinds, repo, schema)
     return entries, bad + check_residuals(residuals, entries, record_root)
 
 
 # ---------------------------------------------------------------------------
 # Self-tests
 
-def head_commit():
-    r = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
-    return r.stdout.strip()
+FIXTURE_CARGO_VERSION = "0.1.0-fixture"
+FIXTURE_HOST_FACTS = {
+    "macos": {"os": "macOS 27.2.1 (26B131) arm64", "ssh-V": "OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)"},
+    "linux": {
+        "os": "Linux 6.8.0-147-generic x86_64",
+        "ssh-V": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+    },
+    "windows": {
+        "os": "Microsoft Windows [Version 10.0.26300.9974]",
+        "ssh-V-inbox": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+        "ssh-V-path-first": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026 (candidate, not selected)",
+    },
+}
+# (os_floor, client version) the fixture records normalize to, per platform.
+FIXTURE_BOUNDS = {
+    "macos": ("27.2.1", "10.5p1"),
+    "linux": ("6.8.0-147-generic", "9.6p1"),
+    "windows": ("10.0.26300.9974", "9.5p2"),
+}
+FIXTURE_COMMIT = "@FIXTURE_COMMIT@"  # replaced by the fixture repository's commit
 
 
-def _record(status, platform="windows-11-x86_64", build_profile="release (fixture)", store_kind="windows_dpapi"):
+def _record(status, platform="windows-11-x86_64", build_profile="release (fixture)", store_kind="windows_dpapi",
+            environment=None):
     row = {"platform": platform, "status": status}
     if build_profile is not None:
         row["build_profile"] = build_profile
@@ -663,7 +831,7 @@ def _record(status, platform="windows-11-x86_64", build_profile="release (fixtur
         "requirement_ids": [],
         "build_commit": None,
         "artifact_digest": None,
-        "environment": "fixture",
+        "environment": {"host_facts": FIXTURE_HOST_FACTS} if environment is None else environment,
         "provider_versions": [],
         "started_at": None,
         "commands_or_harness": None,
@@ -675,7 +843,10 @@ def _record(status, platform="windows-11-x86_64", build_profile="release (fixtur
 
 
 def _entry_source(field="lock_continuity", value="verified", os_="windows", arch="x86_64",
-                  profile="Release", store='Some("windows_dpapi")', record="tests/evidence/rec.json", commit=None):
+                  profile="Release", store='Some("windows_dpapi")', record="tests/evidence/rec.json", commit=None,
+                  os_floor=None, client_min=None, client_max=None,
+                  signer_min=FIXTURE_CARGO_VERSION, signer_max=FIXTURE_CARGO_VERSION):
+    floor, client = FIXTURE_BOUNDS.get(os_, ("", ""))
     return (
         "//! fixture\n"
         "pub const CUSTODY_FIELDS: &[&str] = &[\"lock_continuity\"];\n"
@@ -690,26 +861,79 @@ def _entry_source(field="lock_continuity", value="verified", os_="windows", arch
         "    Claim {\n"
         "        field: \"%s\", value: \"%s\",\n"
         "        platform: Platform { os: \"%s\", arch: \"%s\" },\n"
-        "        os_floor: \"11\",\n"
-        "        client_versions: VersionRange { min: \"9.0\", max: \"\" },\n"
-        "        signer_builds: VersionRange { min: \"0.1.0\", max: \"\" },\n"
+        "        os_floor: \"%s\",\n"
+        "        client_versions: VersionRange { min: \"%s\", max: \"%s\" },\n"
+        "        signer_builds: VersionRange { min: \"%s\", max: \"%s\" },\n"
         "        build_profile: BuildProfile::%s,\n"
         "        store_kind: %s,\n"
         "        record: \"%s\",\n"
         "        record_commit: \"%s\", /* trailing */\n"
         "    },\n"
-        "];\n" % (field, value, os_, arch, profile, store, record, commit or head_commit())
+        "];\n" % (
+            field, value, os_, arch,
+            floor if os_floor is None else os_floor,
+            client if client_min is None else client_min,
+            client if client_max is None else client_max,
+            signer_min, signer_max, profile, store, record, commit or FIXTURE_COMMIT,
+        )
     )
 
 
-def _run_fixture(source, record=None):
+def _fixture_cargo(version):
+    return '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "%s"\nedition = "2024"\n' % version
+
+
+def _git_fixture(tmp, *args):
+    env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    r = subprocess.run(
+        ["git", "-C", tmp, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+         "-c", "commit.gpgsign=false"] + list(args),
+        capture_output=True, text=True, check=False, env=env,
+    )
+    if r.returncode != 0:
+        raise RuntimeError("fixture git %s failed: %s" % (args[0], r.stderr.strip()))
+    return r.stdout.strip()
+
+
+def _commit_fixture(tmp, files, message="fixture"):
+    """Write `files` ({relative path: text, or a JSON-able record}) into the fixture repository,
+    commit everything and return the commit id."""
+    for rel, content in files.items():
+        path = os.path.join(tmp, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content if isinstance(content, str) else json.dumps(content))
+    _git_fixture(tmp, "add", "-A")
+    _git_fixture(tmp, "commit", "-q", "--allow-empty", "-m", message)
+    return _git_fixture(tmp, "rev-parse", "HEAD")
+
+
+def _run_fixture(source, record=None, extra_files=None, cargo_version=FIXTURE_CARGO_VERSION):
+    """Check `source` against a temporary git repository holding `record`, a workspace
+    Cargo.toml and `extra_files` in one commit (the placeholder commit in `source` is that
+    commit); the same repository is the record root and the repo whose HEAD is the ancestor."""
     tmp = tempfile.mkdtemp(prefix="claims-table-fixture-")
     try:
+        _git_fixture(tmp, "init", "-q")
+        files = {"Cargo.toml": _fixture_cargo(cargo_version)}
         if record is not None:
-            os.makedirs(os.path.join(tmp, "tests", "evidence"))
-            with open(os.path.join(tmp, "tests", "evidence", "rec.json"), "w", encoding="utf-8") as f:
-                json.dump(record, f)
-        return check_source(source, tmp, ROOT, load_schema())[1]
+            files["tests/evidence/rec.json"] = record
+        files.update(extra_files or {})
+        sha = _commit_fixture(tmp, files)
+        return check_source(source.replace(FIXTURE_COMMIT, sha), tmp, tmp, load_schema())[1]
+    finally:
+        shutil.rmtree(tmp)
+
+
+def _run_history_fixture(make_source, early, late):
+    """Two commits in a temporary repository: `early` files, then `late` files (HEAD).
+    `make_source(early_sha, late_sha)` returns the table source."""
+    tmp = tempfile.mkdtemp(prefix="claims-table-history-")
+    try:
+        _git_fixture(tmp, "init", "-q")
+        first = _commit_fixture(tmp, early, "early")
+        second = _commit_fixture(tmp, late, "late")
+        return check_source(make_source(first, second), tmp, tmp, load_schema())[1]
     finally:
         shutil.rmtree(tmp)
 
@@ -773,7 +997,7 @@ def _t_positive():
     bad_platform = _run_fixture(_entry_source(os_="linux", store='Some("linux_secret_service")'), rec)
     bad_traversal = _run_fixture(_entry_source(record="../outside.json"), rec)
     try:
-        _run_fixture(_entry_source().replace("os_floor: \"11\",", ""), rec)
+        _run_fixture(re.sub(r'os_floor: "[^"]*",', "", _entry_source()), rec)
         parse_fails = False
     except ParseError:
         parse_fails = True
@@ -786,6 +1010,101 @@ def _t_positive():
         and parse_fails
     )
     return ok, bad_commit + bad_missing + bad_platform + bad_traversal
+
+
+def _t_unrelated_bounds():
+    """M03-F1-R06: bounds unrelated to the record's host facts fail, one message per bound."""
+    rec = _record("verified")
+    bad = _run_fixture(_entry_source(os_floor="99.9", client_min="1.0p1", client_max="2.0p2",
+                                     signer_min="0.0.1", signer_max="9.9.9"), rec)
+    ok = (
+        _has(bad, "os_floor '99.9'", "10.0.26300.9974")
+        and _has(bad, "client_versions.min '1.0p1'", "9.5p2", "ssh-V-inbox")
+        and _has(bad, "client_versions.max '2.0p2'", "9.5p2")
+        and _has(bad, "signer_builds.min '0.0.1'", FIXTURE_CARGO_VERSION)
+        and _has(bad, "signer_builds.max '9.9.9'", FIXTURE_CARGO_VERSION)
+    )
+    # A range is not an identity: min right, max wrong fails the max only.
+    bad2 = _run_fixture(_entry_source(signer_max="0.2.0"), rec)
+    ok2 = _has(bad2, "signer_builds.max '0.2.0'") and not _has(bad2, "signer_builds.min")
+    # Windows' ssh-V-path-first is a candidate that was not selected.
+    bad3 = _run_fixture(_entry_source(client_min="10.3p1", client_max="10.3p1"), rec)
+    ok3 = _has(bad3, "client_versions.min '10.3p1'") and _has(bad3, "client_versions.max '10.3p1'")
+    # A record without host facts cannot back any bound.
+    bad4 = _run_fixture(_entry_source(), _record("verified", environment="fixture"))
+    ok4 = _has(bad4, "no environment.host_facts.windows.os") and _has(bad4, "host_facts.windows.ssh-V-inbox")
+    # The exact bounds on each platform pass (the positive control for the above).
+    ok5 = all(
+        not _run_fixture(
+            _entry_source(os_=o, store='Some("%s")' % MIRROR_PRODUCT_STORE_KINDS[o][0]),
+            _record("verified", platform="%s-%s" % (o, "x86_64"), store_kind=MIRROR_PRODUCT_STORE_KINDS[o][0]),
+        )
+        for o in ("macos", "linux", "windows")
+    )
+    return ok and ok2 and ok3 and ok4 and ok5, bad + bad2 + bad3 + bad4
+
+
+def _t_revision_reading():
+    """M03-F1-R06: the record and Cargo.toml are read at record_commit, not from the working
+    tree. An ancestor commit that predates the record fails even though HEAD has a verified row."""
+    cargo = {"Cargo.toml": _fixture_cargo(FIXTURE_CARGO_VERSION)}
+    verified = {"tests/evidence/rec.json": _record("verified")}
+    # (b) the record is added after the cited commit.
+    bad = _run_history_fixture(lambda early, late: _entry_source(commit=early), cargo, verified)
+    ok = _has(bad, "record tests/evidence/rec.json does not exist at record_commit")
+    # The same table citing the commit that has the record passes.
+    ok_valid = not _run_history_fixture(lambda early, late: _entry_source(commit=late), cargo, verified)
+    # The cited revision's row is not verified though the working tree's is.
+    blocked = dict(cargo, **{"tests/evidence/rec.json": _record("blocked")})
+    bad2 = _run_history_fixture(lambda early, late: _entry_source(commit=early), blocked, verified)
+    ok2 = _has(bad2, "row for windows/x86_64 is 'blocked', not verified")
+    # The signer version is the one at the cited revision, not HEAD's.
+    old_cargo = dict(verified, **{"Cargo.toml": _fixture_cargo("0.0.1-old")})
+    bad3 = _run_history_fixture(lambda early, late: _entry_source(commit=early), old_cargo, cargo)
+    ok3 = _has(bad3, "signer_builds.min", "0.0.1-old") and _has(bad3, "signer_builds.max", "0.0.1-old")
+    # No Cargo.toml at the cited revision: the signer bounds cannot be checked.
+    bad4 = _run_history_fixture(lambda early, late: _entry_source(commit=early), verified, cargo)
+    ok4 = _has(bad4, "signer_builds cannot be checked")
+    return ok and ok_valid and ok2 and ok3 and ok4, bad + bad2 + bad3 + bad4
+
+
+def _t_normalizers_strict():
+    """M03-F1-R06: the host-fact normalizers take a complete version token or nothing."""
+    pos = [
+        norm_os_release("macos", "macOS 27.2.1 (26B131) arm64") == "27.2.1",
+        norm_os_release("macos", "macOS 27.3") == "27.3",
+        norm_os_release("linux", "Linux 6.8.0-147-generic x86_64") == "6.8.0-147-generic",
+        norm_os_release("windows", "Microsoft Windows [Version 10.0.26300.9974]") == "10.0.26300.9974",
+        norm_client_version("macos", "OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)") == "10.5p1",
+        norm_client_version("linux", "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 (exit 0)") == "9.6p1",
+        norm_client_version("windows", "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2") == "9.5p2",
+        workspace_version('[package]\nversion = "9"\n[workspace.package]\nversion = "0.1.0-m01"\nedition = "2024"\n') == "0.1.0-m01",
+    ]
+    neg = [
+        norm_client_version("linux", "OpenSSH_9.6p1broken, OpenSSL") is None,
+        norm_client_version("macos", "OpenSSH_10.5p1x") is None,
+        norm_client_version("windows", "OpenSSH_9.5p2, LibreSSL") is None,  # not the Windows build
+        norm_client_version("macos", "OpenSSH_for_Windows_9.5p2") is None,
+        norm_client_version("macos", "OpenSSH_10.5p1.") is None,
+        norm_os_release("macos", "macOS 27.3.") is None,
+        norm_os_release("macos", "macOS 27.3beta arm64") is None,
+        norm_os_release("linux", "Linux 6.8.0- x86_64") is None,
+        norm_os_release("linux", "Linux 6.8 x86_64") is None,
+        norm_os_release("windows", "Microsoft Windows [Version 10.0.26300.9974") is None,
+        norm_os_release("windows", "Microsoft Windows [Version 10.0.26300.]") is None,
+        norm_os_release("macos", None) is None,
+        workspace_version('[workspace.package]\nedition = "2024"\n[other]\nversion = "1"\n') is None,
+        workspace_version('[workspace.package]\nversion = "1"\nversion = "2"\n') is None,
+    ]
+    # And through a whole entry: a client string that does not normalize fails it.
+    broken = {"host_facts": dict(FIXTURE_HOST_FACTS, linux={
+        "os": "Linux 6.8.0-147-generic x86_64", "ssh-V": "OpenSSH_9.6p1broken, OpenSSL 3.0.13 (exit 0)"})}
+    bad = _run_fixture(
+        _entry_source(os_="linux", store='Some("linux_secret_service")'),
+        _record("verified", platform="linux-x86_64", store_kind="linux_secret_service", environment=broken),
+    )
+    ok_entry = _has(bad, "client_versions cannot be checked", "OpenSSH_9.6p1broken")
+    return all(pos) and all(neg) and ok_entry, ["pos %r neg %r" % (pos, neg)] + bad
 
 
 def _residual_source(rid="uninstall_fixture_residual", extra="", source="crates/x/src/lib.rs",
@@ -806,18 +1125,10 @@ def _residual_source(rid="uninstall_fixture_residual", extra="", source="crates/
 
 
 def _run_residual_fixture(residual, with_probe=True, probe_src=None):
-    tmp = tempfile.mkdtemp(prefix="claims-table-residual-")
-    try:
-        os.makedirs(os.path.join(tmp, "tests", "evidence"))
-        with open(os.path.join(tmp, "tests", "evidence", "rec.json"), "w", encoding="utf-8") as f:
-            json.dump(_record("verified"), f)
-        if with_probe:
-            os.makedirs(os.path.join(tmp, "crates", "x", "src"))
-            with open(os.path.join(tmp, "crates", "x", "src", "lib.rs"), "w", encoding="utf-8") as f:
-                f.write(probe_src or "#[cfg(test)]\nmod tests {\n    #[test]\n    fn the_probe() {}\n}\n")
-        return check_source(_entry_source() + residual, tmp, ROOT, load_schema())[1]
-    finally:
-        shutil.rmtree(tmp)
+    extra = {}
+    if with_probe:
+        extra["crates/x/src/lib.rs"] = probe_src or "#[cfg(test)]\nmod tests {\n    #[test]\n    fn the_probe() {}\n}\n"
+    return _run_fixture(_entry_source() + residual, _record("verified"), extra_files=extra)
 
 
 def _t_residual_verified():
@@ -871,6 +1182,9 @@ SELF_TESTS = [
     ("claims_table_rejects_debug_profile_or_test_store_for_custody_claim", _t_debug_or_test_store),
     ("claims_table_rejects_custody_claim_whose_evidence_row_is_debug_or_test_store", _t_custody_row_provenance),
     ("claims_table_positive_control", _t_positive),
+    ("claims_table_rejects_bounds_unrelated_to_the_record", _t_unrelated_bounds),
+    ("claims_table_reads_the_record_at_its_cited_revision", _t_revision_reading),
+    ("claims_table_host_fact_normalizers_are_strict", _t_normalizers_strict),
 ]
 
 

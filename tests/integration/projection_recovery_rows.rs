@@ -563,6 +563,7 @@ fn config_for(home: &ScratchHome, kind: Wk) -> ProjectionConfig {
                     source: ClientSource::Path,
                     version: None,
                     sha256: None,
+                    identity: None,
                     selected: true,
                 },
                 ClientCandidate {
@@ -571,6 +572,7 @@ fn config_for(home: &ScratchHome, kind: Wk) -> ProjectionConfig {
                     source: ClientSource::Path,
                     version: None,
                     sha256: None,
+                    identity: None,
                     selected: true,
                 },
             ],
