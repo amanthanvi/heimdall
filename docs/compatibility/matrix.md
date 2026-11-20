@@ -518,6 +518,40 @@ These rows test Heimdall itself.
   `uninstall_sweep_uses_cli_runtime_dir_not_recorded_locators`, `holder_approval_spawns_waiting_work_with_the_holder_lease`,
   `issuer_cleanup_cancelled_kill_on_drop_signals_unreaped_child` and `issuer_request_hold_absent_for_leader_and_lease_work`.
 
+## M05 trusted-work rows (Heimdall build `85e67bfe`, the M05 exit, 2026-11-20)
+
+> **M05 exit (2026-11-20).** macOS and the devbox ran at `84d7c44e`, Windows at `85e67bfe`, and the WSL hook row
+> ran the `84d7c44e` binaries under the `5aa752c0` harness; `crates/` is byte-identical across the three. Every
+> platform row below is `verified`; each record is `blocked` only on named owner inputs; the records are
+> `tests/evidence/m05-*.json`.
+
+These rows test Heimdall itself.
+- **Builds:** `84d7c44e18c9d68fc7575ea6231ff1582a9e8658` (macOS, the devbox, the WSL row's binaries),
+  `5aa752c0f7a53f26a93e7975a7145e3b5928995b` (the WSL row's harness: harness files only) and
+  `85e67bfe6149d749d10ded89184e28d542f5c4a8` (Windows: two `#[cfg(windows)]` test-helper lines). The `85e67bfe`
+  `crates/` and `tests/` `*.rs` sources digest is `9097e792…d211cd` (`tests/native/m05/required-inventory.json`).
+  The Linux `heimdall` (the devbox and WSL) `1e680325…`; Windows `heimdall.exe` `471dec11…`.
+- **Records:** `tests/evidence/m05-*.json`. **Artifacts:** `tests/evidence/artifacts/m05/exit-84d7c44e/`; `runs.json`
+  holds the configuration, and `digests.txt` lists every artifact file. **Exit record:** `docs/architecture/m05-exit.md`.
+- **Label.** Every row stays `not-tested` (ADR-0001 §9: until ADR-0001 §5 and §6 close). A row passing at M05 does not
+  change that.
+- **What the rows cover.** Trusted work through Heimdall's own managed signer: a trusted workspace's standing policy
+  and the personal default, activated by `ensure`/`run` by working directory, by the shell hook (bash, zsh), and by
+  ordinary `ssh` through the environment signing endpoint. The servers are the loopback fixture `sshd` (on Windows the
+  harness's WSL fixture `sshd`), trusting a per-run CA.
+- **The first ordinary `ssh`** after a free-slot period activates the default and fails once (I-13, observed on all
+  three native platforms); the next logs in. The hook avoids it on Unix and in WSL; native Windows keeps it.
+
+| # | Environment | Client | Provider / signer | Mechanism | Label | M05 evidence | Record |
+|---|---|---|---|---|---|---|---|
+| M05-1 | macOS 27.2.1 arm64 (APFS) | OpenSSH ssh 10.5p1 (system), Apple Git 2.54.0, scp | Heimdall managed signer (environment endpoint, Unix socket); fixture CA | managed certificate: trusted workspace policy, personal default (ordinary `ssh`), shell hook (bash, zsh) | not-tested | verified (A02, A04, A05, A16, A18, A28, A29) | `m05-a02-trusted-week.json`, `m05-a16-concurrent.json`, `m05-a28-delegation.json`, `m05-exit-claims.json` |
+| M05-2 | Linux x86-64 (the devbox, kernel 6.8.0, glibc 2.39, ext4) | OpenSSH ssh 9.6p1, git 2.43.0, scp | Heimdall managed signer (Unix socket); fixture CA | as M05-1 | not-tested | verified (as M05-1) | as M05-1 |
+| M05-3 | Windows 11 x64 (10.0.26300.9974) | in-box `ssh.exe` and `scp.exe` (OpenSSH_for_Windows 9.5p2), Git for Windows 2.55.0 | Heimdall managed signer (named pipe); the WSL fixture `sshd` | managed certificate: trusted workspace policy through `run`, personal default (ordinary `ssh`); no shell hook (Q6) | not-tested | verified (as M05-1; A28's subset row through the strict harness `sshd`) | as M05-1 |
+| M05-4 | WSL 3.0.5.0, a disposable distribution (`hm-m05-<hex>`, the pinned Ubuntu 24.04.5 image, kernel 6.18.58.1-microsoft-standard-WSL2, non-root user) | bash 5.2.21 and zsh 5.9 with `heimdall shell init`; OpenSSH 9.6p1 | Heimdall managed signer (Unix socket) | the shell hook's context activation and default warm-up | not-tested | verified (A02's and A29's hook journeys, 8 of 8 steps) | `m05-a02-trusted-week.json`, `m05-a29-hostile-input.json` |
+| M05-5 | Linux arm64 | OpenSSH | Heimdall managed signer | as M05-1 | not-tested | blocked: B9, a native Linux arm64 host | `m05-exit-claims.json` |
+| M05-6 | any, a second OS account | the control socket and the Windows pipe from another account | — | A29's cross-user refusal | not-tested | blocked: B2, the disposable second OS account (carried from M01's A29-local) | `m05-a29-hostile-input.json` |
+| M05-7 | WSL and container environment pairs | — | — | A16's pairs of different realizations; A28's forwarding and container rows | not-tested | deferred_with_decision: M04's exit (m05-plan Q9) | `m05-a16-concurrent.json`, `m05-a28-delegation.json` |
+
 ## Mechanism observations (not product support)
 
 These rows record OpenSSH and platform mechanism behavior observed on fixtures during the gate experiments. They inform

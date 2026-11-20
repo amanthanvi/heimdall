@@ -1,0 +1,588 @@
+
+  1.99.1-x86_64-pc-windows-msvc installed - rustc 1.99.1 (58cf8f9c3 2026-10-13)
+
+
+Rust is installed now. Great!
+
+To get started you need Cargo's bin directory (<winhome>\AppData\Local
+\hm-m05-final-77eb8035\hm-m05-local-6d55556675c49919\toolchain\cargo\bin) in 
+your PATH
+environment variable. This has not been done automatically.
+info: profile set to minimal
+info: setting default host tuple to x86_64-pc-windows-msvc
+info: syncing channel updates for 1.99.1-x86_64-pc-windows-msvc
+info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+info: downloading 3 components
+info: default toolchain set to 1.99.1-x86_64-pc-windows-msvc
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded anstyle v1.0.14
+  Downloaded bit-vec v0.10.1
+  Downloaded crossterm_winapi v0.9.1
+  Downloaded base64ct v1.8.3
+  Downloaded defmt v1.2.0
+  Downloaded async-trait v0.1.92
+  Downloaded indoc v2.0.8
+  Downloaded block-buffer v0.10.4
+  Downloaded by_address v1.2.1
+  Downloaded inout v0.1.4
+  Downloaded scopeguard v1.2.0
+  Downloaded block-padding v0.3.3
+  Downloaded thread_local v1.1.10
+  Downloaded ed25519-dalek v2.2.0
+  Downloaded toml v1.1.8+spec-1.1.0
+  Downloaded unicode-truncate v2.0.1
+  Downloaded toml_parser v1.1.5+spec-1.1.0
+  Downloaded heck v0.5.0
+  Downloaded tracing-subscriber v0.3.23
+  Downloaded bytes v1.12.1
+  Downloaded approx v0.5.1
+  Downloaded etcetera v0.11.0
+  Downloaded toml_writer v1.1.3+spec-1.1.0
+  Downloaded tokio v1.54.1
+  Downloaded schemars v1.2.3
+  Downloaded rusqlite v0.41.1
+  Downloaded pkcs1 v0.7.5
+  Downloaded ghash v0.5.1
+  Downloaded convert_case v0.10.0
+  Downloaded either v1.19.0
+  Downloaded lru v0.18.5
+  Downloaded jiff-tzdb v0.1.9
+  Downloaded lazy_static v1.5.1
+  Downloaded once_cell v1.21.4
+  Downloaded time-core v0.1.9
+  Downloaded itoa v1.0.18
+  Downloaded blowfish v0.9.1
+  Downloaded chacha20 v0.9.1
+  Downloaded palette_math v0.7.7
+  Downloaded quote v1.0.47
+  Downloaded typenum v1.20.1
+  Downloaded lock_api v0.4.14
+  Downloaded futures-core v0.3.34
+  Downloaded hashbrown v0.17.1
+  Downloaded smallvec v1.16.4
+  Downloaded cipher v0.4.4
+  Downloaded itertools v0.14.0
+  Downloaded log v0.4.35
+  Downloaded unicode-width v0.2.3
+  Downloaded unicode-segmentation v1.13.3
+  Downloaded generic-array v0.14.7
+  Downloaded rand v0.10.3
+  Downloaded toml_edit v0.25.17+spec-1.1.0
+  Downloaded libm v0.2.16
+  Downloaded ratatui-widgets v0.3.2
+  Downloaded pkg-config v0.3.34
+  Downloaded p384 v0.13.1
+  Downloaded digest v0.10.7
+  Downloaded bit-set v0.11.1
+  Downloaded futures-sink v0.3.34
+  Downloaded palette_derive v0.7.7
+  Downloaded unarray v0.1.4
+  Downloaded pbkdf2 v0.12.2
+  Downloaded equivalent v1.0.3
+  Downloaded futures-macro v0.3.34
+  Downloaded time v0.3.55
+  Downloaded instability v0.3.14
+  Downloaded rustc_version v0.4.1
+  Downloaded shlex v2.0.1
+  Downloaded jiff-core v0.1.1
+  Downloaded primeorder v0.13.6
+  Downloaded ratatui-core v0.1.2
+  Downloaded vcpkg v0.2.15
+  Downloaded zmij v1.0.23
+  Downloaded castaway v0.2.4
+  Downloaded chacha20 v0.10.2
+  Downloaded der v0.7.10
+  Downloaded glob v0.3.4
+  Downloaded mio v1.2.4
+  Downloaded semver v1.0.28
+  Downloaded opaque-debug v0.3.1
+  Downloaded polyval v0.6.2
+  Downloaded rsa v0.9.10
+  Downloaded num-iter v0.1.46
+  Downloaded portable-atomic v1.15.0
+  Downloaded line-clipping v0.3.8
+  Downloaded proptest v1.12.0
+  Downloaded rusty-fork v0.3.1
+  Downloaded sha2 v0.10.9
+  Downloaded slab v0.4.12
+  Downloaded base16ct v0.2.0
+  Downloaded num-conv v0.2.2
+  Downloaded parking_lot_core v0.9.12
+  Downloaded pem-rfc7468 v0.7.0
+  Downloaded proc-macro-crate v3.5.0
+  Downloaded quick-error v1.2.3
+  Downloaded rfc6979 v0.4.0
+  Downloaded serde v1.0.229
+  Downloaded thiserror-impl v2.0.21
+  Downloaded poly1305 v0.8.0
+  Downloaded proc-macro2 v1.0.107
+  Downloaded dyn-clone v1.0.20
+  Downloaded ratatui v0.30.2
+  Downloaded serde_derive v1.0.229
+  Downloaded windows-link v0.2.1
+  Downloaded curve25519-dalek-derive v0.1.1
+  Downloaded rand_chacha v0.3.1
+  Downloaded core_detect v1.0.0
+  Downloaded zeroize v1.9.1
+  Downloaded deranged v0.5.9
+  Downloaded palette v0.7.7
+  Downloaded ref-cast-impl v1.0.27
+  Downloaded defmt-macros v1.2.0
+  Downloaded clap_lex v1.1.1
+  Downloaded ssh-key v0.6.7
+  Downloaded ff v0.13.1
+  Downloaded secrecy v0.10.3
+  Downloaded cfg_aliases v0.2.2
+  Downloaded fnv v1.0.7
+  Downloaded aead v0.5.2
+  Downloaded defmt-parser v1.1.0
+  Downloaded darling_macro v0.24.1
+  Downloaded strum v0.28.0
+  Downloaded ed25519 v2.2.3
+  Downloaded byteorder v1.5.0
+  Downloaded ctr v0.9.2
+  Downloaded document-features v0.2.12
+  Downloaded signature v2.2.0
+  Downloaded group v0.13.0
+  Downloaded hmac v0.12.1
+  Downloaded ident_case v1.0.1
+  Downloaded cfg-if v1.0.5
+  Downloaded subtle v2.6.1
+  Downloaded ecdsa v0.16.9
+  Downloaded schemars_derive v1.2.3
+  Downloaded borsh v1.8.1
+  Downloaded crypto-common v0.1.7
+  Downloaded static_assertions v1.1.0
+  Downloaded sec1 v0.7.3
+  Downloaded fallible-streaming-iterator v0.1.9
+  Downloaded serde_derive_internals v0.30.0
+  Downloaded find-msvc-tools v0.1.15
+  Downloaded borsh-derive v1.8.1
+  Downloaded strum_macros v0.28.0
+  Downloaded const-oid v0.9.6
+  Downloaded foldhash v0.2.0
+  Downloaded fallible-iterator v0.3.0
+  Downloaded getrandom v0.2.17
+  Downloaded crypto-bigint v0.5.5
+  Downloaded darling_core v0.24.1
+  Downloaded hashlink v0.12.2
+  Downloaded libsqlite3-sys v0.39.1
+  Downloaded bitflags v1.3.2
+  Downloaded allocator-api2 v0.2.21
+  Downloaded bitflags v2.13.2
+  Downloaded spin v0.9.9
+  Downloaded ssh-agent-lib v0.6.0
+  Downloaded elliptic-curve v0.13.8
+  Downloaded socket2 v0.6.5
+  Downloaded aes v0.8.4
+  Downloaded serde_core v1.0.229
+  Downloaded serde_spanned v1.1.2
+  Downloaded compact_str v0.9.1
+  Downloaded futures-task v0.3.34
+  Downloaded sharded-slab v0.1.7
+  Downloaded derive_more v2.1.1
+  Downloaded bcrypt-pbkdf v0.10.0
+  Downloaded cpufeatures v0.2.17
+  Downloaded darling v0.24.1
+  Downloaded crossterm v0.29.0
+  Downloaded cpufeatures v0.3.1
+  Downloaded ssh-cipher v0.2.0
+  Downloaded clap v4.6.7
+  Downloaded indexmap v2.14.2
+  Downloaded autocfg v1.5.1
+  Downloaded cbc v0.1.2
+  Downloaded clap_derive v4.6.7
+  Downloaded fastrand v2.5.0
+  Downloaded getrandom v0.4.3
+  Downloaded aes-gcm v0.10.3
+  Downloaded cc v1.10.0
+  Downloaded clap_builder v4.6.7
+  Downloaded futures-util v0.3.34
+  Downloaded serde_json v1.0.154
+  Downloaded winnow v1.0.4
+  Downloaded derive_more-impl v2.1.1
+  Downloaded syn v2.0.119
+  Downloaded zerocopy v0.8.63
+  Downloaded curve25519-dalek v4.1.3
+  Downloaded winapi v0.3.9
+  Downloaded num-integer v0.1.47
+  Downloaded tracing-core v0.1.36
+  Downloaded toml_datetime v1.1.2+spec-1.1.0
+  Downloaded tempfile v3.27.0
+  Downloaded windows-sys v0.61.2
+  Downloaded pin-project-lite v0.2.17
+  Downloaded rand_core v0.10.1
+  Downloaded ssh-encoding v0.2.0
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded parking_lot v0.12.5
+  Downloaded wait-timeout v0.2.1
+  Downloaded rand_xorshift v0.5.0
+  Downloaded num-bigint-dig v0.8.6
+  Downloaded regex-syntax v0.8.11
+  Downloaded rand v0.8.8
+  Downloaded version_check v0.9.5
+  Downloaded p256 v0.13.2
+  Downloaded memchr v2.8.3
+  Downloaded jiff-tzdb-platform v0.1.3
+  Downloaded litrs v1.0.1
+  Downloaded powerfmt v0.2.1
+  Downloaded rand_core v0.6.4
+  Downloaded p521 v0.13.3
+  Downloaded pkcs8 v0.10.2
+  Downloaded rustversion v1.0.23
+  Downloaded strsim v0.11.1
+  Downloaded ratatui-crossterm v0.1.2
+  Downloaded tokio-macros v2.7.2
+  Downloaded syn v3.0.9
+  Downloaded tracing v0.1.44
+  Downloaded spki v0.7.3
+  Downloaded tokio-util v0.7.20
+  Downloaded unicode-ident v1.0.27
+  Downloaded kasuari v0.4.13
+  Downloaded thiserror v2.0.21
+  Downloaded universal-hash v0.5.1
+  Downloaded ref-cast v1.0.27
+  Downloaded tracing-attributes v0.1.31
+  Downloaded num-traits v0.2.19
+  Downloaded jiff v0.2.38
+  Downloaded ryu v1.0.23
+   Compiling cfg-if v1.0.5
+   Compiling zeroize v1.9.1
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling subtle v2.6.1
+   Compiling const-oid v0.9.6
+   Compiling cpufeatures v0.2.17
+   Compiling windows-link v0.2.1
+   Compiling serde_core v1.0.229
+   Compiling thiserror v2.0.21
+   Compiling itoa v1.0.18
+   Compiling zmij v1.0.23
+   Compiling base64ct v1.8.3
+   Compiling smallvec v1.16.4
+   Compiling jiff-tzdb v0.1.9
+   Compiling autocfg v1.5.1
+   Compiling serde v1.0.229
+   Compiling libm v0.2.16
+   Compiling ref-cast v1.0.27
+   Compiling serde_json v1.0.154
+   Compiling memchr v2.8.3
+   Compiling getrandom v0.2.17
+   Compiling jiff-tzdb-platform v0.1.3
+   Compiling der v0.7.10
+   Compiling rand_core v0.6.4
+   Compiling windows-sys v0.61.2
+   Compiling foldhash v0.2.0
+   Compiling generic-array v0.14.7
+   Compiling jiff-core v0.1.1
+   Compiling allocator-api2 v0.2.21
+   Compiling bitflags v2.13.2
+   Compiling equivalent v1.0.3
+   Compiling once_cell v1.21.4
+   Compiling dyn-clone v1.0.20
+   Compiling rand_core v0.10.1
+   Compiling hashbrown v0.17.1
+   Compiling getrandom v0.4.3
+   Compiling spki v0.7.3
+   Compiling ff v0.13.1
+   Compiling pin-project-lite v0.2.17
+   Compiling shlex v2.0.1
+   Compiling base16ct v0.2.0
+   Compiling find-msvc-tools v0.1.15
+   Compiling num-traits v0.2.19
+   Compiling zerocopy v0.8.63
+   Compiling pkg-config v0.3.34
+   Compiling vcpkg v0.2.15
+   Compiling tracing-core v0.1.36
+   Compiling group v0.13.0
+   Compiling opaque-debug v0.3.1
+   Compiling cc v1.10.0
+   Compiling semver v1.0.28
+   Compiling spin v0.9.9
+   Compiling hashlink v0.12.2
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling rustc_version v0.4.1
+   Compiling lazy_static v1.5.1
+   Compiling tracing v0.1.44
+   Compiling num-bigint-dig v0.8.6
+   Compiling pkcs8 v0.10.2
+   Compiling pem-rfc7468 v0.7.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling block-padding v0.3.3
+   Compiling crypto-bigint v0.5.5
+   Compiling sec1 v0.7.3
+   Compiling universal-hash v0.5.1
+   Compiling aead v0.5.2
+   Compiling winnow v1.0.4
+   Compiling digest v0.10.7
+   Compiling inout v0.1.4
+   Compiling curve25519-dalek v4.1.3
+   Compiling polyval v0.6.2
+   Compiling byteorder v1.5.0
+   Compiling sha2 v0.10.9
+   Compiling cipher v0.4.4
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling signature v2.2.0
+   Compiling hmac v0.12.1
+   Compiling ghash v0.5.1
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling rfc6979 v0.4.0
+   Compiling ctr v0.9.2
+   Compiling aes v0.8.4
+   Compiling ssh-encoding v0.2.0
+   Compiling chacha20 v0.9.1
+   Compiling blowfish v0.9.1
+   Compiling cbc v0.1.2
+   Compiling ed25519 v2.2.3
+   Compiling pbkdf2 v0.12.2
+   Compiling poly1305 v0.8.0
+   Compiling pkcs1 v0.7.5
+   Compiling bytes v1.12.1
+   Compiling jiff v0.2.38
+   Compiling elliptic-curve v0.13.8
+   Compiling aes-gcm v0.10.3
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling bcrypt-pbkdf v0.10.0
+   Compiling futures-core v0.3.34
+   Compiling futures-sink v0.3.34
+   Compiling secrecy v0.10.3
+   Compiling primeorder v0.13.6
+   Compiling ecdsa v0.16.9
+   Compiling num-integer v0.1.47
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling ssh-cipher v0.2.0
+   Compiling libsqlite3-sys v0.39.1
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling fastrand v2.5.0
+   Compiling glob v0.3.4
+   Compiling cpufeatures v0.3.1
+   Compiling p521 v0.13.3
+   Compiling num-iter v0.1.46
+   Compiling p256 v0.13.2
+   Compiling p384 v0.13.1
+   Compiling futures-util v0.3.34
+   Compiling quick-error v1.2.3
+   Compiling wait-timeout v0.2.1
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.10.1
+   Compiling chacha20 v0.10.2
+   Compiling rand v0.10.3
+   Compiling rand_xorshift v0.5.0
+   Compiling unarray v0.1.4
+   Compiling core_detect v1.0.0
+   Compiling regex-syntax v0.8.11
+   Compiling sharded-slab v0.1.7
+   Compiling thread_local v1.1.10
+   Compiling unicode-segmentation v1.13.3
+   Compiling bit-set v0.11.1
+   Compiling heck v0.5.0
+   Compiling rustversion v1.0.23
+   Compiling strsim v0.11.1
+   Compiling ident_case v1.0.1
+   Compiling either v1.19.0
+   Compiling parking_lot_core v0.9.12
+   Compiling serde_derive_internals v0.30.0
+   Compiling winapi v0.3.9
+   Compiling static_assertions v1.1.0
+   Compiling scopeguard v1.2.0
+   Compiling darling_core v0.24.1
+   Compiling convert_case v0.10.0
+   Compiling tracing-subscriber v0.3.23
+   Compiling itertools v0.14.0
+   Compiling ryu v1.0.23
+   Compiling unicode-width v0.2.3
+   Compiling lock_api v0.4.14
+   Compiling lru v0.18.5
+   Compiling ppv-lite86 v0.2.21
+   Compiling litrs v1.0.1
+   Compiling indoc v2.0.8
+   Compiling line-clipping v0.3.8
+   Compiling clap_lex v1.1.1
+   Compiling anstyle v1.0.14
+   Compiling rand_chacha v0.3.1
+   Compiling clap_builder v4.6.7
+   Compiling rand v0.8.8
+   Compiling document-features v0.2.12
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling tempfile v3.27.0
+   Compiling etcetera v0.11.0
+   Compiling rusty-fork v0.3.1
+   Compiling unicode-truncate v2.0.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling strum_macros v0.28.0
+   Compiling derive_more-impl v2.1.1
+   Compiling proptest v1.12.0
+   Compiling thiserror-impl v2.0.21
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_derive v1.0.229
+   Compiling schemars_derive v1.2.3
+   Compiling tokio-macros v2.7.2
+   Compiling async-trait v0.1.92
+   Compiling clap_derive v4.6.7
+   Compiling parking_lot v0.12.5
+   Compiling rsa v0.9.10
+   Compiling derive_more v2.1.1
+   Compiling tokio v1.54.1
+   Compiling darling_macro v0.24.1
+   Compiling castaway v0.2.4
+   Compiling compact_str v0.9.1
+   Compiling kasuari v0.4.13
+   Compiling darling v0.24.1
+   Compiling clap v4.6.7
+   Compiling strum v0.28.0
+   Compiling rusqlite v0.41.1
+   Compiling instability v0.3.14
+   Compiling ed25519-dalek v2.2.0
+   Compiling ratatui-core v0.1.2
+   Compiling ssh-key v0.6.7
+   Compiling crossterm_winapi v0.9.1
+   Compiling crossterm v0.29.0
+   Compiling schemars v1.2.3
+   Compiling ratatui-widgets v0.3.2
+   Compiling ratatui-crossterm v0.1.2
+   Compiling ssh-agent-lib v0.6.0
+   Compiling heimdall-contract v0.1.0-m01 (<run>\src\crates\contract)
+   Compiling ratatui v0.30.2
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-domain v0.1.0-m01 (<run>\src\crates\domain)
+   Compiling heimdall-ipc v0.1.0-m01 (<run>\src\crates\ipc)
+   Compiling heimdall-store v0.1.0-m01 (<run>\src\crates\store)
+   Compiling heimdall-project v0.1.0-m01 (<run>\src\crates\project)
+   Compiling heimdall-registry v0.1.0-m01 (<run>\src\crates\registry)
+   Compiling heimdall-sshconf v0.1.0-m01 (<run>\src\crates\sshconf)
+   Compiling heimdall-app v0.1.0-m01 (<run>\src\crates\app)
+   Compiling heimdall-credential v0.1.0-m01 (<run>\src\crates\credential)
+   Compiling heimdall-localenv v0.1.0-m01 (<run>\src\crates\localenv)
+   Compiling heimdall-issuer v0.1.0-m01 (<run>\src\crates\issuer)
+   Compiling heimdall-testkit v0.1.0-m01 (<run>\src\crates\testkit)
+   Compiling heimdall-enroll v0.1.0-m01 (<run>\src\crates\enroll)
+   Compiling heimdall-adapters v0.1.0-m01 (<run>\src\crates\adapters)
+   Compiling heimdall-wsl v0.1.0-m01 (<run>\src\crates\wsl)
+   Compiling heimdall-launch v0.1.0-m01 (<run>\src\crates\launch)
+   Compiling heimdall-runtime v0.1.0-m01 (<run>\src\crates\runtime)
+   Compiling heimdall v0.1.0-m01 (<run>\src\crates\heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 09s
+
+adversarial_agent_client_frames.exe sha256: 5e827b15b855d944740d56f3dfb67f70ab2a8368accb38be181e8f9bc75cd6a2
+adversarial_agent_frames.exe sha256: c512dac1d7d179bd2b1902c3627bc30b88fac43a0606fc01b3000e21dd682007
+adversarial_ipc_frames.exe sha256: a9235ff1f67594cc34edfe4abcddefd59770c37d0b66a6b3380ca65841b0459e
+adversarial_prompt_injection.exe sha256: 32151f9f0c05ed0ffbb9326feb3f4b556ba72dc019efc7aac964e29ac45bed46
+adversarial_prompt_injection_cli.exe sha256: 4fe0ebfe2b8aa1096224ef610be2cf70f800308de77e8267b56bd9544b06a687
+adversarial_signer_requests.exe sha256: cc822923dfc6d49184796b3878d95d56400d7e8a20ad1f4497033a6fd3459d67
+adversarial_sshconf_hostile.exe sha256: 9883878c8109817c59c5946f73006f720e2793fee16a3fde35ab0211e193c5b1
+contracts.exe sha256: fdb7ad06756982839ecaea2805edf143427b3bdb5a07cd242e26230ae05a1fa7
+e2e_cli_m01.exe sha256: 795c05ec4301addb79bd1da467273a8ac0c73cc819eb9a435d33ad3bf86e7f40
+e2e_cli_m02.exe sha256: 45045d97ce28b7320d3a89984a2f5f70114ad10768a983f357b86d3303f789ce
+e2e_cli_m03.exe sha256: 5065883f482042b95d459c4446b4043a36c0669a6c54a5c22c315a10b12c589c
+e2e_cli_m04_m05.exe sha256: 78650536899a7f9dfe9e7796c2f3885f54bca339d22b8c87bd46a0b00b5d68b2
+e2e_cli_m05.exe sha256: 998909d0df84d578aae4c01f14b1155dcbe69ad5d741b0403f4a9439b51f0151
+e2e_consumer_m03.exe sha256: 991c0abd2b4dfcde3e7e3c251372c6ca8532a3a2195b9f6aeef2ec826ab71e51
+e2e_context_m05.exe sha256: c64483e58c452ddecf68795b3a736ce03be993b415af95e53520ea59c1635c68
+e2e_deadline_m03.exe sha256: 97271edc80eba6dc1333d95ed30d07a16eadd70becc630da14cae4d79749dd27
+e2e_delegation_m05.exe sha256: 841c28571ef909eca64c82f283c32078ac824d0ab7d1e5a7c3bc2f173a99ae25
+e2e_dev_home_guard.exe sha256: 11d596258fb7eb33d0ad175bfa2a0106faee92ea68f183b8baff75443fdf07ca
+e2e_enroll_m03.exe sha256: 8faf026d535b4983358858d9c29ae071556617ea2d41fb27fefcbd15809581a3
+e2e_exit_m03.exe sha256: 0aef78d62d2b8fc78281a879181e568a2d749831b7b6fb52b045c9605edfba55
+e2e_exit_m05.exe sha256: 116c1232241912767ee4e0155ea300134709c64024486504712609184d940425
+e2e_hook_m05.exe sha256: bbb81ce6f9e278e821356e542432281b637242140bec2119d43a7e3116d57a44
+e2e_issuer_ceremony.exe sha256: 02fa793d46b2cd626def8e2985caf74c84538dd3103d925913a740d71c47ffe7
+e2e_managed_m03.exe sha256: bab7f5af0a09aee2687180443f9eddc9a8c333a10f0e6c609826671325a649f4
+e2e_platform_m04.exe sha256: b98e3c7b6746bf2fe6c81fc3d90e790d0283a270471ba00c18988803831b6755
+e2e_portable_m05.exe sha256: e98c2b707815eec586d5cbd40f28124e4354f87e25e929a7b025b8a2763dd722
+e2e_route_m04.exe sha256: 19d0357f6f95f98d12da1bacda693271598f086dc7778f58d50c2f82e2acd456
+e2e_run_m02.exe sha256: ca4bf115f5bc3e15d2215202840e5a59db640e61733810986acf1c59627cfbd3
+e2e_setup_dispatch.exe sha256: cb09a08a872756bce5b0c5a9b4a90b3d0ab2ff17fb739ca1a996f47ce32ddaa9
+e2e_stop_m05.exe sha256: 443329fc91310dc3a216377273287b4a2a51eb1f22c7be60d8b345d34830a481
+e2e_tui_m02.exe sha256: c60323054b961cd08730302f5cae701740f057da34ddad43390ea289d4196f96
+e2e_tui_m03.exe sha256: ce5ff3df3a19f9e9dd14dfaddaad416bc33b10404b3ecfcd29eb90e572617212
+heimdall_adapters-unit.exe sha256: 1baa1454c1b5945c299f96daca85d931621bbf0fb4ac43442b60b8fcde69b20a
+heimdall_app-unit.exe sha256: 8f5aa5bcc57048a6fafe067675b1eb49e4f383b10236ecfd34715df2d4a4a15f
+heimdall_contract-unit.exe sha256: bc56d91ea48208e5d76ba031d61e082ee9e982740f84107c7ff6b92b86f19201
+heimdall_credential-unit.exe sha256: 2005fc72fcca5be043b5de865cbe6f56cff2581ae301bbb76ded6e6c0af92645
+heimdall_domain-unit.exe sha256: 038f510656083673d9460ce2ba20cc1219c59165c2918474129b4697b260b6a6
+heimdall_enroll-unit.exe sha256: f30f4460d89239329260e8c104ea78d00ed3977b2a1574025f8c6648242bf01e
+heimdall_ipc-unit.exe sha256: d43e99201b30e68e05c8d8f136aab71e89a1128e9bc3e596cad4bb387fc87e11
+heimdall_issuer-unit.exe sha256: 7c6bbb31bfb6b69b954d313564fa41b4a4bb03137340121c7853487ccbd3571d
+heimdall_launch-unit.exe sha256: 7be85e2aca432b7c55c1fac8cb200ca4b8c6a30fb7450840544a7d06ddf47557
+heimdall_localenv-unit.exe sha256: cf53d745232168f6c38629663fa7601f6c9dc5ab761a99cff1c454d7f5c2c7eb
+heimdall_registry-unit.exe sha256: 9c914530a0198802b71ec4f37ccc6b7d28afad82d8f7355bb60b8ba884664cf7
+heimdall_runtime-unit.exe sha256: 9f50e6296e86609efcebd13de65e5c8b6bb6467593ed421922c357109011cbe7
+heimdall_sshconf-unit.exe sha256: ae9fb6c98f7c09fa29b5c2f811b0c358349c7a00d362fb3fb68ca78cb14d94ce
+heimdall_store-unit.exe sha256: 05267e2d3196710358bf99f1859150f02f15cd6d16706f75f25a8a7ae251585b
+heimdall_testkit-unit.exe sha256: c1a40f7f49cee8135ada248340af219f216001ba9e51af8be9b7c293a9dcf56f
+heimdall_wsl-unit.exe sha256: 9a9d53f174152be870e271afca32aa6cec2695c25ce4460285f9acad1c7ac00b
+heimdall-unit.exe sha256: b8be75021cd5c2cd46e733146bee02a5b164463afc3ac35bee1a7a545e4e696f
+integration_adapters.exe sha256: 231fbf97dd6d7944a8a19c0d85fcee8e2641ac502a8e426a2c6a9e0db77be3d7
+integration_connections.exe sha256: bfdfd16976f602d8cecddb8b28937b2fd7abfa9930bd82187147c1dc16c48e40
+integration_credential_cert.exe sha256: 544a5d4e2072ec487d3ab8073ad435ff5b4bc29f90024490f43cc41eca8e5a0c
+integration_credential_memory.exe sha256: 2437cd76903ae384db7685618b70a3dc4046450ce2c2b9aa3df7319cff1179b3
+integration_doctor.exe sha256: 45453523e67e67dfb27b01bf1e06b4f1ac920c7facf5d1238ab3ecb5cc9fb4a5
+integration_enroll_registry.exe sha256: 9cc3facc02a14a40a4311926c322bc98ab11457d3c6dd13c73e017bc4b719991
+integration_enroll_verify.exe sha256: 6189c9faeea03bf0ea214deb9144bebc5d5746e7e5f684f86eec0d09370dc6c4
+integration_git_observe.exe sha256: cec1af1f2353fedfc78d98294b0f09123b908f985306ec96b168ba56e5aa915c
+integration_ipc_signing_m03.exe sha256: cd9a6d7249459909ad45d6ba4f4f869ac1a50c9ae0a90ecafedae69d499228f8
+integration_ipc_unix.exe sha256: bcd8289445d13c095fc325bf0a52ce5f7f1dd965b5ef252f753999e30f832c9b
+integration_issuer_child.exe sha256: 67e6e86fb82845aafc43e49968f7fa24a0e2413abab634a21e9d9302fac33567
+integration_issuer_m03.exe sha256: b7c5cdbb80c2906f2598a396022b4369d1007e87c814cbfbc19c63a8f650b8e2
+integration_issuer_release_gate.exe sha256: 1cc50c7aaab87a23e6cc1ed3dcca299b3c0bf1e98b3f06ed3b6d5d378bfac790
+integration_issuer_store.exe sha256: bf8dae35a47ecc99e60c5955de0448ec99a52b5cba4ae27dc7580f88e69b35ca
+integration_login_entry_m04.exe sha256: 6e8982a4cc50a591ec79d145babbf55035ad698219780da5fa679c0faa0e45b9
+integration_managed_adapter.exe sha256: 66b54810a3acf88220c8220f8fb0f32f13b216295640e7bb4f34b83273efa02b
+integration_managed_identity_forms.exe sha256: 52ab4750b2c172d79cdca7d1639a742309f1f27514caaa603e9e81990efa0d7d
+integration_managed_signer.exe sha256: 436bc2c2057f8f740a9d3aa818211ba0cf41a84001a38945172f4510cbea39ed
+integration_portable.exe sha256: e259ba49cd07aac7eef2fc73d9991ab3bcd6bfeb50e0691a0b8a8996a960e2bb
+integration_projection.exe sha256: 29348bc099a4002c8e3e757dcec0052709ea6c5b087b58d722ff435afecc7582
+integration_projection_git.exe sha256: 2c331aa5226461240a568fa109be2c196ba259761ba502c24c264294ad6bcd32
+integration_projection_managed.exe sha256: 2d71fc0b7ac7b94186eba5d0649ccf974fd14ca2c29d5fc884734c631e73306e
+integration_projection_recovery_rows.exe sha256: 153d0558610ffdc12b2db0777ab72938ed2b56e12bebceaea3c209cee5a70a34
+integration_projection_replace.exe sha256: a73611c95a736a2e95a7edd030a3e5b461d9261024b2b75e4d5d7fd632e96af4
+integration_projection_state_dir_guard.exe sha256: 8470999a4eca2eb7fdc1787988f2bd0aaf515b03b13f5b2f6338b6ff535c8209
+integration_runtime.exe sha256: 7e828b9021d10b936c11345b61d1a2847cd4d6bab015d12b3e77a4d3642a2e38
+integration_runtime_m03.exe sha256: 199fe17932b885dcb31cd0b18823b1d86d52876412a626607a852a8a1e574b1c
+integration_session_lock.exe sha256: c740f83fbb281aa94787a001e9393e08beec82301448b3148600b1650de0cce0
+integration_sshconf_vs_ssh_g.exe sha256: abd395aa0f83ad411460a5859c973ba5c4c591543f2e8553d8546425eab7752e
+integration_store.exe sha256: 86a66882ecca349ac416275da6bb768747b04dba6066989d28bc4725cf50f35d
+integration_store_m03.exe sha256: 83592210ed535ebe1e173d5faff61922cce13d4cd57249a681f25f5e9f37bdd0
+integration_store_m04_m05.exe sha256: 619c7cd1acab7c8ce1ee5f05f2091c2cd49ff35b21cc6e7376e228fbe4c6526c
+integration_testkit_fixtures.exe sha256: 2ad28751750f88660724afa132eb922e2f30d5dd734e9d2a19493c3fa4ec9202
+integration_testkit_m03.exe sha256: 6e24ba31daf860ed4b4f0cbd624bab25f9a18a344225a9d29c384cf2ecf15739
+integration_workspace_observe.exe sha256: 7823bc14772df21d9e79044a380b9060432490fcf306baa47841816c191a64a2
+integration_wsl_helper_channel.exe sha256: 5c5c77d79d40f98ef44e0869f14d7f69bdc5c0f4c5674610b3513ca5cfb894ea
+model_authority.exe sha256: be12b7ee1013329b04c26711bf22d252a08f4de388aee4742e5bbd00e1de8904
+model_decision_budget.exe sha256: 65afe163c9563bfddb1e6e55bc1f5486ecdd4d1fd5349b3d46ab1111f1e8137e
+model_events.exe sha256: 29be52a5370d93e0b184aa32dbb577217e88a46aa44fa61b40caa19528e6bd01
+model_idempotency.exe sha256: 3ba5297a6e9fe42bfe560d57b102d2b62cf9ca1657070993bd5eca2a4a288bce
+model_issuer_linearization.exe sha256: ae7234e6ef9e67a32d8a400649b4b39b2d28c0bad5b2ff65d697b45002aa32dc
+model_lifecycle.exe sha256: 52b2fdc0fe717961a39a989b4464aff7952aded8b50b266336acb7f1227cd07b
+model_lock_behavior.exe sha256: 60cb01863b9e4d6cb92ac67ed674cd2ec55bd066108ec7dfd1ba33199431b537
+model_managed_domain.exe sha256: dc99b55b921ec6a0591bd83a9bf1204e6fe44d65e9b4a33f380cf86e03886c6a
+model_narrowing_m03.exe sha256: 987a20e9131913784a23853636d306370622a8605a76a940df85e19d6a18086f
+model_operations.exe sha256: def8425f8eba7e67e4af1ceb368ab848cbf892898390bfbdabdf8d9cb6962a6c
+model_operations_m03.exe sha256: 1e29ef4835dcfb8fae22a84273d3896f34ed2bed3d972e04b33966905a486fd6
+model_precedence_m05.exe sha256: edd9e5b682337d7b27e189812c9ed53590591bd167c8b22018c7972556d596d2
+model_project_pure.exe sha256: 60e5c7c2a3988fca0b55ceb46c96e3b4757ff23a97451dc0f1178bb48c942f29
+model_projection_recovery.exe sha256: 1b7de87eeb79544512c1c5da7b027e255e2c06a01e9ec2d2d62562cfdf9043f0
+model_registry_pure.exe sha256: 35ec7f766a35c85a7c7b7d28e5876ffae3b0d0902a6ae108b054f23e2b540b30
+model_revocation.exe sha256: 1a3134c6b3827a61324f0d3624335ba717b619ce850131e052b05a7164793397
+model_setup.exe sha256: 0c5ef0fab4b6821e216f59d58007bb2cba44ca034a0b43eb34e72d13b779bb21
+model_signing_gates.exe sha256: 71c50e68ceb6f5ede75e5e6da7b4d845efa5f7edf1ce9682b21f8bf14e9d5cca
+model_slot_accounting.exe sha256: a3ab527530c627e7f65c0e96768d356c32a8e06019f888fade89d8b60a9bdd56
+model_sshconf_consent.exe sha256: 57884600bccb84fde3d783ba3cbf9b61b35f552924da69cd87f174dce085752c
+model_sshconf_edit.exe sha256: f8f8109182cbce752b92ff00ef63b26e919b9164a9902da16b2b69f6e95c8e7c
+model_sshconf_eval.exe sha256: 7980526e9b1ef6f32186ad0c9635998ae0c46fc2f0872efdf572b7fb45636cdb
+model_sshconf_parse.exe sha256: 69516a5a224aa4d929b2e869349cb84bd12da0b603b5a800d369b3892fb6913f
+model_time.exe sha256: 1c977ae31c83f1cde689ba656c6d99e0f0967fe30d7fa6da0503be8f3bcd7389
+model_timegate.exe sha256: ad438007153cdef82842546490b11a3ccb66c07b422e75e54909fd5fa16d63c0
+model_trust_policy.exe sha256: 7bedfbb95ee71618012075bc39ce8b6f79a620f078c3b4528ac736d7c29d736a
+heimdall.exe (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: 270ef687a360a7298aa47b20c38c7c0abf00a42a4018d1a221d30011dd35faff
+hm-fixture-hook.exe (HM_FIXTURE_HOOK) sha256: 84485e5234ebbb9c6e40f4a87df818377244ff533b25b8c997b89cc0a8866b2e

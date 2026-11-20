@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M04 and M05 (parallel tracks, ADR-0009). M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
+**Current milestone:** M04 (and M03-F1 after the M05 merge). M05 (quiet, concurrent trusted work) exited 2026-11-20 at build 85e67bfe (macOS and the devbox at 84d7c44e, the WSL row's binaries at 84d7c44e under the 5aa752c0 harness; docs/architecture/m05-exit.md), every platform row verified and each record blocked only on named owner inputs (B2, B7, B9, B12); the merge of m05/w4 is the orchestrator's. M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -14,7 +14,7 @@
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 | M01-T01..T06 deterministic core | verified (M01 exit 2026-11-01, b89743ae) | `docs/architecture/m01-exit.md`; records A06, A07, A17-local and A19 are verified. A08 and A29-local are blocked only on M04 native sleep/logout/reboot and the second Windows account. 8 independent code-review rounds; the last one says ship |
 | M02-T00 design | verified (design gate closed 2026-11-01, 9c458501) | m02-plan.md and ADR-0007 rev 5; 4 independent design reviews, all findings ruled and applied |
-| M05-T01..T06 trusted work | in_progress | Design accepted with ADR-0011 §10's rulings; joint wave 0 with M04 merged (1f72bb09). Wave 1 (U1 project crate, U2 authority core, U6 shared slots, U8 A28 delegation evidence) merged 2026-11-18 after its Codex review (M05-W1-R01 fixed, e49f90d0), the Codex re-check (merge) and the targeted Windows runs (`model_trust_policy` 8/8, `model_project_pure` 41/41 at 931065e1). Wave 2 (U3 stop/targets/precedence, U4 context activation and the workspace observer, U7 export/import, ADR-0006 revision 5.1) merged 2026-11-18 after its Codex review (M05-W2-R01 fixed, 27bef72a), the Codex re-check (merge) and the targeted Windows runs at 27bef72a and 431681a6 (`integration_workspace_observe` 5/5, `e2e_context_m05` 7/7, `integration_portable` 11/11, `model_idempotency` 4/4, `e2e_stop_m05` 8/8). Wave 3 (U5 ordinary-`ssh` default activation; U9a every M05 command, the shell hook and its default warm-up, `trusted-work/1` offered; U9b the TUI views; revision 5.2; the debug-build account-home guard) committed 6be57b61, then merged with main (40c2c469); in review. Every unit stays `implemented_unverified` until wave 4's records (m05-plan §0a) |
+| M05-T01..T06 trusted work | verified (M05 exit 2026-11-20, build 85e67bfe) | `docs/architecture/m05-exit.md`; records `tests/evidence/m05-*.json` (A02, A04, A05, A16, A18, A28, A29 and the exit claims): every platform row verified on macOS, the devbox, Windows and, for A02 and A29, the WSL hook row; each record blocked only on B2, B7, B9 or B12, with M04's exit rows deferred_with_decision (Q9). Waves W1–W4 each had one Codex review and one scoped re-check (ADR-0009); the final candidate's review (959936c4) and re-check (056a1692) were FIX FIRST, fixed under ruling I-27 and checked by the orchestrator (84d7c44e). Follow-ups: M05-F1 (M07), M04-F2 |
 | M06-T00 design (G06, G07) | in_progress | ADR-0012 and m06-plan accepted at revision 3 (2026-11-20). Codex design review FIX FIRST → revision 2; Codex scoped re-check FIX FIRST → revision 3 under the orchestrator's rulings, checked by the orchestrator (ADR-0009: no third independent review); reviews archived in `tests/evidence/artifacts/review-m06-design/`. G06: Linux container mechanism rows verified; Windows W1 sampled loopback-only, record `blocked` (no event trace); W2–W4 need the owner at the console. G07: mechanism probes only, gate open on A24/A25/A07 runner rows. rustls 0.23.46 (iroh 1.4.2) has no advisory. Implementation starts after the M03 exit and the M04/M05 merges |
 
 ## Owner decisions under delegation (2026-10-31)
@@ -1126,6 +1126,14 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     platform, the verified client's `ssh -V`, the signer build), per-platform tests including out-of-range hosts and
     WSL, then the 19 drafted A07 and A23 entries, one Codex review, and targeted native reruns on macOS, the devbox and
     Windows. Plan §3 step 3 (the report test against the real table) moves with it.
+  - **M04-F2 (open; the M04 integrator, U7; filed 2026-11-20 by the orchestrator):** the `heimdall-localenv` unit test
+    `sys::tests::adopt_inherited_fd_checks_type_and_mode_once_and_clears_nonblock` (`crates/localenv/src/sys/mod.rs`,
+    from M04 wave 1, 806ab489) is an intermittent fd-number race: it closes a descriptor and expects its number to stay
+    closed, while other tests of the same binary, running in parallel, can reuse it. First observed in `check.sh` at
+    85e67bfe on macOS (`adopt_inherited_fd(closed).is_err()` failed at line 1648; the crate's unit tests then passed 3 of
+    3, and `check.sh` passed on a rerun of the same tree). Fix the test, not the product: a number known to stay closed
+    (for example a high descriptor the test reserves for itself by dup'ing onto it), or serialize it with that
+    binary's other descriptor tests.
   - **M05-F1 (open; M07 hardening; ruled 2026-11-20 by the orchestrator in the M05 wave 4 re-check, finding
     M05-W4F-RC-R03 without an import):** `destination remove` with live grants or bindings should refuse with a finding
     listing them, or end them; the owner decides which. Today removing a destination ends neither, so a replayed
