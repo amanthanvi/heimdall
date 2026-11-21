@@ -1,0 +1,49 @@
+{
+  "case_id": "M07-probe-tui-and-lists",
+  "status": "verified",
+  "requirement_ids": ["R-UX-05", "R-UX-07", "R-AP-02", "R-RT-06"],
+  "build_commit": "c10810af130665057079f66bba6c5fa73ff80c5b",
+  "artifact_digest": "sha256:3b91a35b84e3934b45a8ef0ce8080a91f020df435ca00932dfe3e1a17cb2aa04 (target/debug/heimdall, debug build of the clean tree at build_commit)",
+  "environment": {
+    "host": "macOS 27.2.1 (26B131) arm64, the build host; Python 3.15.2 for the probe drivers",
+    "build": "CARGO_BUILD_JOBS=4 cargo build --locked -p heimdall --bin heimdall (dev profile)",
+    "fixture": "one mktemp scratch directory per run holding HOME, HEIMDALL_HOME and the static pass's account home; environment cleared (PATH, HOME, HEIMDALL_HOME, LANG, TERM, plus the debug-build test variables named below); SSH_AUTH_SOCK unset; destinations imported as observed catalog entries with reserved .invalid host names, never contacted (no probe connects anywhere); the runtime started by the driver as `heimdall service run`, stopped by `heimdall service stop` (exit 0 every run); the scratch directory removed by the driver (scratch_removed true every run)",
+    "debug_test_configuration": "HEIMDALL_TEST_SSH_HOME=<scratch>/sshhome (the passive static pass resolves ~/.ssh from the account database, never $HOME, localenv/src/paths.rs; this redirect keeps it on an empty scratch account home and an empty scratch system directory), HEIMDALL_TEST_TIME_SYNC=synchronized (so a first start can write without an attended `time confirm`; without it the first import answered TIME_UNCERTAIN, exit 5) and HEIMDALL_TEST_TUI_SCREEN (the TUI's frame dump); all three are refused by release builds",
+    "probe_sources_sha256_prefix": {
+      "prototypes/m07-probe/probe.py": "4bb0df82c52f4227",
+      "prototypes/m07-probe/p3b.py": "4473d332d5df4824",
+      "prototypes/m07-probe/screen.py": "7f29d8e98dc0ce43"
+    }
+  },
+  "provider_versions": [],
+  "started_at": "2026-11-21T01:37:00-05:00",
+  "commands_or_harness": [
+    "python3 -I prototypes/m07-probe/probe.py target/debug/heimdall <out>  (P1 idle output and P2 key latency at 100 and 3000 destinations; P3 inspect size with single bundles; exit 0)",
+    "python3 -I prototypes/m07-probe/p3b.py target/debug/heimdall <out>  (P3b: bundles of new destinations until `inspect destinations` exceeds one control frame; TUI key latency at 1000, 3500 and 8500; exit 0)",
+    "python3 -I prototypes/m07-probe/screen.py target/debug/heimdall tests/evidence/artifacts/m07/probe  (P4: the first settled Overview for 3 observed destinations at 120x40 and 40x12; exit 0)"
+  ],
+  "observed_result": {
+    "P1_idle_output": "After the first frame and the runtime listing, an idle TUI wrote 1094-1269 bytes in 45 s (29 write bursts, about one every 1.5 s; 1459-1692 bytes per minute) at 120x40 and 40x12, with and without NO_COLOR, at 100 destinations; 674 bytes in 20 s at 3000. The bursts are the relative-time text ('Ns ago') and listing refreshes repainted by the 3 s poll.",
+    "P2_key_latency_debug_build": "Tab/Shift-Tab key to first output byte, debug build: 100 destinations p50 6.8-9.3 ms, p95 15.3-19.1 ms (40 samples per row, three rows); 1000 destinations p50 64.5 ms, p95 84.0 ms (12 samples); 3000 destinations p50 179 ms, p95 306 ms (20 samples); 3500 destinations p50 211 ms, p95 402 ms (12 samples); 8500 destinations (the listing failed and the catalog was shown empty) p95 3.3 ms. Per-key latency grows roughly in proportion to the catalog. Release build not measured.",
+    "P3_inspect_destinations_size": "inspect destinations --json: 100 destinations 14,400 bytes (11 ms); 1000: 143,100-144,100 bytes; 3000: 431,100 bytes (60 ms); 3500: 504,100 bytes (69 ms); 6000: 864,100 bytes (113 ms), exit 0. 8500: exit 1, INTERNAL_ERROR 'response exceeds the frame limit' (246 bytes); `destination list` (human) exit 1, stderr 'error: response exceeds the frame limit'. One import bundle above 1 MiB is refused (exit 2): P3's single bundles of 5000+ destinations failed; P3b's bundles of 2500 new destinations (260,085 bytes) succeeded.",
+    "P3b_tui_at_the_limit": "At 8500 destinations the TUI's Destinations tab showed '0 total' and 'No catalog destinations.' (destinations_tab_mentions_frame_limit false): the failed listing is presented as an empty catalog.",
+    "P4_overview_fresh_catalog": "With 3 and with 100 observed destinations the health line reads '[OK] Ready'. The Overview lists the passive doctor's informational findings by snake_case code, one row per destination (identity_selection_not_exclusive) plus home_mismatch: 35 visible rows at 120x40 with 100 destinations. At 40x12 the rows truncate to identical text (4 of 8 visible rows identical).",
+    "terminal": "Every TUI run quit with exit 0 on `q`, and its final output contained the alternate-screen exit sequence (ESC [?1049l)."
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m07/probe/probe-raw.json",
+    "tests/evidence/artifacts/m07/probe/p3b-raw.json",
+    "tests/evidence/artifacts/m07/probe/overview-3-destinations-120x40.txt",
+    "tests/evidence/artifacts/m07/probe/overview-3-destinations-40x12.txt",
+    "prototypes/m07-probe/"
+  ],
+  "limitations": [
+    "DESIGN PROBE, DEBUG MECHANISM EVIDENCE (M07 design unit): observations that size M07 work items. It is not an A19 or A20 record, and not a performance measurement under spec §15.1 (that is M08-T05, on release builds and declared hardware).",
+    "Debug build only. The latency numbers are not release numbers. Not profiled. By code reading, every key or frame recomputes the overview items and the filtered lists over the whole catalog, health() rebuilds overview_items() per frame, and finding_alias adds a linear search over the destinations for each finding that names a destination by ID (crates/heimdall/src/tui/model.rs, overview_items, finding_alias, health).",
+    "Key latency is measured to the first output byte after the key, on an idle runtime. Under load that byte can come from an unrelated redraw, so these numbers are a baseline only; A20 measures the completed frame that shows the key's effect (M07 plan U1, review M07-D-R11). Latency under background operations was not measured.",
+    "home_mismatch is an artifact of the redirected account home: the scratch HOME and the scratch account home differ on purpose.",
+    "In probe-raw.json, the row labelled P1_P2_tui_large_catalog with catalog_destinations 9000 actually ran at 3000 destinations. The single-bundle imports above 3000 were refused (import_exit 2), and the label records the attempted size, not the catalog.",
+    "DISCARDED RUNS (boundary note): the first runs of these drivers (2026-11-21, about 01:00-01:20 -05:00) did not set HEIMDALL_TEST_SSH_HOME. The TUI's passive static pass therefore read the owner's real ~/.ssh configuration tree. It read it only: the doctor is passive by construction (A21, m02-a21-passive-doctor.json), nothing was executed and no agent was contacted. Those runs showed '[!!] Needs attention' with findings that depended on that configuration. Their results were discarded and every artifact was replaced by these isolated runs. The discarded artifacts held only finding codes and generic messages; a scan for paths and the user name found none before they were replaced. Checking ~/.ssh metadata afterwards was refused by the agent harness and was not retried.",
+    "One host (macOS arm64). The devbox and Windows were not used: no remote hosts in this design unit."
+  ]
+}
