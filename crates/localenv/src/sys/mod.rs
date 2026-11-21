@@ -2054,19 +2054,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn adopt_inherited_fd_checks_type_and_mode_once_and_clears_nonblock() {
-        use std::os::fd::{AsRawFd, IntoRawFd};
+        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
         // Standard descriptors and negative numbers are refused.
         for fd in [-1, 0, 1, 2] {
             assert!(super::adopt_inherited_fd(fd).is_err(), "{fd}");
         }
-        // A closed descriptor: open then close, and the number is free.
+        // A closed descriptor. ⟨M04-F2⟩ Not a number this test frees and checks later: the
+        // other tests of this binary run in parallel and are handed the lowest free number,
+        // so a freed one could be reused before the check (seen once on macOS). A high number
+        // the test claims itself (`reserved_closed_fd`) stays closed instead.
         let dir = tempfile::tempdir().unwrap();
-        let closed = std::fs::File::create(dir.path().join("c"))
-            .unwrap()
-            .into_raw_fd();
-        // Closed again through a File that takes the ownership back.
-        drop(retake_and_close(closed));
+        let closed = reserved_closed_fd(&dir);
         assert!(super::adopt_inherited_fd(closed).is_err());
         // A directory is not a pipe, socket or regular file.
         let d = std::fs::File::open(dir.path()).unwrap();
@@ -2137,12 +2136,34 @@ mod tests {
         assert!(super::adopt_inherited_fd(other.as_raw_fd()).is_err());
     }
 
+    /// ⟨M04-F2⟩ A descriptor number that is closed and stays closed while the test uses it: a
+    /// number near the top of the soft `RLIMIT_NOFILE` (at most 1023) that is closed, claimed
+    /// by this test with `dup2` and closed again. Descriptors are allocated lowest-first, so no
+    /// other test of this binary is handed a number that high.
     #[cfg(unix)]
-    fn retake_and_close(raw: i32) -> std::fs::File {
-        use std::os::fd::FromRawFd;
-        // SAFETY: `raw` came from `into_raw_fd` just before; ownership returns here
-        // and the File closes it on drop.
-        unsafe { std::fs::File::from_raw_fd(raw) }
+    fn reserved_closed_fd(dir: &tempfile::TempDir) -> i32 {
+        use std::os::fd::AsRawFd;
+        let mut lim = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: reads this process's limit into a local.
+        assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) }, 0);
+        let top = i32::try_from(lim.rlim_cur.min(1024)).unwrap() - 1;
+        assert!(top > 64, "a descriptor limit too low for this test: {top}");
+        let f = std::fs::File::create(dir.path().join("high")).unwrap();
+        // SAFETY: test-only calls on numbers this test checks are closed first; the duplicate
+        // it makes is closed at once, and `f` keeps its own descriptor throughout.
+        unsafe {
+            let n = (top - 15..=top)
+                .rev()
+                .find(|&n| libc::fcntl(n, libc::F_GETFD) == -1)
+                .expect("a closed descriptor number near the limit");
+            assert_eq!(libc::dup2(f.as_raw_fd(), n), n);
+            assert_eq!(libc::close(n), 0);
+            assert_eq!(libc::fcntl(n, libc::F_GETFD), -1);
+            n
+        }
     }
 
     #[cfg(unix)]

@@ -1396,7 +1396,9 @@ mod native {
 
         use serde_json::Value;
 
-        use super::{Command, Duration, Instant, Path, Stdio, disposable, in_distro};
+        use super::{
+            Command, Duration, Instant, Path, Stdio, disposable, in_distro, run_attended_all,
+        };
         use crate::world::{self, World, WorldOptions};
 
         /// The first and, for the two-distribution rows, second disposable distribution.
@@ -2239,6 +2241,429 @@ print('checked=%d reached=%d' % (checked, reached))
             });
         }
 
+        /// ⟨M04 U7⟩ A13 (the deadline): a binding made with a short `--until` serves until its
+        /// deadline; at the deadline the signer refuses (no identity is listed and a fresh login
+        /// fails), the endpoint and its files are withdrawn inside the distribution, and the
+        /// helper ends with its last binding. Nothing but the deadline ends the binding.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd"]
+        fn a13_binding_reaches_its_deadline_and_withdraws() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let deadline = heimdall_contract::Timestamp::from_second(
+                heimdall_contract::Timestamp::now().as_second() + 90,
+            )
+            .unwrap();
+            let out = w.cli(&[
+                "--json",
+                "access",
+                "ensure",
+                "--profile",
+                &w.profile_of(0),
+                "--environment",
+                &env,
+                "--work-id",
+                "a13-d",
+                "--request-id",
+                "a13-d-r1",
+                "--until",
+                &deadline.to_string(),
+            ]);
+            assert_eq!(
+                out.code,
+                0,
+                "ensure --until: {}",
+                w.redact(&format!("{out:?}"))
+            );
+            let data = out.json()["data"].clone();
+            let (socket, config) = descriptor(&data);
+            assert_eq!(
+                list(&d, &socket),
+                (0, 1),
+                "the binding serves before its deadline"
+            );
+            let mark = w.pairs[0].sshd.log_mark();
+            let (code, text) = login(&w, &d, &config, "hm-a13-before-deadline");
+            assert_eq!(code, 0, "login before the deadline: {}", w.redact(&text));
+            assert_eq!(w.accepted_since(0, mark).len(), 1);
+            let wait = deadline
+                .as_second()
+                .saturating_sub(heimdall_contract::Timestamp::now().as_second())
+                .max(0) as u64
+                + 3;
+            std::thread::sleep(Duration::from_secs(wait));
+            let mark = w.pairs[0].sshd.log_mark();
+            let (code, text) = login(&w, &d, &config, "hm-a13-after-deadline");
+            assert_ne!(
+                code,
+                0,
+                "a fresh login after the deadline: {}",
+                w.redact(&text)
+            );
+            assert!(
+                w.accepted_since(0, mark).is_empty(),
+                "nothing accepted after the deadline"
+            );
+            assert_eq!(list(&d, &socket).1, 0, "no identity after the deadline");
+            eventually("the endpoint is withdrawn", Duration::from_secs(60), || {
+                sh(&d, &format!("test ! -e {socket} && test ! -e {config}")).0 == 0
+            });
+            eventually(
+                "the helper ends with the last binding",
+                Duration::from_secs(60),
+                || helper_pids(&d).is_empty(),
+            );
+        }
+
+        /// ⟨M04 U7⟩ A27 (Mode B): `scp` and `sftp` through the bridge, with the binding's
+        /// `ssh_config`, move a 1 MiB random binary file to the server and back byte for byte
+        /// (the three SHA-256 digests agree: the original, the server's copy, the round trip).
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd"]
+        fn a13_binary_scp_sftp_through_bridge() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let data = ensure(&w, &env, "a13-f", "a13-f-r1");
+            let (socket, config) = descriptor(&data);
+            let alias = &w.pairs[0].alias;
+            let n = std::process::id();
+            let local = format!("/tmp/hm-a27-{n}.bin");
+            let back = format!("/tmp/hm-a27-{n}.back");
+            let remote = format!("/tmp/hm-a27-remote-{n}.bin");
+            let script = format!(
+                "set -u; export SSH_AUTH_SOCK={socket}; \
+                 head -c 1048576 /dev/urandom > {local} || exit 10; \
+                 a=$(sha256sum < {local} | cut -d' ' -f1); \
+                 scp -q -F {config} -o BatchMode=yes {local} {alias}:{remote} || exit 11; \
+                 r=$(ssh -F {config} -o BatchMode=yes {alias} 'sha256sum < {remote}' | cut -d' ' -f1); \
+                 printf 'get {remote} {back}\\n' | sftp -q -F {config} -o BatchMode=yes -b - {alias} >/dev/null || exit 12; \
+                 b=$(sha256sum < {back} | cut -d' ' -f1); \
+                 ssh -F {config} -o BatchMode=yes {alias} 'rm -f {remote}'; rm -f {local} {back}; \
+                 echo \"local=$a\"; echo \"remote=$r\"; echo \"back=$b\""
+            );
+            let (code, out) = sh(&d, &script);
+            assert_eq!(
+                code,
+                0,
+                "scp and sftp through the bridge: {}",
+                w.redact(&out)
+            );
+            let field = |k: &str| {
+                out.lines()
+                    .find_map(|l| l.strip_prefix(&format!("{k}=")))
+                    .map(str::to_owned)
+                    .unwrap_or_default()
+            };
+            let (a, r, b) = (field("local"), field("remote"), field("back"));
+            assert_eq!(a.len(), 64, "{out}");
+            assert_eq!(
+                (r.as_str(), b.as_str()),
+                (a.as_str(), a.as_str()),
+                "byte-identical"
+            );
+        }
+
+        /// ⟨M04 U7⟩ A12 (Mode A, the flow): Git and `ssh` inside the distribution through the
+        /// Windows in-box `ssh.exe` that `wsl enable --mode-a` configured (`core.sshCommand`),
+        /// while a `heimdall run` holds the pair's managed binding on the Windows side:
+        /// * a failing remote command's exit status comes back through interop (7);
+        /// * a push from a work tree and to a server repository whose paths hold a space and
+        ///   non-ASCII characters, read back by `ls-remote`;
+        /// * the certificate is re-issued between two pushes (a runtime restart, the product's
+        ///   re-issue trigger), and the second push, through the same `ssh.exe` and
+        ///   configuration with no WSL action, is accepted with the **new** certificate
+        ///   (`ssh.exe` rereads certificate files on every run, P-A05);
+        /// * an interrupt (`SIGINT` to the client, as Ctrl-C delivers it) ends the session
+        ///   promptly and leaves no `ssh.exe` of it running.
+        ///
+        /// `ssh.exe` is given the world's scratch configuration with `-F` (Windows paths only,
+        /// ADR-0010 §2 item 3): the owner's own `%USERPROFILE%\.ssh` is never projected here
+        /// (ordinary `ssh.exe` without `-F` needs the disposable second Windows account, B2).
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER), git in it and the harness sshd"]
+        fn a12_git_and_ssh_through_windows_ssh_from_wsl() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let mode_a = [
+                "wsl",
+                "enable",
+                d.name.as_str(),
+                "--account",
+                d.account.as_str(),
+                "--mode-a",
+            ];
+            let (code, exit) = run_attended_all(&w.env(), &mode_a);
+            assert_eq!(code, "OK", "wsl enable --mode-a (exit {exit})");
+            struct ModeA<'w>(&'w World, String);
+            impl Drop for ModeA<'_> {
+                fn drop(&mut self) {
+                    let _ = run_attended_all(&self.0.env(), &["wsl", "disable", &self.1]);
+                }
+            }
+            let _mode_a = ModeA(&w, d.name.clone());
+            let (status, selected) = sh(&d, "git config --global --includes --get core.sshCommand");
+            assert_eq!(status, 0, "core.sshCommand is set");
+            let ssh_exe = selected.trim().to_owned();
+            assert!(
+                ssh_exe
+                    .to_ascii_lowercase()
+                    .contains("/windows/system32/openssh/ssh.exe"),
+                "Mode A's Git command is the in-box ssh.exe: {ssh_exe}"
+            );
+            // The world's scratch configuration, as Windows-path arguments (shell-quoted).
+            let quote = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
+            let (_, login_args, _) = w.login_command(0, "unused");
+            let cfg: Vec<String> = login_args[..login_args.len() - 2]
+                .iter()
+                .map(|a| quote(&a.to_string_lossy()))
+                .collect();
+            let cfg = cfg.join(" ");
+            let alias = &w.pairs[0].alias;
+            let signals = w.subdir("a12-signals");
+            let (code, wsig) = sh(
+                &d,
+                &format!("wslpath -u {}", quote(&signals.to_string_lossy())),
+            );
+            assert_eq!(code, 0, "wslpath");
+            let wsig = wsig.trim().to_owned();
+            // The configuration's words, read by the script from a file (Windows paths keep
+            // their backslashes; no shell sees them inside double quotes).
+            std::fs::write(signals.join("cfg"), format!("{cfg}\n")).unwrap();
+            let n = std::process::id();
+            let script = format!(
+                r#"set -u
+S={ssh_exe}
+alias={alias}
+sig={sig}
+cfg=$(cat "$sig/cfg") || exit 19
+work="/tmp/hm a12 ü-{n}"
+remote="/tmp/hm-a12 ü {n}.git"
+ssh_() {{ eval "$S $cfg" '"$@"'; }}
+GIT_SSH_COMMAND="$S $cfg"; export GIT_SSH_COMMAND
+ssh_ "$alias" 'exit 7'; echo "exit-status=$?"
+ssh_ "$alias" "git init -q --bare '$remote'"; echo "init=$?"
+rm -rf "$work" && git init -q "$work" && cd "$work" || exit 20
+c() {{ printf '%s\n' "$1" > "f $1.txt" && git add . && git -c user.name=hm -c user.email=hm@example.invalid commit -q -m "$1"; }}
+c one || exit 21
+git push -q "$alias:$remote" HEAD:refs/heads/main 2>&1; echo "push1=$?"
+: > "$sig/push1"
+i=0; while [ ! -e "$sig/rotated" ] && [ $i -lt 300 ]; do sleep 1; i=$((i+1)); done
+[ -e "$sig/rotated" ] || {{ echo "rotation-not-signalled"; exit 22; }}
+c two || exit 23
+git push -q "$alias:$remote" HEAD:refs/heads/main 2>&1; echo "push2=$?"
+echo "head=$(git rev-parse HEAD)"
+git ls-remote "$alias:$remote" refs/heads/main 2>&1
+t0=$(date +%s); eval "timeout -k 10 -s INT 5 $S $cfg" '"$alias"' "'sleep 40; echo hm-a12-late-{n}'"; rc=$?; t1=$(date +%s)
+echo "interrupt-rc=$rc interrupt-seconds=$((t1-t0))"
+ssh_ "$alias" "rm -rf '$remote'"; cd / && rm -rf "$work"
+echo a12-done
+"#,
+                sig = quote(&wsig),
+            );
+            let system_root = std::env::var("SystemRoot").unwrap();
+            let wsl_exe = Path::new(&system_root).join("System32").join("wsl.exe");
+            let out_path = signals.join("out.txt");
+            let err_path = signals.join("err.txt");
+            let mark = w.pairs[0].sshd.log_mark();
+            let mut child = Command::new(world::bin())
+                .args([
+                    "run",
+                    "--profile",
+                    &w.profile_of(0),
+                    "--work-id",
+                    "a12-g",
+                    "--request-id",
+                    "a12-g-r1",
+                    "--",
+                ])
+                .arg(&wsl_exe)
+                .args([
+                    "-d", &d.name, "-u", &d.account, "--exec", "/bin/sh", "-c", &script,
+                ])
+                .env_clear()
+                .envs(w.env())
+                .env("WSL_UTF8", "1")
+                .current_dir(&w.home.root)
+                .stdin(Stdio::null())
+                .stdout(std::fs::File::create(&out_path).unwrap())
+                .stderr(std::fs::File::create(&err_path).unwrap())
+                .spawn()
+                .expect("heimdall run");
+            let started = Instant::now();
+            while !signals.join("push1").exists() {
+                if let Some(status) = child.try_wait().unwrap() {
+                    panic!(
+                        "the flow ended before the first push ({status}): {}",
+                        w.redact(&std::fs::read_to_string(&out_path).unwrap_or_default())
+                    );
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(300),
+                    "no first push"
+                );
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            let first: Vec<_> = w.accepted_since(0, mark);
+            assert!(!first.is_empty(), "the first push was accepted");
+            let grant_prefix = first[0]
+                .key_id
+                .rsplit_once(':')
+                .map(|(p, _)| p.to_owned())
+                .unwrap();
+            let before_serials: Vec<u64> = first.iter().map(|c| c.serial).collect();
+            // The re-issue: the runtime restarts in the same boot and re-issues the continuing
+            // grant; nothing is done inside the distribution.
+            w.restart_runtime();
+            let grant = grant_prefix.rsplit(':').next().unwrap().to_owned();
+            eventually("the grant is re-issued", Duration::from_secs(90), || {
+                w.published(&grant)
+                    .iter()
+                    .any(|(s, _)| !before_serials.contains(s))
+            });
+            let mark2 = w.pairs[0].sshd.log_mark();
+            std::fs::write(signals.join("rotated"), b"").unwrap();
+            let status = loop {
+                if let Some(s) = child.try_wait().unwrap() {
+                    break s;
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(900),
+                    "the flow did not end"
+                );
+                std::thread::sleep(Duration::from_millis(500));
+            };
+            let out = std::fs::read_to_string(&out_path).unwrap_or_default();
+            let shown = w.redact(&format!(
+                "{out}\n--- stderr\n{}",
+                std::fs::read_to_string(&err_path).unwrap_or_default()
+            ));
+            heimdall_testkit::assert_no_canary(&shown);
+            assert!(
+                status.success(),
+                "the flow under heimdall run ({status}): {shown}"
+            );
+            let has = |l: &str| out.lines().any(|x| x.trim() == l);
+            assert!(
+                has("exit-status=7"),
+                "a failing remote command's status: {shown}"
+            );
+            assert!(has("init=0") && has("push1=0") && has("push2=0"), "{shown}");
+            let head = out
+                .lines()
+                .find_map(|l| l.strip_prefix("head="))
+                .expect("the pushed head")
+                .to_owned();
+            assert!(
+                out.lines()
+                    .any(|l| l.starts_with(&head) && l.ends_with("refs/heads/main")),
+                "the server holds the second push: {shown}"
+            );
+            let second = w.accepted_since(0, mark2);
+            assert!(!second.is_empty(), "the second push was accepted: {shown}");
+            assert!(
+                second
+                    .iter()
+                    .all(|c| c.key_id.starts_with(&grant_prefix)
+                        && !before_serials.contains(&c.serial)),
+                "the second push used the re-issued certificate: {second:?} (before {before_serials:?})"
+            );
+            let interrupt = out
+                .lines()
+                .find_map(|l| l.strip_prefix("interrupt-rc="))
+                .expect("the interrupt line");
+            let (rc, secs) = interrupt.split_once(" interrupt-seconds=").unwrap();
+            let late = out.contains(&format!("hm-a12-late-{n}"));
+            // The Windows side of the interrupted session: `ssh.exe` processes whose command line
+            // carries this run's marker, until none is left (bounded).
+            let left = || {
+                let probe = Command::new(
+                    Path::new(&system_root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"),
+                )
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &format!(
+                        "@(Get-CimInstance Win32_Process -Filter \"Name = 'ssh.exe'\" | Where-Object {{ $_.CommandLine -like '*hm-a12-late-{n}*' }}).Count"
+                    ),
+                ])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+                String::from_utf8_lossy(&probe.stdout)
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap_or(u32::MAX)
+            };
+            let first_left = left();
+            let probe_start = Instant::now();
+            let mut now_left = first_left;
+            while now_left != 0 && probe_start.elapsed() < Duration::from_secs(20) {
+                std::thread::sleep(Duration::from_millis(500));
+                now_left = left();
+            }
+            // ⟨M04 U7⟩ What the interrupt did, for the record (the exit run's A12 row).
+            println!(
+                "m04 observation: a12 windows ctrl_c=sigint_after_s=5 client_exit={rc} client_seconds={secs} remote_late_output={late} ssh_exe_left_at_first_probe={first_left} ssh_exe_left_after_wait={now_left} wait_s={}",
+                probe_start.elapsed().as_secs()
+            );
+            assert_eq!(
+                rc, "124",
+                "the interrupted client ended on the signal: {shown}"
+            );
+            assert!(secs.parse::<u64>().unwrap() < 20, "promptly: {shown}");
+            assert!(!late, "the remote command was cut short");
+            assert!(has("a12-done"), "{shown}");
+            assert_eq!(now_left, 0, "no ssh.exe of the interrupted session is left");
+        }
+
+        /// ⟨M04 U7⟩ A31 (M04's integrations): `uninstall` with a **live** Mode B binding withdraws
+        /// the endpoint inside the distribution, disables the environment (`wsl_distributions`
+        /// reports it `disabled`), ends the helper and stops the runtime, starting nothing. A
+        /// container environment is refused on Windows by design (ADR-0010 §4, Linux hosts
+        /// only); its uninstall row is the container harness's, in a Linux distribution.
+        #[test]
+        #[ignore = "needs a disposable WSL distribution (HM_WSL_TEST_DISTRO, _ACCOUNT, _HELPER) and the harness sshd"]
+        fn a31_uninstall_with_a_live_mode_b_binding() {
+            let (d, helper) = first();
+            let w = world(&helper);
+            let _end = Disable(&w, d.name.clone());
+            let env = enable(&w, &d);
+            let (socket, config) = descriptor(&ensure(&w, &env, "a31-u", "a31-u-r1"));
+            assert_eq!(list(&d, &socket), (0, 1), "the binding is live");
+            assert!(!helper_pids(&d).is_empty(), "the helper runs");
+            let out = w.cli(&["--json", "uninstall", "--keep-remote-enrollments"]);
+            let shown = w.redact(&format!("{out:?}"));
+            let v = out.json();
+            let rows = v["data"]["wsl_distributions"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let row = rows
+                .iter()
+                .find(|r| r["name"] == d.name.as_str())
+                .unwrap_or_else(|| panic!("the distribution is in the uninstall result: {shown}"));
+            assert_eq!(row["outcome"], "disabled", "{shown}");
+            assert_eq!(out.code, 0, "uninstall: {shown}");
+            eventually("the endpoint is withdrawn", Duration::from_secs(60), || {
+                sh(&d, &format!("test ! -e {socket} && test ! -e {config}")).0 == 0
+            });
+            eventually("the helper ends", Duration::from_secs(60), || {
+                helper_pids(&d).is_empty()
+            });
+            let status = w.cli(&["--json", "service", "status"]);
+            assert_ne!(
+                status.code,
+                0,
+                "the runtime stopped: {}",
+                w.redact(&format!("{status:?}"))
+            );
+        }
+
         /// A13: an unregistered distribution releases its bindings: the environment becomes
         /// `gone`, the grant ends, and the environment is refused as a target. **It unregisters
         /// `HM_WSL_TEST_DISTRO2`**, so it needs the explicit `HM_WSL_TEST_ALLOW_UNREGISTER=1`
@@ -2345,7 +2770,23 @@ print('checked=%d reached=%d' % (checked, reached))
             let (code, out) = login(&w, &d, &config, "hm-a03-unlocked");
             assert_eq!(code, 0, "baseline login: {}", w.redact(&out));
             write("ready", "ready\n");
-            let locked = wait_for("locked", Duration::from_secs(12 * 3600));
+            // ⟨M04 U7⟩ The armed harness writes `abort` (with its reason) instead of `locked` when
+            // the console never stays idle for 900 s or the lock is not verified: the driver ends
+            // through its own cleanup rather than waiting out its bound.
+            let deadline = Instant::now() + Duration::from_secs(12 * 3600 + 600);
+            let locked = loop {
+                if let Ok(text) = std::fs::read_to_string(state.join("abort")) {
+                    panic!("the harness aborted before the lock: {}", text.trim());
+                }
+                if let Ok(text) = std::fs::read_to_string(state.join("locked")) {
+                    break text;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "the harness never wrote `locked`"
+                );
+                std::thread::sleep(Duration::from_millis(500));
+            };
             assert!(!locked.starts_with("abort"), "aborted: {locked}");
             // Locked: three fresh logins about 60 s apart, each accepted with exactly the
             // binding's certificate.

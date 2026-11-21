@@ -11,21 +11,28 @@ WSL hook harness (tests/native/m05/run-wsl-hook-windows.ps1, ruling I-19) writes
 `heimdall-m05-wsl-hook-bundle/1`, imported with `--format heimdall-m05-wsl-hook-bundle/1
 --platform-dir wsl-distro` (the same six result files).
 
+⟨M04 U7b⟩ The M04 Mode B runner (tests/native/m04/run-mode-b-windows.ps1) writes
+`heimdall-m04-mode-b-windows-bundle/1`, imported with `--format heimdall-m04-mode-b-windows-bundle/1`
+and `--platform-dir windows-modeb`, `windows-lock`, `wsl-containers` or `wsl-login` (the six files
+plus distributions.txt). Each format sits between its own markers and carries exactly its own file
+set (FILE_SETS); every other check applies to all of them unchanged.
+
 REPORT is any text that contains the bundle between its BEGIN and END markers (the local
 agent's report, or bundle.b64 itself). The import:
   * decodes the gzip+base64 payload and checks its sha256 line, the bundle format, the commit
     (40 hexadecimal digits; with --commit, exactly that one) and every file's sha256;
-  * accepts exactly the result files the runner writes (no path, no other name);
+  * accepts exactly the result files the format's runner writes (no path, no other name);
   * refuses a bundle that still carries a canary prefix, an unmasked user or domain SID, or a
     non-loopback IPv4 address (the runner redacts and masks those before anything leaves the
     PC; their presence is a defect, so nothing is written);
   * checks that the files are what m02-evidence.py reads: tests.txt has at least one
     "### <target>" result and its exit line, commands.txt has "exit N: ..." lines and host.txt
     has key=value facts;
-  * writes them into <artifacts-root>/<label>/windows/ (default artifacts root
-    tests/evidence/artifacts/m02), created exclusively: an existing, non-empty directory is
-    never overwritten;
-  * with --config, points that run configuration's `windows` platform at the files (logs,
+  * writes them into <artifacts-root>/<label>/<platform-dir>/ (default `windows`; `windows-<word>`,
+    `wsl-distro`, or from M04 `wsl-containers` and `wsl-login`; default artifacts root
+    tests/evidence/artifacts/m02), created
+    exclusively: an existing, non-empty directory is never overwritten;
+  * with --config, points that run configuration's platform at the files (logs,
     commands_logs, facts, the bundle's label and artifact digest) and drops its
     `unavailable` mark, so `m02-evidence.py --config RUNS.json` reads them.
 Exit: 0 on success, 1 when the bundle is refused (nothing written), 2 for a usage error.
@@ -46,11 +53,22 @@ BEGIN = "-----BEGIN HEIMDALL M02 WINDOWS BUNDLE-----"
 END = "-----END HEIMDALL M02 WINDOWS BUNDLE-----"
 # ⟨M05 wave 4, ruling I-19⟩ The WSL hook harness's bundle: the same six files, its own format and markers.
 FORMAT_M05_WSL_HOOK = "heimdall-m05-wsl-hook-bundle/1"
+# ⟨M04 U7b⟩ The M04 Mode B runner's bundle (tests/native/m04/run-mode-b-windows.ps1, $BundleFormat,
+# $BeginMarker, $EndMarker, $BundleFiles): its own format and markers, and the M02 files plus
+# distributions.txt.
+FORMAT_M04_MODE_B = "heimdall-m04-mode-b-windows-bundle/1"
 MARKERS = {
     FORMAT: (BEGIN, END),
     FORMAT_M05_WSL_HOOK: ("-----BEGIN HEIMDALL M05 WSL HOOK BUNDLE-----", "-----END HEIMDALL M05 WSL HOOK BUNDLE-----"),
+    FORMAT_M04_MODE_B: ("-----BEGIN HEIMDALL M04 MODE B WINDOWS BUNDLE-----", "-----END HEIMDALL M04 MODE B WINDOWS BUNDLE-----"),
 }
 FILES = ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "canary-scan.txt")
+# The exact result files of each format.
+FILE_SETS = {
+    FORMAT: FILES,
+    FORMAT_M05_WSL_HOOK: FILES,
+    FORMAT_M04_MODE_B: ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "distributions.txt", "canary-scan.txt"),
+}
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 MAX_PAYLOAD = 64 * 1024 * 1024
@@ -192,6 +210,7 @@ def validate(doc, commit=None, fmt=FORMAT):
     """The checked files {name: text} of a decoded bundle."""
     if not isinstance(doc, dict) or doc.get("format") != fmt:
         raise Refused(f"not a {fmt} bundle")
+    names = FILE_SETS[fmt]
     c = doc.get("commit")
     if not isinstance(c, str) or not re.fullmatch(r"[0-9a-f]{40}", c):
         raise Refused("the bundle names no 40-hex commit")
@@ -206,10 +225,10 @@ def validate(doc, commit=None, fmt=FORMAT):
     files, sums = doc.get("files"), doc.get("sha256")
     if not isinstance(files, dict) or not isinstance(sums, dict):
         raise Refused("the bundle has no files")
-    if set(files) != set(FILES) or set(sums) != set(FILES):
+    if set(files) != set(names) or set(sums) != set(names):
         raise Refused("the bundle's files are not exactly the result files")
     out = {}
-    for name in FILES:
+    for name in names:
         text = files[name]
         if not isinstance(text, str):
             raise Refused(f"{name} is not text")
@@ -255,13 +274,14 @@ def import_bundle(text, label, artifacts_root, config=None, commit=None, platfor
     ⟨M03 wave 6⟩ `platform` is the platform directory and runs.json platform name (default
     `windows`; tests/native/m03/lock-windows.ps1's bundle imports as `windows-lock`).
     ⟨M05 wave 4⟩ `fmt` is the bundle format (a key of MARKERS); the M05 WSL hook bundle imports
-    as platform `wsl-distro`."""
+    as platform `wsl-distro`. ⟨M04⟩ The Mode B runner's bundle (FORMAT_M04_MODE_B) imports as
+    `windows-modeb`, `windows-lock`, `wsl-containers` or `wsl-login`."""
     if fmt not in MARKERS:
         raise Refused(f"unknown bundle format {fmt!r}")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", label or ""):
         raise Refused("the label must be [A-Za-z0-9._-] and not start with punctuation")
-    if not re.fullmatch(r"windows(-[a-z0-9]+)?|wsl-distro", platform or ""):
-        raise Refused("the platform directory must be windows, windows-<word> or wsl-distro")
+    if not re.fullmatch(r"windows(-[a-z0-9]+)?|wsl-(distro|containers|login)", platform or ""):
+        raise Refused("the platform directory must be windows, windows-<word>, wsl-distro, wsl-containers or wsl-login")
     doc = decode(text, fmt)
     files = validate(doc, commit, fmt)
     dest = Path(artifacts_root) / label / platform
@@ -286,7 +306,7 @@ def import_bundle(text, label, artifacts_root, config=None, commit=None, platfor
         stage.rmdir()
         raise
     h = hashlib.sha256()
-    for name in FILES:
+    for name in FILE_SETS[fmt]:
         h.update(name.encode() + b"\0" + (dest / name).read_bytes() + b"\0")
     digest = h.hexdigest()
     if target:
@@ -326,7 +346,7 @@ def main(argv=None):
     ap.add_argument("--commit", help="the exit commit the bundle must name")
     ap.add_argument("--artifacts-root", default=str(ROOT / "tests" / "evidence" / "artifacts" / "m02"))
     ap.add_argument("--platform-dir", default="windows",
-                    help="the platform directory and runs.json platform (windows, windows-<word> such as windows-lock, or wsl-distro)")
+                    help="the platform directory and runs.json platform (windows, windows-<word> such as windows-lock or windows-modeb, wsl-distro, wsl-containers or wsl-login)")
     ap.add_argument("--format", default=FORMAT, choices=sorted(MARKERS),
                     help="the bundle format (default: the M02 local-mode bundle)")
     a = ap.parse_args(argv)
@@ -343,7 +363,7 @@ def main(argv=None):
     except Refused as e:
         print(f"import refused (nothing written): {e}", file=sys.stderr)
         return 1
-    print(f"imported {len(FILES)} files ({n} test results) into {dest}; artifact digest {digest}")
+    print(f"imported {sum(1 for _ in dest.iterdir())} files ({n} test results) into {dest}; artifact digest {digest}")
     return 0
 
 

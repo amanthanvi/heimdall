@@ -1,0 +1,4 @@
+    Finished `native-test` profile [unoptimized] target(s) in 0.22s
+heimdall (Linux, for the disposable distribution) sha256: cbf82081684ed4b57e1a12331005595a3cc6a7d606b33ecaae98ecba14ed29cc
+toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13); zig 0.17.1; target x86_64-unknown-linux-gnu (glibc floor 2.31)
+pinned image: https://releases.ubuntu.com/noble/ubuntu-24.04.5-wsl-amd64.wsl sha256 bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e

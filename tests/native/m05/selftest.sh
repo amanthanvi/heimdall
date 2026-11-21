@@ -102,7 +102,7 @@ HM_SKIP_TARGETS=a,b HM_ST_OUT="$W/out" bash "$W/m05/refresh-inventory.sh" >/dev/
 check "m05_wrapper_refresh_inventory_passes_HM_SKIP_TARGETS_through" has "HM_SKIP_TARGETS=a,b"
 
 check "m05_wrapper_windows_runs_the_m02_runner_with_milestone_m05" \
-    bash -c 'grep -q -- "-Milestone m05" "$1/run-windows-local.ps1" && grep -q "ValidateSet(.m02., .m03., .m05.)" "$1/../m02/run-windows-local.ps1"' _ "$here"
+    bash -c 'grep -q -- "-Milestone m05" "$1/run-windows-local.ps1" && grep -q "ValidateSet(.m02., .m03., .*.m05.)" "$1/../m02/run-windows-local.ps1"' _ "$here"
 if command -v pwsh >/dev/null 2>&1; then
     (cd "$T" && pwsh -NoProfile -File "$here/run-windows-local.ps1" -SelfTest) >"$T/winlocal.log" 2>&1
     wrc=$?

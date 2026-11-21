@@ -81,8 +81,9 @@ param(
     [string]$Label = 'windows-11-x86_64 (native msvc, local mode)',
     # ⟨M03 wave 6⟩ The milestone run (tests/native/m03/run-windows-local.ps1 passes m03): the run
     # directory's prefix, and m03's read-only time-service fact (m03-plan §4.3). ⟨M05⟩
-    # tests/native/m05/run-windows-local.ps1 passes m05 (the run directory prefix only).
-    [ValidateSet('m02', 'm03', 'm05')][string]$Milestone = 'm02',
+    # tests/native/m05/run-windows-local.ps1 passes m05 (the run directory prefix only); ⟨M04⟩
+    # tests/native/m04/run-windows-local.ps1 passes m04 (the prefix and the w32tm fact).
+    [ValidateSet('m02', 'm03', 'm04', 'm05')][string]$Milestone = 'm02',
     [switch]$SelfTest,
     [string]$Out = ''
 )
@@ -918,7 +919,7 @@ try {
     $ownerBefore = & $ownerDigest
     Add-Fact 'owner-ssh-git-before' $ownerBefore
     Add-Fact 'ssh-V-inbox' ((Invoke-Bounded $inboxSsh @('-V') $null $run 30).Output.Trim())
-    if ($Milestone -eq 'm03') {
+    if ($Milestone -in @('m03', 'm04')) {
         # Read only (m03-plan §4.2 "Post-reboot time", Q13: an observation, never trusted).
         $w32 = (Invoke-Bounded (Join-Path $sys32 'w32tm.exe') @('/query', '/status') $null $run 30).Output
         Add-Fact 'w32tm-status' ((($w32 -split "`n") | Where-Object { $_ -match '^(Leap|Stratum|Source|Last Successful)' } | ForEach-Object { $_.Trim() }) -join '; ')

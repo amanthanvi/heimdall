@@ -448,8 +448,8 @@ that target.
 ## M03 managed-certificate rows (Heimdall builds E5 `da51b055` to E9 `2b79aac1`, the M03 exit build E9)
 
 > **M03 exit (2026-11-20).** macOS, the devbox and WSL ran at E5, Windows at E9; the macOS and Linux release `heimdall`
-> are byte-identical from E5 to E9. The macOS lock row is `blocked` on the owner's unlock (its watcher is armed at E8);
-> the records are `tests/evidence/m03-*.json`.
+> are byte-identical from E5 to E9. The macOS lock row ran at E8 on 2026-11-20/21 and is `verified` (it binds to E9: the
+> lock run's binaries built at E8 and E9 are identical in every section); the records are `tests/evidence/m03-*.json`.
 
 These rows test Heimdall itself.
 - **Builds:** E5 `da51b0558a14e08f9af27e47ec0c34304e301b22` (the last change outside `cfg(windows)`; macOS, the
@@ -482,7 +482,7 @@ These rows test Heimdall itself.
 | M03-3 | Linux x86-64 (devbox, kernel 6.8, glibc 2.39, headless) | OpenSSH ssh 9.6p1 (Ubuntu-3ubuntu13.20), git 2.43.0, scp, sftp | as M03-1 | as M03-1 | not-tested | verified (A07 157, A09 250 (excl. 176: the Docker rows), A10 19 (excl. 2), A23 56, A33 9, fixed provider 88; 3094 / 0 / 204 over 88 binaries) | as M03-1 |
 | M03-4 | Windows 11 x64 (10.0.26300.9974), Medium integrity | in-box `ssh.exe` OpenSSH_for_Windows_9.5p2, System32 (a PATH-first 10.3p1 recorded as a candidate, not selected); Git for Windows 2.55.0.windows.3 | Heimdall's binding pipe; the real issuer child (debug test configuration) | as M03-1, plus the ConPTY interactive cases; the fixture sshds in WSL scratch | not-tested | verified at E9 (A07 155, A09 108, A10 5, A23 24, A33 6, fixed provider 79; 2646 / 0 / 18 over 87 binaries; no background child with a console window, ADR-0008 §17.43) | as M03-1 |
 | M03-5 | WSL2 disposable distribution (pinned Ubuntu 24.04.5 image, created and unregistered by name) | ordinary ssh, git, scp, sftp **without `-F`** (OpenSSH 9.6p1) | Heimdall's binding endpoint; the real issuer child; the CA **seeded** (I-6: `issuer init` refuses the scratch store on Linux, no plaintext fallback) | the managed scenario (`wsl_managed_ssh`): enrollment in both forms, verification, setup, ensure, ordinary clients, revocation, uninstall | not-tested | verified (`wsl_managed_ssh` 18 of 18, the managed residual step included; the M02 scenario `wsl_ordinary_ssh` 11 of 11 at the same build; A09 12, A10 3) | `m03-a09-enrollment.json`, `m03-a10-scope-issuer.json`, `m03-exit-fixed-provider.json` |
-| M03-6 | macOS 27.2.1 arm64, desktop locked (the lock procedure, ADR-0004 §2) | OpenSSH ssh 10.5p1 | the signer and issuer serving from memory; debug, scratch test store; the platform session-lock source | lock continuity: fresh logins (grant C), a new grant under lock (N), lock-revokes (R), the locked source-provider stand-in | not-tested | blocked: the owner's unlock within the lock procedure's 12 h bound, from an unlocked console idle 15 minutes (the watcher is armed at E8, binding to E9; mechanism evidence only once it runs) | `m03-a03-lock-continuity.json`, `m03-p1-macos-screen-lock.json` |
+| M03-6 | macOS 27.2.1 arm64, desktop locked (the lock procedure, ADR-0004 §2) | OpenSSH ssh 10.5p1 | the signer and issuer serving from memory; debug, scratch test store; the platform session-lock source | lock continuity: fresh logins (grant C), a new grant under lock (N), lock-revokes (R), the locked source-provider stand-in | not-tested | verified at E8, binding to E9 (mechanism evidence only: debug build, test store): the lock verified within 30 s, the 7 lock steps and `macos_lock_signal_observed` passed, the unlock observed after 10.6 h; 12 logins, 9 accepted, 0 misattributed, 0 of R accepted after its revocation | `m03-a03-lock-continuity.json`, `m03-p1-macos-screen-lock.json` |
 | M03-7 | Windows 11 x64, desktop locked | in-box `ssh.exe` | release profile, product DPAPI store; DPAPI unprotect at a forced issuer restart under lock | lock continuity, P-W1 | not-tested | blocked: B2, the disposable second Windows account (a release runtime projects into the account's own `~/.ssh`; I-9) | `m03-a03-lock-continuity.json`, `m03-pw1-windows-lock.json` |
 | M03-8 | macOS arm64, login keychain | any | release profile, the login keychain product store | K_ca custody, lock continuity | not-tested | blocked: B3, a disposable macOS standard user account | `m03-store-macos-keychain.json`, `m03-a03-lock-continuity.json` |
 | M03-9 | Linux desktop (GNOME, gnome-keyring, systemd-logind) | any | Secret Service product store; logind lock signal | K_ca custody, lock-revokes, issuer reachability | not-tested | blocked: B11, a Linux desktop host and a disposable account | `m03-store-linux-secret-service.json`, `m03-a03-lock-continuity.json`, `m03-a10-scope-issuer.json` |
@@ -551,6 +551,46 @@ These rows test Heimdall itself.
 | M05-5 | Linux arm64 | OpenSSH | Heimdall managed signer | as M05-1 | not-tested | blocked: B9, a native Linux arm64 host | `m05-exit-claims.json` |
 | M05-6 | any, a second OS account | the control socket and the Windows pipe from another account | — | A29's cross-user refusal | not-tested | blocked: B2, the disposable second OS account (carried from M01's A29-local) | `m05-a29-hostile-input.json` |
 | M05-7 | WSL and container environment pairs | — | — | A16's pairs of different realizations; A28's forwarding and container rows | not-tested | deferred_with_decision: M04's exit (m05-plan Q9) | `m05-a16-concurrent.json`, `m05-a28-delegation.json` |
+
+## M04 platform-realization rows (Heimdall build `50dbc86b`, the M04 exit, 2026-11-20)
+
+> **M04 exit (2026-11-20).** Every run is at the exit commit `50dbc86b` except the Mode B harness run, at
+> `06784973` (harness files only after `50dbc86b`; the product and the Linux binaries are the same). Every
+> platform row below that is not marked otherwise is `verified`; each record is `blocked` only on named owner
+> inputs; the records are `tests/evidence/m04-*.json`.
+
+These rows test Heimdall itself.
+- **Builds:** `50dbc86b29df42b052071eae040bc074d148e81e` (macOS, the devbox, the Windows full harness, the container
+  and systemd login scenarios); `06784973037b95fd9b31c5d5c2963e4ac444f58e` (the Mode B harness run). The `crates/` and `tests/` `*.rs` sources
+  digest is `8cc0740b…72edd2` (`tests/native/m04/required-inventory.json`). The Linux binaries the PC runs used
+  (`heimdall` `cbf82081…`, `e2e_platform_m04` `b9a0330a…`, `hm-fixture-hook` `a2bd888b…`) are listed in
+  `tests/evidence/artifacts/m04/exit-50dbc86b/prebuilt-linux/sha256.txt`.
+- **Records:** `tests/evidence/m04-*.json`. **Artifacts:** `tests/evidence/artifacts/m04/exit-50dbc86b/`; `runs.json`
+  holds the configuration, and `digests.txt` lists every artifact file. **Exit record:** `docs/architecture/m04-exit-draft.md`.
+- **Label.** Every row stays `not-tested` (ADR-0001 §9: until ADR-0001 §5 and §6 close).
+- **What the rows cover.** Heimdall's own managed signer reached from each realization: the native Windows endpoint
+  (named pipes, listed-handle children, no console window), WSL Mode A (Windows `ssh.exe` from WSL through Git's
+  `core.sshCommand`), WSL Mode B (Linux OpenSSH through the per-binding bridge socket the Linux helper serves), a
+  local container (the mounted endpoint), bastion routes and the login entry. Servers are the loopback fixture
+  `sshd`s (on the PC the harness's WSL fixture `sshd`), trusting a per-run CA. WSL and container rows run in the
+  harness's own disposable `hm-m04-<hex>` distributions only.
+
+| # | Environment | Client | Provider / signer | Mechanism | Label | M04 evidence | Record |
+|---|---|---|---|---|---|---|---|
+| M04-1 | Windows 11 x64 (10.0.26300.9974, Medium integrity) | in-box `ssh.exe` OpenSSH_for_Windows 9.5p2, Git for Windows 2.55.0 | Heimdall managed signer (named pipes); listed-handle children | native Windows endpoint (row 7/9 realization): no global-agent takeover, the Git client finding, state-directory DACL, login entry (scratch registry root) | not-tested | verified (the full harness: 111 binaries, 2907 passed, 0 failed) | `m04-a14-windows-native.json`, `m04-a08-login-entry.json`, `m04-a31-setup-uninstall.json` |
+| M04-2 | WSL 3.0.5.0, disposable distributions (pinned Ubuntu 24.04.5 image, non-root user) | Windows `ssh.exe` from WSL via `core.sshCommand`, Git in WSL | Heimdall managed signer (Windows side) | WSL Mode A (row 10) | not-tested | verified (`a12-mode-a` 2, `a12-flow` 1; `ssh.exe` with the scratch `-F`); blocked: B2 (ordinary `ssh.exe` without `-F`), B5 (the UAC observation) | `m04-a12-wsl-mode-a.json` |
+| M04-3 | as M04-2 | Linux OpenSSH 9.6p1, git, scp, sftp inside the distribution | Heimdall managed signer through the Mode B bridge (Linux helper) | WSL Mode B (row 11): disjoint endpoints per distribution, deadline, withdrawal, restart, unregister | not-tested | verified (12 A13 rows and the unregister row; scp/sftp byte-identical); blocked: B2 (another Windows user) | `m04-a13-wsl-mode-b.json`, `m04-a27-byte-integrity.json` |
+| M04-4 | WSL 3.0.5.0, one disposable distribution | OpenSSH in an Alpine container (`alpine:3.21` by digest) | Heimdall container binding (mounted endpoint, `SO_PEERCRED`) | local container (row 12): Podman 4.9.3 rootless (`keep-id` admitted, sub-uid refused), Docker Engine 29.1.3 rootful (`--user uid:gid` admitted, root refused); uninstall | not-tested | verified (4 passed, 0 failed; both engines) | `m04-a15-containers-bastion.json`, `m04-a31-setup-uninstall.json` |
+| M04-5 | macOS 27.2.1 arm64 (OpenSSH 10.5p1); Linux x86-64 devbox (OpenSSH 9.6p1) | OpenSSH via ProxyJump | Heimdall managed signer; managed and existing-access bastions | bastion route (row 14), explicit forwarding bounded to the binding, `-A` refused without the capability | not-tested | verified (macOS, the devbox); Windows: the route rule row only (the PC's fixture `sshd` has no forwarding settings) | `m04-a15-containers-bastion.json`, `m04-a27-byte-integrity.json` |
+| M04-6 | WSL 3.0.5.0, a disposable distribution with systemd | systemd user unit | the login entry | the runtime starts at the next login (`su -l` session) | not-tested | verified (1 passed) | `m04-a08-login-entry.json`, `m04-a31-setup-uninstall.json` |
+| M04-7 | Windows 11 x64, the console locked by the harness after 900 s idle | Linux OpenSSH in a Mode B distribution | Heimdall managed signer | Mode B fresh logins while Windows is locked | not-tested | blocked: the owner away so the PC idles 15 minutes, then unlocks (ADR-0004 §2) | `m04-a03-mode-b-lock.json` |
+| M04-8 | Linux desktop (product container host); Linux arm64 | OpenSSH | any | container binding, every realization | not-tested | blocked: B11; B9 | `m04-a15-containers-bastion.json`, `m04-exit-claims.json` |
+| M04-9 | Docker Desktop, devcontainers, WSL-nested containers | OpenSSH | any | container binding | not-tested | not tested by decision (ADR-0010 §4) | — |
+
+**Rows M04 closes for M05 (m05-plan Q9).** M05's records keep A16's WSL and container pairs and A28's forwarding and
+container rows `deferred_with_decision` to M04's exit. They are closed by M04-3 (A16 WSL pair), M04-4 (A16 container
+pair; A28 container row: the endpoint lists only the binding's identity and a control-protocol hello fails) and M04-5
+(A28 forwarding row); `docs/architecture/m04-exit-draft.md` §3 has the mapping by record and row.
 
 ## Mechanism observations (not product support)
 

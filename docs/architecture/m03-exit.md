@@ -4,8 +4,10 @@
 **Decided by:** the orchestrator, under the owner's delegation (ADR-0004).
 
 **Decision:** **M03 exits at E9 `2b79aac1b6bea72f886cef2331c9e3b5d0a123e8`**, on 2026-11-20, with `m03/wave6` merged
-into main by the orchestrator. Two items stay open, each named below:
-- the A03 and P1 macOS lock row is `blocked` on a physical input, the owner's unlock (section 5);
+into main by the orchestrator. Two items stayed open, each named below:
+- the A03 and P1 macOS lock row was `blocked` on a physical input, the owner's unlock (section 5); **it ran at E8 on
+  2026-11-20/21 and is `verified`** (mechanism evidence: debug build, test store), binding to E9 by a binary comparison
+  (section 2), so P1 is `verified`;
 - the claim update is `deferred_with_decision` to M03-F1 (ruling I-25, section 4), so every claim-table field reads
   `unknown`.
 
@@ -43,7 +45,8 @@ So `m03-exit-claims.json` is `blocked` even though every runnable row is `verifi
   the WSL runs checked it against `HM_PREBUILT_SHA256` before use.
 - **Windows `heimdall.exe`** (native `x86_64-pc-windows-msvc`, E9, `windows/build.txt`):
   `782520ae30266b2e54ee02c30f4b9fbe8c1e8237d5f884124b16287df41b7705`.
-- **Artifact digest:** `tests/evidence/artifacts/m03/exit-da51b055/digests.txt` (recomputed when the lock run lands).
+- **Artifact digest:** `tests/evidence/artifacts/m03/exit-da51b055/digests.txt`, recomputed with the lock run
+  (sha256 `43a244a2c8733ec8733dd0187961391f04cb1726626392c84a977a739459d32e`).
 
 ## 1. Exit evidence (plan §5 M03; m03-plan §3)
 
@@ -52,7 +55,7 @@ carrying a case-index rationale. "n/a" means the case declares no row there.
 
 | Exit case | macOS arm64 | Linux x86-64 (devbox) | Windows 11 x64 | WSL distribution | macOS lock | Rows blocked on owner inputs | Record |
 |---|---|---|---|---|---|---|---|
-| A03 lock continuity | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 1 | blocked (the owner's unlock) | B1, B2, B3, B4, B11 | `m03-a03-lock-continuity.json` |
+| A03 lock continuity | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 19 (excl. 8) | verified, 1 | verified, 8 (E8) | B1, B2, B3, B4, B11 | `m03-a03-lock-continuity.json` |
 | A07 revocation | verified, 157 | verified, 157 | verified, 155 (excl. 2) | verified, 3 | n/a | none (the disconnected-runner variant `deferred_with_decision` to M06) | `m03-a07-revocation.json` |
 | A09 enrollment | verified, 425 | verified, 250 (excl. 176, the Docker rows) | verified, 108 (excl. 324) | verified, 12 | n/a | B1, B4, B6 | `m03-a09-enrollment.json` |
 | A10 scope and issuer | verified, 21 | verified, 19 (excl. 2) | verified, 5 (excl. 16) | verified, 3 | n/a | B11 | `m03-a10-scope-issuer.json` |
@@ -67,15 +70,14 @@ carrying a case-index rationale. "n/a" means the case declares no row there.
 | K_ca custody, Windows DPAPI | verified, 2 | verified, 2 | verified, 2 | n/a | n/a | B2 (cross-user unprotect) | `m03-store-windows-dpapi.json` |
 | K_ca custody, Linux Secret Service | verified, 3 | verified, 3 | verified, 3 | n/a | n/a | B11 | `m03-store-linux-secret-service.json` |
 | Sleep, logout, reboot | verified, 14 | verified, 14 | verified, 14 | n/a | n/a | B3, B12 | `m03-sleep-logout-reboot.json` |
-| P1 macOS screen lock | n/a | n/a | n/a | n/a | blocked (the owner's unlock) | the owner's unlock | `m03-p1-macos-screen-lock.json` |
+| P1 macOS screen lock | n/a | n/a | n/a | n/a | verified, 8 (E8) | none | `m03-p1-macos-screen-lock.json` |
 | P-W1 Windows desktop lock | n/a | n/a | n/a | n/a | n/a | B2 (the Windows lock row) | `m03-pw1-windows-lock.json` |
 | All of the above together (878 indexed tests) | | | | | | the union | `m03-exit-claims.json` |
 
-**Record status:** `verified` are A07, A23, A33, R-AU-08, no self-renewal and honest
-limits; P1 is `verified` once its macOS lock row is; every other record is `blocked`, and every one of its rows that is
-not `verified` is blocked on a named owner input above, or `deferred_with_decision` with its ruling. The macOS lock
-rows of A03 and P1 are `blocked` on a physical input (the owner's unlock within the 12 h bound, from an unlocked
-console idle for 15 minutes) and are rewritten when the run happens. No row is `in_progress`.
+**Record status:** `verified` are A07, A23, A33, R-AU-08, no self-renewal, honest limits and, since the lock run, P1;
+every other record is `blocked`, and every one of its rows that is not `verified` is blocked on a named owner input
+above, or `deferred_with_decision` with its ruling. The macOS lock rows of A03 and P1 were `blocked` on the owner's
+unlock until the E8 lock run (2026-11-20/21), which made them `verified`. No row is `in_progress`.
 
 ## 2. Native runs
 
@@ -86,7 +88,8 @@ console idle for 15 minutes) and are rewritten when the run happens. No row is `
 | Windows 11 x64 (10.0.26300.9974), Medium integrity, native msvc (rustc 1.99.1, MSVC 18.11.2), in-box OpenSSH_for_Windows_9.5p2, Git for Windows 2.55.0.windows.3 | E9 | `run-windows-local.ps1` by an agent on the PC (local mode, BelowNormal priority, 4 test threads), 27 min 1 s | 0 | 2646 / 0 / 18 over 87 binaries, each `exit=0`; every `e2e_exit_m03` test that runs on Windows `ok` (9; the `lock::` steps ignored as designed), `windows_runtime_children_have_no_console_window` included; no readiness retry | 0 / 0 | `%USERPROFILE%\.ssh` and `.gitconfig` metadata equal before and after; no leftover `heimdall.exe` or `ssh.exe`; both fixture sshds stopped; WSL scratch, clone, build and toolchain removed and checked absent |
 | WSL 3.0.5.0, disposable distribution from the pinned Ubuntu 24.04.5 image: the M03 managed scenario | E5 | `tests/native/m03/run-wsl-distro.sh` (local mode), 252 s | 0 | `wsl_managed_ssh` 18 of 18 (the residual step: `revoking` at the revocation, no longer listed 3 s after `valid_before`; uninstall `OK`, both enrollments named) | 0 / 0 | the registered set equal before and after; 0 leftover heimdall processes |
 | The same, the M02 scenario at the same build | E5 | `tests/native/m02/run-wsl-distro.sh` (local mode), 76 s | 0 | `wsl_ordinary_ssh` 11 of 11 | 0 / 0 | the registered set equal before and after; 0 leftover heimdall processes |
-| macOS lock procedure (debug build, scratch test store, platform session-lock source) | E8 | `tests/native/m03/lock-macos.sh`, armed by the orchestrator's watcher (it starts once the session reads unlocked and the console has been idle 15 minutes) | not run | blocked: the owner's unlock within the 12 h bound; four attempts, none evidence (E5 killed with its session, E7 no unlock within 12 h, E8 attempt 1 refused because the screen was already locked) | — | — |
+| macOS lock procedure (debug build, scratch test store, platform session-lock source) | E8 (binds to E9) | `tests/native/m03/lock-macos.sh`, started by the orchestrator's watcher at 2026-11-20T14:45Z (console idle 1014 s; 1019 s at the lock) | 0 (2026-11-21T01:23:02Z) | every step 0: the lock verified through the product's query within 30 s; `integration_session_lock` `macos_lock_signal_observed` across the lock (P1); the 7 driver tests `ok`, their locked steps done 125 s after the lock; the unlock observed after 38266 s (10.6 h); attribution over 12 logins, 9 accepted, 0 misattributed, 0 of R accepted after its revocation. Four earlier attempts were not evidence (E5 killed with its session, E7 no unlock within 12 h, E8 attempt 1 refused because the screen was already locked) | 0 / 0 | `~/.ssh` and the keychain search list equal before and after (digests); scratch removed and checked absent |
+| E8 → E9 binding of the lock run | E8 and E9 | `macos-lock/e8-e9-identity/` (the lock run's `heimdall`, `e2e_exit_m03` and `integration_session_lock` built with `lock-macos.sh`'s commands at E8 and at E9 in one scratch worktree, and E9 rebuilt as a control) | — | identical in all 17 sections, their non-debug symbols and `LC_UUID`; only the debug map's per-build object names differ, as between two builds of E9. The source diff: `no_window!` appended to `heimdall-app` (elsewhere the command itself), five same-line wraps, a `cfg(windows)` testkit module and two `cfg(windows)` tests | — | the scratch worktree removed |
 | Windows lock procedure | — | `tests/native/m03/lock-windows.ps1` | not run | blocked: B2 | — | — |
 | Windows revert proof of E9's fix (`m03/e9-revert-proof` at `4043acb7`, never merged: E9 with `CREATE_NO_WINDOW` removed; `HM_ONLY_BINARY=e2e_exit_m03`, `HM_TEST_FILTER=windows_runtime_children_have_no_console_window`) | E9 minus the fix | `run-windows-local.ps1` (local mode), 225 s, 2026-11-20 | 1, as required | the one test `FAILED` (0 passed, 1 failed, 16 filtered out): "heimdall.exe (a child of the console-less runtime) has a console window" (`window`); every other binary `not run (HM_ONLY_BINARY, revert proof)` | 0 / 0 | nothing left; the development run's bundle was not kept (`bundle.json` sha256 `87eb975c…aebe`). With the fix (E9, `2b79aac1`) the same test passed in the harness run above |
 
@@ -103,7 +106,8 @@ console idle for 15 minutes) and are rewritten when the run happens. No row is `
    residual settles: R's obligation becomes `bounded_by_expiry` for its pair (unmeasured in the lock world, so
    `nominally_expired`, the record kept), and the supervisor moves R to `revoked` once its certificate's
    `valid_before` has passed. R's window, and so its certificate's validity, is 600 s, so the post-unlock check reads
-   `revoked`. Its post-unlock reading waits for the lock run (the A03 macOS lock row is `blocked`, section 5).
+   `revoked`. The E8 lock run checked it: `a03_post_unlock_follows_remaining_deadline` passed against the expectations
+   C usable, R terminal, N expired, and 0 of R's key IDs were accepted after the revocation.
 4. **Seeded inputs.** The lock driver seeds a verified enrollment and the CA trust line before the lock (I-2). On Linux
    and WSL the scenario records the product's refusal to register a CA on the scratch store (`issuer_store_unavailable`,
    no plaintext fallback), then seeds the CA (I-6).
@@ -249,10 +253,11 @@ is done on `m03/f1-claims`, merged into main after M05's final candidate.
 
 ## 5. Open after the exit
 
-1. **The macOS lock row of A03 and P1 stays `blocked`** on a physical input: the owner unlocking the Mac within the
-   procedure's 12 h bound, from an unlocked console idle for 15 minutes (ADR-0004 §2). The watcher is armed (at E8,
-   binding to E9). The row is updated when the run happens. M03 exits with it `blocked`, as M01 exited with A08 and
-   A29-local blocked on physical inputs.
+1. **The macOS lock row of A03 and P1: closed.** It was `blocked` on a physical input (the owner unlocking the Mac
+   within the procedure's 12 h bound, from an unlocked console idle for 15 minutes, ADR-0004 §2), as M01 exited with A08
+   and A29-local blocked. The watcher's run at E8 (2026-11-20T14:45Z to 2026-11-21T01:23:02Z) exited 0 and binds to E9
+   (section 2): the row is `verified` (mechanism evidence: debug build, test store; the macOS `lock_continuity` claim
+   still waits for B3), P1 is `verified`, and A03 stays `blocked` only on B1, B2, B3, B4 and B11.
 2. **M03-F1**, the claim update with version gating (section 4): **closed** at `80304f12`
    (`tests/evidence/m03-f1-claims.json`, `verified`). It merges into main after M05's final candidate (`fb3c3f38`), which carries I-26 (item 3).
 3. **A late scheduler pass at a grant's bound, found after this exit (M05 W4, ruling I-26).** A supervisor pass that

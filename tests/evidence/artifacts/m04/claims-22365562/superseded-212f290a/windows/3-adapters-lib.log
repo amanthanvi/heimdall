@@ -1,0 +1,18 @@
+   Compiling tokio v1.54.1
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-app v0.1.0-m01 (<scratch>\crates\app)
+   Compiling heimdall-ipc v0.1.0-m01 (<scratch>\crates\ipc)
+   Compiling heimdall-credential v0.1.0-m01 (<scratch>\crates\credential)
+   Compiling heimdall-localenv v0.1.0-m01 (<scratch>\crates\localenv)
+   Compiling heimdall-issuer v0.1.0-m01 (<scratch>\crates\issuer)
+   Compiling heimdall-testkit v0.1.0-m01 (<scratch>\crates\testkit)
+   Compiling heimdall-adapters v0.1.0-m01 (<scratch>\crates\adapters)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.35s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_adapters-71eaa469a042145d.exe)
+
+running 2 tests
+test managed::report::tests::notes_and_multiplexing ... ok
+test managed::report::tests::completion_bound_matches_d7_item_3 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+

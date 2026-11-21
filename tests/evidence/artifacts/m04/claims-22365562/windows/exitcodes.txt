@@ -1,0 +1,8 @@
+1-domain exit=0
+2-localenv exit=0
+3-adapters-lib exit=0
+4-managed-adapter exit=0
+5-app exit=0
+6-e2e-managed exit=0
+7-observation exit=0
+DONE

@@ -1,0 +1,4 @@
+before: exit 0; this run's: none; others: 1 (digest b9a76ff20fdf)
+after-import: exit 0; this run's: hm-m04-bd134668-1 Stopped 2; others: 1 (digest 8b15826581a0)
+after: exit 0; this run's: none; others: 1 (digest b9a76ff20fdf)
+registered-set-equal-to-before=yes

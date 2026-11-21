@@ -1,0 +1,26 @@
+{
+ "name": "M04-CL-R01 (Codex review of 212f290a, fix first; ruling of the orchestrator): a same-key replay of a container ensure result stored before ruling I-28 (seeded with claim-table values and evidence) answers with every claim-table value withheld, the stored record unchanged",
+ "file": "crates/app/src/operations.rs (respond_work: the withhold_claims_outside_own_environment call)",
+ "change_reverted": "the `self.withhold_claims_outside_own_environment(&mut done);` call in respond_work replaced by `let _ = &mut done;`, so the stored result was answered as stored, as at 212f290a",
+ "command": "cargo test -p heimdall-runtime --lib -- managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims ... FAILED",
+   "thread 'managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims' (86839408) panicked at crates/runtime/src/managed_store/live_tests/container.rs:962:5:",
+   "assertion `left == right` failed",
+   "  left: Some(Signer)",
+   " right: Some(Unknown)",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 109 filtered out; finished in 0.09s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 109 filtered out; finished in 0.07s"
+  ]
+ },
+ "restored_sha256_prefix": "8eedc9d08d615fa9 (operations.rs before the proof and after restoring)"
+}

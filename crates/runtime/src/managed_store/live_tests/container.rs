@@ -126,6 +126,18 @@ pub(super) async fn ensure_in(
     work: &str,
     request: &str,
 ) -> Result<EnsureData, heimdall_app::OpError> {
+    ensure_completed_in(p, environment, work, request)
+        .await
+        .map(|c| c.data)
+}
+
+/// [`ensure_in`], the whole answer (its operation ID and next action).
+pub(super) async fn ensure_completed_in(
+    p: &Process,
+    environment: &EnvironmentId,
+    work: &str,
+    request: &str,
+) -> heimdall_app::OpResult<EnsureData> {
     p.ops
         .ensure(
             &caller(),
@@ -146,7 +158,118 @@ pub(super) async fn ensure_in(
             },
         )
         .await
-        .map(|c| c.data)
+}
+
+/// ⟨M04 I-28⟩ A reason entry as the live tests compare it: the field and the endpoint kind.
+pub(super) type Reason = (
+    String,
+    Option<heimdall_contract::managed::BindingEndpointKind>,
+);
+
+/// ⟨M04 I-28⟩ The result's reason entries (a `claim_table` entry with a `withheld_reason`,
+/// which is `endpoint_kind_not_covered`, and no record): each field and the endpoint kind it
+/// names.
+pub(super) fn claim_reasons(d: &EnsureData) -> Vec<Reason> {
+    use heimdall_contract::managed::{EvidenceSource, WithheldReason};
+    d.evidence
+        .iter()
+        .filter(|x| x.withheld_reason.is_some())
+        .map(|x| {
+            assert_eq!(x.source, EvidenceSource::ClaimTable);
+            assert_eq!(
+                x.withheld_reason,
+                Some(WithheldReason::EndpointKindNotCovered)
+            );
+            assert_eq!(x.record, None);
+            (x.field.clone(), x.endpoint_kind)
+        })
+        .collect()
+}
+
+/// ⟨M04 I-28⟩ One reason per claim-table field, each naming `kind`.
+pub(super) fn reasons_naming(kind: heimdall_contract::managed::BindingEndpointKind) -> Vec<Reason> {
+    heimdall_adapters::managed::report::CLAIM_TABLE_FIELDS
+        .iter()
+        .map(|f| ((*f).to_owned(), Some(kind)))
+        .collect()
+}
+
+/// ⟨M04 I-28⟩ No `claim_table` entry of `d` is evidence for a value (a reason is not).
+pub(super) fn no_claim_evidence(d: &EnsureData) -> bool {
+    d.evidence.iter().all(|x| {
+        x.source != heimdall_contract::managed::EvidenceSource::ClaimTable
+            || x.withheld_reason.is_some()
+    })
+}
+
+/// ⟨M04-CL-R04⟩ The M03 contract's typed reader of `EnsureData.evidence`, as at `8f18a6bd`
+/// (`heimdall_contract::managed::{EvidenceSource, EvidenceEntry}` before ruling I-28), with its
+/// serde attributes: a new runtime's result must still decode there, so a reason is carried in
+/// optional fields that reader ignores, never in a `source` value it does not know.
+pub(super) mod m03_reader {
+    use heimdall_contract::Timestamp;
+    use heimdall_contract::ids::OperationId;
+    use heimdall_contract::request::AccessPairRef;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum EvidenceSource {
+        RuntimeVerification,
+        ClaimTable,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)] // every field is what the M03 reader decodes
+    pub struct EvidenceEntry {
+        pub field: String,
+        pub source: EvidenceSource,
+        #[serde(default)]
+        pub pair: Option<AccessPairRef>,
+        #[serde(default)]
+        pub record: Option<String>,
+        #[serde(default)]
+        pub operation_id: Option<OperationId>,
+        #[serde(default)]
+        pub client: Option<String>,
+        #[serde(default)]
+        pub server: Option<String>,
+        pub observed_at: Timestamp,
+        #[serde(default)]
+        pub fresh_until: Option<Timestamp>,
+    }
+
+    /// `evidence`, as this runtime wrote it, decodes with the M03 reader: every entry, with its
+    /// field, and a reason as a known `source` (`claim_table`) without a record. A `source` the
+    /// M03 reader does not know (I-28's first form, `endpoint_kind_not_covered`) is refused, so
+    /// this reader is as strict as the old one.
+    pub fn decodes(evidence: &[heimdall_contract::managed::EvidenceEntry], what: &str) {
+        let json = serde_json::to_value(evidence).unwrap();
+        let old: Vec<EvidenceEntry> = serde_json::from_value(json.clone())
+            .unwrap_or_else(|e| panic!("{what}: the M03 reader refuses the result: {e}"));
+        assert_eq!(old.len(), evidence.len(), "{what}");
+        assert!(
+            evidence.iter().any(|n| n.withheld_reason.is_some()),
+            "{what}: the result carries reasons"
+        );
+        for (o, n) in old.iter().zip(evidence) {
+            assert_eq!(o.field, n.field, "{what}");
+            if n.withheld_reason.is_some() {
+                assert_eq!(o.source, EvidenceSource::ClaimTable, "{what}");
+                assert_eq!(o.record, None, "{what}");
+            }
+        }
+        let mut first_form = json;
+        let last = first_form
+            .as_array_mut()
+            .and_then(|a| a.last_mut())
+            .expect("an entry");
+        last["source"] = serde_json::json!("endpoint_kind_not_covered");
+        assert!(
+            serde_json::from_value::<Vec<EvidenceEntry>>(first_form).is_err(),
+            "{what}: the M03 reader refuses a source it does not know"
+        );
+    }
 }
 
 fn entries(dir: &Path) -> Vec<String> {
@@ -747,4 +870,135 @@ async fn a15_container_remove_cleans_only_owned_entries() {
     let listing = inspect_environments(&p, &caller()).await;
     assert_eq!(listing["items"][1]["state"], "removed");
     p.shutdown.cancel();
+}
+
+/// ⟨M04 I-28⟩ The claim gate's endpoint kind comes from the grant's environment, through the
+/// grant's recorded terms: a container binding's result carries one
+/// `endpoint_kind_not_covered` reason per claim-table field naming `container` and no
+/// claim-table entry, and a native binding's result in the same runtime carries no reason.
+/// (The report on a qualifying host is `integration_managed_adapter`'s
+/// `container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host`.)
+#[tokio::test]
+async fn a15_container_binding_result_names_its_endpoint_kind_for_the_claim_table() {
+    let w = Live::new();
+    let p = w.process_opts(Arc::new(NoStageHook), host_on()).await;
+    let native = w
+        .ensure(&p, "native", RequiredCapabilities::default())
+        .await
+        .unwrap_or_else(|e| panic!("native ensure: {} {}", e.code, e.message));
+    assert_eq!(
+        claim_reasons(&native),
+        vec![],
+        "a native binding has no reason"
+    );
+    let (id, _) = approved(&w, &p, "lab").await;
+    permit_ensures(&w, &id);
+    let c = ensure_in(&p, &id, "w-c", "r-c")
+        .await
+        .unwrap_or_else(|e| panic!("container ensure: {} {}", e.code, e.message));
+    assert_eq!(c.environment_id, id);
+    assert_eq!(
+        claim_reasons(&c),
+        reasons_naming(heimdall_contract::managed::BindingEndpointKind::Container)
+    );
+    assert!(no_claim_evidence(&c));
+    // ⟨M04-CL-R04⟩ A reader of the M03 contract decodes the container result's evidence.
+    m03_reader::decodes(&c.evidence, "a container result");
+}
+
+/// ⟨M04-CL-R01⟩ A container ensure result stored before ruling I-28, seeded here with what a
+/// qualifying host's report gave it then (claim-table values and their evidence), is answered
+/// to the same request with every claim-table value withheld: the same operation and binding,
+/// still a success with `use_binding`. `observe` of the operation shows it withheld the same
+/// way, and the stored record (history) is unchanged.
+#[tokio::test]
+async fn a15_container_replay_of_a_pre_i28_result_withholds_its_claims() {
+    use heimdall_contract::managed::{LockContinuityReport, NewSigningExpiry, RemoteRevocation};
+    use heimdall_contract::request::{
+        ExistingConnectionsPolicy, NewAuthenticationExpiry, RevocationStatus,
+    };
+    use serde_json::json;
+    let w = Live::new();
+    let p = w.process_opts(Arc::new(NoStageHook), host_on()).await;
+    let (id, _) = approved(&w, &p, "lab").await;
+    permit_ensures(&w, &id);
+    let first = ensure_completed_in(&p, &id, "w-r", "r-r")
+        .await
+        .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message));
+    let op = first.operation_id.clone().expect("an operation");
+    let seeded = w
+        .store
+        .transaction(|tx| {
+            let mut rec = tx.operation(&op)?.expect("the operation");
+            let r = rec.result.as_mut().expect("a stored result");
+            assert!(r["revocation"].is_object(), "a managed result's revocation");
+            r["enforcement"]["new_signing_expiry"] = json!("signer");
+            r["enforcement"]["new_authentication_expiry"] = json!("credential_and_signer");
+            r["enforcement"]["revocation"] = json!("bounded_by_credential_expiry");
+            r["enforcement"]["existing_connections"] = json!("strict_disconnect");
+            r["lock_continuity"] = json!("verified");
+            r["revocation"]["remote"] = json!("bounded_by_credential_expiry");
+            r["evidence"] = json!([{
+                "field": "new_signing_expiry",
+                "source": "claim_table",
+                "record": "tests/evidence/m03-a23-deadline-connections.json",
+                "observed_at": "2026-11-10T00:00:00Z"
+            }]);
+            let seeded = r.clone();
+            tx.update_operation(&rec)?;
+            Ok(seeded)
+        })
+        .unwrap();
+
+    let again = ensure_completed_in(&p, &id, "w-r", "r-r")
+        .await
+        .unwrap_or_else(|e| panic!("replay: {} {}", e.code, e.message));
+    assert_eq!(again.operation_id, Some(op.clone()), "the same operation");
+    assert_eq!(again.code, Code::AccessReady);
+    assert_eq!(
+        again.next.as_ref().map(|n| n.action.as_str()),
+        Some("use_binding")
+    );
+    let d = &again.data;
+    assert_eq!(d.binding_id, first.data.binding_id);
+    let e = &d.enforcement;
+    assert_eq!(e.new_signing_expiry, Some(NewSigningExpiry::Unknown));
+    assert_eq!(
+        e.new_authentication_expiry,
+        NewAuthenticationExpiry::Unknown
+    );
+    assert_eq!(e.revocation, RevocationStatus::Unknown);
+    assert_eq!(e.existing_connections, ExistingConnectionsPolicy::Unknown);
+    assert_eq!(d.lock_continuity, Some(LockContinuityReport::NotVerified));
+    assert_eq!(
+        d.revocation.as_ref().map(|r| r.remote),
+        Some(RemoteRevocation::Unknown)
+    );
+    assert!(no_claim_evidence(d), "{:?}", d.evidence);
+    // `observe` shows the stored result as the answer does (the orchestrator's ruling).
+    let observed = p
+        .ops
+        .observe(
+            &caller(),
+            heimdall_contract::request::ObserveRequest::Operation {
+                operation_id: op.clone(),
+                wait_ms: None,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("observe: {} {}", e.code, e.message))
+        .data;
+    let shown: EnsureData = serde_json::from_value(observed["result"].clone()).unwrap();
+    assert_eq!(shown.enforcement, d.enforcement);
+    assert_eq!(shown.lock_continuity, d.lock_continuity);
+    assert_eq!(shown.revocation, d.revocation);
+    assert!(no_claim_evidence(&shown), "{:?}", shown.evidence);
+    // The stored record is history: unchanged by the answer and by `observe`.
+    let stored = w
+        .store
+        .transaction(|tx| tx.operation(&op))
+        .unwrap()
+        .and_then(|r| r.result)
+        .unwrap();
+    assert_eq!(stored, seeded);
 }

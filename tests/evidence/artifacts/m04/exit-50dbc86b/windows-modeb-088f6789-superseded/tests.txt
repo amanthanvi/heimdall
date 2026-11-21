@@ -1,0 +1,122 @@
+### a13-mode-b
+
+running 12 tests
+test windows::native::mode_b::a13_binary_scp_sftp_through_bridge ... ok
+test windows::native::mode_b::a13_binding_end_refuses_then_withdraws_endpoint ... ok
+test windows::native::mode_b::a13_binding_reaches_its_deadline_and_withdraws ... ok
+test windows::native::mode_b::a13_control_hello_on_bridge_socket_fails ... ok
+test windows::native::mode_b::a13_deleted_socket_recreated ... ok
+test windows::native::mode_b::a13_git_over_linux_ssh_through_bridge ... ok
+test windows::native::mode_b::a13_lists_only_binding_identities_and_refuses_unlisted_key ... ok
+test windows::native::mode_b::a13_other_distribution_sees_no_endpoint ... ok
+test windows::native::mode_b::a13_other_linux_user_refused ... ok
+test windows::native::mode_b::a13_runtime_stop_helper_exits_and_removes_endpoints ... ok
+test windows::native::mode_b::a13_terminate_then_user_restart_recreates_endpoint_without_background_start ... ok
+test windows::native::mode_b::a13_two_enabled_distributions_get_disjoint_endpoints ... ok
+
+successes:
+
+---- windows::native::mode_b::a13_other_linux_user_refused stdout ----
+m04 observation: a13 windows wsl.exe -u bypass: owner account lists 1 identity (exit 0); a documented non-claim
+
+
+successes:
+    windows::native::mode_b::a13_binary_scp_sftp_through_bridge
+    windows::native::mode_b::a13_binding_end_refuses_then_withdraws_endpoint
+    windows::native::mode_b::a13_binding_reaches_its_deadline_and_withdraws
+    windows::native::mode_b::a13_control_hello_on_bridge_socket_fails
+    windows::native::mode_b::a13_deleted_socket_recreated
+    windows::native::mode_b::a13_git_over_linux_ssh_through_bridge
+    windows::native::mode_b::a13_lists_only_binding_identities_and_refuses_unlisted_key
+    windows::native::mode_b::a13_other_distribution_sees_no_endpoint
+    windows::native::mode_b::a13_other_linux_user_refused
+    windows::native::mode_b::a13_runtime_stop_helper_exits_and_removes_endpoints
+    windows::native::mode_b::a13_terminate_then_user_restart_recreates_endpoint_without_background_start
+    windows::native::mode_b::a13_two_enabled_distributions_get_disjoint_endpoints
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 362.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.93s
+     Running ..\..\tests\e2e\platform_m04.rs (target\debug\deps\e2e_platform_m04-b4d04243b06385b3.exe)
+### a13-mode-b exit=0
+### a12-mode-a
+
+running 2 tests
+test windows::native::a12_enable_disable_leaves_distribution_git_config_identical ... ok
+test windows::native::a12_interop_child_medium_integrity ... ok
+
+successes:
+
+successes:
+    windows::native::a12_enable_disable_leaves_distribution_git_config_identical
+    windows::native::a12_interop_child_medium_integrity
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 8.92s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running ..\..\tests\e2e\platform_m04.rs (target\debug\deps\e2e_platform_m04-b4d04243b06385b3.exe)
+### a12-mode-a exit=0
+### a12-flow
+
+running 1 test
+test windows::native::mode_b::a12_git_and_ssh_through_windows_ssh_from_wsl ... ok
+
+successes:
+
+---- windows::native::mode_b::a12_git_and_ssh_through_windows_ssh_from_wsl stdout ----
+m04 observation: a12 windows ctrl_c=sigint_after_s=5 client_exit=124 client_seconds=5 remote_late_output=false ssh_exe_left_at_first_probe=0 ssh_exe_left_after_wait=0 wait_s=0
+
+
+successes:
+    windows::native::mode_b::a12_git_and_ssh_through_windows_ssh_from_wsl
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 18.90s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running ..\..\tests\e2e\platform_m04.rs (target\debug\deps\e2e_platform_m04-b4d04243b06385b3.exe)
+### a12-flow exit=0
+### wsl-helper-session
+
+running 1 test
+test windows_tests::windows_helper_session_over_wsl_exe_in_a_disposable_distribution ... ok
+
+successes:
+
+successes:
+    windows_tests::windows_helper_session_over_wsl_exe_in_a_disposable_distribution
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.98s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src\lib.rs (target\debug\deps\heimdall_wsl-e545ce7f0c175d5c.exe)
+### wsl-helper-session exit=0
+### a31-uninstall
+
+running 1 test
+test windows::native::mode_b::a31_uninstall_with_a_live_mode_b_binding ... ok
+
+successes:
+
+successes:
+    windows::native::mode_b::a31_uninstall_with_a_live_mode_b_binding
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 4.81s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running ..\..\tests\e2e\platform_m04.rs (target\debug\deps\e2e_platform_m04-b4d04243b06385b3.exe)
+### a31-uninstall exit=0
+### a13-unregister
+
+running 1 test
+test windows::native::mode_b::a13_unregistered_distribution_releases_bindings ... ok
+
+successes:
+
+successes:
+    windows::native::mode_b::a13_unregistered_distribution_releases_bindings
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 21.18s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running ..\..\tests\e2e\platform_m04.rs (target\debug\deps\e2e_platform_m04-b4d04243b06385b3.exe)
+### a13-unregister exit=0

@@ -1,0 +1,46 @@
+### a15-podman
+
+running 2 tests
+test container::a15_container_mounted_flow ... ok
+test container::a31_uninstall_with_a_live_container_binding ... ok
+
+successes:
+
+---- container::a15_container_mounted_flow stdout ----
+m04 observation: a15 linux engine=Podman version="podman version 4.9.3"
+m04 observation: a15 linux uid_map="         0          1       1000"
+m04 observation: a15 linux deadline refusal: "Can't open user config file /run/heimdall/ssh_config: No such file or directory"
+m04 observation: a15 linux uid row "podman keep-id (admitted)": uid_map="         0          1       1000" exit=0 detail="256 SHA256:8MmxLRYyGeyEFgbUZDhPXePCpcNG+9dyA/qm+YygVhg heimdall:6314ef392c84 (ED25519-CERT)"
+m04 observation: a15 linux uid row "podman sub-uid user": uid_map="         0          1       1000" exit=2 detail="Error connecting to agent: Permission denied"
+
+
+successes:
+    container::a15_container_mounted_flow
+    container::a31_uninstall_with_a_live_container_binding
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 125.61s
+
+### a15-podman exit=0
+### a15-docker
+
+running 2 tests
+test container::a15_container_mounted_flow ... ok
+test container::a31_uninstall_with_a_live_container_binding ... ok
+
+successes:
+
+---- container::a15_container_mounted_flow stdout ----
+m04 observation: a15 linux engine=Docker version="Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2"
+m04 observation: a15 linux uid_map="         0          0 4294967295"
+m04 observation: a15 linux deadline refusal: "Can't open user config file /run/heimdall/ssh_config: No such file or directory"
+m04 observation: a15 linux uid row "docker --user uid:gid (admitted)": uid_map="         0          0 4294967295" exit=0 detail="256 SHA256:cGsfjx2ZJcQAx6MpVElv/r7BFHtpCXV+rCjpKg4w6NU heimdall:623f9eeb0cf0 (ED25519-CERT)"
+m04 observation: a15 linux uid row "docker root": uid_map="         0          0 4294967295" exit=1 detail="error fetching identities: communication with agent failed"
+
+
+successes:
+    container::a15_container_mounted_flow
+    container::a31_uninstall_with_a_live_container_binding
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 79.92s
+
+### a15-docker exit=0
