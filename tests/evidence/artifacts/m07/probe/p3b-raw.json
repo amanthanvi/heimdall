@@ -1,0 +1,119 @@
+{
+ "binary": "target/debug/heimdall (debug build)",
+ "rows": [
+  {
+   "catalog_destinations": 1000,
+   "bundle_bytes": 104085,
+   "import_exit": 0,
+   "import_code": "OK",
+   "inspect_exit": 0,
+   "inspect_code": "OK",
+   "inspect_items": 1000,
+   "inspect_stdout_bytes": 144100,
+   "inspect_ms": 28.3,
+   "inspect_error_message": null,
+   "human_list_exit": 0,
+   "human_list_stdout_lines": 8005,
+   "human_list_stderr_head": "",
+   "tui": {
+    "catalog_destinations": 1000,
+    "runtime_connected_ms": 162.5,
+    "key_samples": 12,
+    "key_no_output": 0,
+    "key_p50_ms": 64.5,
+    "key_p95_ms": 84.0,
+    "key_max_ms": 84.0,
+    "quit_exit": 0,
+    "destinations_tab_head": [
+     "Heimdall  1 Overview [2 Destinations] 3 Profiles  4 Activity  [OK] Ready",
+     "1000 total \u00b7 / to search (never probes)",
+     "> [ !] host-000000  observed (defined in your configuration)",
+     "  [ !] host-000001  observed (defined in your configuration)"
+    ],
+    "destinations_tab_mentions_frame_limit": false
+   }
+  },
+  {
+   "catalog_destinations": 3500,
+   "bundle_bytes": 260085,
+   "import_exit": 0,
+   "import_code": "OK",
+   "inspect_exit": 0,
+   "inspect_code": "OK",
+   "inspect_items": 3500,
+   "inspect_stdout_bytes": 504100,
+   "inspect_ms": 68.9,
+   "inspect_error_message": null,
+   "human_list_exit": 0,
+   "human_list_stdout_lines": 28005,
+   "human_list_stderr_head": "",
+   "tui": {
+    "catalog_destinations": 3500,
+    "runtime_connected_ms": 164.0,
+    "key_samples": 12,
+    "key_no_output": 0,
+    "key_p50_ms": 211.3,
+    "key_p95_ms": 401.7,
+    "key_max_ms": 401.7,
+    "quit_exit": 0,
+    "destinations_tab_head": [
+     "Heimdall  1 Overview [2 Destinations] 3 Profiles  4 Activity  [OK] Ready",
+     "3500 total \u00b7 / to search (never probes)",
+     "> [ !] host-000000  observed (defined in your configuration)",
+     "  [ !] host-000001  observed (defined in your configuration)"
+    ],
+    "destinations_tab_mentions_frame_limit": false
+   }
+  },
+  {
+   "catalog_destinations": 6000,
+   "bundle_bytes": 260085,
+   "import_exit": 0,
+   "import_code": "OK",
+   "inspect_exit": 0,
+   "inspect_code": "OK",
+   "inspect_items": 6000,
+   "inspect_stdout_bytes": 864100,
+   "inspect_ms": 113.1,
+   "inspect_error_message": null,
+   "human_list_exit": 0,
+   "human_list_stdout_lines": 48005,
+   "human_list_stderr_head": ""
+  },
+  {
+   "catalog_destinations": 8500,
+   "bundle_bytes": 260085,
+   "import_exit": 0,
+   "import_code": "OK",
+   "inspect_exit": 1,
+   "inspect_code": "INTERNAL_ERROR",
+   "inspect_items": 0,
+   "inspect_stdout_bytes": 246,
+   "inspect_ms": 100.1,
+   "inspect_error_message": "response exceeds the frame limit",
+   "human_list_exit": 1,
+   "human_list_stdout_lines": 1,
+   "human_list_stderr_head": "error: response exceeds the frame limit\neffect: none\n",
+   "tui": {
+    "catalog_destinations": 8500,
+    "runtime_connected_ms": 164.4,
+    "key_samples": 12,
+    "key_no_output": 0,
+    "key_p50_ms": 2.5,
+    "key_p95_ms": 3.3,
+    "key_max_ms": 3.3,
+    "quit_exit": 0,
+    "destinations_tab_head": [
+     "Heimdall  1 Overview [2 Destinations] 3 Profiles  4 Activity  [OK] Ready",
+     "0 total \u00b7 / to search (never probes)",
+     "  No catalog destinations.",
+     ""
+    ],
+    "destinations_tab_mentions_frame_limit": false
+   }
+  }
+ ],
+ "service_stop_exit": 0,
+ "service_exit": 0,
+ "scratch_removed": true
+}

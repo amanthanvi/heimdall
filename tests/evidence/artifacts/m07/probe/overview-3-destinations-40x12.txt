@@ -1,0 +1,12 @@
+[1 Over] 2 Dest  3 Prof  4 Acti  [OK]
+[OK] Ready
+Runtime: connected, read 0s ago
+Static pass: 3s ago
+Workspace: no workspace here (w details
+> [ !] home_mismatch: HOME differs from
+  [ !] identity_selection_not_exclusive
+  [ !] identity_selection_not_exclusive
+  [ !] identity_selection_not_exclusive
+
+
+Enter open · r retry · k keep · R refres
