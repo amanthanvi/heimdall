@@ -83,6 +83,26 @@
       "description": "Remote account name on a destination.",
       "type": "string"
     },
+    "BindingEndpointKind": {
+      "description": "⟨M04 I-28⟩ How a managed binding's clients reach its signer (ADR-0008 D12 item 2;\nADR-0010 §3–§4). The claim table's entries hold only for `native`, the kind their records\nran.",
+      "oneOf": [
+        {
+          "description": "The runtime's own per-binding endpoint on this host, used by the host's own client.\nA WSL Mode A consumer is one: its binding, endpoint and client (the in-box\n`ssh.exe`) are the native Windows environment's (ADR-0010 §2 item 1).",
+          "type": "string",
+          "const": "native"
+        },
+        {
+          "description": "A WSL Mode B binding: the distribution's OpenSSH, through the bridge endpoint inside the\ndistribution (ADR-0010 §3).",
+          "type": "string",
+          "const": "wsl_mode_b"
+        },
+        {
+          "description": "A container binding: the container's client, through the environment's mounted\nendpoint (ADR-0010 §4).",
+          "type": "string",
+          "const": "container"
+        }
+      ]
+    },
     "BindingId": {
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
@@ -1036,6 +1056,17 @@
             "null"
           ]
         },
+        "endpoint_kind": {
+          "description": "⟨M04 I-28⟩ The binding's endpoint kind, for `endpoint_kind_not_covered`. Omitted\notherwise, so every M03 entry is unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BindingEndpointKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "field": {
           "description": "The reported field (`destination_scope`, `lock_continuity`, …).",
           "type": "string"
@@ -1112,6 +1143,11 @@
           "description": "A claim-table entry (ADR-0008 D12).",
           "type": "string",
           "const": "claim_table"
+        },
+        {
+          "description": "⟨M04 I-28⟩ Not evidence for a value but the reason the field reads `unknown`\n(`not_verified` for `lock_continuity`): the claim table's entries cover bindings with a\nnative endpoint only, and this binding's endpoint is of the kind in\n[`EvidenceEntry::endpoint_kind`].",
+          "type": "string",
+          "const": "endpoint_kind_not_covered"
         }
       ]
     },

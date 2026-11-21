@@ -197,9 +197,13 @@ impl StoreSources {
                 floor,
             );
             let policy = effective_policy_in(tx, grant, None)?;
+            // ⟨M04 I-28⟩ The claim gate's endpoint kind: where this grant's binding goes.
+            let endpoint =
+                heimdall_adapters::managed::report::endpoint_kind(&placement_of(tx, &g)?);
             Ok(Some(GrantTerms {
                 lock_behavior,
                 policy,
+                endpoint,
             }))
         })();
         if let Ok(Some(t)) = read {
@@ -311,6 +315,32 @@ impl ManagedSourceRead for StoreSources {
     }
 }
 
+/// ⟨M04⟩ Where grant `g`'s binding endpoint goes, from its environment's realization
+/// ([`GrantScopes::placement`]; ⟨I-28⟩ also the claim gate's endpoint kind in its terms).
+fn placement_of(
+    tx: &mut heimdall_store::Txn<'_>,
+    g: &heimdall_domain::grant::GrantSnapshot,
+) -> heimdall_store::Result<EndpointPlacement> {
+    Ok(match tx.managed_environment(&g.environment)? {
+        Some(ManagedEnvironment {
+            realization: EnvironmentRealization::Container { dir_tag, .. },
+            ..
+        }) => EndpointPlacement::Container { dir_tag },
+        // ⟨M04 U4b⟩ A Mode B distribution's endpoint is inside it, served by its
+        // helper; the placement names the environment the bridge is keyed by.
+        Some(ManagedEnvironment {
+            realization: EnvironmentRealization::Wsl { .. },
+            environment,
+            ..
+        }) => EndpointPlacement::WslBridge {
+            environment,
+            // The caller's own start authority replaces it (`materialize`).
+            start: heimdall_app::ports::DistributionStart::Forbidden,
+        },
+        _ => EndpointPlacement::Native,
+    })
+}
+
 impl GrantScopes for StoreSources {
     fn pairs(&self, grant: &GrantId) -> Option<Vec<AccessPair>> {
         self.store
@@ -337,24 +367,7 @@ impl GrantScopes for StoreSources {
                 let Some(g) = tx.grant(grant)? else {
                     return Ok(EndpointPlacement::Native);
                 };
-                Ok(match tx.managed_environment(&g.environment)? {
-                    Some(ManagedEnvironment {
-                        realization: EnvironmentRealization::Container { dir_tag, .. },
-                        ..
-                    }) => EndpointPlacement::Container { dir_tag },
-                    // ⟨M04 U4b⟩ A Mode B distribution's endpoint is inside it, served by its
-                    // helper; the placement names the environment the bridge is keyed by.
-                    Some(ManagedEnvironment {
-                        realization: EnvironmentRealization::Wsl { .. },
-                        environment,
-                        ..
-                    }) => EndpointPlacement::WslBridge {
-                        environment,
-                        // The caller's own start authority replaces it (`materialize`).
-                        start: heimdall_app::ports::DistributionStart::Forbidden,
-                    },
-                    _ => EndpointPlacement::Native,
-                })
+                placement_of(tx, &g)
             })
             .map_err(|_| AdapterError::Unavailable("store".to_owned()))
     }

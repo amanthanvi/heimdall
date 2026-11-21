@@ -23,10 +23,14 @@
 //! `read_sources` selects them for the host); ⟨M03-F1⟩ [`claimed`] and [`claim`] judge
 //! each entry again against [`ReportContext::host`]: its platform, an OS release at
 //! least its floor, a client and a build within its ranges
-//! (`heimdall_domain::claims::applies`).
+//! (`heimdall_domain::claims::applies`). ⟨M04 I-28⟩ They also need the binding's endpoint
+//! kind to be native ([`ReportContext::endpoint`], `heimdall_domain::claims::endpoint_covered`):
+//! a WSL Mode B or container binding reads every claim-table field `unknown`, and the report
+//! carries one `endpoint_kind_not_covered` entry per field naming the kind.
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{AccountName, DestinationId};
+use heimdall_contract::managed::BindingEndpointKind;
 use heimdall_contract::managed::{
     ClockMeasurement, ConnectionPolicy, ConnectionPolicyReport, DestinationClock, EvidenceEntry,
     EvidenceSource, ExistingConnectionsMode, IdentitySelectionEnforcement, IssuerIsolation,
@@ -40,7 +44,8 @@ use heimdall_contract::request::{
     AccessPairRef, DestinationScopeEnforcement, Enforcement, ExistingConnectionsPolicy,
     NewAuthenticationExpiry, RefreshDependency, RevocationStatus, WorkloadIsolation,
 };
-use heimdall_domain::claims::{Claim, HostFacts, Platform, applies};
+use heimdall_credential::endpoints::EndpointPlacement;
+use heimdall_domain::claims::{Claim, HostFacts, Platform, applies, endpoint_covered};
 use heimdall_domain::enrollment::EnrollmentEvidence;
 use heimdall_domain::grant::GrantSnapshot;
 use heimdall_domain::issuance::{IssuanceEntry, IssuanceState};
@@ -61,24 +66,48 @@ pub fn current_platform() -> Platform {
 }
 
 /// Whether `claims` hold an entry for `field` = `value` that applies on `host` (its
-/// platform, OS release floor, client and build ranges; ⟨M03-F1⟩ ADR-0008 D12 item 2).
+/// platform, OS release floor, client and build ranges; ⟨M03-F1⟩ ADR-0008 D12 item 2) to a
+/// binding whose endpoint is of kind `endpoint` (⟨M04 I-28⟩ native only).
 #[must_use]
-pub fn claimed(claims: &[Claim], host: &HostFacts, field: &str, value: &str) -> bool {
-    claim(claims, host, field, value).is_some()
+pub fn claimed(
+    claims: &[Claim],
+    host: &HostFacts,
+    endpoint: BindingEndpointKind,
+    field: &str,
+    value: &str,
+) -> bool {
+    claim(claims, host, endpoint, field, value).is_some()
 }
 
-/// The claim-table entry for `field` = `value` that applies on `host`, if any
-/// (⟨M03-F1⟩ [`heimdall_domain::claims::applies`]).
+/// The claim-table entry for `field` = `value` that applies on `host` to a binding whose
+/// endpoint is of kind `endpoint`, if any (⟨M03-F1⟩ [`heimdall_domain::claims::applies`];
+/// ⟨M04 I-28⟩ none unless [`heimdall_domain::claims::endpoint_covered`]).
 #[must_use]
 pub fn claim<'a>(
     claims: &'a [Claim],
     host: &HostFacts,
+    endpoint: BindingEndpointKind,
     field: &str,
     value: &str,
 ) -> Option<&'a Claim> {
+    if !endpoint_covered(endpoint) {
+        return None;
+    }
     claims
         .iter()
         .find(|c| c.field == field && c.value == value && applies(c, host))
+}
+
+/// ⟨M04 I-28⟩ The claim gate's endpoint kind of a binding placed at `placement`: a native
+/// placement is `native`, a WSL Mode B one `wsl_mode_b`, a container one `container`. A new
+/// placement is a compile error here until its kind is decided.
+#[must_use]
+pub fn endpoint_kind(placement: &EndpointPlacement) -> BindingEndpointKind {
+    match placement {
+        EndpointPlacement::Native => BindingEndpointKind::Native,
+        EndpointPlacement::WslBridge { .. } => BindingEndpointKind::WslModeB,
+        EndpointPlacement::Container { .. } => BindingEndpointKind::Container,
+    }
 }
 
 // --- revoke additions (§5 item 9; F15) ------------------------------------------------
@@ -114,17 +143,26 @@ pub fn revoke_notes() -> Vec<RevokeNote> {
 /// policy disables masters (the binding's own configuration, reported from the start,
 /// on every platform: the §5 item 8 golden is a Windows result); `owned_masters` on
 /// Windows is `unavailable` (no masters there); elsewhere `closed_at_deadline` only
-/// with its claim-table entry for `platform`, otherwise `unknown`.
+/// with its claim-table entry for `platform` (and ⟨M04 I-28⟩ a native endpoint), otherwise
+/// `unknown`.
 #[must_use]
 pub fn owned_multiplexing(
     policy: &ConnectionPolicy,
     host: &HostFacts,
+    endpoint: BindingEndpointKind,
     claims: &[Claim],
 ) -> OwnedMultiplexing {
     match policy.multiplexing {
         MultiplexingMode::Disabled => OwnedMultiplexing::Disabled,
         _ if host.platform.os == "windows" => OwnedMultiplexing::Unavailable,
-        _ if claimed(claims, host, FIELD_OWNED_MULTIPLEXING, "closed_at_deadline") => {
+        _ if claimed(
+            claims,
+            host,
+            endpoint,
+            FIELD_OWNED_MULTIPLEXING,
+            "closed_at_deadline",
+        ) =>
+        {
             OwnedMultiplexing::ClosedAtDeadline
         }
         _ => OwnedMultiplexing::Unknown,
@@ -147,6 +185,18 @@ pub const FIELD_NEW_AUTHENTICATION_EXPIRY: &str = "new_authentication_expiry";
 pub const FIELD_REVOCATION: &str = "enforcement.revocation";
 /// `revocation.remote`.
 pub const FIELD_REVOCATION_REMOTE: &str = "revocation.remote";
+
+/// ⟨M04 I-28⟩ Every claim-table field, in the report's order: the fields a binding whose
+/// endpoint is not native reads `unknown` (`not_verified`), each with its reason entry.
+pub const CLAIM_TABLE_FIELDS: [&str; 7] = [
+    FIELD_LOCK_CONTINUITY,
+    FIELD_NEW_SIGNING_EXPIRY,
+    FIELD_OWNED_MULTIPLEXING,
+    FIELD_EXISTING_CONNECTIONS,
+    FIELD_NEW_AUTHENTICATION_EXPIRY,
+    FIELD_REVOCATION,
+    FIELD_REVOCATION_REMOTE,
+];
 
 // --- residuals (D7 items 2–3; §17.1 item 10) ------------------------------------------
 
@@ -348,6 +398,9 @@ pub struct ReportContext {
     /// ⟨M03-F1⟩ The running host: its platform, and the facts a claim's ranges are judged
     /// against (ADR-0008 D12 item 2; [`heimdall_domain::claims::applies`]).
     pub host: HostFacts,
+    /// ⟨M04 I-28⟩ The binding's endpoint kind (the grant's recorded terms): the claim table
+    /// covers `native` only.
+    pub endpoint: BindingEndpointKind,
     /// The grant's lock behaviour (its origin's).
     pub lock_behavior: LockBehavior,
     /// The effective connection policy.
@@ -485,7 +538,7 @@ pub fn compute(
     evidence: &[PairEvidence<'_>],
 ) -> ManagedReport {
     let platform = ctx.host.platform;
-    let has = |field: &str, value: &str| claimed(claims, &ctx.host, field, value);
+    let has = |field: &str, value: &str| claimed(claims, &ctx.host, ctx.endpoint, field, value);
     let deadline = grant.deadline.effective;
     let covered = prepared
         .certificates
@@ -552,6 +605,7 @@ pub fn compute(
                 server: Some(e.server.clone()),
                 observed_at: e.verified_at,
                 fresh_until: Some(e.fresh_until),
+                endpoint_kind: None,
             });
         }
     }
@@ -563,7 +617,7 @@ pub fn compute(
         (FIELD_REVOCATION, "bounded_by_credential_expiry"),
         (FIELD_REVOCATION_REMOTE, "bounded_by_credential_expiry"),
     ] {
-        if let Some(c) = claim(claims, &ctx.host, field, value) {
+        if let Some(c) = claim(claims, &ctx.host, ctx.endpoint, field, value) {
             entries.push(EvidenceEntry {
                 field: field.to_owned(),
                 source: EvidenceSource::ClaimTable,
@@ -574,6 +628,24 @@ pub fn compute(
                 server: None,
                 observed_at: ctx.now,
                 fresh_until: None,
+                endpoint_kind: None,
+            });
+        }
+    }
+    // ⟨M04 I-28⟩ Why every claim-table field reads `unknown` for this binding.
+    if !endpoint_covered(ctx.endpoint) {
+        for field in CLAIM_TABLE_FIELDS {
+            entries.push(EvidenceEntry {
+                field: field.to_owned(),
+                source: EvidenceSource::EndpointKindNotCovered,
+                pair: None,
+                record: None,
+                operation_id: None,
+                client: None,
+                server: None,
+                observed_at: ctx.now,
+                fresh_until: None,
+                endpoint_kind: Some(ctx.endpoint),
             });
         }
     }
@@ -613,7 +685,12 @@ pub fn compute(
         } else {
             NewSigningExpiry::Unknown
         }),
-        owned_multiplexing: Some(owned_multiplexing(&ctx.policy, &ctx.host, claims)),
+        owned_multiplexing: Some(owned_multiplexing(
+            &ctx.policy,
+            &ctx.host,
+            ctx.endpoint,
+            claims,
+        )),
         remote_processes: Some(RemoteProcesses::NotTerminated),
         unmanaged_connections: Some(UnmanagedConnections::NotControlled),
         issuer_isolation: Some(IssuerIsolation::SameUserProcess),
@@ -695,19 +772,29 @@ mod tests {
             multiplexing: MultiplexingMode::OwnedMasters,
         };
         assert_eq!(
-            owned_multiplexing(&ConnectionPolicy::default(), mac, &[]),
+            owned_multiplexing(
+                &ConnectionPolicy::default(),
+                mac,
+                BindingEndpointKind::Native,
+                &[]
+            ),
             OwnedMultiplexing::Disabled
         );
         assert_eq!(
-            owned_multiplexing(&masters, mac, &[]),
+            owned_multiplexing(&masters, mac, BindingEndpointKind::Native, &[]),
             OwnedMultiplexing::Unknown
         );
         assert_eq!(
-            owned_multiplexing(&ConnectionPolicy::default(), win, &[]),
+            owned_multiplexing(
+                &ConnectionPolicy::default(),
+                win,
+                BindingEndpointKind::Native,
+                &[]
+            ),
             OwnedMultiplexing::Disabled
         );
         assert_eq!(
-            owned_multiplexing(&masters, win, &[]),
+            owned_multiplexing(&masters, win, BindingEndpointKind::Native, &[]),
             OwnedMultiplexing::Unavailable
         );
     }

@@ -141,4 +141,9 @@ the matrix (the M03 claims precedent):
 ## 5. Open after the exit
 
 - The A03 Mode B lock row (the owner's idle window), added by a later records commit.
-- The claims update: a separate commit after this one (the records verify).
+- The claims update (ruling I-28), a separate commit after this one: **no new claim entries.** No M04
+  record runs a claimed field's tests on a new platform, OS release, client or build, and M04's WSL rows
+  are `wsl` hosts. The update fixes an over-claim instead: the claim table's entries hold only for
+  bindings with a native endpoint, the kind their records ran, so a WSL Mode B or container binding reads
+  every claim-table field `unknown`, with an `endpoint_kind_not_covered` reason naming its kind
+  (ADR-0008 D12 item 2).

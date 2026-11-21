@@ -20,8 +20,17 @@
 //! product-store claim (F03).
 //!
 //! **The M03 baseline table was empty**; the M03 claim update adds the A07 and A23 fields
-//! ([`CLAIMS`]). Keep each entry as one `Claim { … }` struct literal with every field
+//! ([`CLAIMS`]). ⟨I-28⟩ M04's claim update adds no entry: no M04 record runs a claimed
+//! field's tests on a new platform, OS release, client or build, and M04's WSL rows are `wsl`
+//! hosts. Keep each entry as one `Claim { … }` struct literal with every field
 //! written out, string literals only, so the validator can read it without a Rust parser.
+//!
+//! ⟨M04 I-28⟩ **Native endpoints only.** Every entry's record ran bindings with a native
+//! endpoint: the host's own verified client against the runtime's per-binding endpoint.
+//! [`endpoint_covered`] is the gate the report applies beside [`applies`]: a WSL Mode B or
+//! container binding reads every claim-table field `unknown`, whatever the host.
+
+pub use heimdall_contract::managed::BindingEndpointKind;
 
 /// The build profile of the run that produced a claim's evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -818,6 +827,18 @@ pub fn applies(claim: &Claim, host: &HostFacts) -> bool {
             .as_deref()
             .is_some_and(|v| client_in_range(v, &claim.client_versions))
         && signer_pinned(&host.signer_build, &claim.signer_builds)
+}
+
+/// ⟨M04 I-28⟩ Whether the claim table's entries can hold for a binding whose endpoint is of
+/// `kind`: only [`BindingEndpointKind::Native`]. Every entry's record ran native endpoint
+/// bindings; none covers a WSL Mode B binding (the distribution's OpenSSH through the bridge)
+/// or a container binding (the container's client through the mounted endpoint), so for those
+/// every claim-table field reads `unknown` (`not_verified` for `lock_continuity`) on every
+/// host. An entry for another kind would need its own platform row, its own evidence and a
+/// [`Claim`] field naming the kind. The host's checks ([`applies`]) are unchanged.
+#[must_use]
+pub fn endpoint_covered(kind: BindingEndpointKind) -> bool {
+    kind == BindingEndpointKind::Native
 }
 
 /// ⟨M03-F1⟩ The entries of `table` that apply on `host` ([`applies`]).

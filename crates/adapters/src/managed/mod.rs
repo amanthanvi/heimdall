@@ -90,10 +90,18 @@ pub fn managed_capabilities() -> BTreeSet<Capability> {
 }
 
 /// `lock_continuity` from the claim table for `host` (`Unknown` without an entry that
-/// applies there; ⟨M03-F1⟩ judged by its platform, OS release, client and build).
+/// applies there; ⟨M03-F1⟩ judged by its platform, OS release, client and build). The
+/// descriptor's advertisement, for a native endpoint binding: ⟨M04 I-28⟩ each binding's own
+/// report judges its endpoint kind, and a request's minimum is checked against that report.
 #[must_use]
 pub fn lock_continuity_from(claims: &[Claim], host: &HostFacts) -> LockContinuity {
-    if report::claimed(claims, host, report::FIELD_LOCK_CONTINUITY, "verified") {
+    if report::claimed(
+        claims,
+        host,
+        heimdall_contract::managed::BindingEndpointKind::Native,
+        report::FIELD_LOCK_CONTINUITY,
+        "verified",
+    ) {
         LockContinuity::Verified
     } else {
         LockContinuity::Unknown

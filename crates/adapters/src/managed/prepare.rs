@@ -44,13 +44,19 @@ use super::report::{
 use super::route;
 
 /// The terms of a grant the report needs (its origin's lock behaviour and the
-/// effective connection policy; U6-Q5).
+/// effective connection policy; U6-Q5; ⟨M04 I-28⟩ its binding's endpoint kind).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct GrantTerms {
     /// The lock behaviour recorded with the grant.
     pub lock_behavior: LockBehavior,
     /// The effective (strictest) connection policy.
     pub policy: ConnectionPolicy,
+    /// ⟨M04 I-28⟩ The kind of endpoint the grant's binding gets, from the grant's
+    /// environment (`report::endpoint_kind` of its placement). The claim table covers
+    /// `native` only, so a `wsl_mode_b` or `container` grant's report claims nothing. The
+    /// default is `native`, every M03 grant's; the runtime's store sources record each
+    /// grant's own.
+    pub endpoint: heimdall_contract::managed::BindingEndpointKind,
 }
 
 /// Everything the managed adapter reads (reading R6: the M02 `IntegrationSources`
@@ -715,6 +721,7 @@ pub fn outcome(
             platform,
             ..managed.host.clone().unwrap_or_else(|| default_host(None))
         },
+        endpoint: terms.endpoint,
         lock_behavior: terms.lock_behavior,
         policy: terms.policy,
         issuer_ready: issuer_ready(managed),

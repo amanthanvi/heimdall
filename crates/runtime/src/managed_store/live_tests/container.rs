@@ -147,6 +147,34 @@ pub(super) async fn ensure_in(
         .map(|c| c.data)
 }
 
+/// ⟨M04 I-28⟩ The result's `endpoint_kind_not_covered` entries: each field and the endpoint
+/// kind it names.
+pub(super) fn claim_reasons(
+    d: &EnsureData,
+) -> Vec<(
+    String,
+    Option<heimdall_contract::managed::BindingEndpointKind>,
+)> {
+    d.evidence
+        .iter()
+        .filter(|x| x.source == heimdall_contract::managed::EvidenceSource::EndpointKindNotCovered)
+        .map(|x| (x.field.clone(), x.endpoint_kind))
+        .collect()
+}
+
+/// ⟨M04 I-28⟩ One reason per claim-table field, each naming `kind`.
+pub(super) fn reasons_naming(
+    kind: heimdall_contract::managed::BindingEndpointKind,
+) -> Vec<(
+    String,
+    Option<heimdall_contract::managed::BindingEndpointKind>,
+)> {
+    heimdall_adapters::managed::report::CLAIM_TABLE_FIELDS
+        .iter()
+        .map(|f| ((*f).to_owned(), Some(kind)))
+        .collect()
+}
+
 fn entries(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .unwrap()
@@ -745,4 +773,40 @@ async fn a15_container_remove_cleans_only_owned_entries() {
     let listing = inspect_environments(&p, &caller()).await;
     assert_eq!(listing["items"][1]["state"], "removed");
     p.shutdown.cancel();
+}
+
+/// ⟨M04 I-28⟩ The claim gate's endpoint kind comes from the grant's environment, through the
+/// grant's recorded terms: a container binding's result carries one
+/// `endpoint_kind_not_covered` reason per claim-table field naming `container` and no
+/// claim-table entry, and a native binding's result in the same runtime carries no reason.
+/// (The report on a qualifying host is `integration_managed_adapter`'s
+/// `container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host`.)
+#[tokio::test]
+async fn a15_container_binding_result_names_its_endpoint_kind_for_the_claim_table() {
+    let w = Live::new();
+    let p = w.process_opts(Arc::new(NoStageHook), host_on()).await;
+    let native = w
+        .ensure(&p, "native", RequiredCapabilities::default())
+        .await
+        .unwrap_or_else(|e| panic!("native ensure: {} {}", e.code, e.message));
+    assert_eq!(
+        claim_reasons(&native),
+        vec![],
+        "a native binding has no reason"
+    );
+    let (id, _) = approved(&w, &p, "lab").await;
+    permit_ensures(&w, &id);
+    let c = ensure_in(&p, &id, "w-c", "r-c")
+        .await
+        .unwrap_or_else(|e| panic!("container ensure: {} {}", e.code, e.message));
+    assert_eq!(c.environment_id, id);
+    assert_eq!(
+        claim_reasons(&c),
+        reasons_naming(heimdall_contract::managed::BindingEndpointKind::Container)
+    );
+    assert!(
+        c.evidence
+            .iter()
+            .all(|x| x.source != heimdall_contract::managed::EvidenceSource::ClaimTable)
+    );
 }

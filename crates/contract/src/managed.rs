@@ -322,6 +322,44 @@ pub enum EvidenceSource {
     RuntimeVerification,
     /// A claim-table entry (ADR-0008 D12).
     ClaimTable,
+    /// ⟨M04 I-28⟩ Not evidence for a value but the reason the field reads `unknown`
+    /// (`not_verified` for `lock_continuity`): the claim table's entries cover bindings with a
+    /// native endpoint only, and this binding's endpoint is of the kind in
+    /// [`EvidenceEntry::endpoint_kind`].
+    EndpointKindNotCovered,
+}
+
+/// ⟨M04 I-28⟩ How a managed binding's clients reach its signer (ADR-0008 D12 item 2;
+/// ADR-0010 §3–§4). The claim table's entries hold only for `native`, the kind their records
+/// ran.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum BindingEndpointKind {
+    /// The runtime's own per-binding endpoint on this host, used by the host's own client.
+    /// A WSL Mode A consumer is one: its binding, endpoint and client (the in-box
+    /// `ssh.exe`) are the native Windows environment's (ADR-0010 §2 item 1).
+    #[default]
+    Native,
+    /// A WSL Mode B binding: the distribution's OpenSSH, through the bridge endpoint inside the
+    /// distribution (ADR-0010 §3).
+    WslModeB,
+    /// A container binding: the container's client, through the environment's mounted
+    /// endpoint (ADR-0010 §4).
+    Container,
 }
 
 /// One piece of evidence behind a reported value (§5 item 7).
@@ -351,6 +389,10 @@ pub struct EvidenceEntry {
     /// Fresh until.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fresh_until: Option<Timestamp>,
+    /// ⟨M04 I-28⟩ The binding's endpoint kind, for `endpoint_kind_not_covered`. Omitted
+    /// otherwise, so every M03 entry is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_kind: Option<BindingEndpointKind>,
 }
 
 /// `EnsureData.connection_policy` (§5 item 7; ADR-0008 D8 item 6).
