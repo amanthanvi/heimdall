@@ -192,6 +192,30 @@ class WrapperTests(unittest.TestCase):
             with self.assertRaisesRegex(ProtocolError, "unsupported schema major"):
                 client.request("inspect", subject="capabilities")
 
+    def test_rejects_malformed_success_payload(self):
+        for fields, error in [
+            ({}, r"data must be an object"),
+            ({"data": []}, r"data must be an object"),
+            ({"data": {}}, r"data\.items must be an array"),
+            ({"data": {"items": {}}}, r"data\.items must be an array"),
+        ]:
+            with self.subTest(fields=fields):
+                def script(conn):
+                    hello(conn)
+                    respond(conn, receive(conn), **fields)
+                    closed(conn)
+
+                with server(script) as endpoint, Client(endpoint, ENVIRONMENT) as client:
+                    with self.assertRaisesRegex(ProtocolError, error):
+                        client.request("inspect", subject="destinations")
+
+    def test_launch_failure_exit_class_uses_the_reason(self):
+        for error, expected in [({"reason": "not_executable"}, 126),
+                                ({"reason": "other"}, 127), ({}, 127)]:
+            with self.subTest(error=error):
+                result = code_defaults({"code": "LAUNCH_FAILED", "data": {"error": error}})
+                self.assertEqual(tuple(result), (expected, "none", False, "fix_request", False))
+
     def test_endpoint_and_peer_checks_run_before_requests(self):
         with listener() as (endpoint, sock):
             endpoint.parent.chmod(0o750)

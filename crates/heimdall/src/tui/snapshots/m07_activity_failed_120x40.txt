@@ -1,4 +1,5 @@
  1 Overview  2 Destinations  3 Profiles [4 Activity] 5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
+[!!] Stale: the decision list could not be read; it is shown as read 08:57:00Z (3 min ago)
 Pending decisions
 [!!] decision listing failed: INTERNAL_ERROR
   response exceeds the frame limit
@@ -8,7 +9,6 @@ Pending decisions
 Operations
   [!!] op_held1  setup.apply  outcome_unknown (held)
   [..] op_run1  ensure  running
-
 
 
 

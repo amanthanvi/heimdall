@@ -5,7 +5,7 @@ Static pass: just now
 Workspace: trusted (w)
 Here: this computer · 1 running
 Access: dev auto
-Lock: work continues · s stop
+Lock setting: continue · s stop
 > [!!] held op_held1: r retry · k keep
   [!!] decision dec_trust1: using access
   [!!] decision dec_ext1: more standing

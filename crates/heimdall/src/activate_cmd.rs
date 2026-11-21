@@ -52,6 +52,8 @@
 //! patterns before each use, falling back to their initial values, so a value a
 //! repository's tooling exported into the environment can neither make the hook print an
 //! error on every prompt nor stop it activating.
+//! PowerShell also gives the child and its stdout one shared 1500 ms budget and reads
+//! at most 256 bytes. The Rust hook's internal budget is still 1 s.
 //!
 //! **`activate` without `--hook`** is a foreground activation by working directory, as
 //! `run` without `--profile` is: `ensure` with `context`, the attended decision flow on a
@@ -700,7 +702,7 @@ esac
 pub(crate) const POWERSHELL_SCRIPT: &str = r#"# Heimdall shell integration for PowerShell (ADR-0011 section 3.2).
 # Enable it in $PROFILE with: Invoke-Expression ((& heimdall shell init powershell) -join "`n")
 # The hook runs when the prompt sees a new directory or access is due again.
-# It activates covered access, never prompts, and gives up after one second.
+# The Rust hook has a 1 s budget; this wrapper gives the child and stdout 1500 ms total.
 
 if (-not (Test-Path Function:__heimdall_original_prompt)) {
     Set-Item Function:global:__heimdall_original_prompt -Value $function:prompt
@@ -734,7 +736,8 @@ if (-not (Test-Path Function:__heimdall_original_prompt)) {
             if ($seq -isnot [string] -or $seq -cnotmatch $numberPattern) { $seq = '0' }
             if ($last -isnot [string] -or $last -cnotmatch $statePattern) { $last = 'none' }
 
-            $app = Get-Command -Name heimdall -CommandType Application | Select-Object -First 1
+            $app = Get-Command -Name heimdall -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+            if ($null -eq $app) { return $promptText }
             $global:__heimdall_pwd = $cwd
             if (-not $validDue) { $global:__heimdall_due = '0' }
             $launch = [Diagnostics.ProcessStartInfo]::new()
@@ -753,13 +756,36 @@ if (-not (Test-Path Function:__heimdall_original_prompt)) {
                 $launch.Arguments = "activate --hook --cwd `"$quotedCwd`" --shell-pid $PID --seq $seq --last $last"
             }
             # Leave stderr inherited so the runtime's status line reaches the console.
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            $stream = $null
             $child = [Diagnostics.Process]::Start($launch)
             try {
                 $child.StandardInput.Close()
-                $answer = $child.StandardOutput.ReadToEnd() -creplace '\r?\n\z', ''
-                $child.WaitForExit()
+                $remaining = 1500 - [int]$timer.ElapsedMilliseconds
+                if ($remaining -le 0 -or -not $child.WaitForExit($remaining)) { return $promptText }
+
+                # Read raw bytes so the cap holds even for multibyte output. A pipe
+                # inherited by another process can stay open after the child exits.
+                $stream = $child.StandardOutput.BaseStream
+                $bytes = [byte[]]::new(256)
+                $count = 0
+                while ($count -lt $bytes.Length) {
+                    $remaining = 1500 - [int]$timer.ElapsedMilliseconds
+                    if ($remaining -le 0) { return $promptText }
+                    $read = $stream.ReadAsync($bytes, $count, ($bytes.Length - $count))
+                    if (-not $read.Wait($remaining)) { return $promptText }
+                    if ($read.Result -eq 0) { break }
+                    $count += $read.Result
+                }
+                if ($count -eq $bytes.Length) { return $promptText }
+                $answer = [Text.Encoding]::UTF8.GetString($bytes, 0, $count) -creplace '\r?\n\z', ''
             } finally {
-                $child.Dispose()
+                try {
+                    if (-not $child.HasExited) { $child.Kill() }
+                } finally {
+                    if ($null -ne $stream) { $stream.Dispose() }
+                    $child.Dispose()
+                }
             }
             $state, $next, $recheck = $answer -csplit ' ', 3
             if ($state -cmatch $statePattern -and $next -cmatch $numberPattern -and $recheck -cmatch $numberPattern) {
@@ -1168,6 +1194,7 @@ mod tests {
             "& $answer",
             ". $answer",
             "redirectstandarderror",
+            "readtoend",
         ] {
             assert!(!code.contains(forbidden), "{forbidden}");
         }
@@ -1177,6 +1204,17 @@ mod tests {
         assert!(code.contains("$launch.useshellexecute = $false"));
         assert!(code.contains("$launch.redirectstandardinput = $true"));
         assert!(code.contains("$child.standardinput.close()"));
+        assert!(code.contains("-commandtype application -erroraction ignore"));
+        assert_eq!(
+            code.matches("1500 - [int]$timer.elapsedmilliseconds")
+                .count(),
+            2
+        );
+        assert!(code.contains("$child.waitforexit($remaining)"));
+        assert!(code.contains("$bytes = [byte[]]::new(256)"));
+        assert!(code.contains("$stream.readasync($bytes, $count, ($bytes.length - $count))"));
+        assert!(code.contains("$read.wait($remaining)"));
+        assert!(code.contains("if (-not $child.hasexited) { $child.kill() }"));
         assert!(code.contains("$state, $next, $recheck = $answer -csplit ' ', 3"));
     }
 }

@@ -1,9 +1,9 @@
  1 Overview  2 Destinations [3 Profiles] 4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
+[!!] Not read: the profile list could not be read; nothing is known from it
 0 total · / to search (never probes)
 [!!] profile listing failed: INTERNAL_ERROR
   response exceeds the frame limit
   nothing listed yet: no read has succeeded; failing since 09:00:20Z (just now)
-
 
 
 

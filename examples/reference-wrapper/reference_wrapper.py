@@ -46,7 +46,7 @@ class CodeDefaults(NamedTuple):
     success: bool
 
 
-# From schemas/public-api/codes.json. Reasons do not drive this example's decisions.
+# Default classes from schemas/public-api/codes.json.
 CODE_DEFAULTS = {
     "OK": CodeDefaults(0, "applied", False, "none", True),
     "ACCESS_READY": CodeDefaults(0, "applied", False, "use_binding", True),
@@ -126,16 +126,24 @@ def _check_schema(obj):
 def _envelope(value):
     env = _object(value, "envelope")
     _check_schema(env)
-    _string(env, "code")
+    code = _string(env, "code")
+    if CODE_DEFAULTS.get(code, UNKNOWN_CODE).success:
+        _object(env.get("data"), "data")
     return env
 
 
 def code_defaults(envelope, *, asynchronous=False):
-    """Classify by code. Read actual effect/operation details from the envelope."""
+    """Classify with CLI exit classes. Read actual effects from the envelope."""
     code = _string(envelope, "code")
     if code == "ACCEPTED" and not asynchronous:
         return CodeDefaults(5, "none", False, "observe", False)
-    return CODE_DEFAULTS.get(code, UNKNOWN_CODE)
+    defaults = CODE_DEFAULTS.get(code, UNKNOWN_CODE)
+    if code == "LAUNCH_FAILED":
+        data = envelope.get("data")
+        error = data.get("error") if isinstance(data, dict) else None
+        if isinstance(error, dict) and error.get("reason") == "not_executable":
+            return defaults._replace(exit_code=126)
+    return defaults
 
 
 def _event_type(event):
@@ -183,6 +191,15 @@ def open_unix(endpoint, timeout, *, peer_uid=_peer_uid):
     return conn
 
 
+def open_pipe(endpoint, timeout, **options):
+    """Open a Windows control pipe after `reference_wrapper_windows` checks it."""
+    import reference_wrapper_windows as windows  # Beside this file; needs its directory on sys.path.
+    try:
+        return windows.open_pipe(endpoint, timeout, **options)
+    except windows.PipeRefused as error:
+        raise ProtocolError(str(error)) from error
+
+
 def _read_exact(link, size):
     body = bytearray()
     while len(body) < size:
@@ -201,10 +218,11 @@ class Client:
     """One request in flight and one subscription per connection."""
 
     def __init__(self, endpoint, expected_environment, *, offered=CAPABILITIES, required=(),
-                 timeout=35.0, connector=open_unix):
+                 timeout=35.0, connector=None):
         if not isinstance(expected_environment, str) or not expected_environment:
             raise ValueError("the expected environment ID is required")
         offered, required = frozenset(offered), frozenset(required)
+        connector = connector or (open_pipe if sys.platform == "win32" else open_unix)
         self._link = connector(endpoint, min(timeout, 5.0))
         self._limit, self._seq, self._subscription = HELLO_LIMIT, 0, None
         try:
@@ -315,13 +333,17 @@ class Client:
         if kind == "wait" and not _uint(fields.get("wait_ms"), "wait_ms"):
             raise ValueError("wait_ms must be positive")
         result = self._result(self._exchange("request", request={**fields, **fixed}))
-        if kind == "events" and fields.get("cursor") is not None and code_defaults(result).success:
+        if code_defaults(result).success:
             try:
-                data = _object(result.get("data"), "data")
-                events = data.get("events")
-                if not isinstance(events, list):
-                    raise ProtocolError("events must be an array")
-                data["events"] = [event for event in events if _event_type(event) in EVENT_TYPES]
+                data = result["data"]
+                if kind == "inspect" and fields.get("subject") == "destinations":
+                    if not isinstance(data.get("items"), list):
+                        raise ProtocolError("data.items must be an array")
+                if kind == "events" and fields.get("cursor") is not None:
+                    events = data.get("events")
+                    if not isinstance(events, list):
+                        raise ProtocolError("data.events must be an array")
+                    data["events"] = [event for event in events if _event_type(event) in EVENT_TYPES]
             except ProtocolError:
                 self.close()
                 raise

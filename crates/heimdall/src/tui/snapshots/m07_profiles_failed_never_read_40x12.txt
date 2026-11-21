@@ -1,10 +1,10 @@
 [3 Profiles] 3/8 [!!] Needs attention
+[!!] not read: profile list
 0 total · / to search (never probes)
 [!!] profile listing failed
   INTERNAL_ERROR
   response exceeds the frame limit
   nothing listed yet: no read has succee
-
 
 
 

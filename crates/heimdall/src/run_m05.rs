@@ -57,11 +57,15 @@ async fn decided_ensure<S: Session, P: Prompter>(
         return refused.env;
     }
     let request = Request::Ensure(request.clone());
-    let mut env = s.request(request.clone()).await;
+    let mut env = s.request_with_wait(ctx, request.clone(), None).await;
     let mut stale_retries = 2;
     for _ in 0..MAX_DECISIONS {
         match crate::cli::approve_request(s, p, ctx, &request, env, &mut stale_retries).await {
-            Ok(_) => env = s.request(request.clone()).await,
+            Ok(decided) => {
+                env = s
+                    .request_with_wait(ctx, request.clone(), decided.operation_id.as_ref())
+                    .await;
+            }
             Err(env) => return env,
         }
     }

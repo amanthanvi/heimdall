@@ -1,0 +1,12 @@
+[8 Settings] 8/8 [!!] Needs attention
+[!!] not read: standing access list
+Default profile (a preference, never aut
+> [??] Default profile: not known (not r
+
+Standing access: pause, resume, lock beh
+  not known: the standing access list co
+
+When your desktop locks
+  [ i] Saved: continue (personal access)
+
+Enter change · ? help · q quit

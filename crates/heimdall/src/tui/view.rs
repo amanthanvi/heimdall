@@ -16,7 +16,9 @@
 //! do not fit side by side, and scroll above a prompt that stays fixed. The one place
 //! where drawing writes state is the report each such frame makes to the modal's
 //! [`Reading`]: which rows it drew, so the model can tell when the last one has been on
-//! screen.
+//! screen. ⟨M07⟩ A Settings change and the stop menu's confirmation are drawn by one
+//! renderer of their own ([`render_guarded_confirm`]), which also reports to their
+//! [`Seen`] whether this frame, counted by [`App::begin_frame`], drew them at all.
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::{
@@ -35,8 +37,8 @@ use super::data::{Decision, Runtime, clean};
 use super::keys::Key;
 use super::model::{
     AUTHORIZATION_TEXT, ActivityRow, App, AuthPrompt, DecisionPrompt, Health, Item, MAX_TYPED,
-    Modal, NONE_FOUND_TEXT, PROBE_LEVELS, ProbeView, Reading, RepairPrompt, Screen, Tab,
-    level_name,
+    Modal, NONE_FOUND_TEXT, PROBE_LEVELS, ProbeView, REFUSED_UNREAD, Reading, RepairPrompt, Screen,
+    Seen, Shown, Tab, level_name,
 };
 
 /// The decision text of a `DeclareInteraction` decision (ADR-0007 §7, verbatim).
@@ -81,6 +83,7 @@ impl Theme {
             Health::Working => Color::Yellow,
             Health::Attention => Color::Red,
             Health::Checking => Color::Blue,
+            Health::Unknown => Color::Magenta,
         })
     }
 
@@ -141,18 +144,35 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
     let theme = Theme {
         color: !app.no_color,
     };
+    // ⟨M07⟩ Every frame is counted, this early so that one with no room for any view
+    // counts too: a confirmation outside the decision modal's dispatch is accepted only
+    // if the latest frame drew it (`Seen`), and such a frame draws none.
+    let number = app.begin_frame();
     let area = frame.area();
     if area.width < 10 || area.height < 3 {
         frame.render_widget(Paragraph::new("terminal too small"), area);
         return;
     }
-    let [header, body, footer] = Layout::vertical([
+    // ⟨M07⟩ M07-W0-R03: a failed or stale read is said in a row of its own under the
+    // header, outside every list, so no scrolling hides it.
+    let notice = stale_notice(app, area.width < 60).filter(|_| area.height >= 5);
+    let [header, notice_area, body, footer] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(u16::from(notice.is_some())),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
     .areas(area);
     render_header(frame, app, header, theme);
+    if let Some(text) = notice {
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                text,
+                theme.fg(Color::Red).add_modifier(Modifier::BOLD),
+            )),
+            notice_area,
+        );
+    }
     match &app.screen {
         Screen::Tab(Tab::Overview) => render_overview(frame, app, body, theme),
         Screen::Tab(Tab::Destinations) => render_destinations(frame, app, body, theme),
@@ -167,11 +187,17 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
         ),
         Screen::Tab(Tab::Environments) => render_environments(frame, app, body, theme),
         Screen::Tab(Tab::Identities) => render_identities(frame, app, body, theme),
-        Screen::Tab(Tab::Settings) => render_settings(frame, app, body, theme),
+        Screen::Tab(Tab::Settings) => render_settings(frame, app, number, body, theme),
         Screen::Environment(id) => render_scrolled(
             frame,
             body,
             super::m07::environment_lines(app.catalog(), id, &read_when(app)),
+            app.scroll,
+        ),
+        Screen::Lock => render_scrolled(
+            frame,
+            body,
+            super::m07::lock_screen_lines(app.catalog(), &read_when(app)),
             app.scroll,
         ),
         Screen::Identity(id) => {
@@ -220,8 +246,14 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
             app.scroll,
         ),
     }
-    if let Some(modal) = &app.modal {
-        render_modal(frame, app, modal, body, theme);
+    match &app.modal {
+        // ⟨M07⟩ The stop menu's confirmation is drawn behind the reading guard, as a
+        // Settings change is (M07-W0-R01); the shared modal dispatch draws the rest.
+        Some(Modal::StopMenu(menu)) if let super::m05::StopPhase::Confirm(action) = &menu.phase => {
+            render_stop_confirm(frame, number, body, menu, action, theme);
+        }
+        Some(modal) => render_modal(frame, app, modal, body, theme),
+        None => {}
     }
     // After the modal: its footer hint reads what the modal's frame has just recorded.
     render_footer(frame, app, footer, theme);
@@ -280,6 +312,87 @@ fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
         }
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// ⟨M07⟩ M07-W0-R03: the compact indicator of a failed or stale read, or `None` when
+/// every listing shown was read in the latest refresh. It is drawn under the header on
+/// every screen. It says which case holds, in words (the codes are in the views' own error
+/// states):
+/// * the connection failed, or the runtime stopped after listings were read: everything
+///   shown is as it was last read, which it dates;
+/// * one listing could not be read: which, and whether its last good data is shown
+///   (stale) or nothing was ever read;
+/// * several: how many.
+fn stale_notice(app: &App, narrow: bool) -> Option<String> {
+    use super::m07::subject_words;
+    let c = app.catalog();
+    // What is on screen was last read at the oldest of the failed listings' good reads.
+    let last_good =
+        c.failures
+            .values()
+            .filter_map(|f| f.stale_from)
+            .min()
+            .or(if c.failures.is_empty() {
+                c.read_at
+            } else {
+                None
+            });
+    let disconnected = match app.runtime() {
+        Runtime::Failed(_) => Some(("Not connected", "S reconnects")),
+        Runtime::NotRunning if c.read_at.is_some() => Some(("The runtime stopped", "S starts it")),
+        _ => None,
+    };
+    if let Some((what, key)) = disconnected {
+        return Some(match (last_good, narrow) {
+            (Some(t), false) => format!(
+                "[!!] {what}: what is shown was read {} and may have changed · {key}",
+                when(app.now(), Some(t))
+            ),
+            (Some(t), true) => format!(
+                "[!!] {} · read {}",
+                if matches!(app.runtime(), Runtime::Failed(_)) {
+                    "not connected"
+                } else {
+                    "runtime stopped"
+                },
+                age(app.now(), t)
+            ),
+            (None, false) => {
+                format!("[!!] {what}: nothing has been read from the runtime · {key}")
+            }
+            (None, true) => "[!!] not connected: nothing read".to_owned(),
+        });
+    }
+    if app.runtime() != &Runtime::Connected {
+        return None;
+    }
+    let failed: Vec<_> = c.failures.iter().collect();
+    match failed.as_slice() {
+        [] => None,
+        [(name, f)] => {
+            let words = subject_words(name);
+            Some(match (f.stale_from, narrow) {
+                (Some(t), false) => format!(
+                    "[!!] Stale: the {words} could not be read; it is shown as read {}",
+                    when(app.now(), Some(t))
+                ),
+                (Some(_), true) => format!("[!!] stale: {words}"),
+                (None, false) => format!(
+                    "[!!] Not read: the {words} could not be read; nothing is known from it"
+                ),
+                (None, true) => format!("[!!] not read: {words}"),
+            })
+        }
+        many if narrow => Some(format!("[!!] {} lists stale or not read", many.len())),
+        many => Some(format!(
+            "[!!] {} lists could not be read ({}); what they show is stale or missing",
+            many.len(),
+            many.iter()
+                .map(|(name, _)| subject_words(name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
 }
 
 /// ⟨M07⟩ When the listings were read, for the new views' provenance lines.
@@ -344,14 +457,26 @@ pub(crate) fn screen_hints(app: &App) -> Vec<Hint> {
                 hint(&[Key::Enter], "Enter next", Some("Enter next")),
                 hint(&[Key::Esc], "Esc cancel", Some("Esc cancel")),
             ],
-            super::m07::SettingPhase::Confirm(_) => vec![
-                hint(
-                    &[Key::Char('y'), Key::Enter],
-                    "type yes, Enter",
-                    Some("type yes, Enter"),
-                ),
-                hint(&[Key::Esc], "Esc cancel", Some("Esc cancel")),
-            ],
+            super::m07::SettingPhase::Confirm(_) => {
+                let mut out = Vec::new();
+                // ⟨M07⟩ A confirmation that does not fit says how to read on.
+                if p.seen.reading.scrollable() {
+                    out.push(hint(
+                        &[Key::PageDown, Key::PageUp],
+                        "PgUp/PgDn read",
+                        Some("PgDn read"),
+                    ));
+                }
+                out.extend([
+                    hint(
+                        &[Key::Char('y'), Key::Enter],
+                        "type yes, Enter",
+                        Some("type yes, Enter"),
+                    ),
+                    hint(&[Key::Esc], "Esc cancel", Some("Esc cancel")),
+                ]);
+                out
+            }
         };
     }
     let waiting = || super::m05::pending_decision(app.catalog(), app.now()).is_some();
@@ -376,14 +501,29 @@ pub(crate) fn screen_hints(app: &App) -> Vec<Hint> {
             ]);
             out
         }
-        Screen::Tab(Tab::Destinations) => vec![
-            SEARCH,
-            hint(&[Key::Enter], "Enter detail", Some("Enter open")),
-            hint(&[Key::Char('c')], "c connect", None),
-            hint(&[Key::Char('p')], "p probes", None),
-            HELP,
-            QUIT,
-        ],
+        Screen::Tab(Tab::Destinations) => {
+            // ⟨M07⟩ M07-W0-R11: scoped to a grouped finding's destinations, the way out
+            // is named (and the narrow footer drops the search hint to keep `q`).
+            let scoped = app.scope().is_some();
+            let mut out = vec![
+                if scoped {
+                    hint(&[Key::Char('/')], "/ search", None)
+                } else {
+                    SEARCH
+                },
+                hint(&[Key::Enter], "Enter detail", Some("Enter open")),
+            ];
+            if scoped {
+                out.push(hint(&[Key::Esc], "Esc all", Some("Esc all")));
+            }
+            out.extend([
+                hint(&[Key::Char('c')], "c connect", None),
+                hint(&[Key::Char('p')], "p probes", None),
+                HELP,
+                QUIT,
+            ]);
+            out
+        }
         Screen::Tab(Tab::Profiles) => vec![
             SEARCH,
             hint(&[Key::Enter], "Enter detail", Some("Enter open")),
@@ -431,6 +571,7 @@ pub(crate) fn screen_hints(app: &App) -> Vec<Hint> {
         Screen::Profile(_)
         | Screen::Enrollment(_)
         | Screen::Environment(_)
+        | Screen::Lock
         | Screen::Identity(_) => vec![
             hint(UP_DOWN, "Up/Down scroll", Some("Up/Down scroll")),
             BACK,
@@ -524,24 +665,25 @@ fn modal_hint(app: &App) -> &'static str {
         Some(Modal::StopMenu(m)) => match m.phase {
             super::m05::StopPhase::Choose => "Up/Down or 1-4 choose · Enter select · Esc close",
             super::m05::StopPhase::Value => "type the value · Enter next · Esc cancel",
-            super::m05::StopPhase::Confirm(_) => "type yes, Enter · Esc cancel",
+            // ⟨M07⟩ A refused yes says why here (the status line is under the menu); a
+            // confirmation that does not fit says how to read on.
+            super::m05::StopPhase::Confirm(_) => match m.seen.refusal() {
+                Some(why) => why,
+                None if m.seen.shown(app.frame()) == Shown::TooSmall => {
+                    "enlarge the terminal · Esc cancel"
+                }
+                None if m.seen.reading.scrollable() => "PgDn read · type yes, Enter · Esc cancel",
+                None => "type yes, Enter · Esc cancel",
+            },
         },
         Some(Modal::Help) | None => "any key closes",
     }
 }
 
-/// Draw `lines` into `area`, keeping the `selected` line visible.
-fn render_list(frame: &mut Frame<'_>, area: Rect, lines: Vec<Line<'static>>, selected: usize) {
-    let height = usize::from(area.height.max(1));
-    let offset = selected.saturating_sub(height - 1);
-    let offset = u16::try_from(offset).unwrap_or(u16::MAX);
-    frame.render_widget(Paragraph::new(lines).scroll((offset, 0)), area);
-}
-
 /// ⟨M07⟩ Draw `header` then `rows` rows into `area`, keeping row `selected` visible,
 /// building only the lines that fit (`row(i)` builds row `i`): the per-frame work does
-/// not grow with the list (m07-plan U1, probe P2). The window is the one [`render_list`]
-/// shows for the same lines.
+/// not grow with the list (m07-plan U1, probe P2). The window keeps the selected line on
+/// the last row once it is past the first screenful.
 fn render_window(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -592,6 +734,15 @@ fn row(selected: bool, theme: Theme, mut spans: Vec<Span<'static>>) -> Line<'sta
 fn runtime_line(app: &App) -> String {
     match app.runtime() {
         Runtime::Connecting => "Runtime: connecting".to_owned(),
+        // ⟨M07⟩ M07-W0-R03: a refresh whose reads failed did not read the listings.
+        Runtime::Connected if !app.catalog().failures.is_empty() => format!(
+            "Runtime: connected; {} of its lists could not be read at the last refresh, {}",
+            app.catalog().failures.len(),
+            when(app.now(), app.catalog().read_at)
+        ),
+        Runtime::Connected if app.catalog().read_at.is_none() => {
+            "Runtime: connected; reading its lists".to_owned()
+        }
         Runtime::Connected => format!(
             "Runtime: connected; listings read {}",
             when(app.now(), app.catalog().read_at)
@@ -670,19 +821,37 @@ fn item_text(item: &Item) -> String {
         ),
         Item::SlotFree { alias } => super::m03::slot_free_line(alias),
         // ⟨M07⟩ Grouped: the count first, so narrow rows stay distinct (probe P4).
-        Item::Findings {
-            aliases, message, ..
-        } => match aliases.as_slice() {
-            [one] => format!("{one}: {message}"),
+        Item::Findings { aliases, .. } => match aliases.as_slice() {
+            [one] => format!("{one}: {}", finding_words(item)),
             many => format!(
-                "{} destinations: {message} (Enter: Destinations)",
-                many.len()
+                "{} destinations: {} (Enter: which ones)",
+                many.len(),
+                finding_words(item)
             ),
         },
-        Item::ListingFailed { subject, .. } => format!(
-            "the {} list could not be read (Enter for why; the last good list is kept)",
-            subject.trim_end_matches('s')
+        // ⟨M07⟩ M07-W0-R03: whether stale data is shown, or nothing was ever read.
+        Item::ListingFailed { subject, stale, .. } => format!(
+            "the {} could not be read (Enter for why; {})",
+            super::m07::subject_words(subject),
+            if *stale {
+                "the last good one is shown, stale"
+            } else {
+                "nothing was read from it yet"
+            }
         ),
+    }
+}
+
+/// ⟨M07⟩ M07-W0-R11: what a grouped finding says. When every finding of the group says
+/// the same thing, those words (the doctor's own); when they differ, the finding itself
+/// in words, never the first one's message as if it held for all.
+pub(crate) fn finding_words(item: &Item) -> String {
+    match item {
+        Item::Findings { message, mixed, .. } if !mixed => message.clone(),
+        Item::Findings { code, .. } => {
+            format!("{} (the details differ for each)", super::m07::spaced(code))
+        }
+        other => item_text(other),
     }
 }
 
@@ -703,7 +872,9 @@ fn item_text_narrow(item: &Item) -> String {
         Item::LateWrite { id } => format!("enrollment {id}: may have a late write"),
         Item::ProjectionPending { alias } => format!("{alias}: setup not applied"),
         Item::SlotFree { alias } => format!("{alias}: slot free"),
-        Item::ListingFailed { subject, .. } => format!("{subject}: could not be read"),
+        Item::ListingFailed { subject, .. } => {
+            format!("{}: not read", super::m07::subject_words(subject))
+        }
         _ => item_text(item),
     }
 }
@@ -735,11 +906,15 @@ fn render_overview(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     ])];
     lines.push(plain(if narrow {
         match app.runtime() {
+            Runtime::Connected if !app.catalog().failures.is_empty() => format!(
+                "Runtime: connected, {} list(s) unread",
+                app.catalog().failures.len()
+            ),
             Runtime::Connected => format!(
                 "Runtime: connected, read {}",
                 app.catalog()
                     .read_at
-                    .map_or_else(|| "?".to_owned(), |t| age(app.now(), t))
+                    .map_or_else(|| "not yet".to_owned(), |t| age(app.now(), t))
             ),
             Runtime::Connecting => "Runtime: connecting".to_owned(),
             Runtime::NotRunning => "Runtime: not running (S starts it)".to_owned(),
@@ -763,8 +938,10 @@ fn render_overview(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
         }
     }));
     // ⟨M05⟩ The working directory's workspace, when the runtime serves it.
+    // ⟨M07⟩ M07-W0-R03: marked stale when its latest read failed.
     if let Some(line) = super::m05::overview_line(app.catalog(), narrow) {
-        lines.push(plain(line));
+        let known = app.catalog().known(&[super::data::subject::WORKSPACE]);
+        lines.push(plain(format!("{line}{}", known.suffix())));
     }
     // ⟨M07⟩ Spec §12.1 and A30: this environment and its active work, which environment
     // has access, whether work continues while the desktop is locked, how to pause or stop.
@@ -780,13 +957,45 @@ fn render_overview(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     if !narrow || app.runtime() != &Runtime::Connected {
         lines.push(plain(super::m07::stop_line(narrow)));
     }
-    let header = lines.len();
     let selected = app.selection(Tab::Overview);
     if items.is_empty() {
-        lines.push(plain("  Nothing needs you; nothing is running."));
+        // ⟨M07⟩ M07-W0-R03: "nothing" is said only of lists that were read.
+        let read = app.runtime() == &Runtime::Connected && app.catalog().read_at.is_some();
+        lines.push(plain(match (app.reads_unknown(), read, narrow) {
+            (true, _, false) => {
+                "  What needs you is not known: the runtime's lists could not be read."
+            }
+            (true, _, true) => "  Not known: the lists were not read.",
+            (false, true, _) => "  Nothing needs you; nothing is running.",
+            (false, false, false) => {
+                "  Nothing is read from the runtime yet: what needs you there is not known."
+            }
+            (false, false, true) => "  Not known yet: nothing read so far.",
+        }));
     }
-    for (i, item) in items.iter().enumerate() {
-        lines.push(row(
+    let mut tail = Vec::new();
+    if !narrow && let Some(Item::Held { .. }) = selected.and_then(|i| items.get(i)) {
+        tail.push(plain(""));
+        tail.push(plain(format!(
+            "  r {}",
+            super::model::HeldRepair::Retry.sentence()
+        )));
+        tail.push(plain(format!(
+            "  k {}",
+            super::model::HeldRepair::Keep.sentence()
+        )));
+    }
+    // ⟨M07⟩ M07-W0-R06: only the rows in the window are built (the items can be as many
+    // as the destinations: one per pending projection or free slot).
+    let sections = vec![Section {
+        head: lines,
+        rows: items.len(),
+    }];
+    render_sections(frame, area, sections, tail, selected, |i| {
+        let Some(item) = items.get(i) else {
+            return Line::default();
+        };
+        row(
             selected == Some(i),
             theme,
             vec![
@@ -798,20 +1007,8 @@ fn render_overview(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
                     item_text(item)
                 }),
             ],
-        ));
-    }
-    if !narrow && let Some(Item::Held { .. }) = selected.and_then(|i| items.get(i)) {
-        lines.push(plain(""));
-        lines.push(plain(format!(
-            "  r {}",
-            super::model::HeldRepair::Retry.sentence()
-        )));
-        lines.push(plain(format!(
-            "  k {}",
-            super::model::HeldRepair::Keep.sentence()
-        )));
-    }
-    render_list(frame, area, lines, header + selected.unwrap_or(0));
+        )
+    });
 }
 
 // ---- lists ---------------------------------------------------------------------------
@@ -822,6 +1019,21 @@ fn search_line(app: &App, tab: Tab, shown: usize, total: usize, stale: bool) -> 
     } else {
         total.to_string()
     };
+    // ⟨M07⟩ M07-W0-R11: scoped to one grouped finding's destinations (counts and the way
+    // out first, so a narrow row keeps them).
+    if tab == Tab::Destinations
+        && let Some(scope) = app.scope()
+    {
+        let search = match app.search(tab) {
+            Some(s) if s.editing => format!(" · search: {}_", s.text),
+            Some(s) if !s.text.is_empty() => format!(" · filter: {}", s.text),
+            _ => String::new(),
+        };
+        return plain(format!(
+            "Finding: {shown} of {total} · Esc all{search} · {}",
+            scope.label
+        ));
+    }
     match app.search(tab) {
         Some(s) if s.editing => plain(format!("Search: {}_  ({shown} of {total})", s.text)),
         Some(s) if !s.text.is_empty() => plain(format!(
@@ -967,52 +1179,119 @@ fn render_profiles(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     });
 }
 
-fn render_activity(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
-    let rows = app.activity_rows();
-    let selected = app.selection(Tab::Activity);
-    let mut lines = vec![Line::styled("Pending decisions", theme.bold())];
-    let mut sel_line = 0;
-    // ⟨M07⟩ A failed read shows its error, never "none" (Q4).
-    let failed = |subject: &str| app.catalog().failure(subject);
-    if let Some(f) = failed(super::data::subject::DECISIONS) {
-        lines.extend(failure_lines(app, "decision", f, area.width, theme));
-    } else if app.catalog().decisions.is_empty() {
-        lines.push(plain("  none"));
+/// ⟨M07⟩ One section of a sectioned list: its heading lines, then `rows` rows.
+struct Section {
+    head: Vec<Line<'static>>,
+    rows: usize,
+}
+
+/// ⟨M07⟩ M07-W0-R06: draw `sections` (each its heading lines, then its rows; rows are
+/// numbered through the sections) and then `tail` into `area`, keeping row `selected`
+/// visible. Only the lines inside the window are built (`row(i)` builds row `i`), so a
+/// frame costs the window's height and the number of sections, whatever the rows' number.
+/// The window keeps the selected line on its last row once it is past the first
+/// screenful (as [`render_window`] does).
+fn render_sections(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    sections: Vec<Section>,
+    tail: Vec<Line<'static>>,
+    selected: Option<usize>,
+    mut row: impl FnMut(usize) -> Line<'static>,
+) {
+    let height = usize::from(area.height.max(1));
+    // The line the selected row is on.
+    let (mut line, mut first_row, mut sel_line) = (0, 0, 0);
+    for s in &sections {
+        if let Some(sel) = selected
+            && (first_row..first_row + s.rows).contains(&sel)
+        {
+            sel_line = line + s.head.len() + (sel - first_row);
+        }
+        line += s.head.len() + s.rows;
+        first_row += s.rows;
     }
-    let none_open = |lines: &mut Vec<Line<'static>>| match failed(super::data::subject::OPERATIONS)
-    {
-        Some(f) => lines.extend(failure_lines(app, "operation", f, area.width, theme)),
-        None => lines.push(plain("  none open")),
+    let first = sel_line.saturating_sub(height - 1);
+    let window = first..first + height;
+    let mut out = Vec::with_capacity(height);
+    let (mut line, mut first_row) = (0, 0);
+    for s in sections {
+        for h in s.head {
+            if window.contains(&line) {
+                out.push(h);
+            }
+            line += 1;
+        }
+        for at in window.start.max(line)..window.end.min(line + s.rows) {
+            out.push(row(first_row + (at - line)));
+        }
+        line += s.rows;
+        first_row += s.rows;
+    }
+    for t in tail {
+        if window.contains(&line) {
+            out.push(t);
+        }
+        line += 1;
+    }
+    frame.render_widget(Paragraph::new(out), area);
+}
+
+/// The Activity view: pending decisions, operations, enrollment records. ⟨M07⟩
+/// M07-W0-R06: each row is read from its listing by index and only the visible rows are
+/// built ([`render_sections`]); nothing here grows with the lists.
+fn render_activity(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
+    use super::data::subject;
+    let c = app.catalog();
+    let (decisions, operations, enrollments) = app.activity_counts();
+    let selected = app.selection(Tab::Activity);
+    // ⟨M07⟩ A failed read shows its error, never "none" (Q4).
+    let failed = |what: &str, name: &str| {
+        c.failure(name)
+            .map(|f| failure_lines(app, what, f, area.width, theme))
     };
-    let mut ops_header = false;
-    let mut enr_header = false;
-    for (i, r) in rows.iter().enumerate() {
-        let spans = match r {
-            ActivityRow::Enrollment(id) => {
-                if !ops_header {
-                    ops_header = true;
-                    lines.push(Line::styled("Operations", theme.bold()));
-                    none_open(&mut lines);
-                }
-                if !enr_header {
-                    enr_header = true;
-                    lines.push(Line::styled("Enrollments", theme.bold()));
-                    if let Some(f) = failed(super::data::subject::ENROLLMENTS) {
-                        lines.extend(failure_lines(app, "enrollment", f, area.width, theme));
-                    }
-                }
-                let e = app.catalog().m03.enrollments.iter().find(|e| &e.id == id);
+    let mut sections = Vec::new();
+    let mut head = vec![Line::styled("Pending decisions", theme.bold())];
+    match failed("decision", subject::DECISIONS) {
+        Some(lines) => head.extend(lines),
+        None if decisions == 0 => head.push(plain("  none")),
+        None => {}
+    }
+    sections.push(Section {
+        head,
+        rows: decisions,
+    });
+    let mut head = vec![Line::styled("Operations", theme.bold())];
+    match failed("operation", subject::OPERATIONS) {
+        Some(lines) => head.extend(lines),
+        None if operations == 0 => head.push(plain("  none open")),
+        None => {}
+    }
+    sections.push(Section {
+        head,
+        rows: operations,
+    });
+    let enrollments_failed = failed("enrollment", subject::ENROLLMENTS);
+    if enrollments > 0 || enrollments_failed.is_some() {
+        let mut head = vec![Line::styled("Enrollments", theme.bold())];
+        head.extend(enrollments_failed.unwrap_or_default());
+        sections.push(Section {
+            head,
+            rows: enrollments,
+        });
+    }
+    render_sections(frame, area, sections, Vec::new(), selected, |i| {
+        let spans = match app.activity_row(i) {
+            Some(ActivityRow::Enrollment(at)) => {
+                let e = c.m03.enrollments.get(at);
                 let (marker, _) = e.map_or(("[??]", ""), |e| super::m03::state_class(&e.state));
                 vec![
                     Span::styled(marker, theme.fg(Color::Red)),
-                    Span::raw(e.map_or_else(
-                        || format!(" {id}"),
-                        |e| super::m03::enrollment_row(app.catalog(), e),
-                    )),
+                    Span::raw(e.map_or_else(String::new, |e| super::m03::enrollment_row(c, e))),
                 ]
             }
-            ActivityRow::Decision(id) => {
-                let d = app.catalog().decisions.iter().find(|d| &d.id == id);
+            Some(ActivityRow::Decision(at)) => {
+                let d = c.decisions.get(at);
                 let expiry = d.and_then(|d| d.expires_at).map_or_else(String::new, |t| {
                     format!("  expires {} ({})", hms(t), age(app.now(), t))
                 });
@@ -1021,21 +1300,15 @@ fn render_activity(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
                 vec![
                     Span::styled(if expired { "[--]" } else { "[!!]" }, theme.fg(Color::Red)),
                     Span::raw(format!(
-                        " {id}  {}{expiry}{}",
+                        " {}  {}{expiry}{}",
+                        d.map_or("?", |d| d.id.as_str()),
                         d.map_or("?", |d| d.kind.as_str()),
                         if expired { " (expired)" } else { "" }
                     )),
                 ]
             }
-            ActivityRow::Operation(id) => {
-                if !ops_header {
-                    ops_header = true;
-                    lines.push(Line::styled("Operations", theme.bold()));
-                    if let Some(f) = failed(super::data::subject::OPERATIONS) {
-                        lines.extend(failure_lines(app, "operation", f, area.width, theme));
-                    }
-                }
-                let o = app.catalog().operations.iter().find(|o| &o.id == id);
+            Some(ActivityRow::Operation(at)) => {
+                let o = c.operations.get(at);
                 let (marker, color) = match o {
                     Some(o) if o.is_held() || o.is_unresolved() => ("[!!]", Color::Red),
                     Some(o) if o.is_active() => ("[..]", Color::Yellow),
@@ -1044,7 +1317,8 @@ fn render_activity(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
                 vec![
                     Span::styled(marker, theme.fg(color)),
                     Span::raw(format!(
-                        " {id}  {}  {}{}",
+                        " {}  {}  {}{}",
+                        o.map_or("?", |o| o.id.as_str()),
                         o.map_or("?", |o| o.kind.as_str()),
                         o.map_or("?", |o| o.state.as_str()),
                         if o.is_some_and(super::data::Operation::is_held) {
@@ -1055,21 +1329,10 @@ fn render_activity(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
                     )),
                 ]
             }
+            None => Vec::new(),
         };
-        if selected == Some(i) {
-            sel_line = lines.len();
-        }
-        lines.push(row(selected == Some(i), theme, spans));
-    }
-    if !ops_header {
-        lines.push(Line::styled("Operations", theme.bold()));
-        none_open(&mut lines);
-    }
-    if !enr_header && let Some(f) = failed(super::data::subject::ENROLLMENTS) {
-        lines.push(Line::styled("Enrollments", theme.bold()));
-        lines.extend(failure_lines(app, "enrollment", f, area.width, theme));
-    }
-    render_list(frame, area, lines, sel_line);
+        row(selected == Some(i), theme, spans)
+    });
 }
 
 // ---- ⟨M07⟩ environments, identities, settings ----------------------------------------
@@ -1149,73 +1412,118 @@ fn render_identities(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme)
     });
 }
 
-fn render_settings(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
-    use super::m07::SettingRow;
+/// The Settings view. ⟨M07⟩ M07-W0-R06: the rows are the model's cached ones
+/// (`App::setting_rows`, built once per change of the listings; a connection row is its
+/// destination's index, so no row is looked up by alias), the sections' sizes come from
+/// the few rows before the lock row, and only the visible rows are built.
+fn render_settings(frame: &mut Frame<'_>, app: &App, number: u64, area: Rect, theme: Theme) {
+    use super::data::subject;
+    use super::m07::{SettingPhase, SettingRow, unread_note};
     let catalog = app.catalog();
     let rows = app.setting_rows();
     let selected = app.selection(Tab::Settings);
-    let mut lines = Vec::new();
-    let mut sel_line = 0;
-    let title = |row: &SettingRow| match row {
-        SettingRow::DefaultProfile { .. } => "Default profile (a preference, never authority)",
-        SettingRow::Policy { .. } => "Standing access: pause, resume, lock behaviour, connections",
-        SettingRow::Lock => "When your desktop locks",
-        SettingRow::Connection { .. } => "Connections at the deadline (each managed destination)",
-    };
-    let mut prev: Option<&SettingRow> = None;
-    for (i, r) in rows.iter().enumerate() {
-        let new_section =
-            prev.is_none_or(|p| std::mem::discriminant(p) != std::mem::discriminant(r));
-        if new_section {
-            // No policy rows: the standing-access heading still says why.
-            if matches!(r, SettingRow::Lock)
-                && !prev.is_some_and(|p| matches!(p, SettingRow::Policy { .. }))
-            {
-                lines.push(plain(""));
-                lines.push(Line::styled(
-                    title(&SettingRow::Policy { id: String::new() }),
-                    theme.bold(),
-                ));
-                lines.push(plain(match catalog.m05.policies {
-                    None => "  not listed by this runtime",
-                    Some(_) => "  none",
-                }));
-            }
-            if !lines.is_empty() {
-                lines.push(plain(""));
-            }
-            lines.push(Line::styled(title(r), theme.bold()));
-        }
-        let (marker, text) = super::m07::setting_row(catalog, app.now(), r);
-        if selected == Some(i) {
-            sel_line = lines.len();
-        }
-        lines.push(row(
-            selected == Some(i),
-            theme,
-            vec![
-                Span::styled(marker, marker_style(marker, theme)),
-                Span::raw(format!(" {text}")),
-            ],
-        ));
-        prev = Some(r);
-    }
-    if !rows
+    // The rows come in sections: default profiles, standing access, the lock row, then
+    // one row per managed destination.
+    let defaults = rows
         .iter()
-        .any(|r| matches!(r, SettingRow::Connection { .. }))
-    {
-        lines.push(plain(""));
-        lines.push(Line::styled(
-            "Connections at the deadline (each managed destination)",
-            theme.bold(),
+        .take_while(|r| matches!(r, SettingRow::DefaultProfile { .. }))
+        .count();
+    let policies = rows[defaults..]
+        .iter()
+        .take_while(|r| matches!(r, SettingRow::Policy { .. }))
+        .count();
+    let lock = usize::from(rows.get(defaults + policies) == Some(&SettingRow::Lock));
+    let connections = rows.len() - defaults - policies - lock;
+    let heading = |text: &'static str, blank: bool| {
+        let mut head = Vec::new();
+        if blank {
+            head.push(plain(""));
+        }
+        head.push(Line::styled(text, theme.bold()));
+        head
+    };
+    let mut sections = vec![Section {
+        head: heading("Default profile (a preference, never authority)", false),
+        rows: defaults,
+    }];
+    // No policy rows: the standing-access heading still says why (M07-W0-R03: "none"
+    // only of a list that was read).
+    let mut head = heading(
+        "Standing access: pause, resume, lock behaviour, connections",
+        true,
+    );
+    if policies == 0 {
+        head.push(plain(
+            match (
+                unread_note(catalog, subject::POLICIES),
+                &catalog.m05.policies,
+            ) {
+                (Some(why), _) => format!("  {why}"),
+                (None, None) => "  not listed by this runtime".to_owned(),
+                (None, Some(_)) => "  none".to_owned(),
+            },
         ));
-        lines.push(plain("  no managed destinations"));
     }
-    let detail = selected
-        .and_then(|i| rows.get(i))
-        .map(|r| super::m07::setting_detail(catalog, r, &read_when(app)))
-        .unwrap_or_default();
+    sections.push(Section {
+        head,
+        rows: policies,
+    });
+    sections.push(Section {
+        head: heading("When your desktop locks", true),
+        rows: lock,
+    });
+    let mut head = heading(
+        "Connections at the deadline (each managed destination)",
+        true,
+    );
+    if connections == 0 {
+        head.push(plain(match unread_note(catalog, subject::DESTINATIONS) {
+            Some(why) => format!("  {why}"),
+            None => "  no managed destinations".to_owned(),
+        }));
+    }
+    sections.push(Section {
+        head,
+        rows: connections,
+    });
+    let draw_list = |frame: &mut Frame<'_>, area: Rect, tail: Vec<Line<'static>>| {
+        render_sections(frame, area, sections, tail, selected, |i| {
+            let Some(r) = rows.get(i) else {
+                return Line::default();
+            };
+            let (marker, text) = super::m07::setting_row(catalog, app.now(), r);
+            row(
+                selected == Some(i),
+                theme,
+                vec![
+                    Span::styled(marker, marker_style(marker, theme)),
+                    Span::raw(format!(" {text}")),
+                ],
+            )
+        });
+    };
     match &app.settings {
+        // ⟨M07⟩ M07-W0-R01: the confirmation, behind the reading guard.
+        Some(prompt) if let SettingPhase::Confirm(action) = &prompt.phase => {
+            let confirm = Guarded {
+                title: "Change a setting",
+                content: super::m07::confirm_lines(app.catalog(), app.now(), action),
+                ask: super::m07::confirm_ask(&prompt.input),
+                ask_full: super::m07::confirm_ask(&full_answer()),
+                seen: &prompt.seen,
+                covered: app.modal.is_some(),
+                too_small: SETTING_TOO_SMALL,
+                width: area.width,
+            };
+            // The box sits under the list, which keeps the rows above it.
+            let place = |frame: &mut Frame<'_>, height: u16| {
+                let [list_area, box_area] =
+                    Layout::vertical([Constraint::Min(0), Constraint::Length(height)]).areas(area);
+                draw_list(frame, list_area, Vec::new());
+                box_area
+            };
+            render_guarded_confirm(frame, number, area, confirm, place, theme);
+        }
         Some(prompt) => {
             let content = super::m07::prompt_lines(prompt);
             let inner = area.width.saturating_sub(2).max(1);
@@ -1225,7 +1533,7 @@ fn render_settings(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
                 .min(area.height);
             let [list_area, prompt_area] =
                 Layout::vertical([Constraint::Min(0), Constraint::Length(height)]).areas(area);
-            render_list(frame, list_area, lines, sel_line);
+            draw_list(frame, list_area, Vec::new());
             frame.render_widget(Clear, prompt_area);
             let block = Block::new()
                 .borders(Borders::ALL)
@@ -1235,7 +1543,7 @@ fn render_settings(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
             // A prompt that does not fit keeps on screen the change being chosen, or
             // the line being typed (it loses its top rows).
             let through = match prompt.phase {
-                super::m07::SettingPhase::Choose => (prompt.selected + 2).min(content.len()),
+                SettingPhase::Choose => (prompt.selected + 2).min(content.len()),
                 _ => content.len(),
             };
             let rows_needed = wrapped_rows(&content[..through], inner);
@@ -1248,14 +1556,199 @@ fn render_settings(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
             );
         }
         None => {
-            let mut all = lines;
-            if !detail.is_empty() {
-                all.push(plain(""));
-                all.extend(detail);
+            // The selected row's detail, under the list.
+            let mut tail = Vec::new();
+            if let Some(r) = selected.and_then(|i| rows.get(i)) {
+                tail.push(plain(""));
+                tail.extend(wrap_lines(
+                    &super::m07::setting_detail(catalog, r, &read_when(app)),
+                    usize::from(area.width.max(1)),
+                ));
             }
-            render_list(frame, area, all, sel_line);
+            draw_list(frame, area, tail);
         }
     }
+}
+
+/// ⟨M07⟩ What the Settings confirmation says when the terminal cannot show it.
+const SETTING_TOO_SMALL: &str =
+    "[!!] Too small to show this change. Enlarge the terminal: nothing is sent. Esc cancels.";
+
+/// ⟨M07⟩ What the stop menu's confirmation says when the terminal cannot show it.
+const STOP_TOO_SMALL: &str =
+    "[!!] Too small to show this action. Enlarge the terminal: nothing is sent. Esc cancels.";
+
+/// ⟨M07⟩ A typed confirmation behind the reading guard, before layout (M07-W0-R01): a
+/// Settings change, or a pause, a stop or a cutoff of the stop menu.
+struct Guarded<'a> {
+    /// The box's title.
+    title: &'static str,
+    /// What is confirmed, one logical line per entry: the action, its exact effect and
+    /// its target.
+    content: Vec<Line<'static>>,
+    /// The fixed prompt line with what was typed.
+    ask: Line<'static>,
+    /// The prompt line with the longest answer typed, so its rows, and the room left for
+    /// the content, do not change as the owner types.
+    ask_full: Line<'static>,
+    /// The confirmation's drawn-frame marker, which this frame reports to.
+    seen: &'a Seen,
+    /// Whether this frame draws a modal over the confirmation.
+    covered: bool,
+    /// What the frame says instead when it has no room for the confirmation.
+    too_small: &'static str,
+    /// The outer width of the box.
+    width: u16,
+}
+
+/// ⟨M07⟩ M07-W0-R01: lay a guarded confirmation out, draw it and report what frame
+/// `number` drew of it to its marker ([`Seen`], and its [`Reading`]).
+///
+/// The content is wrapped, never cut, and scrolls above the prompt line, which stays
+/// fixed and keeps the rows its longest answer needs. The model accepts a typed `yes`
+/// only when the latest frame drew the prompt with a window of the content, and the
+/// frames so far have drawn every content row. So:
+/// * a frame with no room in `area` for the prompt and one content row draws a notice
+///   instead and reports `TooSmall` (nothing can be confirmed until the terminal is
+///   larger);
+/// * a frame that draws a modal over the confirmation reports `Nothing` and records no
+///   rows;
+/// * the content's fingerprint includes the width it was wrapped to and everything the
+///   lines say, so a resize or a listing that changes the target must be read again.
+///
+/// `place` is given the box's height and returns where it goes (`width` wide), after
+/// drawing what stays around it.
+fn render_guarded_confirm(
+    frame: &mut Frame<'_>,
+    number: u64,
+    area: Rect,
+    confirm: Guarded<'_>,
+    place: impl FnOnce(&mut Frame<'_>, u16) -> Rect,
+    theme: Theme,
+) {
+    let Guarded {
+        title,
+        content,
+        ask,
+        ask_full,
+        seen,
+        covered,
+        too_small,
+        width,
+    } = confirm;
+    let report = |shown: Shown| seen.report(number, if covered { Shown::Nothing } else { shown });
+    let inner_width = usize::from(width.saturating_sub(2)).max(1);
+    let rows = wrap_lines(&content, inner_width);
+    let ask = wrap_lines(&[ask], inner_width);
+    let reserve = wrap_lines(&[ask_full], inner_width).len().max(ask.len());
+    let most = usize::from(area.height).saturating_sub(2);
+    if most < reserve + 1 {
+        report(Shown::TooSmall);
+        frame.render_widget(Clear, area);
+        frame.render_widget(
+            Paragraph::new(Line::styled(too_small, theme.bold())).wrap(Wrap { trim: false }),
+            area,
+        );
+        return;
+    }
+    let room = most - reserve;
+    let height = u16::try_from(rows.len().clamp(1, room) + reserve + 2).unwrap_or(area.height);
+    let box_area = place(frame, height);
+    frame.render_widget(Clear, box_area);
+    let mut block = Block::new()
+        .borders(Borders::ALL)
+        .title(Span::styled(title, theme.bold()));
+    let inner = block.inner(box_area);
+    let ask_height = u16::try_from(reserve).unwrap_or(u16::MAX);
+    let [content_area, ask_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(ask_height)]).areas(inner);
+    // What is drawn is what is recorded: the clamped offset and the rows that fit.
+    let viewport = usize::from(content_area.height);
+    let scroll = seen.reading.scroll.min(rows.len().saturating_sub(viewport));
+    let end = (scroll + viewport).min(rows.len());
+    let whole: Vec<String> = rows.iter().map(ToString::to_string).collect();
+    let mut parts: Vec<&str> = whole.iter().map(String::as_str).collect();
+    let width_text = inner_width.to_string();
+    parts.push(&width_text);
+    // A box with less room than the layout asked for (rows or columns) shows a cut
+    // confirmation: that is not shown.
+    let cut = viewport == 0
+        || usize::from(ask_area.height) < ask.len()
+        || usize::from(inner.width) < inner_width;
+    if covered || cut {
+        report(Shown::TooSmall);
+    } else {
+        seen.reading
+            .record(fingerprint(&parts), rows.len(), viewport, scroll);
+        report(Shown::Drawn);
+    }
+    let below = rows.len() - end;
+    let status = if let Some(why) = seen.refusal() {
+        Some(Line::styled(
+            if why == REFUSED_UNREAD {
+                " yes refused: read it all first (PgUp/PgDn) "
+            } else {
+                " yes refused: it was not on screen "
+            },
+            theme.bold(),
+        ))
+    } else if below > 0 {
+        Some(Line::styled(
+            format!(
+                " {below} more {} below (PgDn) ",
+                if below == 1 { "row" } else { "rows" }
+            ),
+            theme.dim(),
+        ))
+    } else if rows.len() > viewport && !covered && !seen.reading.all_shown() {
+        // At the end with rows above not drawn yet (a jump, or a re-wrap).
+        Some(Line::styled(" read from the top (Home) ", theme.dim()))
+    } else {
+        (rows.len() > viewport).then(|| Line::styled(" end of the content ", theme.dim()))
+    };
+    if let Some(status) = status {
+        block = block.title_bottom(status);
+    }
+    frame.render_widget(block, box_area);
+    frame.render_widget(Paragraph::new(rows[scroll..end].to_vec()), content_area);
+    frame.render_widget(Paragraph::new(ask), ask_area);
+}
+
+/// ⟨M07⟩ The stop menu's confirmation (pause, stop this work, stop all for a profile,
+/// cutoff), drawn behind the reading guard in the menu's place: the same centred box,
+/// with the action and its target ([`super::m05::stop_confirm_lines`]) wrapped and
+/// scrolling above the fixed prompt, and what frame `number` drew reported to the menu
+/// ([`super::m05::StopMenu::unseen`]). The shared modal dispatch draws the menu's other
+/// phases, and nothing is ever drawn over a modal.
+fn render_stop_confirm(
+    frame: &mut Frame<'_>,
+    number: u64,
+    body: Rect,
+    menu: &super::m05::StopMenu,
+    action: &super::m05::StopAction,
+    theme: Theme,
+) {
+    let width = body.width.saturating_sub(2).clamp(10, 110).min(body.width);
+    let confirm = Guarded {
+        title: "Pause or stop access",
+        content: super::m05::stop_confirm_lines(menu, action),
+        ask: super::m05::stop_confirm_ask(&menu.input),
+        ask_full: super::m05::stop_confirm_ask(&full_answer()),
+        seen: &menu.seen,
+        covered: false,
+        too_small: STOP_TOO_SMALL,
+        width,
+    };
+    let place = |_: &mut Frame<'_>, height: u16| {
+        let height = height.min(body.height);
+        Rect::new(
+            body.x + (body.width - width) / 2,
+            body.y + (body.height - height) / 2,
+            width,
+            height,
+        )
+    };
+    render_guarded_confirm(frame, number, body, confirm, place, theme);
 }
 
 // ---- details -------------------------------------------------------------------------
@@ -2686,7 +3179,85 @@ mod tests {
         out.push(("m07_activity_failed", a));
         out.push(("m07_overview_grouped", grouped_app(100)));
         out.extend(m07_screens());
+        out.extend(w1_screens());
         out
+    }
+
+    /// Every listing the worker reads, by its name in the failure cache.
+    const SUBJECTS: [&str; 12] = [
+        "destinations",
+        "profiles",
+        "identities",
+        "operations",
+        "decisions",
+        "projections",
+        "enrollments",
+        "connections",
+        "capabilities",
+        "environments",
+        "policies",
+        "workspace",
+    ];
+
+    /// What the worker publishes when the session drops after good reads (M07-W0-R03):
+    /// the connection failed, and every listing keeps its last good data, marked failed.
+    fn disconnected(app: &App) -> App {
+        use crate::tui::model::Update;
+        let mut app = app.clone();
+        app.apply(Update::Runtime(Runtime::Failed(
+            "the runtime closed the connection".to_owned(),
+        )));
+        let mut stale = app.catalog().clone();
+        for name in SUBJECTS {
+            stale.failures.insert(
+                name.to_owned(),
+                crate::tui::data::ListingFailure {
+                    code: "SERVICE_UNAVAILABLE".to_owned(),
+                    message: "the runtime closed the connection".to_owned(),
+                    since: crate::tui::model::tests::t("2026-11-03T09:00:28Z"),
+                    stale_from: Some(crate::tui::model::tests::t("2026-11-03T09:00:25Z")),
+                },
+            );
+        }
+        app.apply(Update::Catalog(Box::new(stale)));
+        app
+    }
+
+    /// ⟨M07⟩ The W1 review fixes' screens: the lock detail (R04), the overview after a
+    /// dropped session and Settings with a policy list that was never read (R03), and the
+    /// Destinations list scoped to a grouped finding (R11).
+    fn w1_screens() -> Vec<(&'static str, App)> {
+        use crate::tui::m07::{SettingRow, fixtures};
+        let base = fixtures::app();
+        let mut lock = base.clone();
+        press(&mut lock, &[Key::Char('8')]);
+        lock.selected[Tab::Settings.index()] = lock
+            .setting_rows()
+            .iter()
+            .position(|r| *r == SettingRow::Lock)
+            .unwrap();
+        press(&mut lock, &[Key::Enter]);
+        lock.status = None;
+        let mut unread = base.clone();
+        let c = unread.catalog_mut();
+        c.m05.policies = None;
+        c.m05.default_profiles.clear();
+        c.failures
+            .insert("policies".to_owned(), frame_limit_failure(false));
+        press(&mut unread, &[Key::Char('8')]);
+        let mut scoped = grouped_app(100);
+        scoped.selected[0] = scoped
+            .overview_items()
+            .iter()
+            .position(|i| matches!(i, Item::Findings { .. }))
+            .unwrap();
+        press(&mut scoped, &[Key::Enter]);
+        vec![
+            ("m07_lock", lock),
+            ("m07_overview_disconnected", disconnected(&base)),
+            ("m07_settings_policies_unread", unread),
+            ("m07_destinations_scoped", scoped),
+        ]
     }
 
     /// ⟨M07⟩ U1b's views (m07-plan U1 "Snapshots of the new views"): the overview with
@@ -2880,10 +3451,10 @@ mod tests {
         }
         let settings = text("m07_settings");
         for marker in [
-            "[OK] Default profile of this computer: dev",
+            "[OK] Default profile: dev · this computer",
             "> [OK] pol-ws1 · profile dev · project · automatic",
             "[!!] pol-per1 · profile dev · personal · paused since",
-            "[ i] Now: work continues while your desktop is locked",
+            "[ i] Saved: continue (personal access)",
             "[ i] alpha: existing sessions may stay connected after the deadline",
         ] {
             assert!(settings.contains(marker), "{marker}: {settings}");
@@ -2952,6 +3523,15 @@ mod tests {
             q.id = "web".to_owned();
             a.catalog_mut().profiles.extend([p, q]);
         }
+        // The Destinations list scoped to a grouped finding (Esc shows all).
+        let mut scoped = grouped_app(100);
+        scoped.selected[0] = scoped
+            .overview_items()
+            .iter()
+            .position(|i| matches!(i, Item::Findings { .. }))
+            .unwrap();
+        press(&mut scoped, &[Key::Enter]);
+        out.push(("scoped destinations", scoped));
         let mut prompt = on(&[Key::Char('8'), Key::Down, Key::Enter]);
         if let Some(p) = &mut prompt.settings {
             p.selected = 1;
@@ -2970,6 +3550,11 @@ mod tests {
             ("profile detail", &[Key::Char('3'), Key::Enter]),
             ("environment detail", &[Key::Char('6'), Key::Enter]),
             ("identity detail", &[Key::Char('7'), Key::Enter]),
+            // Settings rows of the fixture: own default, two policies, then the lock row.
+            (
+                "lock detail",
+                &[Key::Char('8'), Key::Down, Key::Down, Key::Down, Key::Enter],
+            ),
             ("workspace", &[Key::Char('w')]),
             ("policies", &[Key::Char('h')]),
             // The held operation (r, k) and the running one (x).
@@ -3018,6 +3603,7 @@ mod tests {
             || a.scroll != app.scroll
             || a.status != app.status
             || a.settings != app.settings
+            || a.scope() != app.scope()
             || a.search(a.tab) != app.search(app.tab)
     }
 
@@ -3123,17 +3709,21 @@ mod tests {
     /// screens listed below, where the advanced words and codes belong.
     #[test]
     fn default_surfaces_use_everyday_vocabulary() {
-        const DEFAULT: [&str; 7] = [
+        const DEFAULT: [&str; 8] = [
             "overview",
             "first_frame",
             "m07_overview_grouped",
             "m07_overview",
+            "m07_overview_disconnected",
             "m07_first_trust",
             "m07_stop_menu",
             "m07_stop_confirm",
         ];
         // Detail and list screens: provenance, codes and mechanisms are their content.
-        const DETAIL: [&str; 21] = [
+        const DETAIL: [&str; 24] = [
+            "m07_lock",
+            "m07_settings_policies_unread",
+            "m07_destinations_scoped",
             "destinations",
             "destinations_search",
             "destination_detail",
@@ -3196,9 +3786,32 @@ mod tests {
         );
     }
 
+    /// What the lock wording never says (M07-W0-R04): a categorical outcome, which the
+    /// runtime does not attest.
+    const CATEGORICAL_LOCK: [&str; 6] = [
+        "work continues while your desktop is locked",
+        "Work continues while the desktop is locked",
+        "work continues",
+        "locking your desktop ends managed access",
+        "Locking the desktop ends managed access",
+        "locking ends access",
+    ];
+
+    fn no_categorical_lock_claim(text: &str) {
+        for claim in CATEGORICAL_LOCK {
+            assert!(!text.contains(claim), "{claim:?} is not attested:\n{text}");
+        }
+    }
+
     /// m07-plan U2 `a30_surfaces_answer_the_three_questions` (A30's deterministic part):
     /// from the default surfaces alone, at both sizes, a user can see which environment has
-    /// access, whether work continues while the desktop is locked, and how to pause or stop.
+    /// access, what the desktop lock is set to do, and how to pause or stop.
+    ///
+    /// ⟨M07⟩ M07-W0-R04: the lock answer is checked for its **qualified** wording. The
+    /// overview names the saved setting as a saved setting of personal access, says that
+    /// project settings and the observed effect are not known there, points at Settings,
+    /// and never states an outcome; the lock detail it points at shows the runtime's own
+    /// statement.
     #[test]
     fn a30_surfaces_answer_the_three_questions() {
         use crate::tui::m07::fixtures;
@@ -3219,15 +3832,18 @@ mod tests {
                 assert!(text.contains("Here: this computer"), "{text}");
                 assert!(text.contains("Access: dev auto"), "{text}");
             }
-            // 2. Whether work continues while the desktop is locked.
-            assert!(
-                text.contains(if w == 120 {
-                    "Desktop lock: work continues while your desktop is locked"
-                } else {
-                    "Lock: work continues"
-                }),
-                "{text}"
-            );
+            // 2. What the desktop lock is set to do: the saved setting, qualified.
+            if w == 120 {
+                assert!(
+                    text.contains(
+                        "Desktop lock: saved personal setting \"continue\" · project settings, observed effect: not known here · 8 Settings"
+                    ),
+                    "{text}"
+                );
+            } else {
+                assert!(text.contains("Lock setting: continue · s stop"), "{text}");
+            }
+            no_categorical_lock_claim(&text);
             // 3. How to pause or stop.
             assert!(
                 text.contains(if w == 120 {
@@ -3238,7 +3854,7 @@ mod tests {
                 "{text}"
             );
         }
-        // The other lock answer, and a paused profile, in the same words.
+        // The other saved setting, and a paused profile, in the same words.
         let mut locked = base.clone();
         if let Some(l) = &mut locked.catalog_mut().m03.lock {
             l.behavior = "revoke_on_lock".to_owned();
@@ -3250,15 +3866,20 @@ mod tests {
         }
         let text = draw(&locked, 120, 40).0.join("\n");
         assert!(
-            text.contains("Desktop lock: locking your desktop ends managed access"),
+            text.contains("Desktop lock: saved personal setting \"revoke on lock\" · project settings, observed effect: not known here"),
             "{text}"
         );
+        no_categorical_lock_claim(&text);
         assert!(
             text.contains("Access: this computer has no automatic access now; paused: dev"),
             "{text}"
         );
         let narrow = draw(&locked, 40, 12).0.join("\n");
-        assert!(narrow.contains("Lock: locking ends access"), "{narrow}");
+        assert!(
+            narrow.contains("Lock setting: revoke on lock · s stop"),
+            "{narrow}"
+        );
+        no_categorical_lock_claim(&narrow);
         // Without a runtime the way to stop is still named.
         let mut fresh = App::new(now(), false);
         fresh.set_runtime(Runtime::NotRunning);
@@ -3291,6 +3912,213 @@ mod tests {
         ] {
             assert!(text.contains(expected), "{expected}: {text}");
         }
+    }
+
+    /// The Settings lock row of `app`, selected.
+    fn on_lock_row(app: &App) -> App {
+        let mut a = app.clone();
+        press(&mut a, &[Key::Char('8')]);
+        a.selected[Tab::Settings.index()] = a
+            .setting_rows()
+            .iter()
+            .position(|r| *r == crate::tui::m07::SettingRow::Lock)
+            .unwrap();
+        a
+    }
+
+    /// Every row a scrolled screen shows, read frame after frame, squashed.
+    fn read_scrolled(app: &App, w: u16, h: u16) -> String {
+        let mut a = app.clone();
+        let mut all = String::new();
+        for _ in 0..40 {
+            let rows = draw(&a, w, h).0;
+            all.push_str(&squash(&rows[1..rows.len() - 1].join("")));
+            a.scroll += h.saturating_sub(3).max(1);
+        }
+        all
+    }
+
+    /// Every content row of the open Settings confirmation, collected the way the owner
+    /// reads it (frame after frame, one row further down each time), squashed.
+    fn read_setting_confirm(app: &App, w: u16, h: u16) -> String {
+        let mut app = app.clone();
+        draw(&app, w, h);
+        let d = app.settings.as_ref().unwrap().seen.reading.drawn().unwrap();
+        let mut all = vec![String::new(); d.total];
+        for scroll in 0..=d.total.saturating_sub(d.viewport) {
+            app.settings.as_mut().unwrap().seen.reading.scroll = scroll;
+            let rows = draw(&app, w, h).0;
+            let boxed = rows.iter().filter(|r| r.starts_with('│'));
+            for (i, row) in boxed.take(d.viewport).enumerate() {
+                if let Some(slot) = all.get_mut(scroll + i) {
+                    *slot = squash(row.trim_matches('│'));
+                }
+            }
+        }
+        all.concat()
+    }
+
+    /// M07-W0-R04: the lock wording states only what the runtime attests.
+    ///
+    /// * **Mixed personal and project policies** (the fixture has one of each): the saved
+    ///   setting is named as the personal one; the project's is said to be unknown here,
+    ///   on the overview, in the Settings row, in the project policy's detail and in the
+    ///   lock detail, which also says that the strictest applicable setting decides.
+    /// * **Unverified continuity, and an unverified lock signal:** the runtime's own
+    ///   disclosure (built here by `heimdall_app::lock::disclosure`, never retyped) is
+    ///   shown word for word in the lock detail and in the confirmation of a lock change,
+    ///   so its "not been verified yet" reaches the owner; with no statement from the
+    ///   runtime the surfaces say that continuity is unverified.
+    /// * No surface states a categorical outcome, in either setting, at either size.
+    #[test]
+    fn lock_wording_states_only_what_the_runtime_attests() {
+        use crate::tui::m07::fixtures::{self, lock_report};
+        use heimdall_app::lock::LockSignal;
+        use heimdall_contract::managed::LockBehavior;
+        let base = fixtures::app();
+        let policies = base.catalog().m05.policies.clone().unwrap();
+        assert!(
+            policies.iter().any(|p| p.workspace_id.is_some())
+                && policies.iter().any(|p| p.workspace_id.is_none()),
+            "a project policy and a personal one"
+        );
+        // Saved, separately from observed.
+        let row = on_lock_row(&base);
+        let settings = draw(&row, 120, 40).0.join("\n");
+        assert!(
+            settings.contains(
+                "> [ i] Saved: continue (personal access) · projects, observed effect: not known here"
+            ),
+            "{settings}"
+        );
+        assert!(
+            settings.contains("A saved setting, not an observation of what a lock does"),
+            "{settings}"
+        );
+        let mut project = base.clone();
+        press(&mut project, &[Key::Char('8'), Key::Down]);
+        let text = draw(&project, 120, 40).0.join("\n");
+        assert!(
+            text.contains("> [OK] pol-ws1 · profile dev · project"),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "Its own lock and connection settings are not in this listing: not known here."
+            ),
+            "{text}"
+        );
+        let mut detail = row.clone();
+        press(&mut detail, &[Key::Enter]);
+        assert_eq!(detail.screen, Screen::Lock);
+        for (w, h) in SIZES {
+            let text = read_scrolled(&detail, w, h);
+            for expected in [
+                "Saved setting",
+                "\"continue\": the strictest of your configuration and your personal standing access in this environment.",
+                "A project's standing access has its own setting. No listing this view reads reports it: not known here.",
+                "For one piece of work, the strictest setting that applies to it decides.",
+                "Observed",
+                "This view has no report of what a lock did, or will do, to work that is running: not known here.",
+                "The runtime's statement (its own words)",
+                "heimdall access lock-behavior --policy <policy> continue|revoke-on-lock",
+            ] {
+                assert!(
+                    text.contains(&squash(expected)),
+                    "{w}x{h} {expected}:\n{text}"
+                );
+            }
+        }
+        // The runtime's qualified statement, word for word, in three states of the world.
+        for (floor, signal, qualifier) in [
+            (
+                LockBehavior::Continue,
+                LockSignal::MacosScreenLock,
+                "On this computer that has not been verified yet.",
+            ),
+            (
+                LockBehavior::RevokeOnLock,
+                LockSignal::LinuxLogind,
+                "The screen-lock signal on this computer has not been verified yet.",
+            ),
+            (
+                LockBehavior::Continue,
+                LockSignal::None,
+                "Revoke on lock is not available on this computer",
+            ),
+        ] {
+            let report = lock_report(floor, signal);
+            let statement = report.disclosure.clone().unwrap();
+            assert!(statement.contains(qualifier), "{statement}");
+            let mut app = base.clone();
+            app.catalog_mut().m03.lock = Some(report);
+            let mut detail = on_lock_row(&app);
+            press(&mut detail, &[Key::Enter]);
+            for (w, h) in SIZES {
+                let text = read_scrolled(&detail, w, h);
+                assert!(
+                    text.contains(&squash(&statement)),
+                    "{w}x{h}: the runtime's statement, whole:\n{text}"
+                );
+                no_categorical_lock_claim(&draw(&app, w, h).0.join("\n"));
+            }
+            // A lock change's confirmation carries it too, with what the setting is.
+            for (choice, name) in [(1, "revoke on lock"), (2, "continue")] {
+                let mut change = app.clone();
+                press(&mut change, &[Key::Char('8'), Key::Down, Key::Enter]);
+                for _ in 0..choice {
+                    press(&mut change, &[Key::Down]);
+                }
+                let choices = draw(&change, 120, 40).0.join("\n");
+                no_categorical_lock_claim(&choices);
+                assert!(
+                    choices.contains(&format!("Lock setting: {name}")),
+                    "{choices}"
+                );
+                press(&mut change, &[Key::Enter]);
+                for (w, h) in SIZES {
+                    let text = read_setting_confirm(&change, w, h);
+                    for expected in [
+                        format!("Set the saved lock setting of pol-ws1 to \"{name}\""),
+                        "This saves a setting of this entry only.".to_owned(),
+                        "this view has no report of what a lock does to work that is running"
+                            .to_owned(),
+                        format!("The runtime's statement now (its own words): {statement}"),
+                    ] {
+                        assert!(
+                            text.contains(&squash(&expected)),
+                            "{w}x{h} {name}: {expected}\n{text}"
+                        );
+                    }
+                    for claim in CATEGORICAL_LOCK {
+                        assert!(!text.contains(&squash(claim)), "{claim}: {text}");
+                    }
+                }
+            }
+        }
+        // The runtime sent no statement: continuity is said to be unverified.
+        let mut silent = base.clone();
+        if let Some(l) = &mut silent.catalog_mut().m03.lock {
+            l.disclosure = None;
+        }
+        let mut detail = on_lock_row(&silent);
+        press(&mut detail, &[Key::Enter]);
+        let text = read_scrolled(&detail, 120, 40);
+        assert!(
+            text.contains(&squash(
+                "The runtime sent no statement: whether work keeps going at a lock is unverified here."
+            )),
+            "{text}"
+        );
+        // No lock report at all: nothing is claimed.
+        let mut none = base.clone();
+        none.catalog_mut().m03.lock = None;
+        let text = draw(&none, 120, 40).0.join("\n");
+        assert!(
+            text.contains("Desktop lock: not reported by the runtime"),
+            "{text}"
+        );
+        no_categorical_lock_claim(&text);
     }
 
     /// m02-plan U10 ⟨r2⟩ `decision_modal_shows_restore_column`: an `ApplyProjection`
@@ -4106,10 +4934,15 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("INTERNAL_ERROR"), "{text}");
-        let mut ready = overview.clone();
-        ready.catalog_mut().operations.clear();
-        ready.catalog_mut().decisions.clear();
-        assert_eq!(ready.health(), crate::tui::model::Health::Ready);
+        // ⟨M07⟩ M07-W0-R03: with nothing else waiting it is not Ready either: what the
+        // failed list would say is not known.
+        let mut quiet = overview.clone();
+        quiet.catalog_mut().operations.clear();
+        quiet.catalog_mut().decisions.clear();
+        assert_eq!(quiet.health(), crate::tui::model::Health::Unknown);
+        let text = flat(&draw(&quiet, 120, 40).0);
+        assert!(text.contains("[??] Not known"), "{text}");
+        assert!(!text.contains("[OK] Ready"), "{text}");
         // A failure with no earlier data: the error, never the empty-state text.
         let mut fresh = App::new(now(), false);
         fresh.apply(Update::Runtime(Runtime::Connected));
@@ -4156,6 +4989,374 @@ mod tests {
         let text = flat(&draw(&empty, 120, 40).0);
         assert!(text.contains("No catalog destinations."), "{text}");
         assert!(!text.contains("listing failed"), "{text}");
+    }
+
+    /// M07-W0-R03: a failed or stale read never looks current or healthy.
+    ///
+    /// * **A transport failure** that drops the session after good reads: the overview is
+    ///   not Ready, a row under the header says the runtime is not connected and when what
+    ///   is shown was read, on every screen, and no line claims that nothing runs.
+    /// * **A first-read failure** (nothing was ever read): not Ready; the lines that would
+    ///   state a value say it is not known.
+    /// * **A list scrolled after a failure** (40×12): the listing's own error has scrolled
+    ///   away, the indicator has not.
+    /// * **A failed default-profile read** never shows "none set".
+    #[test]
+    fn a_failed_or_stale_read_never_looks_current_or_healthy() {
+        use crate::tui::data::{Catalog, ListingFailure};
+        use crate::tui::m07::fixtures;
+        use crate::tui::model::{Health, Update};
+        let t = crate::tui::model::tests::t;
+        let flat = |rows: &[String]| rows.join("\n");
+        let reassuring = [
+            "[OK] Ready",
+            "no work running",
+            "Nothing needs you",
+            "none set",
+        ];
+        // ---- a transport failure --------------------------------------------------------
+        let mut quiet = fixtures::app();
+        quiet.catalog_mut().operations.clear();
+        quiet.catalog_mut().decisions.clear();
+        assert_eq!(quiet.health(), Health::Ready, "before the failure");
+        let lost = disconnected(&quiet);
+        assert_eq!(lost.health(), Health::Unknown);
+        for keys in [
+            &[][..],
+            &[Key::Char('2')],
+            &[Key::Char('4')],
+            &[Key::Char('8')],
+            &[Key::Char('2'), Key::Enter],
+        ] {
+            let mut a = lost.clone();
+            press(&mut a, keys);
+            let wide = draw(&a, 120, 40).0;
+            assert_eq!(
+                wide[1],
+                "[!!] Not connected: what is shown was read 09:00:25Z (just now) and may have changed · S reconnects",
+                "{keys:?}"
+            );
+            assert!(wide[0].contains("[??]"), "{}", wide[0]);
+            let narrow = draw(&a, 40, 12).0;
+            assert_eq!(narrow[1], "[!!] not connected · read just now", "{keys:?}");
+            assert!(narrow[0].ends_with("[??] Not known"), "{}", narrow[0]);
+            for claim in reassuring {
+                assert!(!flat(&wide).contains(claim), "{keys:?} {claim}: {wide:#?}");
+                assert!(
+                    !flat(&narrow).contains(claim),
+                    "{keys:?} {claim}: {narrow:#?}"
+                );
+            }
+        }
+        let text = flat(&draw(&lost, 120, 40).0);
+        assert!(text.contains("[??] Not known"), "{text}");
+        assert!(
+            text.contains("Runtime: unavailable: the runtime closed the connection"),
+            "{text}"
+        );
+        // The runtime stopped (the next refresh finds none): the same, in its words.
+        let mut stopped = lost.clone();
+        stopped.apply(Update::Runtime(Runtime::NotRunning));
+        assert_eq!(stopped.health(), Health::Unknown);
+        let rows = draw(&stopped, 120, 40).0;
+        assert!(
+            rows[1].starts_with("[!!] The runtime stopped: what is shown was read 09:00:25Z"),
+            "{}",
+            rows[1]
+        );
+        // Reconnected and read again: current, and Ready again.
+        let mut back = lost.clone();
+        back.apply(Update::Runtime(Runtime::Connected));
+        let mut fresh = back.catalog().clone();
+        fresh.failures.clear();
+        back.apply(Update::Catalog(Box::new(fresh)));
+        assert_eq!(back.health(), Health::Ready);
+        assert!(!draw(&back, 120, 40).0[1].starts_with("[!!]"));
+
+        // ---- a first-read failure -------------------------------------------------------
+        let never = |code: &str| ListingFailure {
+            code: code.to_owned(),
+            message: "the store could not be read".to_owned(),
+            since: t("2026-11-03T09:00:20Z"),
+            stale_from: None,
+        };
+        let mut first = App::new(now(), false);
+        first.apply(Update::Runtime(Runtime::Connected));
+        *first.doctor_mut() = Some(crate::tui::data::Doctor {
+            report: heimdall_contract::doctor::DoctorReport {
+                findings: Vec::new(),
+                ..crate::tui::model::tests::report()
+            },
+            taken_at: now(),
+        });
+        let mut unread = Catalog {
+            read_at: Some(t("2026-11-03T09:00:25Z")),
+            ..Catalog::default()
+        };
+        for name in SUBJECTS {
+            unread
+                .failures
+                .insert(name.to_owned(), never("INTERNAL_ERROR"));
+        }
+        first.apply(Update::Catalog(Box::new(unread)));
+        assert_eq!(
+            first.health(),
+            Health::Unknown,
+            "a never-read failure is not Ready"
+        );
+        for (w, h) in [(120, 40), (40, 12)] {
+            let rows = draw(&first, w, h).0;
+            let text = flat(&rows);
+            assert!(text.contains("[??] Not known"), "{w}x{h}: {text}");
+            assert!(rows[1].starts_with("[!!] 12 lists"), "{w}x{h}: {}", rows[1]);
+            for claim in reassuring {
+                assert!(!text.contains(claim), "{w}x{h} {claim}: {text}");
+            }
+        }
+        let text = flat(&draw(&first, 120, 60).0);
+        for expected in [
+            "Environment: this environment · what is running is not known (the lists could not be read)",
+            "Access: this environment's standing access is not known (it could not be read)",
+            "Desktop lock: not known (the lock setting could not be read)",
+            "[ !] the operation list could not be read (Enter for why; nothing was read from it yet)",
+        ] {
+            assert!(text.contains(expected), "{expected}:\n{text}");
+        }
+        // One list never read: the indicator names it.
+        let mut one = fixtures::app();
+        one.catalog_mut().operations.clear();
+        one.catalog_mut().decisions.clear();
+        one.catalog_mut()
+            .failures
+            .insert("operations".to_owned(), never("INTERNAL_ERROR"));
+        assert_eq!(one.health(), Health::Unknown);
+        let rows = draw(&one, 120, 40).0;
+        assert_eq!(
+            rows[1],
+            "[!!] Not read: the operation list could not be read; nothing is known from it"
+        );
+        assert_eq!(draw(&one, 40, 12).0[1], "[!!] not read: operation list");
+        // The connection never made: nothing was read at all.
+        let mut refused = App::new(now(), false);
+        refused.apply(Update::Runtime(Runtime::Failed(
+            "permission denied".to_owned(),
+        )));
+        *refused.doctor_mut() = first.doctor().cloned();
+        assert_eq!(refused.health(), Health::Unknown);
+        let rows = draw(&refused, 120, 40).0;
+        assert_eq!(
+            rows[1],
+            "[!!] Not connected: nothing has been read from the runtime · S reconnects"
+        );
+        assert!(
+            flat(&rows)
+                .contains("What needs you is not known: the runtime's lists could not be read."),
+            "{rows:#?}"
+        );
+        // No runtime at all is the ordinary first frame: no alarm, and no claim either.
+        let mut absent = App::new(now(), false);
+        absent.apply(Update::Runtime(Runtime::NotRunning));
+        *absent.doctor_mut() = first.doctor().cloned();
+        let text = flat(&draw(&absent, 120, 40).0);
+        assert!(!text.contains("[!!]"), "{text}");
+        assert!(
+            text.contains(
+                "Nothing is read from the runtime yet: what needs you there is not known."
+            ),
+            "{text}"
+        );
+
+        // ---- a list scrolled after a failure, at 40×12 ----------------------------------
+        let mut list = grouped_app(100);
+        list.catalog_mut()
+            .failures
+            .insert("destinations".to_owned(), frame_limit_failure(true));
+        press(&mut list, &[Key::Char('2')]);
+        let top = draw(&list, 40, 12).0;
+        assert_eq!(top[1], "[!!] stale: destination list");
+        assert!(
+            flat(&top).contains("destination listing failed"),
+            "{top:#?}"
+        );
+        press(&mut list, &[Key::PageDown; 5]);
+        let rows = draw(&list, 40, 12).0;
+        let text = flat(&rows);
+        assert!(text.contains("> [ !] host-000050"), "{text}");
+        assert!(
+            !text.contains("listing failed") && !text.contains("(stale) total"),
+            "the list's own error has scrolled away: {text}"
+        );
+        assert_eq!(
+            rows[1], "[!!] stale: destination list",
+            "the indicator has not"
+        );
+        assert!(rows[0].ends_with("[??] Not known"), "{}", rows[0]);
+        let wide = draw(&list, 120, 14).0;
+        assert_eq!(
+            wide[1],
+            "[!!] Stale: the destination list could not be read; it is shown as read 08:57:00Z (3 min ago)"
+        );
+
+        // ---- a failed default-profile read ----------------------------------------------
+        let mut settings = fixtures::app();
+        let c = settings.catalog_mut();
+        c.m05.policies = None;
+        c.m05.default_profiles.clear();
+        c.failures
+            .insert("policies".to_owned(), never("INTERNAL_ERROR"));
+        press(&mut settings, &[Key::Char('8')]);
+        for (w, h) in [(120, 40), (40, 12)] {
+            let text = flat(&draw(&settings, w, h).0);
+            assert!(!text.contains("none set"), "{w}x{h}: {text}");
+            assert!(
+                text.contains("> [??] Default profile: not known"),
+                "{w}x{h}: {text}"
+            );
+        }
+        let text = flat(&draw(&settings, 120, 40).0);
+        for expected in [
+            "> [??] Default profile: not known (not read) · this computer",
+            "  not known: the standing access list could not be read (INTERNAL_ERROR)",
+            "[!!] The standing access list could not be read (INTERNAL_ERROR): nothing is known about it yet",
+        ] {
+            assert!(text.contains(expected), "{expected}:\n{text}");
+        }
+        // Read before, failing now: the last value, marked stale.
+        let mut stale = fixtures::app();
+        stale
+            .catalog_mut()
+            .failures
+            .insert("policies".to_owned(), frame_limit_failure(true));
+        press(&mut stale, &[Key::Char('8')]);
+        let text = flat(&draw(&stale, 120, 40).0);
+        assert!(
+            text.contains("> [??] Default profile: dev (stale) · this computer"),
+            "{text}"
+        );
+        assert!(
+            text.contains("pol-ws1 · profile dev · project · automatic (stale)"),
+            "{text}"
+        );
+        // A successful read with no default set is the only "none set".
+        let mut unset = fixtures::app();
+        unset.catalog_mut().m05.default_profiles.clear();
+        press(&mut unset, &[Key::Char('8')]);
+        let text = flat(&draw(&unset, 120, 40).0);
+        assert!(
+            text.contains("> [ i] Default profile: none set · this computer"),
+            "{text}"
+        );
+    }
+
+    /// M07-W0-R11: Enter on a grouped finding shows that group's destinations, whatever
+    /// search the Destinations list had: the search is cleared and the list is scoped to
+    /// exactly the destinations the finding concerns, named in its first row; Esc (or
+    /// going to a view by its key) shows every destination again. A group whose findings
+    /// do not all say the same thing is worded for the group, never with the first one's
+    /// message.
+    #[test]
+    fn a_grouped_finding_shows_its_destinations_whatever_the_search() {
+        use crate::tui::model::tests::destination;
+        let mut app = grouped_app(100);
+        app.catalog_mut()
+            .destinations
+            .insert(0, destination("other", false));
+        // An unrelated search is active on Destinations: it matches one destination,
+        // which the finding does not concern.
+        press(&mut app, &[Key::Char('2'), Key::Char('/')]);
+        type_text(&mut app, "other");
+        press(&mut app, &[Key::Enter]);
+        assert_eq!(app.shown(Tab::Destinations), 1);
+        // The group, from the overview.
+        press(&mut app, &[Key::Char('1')]);
+        app.selected[0] = app
+            .overview_items()
+            .iter()
+            .position(|i| matches!(i, Item::Findings { .. }))
+            .unwrap();
+        let text = draw(&app, 120, 40).0.join("\n");
+        assert!(
+            text.contains("> [ !] 100 destinations: ssh may offer other identities than the adopted key for this alias (Enter: which ones)"),
+            "{text}"
+        );
+        press(&mut app, &[Key::Enter]);
+        assert_eq!(app.screen, Screen::Tab(Tab::Destinations));
+        assert_eq!(
+            app.search(Tab::Destinations).unwrap().text,
+            "",
+            "the search is cleared"
+        );
+        let shown: Vec<String> = app
+            .visible_destinations()
+            .iter()
+            .map(|d| d.alias.clone())
+            .collect();
+        let affected: Vec<String> = (0..100).map(|i| format!("host-{i:06}")).collect();
+        assert_eq!(
+            shown, affected,
+            "exactly the group's destinations, none hidden"
+        );
+        let rows = draw(&app, 120, 40).0;
+        assert_eq!(
+            rows[1],
+            "Finding: 100 of 101 · Esc all · ssh may offer other identities than the adopted key for this alias"
+        );
+        assert_eq!(
+            rows[2],
+            "> [ !] host-000000  observed (defined in your configuration)"
+        );
+        assert!(rows.last().unwrap().contains("Esc all"), "{rows:#?}");
+        let narrow = draw(&app, 40, 12).0;
+        assert!(
+            narrow[1].starts_with("Finding: 100 of 101 · Esc all"),
+            "{}",
+            narrow[1]
+        );
+        assert!(!narrow.join("\n").contains("other"), "{narrow:#?}");
+        // Esc: every destination again.
+        press(&mut app, &[Key::Esc]);
+        assert_eq!(app.screen, Screen::Tab(Tab::Destinations));
+        assert_eq!(app.shown(Tab::Destinations), 101);
+        assert!(app.scope().is_none());
+        // Going to the view by its key does not keep an earlier scope.
+        press(&mut app, &[Key::Char('1'), Key::Enter]);
+        assert_eq!(app.shown(Tab::Destinations), 100);
+        press(&mut app, &[Key::Char('2')]);
+        assert_eq!(app.shown(Tab::Destinations), 101);
+        // Findings of one code that say different things: group-level words.
+        let mut mixed = grouped_app(3);
+        let first = "ssh may offer other identities than the adopted key for this alias";
+        for (i, f) in mixed
+            .doctor_mut()
+            .as_mut()
+            .unwrap()
+            .report
+            .findings
+            .iter_mut()
+            .filter(|f| f.code == "identity_selection_not_exclusive")
+            .enumerate()
+        {
+            if i == 2 {
+                f.message = "IdentitiesOnly is not set for this alias".to_owned();
+            }
+        }
+        let text = draw(&mixed, 120, 40).0.join("\n");
+        assert!(
+            text.contains("[ !] 3 destinations: identity selection not exclusive (the details differ for each) (Enter: which ones)"),
+            "{text}"
+        );
+        assert!(!text.contains(first), "not the first one's message: {text}");
+        mixed.selected[0] = mixed
+            .overview_items()
+            .iter()
+            .position(|i| matches!(i, Item::Findings { .. }))
+            .unwrap();
+        press(&mut mixed, &[Key::Enter]);
+        let rows = draw(&mixed, 120, 40).0;
+        assert_eq!(
+            rows[1],
+            "Finding: 3 of 3 · Esc all · identity selection not exclusive (the details differ for each)"
+        );
     }
 
     /// Probe P4: 100 destinations with the same warning are one overview row with the
@@ -4385,10 +5586,8 @@ mod tests {
             let mut a = base.clone();
             press(&mut a, &[Key::Char('4')]);
             out.push(("m03_activity", a.clone()));
-            let rows = a.activity_rows();
-            let held = rows
-                .iter()
-                .position(|r| matches!(r, ActivityRow::Enrollment(_)))
+            let held = (0..a.shown(Tab::Activity))
+                .position(|i| matches!(a.activity_row(i), Some(ActivityRow::Enrollment(_))))
                 .unwrap();
             for _ in 0..held {
                 press(&mut a, &[Key::Down]);
@@ -5169,8 +6368,9 @@ mod tests {
         use crate::tui::m05::fixtures::{
             WS, extend_decision, reconcile_decision, trust_decision, trusted_listings,
         };
-        use crate::tui::model::tests::read;
-        use crate::tui::model::{Command, Effect};
+        use crate::tui::m05::{StopAction, StopMenu, StopPhase};
+        use crate::tui::model::tests::{read, t};
+        use crate::tui::model::{Command, Effect, REFUSED_NOT_DRAWN, REFUSED_TOO_SMALL};
 
         const CWD: &str = "/work/example";
 
@@ -5371,12 +6571,327 @@ mod tests {
             assert!(sent.is_empty(), "default No sends nothing: {sent:?}");
             let mut app = m05_app();
             press(&mut app, &[Key::Char('s'), Key::Enter]);
+            // ⟨M07⟩ The confirmation is drawn before it is answered.
+            read(&app);
             type_text(&mut app, "yes");
             let sent = press(&mut app, &[Key::Enter]);
             assert!(
                 matches!(sent.as_slice(), [Effect::Worker(Command::Stop(_))]),
                 "{sent:?}"
             );
+        }
+
+        /// The four stop-menu actions: for each, the keys that reach its confirmation
+        /// from the overview (with nothing drawn in between) and the action a confirmed
+        /// yes sends.
+        fn stop_cases() -> Vec<(&'static str, Vec<Key>, StopAction)> {
+            let typed = |digit: char, value: &str| -> Vec<Key> {
+                let mut keys = vec![Key::Char('s'), Key::Char(digit), Key::Enter];
+                keys.extend(value.chars().map(Key::Char));
+                keys.push(Key::Enter);
+                keys
+            };
+            let workspace = heimdall_contract::ids::WorkspaceId::parse(WS).unwrap();
+            vec![
+                (
+                    "pause",
+                    vec![Key::Char('s'), Key::Enter],
+                    StopAction::Pause {
+                        workspace: workspace.clone(),
+                    },
+                ),
+                (
+                    "stop this work",
+                    typed('2', "job-7"),
+                    StopAction::Work {
+                        work_id: heimdall_contract::ids::WorkId::parse("job-7").unwrap(),
+                    },
+                ),
+                // The workspace's profile is offered as the value: Enter takes it.
+                (
+                    "stop all for a profile",
+                    typed('3', ""),
+                    StopAction::Profile {
+                        profile: heimdall_contract::ids::ProfileId::parse("dev").unwrap(),
+                    },
+                ),
+                (
+                    "cutoff",
+                    typed('4', "2026-12-01T02:00:00-05:00"),
+                    StopAction::Cutoff {
+                        workspace,
+                        at: t("2026-12-01T07:00:00Z"),
+                    },
+                ),
+            ]
+        }
+
+        /// The four actions' names, as the menu and the confirmation show them.
+        const STOP_NAMES: [&str; 4] = [
+            "Pause automatic access",
+            "Stop this work",
+            "Stop all for a profile",
+            "Cutoff at a time",
+        ];
+
+        /// What the keys sent to the worker.
+        fn stops(effects: &[Effect]) -> Vec<Command> {
+            effects
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::Worker(c) => Some(c.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// The open stop menu, which must be asking for the confirmation of `action`.
+        fn confirming<'a>(app: &'a App, action: &StopAction, what: &str) -> &'a StopMenu {
+            match &app.modal {
+                Some(Modal::StopMenu(m)) if m.phase == StopPhase::Confirm(action.clone()) => m,
+                other => panic!("{what}: the confirmation is not open: {other:?}"),
+            }
+        }
+
+        /// Why a typed yes would be refused now.
+        fn unseen(app: &App, action: &StopAction) -> Option<&'static str> {
+            confirming(app, action, "unseen").unseen(app.frame())
+        }
+
+        /// Draw at `w`×`h`, paging down a frame at a time, until every row of the
+        /// confirmation has been on screen.
+        fn read_through(app: &mut App, action: &StopAction, w: u16, h: u16) {
+            draw_once(app, w, h);
+            let mut guard = 0;
+            while unseen(app, action).is_some() {
+                press(app, &[Key::PageDown]);
+                draw_once(app, w, h);
+                guard += 1;
+                assert!(guard < 40, "{w}x{h}: {:?}", unseen(app, action));
+            }
+        }
+
+        /// The M07-W0-R01 ruling for the stop menu,
+        /// `stop_menu_batched_input_cannot_confirm_before_a_frame_is_drawn`: the input loop
+        /// handles a whole batch of keys before it draws, so a batch that opens the menu,
+        /// picks an action, types its value and `yes` has shown the owner nothing. For
+        /// each of the four actions it sends nothing: the menu stays on the confirmation
+        /// with the answer discarded, and the next frame names the action and its target
+        /// and says why. The same holds for a confirmation another one's frame preceded,
+        /// for a jump to the end before the first frame, for a re-wrapped text, and for a
+        /// confirmation the latest frame did not draw. Once the frames have drawn every
+        /// row, a typed yes sends exactly that action.
+        #[test]
+        fn stop_menu_batched_input_cannot_confirm_before_a_frame_is_drawn() {
+            let yes = [Key::Char('y'), Key::Char('e'), Key::Char('s'), Key::Enter];
+            for (case, (name, keys, action)) in stop_cases().into_iter().enumerate() {
+                // One batch, no frame: open, pick, type the value, yes, Enter.
+                let mut app = m05_app();
+                let batch: Vec<Key> = keys.iter().copied().chain(yes).collect();
+                assert_eq!(stops(&press(&mut app, &batch)), [], "{name}: nothing drawn");
+                let menu = confirming(&app, &action, name);
+                assert!(menu.input.is_empty(), "{name}: the answer is discarded");
+                assert_eq!(app.status.as_deref(), Some(REFUSED_NOT_DRAWN), "{name}");
+                // The frame that follows shows the action, its target, and the refusal.
+                let rows = draw_once(&app, 120, 40);
+                let screen = flat(&rows);
+                for shown in [
+                    action.sentence().as_str(),
+                    "yes refused: it was not on screen",
+                    "Type yes to confirm [y/N]: _",
+                ] {
+                    assert!(screen.contains(shown), "{name}: {shown}:\n{screen}");
+                }
+                assert_eq!(rows.last().map(String::as_str), Some(REFUSED_NOT_DRAWN));
+                // Now it has been on screen: the same answer confirms it, and what is
+                // sent is exactly the action that was shown.
+                type_text(&mut app, "yes");
+                assert_eq!(
+                    stops(&press(&mut app, &[Key::Enter])),
+                    [Command::Stop(action.clone())],
+                    "{name}"
+                );
+                assert!(app.modal.is_none(), "{name}");
+
+                // A confirmation that was drawn does not vouch for the next one: Esc,
+                // then the same action again and yes, all in one batch.
+                let mut app = m05_app();
+                press(&mut app, &keys);
+                draw_once(&app, 120, 40);
+                assert_eq!(unseen(&app, &action), None, "{name}: read");
+                let again: Vec<Key> = [Key::Esc]
+                    .into_iter()
+                    .chain(keys.iter().copied())
+                    .chain(yes)
+                    .collect();
+                assert_eq!(stops(&press(&mut app, &again)), [], "{name}: a new one");
+                confirming(&app, &action, name);
+                assert_eq!(app.status.as_deref(), Some(REFUSED_NOT_DRAWN), "{name}");
+
+                // At 40×8 the confirmation does not fit. A jump to the end before the
+                // first frame draws its last rows only: the action's name and the start
+                // of its sentence were never on screen, so the yes is refused.
+                let mut app = m05_app();
+                press(&mut app, &keys);
+                press(&mut app, &[Key::End]);
+                let screen = draw_once(&app, 40, 8).join("\n");
+                let menu = confirming(&app, &action, name);
+                assert!(menu.seen.reading.scrollable(), "{name}:\n{screen}");
+                assert!(menu.seen.reading.end_shown(), "{name}:\n{screen}");
+                type_text(&mut app, "yes");
+                assert_eq!(stops(&press(&mut app, &[Key::Enter])), [], "{name}: a jump");
+                assert_eq!(app.status.as_deref(), Some(REFUSED_UNREAD), "{name}");
+                let rows = draw_once(&app, 40, 8);
+                assert!(rows.join("\n").contains("yes refused"), "{name}: {rows:?}");
+                assert_eq!(rows.last().map(String::as_str), Some(REFUSED_UNREAD));
+                // The first window alone is not all of it either.
+                press(&mut app, &[Key::Home]);
+                let screen = draw_once(&app, 40, 8).join("\n");
+                assert!(screen.contains("below (PgDn)"), "{name}:\n{screen}");
+                type_text(&mut app, "yes");
+                assert_eq!(stops(&press(&mut app, &[Key::Enter])), [], "{name}: a part");
+                // Read from the top, frame by frame: once the yes can be accepted, the
+                // content rows the frames drew (each page repeats the row before it) add
+                // up to the action's name and its whole sentence, character by character.
+                press(&mut app, &[Key::Home]);
+                let mut drawn: Vec<String> = Vec::new();
+                let mut guard = 0;
+                loop {
+                    let rows = draw_once(&app, 40, 8);
+                    let top = rows.iter().position(|r| r.contains('┌')).unwrap();
+                    let left = rows[top].chars().position(|c| c == '┌').unwrap();
+                    let right = rows[top].chars().position(|c| c == '┐').unwrap();
+                    let viewport = confirming(&app, &action, name)
+                        .seen
+                        .reading
+                        .drawn()
+                        .unwrap()
+                        .viewport;
+                    for row in &rows[top + 1..top + 1 + viewport] {
+                        let text: String =
+                            row.chars().skip(left + 1).take(right - left - 1).collect();
+                        if drawn.last() != Some(&text) {
+                            drawn.push(text);
+                        }
+                    }
+                    if unseen(&app, &action).is_none() {
+                        break;
+                    }
+                    press(&mut app, &[Key::PageDown]);
+                    guard += 1;
+                    assert!(guard < 40, "{name}");
+                }
+                assert!(guard > 0, "{name}: it took more than one frame");
+                let whole = format!("{}{}", STOP_NAMES[case], action.sentence());
+                assert_eq!(squash(&drawn.concat()), squash(&whole), "{name}: {drawn:?}");
+                // A resize re-wraps the text: it must be drawn again in full.
+                draw_once(&app, 44, 8);
+                assert_eq!(unseen(&app, &action), Some(REFUSED_UNREAD), "{name}");
+                type_text(&mut app, "yes");
+                assert_eq!(
+                    stops(&press(&mut app, &[Key::Enter])),
+                    [],
+                    "{name}: re-wrap"
+                );
+                press(&mut app, &[Key::Home]);
+                read_through(&mut app, &action, 44, 8);
+                type_text(&mut app, "yes");
+                assert_eq!(
+                    stops(&press(&mut app, &[Key::Enter])),
+                    [Command::Stop(action.clone())],
+                    "{name}: read at 44x8"
+                );
+
+                // Only the latest frame counts. Drawn in full, then a frame with no room
+                // for any view ("terminal too small"), which draws no confirmation.
+                let mut app = m05_app();
+                press(&mut app, &keys);
+                draw_once(&app, 120, 40);
+                assert_eq!(unseen(&app, &action), None, "{name}");
+                let screen = draw_once(&app, 9, 2).join("\n");
+                assert!(!screen.contains("yes"), "{name}:\n{screen}");
+                type_text(&mut app, "yes");
+                assert_eq!(stops(&press(&mut app, &[Key::Enter])), [], "{name}: 9x2");
+                assert_eq!(app.status.as_deref(), Some(REFUSED_NOT_DRAWN), "{name}");
+            }
+        }
+
+        /// The M07-W0-R01 ruling for the stop menu,
+        /// `stop_menu_short_terminal_refuses_to_submit`: on a terminal too small to show
+        /// the confirmation of any of the four actions, the frame says so instead of
+        /// drawing a cut confirmation, a typed yes sends nothing and the frame says why;
+        /// the menu stays, and on a terminal large enough the same action is confirmed
+        /// after it has been drawn.
+        #[test]
+        fn stop_menu_short_terminal_refuses_to_submit() {
+            for (name, keys, action) in stop_cases() {
+                for (w, h) in [
+                    (40, 5),
+                    (40, 4),
+                    (40, 3),
+                    (120, 5),
+                    (20, 5),
+                    (12, 6),
+                    (9, 2),
+                ] {
+                    let at = format!("{name} at {w}x{h}");
+                    let mut app = m05_app();
+                    press(&mut app, &keys);
+                    let screen = draw_once(&app, w, h).join("\n");
+                    assert!(
+                        !screen.contains("Type yes") && !screen.contains("[y/N]"),
+                        "{at}: no prompt is offered:\n{screen}"
+                    );
+                    if w >= 40 {
+                        assert!(
+                            screen.contains("Too small to show this action"),
+                            "{at}:\n{screen}"
+                        );
+                        assert!(screen.ends_with("enlarge the terminal · Esc cancel"));
+                    }
+                    type_text(&mut app, "yes");
+                    // Drawn again with the answer typed, as the loop would.
+                    draw_once(&app, w, h);
+                    assert_eq!(
+                        stops(&press(&mut app, &[Key::Enter])),
+                        [],
+                        "{at}: nothing is sent"
+                    );
+                    let menu = confirming(&app, &action, &at);
+                    assert!(menu.input.is_empty(), "{at}");
+                    // Why: under 10×3 no view is drawn at all; otherwise the frame had
+                    // no room for the confirmation.
+                    let why = if w < 10 || h < 3 {
+                        REFUSED_NOT_DRAWN
+                    } else {
+                        REFUSED_TOO_SMALL
+                    };
+                    assert_eq!(app.status.as_deref(), Some(why), "{at}");
+                    let screen = draw_once(&app, w, h).join("\n");
+                    if w >= 40 {
+                        assert!(screen.ends_with(REFUSED_TOO_SMALL), "{at}:\n{screen}");
+                    }
+                    // Larger: drawn, then confirmed.
+                    let screen = flat(&draw_once(&app, 120, 40));
+                    assert!(screen.contains(&action.sentence()), "{at}:\n{screen}");
+                    type_text(&mut app, "yes");
+                    assert_eq!(
+                        stops(&press(&mut app, &[Key::Enter])),
+                        [Command::Stop(action.clone())],
+                        "{at}"
+                    );
+                }
+                // Having been drawn large does not carry to a frame that is too small:
+                // the latest frame is the one the owner is looking at.
+                let mut app = m05_app();
+                press(&mut app, &keys);
+                draw_once(&app, 120, 40);
+                assert_eq!(unseen(&app, &action), None, "{name}");
+                draw_once(&app, 40, 5);
+                type_text(&mut app, "yes");
+                assert_eq!(stops(&press(&mut app, &[Key::Enter])), [], "{name}");
+                assert_eq!(app.status.as_deref(), Some(REFUSED_TOO_SMALL), "{name}");
+            }
         }
 
         /// ADR-0011 I5, spec §14.3: a label with `$(...)`, backticks, a newline, a terminal

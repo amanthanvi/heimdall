@@ -1,0 +1,40 @@
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
+[!!] Not connected: what is shown was read 09:00:25Z (just now) and may have changed · S reconnects
+[!!] Needs attention
+Runtime: unavailable: the runtime closed the connection
+Static pass: 09:00:20Z (just now); 2 destinations, 1 profiles, 3 identities
+Workspace: trusted (w details · s stop · h history) (stale)
+Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
+> [!!] held: setup op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
+  [!!] decision waiting: using access automatically for a project (dec_trust1; Enter to review)
+  [!!] decision waiting: more standing access (dec_ext1; Enter to review)
+  [..] working: access request op_run1 running
+  [ !] beta: ssh may offer other identities than the adopted key for this alias
+
+  r retry: after you put the file back, Heimdall continues the held operation's own recovery under its approval
+  k keep: Heimdall moves and deletes nothing, closes the operation and lists what stays in place
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter open · r retry · k keep · s pause or stop · R refresh · 1-8 views · ? help · q quit

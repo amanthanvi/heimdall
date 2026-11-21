@@ -4,7 +4,7 @@ Runtime: connected, read just now
 Static pass: just now
 Here: this environment · 1 running
 Access: not listed
-Lock: not reported · s stop
+Lock setting: not reported · s stop
 > [!!] held op_held1: r retry · k keep
   [!!] decision dec_apply1: a change to
   [!!] decision dec_declare1: how a key

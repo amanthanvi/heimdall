@@ -1,0 +1,12 @@
+[2 Destinations] 2/8 [OK] Ready
+Finding: 100 of 100 · Esc all · ssh may
+> [ !] host-000000  observed (defined in
+  [ !] host-000001  observed (defined in
+  [ !] host-000002  observed (defined in
+  [ !] host-000003  observed (defined in
+  [ !] host-000004  observed (defined in
+  [ !] host-000005  observed (defined in
+  [ !] host-000006  observed (defined in
+  [ !] host-000007  observed (defined in
+  [ !] host-000008  observed (defined in
+Enter open · Esc all · ? help · q quit

@@ -5,8 +5,8 @@
 │the same command):                    │
 │> 1. Pause automatic access (applies  │
 │at once)                              │
-│  2. Locking the desktop ends managed │
-│access (applies at once)              │
-│  3. Work continues while the desktop │
+│  2. Lock setting: revoke on lock     │
+│(applies at once)                     │
+│  3. Lock setting: continue (needs    │
 └──────────────────────────────────────┘
 Enter select · Esc close

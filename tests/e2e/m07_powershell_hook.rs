@@ -97,27 +97,38 @@ prompt
 const PAUSED: &str = "heimdall: access here is paused, stopped or past its cutoff; nothing was activated. To resume: heimdall access resume";
 const HOST_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn hosts() -> Vec<PathBuf> {
-    let pwsh = find_program("pwsh");
-    #[cfg(windows)]
-    {
-        let system = std::env::var_os("SystemRoot").expect("SystemRoot");
-        let legacy = PathBuf::from(system).join("System32/WindowsPowerShell/v1.0/powershell.exe");
-        assert!(legacy.is_file(), "Windows PowerShell 5.1 is required");
-        let pwsh = pwsh.or_else(|| {
-            let path =
-                PathBuf::from(std::env::var_os("ProgramFiles")?).join("PowerShell/7/pwsh.exe");
-            path.is_file().then_some(path)
-        });
-        std::iter::once(legacy).chain(pwsh).collect()
+async fn for_each_host<F, Fut>(mut test: F)
+where
+    F: FnMut(PathBuf) -> Fut,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let legacy = if cfg!(windows) {
+        std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .map(|root| root.join("System32/WindowsPowerShell/v1.0/powershell.exe"))
+            .filter(|path| path.is_file())
+    } else {
+        None
+    };
+    let pwsh = find_program("pwsh").or_else(|| {
+        let path = PathBuf::from(std::env::var_os("ProgramFiles")?).join("PowerShell/7/pwsh.exe");
+        (cfg!(windows) && path.is_file()).then_some(path)
+    });
+    let thread = std::thread::current();
+    let case = thread.name().unwrap_or("PowerShell hook");
+    let mut failed = Vec::new();
+    for (edition, host) in [("Windows PowerShell 5.1", legacy), ("PowerShell 7", pwsh)] {
+        let outcome = match host {
+            Some(ref host) if tokio::spawn(test(host.clone())).await.is_ok() => "passed",
+            Some(_) => {
+                failed.push(edition);
+                "failed"
+            }
+            None => "absent",
+        };
+        eprintln!("{case}: {edition}: {outcome}");
     }
-    #[cfg(not(windows))]
-    {
-        if pwsh.is_none() {
-            eprintln!("skipped PowerShell hook: pwsh was not found on the test runner's PATH");
-        }
-        pwsh.into_iter().collect()
-    }
+    assert!(failed.is_empty(), "failed PowerShell editions: {failed:?}");
 }
 
 struct Fixture {
@@ -138,7 +149,13 @@ impl Fixture {
         .unwrap();
         let root = scratch.path().to_path_buf();
         let home = root.join("hm");
-        for dir in ["account", "ssh/etc-ssh", LOCATION] {
+        for dir in [
+            "account/appdata",
+            "account/localappdata",
+            "ssh/etc-ssh",
+            "temp",
+            LOCATION,
+        ] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
         Self {
@@ -173,15 +190,36 @@ impl Fixture {
             .args(["-NoLogo", "-NoProfile", "-NonInteractive"])
             .kill_on_drop(true);
         if cfg!(windows) {
-            let system = std::env::var_os("SystemRoot").expect("SystemRoot");
-            path.push(PathBuf::from(&system).join("System32"));
-            cmd.env("SystemRoot", system)
+            let windows = PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"));
+            let system = windows.join("System32");
+            path.extend([
+                system.clone(),
+                system.join("WindowsPowerShell/v1.0"),
+                windows.clone(),
+            ]);
+            for name in [
+                "ProgramData",
+                "ProgramFiles",
+                "ProgramFiles(x86)",
+                "CommonProgramFiles",
+                "CommonProgramFiles(x86)",
+            ] {
+                if let Some(directory) =
+                    std::env::var_os(name).filter(|v| Path::new(v).is_absolute())
+                {
+                    cmd.env(name, directory);
+                }
+            }
+            cmd.env("SystemRoot", &windows)
+                .env("windir", &windows)
+                .env("ComSpec", system.join("cmd.exe"))
+                .env("PATHEXT", ".COM;.EXE;.BAT;.CMD")
                 .args(["-ExecutionPolicy", "Bypass"])
                 .env("USERPROFILE", self.root.join("account"))
-                .env("APPDATA", self.root.join("account"))
-                .env("LOCALAPPDATA", self.root.join("account"))
-                .env("TEMP", &self.root)
-                .env("TMP", &self.root);
+                .env("APPDATA", self.root.join("account/appdata"))
+                .env("LOCALAPPDATA", self.root.join("account/localappdata"))
+                .env("TEMP", self.root.join("temp"))
+                .env("TMP", self.root.join("temp"));
         } else {
             path.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
         }
@@ -191,42 +229,175 @@ impl Fixture {
         cmd
     }
 
+    async fn output(&self, host: &Path, body: &str) -> Output {
+        let stdout = tempfile::NamedTempFile::new_in(&self.root).unwrap();
+        let stderr = tempfile::NamedTempFile::new_in(&self.root).unwrap();
+        let mut child = self
+            .command(host, body)
+            .stdin(Stdio::null())
+            .stdout(stdout.reopen().unwrap())
+            .stderr(stderr.reopen().unwrap())
+            .spawn()
+            .unwrap();
+        let read = || {
+            (
+                std::fs::read(stdout.path()).unwrap(),
+                std::fs::read(stderr.path()).unwrap(),
+            )
+        };
+        let status = timeout(HOST_TIMEOUT, child.wait())
+            .await
+            .unwrap_or_else(|_| {
+                let (stdout, stderr) = read();
+                panic!(
+                    "PowerShell did not exit\n{}",
+                    streams(&self.root, &stdout, &stderr)
+                );
+            })
+            .unwrap();
+        let (stdout, stderr) = read();
+        Output {
+            status,
+            stdout,
+            stderr,
+        }
+    }
+
     async fn run(&self, host: &Path, body: &str, stdout: &[&str]) {
-        let out = timeout(
-            HOST_TIMEOUT,
-            self.command(host, body).stdin(Stdio::null()).output(),
-        )
-        .await
-        .expect("PowerShell exited")
-        .unwrap();
-        assert_output(&out, stdout, &[]);
+        let out = self.output(host, body).await;
+        assert_output(&self.root, &out, stdout, &[]);
     }
 }
 
-fn assert_output(out: &Output, expected_stdout: &[&str], expected_stderr: &[&str]) {
-    let stdout = std::str::from_utf8(&out.stdout).unwrap();
-    let stderr = std::str::from_utf8(&out.stderr).unwrap();
-    assert_no_canary(stdout);
-    assert_no_canary(stderr);
-    assert!(out.status.success(), "PowerShell exit: {}", out.status);
-    assert_eq!(stdout.lines().collect::<Vec<_>>(), expected_stdout);
-    assert_eq!(stderr.lines().collect::<Vec<_>>(), expected_stderr);
+fn excerpt(bytes: &[u8], root: &Path) -> String {
+    let mut text = String::from_utf8_lossy(bytes).into_owned();
+    assert_no_canary(&text);
+    let root = root.to_string_lossy();
+    for path in [
+        root.to_string(),
+        root.replace('\\', "/"),
+        root.replace('\\', "\\\\"),
+    ] {
+        text = text.replace(&path, "<scratch>");
+    }
+    for name in ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"] {
+        if let Ok(value) = std::env::var(name)
+            && !value.is_empty()
+        {
+            text = text.replace(&value, "<redacted>");
+        }
+    }
+    heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
+}
+
+fn streams(root: &Path, stdout: &[u8], stderr: &[u8]) -> String {
+    format!(
+        "stdout tail: {:?}\nstderr tail: {:?}",
+        excerpt(stdout, root),
+        excerpt(stderr, root)
+    )
+}
+
+fn assert_output(root: &Path, out: &Output, expected_stdout: &[&str], expected_stderr: &[&str]) {
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_no_canary(&stdout);
+    assert_no_canary(&stderr);
+    assert!(
+        out.status.success()
+            && stdout.lines().eq(expected_stdout.iter().copied())
+            && stderr.lines().eq(expected_stderr.iter().copied()),
+        "PowerShell exit: {}; expected stdout {expected_stdout:?}, stderr {expected_stderr:?}\n{}",
+        out.status,
+        streams(root, &out.stdout, &out.stderr)
+    );
 }
 
 #[tokio::test]
 async fn powershell_hook_writes_nothing_to_stdout() {
-    for host in hosts() {
+    for_each_host(|host| async move {
         let fixture = Fixture::new();
         fixture
             .run(&host, RENDER, &["loaded", PROMPT, "rendered"])
             .await;
         assert!(!fixture.home.exists(), "the hook started no runtime");
-    }
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn powershell_hook_missing_executable_leaves_the_error_history_alone() {
+    let body = format!(
+        "$env:PATH = ''\n$before = $Error.Count\n{RENDER}\nif ($Error.Count -ne $before) {{ throw 'hook changed the error history' }}"
+    );
+    for_each_host(|host| {
+        let body = body.clone();
+        async move {
+            let fixture = Fixture::new();
+            fixture
+                .run(&host, &body, &["loaded", PROMPT, "rendered"])
+                .await;
+            assert!(!fixture.home.exists());
+        }
+    })
+    .await;
+}
+
+// Unix shell stubs let us exercise both timeout paths without compiling an executable.
+#[cfg(unix)]
+#[tokio::test]
+async fn powershell_hook_bounds_child_exit_and_inherited_stdout() {
+    use std::os::unix::fs::PermissionsExt;
+
+    const TIMED_RENDER: &str = r#"
+$env:PATH = $PWD.ProviderPath
+$global:LASTEXITCODE = 42
+$timer = [Diagnostics.Stopwatch]::StartNew()
+prompt
+if ($timer.ElapsedMilliseconds -gt 2200) { throw 'hook exceeded its deadline' }
+if ($LASTEXITCODE -ne 42) { throw 'hook changed the last exit code' }
+if ($global:__heimdall_state -cne 'none') { throw 'hook consumed an incomplete answer' }
+$childId = [int](Get-Content -LiteralPath child.pid)
+$child = Get-Process -Id $childId -ErrorAction Ignore
+if ($null -ne $child -and -not $child.WaitForExit(250)) { throw 'hook left its child running' }
+'rendered'
+"#;
+    for_each_host(|host| async move {
+        for (stub, holds_stdout) in [
+            ("exec /bin/sleep 4", false),
+            (
+                "(/bin/sleep 4; : > holder.done) </dev/null 2>/dev/null &\nprintf 'active 1 60\\n'",
+                true,
+            ),
+        ] {
+            let fixture = Fixture::new();
+            let path = fixture.root.join("heimdall");
+            std::fs::write(
+                &path,
+                format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > child.pid\n{stub}\n"),
+            )
+            .unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            // Observe the short-lived holder before removing the fixture, even on a failed prompt assertion.
+            let out = fixture.output(&host, TIMED_RENDER).await;
+            if holds_stdout {
+                timeout(Duration::from_secs(5), async {
+                    while !fixture.root.join("holder.done").is_file() {
+                        sleep(Duration::from_millis(25)).await;
+                    }
+                })
+                .await
+                .expect("the fixture stdout holder exited");
+            }
+            assert_output(&fixture.root, &out, &["loaded", PROMPT, "rendered"], &[]);
+        }
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn powershell_hook_startup_with_an_unreachable_runtime() {
-    for host in hosts() {
+    for_each_host(|host| async move {
         let fixture = Fixture::new();
         fixture.paths.ensure().unwrap();
         let token = format!("hmtest-{}", heimdall_testkit::agent::random_hex(16));
@@ -246,7 +417,8 @@ async fn powershell_hook_startup_with_an_unreachable_runtime() {
             .await;
         assert_eq!(InstanceInfo::read_file(runtime_dir).unwrap(), Some(info));
         assert!(!fixture.paths.state_dir.join("state.db").exists());
-    }
+    })
+    .await;
 }
 
 // Stand in only for the issuer child. Sign the production driver's reservation with
@@ -619,32 +791,44 @@ $global:__heimdall_pwd = $env:FIXTURE_LOCATION
         ""
     };
     let body = format!("{junk}{RENDER}{AFTER_ACTIVATION}");
+    let stderr_path = fixture.root.join("shell-stderr");
     let mut shell = fixture
         .command(host, &body)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(std::fs::File::create(&stderr_path).unwrap())
         .spawn()
         .unwrap();
     let pid = shell.id().unwrap();
-    let start = heimdall_runtime::platform::process_start_time(pid).unwrap();
-    let work = WorkId::parse(&format!("shell:{pid}.{start}.0")).unwrap();
     let mut stdout = BufReader::new(shell.stdout.take().unwrap());
-    let mut observed = String::new();
-    for _ in 0..3 {
-        assert_ne!(
-            timeout(HOST_TIMEOUT, stdout.read_line(&mut observed))
-                .await
-                .unwrap()
-                .unwrap(),
-            0
-        );
-    }
-    assert_no_canary(&observed);
-    assert_eq!(
-        observed.lines().collect::<Vec<_>>(),
-        ["loaded", PROMPT, "rendered"]
+    let mut observed = Vec::new();
+    let ready = timeout(HOST_TIMEOUT, async {
+        for _ in 0..3 {
+            if stdout.read_until(b'\n', &mut observed).await? == 0 {
+                break;
+            }
+        }
+        Ok::<_, std::io::Error>(())
+    })
+    .await;
+    let text = String::from_utf8_lossy(&observed);
+    assert_no_canary(&text);
+    let diagnostic = || {
+        streams(
+            &fixture.root,
+            &observed,
+            &std::fs::read(&stderr_path).unwrap_or_default(),
+        )
+    };
+    assert!(
+        matches!(ready, Ok(Ok(()))) && text.lines().eq(["loaded", PROMPT, "rendered"]),
+        "PowerShell startup {ready:?}; exit {:?}\n{}",
+        shell.try_wait().unwrap(),
+        diagnostic()
     );
+    let start = heimdall_runtime::platform::process_start_time(pid)
+        .unwrap_or_else(|| panic!("PowerShell exited after its prompt\n{}", diagnostic()));
+    let work = WorkId::parse(&format!("shell:{pid}.{start}.0")).unwrap();
 
     // The shell is still alive. Its binding and the default's slot reference are
     // separate. The warm-up can finish in the runtime after the hook returns.
@@ -713,12 +897,30 @@ $global:__heimdall_pwd = $env:FIXTURE_LOCATION
         })
         .unwrap();
     drop(shell.stdin.take());
-    shell.stdout = Some(stdout.into_inner());
-    let out = timeout(HOST_TIMEOUT, shell.wait_with_output())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_output(&out, &[PROMPT, PROMPT, "rechecked"], &[PAUSED]);
+    use tokio::io::AsyncReadExt as _;
+    let mut remaining = Vec::new();
+    let (status, read) = timeout(HOST_TIMEOUT, async {
+        tokio::join!(shell.wait(), stdout.read_to_end(&mut remaining))
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "PowerShell did not exit after stdin closed\n{}",
+            diagnostic()
+        )
+    });
+    read.unwrap();
+    let out = Output {
+        status: status.unwrap(),
+        stdout: [observed, remaining].concat(),
+        stderr: std::fs::read(stderr_path).unwrap(),
+    };
+    assert_output(
+        &fixture.root,
+        &out,
+        &["loaded", PROMPT, "rendered", PROMPT, PROMPT, "rechecked"],
+        &[PAUSED],
+    );
     assert_eq!(stats().decisions, 0);
     stop.cancel();
     timeout(HOST_TIMEOUT, server)
@@ -731,14 +933,10 @@ $global:__heimdall_pwd = $env:FIXTURE_LOCATION
 
 #[tokio::test]
 async fn powershell_hook_activates_and_warms_the_default() {
-    for host in hosts() {
-        activation_journey(&host, false).await;
-    }
+    for_each_host(|host| async move { activation_journey(&host, false).await }).await;
 }
 
 #[tokio::test]
 async fn powershell_hook_recovers_from_hostile_state() {
-    for host in hosts() {
-        activation_journey(&host, true).await;
-    }
+    for_each_host(|host| async move { activation_journey(&host, true).await }).await;
 }

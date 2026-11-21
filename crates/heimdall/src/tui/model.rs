@@ -25,6 +25,17 @@
 //!   before ssh reads it"), and runs only after a typed `yes`, even when the list is
 //!   empty (ADR-0007 §6, M2-R06). A tree the static pass could not fully read is
 //!   declined without the prompt (`config_not_fully_readable`).
+//! * ⟨M07⟩ **A Settings change is sent only when the owner saw it** (M07-W0-R01): its
+//!   confirmation is behind the same guard, stricter. Every row of it (the action, its
+//!   effect, its target) must have been drawn, the latest frame must have shown its
+//!   prompt, and a terminal too small for it confirms nothing
+//!   (`m07::SettingPrompt::unseen`). **So is a pause, a stop or a cutoff of the stop
+//!   menu** (`m05::StopMenu::unseen`): they only narrow, but they are persistent changes.
+//!   Both share one drawn-frame marker ([`Seen`]): the draw path counts its frames
+//!   ([`App::begin_frame`]), and only what the latest one drew stands.
+//! * ⟨M07⟩ **A stale decision resets only its own confirmation** (M07-W0-R07), and one
+//!   the TUI's own request created is asked for again with that same request
+//!   ([`Origin`]); its fresh version needs a fresh confirmation.
 //! * A held setup operation (ADR-0007 §5.7) is **Needs attention** with its two repairs,
 //!   `retry_held` and `keep_held`. Each is previewed first, its plan shown, and it is
 //!   submitted only after a typed `yes` (QR12: a client-side confirmation, no decision
@@ -130,6 +141,9 @@ pub(crate) enum Screen {
     Environment(String),
     /// ⟨M07⟩ One identity's detail, by ID.
     Identity(String),
+    /// ⟨M07⟩ The desktop-lock detail: the saved setting, what is observed, and the
+    /// runtime's own statement (M07-W0-R04; Enter on the Settings lock row).
+    Lock,
 }
 
 /// The two repairs of a held setup operation (ADR-0007 §5.7).
@@ -163,6 +177,21 @@ impl HeldRepair {
             }
         }
     }
+}
+
+/// ⟨M07⟩ M07-W0-R07: a request the TUI itself sent that can be answered with a decision
+/// (a Settings change, a stop-menu action, a held repair's submission), exactly as it was
+/// sent. It is kept while that decision is pending, so that when the decision turns out
+/// stale the same request (with its request ID, where it has one) is sent again, as the
+/// CLI does (`cli::retry_stale_decision`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Origin {
+    /// What it is, for the status line.
+    pub what: String,
+    /// The request as sent.
+    pub request: Box<heimdall_contract::request::Request>,
+    /// Whether `Attend` goes first (as it did when it was first sent).
+    pub attends: bool,
 }
 
 /// A request for the IPC worker.
@@ -230,6 +259,14 @@ pub(crate) enum Command {
         repair: HeldRepair,
         /// The digest of the plan the owner saw.
         plan_digest: String,
+    },
+    /// ⟨M07⟩ M07-W0-R07: send the TUI's own request again, unchanged, because the
+    /// decision it was answered with (`replaces`) turned out stale.
+    Resend {
+        /// The request.
+        origin: Origin,
+        /// The stale decision.
+        replaces: String,
     },
 }
 
@@ -318,6 +355,24 @@ pub(crate) enum Update {
     Done {
         /// What was sent.
         what: String,
+        /// Its result.
+        outcome: Outcome,
+    },
+    /// ⟨M07⟩ M07-W0-R07: one of the TUI's own requests that can create a decision
+    /// finished. As [`Update::Done`], and the request is remembered under the decision
+    /// the runtime answered it with.
+    Sent {
+        /// The request as sent.
+        origin: Origin,
+        /// Its result.
+        outcome: Outcome,
+        /// The stale decision this was sent again for, on a retry.
+        replaces: Option<String>,
+    },
+    /// ⟨M07⟩ M07-W0-R07: the `Decide` of decision `id` finished.
+    Decided {
+        /// The decision.
+        id: String,
         /// Its result.
         outcome: Outcome,
     },
@@ -431,6 +486,10 @@ pub(crate) struct Reading {
     drawn: Cell<Option<Drawn>>,
     /// The fingerprint of the content whose last row a frame has drawn.
     end_seen: Cell<Option<u64>>,
+    /// ⟨M07⟩ How much of the content the frames so far have drawn, as `(content, total,
+    /// rows)`: rows `0..rows` of the content laid out in `total` rows have each been on
+    /// screen, counted from the first row without a gap ([`Reading::all_shown`]).
+    covered: Cell<Option<(u64, usize, usize)>>,
 }
 
 impl Reading {
@@ -444,6 +503,33 @@ impl Reading {
         }));
         if viewport > 0 && scroll.saturating_add(viewport) >= total {
             self.end_seen.set(Some(content));
+        }
+        // ⟨M07⟩ Rows count as read only from the top down: a frame that starts below the
+        // rows read so far (a jump to the end) adds nothing.
+        let read = match self.covered.get() {
+            Some((c, t, rows)) if c == content && t == total => rows,
+            _ => 0,
+        };
+        let read = if viewport > 0 && scroll <= read {
+            read.max(scroll.saturating_add(viewport).min(total))
+        } else {
+            read
+        };
+        self.covered.set(Some((content, total, read)));
+    }
+
+    /// ⟨M07⟩ Whether **every** row of the content last drawn has been on screen in some
+    /// frame, read from its first row down without a gap (M07-W0-R01). Stricter than
+    /// [`Reading::end_shown`]: a jump to the end before the first frame shows the last row
+    /// and nothing of what comes before it. The Settings confirmation asks for this, so
+    /// its action and its target have been drawn before a typed `yes` counts.
+    #[must_use]
+    pub(crate) fn all_shown(&self) -> bool {
+        match (self.covered.get(), self.drawn.get()) {
+            (Some((content, total, rows)), Some(d)) => {
+                content == d.content && total == d.total && rows >= total
+            }
+            _ => false,
         }
     }
 
@@ -488,6 +574,101 @@ impl Reading {
         };
         self.refused = false;
         true
+    }
+}
+
+/// ⟨M07⟩ What one frame showed of a confirmation drawn outside the decision modal's
+/// dispatch (written by the view; M07-W0-R01).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Shown {
+    /// The frame drew nothing of it (no frame yet, a frame with no room for any view, or
+    /// a modal drawn over it).
+    #[default]
+    Nothing,
+    /// The frame had no room for its prompt and one row of its content.
+    TooSmall,
+    /// The frame drew its prompt and a window of its content (which rows: the
+    /// [`Reading`]).
+    Drawn,
+}
+
+/// ⟨M07⟩ Why a typed yes is refused when the last frame drew nothing of the confirmation.
+pub(crate) const REFUSED_NOT_DRAWN: &str = "not on screen yet: nothing was sent";
+/// ⟨M07⟩ Why a typed yes is refused on a terminal too small for the confirmation.
+pub(crate) const REFUSED_TOO_SMALL: &str = "too small to show the change: not sent";
+/// ⟨M07⟩ Why a typed yes is refused before every row has been drawn.
+pub(crate) const REFUSED_UNREAD: &str = "read it all first (PgUp/PgDn): not sent";
+
+/// ⟨M07⟩ The drawn-frame marker of a typed confirmation that sends a persistent change
+/// without a decision of the runtime behind it: a Settings change and the stop menu's
+/// pause, stop and cutoff (M07-W0-R01 and its ruling for the stop menu).
+///
+/// The draw path counts its frames ([`App::begin_frame`]). The view reports here what a
+/// frame showed of the confirmation, with that frame's number ([`Seen::report`]), and
+/// which content rows it drew ([`Reading::record`]). A typed `yes` counts only when
+/// ([`Seen::unseen`]):
+/// * the **latest** frame reported the confirmation drawn: its prompt and a window of its
+///   content. A frame that drew something else instead (no frame at all yet, a terminal
+///   too small for any view, a modal over it) reports nothing, and its number is not the
+///   one stored here, so what an earlier frame showed never carries over;
+/// * the frames so far have drawn **every** row of the content, from the first one down
+///   ([`Reading::all_shown`]): the action, its target and its exact effect.
+///
+/// Keys handled before any frame (a batch) therefore confirm nothing, and neither does a
+/// terminal too small to show the confirmation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Seen {
+    /// Which rows of the content the frames have drawn (a fresh one for every
+    /// confirmation).
+    pub reading: Reading,
+    /// What a frame showed of the confirmation, and that frame's number (0: none).
+    last: Cell<(u64, Shown)>,
+    /// Why the last typed yes was refused (shown while [`Reading::refused`] is set).
+    why: Option<&'static str>,
+}
+
+impl Seen {
+    /// The view's report of frame `frame`.
+    pub(crate) fn report(&self, frame: u64, shown: Shown) {
+        self.last.set((frame, shown));
+    }
+
+    /// What frame `frame` showed of the confirmation: nothing, unless that very frame
+    /// reported otherwise.
+    #[must_use]
+    pub(crate) fn shown(&self, frame: u64) -> Shown {
+        match self.last.get() {
+            (at, shown) if at == frame && frame != 0 => shown,
+            _ => Shown::Nothing,
+        }
+    }
+
+    /// Why a typed yes cannot be accepted now, if it cannot; `frame` is the number of
+    /// the latest frame ([`App::frame`]).
+    #[must_use]
+    pub(crate) fn unseen(&self, frame: u64) -> Option<&'static str> {
+        match self.shown(frame) {
+            Shown::Nothing => Some(REFUSED_NOT_DRAWN),
+            Shown::TooSmall => Some(REFUSED_TOO_SMALL),
+            Shown::Drawn if !self.reading.all_shown() => Some(REFUSED_UNREAD),
+            Shown::Drawn => None,
+        }
+    }
+
+    /// Refuse a typed yes for `why` ([`Seen::unseen`]): the answer is discarded (the
+    /// owner types it again after reading) and the refusal is remembered for the next
+    /// frame. Returns `why`.
+    pub(crate) fn refuse(&mut self, why: &'static str, input: &mut String) -> &'static str {
+        input.clear();
+        self.reading.refused = true;
+        self.why = Some(why);
+        why
+    }
+
+    /// Why the last typed yes was refused, until the next key that types or scrolls.
+    #[must_use]
+    pub(crate) fn refusal(&self) -> Option<&'static str> {
+        self.why.filter(|_| self.reading.refused)
     }
 }
 
@@ -592,6 +773,9 @@ pub(crate) enum Health {
     /// Not known yet (first read in progress).
     #[default]
     Checking,
+    /// ⟨M07⟩ M07-W0-R03: it cannot be told. A listing could not be read, or the runtime
+    /// connection was lost, so what is shown is stale or missing: never "Ready".
+    Unknown,
 }
 
 impl Health {
@@ -602,7 +786,7 @@ impl Health {
             Health::Ready => "[OK]",
             Health::Working => "[..]",
             Health::Attention => "[!!]",
-            Health::Checking => "[??]",
+            Health::Checking | Health::Unknown => "[??]",
         }
     }
 
@@ -614,6 +798,7 @@ impl Health {
             Health::Working => "Working",
             Health::Attention => "Needs attention",
             Health::Checking => "Checking",
+            Health::Unknown => "Not known",
         }
     }
 }
@@ -708,6 +893,9 @@ pub(crate) enum Item {
         code: String,
         /// The first finding's message.
         message: String,
+        /// ⟨M07⟩ M07-W0-R11: its findings do not all say the same thing, so the row is
+        /// worded for the group, not with the first one's message.
+        mixed: bool,
         /// The destinations it concerns (aliases, in report order, each once).
         aliases: Vec<String>,
     },
@@ -718,6 +906,9 @@ pub(crate) enum Item {
         subject: String,
         /// The failure's code.
         code: String,
+        /// Whether an earlier read succeeded (its data is shown, stale); else nothing
+        /// was ever read.
+        stale: bool,
     },
 }
 
@@ -738,15 +929,27 @@ impl Item {
     }
 }
 
-/// An Activity row.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// An Activity row: which listing it is in and its index there. ⟨M07⟩ M07-W0-R06: the
+/// row at a position is found by arithmetic on the three listings' lengths
+/// ([`App::activity_row`]); nothing is built or searched per key or per frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActivityRow {
-    /// A pending decision (ID).
-    Decision(String),
-    /// An operation (ID).
-    Operation(String),
-    /// ⟨M03⟩ An enrollment record (ID).
-    Enrollment(String),
+    /// A pending decision.
+    Decision(usize),
+    /// An operation.
+    Operation(usize),
+    /// ⟨M03⟩ An enrollment record.
+    Enrollment(usize),
+}
+
+/// ⟨M07⟩ M07-W0-R11: the Destinations list scoped to the destinations one grouped finding
+/// concerns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Scope {
+    /// What the group says (its overview wording).
+    pub label: String,
+    /// The destinations it concerns.
+    pub aliases: HashSet<String>,
 }
 
 /// The whole TUI state.
@@ -809,7 +1012,20 @@ pub(crate) struct App {
     /// ⟨M07⟩ Whether an update changed what the screen shows since the main loop last
     /// asked ([`App::take_changed`]).
     changed: bool,
+    /// ⟨M07⟩ M07-W0-R06: the Settings rows, built once per change of the listings.
+    setting_rows: OnceCell<Vec<super::m07::SettingRow>>,
+    /// ⟨M07⟩ M07-W0-R11: the grouped finding the Destinations list is scoped to.
+    scope: Option<Scope>,
+    /// ⟨M07⟩ M07-W0-R07: the TUI's own requests whose decision is pending, by decision
+    /// ID, oldest first (at most [`MAX_ORIGINS`]).
+    origins: Vec<(String, Origin)>,
+    /// ⟨M07⟩ How many frames the draw path has drawn ([`App::begin_frame`]): the clock
+    /// the confirmations outside the decision modal are checked against ([`Seen`]).
+    frames: Cell<u64>,
 }
+
+/// ⟨M07⟩ The most TUI-sent requests remembered for a stale retry.
+const MAX_ORIGINS: usize = 16;
 
 /// ⟨M07⟩ What the overview and the lists derive from the listings and the doctor report.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -874,7 +1090,26 @@ impl App {
             destination_filter: OnceCell::new(),
             profile_filter: OnceCell::new(),
             changed: false,
+            setting_rows: OnceCell::new(),
+            scope: None,
+            origins: Vec::new(),
+            frames: Cell::new(0),
         }
+    }
+
+    /// ⟨M07⟩ The draw path starts a frame: called once by `view::render`, before it draws
+    /// anything (also before it gives up on a terminal too small for any view). Returns
+    /// the frame's number, counted from 1.
+    pub(crate) fn begin_frame(&self) -> u64 {
+        let n = self.frames.get().saturating_add(1);
+        self.frames.set(n);
+        n
+    }
+
+    /// ⟨M07⟩ The number of the latest frame (0: nothing has been drawn yet).
+    #[must_use]
+    pub(crate) fn frame(&self) -> u64 {
+        self.frames.get()
     }
 
     // ---- state and invalidation (M07) -----------------------------------------------
@@ -948,6 +1183,31 @@ impl App {
         self.derived = OnceCell::new();
         self.destination_filter = OnceCell::new();
         self.profile_filter = OnceCell::new();
+        self.setting_rows = OnceCell::new();
+    }
+
+    /// ⟨M07⟩ M07-W0-R03: whether what the listings say cannot be relied on: a listing's
+    /// latest read failed (its data is stale or was never read), the connection failed,
+    /// or the runtime stopped after listings were read (they are still shown).
+    #[must_use]
+    pub(crate) fn reads_unknown(&self) -> bool {
+        !self.catalog.failures.is_empty()
+            || matches!(self.runtime, Runtime::Failed(_))
+            || (self.runtime == Runtime::NotRunning && self.catalog.read_at.is_some())
+    }
+
+    /// ⟨M07⟩ M07-W0-R11: the grouped finding the Destinations list is scoped to.
+    #[must_use]
+    pub(crate) fn scope(&self) -> Option<&Scope> {
+        self.scope.as_ref()
+    }
+
+    fn set_scope(&mut self, scope: Option<Scope>) {
+        if self.scope != scope {
+            self.scope = scope;
+            self.destination_filter = OnceCell::new();
+            self.selected[Tab::Destinations.index()] = 0;
+        }
     }
 
     /// The derived overview data (computed on first use after a change).
@@ -981,6 +1241,10 @@ impl App {
         let items = self.overview_items_with(&alias_by_id);
         let health = if items.iter().any(Item::needs_attention) {
             Health::Attention
+        } else if self.reads_unknown() {
+            // ⟨M07⟩ M07-W0-R03: never Ready (or Working) over listings that failed, were
+            // never read, or are stale.
+            Health::Unknown
         } else if items.iter().any(|i| matches!(i, Item::Working { .. })) {
             Health::Working
         } else if self.runtime == Runtime::Connecting || self.doctor.is_none() {
@@ -1095,11 +1359,16 @@ impl App {
             }
         }
         // ⟨M07⟩ A listing whose last read failed: its error, never an empty list (Q4).
-        for (subject, f) in &self.catalog.failures {
-            warnings.push(Item::ListingFailed {
-                subject: subject.clone(),
-                code: f.code.clone(),
-            });
+        // While the runtime is not connected every listing is stale for the one reason
+        // the runtime line and the indicator give, so they are not listed one by one.
+        if self.runtime == Runtime::Connected {
+            for (subject, f) in &self.catalog.failures {
+                warnings.push(Item::ListingFailed {
+                    subject: subject.clone(),
+                    code: f.code.clone(),
+                    stale: f.stale_from.is_some(),
+                });
+            }
         }
         if let Some(doctor) = &self.doctor {
             // ⟨M07⟩ (severity is a problem, code) → its row's index in `attention` or
@@ -1148,10 +1417,18 @@ impl App {
                 match groups.entry((problem, code.clone())) {
                     std::collections::hash_map::Entry::Occupied(mut e) => {
                         let (at, seen) = e.get_mut();
-                        if seen.insert(alias.clone())
-                            && let Some(Item::Findings { aliases, .. }) = list.get_mut(*at)
+                        if let Some(Item::Findings {
+                            aliases,
+                            message: first,
+                            mixed,
+                            ..
+                        }) = list.get_mut(*at)
                         {
-                            aliases.push(alias);
+                            // ⟨M07⟩ M07-W0-R11: one code, different words.
+                            *mixed |= *first != message;
+                            if seen.insert(alias.clone()) {
+                                aliases.push(alias);
+                            }
                         }
                     }
                     std::collections::hash_map::Entry::Vacant(e) => {
@@ -1160,6 +1437,7 @@ impl App {
                             problem,
                             code,
                             message,
+                            mixed: false,
                             aliases: vec![alias],
                         });
                     }
@@ -1201,10 +1479,13 @@ impl App {
     fn destination_indices(&self) -> &[usize] {
         self.destination_filter.get_or_init(|| {
             let needle = self.searches[0].text.to_lowercase();
+            let scope = self.scope.as_ref();
             self.catalog
                 .destinations
                 .iter()
                 .enumerate()
+                // ⟨M07⟩ M07-W0-R11: within the grouped finding's destinations, if scoped.
+                .filter(|(_, d)| scope.is_none_or(|s| s.aliases.contains(&d.alias)))
                 .filter(|(_, d)| {
                     needle.is_empty()
                         || [
@@ -1260,27 +1541,30 @@ impl App {
         })
     }
 
-    /// The Activity rows: pending decisions, then open and unresolved operations.
+    /// The Activity row at position `i`: pending decisions, then open and unresolved
+    /// operations, then enrollment records (⟨M07⟩ by arithmetic, M07-W0-R06).
     #[must_use]
-    pub(crate) fn activity_rows(&self) -> Vec<ActivityRow> {
-        self.catalog
-            .decisions
-            .iter()
-            .map(|d| ActivityRow::Decision(d.id.clone()))
-            .chain(
-                self.catalog
-                    .operations
-                    .iter()
-                    .map(|o| ActivityRow::Operation(o.id.clone())),
-            )
-            .chain(
-                self.catalog
-                    .m03
-                    .enrollments
-                    .iter()
-                    .map(|e| ActivityRow::Enrollment(e.id.clone())),
-            )
-            .collect()
+    pub(crate) fn activity_row(&self, i: usize) -> Option<ActivityRow> {
+        let (d, o, e) = self.activity_counts();
+        if i < d {
+            Some(ActivityRow::Decision(i))
+        } else if i < d + o {
+            Some(ActivityRow::Operation(i - d))
+        } else if i < d + o + e {
+            Some(ActivityRow::Enrollment(i - d - o))
+        } else {
+            None
+        }
+    }
+
+    /// How many decisions, operations and enrollment records Activity lists.
+    #[must_use]
+    pub(crate) fn activity_counts(&self) -> (usize, usize, usize) {
+        (
+            self.catalog.decisions.len(),
+            self.catalog.operations.len(),
+            self.catalog.m03.enrollments.len(),
+        )
     }
 
     /// The number of rows the view of `tab` lists (cached).
@@ -1294,7 +1578,10 @@ impl App {
             Tab::Overview => self.overview_items().len(),
             Tab::Destinations => self.destination_indices().len(),
             Tab::Profiles => self.profile_indices().len(),
-            Tab::Activity => self.activity_rows().len(),
+            Tab::Activity => {
+                let (d, o, e) = self.activity_counts();
+                d + o + e
+            }
             // A scrolled view, not a list.
             Tab::Projects => 0,
             Tab::Environments => self.catalog.environments.items.len(),
@@ -1303,10 +1590,12 @@ impl App {
         }
     }
 
-    /// ⟨M07⟩ The Settings view's rows.
+    /// ⟨M07⟩ The Settings view's rows (M07-W0-R06: built on first use after the listings
+    /// change, then kept; a key or a frame only reads them).
     #[must_use]
-    pub(crate) fn setting_rows(&self) -> Vec<super::m07::SettingRow> {
-        super::m07::settings_rows(&self.catalog)
+    pub(crate) fn setting_rows(&self) -> &[super::m07::SettingRow] {
+        self.setting_rows
+            .get_or_init(|| super::m07::settings_rows(&self.catalog))
     }
 
     /// The selected row of `tab`, clamped to its rows.
@@ -1383,11 +1672,15 @@ impl App {
                         self.profile_filter = OnceCell::new();
                     }
                     self.derived = OnceCell::new();
+                    self.setting_rows = OnceCell::new();
                     self.catalog = *c;
                 }
+                // ⟨M07⟩ Never over an open Settings prompt (it would cover a confirmation
+                // being read): the decision opens once the prompt has closed.
                 if let Some(id) = self.open_when_listed.clone()
                     && self.catalog.decisions.iter().any(|d| d.id == id)
                     && self.modal.is_none()
+                    && self.settings.is_none()
                 {
                     self.open_when_listed = None;
                     self.modal = Some(Modal::Decision(DecisionPrompt {
@@ -1484,34 +1777,108 @@ impl App {
                     p.plan = Some(plan);
                 }
             }
-            // ⟨M07⟩ U2: the record changed after the owner reviewed it. The TUI did not
-            // create it, so it cannot send its request again: the confirmation is reset (a
-            // typed yes is never carried to another record), the decisions are read again,
-            // and the requester's retry brings the new version here.
-            Update::Done { what, outcome } if outcome.code == DECISION_STALE => {
-                if matches!(self.modal, Some(Modal::Decision(_))) {
-                    self.modal = None;
+            Update::Done { what, outcome } => self.finished(&what, outcome, &mut effects),
+            // ⟨M07⟩ M07-W0-R07: the TUI's own request. Its decision, if the runtime
+            // answered with one, is remembered with the request that created it.
+            Update::Sent {
+                origin,
+                outcome,
+                replaces,
+            } => {
+                let what = origin.what.clone();
+                match (&outcome.decision_ref, &replaces) {
+                    // Sent again, and the runtime still names the stale record: nothing
+                    // new to review (the CLI gives up the same way).
+                    (Some(d), Some(stale)) if d == stale => {
+                        self.remember(d.clone(), origin);
+                        self.status = Some(format!(
+                            "{what}: asked again, and the runtime still refers to the changed request; nothing was approved (review it from Activity)"
+                        ));
+                        effects.push(Effect::Worker(Command::Refresh { doctor: true }));
+                    }
+                    (decision, _) => {
+                        if let Some(d) = decision {
+                            self.remember(d.clone(), origin);
+                        }
+                        self.finished(&what, outcome, &mut effects);
+                    }
                 }
-                self.open_when_listed = None;
-                self.status = Some(format!(
-                    "{what}: the request changed after you reviewed it, so nothing was approved; its new version appears here when the requester tries again"
-                ));
-                effects.push(Effect::Worker(Command::Refresh { doctor: false }));
             }
-            Update::Done { what, outcome } => {
-                self.status = Some(if outcome.ok {
-                    format!("{what}: {}", outcome.code)
-                } else {
-                    format!("{what}: {}: {}", outcome.code, outcome.message)
-                });
-                if let Some(d) = outcome.decision_ref {
-                    self.open_when_listed = Some(d);
-                }
-                effects.push(Effect::Worker(Command::Refresh { doctor: true }));
+            Update::Decided { id, outcome } if outcome.code == DECISION_STALE => {
+                self.decision_stale(&id, &mut effects);
+            }
+            Update::Decided { id, outcome } => {
+                // Completed (or refused for another reason): its request is not needed.
+                self.origins.retain(|(d, _)| *d != id);
+                self.finished(&format!("decision {id}"), outcome, &mut effects);
             }
         }
         self.changed |= changed;
         effects
+    }
+
+    /// A request finished: its result on the status line, the decision it was answered
+    /// with (if any) opened once it is listed, and the listings read again.
+    fn finished(&mut self, what: &str, outcome: Outcome, effects: &mut Vec<Effect>) {
+        self.status = Some(if outcome.ok {
+            format!("{what}: {}", outcome.code)
+        } else {
+            format!("{what}: {}: {}", outcome.code, outcome.message)
+        });
+        if let Some(d) = outcome.decision_ref {
+            self.open_when_listed = Some(d);
+        }
+        effects.push(Effect::Worker(Command::Refresh { doctor: true }));
+    }
+
+    /// ⟨M07⟩ Remember the TUI's own request under the decision it was answered with.
+    fn remember(&mut self, decision: String, origin: Origin) {
+        self.origins.retain(|(d, _)| *d != decision);
+        self.origins.push((decision, origin));
+        if self.origins.len() > MAX_ORIGINS {
+            self.origins.remove(0);
+        }
+    }
+
+    /// ⟨M07⟩ U2, M07-W0-R07: decision `id` changed after the owner reviewed it, so its
+    /// `Decide` approved nothing.
+    ///
+    /// * **Only its own modal is reset.** If the modal open now is the one for `id`, it
+    ///   closes and what was typed is gone (a typed yes is never carried to another
+    ///   record). Any other modal, opened in between, is left exactly as it is: not
+    ///   closed, and nothing is sent for it.
+    /// * **A decision the TUI's own request created is retried:** the same request is
+    ///   sent again ([`Command::Resend`]), and the decision the runtime answers with
+    ///   opens once it is listed, with an empty confirmation and nothing read yet.
+    /// * **A decision that came from elsewhere** cannot be asked for again from here: the
+    ///   decisions are read again, and its new version appears when its requester
+    ///   retries. It does not open by itself.
+    fn decision_stale(&mut self, id: &str, effects: &mut Vec<Effect>) {
+        if matches!(&self.modal, Some(Modal::Decision(p)) if p.id == id) {
+            self.modal = None;
+        }
+        if self.open_when_listed.as_deref() == Some(id) {
+            self.open_when_listed = None;
+        }
+        let at = self.origins.iter().position(|(d, _)| d == id);
+        match at.map(|i| self.origins.remove(i).1) {
+            Some(origin) => {
+                self.status = Some(format!(
+                    "decision {id}: the request changed after you reviewed it, so nothing was approved; asking again ({}), its new version opens for a fresh review",
+                    origin.what
+                ));
+                effects.push(Effect::Worker(Command::Resend {
+                    origin,
+                    replaces: id.to_owned(),
+                }));
+            }
+            None => {
+                self.status = Some(format!(
+                    "decision {id}: the request changed after you reviewed it, so nothing was approved; its new version appears here when the requester tries again"
+                ));
+                effects.push(Effect::Worker(Command::Refresh { doctor: false }));
+            }
+        }
     }
 
     /// The connect handoff ended (`text` describes how).
@@ -1565,17 +1932,22 @@ impl App {
                     Vec::new()
                 };
             }
+            // ⟨M07⟩ Going to a view by its key shows all of it: a grouped finding's
+            // scope (M07-W0-R11) lasts for the visit its Enter started.
             Key::Char(c @ '1'..='8') => {
                 let i = usize::from(u8::try_from(c).unwrap_or(b'1') - b'1');
+                self.set_scope(None);
                 self.go_tab(Tab::ALL[i.min(Tab::ALL.len() - 1)]);
                 return Vec::new();
             }
             Key::Tab => {
+                self.set_scope(None);
                 self.go_tab(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]);
                 return Vec::new();
             }
             Key::BackTab => {
                 let n = Tab::ALL.len();
+                self.set_scope(None);
                 self.go_tab(Tab::ALL[(self.tab.index() + n - 1) % n]);
                 return Vec::new();
             }
@@ -1588,24 +1960,34 @@ impl App {
             Screen::Operation(id) => self.operation_key(&id, key),
             Screen::Enrollment(_) => self.detail_key(key),
             Screen::Workspace => self.workspace_key(key),
-            Screen::Policies | Screen::Environment(_) | Screen::Identity(_) => self.detail_key(key),
+            Screen::Policies | Screen::Environment(_) | Screen::Identity(_) | Screen::Lock => {
+                self.detail_key(key)
+            }
         }
     }
 
-    /// ⟨M07⟩ One key in the open Settings prompt: it sends only after a typed yes.
+    /// ⟨M07⟩ One key in the open Settings prompt: it sends only after a typed yes to a
+    /// confirmation a frame has drawn in full ([`super::m07::SettingPrompt::unseen`]).
     fn setting_prompt_key(
         &mut self,
         mut prompt: super::m07::SettingPrompt,
         key: Key,
     ) -> Vec<Effect> {
         use super::m07::SettingStep;
-        match prompt.key(key) {
+        match prompt.key(key, self.frame()) {
             SettingStep::Stay => {
                 self.settings = Some(prompt);
                 Vec::new()
             }
             SettingStep::Close(text) => {
                 self.status = Some(text);
+                Vec::new()
+            }
+            // ⟨M07⟩ M07-W0-R01: a typed yes to a change that was not on screen. The
+            // prompt stays open, the answer is gone, and the status line says why.
+            SettingStep::Refused(why) => {
+                self.settings = Some(prompt);
+                self.status = Some(why.to_owned());
                 Vec::new()
             }
             SettingStep::Send(action) => {
@@ -1641,7 +2023,9 @@ impl App {
         self.detail_key(key)
     }
 
-    /// ⟨M05⟩ One key in the stop menu: it only narrows, and sends only after a typed yes.
+    /// ⟨M05⟩ One key in the stop menu: it only narrows, and sends only after a typed yes
+    /// ⟨M07⟩ to a confirmation the latest frame drew and the frames have shown in full
+    /// ([`Seen::unseen`]; M07-W0-R01 applied to the stop menu).
     fn stop_menu_key(
         &mut self,
         mut menu: super::m05::StopMenu,
@@ -1649,11 +2033,18 @@ impl App {
     ) -> (Option<Modal>, Vec<Effect>) {
         use super::m05::StopStep;
         let ctx = self.catalog.m05.stop_context();
-        match menu.key(key, &ctx) {
+        match menu.key(key, &ctx, self.frame()) {
             StopStep::Stay => (Some(Modal::StopMenu(menu)), Vec::new()),
             StopStep::Close(text) => {
                 self.status = Some(text);
                 (None, Vec::new())
+            }
+            // ⟨M07⟩ A typed yes to an action that was not on screen: the menu stays open
+            // on the confirmation, the answer is gone, and the frame says why (the
+            // modal's border and the footer; the status line once the menu closes).
+            StopStep::Refused(why) => {
+                self.status = Some(why.to_owned());
+                (Some(Modal::StopMenu(menu)), Vec::new())
             }
             StopStep::Send(action) => {
                 self.status = Some(format!("sending {}", action.what()));
@@ -1730,6 +2121,11 @@ impl App {
             s.editing = true;
             return Vec::new();
         }
+        // ⟨M07⟩ M07-W0-R11: Esc leaves a grouped finding's scope (every destination again).
+        if key == Key::Esc && tab == Tab::Destinations && self.scope.is_some() {
+            self.set_scope(None);
+            return Vec::new();
+        }
         let sel = self.selection(tab);
         match tab {
             Tab::Overview => {
@@ -1765,26 +2161,49 @@ impl App {
                         self.open_destination(a);
                         Vec::new()
                     }
-                    // ⟨M07⟩ One destination: its detail; several: the Destinations tab,
-                    // whose rows carry the [!!]/[ !] markers.
-                    (Item::Findings { aliases, .. }, Key::Enter) => {
+                    // ⟨M07⟩ One destination: its detail. Several: the Destinations tab,
+                    // scoped to exactly the destinations this finding concerns
+                    // (M07-W0-R11). Its search is cleared, so an earlier, unrelated search
+                    // hides none of them, and the list says which finding it shows.
+                    (item @ Item::Findings { .. }, Key::Enter) => {
+                        let Item::Findings { aliases, .. } = &item else {
+                            return Vec::new();
+                        };
                         match aliases.as_slice() {
                             [a] if self.catalog.destination(a).is_some()
                                 || self.doctor_alias(a).is_some() =>
                             {
                                 self.open_destination(a.clone());
                             }
-                            _ => self.go_tab(Tab::Destinations),
+                            _ => {
+                                self.searches[0] = Search::default();
+                                self.destination_filter = OnceCell::new();
+                                self.set_scope(Some(Scope {
+                                    label: super::view::finding_words(&item),
+                                    aliases: aliases.iter().cloned().collect(),
+                                }));
+                                self.selected[Tab::Destinations.index()] = 0;
+                                self.go_tab(Tab::Destinations);
+                            }
                         }
                         Vec::new()
                     }
                     (Item::ListingFailed { subject, .. }, Key::Enter) => {
+                        use super::data::subject as s;
                         match subject.as_str() {
-                            super::data::subject::DESTINATIONS => self.go_tab(Tab::Destinations),
-                            super::data::subject::PROFILES => self.go_tab(Tab::Profiles),
-                            super::data::subject::OPERATIONS
-                            | super::data::subject::DECISIONS
-                            | super::data::subject::ENROLLMENTS => self.go_tab(Tab::Activity),
+                            s::DESTINATIONS => self.go_tab(Tab::Destinations),
+                            s::PROFILES => self.go_tab(Tab::Profiles),
+                            s::OPERATIONS | s::DECISIONS | s::ENROLLMENTS => {
+                                self.go_tab(Tab::Activity);
+                            }
+                            s::ENVIRONMENTS => self.go_tab(Tab::Environments),
+                            s::IDENTITIES => self.go_tab(Tab::Identities),
+                            s::POLICIES | s::WORKSPACE => self.go_tab(Tab::Projects),
+                            s::CAPABILITIES => {
+                                self.tab = Tab::Settings;
+                                self.screen = Screen::Lock;
+                                self.scroll = 0;
+                            }
                             _ => {}
                         }
                         Vec::new()
@@ -1821,15 +2240,26 @@ impl App {
                 Vec::new()
             }
             Tab::Activity => {
-                let rows = self.activity_rows();
-                match (sel.and_then(|i| rows.get(i)).cloned(), key) {
-                    (Some(ActivityRow::Decision(id)), Key::Enter) => self.open_decision(id),
-                    (Some(ActivityRow::Operation(id)), Key::Enter) => self.open_operation(id),
-                    (Some(ActivityRow::Enrollment(id)), Key::Enter) => {
-                        self.open_enrollment(id);
+                if key != Key::Enter {
+                    return Vec::new();
+                }
+                let c = &self.catalog;
+                match sel.and_then(|i| self.activity_row(i)) {
+                    Some(ActivityRow::Decision(i)) => match c.decisions.get(i) {
+                        Some(d) => self.open_decision(d.id.clone()),
+                        None => Vec::new(),
+                    },
+                    Some(ActivityRow::Operation(i)) => match c.operations.get(i) {
+                        Some(o) => self.open_operation(o.id.clone()),
+                        None => Vec::new(),
+                    },
+                    Some(ActivityRow::Enrollment(i)) => {
+                        if let Some(e) = c.m03.enrollments.get(i) {
+                            self.open_enrollment(e.id.clone());
+                        }
                         Vec::new()
                     }
-                    _ => Vec::new(),
+                    None => Vec::new(),
                 }
             }
             Tab::Projects => Vec::new(),
@@ -1855,9 +2285,15 @@ impl App {
                 if key != Key::Enter {
                     return Vec::new();
                 }
-                let Some(row) = sel.and_then(|i| self.setting_rows().into_iter().nth(i)) else {
+                let Some(row) = sel.and_then(|i| self.setting_rows().get(i)).cloned() else {
                     return Vec::new();
                 };
+                // ⟨M07⟩ M07-W0-R04: the lock row opens its detail (the saved setting, what
+                // is observed, the runtime's own statement), readable at any size.
+                if row == super::m07::SettingRow::Lock {
+                    self.screen = Screen::Lock;
+                    self.scroll = 0;
+                }
                 match super::m07::choices(&self.catalog, &row) {
                     Ok(choices) => {
                         self.settings = Some(super::m07::SettingPrompt::new(row, choices));
@@ -3303,6 +3739,76 @@ pub(crate) mod tests {
         );
     }
 
+    /// M07-W0-R06: Settings and Activity do no catalog-sized work per key. The Settings
+    /// rows are built once per change of the listings and then only read: keys on
+    /// Settings, and a poll that changes nothing, keep the very same rows; a changed
+    /// listing drops them. A connection row is its destination's index (no alias is
+    /// searched for), and an Activity row is found by arithmetic on the three listings.
+    #[test]
+    fn settings_and_activity_rows_are_not_rebuilt_per_key() {
+        use crate::tui::m07::SettingRow;
+        use crate::tui::view::draw_once;
+        let mut app = crate::tui::m07::fixtures::app();
+        let managed = 5000;
+        app.catalog_mut().destinations = (0..managed)
+            .map(|i| destination(&format!("m{i:06}"), true))
+            .chain([destination("observed", false)])
+            .collect();
+        press(&mut app, &[Key::Char('8')]);
+        // The fixture's own rows (a default profile, two policies, the lock row), then
+        // one row per managed destination (the observed one has none).
+        assert_eq!(app.shown(Tab::Settings), 4 + managed);
+        let built = app.setting_rows().as_ptr();
+        press(&mut app, &[Key::Down, Key::PageDown, Key::End]);
+        draw_once(&app, 120, 40);
+        assert_eq!(app.selection(Tab::Settings), Some(4 + managed - 1));
+        assert_eq!(
+            app.setting_rows().as_ptr(),
+            built,
+            "keys and frames read the rows; they do not build them"
+        );
+        let last = app.setting_rows().last().cloned().unwrap();
+        assert_eq!(last, SettingRow::Connection { at: managed - 1 });
+        let screen = draw_once(&app, 40, 12).join("\n");
+        assert!(screen.contains("> [??] m004999: not reported"), "{screen}");
+        assert!(
+            !screen.contains("m000000"),
+            "only the window is drawn: {screen}"
+        );
+        // A poll with the same answers keeps them; a changed listing builds them again.
+        let mut same = app.catalog().clone();
+        same.read_at = Some(t("2026-11-03T09:00:28Z"));
+        app.apply(Update::Catalog(Box::new(same)));
+        assert!(app.setting_rows.get().is_some());
+        let mut fewer = app.catalog().clone();
+        fewer.destinations.truncate(10);
+        app.apply(Update::Catalog(Box::new(fewer)));
+        assert!(app.setting_rows.get().is_none(), "dropped with the listing");
+        assert_eq!(app.shown(Tab::Settings), 4 + 10);
+        // Activity: decisions, then operations, then enrollment records, by position.
+        let (d, o, e) = app.activity_counts();
+        assert!(d > 0 && o > 0, "{d} {o} {e}");
+        assert_eq!(app.shown(Tab::Activity), d + o + e);
+        assert_eq!(app.activity_row(0), Some(ActivityRow::Decision(0)));
+        assert_eq!(app.activity_row(d - 1), Some(ActivityRow::Decision(d - 1)));
+        assert_eq!(app.activity_row(d), Some(ActivityRow::Operation(0)));
+        assert_eq!(
+            app.activity_row(d + o),
+            None,
+            "no enrollment records listed"
+        );
+        // Enter on a position opens that listing's record.
+        press(&mut app, &[Key::Char('4'), Key::End]);
+        let last_op = app.catalog().operations[o - 1].id.clone();
+        assert_eq!(
+            worker(&press(&mut app, &[Key::Enter])),
+            [Command::Operation {
+                id: last_op.clone()
+            }]
+        );
+        assert_eq!(app.screen, Screen::Operation(last_op));
+    }
+
     #[test]
     fn a_decision_the_runtime_just_issued_opens_once_listed() {
         let mut app = populated();
@@ -3324,23 +3830,27 @@ pub(crate) mod tests {
         assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.id == "dec_apply1"));
     }
 
-    /// ⟨M07⟩ U2 `decision_stale_resets_the_confirmation_and_never_reuses_yes`: the TUI
-    /// approves records another client's request created, so on `DECISION_STALE` it cannot
-    /// send that request again. The confirmation is reset (the modal closes, whatever was
-    /// typed is gone), the decisions are read again, a plain status line says the request
-    /// changed, and the new version does not open by itself: the owner opens it and types
-    /// `yes` to it afresh. A typed yes is never applied to another record.
-    #[test]
-    fn decision_stale_resets_the_confirmation_and_never_reuses_yes() {
-        let stale = |decision_ref: Option<&str>| Update::Done {
-            what: "decision dec_apply1".to_owned(),
+    fn stale(id: &str, decision_ref: Option<&str>) -> Update {
+        Update::Decided {
+            id: id.to_owned(),
             outcome: Outcome {
                 ok: false,
                 code: DECISION_STALE.to_owned(),
                 message: "the decision is stale".to_owned(),
                 decision_ref: decision_ref.map(str::to_owned),
             },
-        };
+        }
+    }
+
+    /// ⟨M07⟩ U2 `decision_stale_resets_the_confirmation_and_never_reuses_yes`: a decision
+    /// another client's request created cannot be asked for again from the TUI. On
+    /// `DECISION_STALE` its own confirmation is reset (its modal closes, whatever was typed
+    /// is gone), the decisions are read again, a plain status line says the request
+    /// changed, and the new version does not open by itself: the owner opens it and types
+    /// `yes` to it afresh. A typed yes is never applied to another record. (M07-W0-R07:
+    /// the refresh-only path, kept for decisions that came from elsewhere.)
+    #[test]
+    fn decision_stale_resets_the_confirmation_and_never_reuses_yes() {
         let mut app = populated();
         // The owner reads dec_apply1 to its end and confirms it: Decide is sent.
         press(&mut app, &[Key::Char('4'), Key::Enter]);
@@ -3356,13 +3866,17 @@ pub(crate) mod tests {
                 verdict: Verdict::Approve
             }]
         );
-        // Before the answer arrives, the owner opens the other decision and types yes.
-        press(&mut app, &[Key::Down, Key::Enter]);
+        // Before the answer arrives, the owner opens the same record again and types yes.
+        press(&mut app, &[Key::Enter]);
         read(&app);
         type_text(&mut app, "yes");
         // The answer: the record changed (the runtime may even name another record).
-        let effects = app.apply(stale(Some("dec_apply2")));
-        assert_eq!(worker(&effects), [Command::Refresh { doctor: false }]);
+        let effects = app.apply(stale("dec_apply1", Some("dec_apply2")));
+        assert_eq!(
+            worker(&effects),
+            [Command::Refresh { doctor: false }],
+            "not the TUI's request: it is only read again"
+        );
         assert!(
             app.modal.is_none(),
             "the confirmation is reset: {:?}",
@@ -3372,6 +3886,10 @@ pub(crate) mod tests {
         let status = app.status.clone().unwrap();
         assert!(
             status.contains("the request changed") && status.contains("nothing was approved"),
+            "{status}"
+        );
+        assert!(
+            status.contains("when the requester tries again"),
             "{status}"
         );
         assert!(!status.contains("DECISION_STALE"), "plain words: {status}");
@@ -3408,9 +3926,229 @@ pub(crate) mod tests {
         // A stale answer while no modal is open changes nothing but the status, and a
         // later modal opened for the same record also starts empty.
         let mut app = populated();
-        app.apply(stale(None));
+        app.apply(stale("dec_apply1", None));
         assert!(app.modal.is_none());
         press(&mut app, &[Key::Char('4'), Key::Enter]);
         assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.input.is_empty()));
+    }
+
+    /// The TUI's own widening, as the worker reports it: `resume pol-per1`, answered with
+    /// the decision `decision`.
+    fn resume_sent(decision: &str, replaces: Option<&str>) -> (Origin, Update) {
+        use heimdall_contract::ids::{PolicyId, RequestId};
+        let action = crate::tui::m07::SettingAction::Resume {
+            policy: PolicyId::parse("pol-per1").unwrap(),
+        };
+        let origin = Origin {
+            what: action.what(),
+            request: Box::new(action.request(RequestId::parse("req-origin-1").unwrap())),
+            attends: action.attends(),
+        };
+        let update = Update::Sent {
+            origin: origin.clone(),
+            outcome: Outcome {
+                ok: false,
+                code: "DECISION_REQUIRED".to_owned(),
+                message: "needs your decision".to_owned(),
+                decision_ref: Some(decision.to_owned()),
+            },
+            replaces: replaces.map(str::to_owned),
+        };
+        (origin, update)
+    }
+
+    /// The listings of `app` with the pending widening `id` added.
+    fn listing_with(app: &App, id: &str) -> Update {
+        let mut c = app.catalog().clone();
+        let mut d = crate::tui::m05::fixtures::decision(
+            id,
+            "widen_policy",
+            serde_json::json!({"action": {"action": "resume", "policy_id": "pol-per1"}}),
+        );
+        d.expires_at = Some(t("2026-11-03T09:30:00Z"));
+        c.decisions.push(d);
+        Update::Catalog(Box::new(c))
+    }
+
+    /// Read the open decision to its end and answer yes; what was sent.
+    fn approve_open(app: &mut App) -> Vec<Command> {
+        read(app);
+        press(app, &[Key::End]);
+        read(app);
+        type_text(app, "yes");
+        worker(&press(app, &[Key::Enter]))
+    }
+
+    /// ⟨M07⟩ U2 `decision_stale_retries_with_the_same_key_and_resets_the_confirmation`
+    /// (M07-W0-R07): a decision the TUI's own request created is retried when it goes
+    /// stale. The same request is sent again, unchanged (so with its request ID), the
+    /// decision the runtime answers with opens once listed, and it needs a fresh
+    /// confirmation under the reading guard: nothing typed for the stale record counts.
+    #[test]
+    fn decision_stale_retries_with_the_same_key_and_resets_the_confirmation() {
+        let mut app = crate::tui::m07::fixtures::app();
+        // The Settings change was sent; the runtime answered with dec_resume1.
+        let (origin, sent) = resume_sent("dec_resume1", None);
+        assert_eq!(
+            worker(&app.apply(sent)),
+            [Command::Refresh { doctor: true }]
+        );
+        let listed = listing_with(&app, "dec_resume1");
+        app.apply(listed);
+        assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.id == "dec_resume1"));
+        assert_eq!(
+            approve_open(&mut app),
+            [Command::Decide {
+                id: "dec_resume1".to_owned(),
+                verdict: Verdict::Approve
+            }]
+        );
+        // The record changed after it was reviewed: the TUI's own request goes again.
+        let effects = app.apply(stale("dec_resume1", None));
+        assert_eq!(
+            worker(&effects),
+            [Command::Resend {
+                origin: origin.clone(),
+                replaces: "dec_resume1".to_owned()
+            }],
+            "the same request, request ID included"
+        );
+        let status = app.status.clone().unwrap();
+        assert!(
+            status.contains("nothing was approved") && status.contains("asking again"),
+            "{status}"
+        );
+        assert!(app.modal.is_none());
+        // The runtime answers the retry with a fresh decision, which opens once listed.
+        let (_, again) = resume_sent("dec_resume2", Some("dec_resume1"));
+        app.apply(again);
+        assert_eq!(app.open_when_listed.as_deref(), Some("dec_resume2"));
+        let listed = listing_with(&app, "dec_resume2");
+        app.apply(listed);
+        let Some(Modal::Decision(p)) = &app.modal else {
+            panic!("the fresh decision is shown: {:?}", app.modal);
+        };
+        assert_eq!(p.id, "dec_resume2");
+        assert!(p.input.is_empty(), "nothing typed carries over");
+        // A fresh confirmation under the reading guard: a yes before any frame of the
+        // new record is refused, and after it was read it approves that record.
+        type_text(&mut app, "yes");
+        assert!(worker(&press(&mut app, &[Key::Enter])).is_empty(), "unread");
+        assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.reading.refused));
+        assert_eq!(
+            approve_open(&mut app),
+            [Command::Decide {
+                id: "dec_resume2".to_owned(),
+                verdict: Verdict::Approve
+            }]
+        );
+        // If that one goes stale too, it is retried the same way (its request is kept
+        // under the decision it was last answered with).
+        let effects = app.apply(stale("dec_resume2", None));
+        assert_eq!(
+            worker(&effects),
+            [Command::Resend {
+                origin: origin.clone(),
+                replaces: "dec_resume2".to_owned()
+            }]
+        );
+        // A retry the runtime answers with the stale record itself shows nothing new.
+        let (_, same) = resume_sent("dec_resume2", Some("dec_resume2"));
+        app.apply(same);
+        assert_eq!(app.open_when_listed, None);
+        let status = app.status.clone().unwrap();
+        assert!(
+            status.contains("still refers to the changed request"),
+            "{status}"
+        );
+        // A completed decision's request is forgotten: a late stale answer for it takes
+        // the refresh-only path.
+        let mut app = crate::tui::m07::fixtures::app();
+        let (_, sent) = resume_sent("dec_resume1", None);
+        app.apply(sent);
+        app.apply(Update::Decided {
+            id: "dec_resume1".to_owned(),
+            outcome: Outcome {
+                ok: true,
+                code: "OK".to_owned(),
+                message: String::new(),
+                decision_ref: None,
+            },
+        });
+        assert_eq!(
+            worker(&app.apply(stale("dec_resume1", None))),
+            [Command::Refresh { doctor: false }]
+        );
+    }
+
+    /// M07-W0-R07: a stale answer is matched with its own modal. A modal the owner opened
+    /// in between (another decision with a typed yes, the key help, a Settings prompt) is
+    /// not closed and nothing is sent for it; the retried request's fresh decision waits
+    /// until that modal is closed, and never opens over it.
+    #[test]
+    fn a_stale_answer_leaves_an_unrelated_modal_alone() {
+        let mut app = crate::tui::m07::fixtures::app();
+        let (origin, sent) = resume_sent("dec_resume1", None);
+        app.apply(sent);
+        let listed = listing_with(&app, "dec_resume1");
+        app.apply(listed);
+        assert_eq!(approve_open(&mut app).len(), 1, "Decide for dec_resume1");
+        // In between, the owner opens another decision, reads it and types yes.
+        press(&mut app, &[Key::Char('4'), Key::Home, Key::Enter]);
+        let Some(Modal::Decision(p)) = &app.modal else {
+            panic!("{:?}", app.modal);
+        };
+        let other = p.id.clone();
+        assert_ne!(other, "dec_resume1");
+        read(&app);
+        press(&mut app, &[Key::End]);
+        read(&app);
+        type_text(&mut app, "yes");
+        let before = app.modal.clone();
+        // The stale answer for dec_resume1 arrives.
+        let effects = app.apply(stale("dec_resume1", None));
+        assert_eq!(
+            worker(&effects),
+            [Command::Resend {
+                origin,
+                replaces: "dec_resume1".to_owned()
+            }],
+            "only the retry: nothing is decided for the open modal"
+        );
+        assert_eq!(
+            app.modal, before,
+            "the unrelated modal is exactly as it was"
+        );
+        // The retry's fresh decision is listed while that modal is still open: it waits.
+        let (_, again) = resume_sent("dec_resume2", Some("dec_resume1"));
+        app.apply(again);
+        let listed = listing_with(&app, "dec_resume2");
+        app.apply(listed.clone());
+        assert!(
+            matches!(&app.modal, Some(Modal::Decision(p)) if p.id == other && p.input == "yes"),
+            "{:?}",
+            app.modal
+        );
+        // The owner cancels the unrelated one: nothing is sent for it, and the fresh
+        // decision opens with the next listing, empty.
+        assert!(worker(&press(&mut app, &[Key::Esc])).is_empty());
+        app.apply(listed);
+        assert!(
+            matches!(&app.modal, Some(Modal::Decision(p)) if p.id == "dec_resume2" && p.input.is_empty()),
+            "{:?}",
+            app.modal
+        );
+        // The same for a decision from elsewhere, and for a modal that is no decision.
+        let mut app = populated();
+        press(&mut app, &[Key::Char('4'), Key::Down, Key::Enter]);
+        type_text(&mut app, "yes");
+        let before = app.modal.clone();
+        assert!(matches!(&before, Some(Modal::Decision(p)) if p.id == "dec_declare1"));
+        app.apply(stale("dec_apply1", None));
+        assert_eq!(app.modal, before);
+        let mut app = populated();
+        press(&mut app, &[Key::Char('?')]);
+        app.apply(stale("dec_apply1", None));
+        assert_eq!(app.modal, Some(Modal::Help));
     }
 }

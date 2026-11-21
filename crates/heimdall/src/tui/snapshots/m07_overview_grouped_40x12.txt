@@ -4,7 +4,7 @@ Runtime: connected, read just now
 Static pass: just now
 Here: this environment · no work running
 Access: not listed
-Lock: not reported · s stop
+Lock setting: not reported · s stop
 > [ !] HOME differs from the account's h
   [ !] 100 destinations: ssh may offer o
 

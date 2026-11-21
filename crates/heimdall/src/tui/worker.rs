@@ -49,7 +49,7 @@ use serde_json::Value;
 use super::data::{
     Catalog, Doctor, EventLine, ListingFailure, MAX_EVENTS, Operation, OperationDetail, Runtime,
 };
-use super::model::{Command, HeldRepair, Outcome, RepairPlan, Update};
+use super::model::{Command, HeldRepair, Origin, Outcome, RepairPlan, Update};
 use crate::client::{Client, Ctx, connect_as};
 
 /// What the worker needs from the invocation.
@@ -216,6 +216,8 @@ struct State {
     /// ⟨M07⟩ Per [`REFRESH_SUBJECTS`] entry, the data of its last good read and when it
     /// was read; a failed read keeps it (Q4: a failed listing is never shown as empty).
     last_good: Vec<(Value, Option<Timestamp>)>,
+    /// ⟨M07⟩ The same for `inspect policies` and `inspect workspace` ([`M05_SUBJECTS`]).
+    m05_good: [(Value, Option<Timestamp>); 2],
     /// ⟨M07⟩ The subjects whose last read failed (into [`Catalog::failures`]).
     failures: BTreeMap<String, ListingFailure>,
     doctored_aliases: Option<BTreeSet<String>>,
@@ -294,6 +296,46 @@ fn record_answer(
                     stale_from: last_good.1,
                 },
             );
+        }
+    }
+}
+
+/// ⟨M07⟩ The two trusted-work listings' names in the failure cache, in [`State::m05_good`]
+/// order.
+const M05_SUBJECTS: [&str; 2] = [
+    super::data::subject::POLICIES,
+    super::data::subject::WORKSPACE,
+];
+
+/// ⟨M07⟩ One listing's answer in a refresh round, for [`record_answer`] (M07-W0-R03). A
+/// good answer is its data (its warnings are collected). A failed one is its code and
+/// message. A transport failure (`SERVICE_UNAVAILABLE`, which drops the session, or a
+/// request that could not be sent) is also kept in `lost`: the round asks nothing more,
+/// and every listing it did not read fails the same way.
+fn round_answer(
+    lost: &mut Option<(String, String)>,
+    env: Option<Envelope<Value>>,
+    warnings: &mut Vec<heimdall_contract::envelope::Warning>,
+) -> Result<Value, (String, String)> {
+    match env {
+        Some(env) if env.code.is_success() => {
+            warnings.extend(env.warnings);
+            Ok(env.data)
+        }
+        Some(env) => {
+            let failure = (env.code.to_string(), message_of(&env));
+            if env.code == Code::ServiceUnavailable {
+                *lost = Some(failure.clone());
+            }
+            Err(failure)
+        }
+        None => {
+            let failure = (
+                Code::ServiceUnavailable.to_string(),
+                "the runtime is not connected".to_owned(),
+            );
+            *lost = Some(failure.clone());
+            Err(failure)
         }
     }
 }
@@ -407,6 +449,7 @@ impl State {
             runtime: None,
             catalog: Catalog::default(),
             last_good: vec![(Value::Null, None); REFRESH_SUBJECTS.len()],
+            m05_good: [(Value::Null, None), (Value::Null, None)],
             failures: BTreeMap::new(),
             doctored_aliases: None,
             doctor_running: Arc::new(AtomicBool::new(false)),
@@ -500,10 +543,9 @@ impl State {
             }
             Command::Operation { id } => self.operation(id).await,
             Command::Decide { id, verdict } => {
-                let what = format!("decision {id}");
                 let Some(request) = decide_request(&id, verdict) else {
-                    self.send(Update::Done {
-                        what,
+                    self.send(Update::Decided {
+                        id,
                         outcome: invalid_id(),
                     });
                     return;
@@ -515,8 +557,10 @@ impl State {
                         None => not_sent(),
                     },
                 };
-                self.send(Update::Done {
-                    what,
+                // ⟨M07⟩ M07-W0-R07: with the decision's ID, so a stale answer is matched
+                // with its own modal and its own originating request.
+                self.send(Update::Decided {
+                    id,
                     outcome: result,
                 });
             }
@@ -537,20 +581,27 @@ impl State {
                     outcome: result,
                 });
             }
+            // ⟨M05⟩ One narrowing action of the stop menu as the CLI sends it; a cutoff
+            // attends first (it may become a widening record), `pause`, `stop` and a work
+            // stop never do (they create no decision).
             Command::Stop(action) => {
-                let what = action.what();
-                let result = self.stop(&action).await;
-                self.send(Update::Done {
-                    what,
-                    outcome: result,
-                });
+                let (what, attends) = (action.what(), action.attends());
+                self.originate(what, attends, |id| action.request(id)).await;
             }
+            // ⟨M07⟩ One Settings change as the CLI sends it: a widening attends first (the
+            // runtime answers it with a decision, which the decision modal then shows); a
+            // narrowing and the default profile never do.
             Command::Setting(action) => {
-                let what = action.what();
-                let result = self.setting(&action).await;
-                self.send(Update::Done {
-                    what,
-                    outcome: result,
+                let (what, attends) = (action.what(), action.attends());
+                self.originate(what, attends, |id| action.request(id)).await;
+            }
+            // ⟨M07⟩ M07-W0-R07: the same request again, for a decision that went stale.
+            Command::Resend { origin, replaces } => {
+                let outcome = self.send_origin(&origin).await;
+                self.send(Update::Sent {
+                    origin,
+                    outcome,
+                    replaces: Some(replaces),
                 });
             }
             Command::PrepareProbe { alias, level } => self.prepare_probe(alias, level),
@@ -573,11 +624,15 @@ impl State {
                 plan_digest,
             } => {
                 let what = format!("{} {operation}", repair.name());
-                let result = self.submit_repair(&plan_digest).await;
-                self.send(Update::Done {
-                    what,
-                    outcome: result,
-                });
+                let Ok(plan_digest) = PlanDigest::parse(&plan_digest) else {
+                    self.send(Update::Done {
+                        what,
+                        outcome: not_sent(),
+                    });
+                    return;
+                };
+                self.originate(what, true, |id| submit_repair_request(plan_digest, id))
+                    .await;
             }
         }
     }
@@ -585,15 +640,17 @@ impl State {
     async fn refresh(&mut self, doctor: bool) {
         if self.session().await.is_some() {
             let mut warnings = Vec::new();
+            // ⟨M07⟩ M07-W0-R03: a transport failure ends the round's reads. The listings
+            // not read keep their last good data and are recorded as failed too, and the
+            // round is published either way: the failure is never lost with the session.
+            let mut lost: Option<(String, String)> = None;
             for (i, s) in REFRESH_SUBJECTS.into_iter().enumerate() {
-                let Some(env) = self.request(inspect(s)).await else {
-                    break;
-                };
-                let answer = if env.code.is_success() {
-                    warnings.extend(env.warnings);
-                    Ok(env.data)
-                } else {
-                    Err((env.code.to_string(), message_of(&env)))
+                let answer = match lost.clone() {
+                    Some(failure) => Err(failure),
+                    None => {
+                        let env = self.request(inspect(s)).await;
+                        round_answer(&mut lost, env, &mut warnings)
+                    }
                 };
                 record_answer(
                     &mut self.last_good[i],
@@ -603,33 +660,46 @@ impl State {
                     Timestamp::now(),
                 );
             }
-            if self.client.is_some() {
-                let answers = &self.last_good;
-                self.catalog = Catalog::from_answers(
-                    &answers[0].0,
-                    &answers[1].0,
-                    &answers[2].0,
-                    &answers[3].0,
-                    &answers[4].0,
-                    &answers[5].0,
-                    Timestamp::now(),
-                );
-                self.catalog.failures = self.failures.clone();
-                // ⟨M03⟩ U12: the enrollments, the owned connections, the capabilities'
-                // lock report, and the time warning any answer carried.
-                self.catalog.m03 = super::m03::Listings::of(
-                    &answers[6].0,
-                    &answers[7].0,
-                    &answers[8].0,
-                    &warnings,
-                );
-                // ⟨M07⟩ Every environment the runtime knows, its own first.
-                self.catalog.environments = super::m07::Environments::of(&answers[9].0);
-                // ⟨M05⟩ The policies and the working directory's workspace.
-                self.catalog.m05 = self.read_m05().await;
-                self.send(Update::Catalog(Box::new(self.catalog.clone())));
-            }
+            // ⟨M05⟩ The policies and the working directory's workspace, through the same
+            // failure cache.
+            let m05 = self.read_m05(&mut lost).await;
+            self.publish(m05, &warnings);
         } else {
+            // ⟨M07⟩ M07-W0-R03: not connected. What was read before is still shown, so it
+            // is published as stale (every listing failed with why the runtime is not
+            // reachable); with nothing ever read there is nothing to mark.
+            if self.ever_read() {
+                let why = (
+                    Code::ServiceUnavailable.to_string(),
+                    match &self.runtime {
+                        Some(Runtime::Failed(m)) => super::data::clean(m),
+                        _ => "no runtime is running".to_owned(),
+                    },
+                );
+                let now = Timestamp::now();
+                for (i, s) in REFRESH_SUBJECTS.into_iter().enumerate() {
+                    record_answer(
+                        &mut self.last_good[i],
+                        &mut self.failures,
+                        subject_name(s),
+                        Err(why.clone()),
+                        now,
+                    );
+                }
+                for (slot, name) in self.m05_good.iter_mut().zip(M05_SUBJECTS) {
+                    if slot.1.is_some() {
+                        record_answer(
+                            slot,
+                            &mut self.failures,
+                            name.to_owned(),
+                            Err(why.clone()),
+                            now,
+                        );
+                    }
+                }
+                let m05 = super::m05::Listings::of(&self.m05_good[0].0, &self.m05_good[1].0);
+                self.publish(m05, &[]);
+            }
             // ⟨M03⟩ F14: with no runtime, the pending chores come from the store, read
             // only (worker U's reader; the runtime is never started).
             let ctx = self.config.ctx.clone();
@@ -656,13 +726,63 @@ impl State {
         }
     }
 
+    /// ⟨M07⟩ Whether any listing has ever been read (so something stale can be on screen).
+    fn ever_read(&self) -> bool {
+        self.last_good
+            .iter()
+            .chain(&self.m05_good)
+            .any(|(_, at)| at.is_some())
+    }
+
+    /// ⟨M07⟩ Build the catalog from each listing's last good data with the recorded
+    /// failures, and send it: after every round, whether its reads succeeded or not.
+    fn publish(
+        &mut self,
+        m05: super::m05::Listings,
+        warnings: &[heimdall_contract::envelope::Warning],
+    ) {
+        let answers = &self.last_good;
+        self.catalog = Catalog::from_answers(
+            &answers[0].0,
+            &answers[1].0,
+            &answers[2].0,
+            &answers[3].0,
+            &answers[4].0,
+            &answers[5].0,
+            Timestamp::now(),
+        );
+        // ⟨M03⟩ U12: the enrollments, the owned connections, the capabilities' lock
+        // report, and the time warning any answer carried.
+        self.catalog.m03 =
+            super::m03::Listings::of(&answers[6].0, &answers[7].0, &answers[8].0, warnings);
+        // ⟨M07⟩ Every environment the runtime knows, its own first.
+        self.catalog.environments = super::m07::Environments::of(&answers[9].0);
+        self.catalog.m05 = m05;
+        self.catalog.failures = self.failures.clone();
+        self.send(Update::Catalog(Box::new(self.catalog.clone())));
+    }
+
     /// ⟨M05⟩ `inspect policies` and `inspect workspace` for the working directory. A runtime
     /// that does not offer `trusted-work/1` answers `SCHEMA_UNSUPPORTED` (or
     /// `CAPABILITY_UNAVAILABLE`): that reads as "not available" and is not asked again on this
     /// connection. Both are read-only and contact nothing outside the runtime.
-    async fn read_m05(&mut self) -> super::m05::Listings {
+    ///
+    /// ⟨M07⟩ M07-W0-R03: any other failed answer goes through the listings' failure cache
+    /// ([`record_answer`], under `policies` and `workspace`): the last good answer is kept
+    /// and marked stale, and one never read is reported as not read, so Settings never
+    /// shows "none set" for a default profile it could not read. `lost` is the round's
+    /// transport failure, if the session dropped.
+    async fn read_m05(&mut self, lost: &mut Option<(String, String)>) -> super::m05::Listings {
+        let not_served = |state: &mut Self| {
+            state.m05_unavailable = true;
+            state.m05_good = [(Value::Null, None), (Value::Null, None)];
+            for name in M05_SUBJECTS {
+                state.failures.remove(name);
+            }
+            super::m05::Listings::default()
+        };
         if self.m05_unavailable {
-            return super::m05::Listings::default();
+            return not_served(self);
         }
         let unserved = |env: &Envelope<Value>| {
             matches!(
@@ -670,73 +790,80 @@ impl State {
                 Code::SchemaUnsupported | Code::CapabilityUnavailable
             )
         };
-        let mut policies = Value::Null;
-        let mut workspace = Value::Null;
-        match self.request(inspect(InspectSubject::Policies)).await {
-            Some(env) if env.code.is_success() => policies = env.data,
-            Some(env) if unserved(&env) => {
-                self.m05_unavailable = true;
-                return super::m05::Listings::default();
-            }
-            _ => {}
-        }
+        let mut requests = vec![(0, inspect(InspectSubject::Policies))];
         if let Some(cwd) = self.cwd.clone() {
-            let request = Request::Inspect(InspectRequest {
-                subject: InspectSubject::Workspace,
-                preview: None,
-                cwd: Some(cwd),
-                redact: false,
+            requests.push((
+                1,
+                Request::Inspect(InspectRequest {
+                    subject: InspectSubject::Workspace,
+                    preview: None,
+                    cwd: Some(cwd),
+                    redact: false,
+                }),
+            ));
+        }
+        for (i, request) in requests {
+            let answer = match lost.clone() {
+                Some(failure) => Err(failure),
+                None => match self.request(request).await {
+                    Some(env) if unserved(&env) => return not_served(self),
+                    env => round_answer(lost, env, &mut Vec::new()),
+                },
+            };
+            record_answer(
+                &mut self.m05_good[i],
+                &mut self.failures,
+                M05_SUBJECTS[i].to_owned(),
+                answer,
+                Timestamp::now(),
+            );
+        }
+        super::m05::Listings::of(&self.m05_good[0].0, &self.m05_good[1].0)
+    }
+
+    /// ⟨M07⟩ M07-W0-R07: send one of the TUI's own requests that the runtime may answer
+    /// with a decision, and report it with the request itself ([`Update::Sent`]): the
+    /// model keeps it while that decision is pending, so a stale decision can be retried
+    /// with exactly this request, request ID included.
+    async fn originate(
+        &mut self,
+        what: String,
+        attends: bool,
+        request: impl FnOnce(RequestId) -> Request,
+    ) {
+        let Ok(request_id) = crate::cli::fresh_request_id() else {
+            self.send(Update::Done {
+                what,
+                outcome: Outcome {
+                    ok: false,
+                    code: Code::InternalError.to_string(),
+                    message: "randomness unavailable; nothing was sent".to_owned(),
+                    decision_ref: None,
+                },
             });
-            match self.request(request).await {
-                Some(env) if env.code.is_success() => workspace = env.data,
-                Some(env) if unserved(&env) => self.m05_unavailable = true,
-                _ => {}
-            }
-        }
-        super::m05::Listings::of(&policies, &workspace)
+            return;
+        };
+        let origin = Origin {
+            what,
+            request: Box::new(request(request_id)),
+            attends,
+        };
+        let outcome = self.send_origin(&origin).await;
+        self.send(Update::Sent {
+            origin,
+            outcome,
+            replaces: None,
+        });
     }
 
-    /// ⟨M05⟩ Send one narrowing action of the stop menu as the CLI sends it; a cutoff
-    /// attends first (it may become a widening record), `pause`, `stop` and a work stop never
-    /// do (they create no decision).
-    async fn stop(&mut self, action: &super::m05::StopAction) -> Outcome {
-        if action.attends()
+    /// Send `origin`'s request as it is, attending first when it did.
+    async fn send_origin(&mut self, origin: &Origin) -> Outcome {
+        if origin.attends
             && let Err(refused) = self.attend().await
         {
             return refused;
         }
-        let Ok(request_id) = crate::cli::fresh_request_id() else {
-            return Outcome {
-                ok: false,
-                code: Code::InternalError.to_string(),
-                message: "randomness unavailable; nothing was sent".to_owned(),
-                decision_ref: None,
-            };
-        };
-        match self.request(action.request(request_id)).await {
-            Some(env) => outcome(&env),
-            None => not_sent(),
-        }
-    }
-
-    /// ⟨M07⟩ Send one Settings change as the CLI sends it: a widening attends first (the
-    /// runtime answers it with a decision, which the decision modal then shows); a
-    /// narrowing and the default profile never do.
-    async fn setting(&mut self, action: &super::m07::SettingAction) -> Outcome {
-        if action.attends()
-            && let Err(refused) = self.attend().await
-        {
-            return refused;
-        }
-        let Ok(request_id) = crate::cli::fresh_request_id() else {
-            return Outcome {
-                ok: false,
-                code: Code::InternalError.to_string(),
-                message: "randomness unavailable; nothing was sent".to_owned(),
-                decision_ref: None,
-            };
-        };
-        match self.request(action.request(request_id)).await {
+        match self.request((*origin.request).clone()).await {
             Some(env) => outcome(&env),
             None => not_sent(),
         }
@@ -941,25 +1068,6 @@ impl State {
             lines: plan_lines(&plan, repair),
         })
     }
-
-    async fn submit_repair(&mut self, digest: &str) -> Outcome {
-        let Ok(plan_digest) = PlanDigest::parse(digest) else {
-            return not_sent();
-        };
-        let Some(request_id) = crate::cli::fresh_request_id().ok() else {
-            return not_sent();
-        };
-        if let Err(o) = self.attend().await {
-            return o;
-        }
-        match self
-            .request(submit_repair_request(plan_digest, request_id))
-            .await
-        {
-            Some(env) => outcome(&env),
-            None => not_sent(),
-        }
-    }
 }
 
 /// ⟨M07⟩ `decide` of a listed decision, as `heimdall decision approve|deny <id>` sends it
@@ -1083,6 +1191,182 @@ mod tests {
         let r = unavailable_report();
         assert_eq!(r.findings.len(), 1);
         assert_eq!(r.findings[0].severity, FindingSeverity::Problem);
+    }
+
+    /// M07-W0-R03 at the worker's fold: a failed answer is recorded and the round goes on,
+    /// but a transport failure (the answer that drops the session, or a request that
+    /// could not be sent) ends the round's reads: it is kept, and every listing the round
+    /// did not read fails with it and keeps its last good data.
+    #[test]
+    fn a_transport_failure_fails_the_rest_of_the_round_and_keeps_the_data() {
+        use crate::client::error;
+        use crate::output::error_value;
+        let t = |s: &str| -> Timestamp { s.parse().unwrap() };
+        let good = |n: usize| serde_json::json!({"items": [{"alias": format!("a{n}")}]});
+        // Every listing was read once.
+        let mut slots: Vec<(Value, Option<Timestamp>)> = (0..REFRESH_SUBJECTS.len())
+            .map(|n| (good(n), Some(t("2026-11-03T09:00:00Z"))))
+            .collect();
+        let mut failures = BTreeMap::new();
+        // The next round: the first listing answers, the second fails in the runtime, the
+        // third answer is the transport failure; nothing more is asked.
+        let mut asked = 0;
+        let mut lost = None;
+        let mut warnings = Vec::new();
+        for (i, subject) in REFRESH_SUBJECTS.into_iter().enumerate() {
+            let answer = match lost.clone() {
+                Some(failure) => Err(failure),
+                None => {
+                    asked += 1;
+                    let env = match i {
+                        0 => Envelope::ok(good(100)),
+                        1 => error_value(error(Code::InternalError, "the store could not be read")),
+                        _ => error_value(error(
+                            Code::ServiceUnavailable,
+                            "the runtime closed the connection",
+                        )),
+                    };
+                    round_answer(&mut lost, Some(env), &mut warnings)
+                }
+            };
+            record_answer(
+                &mut slots[i],
+                &mut failures,
+                subject_name(subject),
+                answer,
+                t("2026-11-03T09:00:03Z"),
+            );
+        }
+        assert_eq!(
+            asked, 3,
+            "a dropped session is not asked again in the round"
+        );
+        assert_eq!(slots[0].0, good(100), "the listing that answered is new");
+        assert_eq!(failures.len(), REFRESH_SUBJECTS.len() - 1);
+        for (i, subject) in REFRESH_SUBJECTS.into_iter().enumerate().skip(1) {
+            let f = &failures[&subject_name(subject)];
+            assert_eq!(
+                f.code,
+                if i == 1 {
+                    "INTERNAL_ERROR"
+                } else {
+                    "SERVICE_UNAVAILABLE"
+                },
+                "{subject:?}"
+            );
+            assert_eq!(f.stale_from, Some(t("2026-11-03T09:00:00Z")), "{subject:?}");
+            assert_eq!(slots[i].0, good(i), "{subject:?} keeps its last good data");
+        }
+        // A request that could not be sent at all is a transport failure too.
+        let mut lost = None;
+        let answer = round_answer(&mut lost, None, &mut warnings);
+        assert_eq!(answer.as_ref().err(), lost.as_ref());
+        assert_eq!(lost.unwrap().0, "SERVICE_UNAVAILABLE");
+    }
+
+    /// M07-W0-R03 through the worker itself: when the runtime cannot be reached, a
+    /// refresh still publishes. What was read before is sent again with every listing
+    /// marked failed (so the views show it as stale), after the connection state. Before
+    /// this, a refresh without a session published nothing and the old listings stayed on
+    /// screen as if current. The home is a scratch directory with no runtime in it.
+    #[test]
+    fn a_refresh_without_a_runtime_publishes_what_it_has_as_stale() {
+        let t = |s: &str| -> Timestamp { s.parse().unwrap() };
+        let home = tempfile::tempdir().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut state = State::new(
+            WorkerConfig {
+                ctx: Ctx {
+                    json: false,
+                    non_interactive: false,
+                    home: Some(home.path().join("hh")),
+                    stdin_tty: false,
+                },
+                ssh_paths: None,
+                env: Env::capture(),
+                config_dir: None,
+                isolation: None,
+            },
+            tx,
+        );
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        // Nothing was ever read: only the connection state is published.
+        rt.block_on(state.refresh(false));
+        let updates = |rx: &std::sync::mpsc::Receiver<Event>| -> Vec<Update> {
+            rx.try_iter()
+                .filter_map(|e| match e {
+                    Event::Update(u) => Some(*u),
+                    _ => None,
+                })
+                .collect()
+        };
+        let first = updates(&rx);
+        assert!(
+            first.contains(&Update::Runtime(Runtime::NotRunning)),
+            "{first:?}"
+        );
+        assert!(
+            !first.iter().any(|u| matches!(u, Update::Catalog(_))),
+            "nothing to mark stale: {first:?}"
+        );
+        // As after a good round: the destinations and the default profile were read.
+        let read_at = t("2026-11-03T09:00:00Z");
+        for slot in &mut state.last_good {
+            *slot = (serde_json::json!({}), Some(read_at));
+        }
+        state.last_good[0] = (
+            serde_json::json!({"items": [
+                {"destination_id": "dst-a", "alias": "alpha", "definition": "observed"}
+            ]}),
+            Some(read_at),
+        );
+        state.m05_good[0] = (
+            serde_json::json!({"items": [], "default_profiles": [
+                {"environment_id": "env_1", "profile_id": "dev"}
+            ]}),
+            Some(read_at),
+        );
+        rt.block_on(state.refresh(false));
+        let second = updates(&rx);
+        let catalogs: Vec<&Catalog> = second
+            .iter()
+            .filter_map(|u| match u {
+                Update::Catalog(c) => Some(&**c),
+                _ => None,
+            })
+            .collect();
+        let [stale] = catalogs.as_slice() else {
+            panic!("one catalog is published: {second:?}");
+        };
+        assert_eq!(stale.destinations.len(), 1, "the last good data is kept");
+        assert_eq!(
+            stale.m05.default_profiles,
+            [("env_1".to_owned(), "dev".to_owned())]
+        );
+        let mut expected: Vec<String> = REFRESH_SUBJECTS.into_iter().map(subject_name).collect();
+        expected.push(super::super::data::subject::POLICIES.to_owned());
+        expected.sort();
+        assert_eq!(
+            stale.failures.keys().cloned().collect::<Vec<_>>(),
+            expected,
+            "every listing that was read is marked; the workspace never was"
+        );
+        for (name, f) in &stale.failures {
+            assert_eq!(f.code, "SERVICE_UNAVAILABLE", "{name}");
+            assert_eq!(f.stale_from, Some(read_at), "{name}");
+            assert_eq!(f.message, "no runtime is running", "{name}");
+        }
+        // The same state again is the same publication (so it redraws nothing).
+        rt.block_on(state.refresh(false));
+        let third = updates(&rx);
+        let again = third.iter().find_map(|u| match u {
+            Update::Catalog(c) => Some(&**c),
+            _ => None,
+        });
+        assert!(again.is_some_and(|c| c.same_listings(stale)), "{third:?}");
     }
 
     /// ⟨M07⟩ Q4 at the worker: a failed read keeps the last good data and says since

@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities [8 Settings] [!!] - s stop
+Desktop lock
+Source: the runtime's lock report (inspect capabilities), read 09:00:25Z (just now)
+
+Saved setting
+  "continue": the strictest of your configuration and your personal standing access in this environment.
+  A project's standing access has its own setting. No listing this view reads reports it: not known here.
+  For one piece of work, the strictest setting that applies to it decides.
+
+Observed
+  This view has no report of what a lock did, or will do, to work that is running: not known here.
+
+The runtime's statement (its own words)
+  Approved work is designed to keep working while your screen or password manager is locked, until the end time you
+approve. On this computer that has not been verified yet. To stop it when you lock the screen, set lock behaviour to
+"revoke on lock".
+  You have not acknowledged its disclosure yet
+
+Change it
+  Per standing access entry: Enter on one in Settings (8), or run
+  `heimdall access lock-behavior --policy <policy> continue|revoke-on-lock`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down scroll · Esc back

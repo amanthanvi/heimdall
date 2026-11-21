@@ -131,7 +131,9 @@ The [envelope schema][envelope-schema] carries `schema_version`, optional
 `reason`. Use the typed code and effect fields for decisions. For example,
 a successful `observe` lookup can return `OK` and describe a still-active
 or failed operation. Read that operation's state and recorded outcome to decide
-what to do next.
+what to do next. Validate `data` against the request's expected shape before
+reading it. In a successful `inspect destinations` response, `data` is an object
+and `data.items` is an array.
 
 Use the [code table][codes] for code defaults. Exit classes are a CLI
 convention. IPC sends envelopes.
@@ -146,7 +148,8 @@ convention. IPC sends envelopes.
 | 5 | Unavailable, backpressure or still pending after a bounded synchronous wait |
 | 6 | Conflict, expired request or resync required |
 | 7 | Unknown external outcome |
-| 126 / 127 | Pre-launch failures for `run` and `connect` |
+| 126 | `LAUNCH_FAILED` with `data.error.reason` equal to `not_executable` |
+| 127 | Other `LAUNCH_FAILED` results |
 
 **Planned (ADR-0013, provisional).** Response overflow is
 `USAGE_ERROR` / `response_too_large`. A refused read has effect `none` and

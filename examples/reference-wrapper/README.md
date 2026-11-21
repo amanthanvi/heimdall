@@ -22,9 +22,15 @@ PY
 
 `Client.request` returns the server envelope. Classify it with `code_defaults`,
 then read the operation state and actual effect from the result as needed.
+Successful replies to the wrapper's requests must carry a `data` object.
+A successful destinations inspection must carry an array at `data.items`.
+The client closes the connection and raises `ProtocolError` if the payload
+fails either check.
 Use the names in `REQUESTS` and the request fields in the protocol document.
 Set `asynchronous=True` when classifying an `ACCEPTED` result requested
-asynchronously. If requesting a long wait, pass a `Client` timeout in seconds
+asynchronously. `LAUNCH_FAILED` follows the CLI's exit convention of 126 for
+`data.error.reason == "not_executable"` and 127 for other launch failures.
+If requesting a long wait, pass a `Client` timeout in seconds
 longer than the requested `wait_ms` duration.
 
 For a live stream, pass a factory for a fresh authenticated `Client` to

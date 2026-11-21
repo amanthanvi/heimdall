@@ -7,7 +7,7 @@ Access: this environment's standing access is not listed by this runtime
 Desktop lock: not reported by the runtime
 Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
 > [ !] HOME differs from the account's home
-  [ !] 100 destinations: ssh may offer other identities than the adopted key for this alias (Enter: Destinations)
+  [ !] 100 destinations: ssh may offer other identities than the adopted key for this alias (Enter: which ones)
 
 
 

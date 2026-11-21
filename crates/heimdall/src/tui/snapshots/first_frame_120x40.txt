@@ -3,7 +3,7 @@
 Runtime: not running (ordinary ssh still works; S starts it)
 Static pass: running (reads your configuration; executes nothing)
 Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
-  Nothing needs you; nothing is running.
+  Nothing is read from the runtime yet: what needs you there is not known.
 
 
 

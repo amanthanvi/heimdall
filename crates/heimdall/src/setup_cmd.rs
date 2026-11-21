@@ -228,6 +228,7 @@ pub(crate) async fn approve_request<S: Session, P: Prompter>(
     crate::cli::retry_stale_decision(
         s,
         p,
+        ctx,
         request,
         env,
         &mut 2,
@@ -362,10 +363,16 @@ async fn confirm_recorded<S: Session, P: Prompter>(
     if answer != Answer::Yes {
         return not_confirmed(Some(decision), operation, answer.reason());
     }
-    s.request(Request::Decide(DecideRequest {
+    let request = s.request(Request::Decide(DecideRequest {
         decision_id,
         verdict: Verdict::Approve,
-    }))
+    }));
+    output::explain_wait(
+        !ctx.json && operation.is_some(),
+        "the approved change",
+        operation.as_ref(),
+        request,
+    )
     .await
 }
 
@@ -384,7 +391,7 @@ pub(crate) async fn decided_request<S: Session, P: Prompter>(
     if let Err(refused) = attend_first(s, ctx).await {
         return refused;
     }
-    let env = s.request(request.clone()).await;
+    let env = s.request_with_wait(ctx, request.clone(), None).await;
     let env = match approve_request(
         s,
         p,
@@ -396,36 +403,44 @@ pub(crate) async fn decided_request<S: Session, P: Prompter>(
     )
     .await
     {
-        Ok(_) => s.request(request.clone()).await,
+        Ok(decided) => {
+            s.request_with_wait(ctx, request.clone(), decided.operation_id.as_ref())
+                .await
+        }
         Err(env) => env,
     };
-    settle(s, request, env).await
+    settle(s, ctx, request, env).await
 }
 
 /// While the answer is `ACCEPTED` with an operation, wait for it (bounded) and replay the
 /// same request (same request ID), so the caller sees the settled result.
 async fn settle<S: Session>(
     s: &mut S,
+    ctx: &Ctx,
     request: Request,
     mut env: Envelope<serde_json::Value>,
 ) -> Envelope<serde_json::Value> {
-    for _ in 0..4 {
-        let Some(op) = env
-            .operation_id
-            .clone()
-            .filter(|_| env.code == Code::Accepted)
-        else {
-            break;
-        };
-        let _ = s
-            .request(Request::Observe(ObserveRequest::Operation {
-                operation_id: op,
-                wait_ms: Some(30_000),
-            }))
-            .await;
-        env = s.request(request.clone()).await;
-    }
-    env
+    let operation = env.operation_id.clone();
+    output::explain_wait(!ctx.json, "setup to finish", operation.as_ref(), async {
+        for _ in 0..4 {
+            let Some(op) = env
+                .operation_id
+                .clone()
+                .filter(|_| env.code == Code::Accepted)
+            else {
+                break;
+            };
+            let _ = s
+                .request(Request::Observe(ObserveRequest::Operation {
+                    operation_id: op,
+                    wait_ms: Some(30_000),
+                }))
+                .await;
+            env = s.request(request.clone()).await;
+        }
+        env
+    })
+    .await
 }
 
 // --- ⟨M05⟩ U5: the personal-default offer ----------------------------------------------
@@ -904,15 +919,19 @@ pub(crate) async fn setup_from_preview<S: Session, P: Prompter>(
             return Outcome::of(not_confirmed(None, Some(op.clone()), answer.reason()));
         }
         let env = s
-            .request(Request::Setup(effect_request(intent, digest, rid)))
+            .request_with_wait(
+                ctx,
+                Request::Setup(effect_request(intent, digest, rid)),
+                Some(op),
+            )
             .await;
         return result_outcome(env);
     }
-    if held.is_some() {
+    if let Some((_, op)) = held {
         // `retry` continues exactly the recorded plan; no decision (QR12).
         let request = Request::Setup(effect_request(intent, digest, rid));
-        let env = s.request(request.clone()).await;
-        return result_outcome(settle(s, request, env).await);
+        let env = s.request_with_wait(ctx, request.clone(), Some(op)).await;
+        return result_outcome(settle(s, ctx, request, env).await);
     }
     let request = Request::Setup(effect_request(intent, digest.clone(), rid.clone()));
     let env = decided_request(s, p, ctx, request, &plan_text, Some(digest.as_str())).await;

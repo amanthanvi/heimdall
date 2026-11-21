@@ -27,6 +27,27 @@
     missing_docs
 )]
 
+fn diagnostic_tail(bytes: &[u8], root: &std::path::Path) -> String {
+    let mut text = String::from_utf8_lossy(bytes).into_owned();
+    heimdall_testkit::assert_no_canary(&text);
+    let root = root.to_string_lossy();
+    for path in [
+        root.to_string(),
+        root.replace('\\', "/"),
+        root.replace('\\', "\\\\"),
+    ] {
+        text = text.replace(&path, "<scratch>");
+    }
+    for name in ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"] {
+        if let Ok(value) = std::env::var(name)
+            && !value.is_empty()
+        {
+            text = text.replace(&value, "<redacted>");
+        }
+    }
+    heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
+}
+
 #[cfg(unix)]
 mod pty {
     use std::ffi::{OsStr, OsString};
@@ -35,7 +56,7 @@ mod pty {
     use std::os::unix::ffi::OsStrExt as _;
     use std::os::unix::process::CommandExt as _;
     use std::path::{Path, PathBuf};
-    use std::process::{Child, Command, ExitStatus, Stdio};
+    use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -238,7 +259,11 @@ mod pty {
                 .stderr(Stdio::null())
                 .spawn()
                 .unwrap();
-            Proc(Some(child))
+            Proc {
+                child: Some(child),
+                output: Arc::clone(&self.output),
+                scratch: cwd.parent().unwrap_or(cwd).to_owned(),
+            }
         }
     }
 
@@ -285,20 +310,34 @@ mod pty {
     }
 
     /// A process this test started, killed through its own handle if the test fails.
-    struct Proc(Option<Child>);
+    struct Proc {
+        child: Option<Child>,
+        output: Arc<Mutex<Vec<u8>>>,
+        scratch: PathBuf,
+    }
 
     impl Proc {
-        fn wait(mut self, limit: Duration) -> ExitStatus {
-            let mut child = self.0.take().unwrap();
+        #[track_caller]
+        fn wait(mut self, limit: Duration) {
+            let mut child = self.child.take().unwrap();
+            let logs = || super::diagnostic_tail(&self.output.lock().unwrap(), &self.scratch);
             let deadline = Instant::now() + limit;
             loop {
                 if let Some(s) = child.try_wait().unwrap() {
-                    return s;
+                    assert!(
+                        s.success(),
+                        "the TUI exited with {s}; terminal tail: {:?}",
+                        logs()
+                    );
+                    return;
                 }
                 if Instant::now() > deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    panic!("the process did not finish within {limit:?}");
+                    panic!(
+                        "the TUI did not finish within {limit:?}; terminal tail: {:?}",
+                        logs()
+                    );
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -307,7 +346,7 @@ mod pty {
 
     impl Drop for Proc {
         fn drop(&mut self) {
-            if let Some(mut c) = self.0.take() {
+            if let Some(mut c) = self.child.take() {
                 let _ = c.kill();
                 let _ = c.wait();
             }
@@ -330,6 +369,17 @@ mod pty {
         /// A scratch root and a runtime; `service_env` adds debug-build test variables
         /// to the runtime only (the fixture adapter, its slowness).
         fn new(service_env: &[(&str, &str)]) -> World {
+            World::start(service_env, None)
+        }
+
+        /// As [`World::new`], with `managed` managed destinations and `enrollments` held
+        /// enrollment records put into the scratch state store before the runtime first
+        /// starts ([`seed_store`]).
+        fn seeded(managed: usize, enrollments: usize) -> World {
+            World::start(&[], Some((managed, enrollments)))
+        }
+
+        fn start(service_env: &[(&str, &str)], seed: Option<(usize, usize)>) -> World {
             let root = tempfile::Builder::new()
                 .prefix("hm-m07-")
                 .tempdir()
@@ -366,6 +416,9 @@ mod pty {
                 stubs,
                 service: None,
             };
+            if let Some((managed, enrollments)) = seed {
+                seed_store(&w.heimdall_home, managed, enrollments);
+            }
             let log = std::fs::File::create(w.root.path().join("service.log")).unwrap();
             let mut cmd = Command::new(bin());
             cmd.args(["service", "run"])
@@ -379,13 +432,19 @@ mod pty {
             w.service = Some(cmd.spawn().unwrap());
             let deadline = Instant::now() + LONG;
             loop {
-                if w.cli(&["--json", "service", "status"]).status.success() {
+                let out = w.cli(&["--json", "service", "status"]);
+                if out.status.success() {
                     break;
                 }
                 if let Some(s) = w.service.as_mut().unwrap().try_wait().unwrap() {
                     panic!("the runtime exited early ({s}): {}", w.service_log());
                 }
-                assert!(Instant::now() < deadline, "the runtime did not start");
+                assert!(
+                    Instant::now() < deadline,
+                    "the runtime did not start; service tail: {:?}\n{}",
+                    w.service_log(),
+                    w.cli_diagnostics(&out)
+                );
                 std::thread::sleep(Duration::from_millis(100));
             }
             w
@@ -419,7 +478,8 @@ mod pty {
         }
 
         fn service_log(&self) -> String {
-            std::fs::read_to_string(self.root.path().join("service.log")).unwrap_or_default()
+            let bytes = std::fs::read(self.root.path().join("service.log")).unwrap_or_default();
+            super::diagnostic_tail(&bytes, self.root.path())
         }
 
         /// `heimdall <args>` with stdin closed, both streams scanned for canaries.
@@ -437,16 +497,25 @@ mod pty {
             out
         }
 
+        fn cli_diagnostics(&self, out: &std::process::Output) -> String {
+            format!(
+                "exit {}; stdout tail: {:?}\nstderr tail: {:?}",
+                out.status,
+                super::diagnostic_tail(&out.stdout, self.root.path()),
+                super::diagnostic_tail(&out.stderr, self.root.path())
+            )
+        }
+
         fn json(&self, args: &[&str]) -> Value {
             let out = self.cli(args);
-            let text = String::from_utf8_lossy(&out.stdout);
             assert!(
                 out.status.success(),
-                "{args:?}: exit {:?}: {text} {}",
-                out.status.code(),
-                String::from_utf8_lossy(&out.stderr)
+                "CLI failed: {}",
+                self.cli_diagnostics(&out)
             );
-            serde_json::from_str(text.trim()).unwrap()
+            serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+                panic!("CLI returned invalid JSON: {}", self.cli_diagnostics(&out))
+            })
         }
 
         /// Import `n` observed destinations `host-<first>`… as one portable bundle,
@@ -559,8 +628,128 @@ mod pty {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            assert_no_canary(&self.service_log());
+            if !std::thread::panicking() {
+                let _ = self.service_log();
+            }
         }
+    }
+
+    /// Put `managed` managed destinations (`m000000`…, `.invalid` host names) and
+    /// `enrollments` held enrollment records (one per destination, from the first) into
+    /// the state store of the scratch home `heimdall_home`, before any runtime has
+    /// started there. This is the store's own test seeding, as tests/e2e/tui_m03.rs uses
+    /// it: `import` creates observed destinations only, and each managed destination is a
+    /// Settings connection row (M07-W0-R06). Nothing here names a real host, key or
+    /// agent; a held record waits for the owner, so the runtime acts on none of it.
+    fn seed_store(heimdall_home: &Path, managed: usize, enrollments: usize) {
+        use heimdall_contract::Timestamp;
+        use heimdall_contract::ids::{
+            AccountName, CaFingerprint, DestinationId, EnrollmentId, IdentityId,
+        };
+        use heimdall_contract::issuer::{CaState, StoreKind};
+        use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+        use heimdall_domain::enrollment::{
+            ApprovedHostKey, ApprovedTarget, EnrollmentForm, EnrollmentHold, EnrollmentRecord,
+            EnrollmentState, ExistingAccessRecord, HoldReason, NoProxy, RegistryCanonical,
+            RegistryRef, RegistryResolvedBy, marker_for,
+        };
+        use heimdall_store::{IssuerRecord, NoFaults, Store};
+        use std::os::unix::fs::DirBuilderExt as _;
+        assert!(enrollments <= managed);
+        let state = heimdall_home.join("state");
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&state)
+            .unwrap();
+        let at: Timestamp = "2026-11-01T00:00:00Z".parse().unwrap();
+        let account = AccountName::parse("deploy").unwrap();
+        let identity = IdentityId::from_random_bytes([0x41; 16]);
+        let ca = CaFingerprint::parse(&format!("SHA256:{}", "A".repeat(43))).unwrap();
+        let destination = |n: usize| DestinationId::parse(&format!("dm{n:06}")).unwrap();
+        let store = Store::open(&state.join("state.db"), Arc::new(NoFaults)).unwrap();
+        store
+            .transaction(|tx| {
+                for n in 0..managed {
+                    tx.upsert_destination(&DestinationRecord {
+                        id: destination(n),
+                        alias: format!("m{n:06}"),
+                        revision: 1,
+                        definition: DestinationDefinition::Managed {
+                            hostname: format!("m{n:06}.example.invalid"),
+                            port: None,
+                            account: account.clone(),
+                            identity: identity.clone(),
+                            jump: None,
+                        },
+                        label: None,
+                        updated_at: at,
+                    })?;
+                }
+                if enrollments > 0 {
+                    tx.insert_issuer(&IssuerRecord {
+                        ca_fingerprint: ca.clone(),
+                        public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfixture0".into(),
+                        state: CaState::Active,
+                        store_kind: StoreKind::LinuxSecretService,
+                        backup_sha256: "00".repeat(32),
+                        backup_created_at: at,
+                        restored_without_log: false,
+                        created_at: at,
+                        retired_at: None,
+                    })?;
+                }
+                for n in 0..enrollments {
+                    let mut bytes = [0u8; 16];
+                    bytes[..8].copy_from_slice(&(n as u64 + 1).to_be_bytes());
+                    let id = EnrollmentId::from_random_bytes(bytes);
+                    tx.seed_enrollment(&EnrollmentRecord {
+                        marker: marker_for(&id),
+                        id,
+                        destination: destination(n),
+                        account: account.clone(),
+                        ca_fingerprint: ca.clone(),
+                        form: EnrollmentForm::Account,
+                        registry: RegistryRef {
+                            path_display: "~/.ssh/authorized_keys".into(),
+                            resolved_by: RegistryResolvedBy::RemoteHome,
+                        },
+                        registry_canonical: RegistryCanonical {
+                            path: None,
+                            resolved_by: RegistryResolvedBy::RemoteHome,
+                        },
+                        line_sha256: "ab".repeat(32),
+                        target: ApprovedTarget {
+                            hostname: format!("m{n:06}.example.invalid"),
+                            port: 22,
+                            user: account.clone(),
+                            proxy: NoProxy::None,
+                            host_key: ApprovedHostKey {
+                                algorithm: "ssh-ed25519".into(),
+                                key: "AAAAC3NzaC1lZDI1NTE5AAAAIhostfixture".into(),
+                                fingerprint: "SHA256:hostfixture".into(),
+                            },
+                        },
+                        existing_access: ExistingAccessRecord {
+                            identity: identity.clone(),
+                            endpoint: None,
+                            public_key_file: None,
+                        },
+                        hold: Some(EnrollmentHold {
+                            reason: HoldReason::HostKeyChanged,
+                            evidence_based: false,
+                        }),
+                        removal_origin: None,
+                        late_write: None,
+                        state: EnrollmentState::Held,
+                        verified_at: None,
+                        evidence: None,
+                        created_at: at,
+                        updated_at: at,
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
     }
 
     /// The selected tab's number, from the header (`[2 Destinations]`).
@@ -638,7 +827,7 @@ mod pty {
         pty.write(b"\t");
         w.wait_screen("the Destinations tab", LONG, |s| selected_tab(s) == Some(2));
         pty.write(b"q");
-        assert_eq!(tui.wait(LONG).code(), Some(0));
+        tui.wait(LONG);
         assert!(
             String::from_utf8_lossy(&pty.bytes()).contains("\u{1b}[?1049l"),
             "the alternate screen was left"
@@ -661,12 +850,21 @@ mod pty {
         }
     }
 
-    /// Report one key's samples; returns its P95.
-    fn report(key: &str, mut samples: Vec<Duration>, timeouts: usize, host: &str) -> Duration {
+    /// The catalog of [`a20_key_latency`], for [`report`].
+    const OBSERVED_CATALOG: &str = "5000 destinations, a live slow operation";
+
+    /// Report one key's samples over the catalog `what`; returns its P95.
+    fn report(
+        what: &str,
+        key: &str,
+        mut samples: Vec<Duration>,
+        timeouts: usize,
+        host: &str,
+    ) -> Duration {
         samples.sort();
         let (p50, p95) = (pct(&samples, 50), pct(&samples, 95));
         eprintln!(
-            "M07 A20 key latency (debug build, completed frame showing the key's effect, 5000 destinations, a live slow operation): key {key}: samples {}, timeouts at 2 s {timeouts}, p50 {:.1} ms, p95 {:.1} ms, max {:.1} ms; host {host}",
+            "M07 A20 key latency (debug build, completed frame showing the key's effect, {what}): key {key}: samples {}, timeouts at 2 s {timeouts}, p50 {:.1} ms, p95 {:.1} ms, max {:.1} ms; host {host}",
             samples.len(),
             p50.as_secs_f64() * 1000.0,
             p95.as_secs_f64() * 1000.0,
@@ -733,7 +931,7 @@ mod pty {
                 w.wait_screen("the tab", LONG, |s| selected_tab(s) == Some(next));
             }
         }
-        p95s.push(("Tab", report("Tab", tab, timeouts, &host)));
+        p95s.push(("Tab", report(OBSERVED_CATALOG, "Tab", tab, timeouts, &host)));
 
         // PageDown on Destinations: the selection moves.
         pty.write(b"2");
@@ -752,7 +950,10 @@ mod pty {
                 w.wait_screen("the selection", LONG, moved);
             }
         }
-        p95s.push(("PageDown", report("PageDown", page, timeouts, &host)));
+        p95s.push((
+            "PageDown",
+            report(OBSERVED_CATALOG, "PageDown", page, timeouts, &host),
+        ));
 
         // A search keystroke on Destinations: the result count changes (100 ⇄ 10).
         pty.write(b"/host-0001");
@@ -774,7 +975,13 @@ mod pty {
         }
         p95s.push((
             "search",
-            report("search keystroke", search, timeouts, &host),
+            report(
+                OBSERVED_CATALOG,
+                "search keystroke",
+                search,
+                timeouts,
+                &host,
+            ),
         ));
 
         // The slow operation was live throughout.
@@ -785,7 +992,7 @@ mod pty {
             s.contains(" total · / to search")
         });
         pty.write(b"q");
-        assert_eq!(tui.wait(LONG).code(), Some(0));
+        tui.wait(LONG);
         let _ = w.cli(&["--json", "operation", "cancel", &op]);
         if cfg!(target_os = "macos") {
             for (key, p95) in p95s {
@@ -795,6 +1002,146 @@ mod pty {
                 );
             }
         }
+    }
+
+    /// M07-W0-R06 (A20's sibling case): Settings and Activity do no catalog-sized work per
+    /// key. With 4000 **managed** destinations (each a Settings connection row; seeded
+    /// into the scratch store, since `import` creates observed ones) and 1000 enrollment
+    /// records (the Activity list), PageDown on Settings and on Activity each take at
+    /// least 40 samples, timed as in [`a20_key_latency`]: from the key's write to the
+    /// completed frame in which the selection has moved. P95 ≤ 100 ms is asserted on macOS
+    /// only; elsewhere recorded. (Before the fix a debug frame of Settings took about
+    /// 79 ms for 5000 managed rows in the review's TestBackend probe.)
+    ///
+    /// **Why 4000 and not 5000.** A managed destination is about 254 bytes of `inspect
+    /// destinations`, and one answer is one control frame of at most 1 MiB: at 5000 the
+    /// runtime answers `INTERNAL_ERROR`, "response exceeds the frame limit" (observed
+    /// here; U3's D19 and paged loading are later work), and the TUI then has no
+    /// connection rows at all. 4000 is the largest round catalog the runtime can list.
+    #[test]
+    fn a20_key_latency_settings_and_activity() {
+        const MANAGED: usize = 4000;
+        const ENROLLMENTS: usize = 1000;
+        const CATALOG: &str = "4000 managed destinations, 1000 enrollment records";
+        let w = World::seeded(MANAGED, ENROLLMENTS);
+        let n = w.destination_count();
+        assert!(n >= MANAGED, "{n}");
+        let listed = w.json(&["--json", "inspect", "enrollments"]);
+        assert_eq!(
+            listed["data"]["enrollments"].as_array().map(Vec::len),
+            Some(ENROLLMENTS),
+            "the runtime lists every seeded record"
+        );
+        let pty = Pty::open(40, 120);
+        let tui = w.started(&pty, n);
+        let host = uname();
+        let mut p95s = Vec::new();
+        for (tab, name, deep) in [
+            (b"8", "Settings", "(read-only here)"),
+            (b"4", "Activity", "held"),
+        ] {
+            pty.write(tab);
+            let number = tab[0] - b'0';
+            w.wait_screen(&format!("the {name} tab"), LONG, |s| {
+                selected_tab(s) == Some(number) && selected_row(s).is_some()
+            });
+            let mut samples = Vec::new();
+            let mut timeouts = 0;
+            for _ in 0..SAMPLES {
+                let before = selected_row(&w.screen()).unwrap();
+                let moved = |s: &str| selected_row(s).is_some_and(|r| r != before);
+                let (d, timed_out) = sample(&w, &pty, b"\x1b[6~", moved);
+                samples.push(d);
+                timeouts += usize::from(timed_out);
+                if timed_out {
+                    w.wait_screen("the selection", LONG, moved);
+                }
+            }
+            // 40 pages down: a row deep in the catalog-sized part of the list.
+            let row = selected_row(&w.screen()).unwrap();
+            assert!(row.contains(deep), "{name}: {row}");
+            let key = format!("PageDown on {name}");
+            p95s.push((key.clone(), report(CATALOG, &key, samples, timeouts, &host)));
+        }
+        pty.write(b"q");
+        tui.wait(LONG);
+        if cfg!(target_os = "macos") {
+            for (key, p95) in p95s {
+                assert!(
+                    p95 <= Duration::from_millis(100),
+                    "A20: {key} completed-frame P95 {p95:?} exceeds 100 ms on {host}"
+                );
+            }
+        }
+    }
+
+    /// M07-W0-R03 end to end: a runtime that stops while the TUI is open (the transport
+    /// failure drops the session mid-refresh) is published, not lost. The list that was
+    /// read stays on screen, scrolled as it was, and a row under the header says that
+    /// what is shown was read earlier; the overview is not Ready and claims nothing about
+    /// running work.
+    #[test]
+    fn a_stopped_runtime_is_shown_as_stale_not_ready() {
+        let w = World::new(&[]);
+        w.import(0, 100);
+        let n = w.destination_count();
+        let pty = Pty::open(40, 120);
+        let tui = w.started(&pty, n);
+        assert!(
+            !w.screen()
+                .lines()
+                .nth(1)
+                .unwrap_or_default()
+                .starts_with("[!!]"),
+            "no indicator while the listings are current:\n{}",
+            w.screen()
+        );
+        // The Destinations list, scrolled well past its first screen.
+        pty.write(b"2");
+        w.wait_screen("the Destinations tab", LONG, |s| {
+            selected_tab(s) == Some(2) && selected_row(s).is_some()
+        });
+        for _ in 0..6 {
+            let before = selected_row(&w.screen()).unwrap();
+            pty.write(b"\x1b[6~");
+            w.wait_screen("the selection", LONG, |s| {
+                selected_row(s).is_some_and(|r| r != before)
+            });
+        }
+        let row = selected_row(&w.screen()).unwrap();
+        // The runtime stops (this test's own, by its own home's `service stop`).
+        let stopped = w.cli(&["--json", "service", "stop"]);
+        assert!(
+            stopped.status.success(),
+            "service stop: {}",
+            w.cli_diagnostics(&stopped)
+        );
+        // Within the next polls: the indicator, outside the list, and no health claim.
+        let indicator = |s: &str| {
+            s.lines()
+                .nth(1)
+                .is_some_and(|l| l.starts_with("[!!] ") && l.contains("what is shown was read"))
+        };
+        w.wait_screen("the stale indicator", LONG, indicator);
+        let screen = w.screen();
+        assert!(screen.lines().next().unwrap().contains("[??]"), "{screen}");
+        assert_eq!(
+            selected_row(&screen).as_deref(),
+            Some(row.as_str()),
+            "the list read before is still shown, where it was:\n{screen}"
+        );
+        // The overview: not Ready, and nothing claimed about what runs.
+        pty.write(b"1");
+        w.wait_screen("the overview", LONG, |s| {
+            selected_tab(s) == Some(1) && s.contains("[??] Not known")
+        });
+        let screen = w.screen();
+        assert!(indicator(&screen), "{screen}");
+        for claim in ["[OK] Ready", "no work running", "Nothing needs you"] {
+            assert!(!screen.contains(claim), "{claim}:\n{screen}");
+        }
+        pty.write(b"q");
+        tui.wait(LONG);
     }
 
     // ---- U1b: the keyboard walkthrough and the standalone journey ------------------------
@@ -855,8 +1202,10 @@ mod pty {
     /// every view by number and by Tab (and Shift-Tab); a search on Destinations, a detail
     /// and back; a resize 120x40 → 40x12 → 120x40 with, at each size, the selected row
     /// still selected and visible, the footer's key hints readable and the search results
-    /// shown; the stop menu opened and escaped; the operation cancelled with `x`; `?`; and
-    /// `q`, with the terminal's modes byte-identical to before.
+    /// shown; the stop menu opened and escaped; a stop whose keys arrive in one batch, with
+    /// no frame between them, refused (the M07-W0-R01 ruling for the stop menu); the
+    /// operation cancelled with `x`; `?`; and `q`, with the terminal's modes byte-identical
+    /// to before.
     #[test]
     fn a20_keyboard_walkthrough() {
         let w = World::new(&[
@@ -955,6 +1304,29 @@ mod pty {
             !s.contains("Four different actions") && s.contains("cancelled: nothing was sent")
         });
 
+        // The M07-W0-R01 ruling for the stop menu, in the real input loop. One write is
+        // one batch of keys with no frame between them: open the menu, pick "Stop this
+        // work", type a work ID, then `yes`. None of it was on screen when the yes
+        // arrived, so nothing is sent: the menu stays on the confirmation, which names
+        // the action and its target, and says why.
+        pty.write(b"s2\rjob-7\ryes\r");
+        w.wait_screen("the batch's outcome", LONG, |s| {
+            s.contains("yes refused") || s.contains("stop work job-7")
+        });
+        let refused = w.screen();
+        for shown in [
+            "Stop work job-7: access only it uses ends now",
+            "yes refused: it was not on screen",
+            "Type yes to confirm [y/N]: _",
+            "not on screen yet: nothing was sent",
+        ] {
+            assert!(refused.contains(shown), "{shown}:\n{refused}");
+        }
+        pty.write(b"\x1b");
+        w.wait_screen("the refused stop cancelled", LONG, |s| {
+            !s.contains("Type yes to confirm") && s.contains("cancelled: nothing was sent")
+        });
+
         // The slow operation, cancelled with x from its detail.
         pty.write(b"1");
         w.wait_screen("the overview", LONG, |s| selected_tab(s) == Some(1));
@@ -1005,7 +1377,7 @@ mod pty {
 
         // Quit: exit 0, the terminal as it was.
         pty.write(b"q");
-        assert_eq!(tui.wait(LONG).code(), Some(0));
+        tui.wait(LONG);
         assert_eq!(
             modes(&pty.termios()),
             before,
@@ -1155,7 +1527,7 @@ mod pty {
         if tui_running_after(&pty, Duration::from_millis(500)) {
             pty.write(b"q");
         }
-        assert_eq!(tui.wait(LONG).code(), Some(0));
+        tui.wait(LONG);
         assert_eq!(
             modes(&pty.termios()),
             before,
@@ -1337,15 +1709,21 @@ mod windows_console {
             if cond(&f) {
                 return;
             }
+            let exit = t.try_wait();
+            let root = screen.parent().unwrap();
+            let transcript = || super::diagnostic_tail(&t.output(), root);
+            let frame_tail = || super::diagnostic_tail(f.as_bytes(), root);
             assert!(
-                t.try_wait().is_none(),
-                "the TUI ended waiting for {what}; console: {}\nframe: {f}",
-                t.text()
+                exit.is_none(),
+                "the TUI exited with {exit:?} waiting for {what}; console tail: {:?}\nframe tail: {:?}",
+                transcript(),
+                frame_tail()
             );
             assert!(
                 Instant::now() < deadline,
-                "timed out waiting for {what}; console: {}\nframe: {f}",
-                t.text()
+                "timed out waiting for {what}; console tail: {:?}\nframe tail: {:?}",
+                transcript(),
+                frame_tail()
             );
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -1425,8 +1803,12 @@ mod windows_console {
             std::thread::sleep(Duration::from_millis(1));
         }
         eprintln!("M07 Windows walkthrough: the key after the resize was drawn after {answered:?}");
-        let answered =
-            answered.unwrap_or_else(|| panic!("no frame showed the key; console: {}", t.text()));
+        let answered = answered.unwrap_or_else(|| {
+            panic!(
+                "no frame showed the key; console tail: {:?}",
+                super::diagnostic_tail(&t.output(), scratch.path())
+            )
+        });
         assert!(
             answered <= BAR,
             "the key after the resize took {answered:?} (bar {BAR:?})"
@@ -1435,16 +1817,19 @@ mod windows_console {
         let code = t.wait(LONG);
         let text = t.text();
         heimdall_testkit::assert_no_canary(&text);
-        assert_eq!(code, Some(0), "q exits 0; console: {text}");
+        let console = || super::diagnostic_tail(text.as_bytes(), scratch.path());
+        assert_eq!(code, Some(0), "q exits 0; console tail: {:?}", console());
         assert!(
             text.contains("hm-console-modes before=Some(false) raw_seen=true after=Some(false)"),
-            "the console's input was raw while the TUI ran and cooked again after: {text}"
+            "the console's input was raw while the TUI ran and cooked again after: {:?}",
+            console()
         );
         let raw = String::from_utf8_lossy(&t.output()).into_owned();
         assert_eq!(
             raw.matches("\u{1b}[?1049h").count(),
             raw.matches("\u{1b}[?1049l").count(),
-            "the alternate screen is left as often as entered: {text}"
+            "the alternate screen is left as often as entered: {:?}",
+            console()
         );
     }
 }

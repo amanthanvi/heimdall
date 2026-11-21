@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Output, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,16 +26,17 @@ use heimdall_localenv::projection::ProjectionConfig;
 use heimdall_runtime::config::{Config, Paths};
 use heimdall_runtime::service::{ProjectionWiring, Service, ServiceOptions};
 use heimdall_testkit::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey};
-use heimdall_testkit::home::{ScratchHome, find_program};
+#[cfg(unix)]
+use heimdall_testkit::home::find_program;
+use heimdall_testkit::home::{ScratchHome, ssh_option_path};
 use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt as _, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio_util::sync::CancellationToken;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
-fn account(sshd: &LoopbackSshd) -> AccountName {
+fn account(sshd: &LoopbackSshd, _home: &ScratchHome) -> AccountName {
     if let Some(account) = sshd.account() {
         return AccountName::parse(account).unwrap();
     }
@@ -46,7 +47,7 @@ fn account(sshd: &LoopbackSshd) -> AccountName {
             .env_clear()
             .output()
             .unwrap();
-        assert!(out.status.success());
+        verify(_home, &out, out.status.success(), "fixture account lookup");
         AccountName::parse(std::str::from_utf8(&out.stdout).unwrap().trim()).unwrap()
     }
     #[cfg(windows)]
@@ -95,6 +96,7 @@ async fn seed(
     ops: &Operations,
     caller: &Caller,
     sshd: &LoopbackSshd,
+    home: &ScratchHome,
     key: &FixtureKey,
     agent: &FakeAgent,
 ) {
@@ -123,7 +125,7 @@ async fn seed(
         .unwrap();
     let identity = IdentityId::parse(adopted.data["identity_id"].as_str().unwrap()).unwrap();
     let destination = DestinationId::parse("dst-lab").unwrap();
-    let account = account(sshd);
+    let account = account(sshd, home);
     ops.catalog(
         caller,
         CatalogRequest::UpsertDestination {
@@ -232,7 +234,7 @@ fn cli(home: &ScratchHome, heimdall_home: &Path, args: &[&str]) -> Command {
         .env("LANG", "C")
         .env("TERM", "dumb")
         .current_dir(&home.root)
-        .args(["--json", "--non-interactive"])
+        .arg("--non-interactive")
         .args(args)
         .kill_on_drop(true);
     #[cfg(unix)]
@@ -243,9 +245,12 @@ fn cli(home: &ScratchHome, heimdall_home: &Path, args: &[&str]) -> Command {
         let system = PathBuf::from(&windows).join("System32");
         cmd.env(
             "PATH",
-            std::env::join_paths([system.clone(), system.join("OpenSSH")]).unwrap(),
+            std::env::join_paths([system.join("OpenSSH"), system, PathBuf::from(&windows)])
+                .unwrap(),
         )
         .env("SystemRoot", windows)
+        // In-box OpenSSH requires ProgramData even with an isolated -F.
+        .env("ProgramData", home.root.join("cli-home"))
         .env("USERPROFILE", home.root.join("cli-home"))
         .env("TEMP", &home.root)
         .env("TMP", &home.root);
@@ -253,11 +258,421 @@ fn cli(home: &ScratchHome, heimdall_home: &Path, args: &[&str]) -> Command {
     cmd
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn cli_standalone_access_and_stop() {
+fn cli_scratch() -> ScratchHome {
     let home = ScratchHome::new();
     std::fs::create_dir(home.git_home.join("etc-ssh")).unwrap();
     std::fs::create_dir(home.root.join("cli-home")).unwrap();
+    home
+}
+
+async fn cli_output(home: &ScratchHome, mut command: Command) -> Output {
+    command.stdin(Stdio::null());
+    let (child, log) = ChildLog::start(home, command);
+    log.finish(home, child).await
+}
+
+fn check_output(out: &Output) {
+    for bytes in [&out.stdout, &out.stderr] {
+        heimdall_testkit::assert_no_canary(&String::from_utf8_lossy(bytes));
+    }
+}
+
+fn excerpt(bytes: &[u8], root: &Path) -> String {
+    let mut text = String::from_utf8_lossy(bytes).into_owned();
+    heimdall_testkit::assert_no_canary(&text);
+    let root = root.to_string_lossy();
+    for path in [
+        root.to_string(),
+        root.replace('\\', "/"),
+        root.replace('\\', "\\\\"),
+    ] {
+        text = text.replace(&path, "<scratch>");
+    }
+    for name in [
+        "USER",
+        "USERNAME",
+        "LOGNAME",
+        "HOSTNAME",
+        "COMPUTERNAME",
+        "HM_FIXTURE_SSHD_USER",
+    ] {
+        if let Ok(value) = std::env::var(name)
+            && !value.is_empty()
+        {
+            text = text.replace(&value, "<redacted>");
+        }
+    }
+    heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
+}
+
+#[track_caller]
+fn verify(home: &ScratchHome, out: &Output, passed: bool, expected: &str) {
+    assert!(
+        passed,
+        "{expected}; exit {}\nstdout tail: {:?}\nstderr tail: {:?}",
+        out.status,
+        excerpt(&out.stdout, &home.root),
+        excerpt(&out.stderr, &home.root)
+    );
+}
+
+fn json(home: &ScratchHome, out: &Output, bytes: &[u8]) -> Value {
+    let decoded = serde_json::from_slice(bytes);
+    verify(home, out, decoded.is_ok(), "expected a JSON envelope");
+    decoded.unwrap()
+}
+
+// The parent can inspect both streams while the child is still running.
+struct ChildLog {
+    stdout: tempfile::NamedTempFile,
+    stderr: tempfile::NamedTempFile,
+}
+
+impl ChildLog {
+    fn start(home: &ScratchHome, mut command: Command) -> (Child, Self) {
+        let stdout = tempfile::NamedTempFile::new_in(&home.root).unwrap();
+        let stderr = tempfile::NamedTempFile::new_in(&home.root).unwrap();
+        let child = command
+            .stdout(stdout.reopen().unwrap())
+            .stderr(stderr.reopen().unwrap())
+            .spawn()
+            .unwrap();
+        (child, Self { stdout, stderr })
+    }
+
+    fn output(&self, status: std::process::ExitStatus) -> Output {
+        let out = Output {
+            status,
+            stdout: std::fs::read(self.stdout.path()).unwrap(),
+            stderr: std::fs::read(self.stderr.path()).unwrap(),
+        };
+        check_output(&out);
+        out
+    }
+
+    fn fail(&self, home: &ScratchHome, child: &mut Child, what: &str) -> ! {
+        let status = child.try_wait().unwrap();
+        panic!(
+            "{what}; exit {status:?}\nstdout tail: {:?}\nstderr tail: {:?}",
+            excerpt(&std::fs::read(self.stdout.path()).unwrap(), &home.root),
+            excerpt(&std::fs::read(self.stderr.path()).unwrap(), &home.root),
+        );
+    }
+
+    async fn finish(&self, home: &ScratchHome, mut child: Child) -> Output {
+        let status = tokio::time::timeout(TIMEOUT, child.wait())
+            .await
+            .unwrap_or_else(|_| self.fail(home, &mut child, "child did not exit"))
+            .unwrap();
+        self.output(status)
+    }
+
+    async fn wait_for(
+        &self,
+        home: &ScratchHome,
+        child: &mut Child,
+        stream: &tempfile::NamedTempFile,
+        what: &str,
+        found: impl Fn(&str) -> bool,
+    ) {
+        use std::io::Read as _;
+        let deadline = tokio::time::Instant::now() + TIMEOUT;
+        loop {
+            let mut prefix = Vec::new();
+            stream
+                .reopen()
+                .unwrap()
+                .take(64 * 1024)
+                .read_to_end(&mut prefix)
+                .unwrap();
+            let text = String::from_utf8_lossy(&prefix);
+            heimdall_testkit::assert_no_canary(&text);
+            if found(&text) {
+                return;
+            }
+            if child.try_wait().unwrap().is_some() || tokio::time::Instant::now() >= deadline {
+                self.fail(home, child, what);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+async fn test_runtime(home: &ScratchHome, root: &Path, delay_ms: &str) -> (Child, ChildLog) {
+    let mut command = cli(home, root, &["service", "run"]);
+    command
+        .env("HEIMDALL_TEST_ADAPTER", "prepare")
+        .env("HEIMDALL_TEST_SLOW_PREPARE_MS", delay_ms)
+        .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
+        .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
+        .stdin(Stdio::null());
+    let (mut child, log) = ChildLog::start(home, command);
+    let ready = tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let status = cli_output(home, cli(home, root, &["--json", "status"])).await;
+            if status.status.success() {
+                break;
+            }
+            if child.try_wait().unwrap().is_some() {
+                log.fail(home, &mut child, "fixture runtime exited during startup");
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    if ready.is_err() {
+        log.fail(home, &mut child, "fixture runtime did not start");
+    }
+    (child, log)
+}
+
+async fn stop_test_runtime(home: &ScratchHome, root: &Path, (child, log): (Child, ChildLog)) {
+    let stop = cli_output(home, cli(home, root, &["--json", "service", "stop"])).await;
+    verify(home, &stop, stop.status.success(), "service stop");
+    let stopped = log.finish(home, child).await;
+    verify(
+        home,
+        &stopped,
+        stopped.status.success(),
+        "runtime exited cleanly",
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn status_counts_only_live_approvals_in_human_output() {
+    use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+    use heimdall_domain::time::BootId;
+    use heimdall_runtime::service::STATE_DB_FILE;
+    use heimdall_store::{NoFaults, Store};
+
+    let home = cli_scratch();
+    let root = home.root.join("heimdall");
+    let offline = cli_output(&home, cli(&home, &root, &["status"])).await;
+    verify(
+        &home,
+        &offline,
+        offline.status.code() == Some(5)
+            && String::from_utf8_lossy(&offline.stdout).contains("Heimdall status is unavailable."),
+        "offline status is unavailable",
+    );
+    assert!(!root.exists(), "status started the runtime");
+
+    let paths = Paths::under(&root);
+    paths.ensure().unwrap();
+    Store::open(&paths.state_dir.join(STATE_DB_FILE), Arc::new(NoFaults))
+        .unwrap()
+        .transaction(|tx| {
+            let created_at = "1999-01-01T00:00:00Z".parse().unwrap();
+            let generation = tx.authority_generation()?;
+            for (id, expiry) in [(1, "2000-01-01T00:00:00Z"), (2, "2099-01-01T00:00:00Z")] {
+                tx.insert_decision(&DecisionRecord {
+                    id: DecisionId::from_random_bytes([id; 16]),
+                    kind: DecisionKind::ConfirmTime {
+                        boot_id: BootId("fixture".into()),
+                        observed_wall: created_at,
+                    },
+                    generation,
+                    created_at,
+                    expires_at: expiry.parse().unwrap(),
+                    state: DecisionState::Pending,
+                    decided_at: None,
+                })?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    let serving = test_runtime(&home, &root, "0").await;
+    let inspect = async |subject| {
+        let out = cli_output(&home, cli(&home, &root, &["--json", "inspect", subject])).await;
+        verify(&home, &out, out.status.success(), "inspect succeeded");
+        (json(&home, &out, &out.stdout), out)
+    };
+    let (env, _) = inspect("environments").await;
+    let (operations, operation_output) = inspect("operations").await;
+    let (decisions, decision_output) = inspect("decisions").await;
+    let pending = decisions["data"]["decisions"].as_array();
+    verify(
+        &home,
+        &decision_output,
+        pending.is_some_and(|pending| {
+            pending.len() == 2
+                && pending.iter().all(|d| d["state"] == "pending")
+                && pending.iter().any(|d| d["expired"] == true)
+                && pending.iter().any(|d| d["expired"] == false)
+        }),
+        "inspect shows both pending decisions, only one of which expired",
+    );
+    let open_operations = operations["data"]["operations"].as_array();
+    verify(
+        &home,
+        &operation_output,
+        open_operations.is_some(),
+        "inspect lists operations",
+    );
+    let human = cli_output(&home, cli(&home, &root, &["status"])).await;
+    verify(
+        &home,
+        &human,
+        human.status.success()
+            && String::from_utf8_lossy(&human.stdout).contains("1 waiting for your approval."),
+        "only one approval is live",
+    );
+    let prior_shape = heimdall_contract::Envelope::ok(serde_json::json!({
+        "running": true,
+        "environment_id": env["data"]["environment_id"],
+        "operation_counts": operations["data"]["counts"],
+        "open_operations": open_operations.unwrap().len(),
+        "pending_decisions": pending.unwrap().len(),
+    }));
+    let status = cli_output(&home, cli(&home, &root, &["--json", "status"])).await;
+    verify(
+        &home,
+        &status,
+        status.status.success()
+            && status.stderr.is_empty()
+            && status.stdout
+                == format!("{}\n", serde_json::to_string(&prior_shape).unwrap()).as_bytes(),
+        "JSON status retains its existing shape",
+    );
+    stop_test_runtime(&home, &root, serving).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cli_sync_wait_explains_itself() {
+    const NOTICE: &str = "Ctrl-C stops waiting but does not cancel the request.";
+    let home = cli_scratch();
+    let root = home.root.join("heimdall");
+    let serving = test_runtime(&home, &root, "3000").await;
+    let accepted = cli_output(
+        &home,
+        cli(
+            &home,
+            &root,
+            &[
+                "--json",
+                "access",
+                "ensure",
+                "--profile",
+                "dev",
+                "--work-id",
+                "wait-known",
+                "--request-id",
+                "wait-known",
+                "--pair",
+                "h1:deploy",
+                "--async",
+            ],
+        ),
+    )
+    .await;
+    verify(
+        &home,
+        &accepted,
+        accepted.status.success(),
+        "async ensure succeeded",
+    );
+    let started = json(&home, &accepted, &accepted.stdout);
+    verify(
+        &home,
+        &accepted,
+        started["code"] == "ACCEPTED",
+        "async ensure was accepted",
+    );
+    let id = started["operation_id"].as_str();
+    verify(
+        &home,
+        &accepted,
+        id.is_some(),
+        "async ensure returned an operation ID",
+    );
+    let id = id.unwrap();
+    let (human, machine) = tokio::join!(
+        cli_output(&home, cli(&home, &root, &["operation", "wait", id])),
+        cli_output(
+            &home,
+            cli(&home, &root, &["--json", "operation", "wait", id])
+        ),
+    );
+    verify(
+        &home,
+        &human,
+        human.status.success(),
+        "human wait succeeded",
+    );
+    verify(
+        &home,
+        &machine,
+        machine.status.success() && machine.stderr.is_empty(),
+        "machine wait succeeded silently",
+    );
+    let stderr = String::from_utf8_lossy(&human.stderr);
+    verify(
+        &home,
+        &human,
+        stderr.matches(NOTICE).count() == 1
+            && stderr.contains(&format!(
+                "Waiting for the operation to finish (operation {id})."
+            ))
+            && stderr.contains(&format!("heimdall operation show {id}")),
+        "human wait explained once what it was waiting for",
+    );
+    let fast = cli_output(&home, cli(&home, &root, &["operation", "wait", id])).await;
+    verify(
+        &home,
+        &fast,
+        fast.status.success() && !String::from_utf8_lossy(&fast.stderr).contains(NOTICE),
+        "completed operation does not print the wait notice",
+    );
+
+    let start = tokio::time::Instant::now();
+    let mut cmd = cli(
+        &home,
+        &root,
+        &[
+            "access",
+            "ensure",
+            "--profile",
+            "dev",
+            "--work-id",
+            "wait-initial",
+            "--request-id",
+            "wait-initial",
+            "--pair",
+            "h2:deploy",
+        ],
+    );
+    cmd.stdin(Stdio::null());
+    let (mut ensure, log) = ChildLog::start(&home, cmd);
+    log.wait_for(
+        &home,
+        &mut ensure,
+        &log.stderr,
+        "expected the initial ensure wait notice",
+        |text| text.split_once('\n').is_some(),
+    )
+    .await;
+    if start.elapsed() < Duration::from_secs(1) || ensure.try_wait().unwrap().is_some() {
+        log.fail(&home, &mut ensure, "notice must appear during the wait");
+    }
+    let out = log.finish(&home, ensure).await;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let first = stderr.lines().next().unwrap_or_default();
+    verify(
+        &home,
+        &out,
+        out.status.success()
+            && stderr.matches(NOTICE).count() == 1
+            && first.contains("Waiting for access to be ready.")
+            && first.contains(NOTICE)
+            && first.contains("heimdall operation show <id>"),
+        "initial ensure explains its wait once",
+    );
+    stop_test_runtime(&home, &root, serving).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cli_standalone_access_and_stop() {
+    let home = cli_scratch();
     let root = home.root.join("heimdall");
     let key = FixtureKey::generate().with_comment("m07-fixture");
     let agent = FakeAgent::start(
@@ -295,14 +710,25 @@ async fn cli_standalone_access_and_stop() {
     let service = Service::start_with(paths, Config::default(), options, shutdown.clone())
         .await
         .unwrap();
-    seed(service.operations(), &owner(&root), &sshd, &key, &agent).await;
+    seed(
+        service.operations(),
+        &owner(&root),
+        &sshd,
+        &home,
+        &key,
+        &agent,
+    )
+    .await;
     let serving = tokio::spawn(service.run());
 
     // The runtime prepares the adopted agent identity. The direct SSH probe pins
     // the same fixture key in scratch and disables all agent fallback.
     let identity = home.root.join("login-key");
     key.write_private(&identity).unwrap();
+    #[cfg(windows)]
+    heimdall_testkit::win::set_owner_only(&identity).unwrap();
     let global: PathBuf = if cfg!(windows) {
+        // Windows has no /dev/null. Use the fixture's empty global host file.
         home.global_known_hosts.clone()
     } else {
         "/dev/null".into()
@@ -312,6 +738,7 @@ async fn cli_standalone_access_and_stop() {
             &home,
             &root,
             &[
+                "--json",
                 "run",
                 "--profile",
                 "lab-access",
@@ -322,7 +749,13 @@ async fn cli_standalone_access_and_stop() {
                 "--",
             ],
         );
-        cmd.arg(find_program("ssh").expect("ssh client"))
+        #[cfg(windows)]
+        let ssh = PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
+            .join("System32/OpenSSH/ssh.exe");
+        #[cfg(unix)]
+        let ssh = find_program("ssh").expect("ssh client");
+        cmd.arg(ssh)
+            .arg("-T")
             .arg("-F")
             .arg(&home.user_config)
             .args([
@@ -335,81 +768,122 @@ async fn cli_standalone_access_and_stop() {
                 "-oBatchMode=yes",
                 "-oStrictHostKeyChecking=yes",
             ])
+            .arg("-o")
             .arg(format!(
-                "-oUserKnownHostsFile={}",
-                home.known_hosts.display()
+                "UserKnownHostsFile={}",
+                ssh_option_path(&home.known_hosts)
             ))
-            .arg(format!("-oGlobalKnownHostsFile={}", global.display()))
+            .arg("-o")
+            .arg(format!("GlobalKnownHostsFile={}", ssh_option_path(&global)))
             .arg("-i")
             .arg(&identity)
-            .args(["lab", "printf 'fixture login\\n'; cat"]);
+            .args(["lab", "echo fixture-login; cat"]);
         cmd
     };
-    let mut running = run()
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut login = String::new();
-    let mut stdout = BufReader::new(running.stdout.take().unwrap());
-    tokio::time::timeout(TIMEOUT, stdout.read_line(&mut login))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(login.trim_end(), "fixture login");
-    let during = tokio::time::timeout(
-        TIMEOUT,
-        cli(&home, &root, &["inspect", "bindings"]).output(),
+    let mut cmd = run();
+    cmd.stdin(Stdio::piped());
+    let (mut running, log) = ChildLog::start(&home, cmd);
+    log.wait_for(
+        &home,
+        &mut running,
+        &log.stdout,
+        "fixture SSH login marker missing",
+        |text| {
+            text.split_inclusive('\n')
+                .any(|line| matches!(line, "fixture-login\n" | "fixture-login\r\n"))
+        },
     )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(during.status.success());
-    let bindings: Value = serde_json::from_slice(&during.stdout).unwrap();
-    assert!(
+    .await;
+    if running.try_wait().unwrap().is_some() {
+        log.fail(&home, &mut running, "fixture SSH login did not stay open");
+    }
+    let during = cli_output(&home, cli(&home, &root, &["--json", "inspect", "bindings"])).await;
+    verify(
+        &home,
+        &during,
+        during.status.success(),
+        "inspect bindings succeeded",
+    );
+    let bindings = json(&home, &during, &during.stdout);
+    verify(
+        &home,
+        &during,
         bindings["data"]["bindings"]
             .as_array()
-            .unwrap()
-            .iter()
-            .any(|binding| { binding["work_id"] == "lab-job" && binding["state"] == "active" })
+            .is_some_and(|bindings| {
+                bindings
+                    .iter()
+                    .any(|binding| binding["work_id"] == "lab-job" && binding["state"] == "active")
+            }),
+        "the fixture login has an active binding",
+    );
+    let status = cli_output(&home, cli(&home, &root, &["status"])).await;
+    verify(&home, &status, status.status.success(), "status succeeded");
+    let shown = String::from_utf8_lossy(&status.stdout);
+    for expected in [
+        "uses lab-access automatically.",
+        "Active work on this computer: 1 session has access.",
+        "Desktop lock: work continues while your desktop is locked.",
+        "heimdall access pause --profile <profile>",
+        "heimdall access stop --work <work-id>",
+    ] {
+        verify(&home, &status, shown.contains(expected), expected);
+    }
+
+    let stopped = cli_output(
+        &home,
+        cli(
+            &home,
+            &root,
+            &["--json", "access", "stop", "--work", "lab-job"],
+        ),
+    )
+    .await;
+    verify(
+        &home,
+        &stopped,
+        stopped.status.success(),
+        "access stop succeeded",
+    );
+    let answer = json(&home, &stopped, &stopped.stdout);
+    verify(
+        &home,
+        &stopped,
+        answer["data"]["local_applied"] == true,
+        "stop was applied locally",
     );
 
-    let stopped = tokio::time::timeout(
-        TIMEOUT,
-        cli(&home, &root, &["access", "stop", "--work", "lab-job"]).output(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(stopped.status.success());
-    let answer: Value = serde_json::from_slice(&stopped.stdout).unwrap();
-    assert_eq!(answer["data"]["local_applied"], true);
-
-    let refused = tokio::time::timeout(TIMEOUT, run().stdin(Stdio::null()).output())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(refused.status.code(), Some(4));
-    assert!(refused.stdout.is_empty());
-    let refusal: Value = serde_json::from_slice(&refused.stderr).unwrap();
-    assert_eq!(refusal["code"], "CREDENTIAL_EXPIRED");
-    assert_eq!(refusal["data"]["error"]["reason"], "work_stopped");
-    let accepted = sshd.accepted_log();
-    assert_eq!(accepted.len(), 1);
-    assert_eq!(accepted[0].fingerprint, key.fingerprint());
+    let refused = cli_output(&home, run()).await;
+    verify(
+        &home,
+        &refused,
+        refused.status.code() == Some(4) && refused.stdout.is_empty(),
+        "retry was refused without running SSH",
+    );
+    let refusal = json(&home, &refused, &refused.stderr);
+    verify(
+        &home,
+        &refused,
+        refusal["code"] == "CREDENTIAL_EXPIRED"
+            && refusal["data"]["error"]["reason"] == "work_stopped",
+        "retry was refused because the work stopped",
+    );
 
     drop(running.stdin.take());
-    let first = tokio::time::timeout(TIMEOUT, running.wait_with_output())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(first.status.success());
-    for out in [&first, &during, &stopped, &refused] {
-        for bytes in [&out.stdout, &out.stderr] {
-            heimdall_testkit::assert_no_canary(&String::from_utf8_lossy(bytes));
-        }
-    }
+    let first = log.finish(&home, running).await;
+    verify(
+        &home,
+        &first,
+        first.status.success(),
+        "existing SSH session exited cleanly",
+    );
+    let accepted = sshd.accepted_log();
+    verify(
+        &home,
+        &first,
+        accepted.len() == 1 && accepted[0].fingerprint == key.fingerprint(),
+        "fixture sshd accepted exactly one login with the generated key",
+    );
     shutdown.cancel();
     tokio::time::timeout(TIMEOUT, serving)
         .await

@@ -1,11 +1,11 @@
  1 Overview [2 Destinations] 3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
+[!!] Stale: the destination list could not be read; it is shown as read 08:57:00Z (3 min ago)
 2 (stale) total · / to search (never probes)
 [!!] destination listing failed: INTERNAL_ERROR
   response exceeds the frame limit
   stale: showing the last good listing, read 08:57:00Z (3 min ago); failing since 09:00:20Z (just now)
 > [OK] alpha        managed  alpha.example.invalid:22 as fixture
   [ !] beta         observed (defined in your configuration)
-
 
 
 

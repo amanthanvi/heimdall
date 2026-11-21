@@ -176,5 +176,16 @@ run_step wrapper-tests env PYTHONDONTWRITEBYTECODE=1 \
     HEIMDALL_WRAPPER_SMOKE_BIN="$(pwd)/target/debug/heimdall" \
     python3 -I -m unittest discover -s examples/reference-wrapper/tests
 
+# ⟨M07 U5h⟩ m07-plan §5a: harness H1's own tests (Python standard library; a stub `heimdall`
+# in a temp directory), plus its discovery smoke against the debug binary in a scratch home.
+run_step harness-h1-tests env PYTHONDONTWRITEBYTECODE=1 \
+    HEIMDALL_HARNESS_SMOKE_BIN="$(pwd)/target/debug/heimdall" \
+    python3 -I -m unittest discover -s examples/harnesses/cli/tests
+
+# ⟨M07 U6⟩ m07-plan U6: the user-facing adapter page claims nothing beyond the claims table
+# and the compatibility matrix (self-checks against over-claiming pages first).
+run_step adapter-page env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I tools/validation/adapter_page_check.py
+
 echo "== overall: exit ${status}"
 exit "${status}"

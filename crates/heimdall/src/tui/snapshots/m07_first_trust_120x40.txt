@@ -25,10 +25,10 @@ Opera│Use dev access automatically for this project?                          
      │    it. Denying records nothing.                                                                            │
      │                                                                                                            │
      │Lock disclosure (shown once; recorded when the decision is approved):                                       │
-     │  Locking your desktop does not end access that Heimdall already issued.                                    │
+     │  Approved work is designed to keep working while your screen or password manager is locked, until the end  │
+     │    time you approve. On this computer that has not been verified yet. To stop it when you lock the screen, │
+     │    set lock behaviour to "revoke on lock".                                                                 │
      │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
-     │                                                                                                            │
-     │                                                                                                            │
      │                                                                                                            │
      │                                                                                                            │
      │                                                                                                            │

@@ -57,7 +57,7 @@ FORBIDDEN_CODE = [
 # Real-looking data: placeholders (`<...>`) only.
 REAL_DATA = [
     (r"(?<![<\w])/(?:Users|home|root|etc|var|tmp|private)/", "an absolute path"),
-    (r"[A-Za-z]:\\\\", "a Windows path"),
+    (r"\b[A-Za-z]:\\", "a Windows path"),
     (r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "an IP address"),
     (r"\b[\w.+-]+@[\w-]+\.[\w.]+\b", "an email address"),
     (r"\b(?:op|binding|grant|dec|env|evt)_[0-9a-f]{32}\b", "a real ID"),
@@ -65,6 +65,30 @@ REAL_DATA = [
 ]
 
 GLOBAL_FLAGS = {"--json", "--non-interactive"}
+
+# ⟨M07-W0-R10⟩ The only command paths a skill may name: the six groups, plus the named
+# discovery and human-handoff paths (read-only). A command the CLI has but this table lacks
+# (an owner-only management command, for example) is a finding. Each path lists every flag
+# the skill may use with it; anything else is a finding.
+ALLOWED = {
+    ("inspect",): set(),
+    ("access", "ensure"): {"--profile", "--work-id", "--request-id", "--pair", "--environment",
+                           "--until", "--for", "--async", "--timeout-ms"},
+    ("run",): {"--profile", "--work-id", "--request-id", "--parent-binding", "--scope",
+               "--until", "--"},
+    ("access", "delegate"): {"--parent", "--work-id", "--request-id", "--pair", "--until"},
+    ("operation", "show"): set(),
+    ("operation", "wait"): {"--timeout-ms"},
+    ("operation", "events"): {"--operation", "--cursor", "--limit", "--follow", "--max-events"},
+    ("operation", "cancel"): set(),
+    ("access", "release"): set(),
+    ("access", "revoke"): {"--request-id"},
+    # Discovery.
+    ("schema", "show"): set(),
+    # Human handoff: where Heimdall itself shows the decision. Read-only.
+    ("decision", "list"): set(),
+    ("tui",): set(),
+}
 
 
 def code_lines(text):
@@ -81,23 +105,42 @@ def code_lines(text):
     return out
 
 
-def command_paths(text):
-    """The subcommand path of each `heimdall ...` line in a code block."""
-    paths = []
-    for line in code_lines(text):
-        words = line.split()
+def commands(text):
+    """Each `heimdall ...` invocation in code: (subcommand path, its flags, 1-based line)."""
+    found = []
+    fenced = False
+    spans = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.strip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced or line.startswith("    "):
+            spans.append((n, line.strip()))
+        spans.extend((n, span) for span in re.findall(r"`([^`]+)`", line))
+    for n, span in spans:
+        words = span.split()
         if not words or words[0] != "heimdall":
             continue
+        rest = [w for w in words[1:] if w not in GLOBAL_FLAGS]
         path = []
-        for w in words[1:]:
-            if w in GLOBAL_FLAGS:
-                continue
-            if w.startswith("-") or w.startswith("<") or w == "--":
+        while rest and not rest[0].startswith(("-", "<")):
+            path.append(rest.pop(0))
+        # `inspect <subject>` and `schema show <name>` take a literal operand.
+        for known in sorted(ALLOWED, key=len, reverse=True):
+            if tuple(path[:len(known)]) == known:
+                path = path[:len(known)]
                 break
-            path.append(w)
-        if path:
-            paths.append(tuple(path))
-    return sorted(set(paths))
+        flags = []
+        for w in rest:
+            if w == "--":
+                flags.append(w)
+                break
+            if w.startswith("-"):
+                flags.append(w.split("=", 1)[0])
+        if not path and not flags:
+            continue  # the bare program name in prose
+        found.append((tuple(path), flags, n))
+    return found
 
 
 def lint(text, path_exists):
@@ -114,19 +157,32 @@ def lint(text, path_exists):
         heads = re.findall(r"^### (.+)$", section.group(1), re.M)
         if heads != GROUPS:
             findings.append(f"group headings {heads} are not exactly {GROUPS}")
+    # A match is reported by line number and rule only: its value (a path, an ID, a key)
+    # is never echoed into the lint's output.
+    def line_of(source, m):
+        return source.count("\n", 0, m.start()) + 1
+
     for pattern, what in FORBIDDEN_TEXT:
         for m in re.finditer(pattern, text, re.I):
-            findings.append(f"forbidden: {what} ({m.group(0)!r})")
-    code = "\n".join(code_lines(text))
-    for pattern, what in FORBIDDEN_CODE:
-        for m in re.finditer(pattern, code):
-            findings.append(f"forbidden in code: {what} ({m.group(0)!r})")
+            findings.append(f"line {line_of(text, m)}: forbidden: {what}")
+    for n, line in enumerate(lines, 1):
+        code = " ".join(code_lines(line + "\n")) if "`" in line or line.startswith("    ") else ""
+        for pattern, what in FORBIDDEN_CODE:
+            if re.search(pattern, code):
+                findings.append(f"line {n}: forbidden in code: {what}")
     for pattern, what in REAL_DATA:
         for m in re.finditer(pattern, text):
-            findings.append(f"real-looking data: {what} ({m.group(0)!r})")
-    for cmd in command_paths(text):
-        if not path_exists(cmd):
-            findings.append(f"command not in the CLI: heimdall {' '.join(cmd)}")
+            findings.append(f"line {line_of(text, m)}: real-looking data: {what}")
+    for path, flags, n in commands(text):
+        if path not in ALLOWED:
+            findings.append(f"line {n}: command outside the six groups and the named "
+                            f"discovery and handoff paths")
+            continue
+        if not path_exists(path):
+            findings.append(f"line {n}: command not in the CLI")
+        for flag in flags:
+            if flag not in ALLOWED[path]:
+                findings.append(f"line {n}: flag not allowed for this command")
     return findings
 
 
@@ -156,7 +212,7 @@ def binary_checker(binary):
     return exists, scratch
 
 
-BAD = """---
+BAD = r"""---
 name: bad
 description: a bad skill
 ---
@@ -171,6 +227,9 @@ description: a bad skill
 
     heimdall decision approve dec_0123456789abcdef0123456789abcdef
     heimdall frobnicate --json
+    heimdall destination remove <alias>
+    heimdall --json operation wait <operation-id> --no-such-flag
+    copy C:\Temp\x
     echo yes | heimdall time confirm --home /home/example/x
     send `Attend` then `Decide`
     cat ~/.ssh/config; sqlite3 heimdall.db; 10.0.0.1; a@b.example
@@ -178,16 +237,29 @@ description: a bad skill
 
 
 def self_check():
-    findings = lint(BAD, lambda path: path[0] != "frobnicate")
+    findings = lint(BAD, lambda path: True)
     expected = [
-        "group headings", "approval command", "time confirmation", "home override",
-        "SSH directory", "private database", "answering a confirmation",
-        "the Decide message", "the Attend message", "an absolute path", "an IP address",
-        "an email address", "a real ID", "command not in the CLI: heimdall frobnicate",
+        "group headings", "an approval command", "a time confirmation command",
+        "a home override", "the SSH directory", "the private database",
+        "answering a confirmation", "the Decide message", "the Attend message",
+        "an absolute path", "an IP address", "an email address", "a real ID",
+        # ⟨M07-W0-R10⟩ The three bypasses the W0 review found: an owner-only command the CLI
+        # has, a flag outside the table, and an ordinary single-backslash Windows path.
+        "command outside the six groups", "flag not allowed", "a Windows path",
     ]
     missing = [e for e in expected if not any(e in f for f in findings)]
-    if missing:
-        print("skill-lint: self-check failed; rules that did not fire: " + ", ".join(missing))
+    # No finding may echo a matched value.
+    leaked = [f for f in findings if "0123456789abcdef" in f or "someone" in f or "Temp" in f]
+    if missing or leaked:
+        print("skill-lint: self-check failed; rules that did not fire: " + ", ".join(missing)
+              + ("; a finding echoed a matched value" if leaked else ""))
+        return False
+    # A command in the table that the binary lacks is still a finding.
+    absent = lint("---\nname: x\ndescription: y\n---\n## The six groups\n"
+                  + "".join(f"### {g}\n" for g in GROUPS) + "\n    heimdall tui\n",
+                  lambda path: False)
+    if not any("command not in the CLI" in f for f in absent):
+        print("skill-lint: self-check failed; a missing command was accepted")
         return False
     return True
 

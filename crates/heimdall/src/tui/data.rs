@@ -406,6 +406,38 @@ pub(crate) mod subject {
     pub(crate) const ENVIRONMENTS: &str = "environments";
     /// ⟨M07⟩ `inspect identities`.
     pub(crate) const IDENTITIES: &str = "identities";
+    /// ⟨M07⟩ `inspect connections`.
+    pub(crate) const CONNECTIONS: &str = "connections";
+    /// ⟨M07⟩ `inspect capabilities` (the lock report).
+    pub(crate) const CAPABILITIES: &str = "capabilities";
+    /// ⟨M07⟩ `inspect policies` (standing access and the default profiles).
+    pub(crate) const POLICIES: &str = "policies";
+    /// ⟨M07⟩ `inspect workspace` (the working directory's project).
+    pub(crate) const WORKSPACE: &str = "workspace";
+}
+
+/// ⟨M07⟩ How far a value read from some listings can be claimed (M07-W0-R03): a view
+/// states a value, or its absence, only for a listing that was read; otherwise it says
+/// what is not known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Known {
+    /// Every listing was read in the latest refresh.
+    Fresh,
+    /// A listing's latest read failed: its last good data is shown and may have changed.
+    Stale,
+    /// A listing has never been read: nothing can be said from it.
+    Unread,
+}
+
+impl Known {
+    /// ` (stale)` after a value that may have changed, nothing after a fresh one.
+    #[must_use]
+    pub(crate) fn suffix(self) -> &'static str {
+        match self {
+            Known::Stale => " (stale)",
+            _ => "",
+        }
+    }
 }
 
 impl Catalog {
@@ -502,6 +534,26 @@ impl Catalog {
             && *m05 == other.m05
             && *environments == other.environments
             && *failures == other.failures
+    }
+
+    /// ⟨M07⟩ How far values read from the listings `subjects` can be claimed: not at
+    /// all before the first refresh or when one of them was never read, as stale when one
+    /// of their latest reads failed.
+    #[must_use]
+    pub(crate) fn known(&self, subjects: &[&str]) -> Known {
+        let failed = |s: &&str| self.failures.get(*s);
+        if self.read_at.is_none()
+            || subjects
+                .iter()
+                .filter_map(failed)
+                .any(|f| f.stale_from.is_none())
+        {
+            Known::Unread
+        } else if subjects.iter().any(|s| failed(s).is_some()) {
+            Known::Stale
+        } else {
+            Known::Fresh
+        }
     }
 
     /// ⟨M07⟩ The failure of the listing `subject` ([`subject`]), if its last read failed.

@@ -1812,6 +1812,37 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
         "pending_decisions": count(&decisions.data, "decisions"),
     }));
     env.warnings = ops.warnings;
+    if !ctx.json {
+        // Use the expiry flag computed by the runtime.
+        env.data["pending_decisions"] = decisions.data["decisions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|decision| decision["state"] == "pending" && decision["expired"] == false)
+            .count()
+            .into();
+        let mut listings = serde_json::Map::new();
+        for (key, subject) in [
+            ("environments", InspectSubject::Environments),
+            ("bindings", InspectSubject::Bindings),
+            ("grants", InspectSubject::Grants),
+            ("capabilities", InspectSubject::Capabilities),
+            ("policies", InspectSubject::Policies),
+        ] {
+            let request = inspect(subject);
+            if request
+                .required_capability()
+                .is_some_and(|needed| !client.server().capabilities.contains(needed))
+            {
+                continue;
+            }
+            let answer = client.request(request).await;
+            if answer.code.is_success() {
+                listings.insert(key.to_owned(), answer.data);
+            }
+        }
+        env.data[output::STATUS_LISTINGS] = listings.into();
+    }
     Ok(Done::of(env))
 }
 
@@ -1963,6 +1994,38 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
 pub(crate) trait Session {
     /// Send one request; a transport failure is an error envelope.
     async fn request(&mut self, request: Request) -> Envelope<serde_json::Value>;
+    /// Explain a wait without changing the request or polling the runtime separately.
+    async fn request_with_wait(
+        &mut self,
+        ctx: &Ctx,
+        request: Request,
+        operation: Option<&OperationId>,
+    ) -> Envelope<serde_json::Value> {
+        use heimdall_contract::enrollment::EnrollmentRequest;
+
+        let (what, operation) = match &request {
+            Request::Ensure(EnsureRequest {
+                wait: WaitMode::Sync { .. },
+                ..
+            }) => ("access to be ready", operation),
+            Request::Observe(ObserveRequest::Operation {
+                operation_id,
+                wait_ms: Some(_),
+            }) => ("the operation to finish", Some(operation_id)),
+            Request::Setup(setup) if setup.request_id().is_some() => ("setup to finish", operation),
+            Request::Enrollment(EnrollmentRequest::Reconcile { operation_id, .. }) => {
+                ("enrollment recovery", Some(operation_id))
+            }
+            Request::Enrollment(
+                EnrollmentRequest::Apply { .. }
+                | EnrollmentRequest::Verify { .. }
+                | EnrollmentRequest::Remove { .. },
+            ) => ("the enrollment change", operation),
+            _ => return self.request(request).await,
+        };
+        let operation = operation.cloned();
+        output::explain_wait(!ctx.json, what, operation.as_ref(), self.request(request)).await
+    }
     /// Send `Attend` for this session.
     async fn attend(&mut self) -> Envelope<serde_json::Value>;
 }
@@ -2014,6 +2077,7 @@ pub(crate) async fn attend_first<S: Session>(s: &mut S, ctx: &Ctx) -> Result<(),
 pub(crate) async fn retry_stale_decision<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
+    ctx: &Ctx,
     request: &Request,
     mut env: Envelope<serde_json::Value>,
     stale_retries: &mut usize,
@@ -2033,7 +2097,7 @@ pub(crate) async fn retry_stale_decision<S: Session, P: Prompter>(
             Code::Ok => return Ok(decided),
             Code::DecisionStale if *stale_retries > 0 => {
                 *stale_retries -= 1;
-                env = s.request(request.clone()).await;
+                env = s.request_with_wait(ctx, request.clone(), None).await;
                 if pending_decision(&env).as_deref() == Some(decision.as_str()) {
                     return Err(decided);
                 }
@@ -2057,6 +2121,7 @@ pub(crate) async fn approve_request<S: Session, P: Prompter>(
     retry_stale_decision(
         s,
         p,
+        ctx,
         request,
         env,
         stale_retries,
@@ -2091,9 +2156,12 @@ pub(crate) async fn ensure_flow<S: Session, P: Prompter>(
         return refused;
     }
     let request = Request::Ensure(request);
-    let env = s.request(request.clone()).await;
+    let env = s.request_with_wait(ctx, request.clone(), None).await;
     let env = match approve_request(s, p, ctx, &request, env, &mut 2).await {
-        Ok(_) => s.request(request).await,
+        Ok(decided) => {
+            s.request_with_wait(ctx, request, decided.operation_id.as_ref())
+                .await
+        }
         Err(env) => env,
     };
     let exit = output::exit_code_for(env.code.clone(), is_async);
@@ -2162,15 +2230,17 @@ async fn operation(ctx: &Ctx, command: OperationCommand) -> Result<Done, Done> {
             timeout_ms,
         } => {
             let operation_id = parse("operation ID", OperationId::parse, &operation_id)?;
-            let Done { env, .. } = one(
-                ctx,
-                false,
-                Request::Observe(ObserveRequest::Operation {
-                    operation_id,
-                    wait_ms: Some(timeout_ms),
-                }),
-            )
-            .await?;
+            let mut client = session(ctx, false).await?;
+            let env = client
+                .request_with_wait(
+                    ctx,
+                    Request::Observe(ObserveRequest::Operation {
+                        operation_id,
+                        wait_ms: Some(timeout_ms),
+                    }),
+                    None,
+                )
+                .await;
             let op_code = env
                 .data
                 .get("code")
@@ -2368,10 +2438,16 @@ pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
     if answer != Answer::Yes {
         return not_confirmed(Some(decision), operation, answer.reason());
     }
-    s.request(Request::Decide(DecideRequest {
+    let request = s.request(Request::Decide(DecideRequest {
         decision_id,
         verdict,
-    }))
+    }));
+    output::explain_wait(
+        !ctx.json && verdict == Verdict::Approve && operation.is_some(),
+        "the approved request",
+        operation.as_ref(),
+        request,
+    )
     .await
 }
 
