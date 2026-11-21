@@ -365,6 +365,7 @@ Each unit lists its marking, owner role, owned paths, dependencies, what it buil
   - **The TUI's rendering of M06's decision kinds,** environment fields (connectivity, last seen, `remote_pending`) and route health.
   - **Plain-word help for M06's commands.**
   - **`a27_rendered_route_helper_with_stock_consumers`:** raw binary over `scp` and `sftp`, a `git` clone and fetch, and an interactive `ssh` with resize and Ctrl-C. All of it runs through the **rendered** ProxyCommand helper subprocess, on the direct and jump legs, and on the Iroh leg where M06 qualifies it. These are helper and console integration rows, distinct from M06's protocol-level byte tests, which they do not duplicate.
+- **Also in U7, once M06 no longer needs the shared decision-modal dispatch frozen** (ruled 2026-11-21, from W1's audit): the decision, authorization and repair modals accept a confirmation only when the latest frame drew it and every row has been shown, not only the last row. This is the rule Settings and the stop menu already follow (`model::Seen`).
 - **Native:** macOS, the devbox, and Windows where M06 qualifies the path.
 
 ### U8: Carried items
@@ -383,6 +384,13 @@ Each unit lists its marking, owner role, owned paths, dependencies, what it buil
 - **U8b, M05-F1 (after M06 contract).** D13: the check runs inside the removal transaction, with bounded, scoped remediation.
   - **Tests:** `destination_remove_with_live_access_refuses_and_lists_them`, and `a_grant_created_after_a_preflight_is_still_refused`. The second runs the check inside the transaction, so a grant created after a preflight read cannot slip through.
 - **U8c:** removed. The host-key hint is a post-V1 candidate (Q9).
+
+### U1c: keys typed ahead of the screen (W2; ruled 2026-11-21)
+
+W1's audit found that a batched key sequence can still trigger some actions before any frame shows them.
+- **Behind the reading guard in W2:** operation cancel (`x`), which stops someone's running work, and the network probe, which opens an outbound TCP connection. Each is accepted only when the latest frame drew its target.
+- **Left as they are, by ruling:** connect (`c`, a plain `ssh`) and starting the runtime (`S`).
+- **Tests:** a batched sequence triggers neither cancel nor the network probe unseen, each with a revert proof.
 
 ### U9: Exit suite, evidence and ratification (the integrator)
 
