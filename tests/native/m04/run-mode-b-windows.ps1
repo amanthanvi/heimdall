@@ -176,7 +176,7 @@ $m02Runner = Join-Path $PSScriptRoot '..\m02\run-windows-local.ps1'
 $m02Helpers = @('New-RandomHex', 'Get-Sha256Hex', 'New-RedactionRule', 'Get-RedactionForms', 'Invoke-Redaction',
     'Get-CanaryCount', 'Hide-Canary', 'Get-LeakCount', 'Format-TargetOutput', 'Format-CommandLine', 'New-Bundle',
     'Protect-BundleFiles', 'Get-ProtectedMetadata', 'Get-ToolEnvironmentOverrides', 'Get-CrlfFileCount',
-    'Get-SshdAtEnd', 'Get-SshdStartScript', 'Get-SshdStopScript', 'Test-PlainAccount', 'Get-FixtureEnvironment',
+    'Get-SshdAtEnd', 'Get-SshdStartScript', 'Get-SshdStopScript', 'Test-PlainAccount', 'Get-FixtureEnvironment', 'Select-SshdLogs',
     'Get-RunRedactionRules', 'Test-SshdAtEndOk', 'Get-StockProfileGrantArguments', 'Get-ScratchParentAction',
     'Remove-EmptyHeimdallTestParent')
 $parseErrors = $null
@@ -419,6 +419,33 @@ function Wait-SshReachable([scriptblock]$Probe, [int]$Seconds, [int]$IntervalMs,
 # the run at once, as before.
 function Test-RelayRetry([int]$Try, [hashtable]$Diag, [string]$LastVerdict) {
     return ($Try -eq 1 -and $Diag['process'] -eq 'alive' -and $Diag['listening'] -eq '127.0.0.1' -and $LastVerdict -eq 'refused')
+}
+
+# ⟨M04 exit, systemd login at 50dbc86b⟩ The live descendants of process Root, from a process list
+# (each: Id, ParentId, Name, Start): breadth-first by parent, each as `name (pid N, started S)`.
+# Image names and identities only, never a command line.
+function Get-DescendantSummary([object[]]$Processes, [int]$Root) {
+    $byParent = @{}
+    foreach ($p in $Processes) {
+        $k = [int]$p.ParentId
+        if (-not $byParent.ContainsKey($k)) { $byParent[$k] = [System.Collections.Generic.List[object]]::new() }
+        $byParent[$k].Add($p)
+    }
+    $found = [System.Collections.Generic.List[string]]::new()
+    $seen = @{ $Root = $true }
+    $queue = [System.Collections.Generic.Queue[int]]::new()
+    $queue.Enqueue($Root)
+    while ($queue.Count -gt 0) {
+        $id = $queue.Dequeue()
+        if (-not $byParent.ContainsKey($id)) { continue }
+        foreach ($c in $byParent[$id]) {
+            if ($seen.ContainsKey([int]$c.Id)) { continue }
+            $seen[[int]$c.Id] = $true
+            $found.Add("$($c.Name) (pid $($c.Id), started $($c.Start))")
+            $queue.Enqueue([int]$c.Id)
+        }
+    }
+    return @($found)
 }
 
 # ⟨Windows run at 86cd513b⟩ The networking settings in a .wslconfig's [wsl2] section, read only:
@@ -754,6 +781,21 @@ function Invoke-SelfTest {
     Check 'O01 no command this runner executes passes --nocapture (it splits libtest''s result lines): the tests run with --show-output' (
         -not ((Get-DistroScripts)['a15-run'].Contains('--nocapture')) -and ((Get-DistroScripts)['a15-run'].Contains('--show-output')) -and
         (@((Get-TestPlan) | Where-Object { $_.Args -contains '--nocapture' }).Count -eq 0))
+    $sl = Select-SshdLogs @{ log = '\\wsl.localhost\d\home\u\fx\sshd.log'; strictlog = '\\wsl.localhost\d\home\u\fx\sshd_strict.log' } 'C:\run\sshd\sshd.log' 'C:\run\sshd\sshd_strict.log'
+    $sd = Select-SshdLogs @{} 'C:\run\sshd\sshd.log' 'C:\run\sshd\sshd_strict.log'
+    Check 'X01 the tests read the logs the sshd start script reported (M05 W4: the WSL file system), the drvfs paths only when none was reported' (
+        $sl.Log.EndsWith('fx\sshd.log') -and $sl.Strict.EndsWith('fx\sshd_strict.log') -and $sd.Log -ceq 'C:\run\sshd\sshd.log')
+    Check 'X02 the fixture environment takes its log paths from that selector, on the try that was reached (the retry''s new $fx)' (
+        $selfText2.Contains('$sshdLogs = Select-SshdLogs $fx $slog $slogStrict') -and
+        $selfText2.Contains('Get-FixtureEnvironment $fx $true $strictOk $ak $sshdLogs.Log $akStrict $sshdLogs.Strict $User'))
+    $tree = @(
+        [pscustomobject]@{ Id = 10; ParentId = 1; Name = 'pwsh.exe'; Start = 't0' },
+        [pscustomobject]@{ Id = 11; ParentId = 10; Name = 'wsl.exe'; Start = 't1' },
+        [pscustomobject]@{ Id = 12; ParentId = 11; Name = 'wslhost.exe'; Start = 't2' },
+        [pscustomobject]@{ Id = 13; ParentId = 99; Name = 'other.exe'; Start = 't3' })
+    Check 'X03 the end-of-run descendants: children and grandchildren of the harness, nothing else, names and identities only' (
+        ((Get-DescendantSummary $tree 10) -join '; ') -ceq 'wsl.exe (pid 11, started t1); wslhost.exe (pid 12, started t2)' -and
+        @(Get-DescendantSummary $tree 13).Count -eq 0)
     Check 'W03 .wslconfig: only [wsl2] networkingMode and localhostForwarding are read, as words' (
         (Get-WslConfigNetworking "[experimental]`r`nnetworkingMode=nat`r`n[wsl2]`r`nmemory=8GB`r`nnetworkingMode = mirrored # note`r`n;localhostForwarding=false`r`n") -ceq 'networkingMode=mirrored; localhostForwarding=unset' -and
         (Get-WslConfigNetworking '') -ceq 'networkingMode=unset; localhostForwarding=unset' -and
@@ -1372,7 +1414,12 @@ try {
         Add-Command 0 "harness sshd in the second distribution reachable from Windows on 127.0.0.1 (attempt $($reach.Count), $([int]$reach.Seconds) s)"
         $strictClock = [System.Diagnostics.Stopwatch]::StartNew()
         $strictOk = $fx.ContainsKey('strictport') -and ((Wait-SshReachable { Test-SshBanner ([int]$fx['strictport']) } 30 2000 { $strictClock.Elapsed.TotalSeconds } { param($Ms) Start-Sleep -Milliseconds $Ms }).Ok)
-        $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $slog $akStrict $slogStrict $User
+        # ⟨M04 exit, Mode B at 50dbc86b⟩ The logs the tests read are the ones the start script
+        # reported (M05 W4: on the WSL file system, `log=` and `strictlog=` of this try's $fx),
+        # never the drvfs paths it no longer writes; the M02 runner's own selector decides.
+        $sshdLogs = Select-SshdLogs $fx $slog $slogStrict
+        $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $sshdLogs.Log $akStrict $sshdLogs.Strict $User
+        Add-Fact 'fixture-sshd-logs' $sshdLogs.Fact
         Add-Fact 'fixture-sshd' 'listening on 127.0.0.1 in the second disposable distribution (non-root, per-run host key)'
         Add-Fact 'fixture-sshd-registry' $(if ($fixtureEnv.ContainsKey('HM_FIXTURE_SSHD_REGISTRY')) { 'exported (owner-only, in the user''s home)' } else { 'not reported' })
 
@@ -1596,6 +1643,16 @@ public static long IdleSeconds() {
     # helper): removed when empty, never recursively, and reported either way.
     try { Add-Fact 'heimdalltest-parent' (Remove-EmptyHeimdallTestParent) }
     catch { Add-Fact 'heimdalltest-parent' "unreadable ($($_.Exception.GetType().Name))" }
+
+    # ⟨M04 exit, systemd login at 50dbc86b⟩ Whatever this run started that is still alive now (the
+    # PC agent waited 813 s after a run's end for its stdout to close): image names, PIDs and start
+    # times of this process's live descendants, never a command line. Nothing is stopped here.
+    try {
+        $procs = @(Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object {
+                [pscustomobject]@{ Id = $_.ProcessId; ParentId = $_.ParentProcessId; Name = $_.Name; Start = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('HH:mm:ss') } else { '?' }) } })
+        $alive = @(Get-DescendantSummary $procs $PID)
+        Add-Fact 'descendants-at-end' $(if ($alive.Count) { $alive -join '; ' } else { 'none' })
+    } catch { Add-Fact 'descendants-at-end' "unreadable ($($_.Exception.GetType().Name))" }
 
     # 9. Redact, mask, scan, bundle (no environment dump: only the facts above).
     $rules = Get-RunRedactionRules $wv $run $env:USERPROFILE $env:USERNAME $env:COMPUTERNAME ([System.Net.Dns]::GetHostName())
