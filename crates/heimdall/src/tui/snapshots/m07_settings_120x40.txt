@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities [8 Settings] [!!] - s stop
+Default profile (a preference, never authority)
+  [OK] Default profile of this computer: dev
+
+Standing access: pause, resume, lock behaviour, connections
+> [OK] pol-ws1 · profile dev · project · automatic
+  [!!] pol-per1 · profile dev · personal · paused since 2026-11-03T08:00:00Z
+
+When your desktop locks
+  [ i] Now: work continues while your desktop is locked (read-only here)
+
+Connections at the deadline (each managed destination)
+  [ i] alpha: existing sessions may stay connected after the deadline (read-only here)
+
+Source: inspect policies (the runtime's record of pol-ws1), read 09:00:25Z (just now)
+  Environments: this computer
+  Revision 2 · [OK] automatic
+Change: Enter (pause, resume, lock behaviour, connections; narrowing applies at once, widening asks for your decision)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter change · Up/Down move · ? help · q quit

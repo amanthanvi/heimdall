@@ -1,4 +1,4 @@
-Heimdall  1 Overview [2 Destinations] 3 Profiles  4 Activity  [!!] Needs attention
+ 1 Overview [2 Destinations] 3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 Search: be_  (1 of 2)
 > [ !] beta         observed (defined in your configuration)
 

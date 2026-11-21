@@ -1,12 +1,16 @@
-Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 [!!] Needs attention
-Runtime: connected; listings read 09:00:25Z (5s ago)
-Static pass: 09:00:20Z (10s ago); 2 destinations, 1 profiles, 1 identities
-> [!!] held: setup.apply op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
-  [!!] decision waiting: apply_projection dec_apply1 (Enter to review)
-  [!!] decision waiting: declare_interaction dec_declare1 (Enter to review)
-  [..] working: ensure op_run1 running
-  [ !] identity_selection_not_exclusive (beta): identity_selection_not_exclusive message
+Runtime: connected; listings read 09:00:25Z (just now)
+Static pass: 09:00:20Z (just now); 2 destinations, 1 profiles, 1 identities
+Environment: this environment · 1 running
+Access: this environment's standing access is not listed by this runtime
+Desktop lock: not reported by the runtime
+Pause or stop access: press s (pause automatic access, stop work, a cutoff) · 8 Settings
+> [!!] held: setup op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
+  [!!] decision waiting: a change to your SSH configuration (dec_apply1; Enter to review)
+  [!!] decision waiting: how a key asks for confirmation (dec_declare1; Enter to review)
+  [..] working: access request op_run1 running
+  [ !] beta: ssh may offer other identities than the adopted key for this alias
 
   r retry: after you put the file back, Heimdall continues the held operation's own recovery under its approval
   k keep: Heimdall moves and deletes nothing, closes the operation and lists what stays in place
@@ -33,8 +37,4 @@ Static pass: 09:00:20Z (10s ago); 2 destinations, 1 profiles, 1 identities
 
 
 
-
-
-
-
-Enter open · r retry · k keep · R refresh · 1-4 views · ? help · q quit
+Enter open · r retry · k keep · s pause or stop · R refresh · 1-8 views · ? help · q quit

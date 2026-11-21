@@ -25,7 +25,7 @@
 use heimdall_contract::Code;
 use heimdall_contract::envelope::{Envelope, reason};
 use heimdall_contract::ids::RequestId;
-use heimdall_contract::request::{ConsumerIntegration, EnsureRequest, Request, Verdict};
+use heimdall_contract::request::{ConsumerIntegration, EnsureRequest, Request};
 
 use crate::cli::{Prompter, Session};
 use crate::client::Ctx;
@@ -56,28 +56,14 @@ async fn decided_ensure<S: Session, P: Prompter>(
     if let Err(refused) = crate::cli::attend_first(s, ctx).await {
         return refused.env;
     }
-    let mut env = s.request(Request::Ensure(request.clone())).await;
+    let request = Request::Ensure(request.clone());
+    let mut env = s.request(request.clone()).await;
+    let mut stale_retries = 2;
     for _ in 0..MAX_DECISIONS {
-        let Some(decision) = crate::cli::pending_decision(&env) else {
-            break;
-        };
-        if !ctx.interactive() {
-            break;
+        match crate::cli::approve_request(s, p, ctx, &request, env, &mut stale_retries).await {
+            Ok(_) => env = s.request(request.clone()).await,
+            Err(env) => return env,
         }
-        let decided = crate::cli::confirm_and_decide(
-            s,
-            p,
-            ctx,
-            &decision,
-            Verdict::Approve,
-            env.operation_id.clone(),
-            Some(&env.code),
-        )
-        .await;
-        if decided.code != Code::Ok {
-            return decided;
-        }
-        env = s.request(Request::Ensure(request.clone())).await;
     }
     env
 }

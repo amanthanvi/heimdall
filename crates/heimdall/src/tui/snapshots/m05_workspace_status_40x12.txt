@@ -1,4 +1,4 @@
-[1 Over] 2 Dest  3 Prof  4 Acti  [!!]
+[1 Overview] 1/8 [!!] Needs attention
 Workspace status
 Directory: /work/example
 Workspace root: /work/example
@@ -9,4 +9,4 @@ Manifest access digest:
 abababababababab... (what a review is
 checked against)
 The directory is a same-user claim: any
-Enter decision · s stop menu · h history
+Enter decision · s stop · Esc back

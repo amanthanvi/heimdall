@@ -1,0 +1,12 @@
+[6 Environments] 6/8 [!!] - s stop
+3 environment(s) the runtime knows, its
+> [OK] this computer                acti
+  [ !] WSL Ubuntu                   not
+  [--] builder                      remo
+
+
+
+
+
+
+Enter detail · ? help · q quit

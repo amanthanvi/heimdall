@@ -1,0 +1,12 @@
+[4 Activity] 4/8 [!!] Needs attention
+Pending decisions
+[!!] decision listing failed
+  INTERNAL_ERROR
+  response exceeds the frame limit
+  stale: showing the last good listing,
+> [!!] dec_apply1  apply_projection  exp
+  [!!] dec_declare1  declare_interaction
+Operations
+  [!!] op_held1  setup.apply  outcome_un
+  [..] op_run1  ensure  running
+Enter review · ? help · q quit

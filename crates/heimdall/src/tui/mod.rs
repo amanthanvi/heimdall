@@ -49,6 +49,7 @@ mod data;
 mod keys;
 mod m03;
 mod m05;
+mod m07;
 mod model;
 mod term;
 mod view;
@@ -296,7 +297,8 @@ fn event_loop(
             match worker.events.try_recv() {
                 Ok(Event::Update(u)) => {
                     effects.extend(app.apply(*u));
-                    dirty = true;
+                    // ⟨M07⟩ Only an update that changed what the screen shows draws.
+                    dirty |= app.take_changed();
                 }
                 Ok(Event::Resize) => dirty = true,
                 Ok(Event::Signal(2))
@@ -314,19 +316,22 @@ fn event_loop(
                 }
             }
         }
+        dirty |= !effects.is_empty();
         if let Some(exit) = perform(terminal, app, worker, effects, &mut ignore_interrupts_until)? {
             return Ok(exit);
         }
+        // ⟨M07⟩ The poll only asks; its answers draw only if they change something
+        // (m07-plan U1, probe P1).
         if last_poll.elapsed() >= POLL_INTERVAL {
             last_poll = Instant::now();
             for c in app.poll_commands() {
                 worker.send(c);
             }
-            app.now = Timestamp::now();
-            dirty = true;
         }
+        // ⟨M07⟩ The clock draws only when the displayed minute changes or a pending
+        // decision expires.
+        dirty |= app.set_now(Timestamp::now());
         if dirty {
-            app.now = Timestamp::now();
             let frame = terminal.draw(|f| view::render(f, app))?;
             if let Some(path) = &test.screen {
                 dump_screen(frame.buffer, path);

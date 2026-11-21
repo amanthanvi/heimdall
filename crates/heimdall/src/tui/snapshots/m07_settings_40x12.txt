@@ -1,0 +1,12 @@
+[8 Settings] 8/8 [!!] Needs attention
+Default profile (a preference, never aut
+  [OK] Default profile of this computer:
+
+Standing access: pause, resume, lock beh
+> [OK] pol-ws1 · profile dev · project ·
+  [!!] pol-per1 · profile dev · personal
+
+When your desktop locks
+  [ i] Now: work continues while your de
+
+Enter change · ? help · q quit

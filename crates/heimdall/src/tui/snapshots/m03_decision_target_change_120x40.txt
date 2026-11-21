@@ -1,21 +1,21 @@
-Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[1 Overview] 2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 [!!] ┌Owner decision dec_target1 (approve_target_change)──────────────────────────────────────────────────────────┐
-Runti│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+Runti│Recorded 09:00:00Z (just now) · expires 09:15:00Z (in 14 min)                                               │
 Stati│Exactly what approve applies to:                                                                            │
-> [!!│Enrollment enr_07070707070707070707070707070707 · operation op_verify1                                      │stopp
-  [!!│Target change (- approved, + proposed):                                                                     │
-  [!!│  HostName alpha.example.invalid                                                                            │
-  [!!│  Port 22                                                                                                   │
-  [!!│  User fixture                                                                                              │
-  [..│  host key type ssh-ed25519                                                                                 │
-  [ !│- host key fingerprint SHA256:hostOld                                                                       │)
-  [ !│+ host key fingerprint SHA256:hostNew                                                                       │
-  [ !│- host key AAAAC3NzaC1lZDI1NTE5AAAAIhostOld                                                                 │
-  [ i│+ host key AAAAC3NzaC1lZDI1NTE5AAAAIhostNew                                                                 │needs
-     │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
-     │                                                                                                            │
-     │                                                                                                            │
-     │                                                                                                            │
+Envir│Enrollment enr_07070707070707070707070707070707 · operation op_verify1                                      │
+Acces│Target change (- approved, + proposed):                                                                     │
+Deskt│  HostName alpha.example.invalid                                                                            │
+Pause│  Port 22                                                                                                   │
+> [!!│  User fixture                                                                                              │stopp
+  [!!│  host key type ssh-ed25519                                                                                 │
+  [!!│- host key fingerprint SHA256:hostOld                                                                       │
+  [!!│+ host key fingerprint SHA256:hostNew                                                                       │
+  [!!│- host key AAAAC3NzaC1lZDI1NTE5AAAAIhostOld                                                                 │
+  [..│+ host key AAAAC3NzaC1lZDI1NTE5AAAAIhostNew                                                                 │
+  [ !│Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │d)
+  [ !│                                                                                                            │
+  [ !│                                                                                                            │
+  [ i│                                                                                                            │ slot
      │                                                                                                            │
      │                                                                                                            │
      │                                                                                                            │

@@ -1,0 +1,12 @@
+[2 Destinations] 2/8 [!!] - s stop
+2 (stale) total · / to search (never pro
+[!!] destination listing failed
+  INTERNAL_ERROR
+  response exceeds the frame limit
+  stale: showing the last good listing,
+> [OK] alpha        managed  alpha.examp
+  [ !] beta         observed (defined in
+
+
+
+/ search · Enter open · ? help · q quit

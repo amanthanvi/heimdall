@@ -63,23 +63,24 @@ async fn add_with<S: Session, P: Prompter>(
     if let Err(refused) = setup_cmd::attend_first(s, ctx).await {
         return Outcome::of(refused);
     }
-    let env = s
-        .request(Request::Environment(EnvironmentRequest::ContainerAdd {
-            label: label.to_owned(),
-        }))
-        .await;
-    let Some(decision) = setup_cmd::pending_decision(&env) else {
-        return Outcome::of(env);
+    let request = Request::Environment(EnvironmentRequest::ContainerAdd {
+        label: label.to_owned(),
+    });
+    let env = s.request(request.clone()).await;
+    let decided = match setup_cmd::approve_request(
+        s,
+        p,
+        ctx,
+        &request,
+        env,
+        |_| Ok(ADD_PREFACE.to_owned()),
+        None,
+    )
+    .await
+    {
+        Ok(decided) => decided,
+        Err(env) => return Outcome::of(env),
     };
-    if !ctx.interactive() {
-        // The pending decision stays pending; nothing more is sent (exit 3).
-        return Outcome::of(env);
-    }
-    let decided =
-        setup_cmd::confirm_and_decide(s, p, ctx, &decision, ADD_PREFACE, None, None).await;
-    if decided.code != Code::Ok {
-        return Outcome::of(decided);
-    }
     let human = decided
         .data
         .get("environment")

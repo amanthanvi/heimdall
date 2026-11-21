@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments [7 Identities] 8 Settings  [!!] - s stop
+3 adopted identities · Enter for detail
+> [OK] idn_alpha    SHA256:fixtureAlphaKey ssh-ed25519 via SSH agent · background use: allowed
+  [ !] idn_k2       SHA256:fixtureKey2 ssh-ed25519 via SSH agent · background use: asks first
+  [??] idn_k3       SHA256:fixtureKey3 ssh-ed25519 via SSH agent · background use: unknown
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter detail · Up/Down move · ? help · q quit

@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity [5 Projects] 6 Environments  7 Identities  8 Settings  [!!] - s stop
+Workspace status
+Directory: /work/example
+Workspace root: /work/example
+[OK] trusted: this checkout is the one you approved (same path, same directory identity)
+Manifest access digest: abababababababab... (what a review is checked against)
+The directory is a same-user claim: any program you run can name any directory.
+
+Policy
+pol-ws1 revision 2 · profile Development (dev)
+Environments: env_22222222222222222222222222222222
+[OK] active: new work under this policy starts automatically within your saved limits
+
+[!!] A decision is waiting for this workspace: dec_trust1 (Enter to review it)
+
+Standing access
+  pol-ws1 · profile dev · project ws_11111111111111111111111111111111 · [OK] automatic
+  pol-per1 · profile dev · personal · [!!] paused
+
+Source: inspect workspace (this directory) and inspect policies, read 09:00:25Z (just now)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter decision · w project · h history · s stop · Up/Down scroll · ? help · q quit

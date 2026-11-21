@@ -1004,11 +1004,15 @@ pub(crate) fn add_chores(env: &mut Envelope<serde_json::Value>, chores: &[Pendin
     }
 }
 
-/// The bare `heimdall` status (`cli::status`, either outcome) with the pending chores
-/// added ([`add_chores`]). ⟨U-R1⟩ `cli.rs` (the integrator's) calls it from the
-/// `Command::Status` arm; the TUI reuses [`pending_chores`].
+/// Attach pending chores to the status envelope or its human summary.
 pub(crate) fn with_status_chores(ctx: &Ctx, mut done: crate::cli::Done) -> crate::cli::Done {
-    add_chores(&mut done.env, &pending_chores(ctx));
+    let chores = pending_chores(ctx);
+    if ctx.json {
+        add_chores(&mut done.env, &chores);
+    } else if done.env.data.is_object() {
+        let summary = output::render_status(&done.env.data, &chores);
+        done.env.data[output::HUMAN_STATUS] = summary.into();
+    }
     done
 }
 

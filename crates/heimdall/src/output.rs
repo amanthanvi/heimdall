@@ -205,6 +205,16 @@ pub fn emit<T: serde::Serialize>(envelope: &Envelope<T>, json: bool) {
         eprintln!("internal: envelope serialization failed");
         return;
     };
+    if let Some(summary) = value["data"][HUMAN_STATUS].as_str() {
+        println!("{}", sanitize_for_terminal(summary));
+        if let Some(message) = value["data"]["error"]["message"].as_str() {
+            diagnostic(message);
+        }
+        for warning in &envelope.warnings {
+            diagnostic(&warning.message);
+        }
+        return;
+    }
     let field =
         |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_owned);
     let mut head = format!(
@@ -262,6 +272,41 @@ pub fn emit<T: serde::Serialize>(envelope: &Envelope<T>, json: bool) {
             sanitize_for_terminal(&w.message)
         );
     }
+}
+
+/// Private to the top-level status handler and populated only for human output.
+pub(crate) const HUMAN_STATUS: &str = "__human_status";
+
+pub(crate) fn render_status(
+    data: &serde_json::Value,
+    chores: &[crate::doctor_cmd::PendingChore],
+) -> String {
+    let environment = s(data, "environment_id");
+    let open = data["open_operations"].as_u64().unwrap_or_default();
+    let waiting = data["pending_decisions"].as_u64().unwrap_or_default();
+    let mut status = if data["running"] == true {
+        format!(
+            "Heimdall is running on this machine ({environment}).\n\
+             Activity: {open} open, {waiting} waiting for your approval.\n\
+             Access: run `heimdall inspect environments` for known environments and `heimdall inspect bindings` for current work.\n\
+             Whether current work continues while the desktop is locked is unknown here.\n\
+             Pause automatic access with `heimdall access pause --profile <profile>` or stop work with `heimdall access stop --work <work-id>`."
+        )
+    } else {
+        "Heimdall status is unavailable.".to_owned()
+    };
+    for chore in chores {
+        let message = if chore.chore == crate::doctor_cmd::TIME_CONFIRMATION_CHORE {
+            "Confirm this machine's clock with `heimdall time confirm` so Heimdall can prepare new access."
+        } else {
+            &chore.message
+        };
+        if !message.is_empty() {
+            status.push('\n');
+            status.push_str(message);
+        }
+    }
+    status
 }
 
 /// Print one line of an event stream: the JSON value (NDJSON) or a short human
@@ -845,6 +890,58 @@ pub(crate) fn m03_lines(data: &serde_json::Value) -> Vec<String> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    fn status_data() -> serde_json::Value {
+        serde_json::json!({
+            "running": true,
+            "environment_id": "env_lab",
+            "operation_counts": {"awaiting_approval": 1},
+            "open_operations": 3,
+            "pending_decisions": 1,
+        })
+    }
+
+    #[test]
+    fn status_uses_everyday_vocabulary() {
+        let shown = render_status(&status_data(), &[]).to_ascii_lowercase();
+        for private in [
+            "grant",
+            "lease",
+            "certificate",
+            "issuer",
+            "generation",
+            "epoch",
+            "principal",
+            "awaiting_approval",
+            "open_operations",
+        ] {
+            assert!(
+                !shown
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .any(|word| word == private),
+                "{shown}"
+            );
+        }
+        assert!(shown.contains("this machine"));
+        assert!(shown.contains("activity: 3 open, 1 waiting"));
+        let chore = crate::doctor_cmd::PendingChore {
+            chore: crate::doctor_cmd::TIME_CONFIRMATION_CHORE,
+            command: crate::doctor_cmd::TIME_CONFIRM_COMMAND,
+            message: "technical time warning".to_owned(),
+        };
+        let offline = render_status(&serde_json::Value::Null, &[chore]);
+        assert!(offline.contains("Heimdall status is unavailable."));
+        assert!(offline.contains("Confirm this machine's clock with `heimdall time confirm`"));
+    }
+
+    #[test]
+    fn status_answers_the_three_questions() {
+        let shown = render_status(&status_data(), &[]);
+        assert!(shown.contains("env_lab"));
+        assert!(shown.contains("desktop is locked"));
+        assert!(shown.contains("heimdall access pause --profile"));
+        assert!(shown.contains("heimdall access stop --work"));
+    }
 
     #[test]
     fn accepted_without_async_is_not_success() {

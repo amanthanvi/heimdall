@@ -161,5 +161,20 @@ run_step evidence-selftest env PYTHONDONTWRITEBYTECODE=1 \
 run_step evidence-records env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tools/validation/validate-records.py
 
+# ⟨M07 U4⟩ m07-plan §5: the optional agent skill names only commands the CLI has (the
+# debug binary the test step built answers `<path> --help`, in a scratch home), and never
+# an approval, a boundary escape or real data. Self-checks against a known-bad skill first.
+run_step skill-lint env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I tools/validation/skill_lint.py --heimdall target/debug/heimdall
+
+# ⟨M07 U5a⟩ m07-plan §4: the reference wrapper's own tests (Python standard library; a fake
+# server on an owner-only Unix socket in a temp directory), plus its real-binary smoke against
+# the debug binary the test step built (one scratch root holding HOME, HEIMDALL_HOME and
+# HEIMDALL_TEST_SSH_HOME, checked before launch; the runtime it starts is stopped and the
+# root removed by the test).
+run_step wrapper-tests env PYTHONDONTWRITEBYTECODE=1 \
+    HEIMDALL_WRAPPER_SMOKE_BIN="$(pwd)/target/debug/heimdall" \
+    python3 -I -m unittest discover -s examples/reference-wrapper/tests
+
 echo "== overall: exit ${status}"
 exit "${status}"

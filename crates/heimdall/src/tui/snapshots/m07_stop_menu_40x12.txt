@@ -1,0 +1,12 @@
+[1 Overview] 1/8 [!!] Needs attention
+[┌Pause or stop access────────────────┐
+R│Four different actions; pick one:   │
+S│                                    │
+W│> 1. Pause automatic access         │
+H│     No new work starts             │
+A│automatically for this workspace.   │
+L│Work already running continues.     │
+>│Resuming needs your decision.       │
+ │  2. Stop this work                 │s
+ └────────────────────────────────────┘
+Up/Down or 1-4 choose · Enter select · E

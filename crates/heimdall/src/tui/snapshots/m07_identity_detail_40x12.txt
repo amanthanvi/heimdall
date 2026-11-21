@@ -1,0 +1,12 @@
+[7 Identities] 7/8 [!!] Needs attention
+Identity idn_alpha
+Source: the runtime's identity list
+(inspect identities), read 09:00:25Z
+(just now)
+  [adopted]  fingerprint
+SHA256:fixtureAlphaKey
+  [adopted]  key type ssh-ed25519
+  [adopted]  held by SSH agent at
+/scratch/agent.sock
+  [declared] asks for confirmation: none
+Up/Down scroll · Esc back

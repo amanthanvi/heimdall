@@ -302,7 +302,9 @@ impl Listings {
         }
     }
 
-    fn policy(&self, id: &str) -> Option<&Policy> {
+    /// The policy with this ID, when listed.
+    #[must_use]
+    pub(crate) fn policy(&self, id: &str) -> Option<&Policy> {
         self.policies.as_ref()?.iter().find(|p| p.id == id)
     }
 
@@ -517,7 +519,7 @@ pub(crate) fn workspace_lines(catalog: &Catalog, now: Timestamp) -> Vec<Line<'st
 /// The overview's one line about the working directory's workspace (only when the runtime
 /// served it).
 #[must_use]
-pub(crate) fn overview_line(catalog: &Catalog) -> Option<String> {
+pub(crate) fn overview_line(catalog: &Catalog, narrow: bool) -> Option<String> {
     let w = catalog.m05.workspace.as_ref()?;
     let state = match &w.matched {
         Match::Trusted => "trusted",
@@ -527,9 +529,12 @@ pub(crate) fn overview_line(catalog: &Catalog) -> Option<String> {
         Match::None => "no workspace here",
         Match::Other(_) => "unknown",
     };
-    Some(format!(
-        "Workspace: {state} (w details · s stop · h history)"
-    ))
+    // ⟨M07⟩ Narrow: the state and the key that shows it.
+    Some(if narrow {
+        format!("Workspace: {state} (w)")
+    } else {
+        format!("Workspace: {state} (w details · s stop · h history)")
+    })
 }
 
 // ---- policy history ------------------------------------------------------------------
@@ -659,7 +664,7 @@ fn trust_lines(catalog: &Catalog, d: &Decision) -> Vec<Line<'static>> {
         lines.push(plain(format!("  {}", quoted(&label))));
         lines.push(plain(""));
     }
-    lines.push(bold("Detail: what approving grants"));
+    lines.push(bold("Detail: what approving allows"));
     lines.push(plain(format!(
         "  Profile: {}",
         profile_detail(catalog, &profile)
@@ -708,7 +713,12 @@ fn trust_lines(catalog: &Catalog, d: &Decision) -> Vec<Line<'static>> {
         lines.push(plain("  Capabilities: those the profile holds"));
     } else {
         lines.push(plain("  Capabilities:"));
-        lines.extend(list_lines(p, "capabilities", "-"));
+        // ⟨M07⟩ U2: first trust is a default surface: each capability in words.
+        lines.extend(
+            names(p, "capabilities")
+                .iter()
+                .map(|n| plain(format!("    - {}", super::m07::capability_words(n)))),
+        );
     }
     lines.push(plain(if background {
         "  Lock continuity: the project asks for background work: access continues while your desktop is locked"
@@ -741,7 +751,7 @@ fn delta_lines(catalog: &Catalog, a: &Value) -> Vec<Line<'static>> {
         bold("Review: more access for a workspace you already trust"),
         plain(format!("Policy {policy}")),
         plain(
-            "Only what would be ADDED is listed. Access the policy already grants stays as it is and is not repeated here.",
+            "Only what would be ADDED is listed. Access the policy already allows stays as it is and is not repeated here.",
         ),
         plain(""),
     ];
@@ -1004,7 +1014,7 @@ impl StopKind {
                 "No new work starts automatically for this workspace. Work already running continues. Resuming needs your decision."
             }
             StopKind::Work => {
-                "Ends one piece of work, named by its work ID: grants only it uses are revoked now and the work ID cannot start again. Other work, and grants it shares with other work, stay."
+                "Ends one piece of work, named by its work ID: access only it uses ends now and the work ID cannot start again. Other work, and access it shares with other work, stay."
             }
             StopKind::Profile => {
                 "Pauses every policy of a profile and ends its active access now, including work already running. Starting again needs your decision."
@@ -1067,7 +1077,7 @@ impl StopAction {
                 "Pause automatic access for workspace {workspace}: no new work starts automatically; running work continues."
             ),
             StopAction::Work { work_id } => format!(
-                "Stop work {work_id}: grants only it uses are revoked now and the work ID cannot start again; other work and shared grants stay."
+                "Stop work {work_id}: access only it uses ends now and the work ID cannot start again; other work and shared access stay."
             ),
             StopAction::Profile { profile } => format!(
                 "Stop everything for profile {profile}: every policy of it is paused and its active access ends now."
@@ -1557,7 +1567,8 @@ mod tests {
             text.contains("alpha:fixture") && text.contains(ENV),
             "{text}"
         );
-        assert!(text.contains("ssh-authentication"), "{text}");
+        // ⟨M07⟩ U2: the first-trust view names the capability in words.
+        assert!(text.contains("SSH sign-in"), "{text}");
         assert!(text.contains("Lock disclosure"), "{text}");
         let d = extend_decision("dec_e1", "pol-ws1");
         let text = flat(&decision_lines(&catalog, &d).unwrap());
@@ -1757,7 +1768,7 @@ mod tests {
         assert!(catalog.m05.workspace.is_none() && catalog.m05.policies.is_none());
         assert!(flat(&workspace_lines(&catalog, now())).contains("Not available"));
         assert!(flat(&policy_history_lines(&catalog, now())).contains("Not available"));
-        assert!(overview_line(&catalog).is_none());
+        assert!(overview_line(&catalog, false).is_none());
         let l = Listings::of(&Value::Null, &Value::Null);
         assert_eq!(l, Listings::default());
     }

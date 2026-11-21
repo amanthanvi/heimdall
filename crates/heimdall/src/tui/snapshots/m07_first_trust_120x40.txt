@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles [4 Activity] 5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
+Pendi┌Owner decision dec_trust1 (trust_workspace)─────────────────────────────────────────────────────────────────┐
+> [!!│Recorded 09:00:00Z (just now) · expires 09:15:00Z (in 14 min)                                               │
+  [!!│Exactly what approve applies to:                                                                            │
+Opera│Use dev access automatically for this project?                                                              │
+  [!!│Work can continue while your desktop and password manager are locked, using your saved session limits.      │
+  [..│You can pause or remove access at any time.                                                                 │
+     │                                                                                                            │
+     │Project label (written by the repository; quoted text only, it decides nothing):                            │
+     │  "Example project"                                                                                         │
+     │                                                                                                            │
+     │Detail: what approving allows                                                                               │
+     │  Profile: dev (label "Development")                                                                        │
+     │  Workspace: /work/example                                                                                  │
+     │  Pairs (destination and account):                                                                          │
+     │    - alpha:fixture                                                                                         │
+     │  Environments:                                                                                             │
+     │    - env_22222222222222222222222222222222                                                                  │
+     │  Capabilities:                                                                                             │
+     │    - SSH sign-in                                                                                           │
+     │  Lock continuity: the project asks for background work: access continues while your desktop is locked      │
+     │  Limits: each work session lasts at most 12 h by default (also shown in settings); a session never extends │
+     │    its own deadline                                                                                        │
+     │  Approving records this workspace and its policy and lets this environment start work automatically under  │
+     │    it. Denying records nothing.                                                                            │
+     │                                                                                                            │
+     │Lock disclosure (shown once; recorded when the decision is approved):                                       │
+     │  Locking your desktop does not end access that Heimdall already issued.                                    │
+     │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │Tab: deny · Esc: send nothing                                                                               │
+     │Approve? Type yes to confirm [y/N]: _                                                                       │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+type yes, Enter · Tab approve/deny · Esc cancel

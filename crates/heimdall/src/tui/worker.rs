@@ -19,7 +19,7 @@
 //!   for the life of the process (tokio never unregisters one), which the connect
 //!   handoff relies on anyway (ADR-0007 §8).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,11 +28,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use heimdall_contract::doctor::{DoctorReport, Finding, FindingSeverity};
 use heimdall_contract::envelope::{Envelope, NextAction, ResourceRef};
 use heimdall_contract::event::{Cursor, EventFilter};
-use heimdall_contract::ids::{DecisionId, OperationId};
+use heimdall_contract::ids::{DecisionId, OperationId, RequestId};
 use heimdall_contract::provider::{InteractionKind, ProbeLevel};
 use heimdall_contract::request::{
     CancelRequest, DecideRequest, InspectRequest, InspectSubject, InteractionMode, ObserveRequest,
-    Request,
+    Request, Verdict,
 };
 use heimdall_contract::setup::{
     ConflictKind, PlanDigest, PreviewIntent, RepairResolution, SetupPlan, SetupRequest,
@@ -46,7 +46,9 @@ use heimdall_localenv::local_query::LocalQueries;
 use heimdall_localenv::paths::SshPaths;
 use serde_json::Value;
 
-use super::data::{Catalog, Doctor, EventLine, MAX_EVENTS, Operation, OperationDetail, Runtime};
+use super::data::{
+    Catalog, Doctor, EventLine, ListingFailure, MAX_EVENTS, Operation, OperationDetail, Runtime,
+};
 use super::model::{Command, HeldRepair, Outcome, RepairPlan, Update};
 use crate::client::{Client, Ctx, connect_as};
 
@@ -211,6 +213,11 @@ struct State {
     allow_start: bool,
     runtime: Option<Runtime>,
     catalog: Catalog,
+    /// ⟨M07⟩ Per [`REFRESH_SUBJECTS`] entry, the data of its last good read and when it
+    /// was read; a failed read keeps it (Q4: a failed listing is never shown as empty).
+    last_good: Vec<(Value, Option<Timestamp>)>,
+    /// ⟨M07⟩ The subjects whose last read failed (into [`Catalog::failures`]).
+    failures: BTreeMap<String, ListingFailure>,
     doctored_aliases: Option<BTreeSet<String>>,
     doctor_running: Arc<AtomicBool>,
     op: Option<OpEvents>,
@@ -224,9 +231,10 @@ struct State {
 
 /// What one refresh reads, in order: only `inspect` subjects (read-only, passive;
 /// spec §10.2). ⟨M03⟩ U12 adds the enrollments, the owned connections and the
-/// capabilities. Never `issuer`: the TUI's listings never reach the issuer, and nothing
+/// capabilities. ⟨M07⟩ U1 adds the environments (the Environments view, the overview's own
+/// environment). Never `issuer`: the TUI's listings never reach the issuer, and nothing
 /// here reaches a remote host.
-pub(crate) const REFRESH_SUBJECTS: [InspectSubject; 9] = [
+pub(crate) const REFRESH_SUBJECTS: [InspectSubject; 10] = [
     InspectSubject::Destinations,
     InspectSubject::Profiles,
     InspectSubject::Identities,
@@ -236,6 +244,7 @@ pub(crate) const REFRESH_SUBJECTS: [InspectSubject; 9] = [
     InspectSubject::Enrollments,
     InspectSubject::Connections,
     InspectSubject::Capabilities,
+    InspectSubject::Environments,
 ];
 
 fn inspect(subject: InspectSubject) -> Request {
@@ -245,6 +254,48 @@ fn inspect(subject: InspectSubject) -> Request {
         cwd: None,
         redact: false,
     })
+}
+
+/// ⟨M07⟩ The wire name of `subject` (`destinations`, ...).
+fn subject_name(subject: InspectSubject) -> String {
+    serde_json::to_value(subject)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| format!("{subject:?}"))
+}
+
+/// ⟨M07⟩ Fold one listing's answer in (Q4): a good answer replaces the subject's data
+/// and clears its failure; a failed one keeps the last good data (now stale) and records
+/// the failure, keeping its first time while the code and message repeat.
+fn record_answer(
+    last_good: &mut (Value, Option<Timestamp>),
+    failures: &mut BTreeMap<String, ListingFailure>,
+    subject: String,
+    answer: Result<Value, (String, String)>,
+    now: Timestamp,
+) {
+    match answer {
+        Ok(data) => {
+            *last_good = (data, Some(now));
+            failures.remove(&subject);
+        }
+        Err((code, message)) => {
+            let message = super::data::clean(&message);
+            let since = failures
+                .get(&subject)
+                .filter(|f| f.code == code && f.message == message)
+                .map_or(now, |f| f.since);
+            failures.insert(
+                subject,
+                ListingFailure {
+                    code,
+                    message,
+                    since,
+                    stale_from: last_good.1,
+                },
+            );
+        }
+    }
 }
 
 fn message_of(env: &Envelope<Value>) -> String {
@@ -355,6 +406,8 @@ impl State {
             allow_start: false,
             runtime: None,
             catalog: Catalog::default(),
+            last_good: vec![(Value::Null, None); REFRESH_SUBJECTS.len()],
+            failures: BTreeMap::new(),
             doctored_aliases: None,
             doctor_running: Arc::new(AtomicBool::new(false)),
             op: None,
@@ -448,7 +501,7 @@ impl State {
             Command::Operation { id } => self.operation(id).await,
             Command::Decide { id, verdict } => {
                 let what = format!("decision {id}");
-                let Ok(decision_id) = DecisionId::parse(&id) else {
+                let Some(request) = decide_request(&id, verdict) else {
                     self.send(Update::Done {
                         what,
                         outcome: invalid_id(),
@@ -457,13 +510,7 @@ impl State {
                 };
                 let result = match self.attend().await {
                     Err(o) => o,
-                    Ok(()) => match self
-                        .request(Request::Decide(DecideRequest {
-                            decision_id,
-                            verdict,
-                        }))
-                        .await
-                    {
+                    Ok(()) => match self.request(request).await {
                         Some(env) => outcome(&env),
                         None => not_sent(),
                     },
@@ -474,17 +521,14 @@ impl State {
                 });
             }
             Command::Cancel { id } => {
-                let Ok(operation_id) = OperationId::parse(&id) else {
+                let Some(request) = cancel_request(&id) else {
                     self.send(Update::Done {
                         what: format!("cancel {id}"),
                         outcome: invalid_id(),
                     });
                     return;
                 };
-                let result = match self
-                    .request(Request::Cancel(CancelRequest { operation_id }))
-                    .await
-                {
+                let result = match self.request(request).await {
                     Some(env) => outcome(&env),
                     None => not_sent(),
                 };
@@ -496,6 +540,14 @@ impl State {
             Command::Stop(action) => {
                 let what = action.what();
                 let result = self.stop(&action).await;
+                self.send(Update::Done {
+                    what,
+                    outcome: result,
+                });
+            }
+            Command::Setting(action) => {
+                let what = action.what();
+                let result = self.setting(&action).await;
                 self.send(Update::Done {
                     what,
                     outcome: result,
@@ -532,31 +584,47 @@ impl State {
 
     async fn refresh(&mut self, doctor: bool) {
         if self.session().await.is_some() {
-            let mut answers = Vec::with_capacity(REFRESH_SUBJECTS.len());
             let mut warnings = Vec::new();
-            for s in REFRESH_SUBJECTS {
-                match self.request(inspect(s)).await {
-                    Some(env) if env.code.is_success() => {
-                        warnings.extend(env.warnings);
-                        answers.push(env.data);
-                    }
-                    _ => answers.push(Value::Null),
-                }
-            }
-            if self.client.is_some() {
-                self.catalog = Catalog::from_answers(
-                    &answers[0],
-                    &answers[1],
-                    &answers[2],
-                    &answers[3],
-                    &answers[4],
-                    &answers[5],
+            for (i, s) in REFRESH_SUBJECTS.into_iter().enumerate() {
+                let Some(env) = self.request(inspect(s)).await else {
+                    break;
+                };
+                let answer = if env.code.is_success() {
+                    warnings.extend(env.warnings);
+                    Ok(env.data)
+                } else {
+                    Err((env.code.to_string(), message_of(&env)))
+                };
+                record_answer(
+                    &mut self.last_good[i],
+                    &mut self.failures,
+                    subject_name(s),
+                    answer,
                     Timestamp::now(),
                 );
+            }
+            if self.client.is_some() {
+                let answers = &self.last_good;
+                self.catalog = Catalog::from_answers(
+                    &answers[0].0,
+                    &answers[1].0,
+                    &answers[2].0,
+                    &answers[3].0,
+                    &answers[4].0,
+                    &answers[5].0,
+                    Timestamp::now(),
+                );
+                self.catalog.failures = self.failures.clone();
                 // ⟨M03⟩ U12: the enrollments, the owned connections, the capabilities'
                 // lock report, and the time warning any answer carried.
-                self.catalog.m03 =
-                    super::m03::Listings::of(&answers[6], &answers[7], &answers[8], &warnings);
+                self.catalog.m03 = super::m03::Listings::of(
+                    &answers[6].0,
+                    &answers[7].0,
+                    &answers[8].0,
+                    &warnings,
+                );
+                // ⟨M07⟩ Every environment the runtime knows, its own first.
+                self.catalog.environments = super::m07::Environments::of(&answers[9].0);
                 // ⟨M05⟩ The policies and the working directory's workspace.
                 self.catalog.m05 = self.read_m05().await;
                 self.send(Update::Catalog(Box::new(self.catalog.clone())));
@@ -632,6 +700,29 @@ impl State {
     /// attends first (it may become a widening record), `pause`, `stop` and a work stop never
     /// do (they create no decision).
     async fn stop(&mut self, action: &super::m05::StopAction) -> Outcome {
+        if action.attends()
+            && let Err(refused) = self.attend().await
+        {
+            return refused;
+        }
+        let Ok(request_id) = crate::cli::fresh_request_id() else {
+            return Outcome {
+                ok: false,
+                code: Code::InternalError.to_string(),
+                message: "randomness unavailable; nothing was sent".to_owned(),
+                decision_ref: None,
+            };
+        };
+        match self.request(action.request(request_id)).await {
+            Some(env) => outcome(&env),
+            None => not_sent(),
+        }
+    }
+
+    /// ⟨M07⟩ Send one Settings change as the CLI sends it: a widening attends first (the
+    /// runtime answers it with a decision, which the decision modal then shows); a
+    /// narrowing and the default profile never do.
+    async fn setting(&mut self, action: &super::m07::SettingAction) -> Outcome {
         if action.attends()
             && let Err(refused) = self.attend().await
         {
@@ -836,13 +927,8 @@ impl State {
             HeldRepair::Retry => RepairResolution::RetryHeld,
             HeldRepair::Keep => RepairResolution::KeepHeld,
         };
-        let intent = PreviewIntent::Repair {
-            conflict: ConflictKind::ProjectionHeld,
-            resolution,
-            operation: Some(operation_id),
-        };
         let env = self
-            .request(Request::Setup(SetupRequest::Preview { intent }))
+            .request(preview_repair_request(operation_id, resolution))
             .await
             .ok_or_else(|| "the runtime is not connected; nothing was previewed".to_owned())?;
         if !env.code.is_success() {
@@ -867,16 +953,53 @@ impl State {
             return o;
         }
         match self
-            .request(Request::Setup(SetupRequest::Repair {
-                plan_digest,
-                request_id,
-            }))
+            .request(submit_repair_request(plan_digest, request_id))
             .await
         {
             Some(env) => outcome(&env),
             None => not_sent(),
         }
     }
+}
+
+/// ⟨M07⟩ `decide` of a listed decision, as `heimdall decision approve|deny <id>` sends it
+/// (`Decide { decision_id, verdict }`); `None` for an ID that does not parse.
+pub(crate) fn decide_request(id: &str, verdict: Verdict) -> Option<Request> {
+    Some(Request::Decide(DecideRequest {
+        decision_id: DecisionId::parse(id).ok()?,
+        verdict,
+    }))
+}
+
+/// ⟨M07⟩ `cancel`, as `heimdall operation cancel <id>` sends it; `None` for an ID that
+/// does not parse.
+pub(crate) fn cancel_request(id: &str) -> Option<Request> {
+    Some(Request::Cancel(CancelRequest {
+        operation_id: OperationId::parse(id).ok()?,
+    }))
+}
+
+/// ⟨M07⟩ A held repair's preview, as `heimdall setup repair --operation <id> retry|keep`
+/// previews it (`setup_cmd::repair_intent`).
+pub(crate) fn preview_repair_request(
+    operation: OperationId,
+    resolution: RepairResolution,
+) -> Request {
+    Request::Setup(SetupRequest::Preview {
+        intent: PreviewIntent::Repair {
+            conflict: ConflictKind::ProjectionHeld,
+            resolution,
+            operation: Some(operation),
+        },
+    })
+}
+
+/// ⟨M07⟩ A previewed repair's submission by its plan digest.
+pub(crate) fn submit_repair_request(plan_digest: PlanDigest, request_id: RequestId) -> Request {
+    Request::Setup(SetupRequest::Repair {
+        plan_digest,
+        request_id,
+    })
 }
 
 fn invalid_id() -> Outcome {
@@ -960,5 +1083,65 @@ mod tests {
         let r = unavailable_report();
         assert_eq!(r.findings.len(), 1);
         assert_eq!(r.findings[0].severity, FindingSeverity::Problem);
+    }
+
+    /// ⟨M07⟩ Q4 at the worker: a failed read keeps the last good data and says since
+    /// when it is stale; a repeated failure keeps its first time (so it redraws
+    /// nothing); a good read clears it.
+    #[test]
+    fn a_failed_listing_keeps_the_last_good_data() {
+        let t = |s: &str| -> Timestamp { s.parse().unwrap() };
+        let mut slot = (Value::Null, None);
+        let mut failures = BTreeMap::new();
+        let name = subject_name(InspectSubject::Destinations);
+        assert_eq!(name, super::super::data::subject::DESTINATIONS);
+        let fail = || {
+            Err((
+                "INTERNAL_ERROR".to_owned(),
+                "response exceeds the frame limit".to_owned(),
+            ))
+        };
+        // Never read: the failure says so.
+        record_answer(
+            &mut slot,
+            &mut failures,
+            name.clone(),
+            fail(),
+            t("2026-11-03T09:00:00Z"),
+        );
+        assert_eq!(slot.0, Value::Null);
+        assert_eq!(failures[&name].stale_from, None);
+        // A good read clears it.
+        let good = serde_json::json!({"items": [{"alias": "alpha"}]});
+        record_answer(
+            &mut slot,
+            &mut failures,
+            name.clone(),
+            Ok(good.clone()),
+            t("2026-11-03T09:00:03Z"),
+        );
+        assert!(failures.is_empty());
+        // A failure after it keeps the data, stale from the good read.
+        record_answer(
+            &mut slot,
+            &mut failures,
+            name.clone(),
+            fail(),
+            t("2026-11-03T09:00:06Z"),
+        );
+        assert_eq!(slot.0, good);
+        let first = failures[&name].clone();
+        assert_eq!(first.stale_from, Some(t("2026-11-03T09:00:03Z")));
+        assert_eq!(first.since, t("2026-11-03T09:00:06Z"));
+        assert_eq!(first.code, "INTERNAL_ERROR");
+        // The same failure again: unchanged, so the catalog compares equal.
+        record_answer(
+            &mut slot,
+            &mut failures,
+            name.clone(),
+            fail(),
+            t("2026-11-03T09:00:09Z"),
+        );
+        assert_eq!(failures[&name], first);
     }
 }

@@ -34,7 +34,7 @@
 //! * **A replayed request ID** whose plan changed stays `REQUEST_CONFLICT` (exit 6); the
 //!   message says why (ADR-0007 §12.30 item 12).
 //!
-//! The helpers of the owner-present flow ([`attend_first`], [`confirm_and_decide`],
+//! The helpers of the owner-present flow ([`attend_first`], [`approve_request`],
 //! [`decided_request`]) are shared with `catalog_cmd` and `uninstall_cmd`.
 
 use std::collections::BTreeSet;
@@ -211,35 +211,44 @@ pub(crate) async fn attend_first<S: Session>(
     }
 }
 
-/// Show `preface` and the exact recorded request of `decision`, require a typed `yes`,
-/// and only then send `Decide approve` (ADR-0006 §3.1). With `expect_digest`, a recorded
-/// `ApplyProjection` whose plan digest differs from the plan shown is refused and
-/// nothing is sent. Anything but `yes` sends nothing: exit 3 "not confirmed".
-pub(crate) async fn confirm_and_decide<S: Session, P: Prompter>(
+/// Show and confirm the current record for an attended request. The preface is
+/// built from that same record, including after a stale retry.
+pub(crate) async fn approve_request<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
     ctx: &Ctx,
-    decision: &str,
-    preface: &str,
+    request: &Request,
+    env: Envelope<serde_json::Value>,
+    preface: impl Fn(&serde_json::Value) -> Result<String, String>,
     expect_digest: Option<&str>,
-    operation: Option<OperationId>,
-) -> Envelope<serde_json::Value> {
-    confirm_recorded(
+) -> Result<Envelope<serde_json::Value>, Envelope<serde_json::Value>> {
+    if !ctx.interactive() {
+        return Err(env);
+    }
+    crate::cli::retry_stale_decision(
         s,
         p,
-        ctx,
-        decision,
-        |_| Ok(preface.to_owned()),
-        expect_digest,
-        operation,
+        request,
+        env,
+        &mut 2,
+        async |s, p, decision, pending| {
+            confirm_recorded(
+                s,
+                p,
+                ctx,
+                decision,
+                &preface,
+                expect_digest,
+                pending.operation_id.clone(),
+            )
+            .await
+        },
     )
     .await
 }
 
-/// [`confirm_and_decide`] with a preface built from the decision's own `inspect decisions`
-/// entry, the same listing whose recorded request is shown, so what the preface discloses
-/// is what approval applies (⟨M05⟩ review M05-W3-R01). `preface` answering `Err(why)`
-/// refuses: nothing is asked or sent, exit 3 "not confirmed (why)".
+/// Show the exact recorded request and require a typed `yes` before `Decide approve`.
+/// A preface refusal, a changed plan digest or any other answer sends no decision.
 async fn confirm_recorded<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
@@ -283,8 +292,7 @@ async fn confirm_recorded<S: Session, P: Prompter>(
         .cloned()
         .unwrap_or(serde_json::Value::Null);
     if let Some(expected) = expect_digest
-        && let Some(recorded) = request.get("plan_digest").and_then(|v| v.as_str())
-        && recorded != expected
+        && request.get("plan_digest").and_then(|v| v.as_str()) != Some(expected)
     {
         return failure(
             Code::ConfigConflict,
@@ -363,7 +371,7 @@ async fn confirm_recorded<S: Session, P: Prompter>(
 
 /// An owner-present request (ADR-0006 §3.1): attend first (interactive TTY only), send
 /// `request`; when it waits on an owner decision and a prompt can be shown, run
-/// [`confirm_and_decide`] and send the same request again. Otherwise the runtime's
+/// [`approve_request`] and send the same request again. Otherwise the runtime's
 /// answer stands (`INTERACTION_REQUIRED` with `next.decision_ref` when unattended).
 pub(crate) async fn decided_request<S: Session, P: Prompter>(
     s: &mut S,
@@ -377,27 +385,21 @@ pub(crate) async fn decided_request<S: Session, P: Prompter>(
         return refused;
     }
     let env = s.request(request.clone()).await;
-    let Some(decision) = pending_decision(&env) else {
-        return settle(s, request, env).await;
-    };
-    if !ctx.interactive() {
-        return env;
-    }
-    let decided = confirm_and_decide(
+    let env = match approve_request(
         s,
         p,
         ctx,
-        &decision,
-        preface,
+        &request,
+        env,
+        |_| Ok(preface.to_owned()),
         expect_digest,
-        env.operation_id.clone(),
     )
-    .await;
-    if decided.code != Code::Ok {
-        return decided;
-    }
-    let again = s.request(request.clone()).await;
-    settle(s, request, again).await
+    .await
+    {
+        Ok(_) => s.request(request.clone()).await,
+        Err(env) => env,
+    };
+    settle(s, request, env).await
 }
 
 /// While the answer is `ACCEPTED` with an operation, wait for it (bounded) and replay the
@@ -501,7 +503,7 @@ pub(crate) fn personal_default_disclosure(scope: &DecisionScope, own: &Environme
 }
 
 /// The `error.message` of a refused envelope, else its code.
-fn refusal_text(env: &Envelope<serde_json::Value>) -> String {
+pub(crate) fn refusal_text(env: &Envelope<serde_json::Value>) -> String {
     env.data
         .get("error")
         .and_then(|e| e.get("message"))
@@ -524,7 +526,7 @@ pub(crate) fn recorded_scope(record: &serde_json::Value) -> Option<DecisionScope
 /// ⟨M05⟩ U5 (ADR-0011 §3.1, §3.3, §3.4 "personal default at setup: 1 decision"; spec
 /// §5.2; m05-plan U5): after a successful `setup apply`, **on an interactive TTY only**,
 /// offer this environment a personal default: the owner `create {profile, environments:
-/// [this one], default: true}` decision, confirmed (as [`confirm_and_decide`] does) with
+/// [this one], default: true}` decision, confirmed (as [`approve_request`] does) with
 /// [`personal_default_disclosure`] of the scope the runtime recorded for that decision and
 /// the exact recorded request, both from the same `inspect decisions` entry (ADR-0006 §3.1,
 /// §17.10 item 22; review M05-W3-R01). The profile listing only chooses the profile; it is
@@ -617,27 +619,21 @@ pub(crate) async fn offer_personal_default<S: Session, P: Prompter>(
             refusal_text(&refused)
         ));
     }
-    let env = s
-        .request(Request::Policy(PolicyAction::Create {
-            profile: profile.clone(),
-            environments: [own.clone()].into_iter().collect(),
-            max_window: None,
-            default: true,
-        }))
-        .await;
-    let Some(decision) = pending_decision(&env) else {
-        return Some(format!(
-            "No personal default was created: {}",
-            refusal_text(&env)
-        ));
-    };
+    let request = Request::Policy(PolicyAction::Create {
+        profile: profile.clone(),
+        environments: [own.clone()].into_iter().collect(),
+        max_window: None,
+        default: true,
+    });
+    let env = s.request(request.clone()).await;
     // Review M05-W3-R01: the disclosure is the scope the runtime pinned for this record,
     // read with the record itself; without it nothing is asked or approved (fail closed).
-    let decided = confirm_recorded(
+    let decided = approve_request(
         s,
         p,
         ctx,
-        &decision,
+        &request,
+        env,
         |record| match recorded_scope(record) {
             Some(scope) if scope.profile_id == profile => {
                 Ok(personal_default_disclosure(&scope, &own))
@@ -646,21 +642,17 @@ pub(crate) async fn offer_personal_default<S: Session, P: Prompter>(
             None => Err(SCOPE_NOT_RECORDED.to_owned()),
         },
         None,
-        env.operation_id.clone(),
     )
     .await;
-    Some(if decided.code == Code::Ok {
+    Some(if let Err(env) = decided {
+        format!("No personal default was created: {}", refusal_text(&env))
+    } else {
         // ⟨M05; rulings I-13 and I-17⟩ The note claims no more than the exit record: the first
         // ordinary `ssh` after a free-slot period activates the default and may fail once.
         format!(
             "Personal default created: ordinary ssh in this environment uses {profile} access automatically, within its saved limits. \
              After a time without access, the first ssh starts it and may fail once; the next one logs in. \
              With the shell integration (bash or zsh) access is started before you need it."
-        )
-    } else {
-        format!(
-            "No personal default was created: {}",
-            refusal_text(&decided)
         )
     })
 }
@@ -845,6 +837,18 @@ pub(crate) async fn setup_flow<S: Session, P: Prompter>(
             intent: intent.clone(),
         }))
         .await;
+    setup_from_preview(s, p, ctx, intent, rid, preview).await
+}
+
+/// Submit exactly the preview shown, including when enrollment offered it first.
+pub(crate) async fn setup_from_preview<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    intent: &PreviewIntent,
+    rid: RequestId,
+    preview: Envelope<serde_json::Value>,
+) -> Outcome {
     if !preview.code.is_success() {
         return result_outcome(preview);
     }

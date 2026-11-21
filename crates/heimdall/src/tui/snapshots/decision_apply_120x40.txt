@@ -1,6 +1,6 @@
-Heimdall  1 Overview  2 Destinations  3 Profiles [4 Activity] [!!] Needs attention
+ 1 Overview  2 Destinations  3 Profiles [4 Activity] 5 Projects  6 Environments  7 Identities  8 Settings  [!!] - s stop
 Pendi┌Owner decision dec_apply1 (apply_projection)────────────────────────────────────────────────────────────────┐
-> [!!│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+> [!!│Recorded 09:00:00Z (just now) · expires 09:15:00Z (in 14 min)                                               │
   [!!│Exactly what approve applies to:                                                                            │
 Opera│Intent apply · aliases 1 added, 0 changed, 0 removed · 2 file(s) · Git selection unchanged                  │
   [!!│Plan digest aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                │

@@ -1,0 +1,12 @@
+[7 Identities] 7/8 [!!] Needs attention
+3 adopted identities · Enter for detail
+> [OK] idn_alpha    SHA256:fixtureAlphaK
+  [ !] idn_k2       SHA256:fixtureKey2 s
+  [??] idn_k3       SHA256:fixtureKey3 s
+
+
+
+
+
+
+Enter detail · ? help · q quit

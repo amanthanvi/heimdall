@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects  6 Environments  7 Identities [8 Settings] [!!] - s stop
+Default profile (a preference, never authority)
+  [OK] Default profile of this computer: dev
+
+Standing access: pause, resume, lock behaviour, connections
+> [OK] pol-ws1 · profile dev · project · automatic
+  [!!] pol-per1 · profile dev · personal · paused since 2026-11-03T08:00:00Z
+
+When your desktop locks
+  [ i] Now: work continues while your desktop is locked (read-only here)
+
+Connections at the deadline (each managed destination)
+  [ i] alpha: existing sessions may stay connected after the deadline (read-only here)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┌Change a setting──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Change (each is what the CLI sends for the same command):                                                             │
+│> 1. Pause automatic access (applies at once)                                                                         │
+│  2. Locking the desktop ends managed access (applies at once)                                                        │
+│  3. Work continues while the desktop is locked (needs your decision)                                                 │
+│  4. Close connections Heimdall owns at the deadline (applies at once)                                                │
+│  5. Let existing sessions stay connected at the deadline (needs your decision)                                       │
+│  6. Keep no shared connection (applies at once)                                                                      │
+│  7. Keep one shared connection per destination (needs your decision)                                                 │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Up/Down choose · Enter select · Esc close

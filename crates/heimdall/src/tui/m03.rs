@@ -646,11 +646,12 @@ fn lock_lines(lock: Option<&LockReport>) -> Vec<Line<'static>> {
 }
 
 /// The `slot_free` line for `alias`, its command first (the doctor's, D10 item 2): an
-/// overview row is one terminal row, so what to run comes before why.
+/// overview row is one terminal row, so what to run comes before why. ⟨M07⟩ U2: the alias
+/// and the words, without the finding's code (which the destination detail shows).
 #[must_use]
 pub(crate) fn slot_free_line(alias: &str) -> String {
     format!(
-        "{SLOT_FREE} ({alias}): hold the slot with `{}` (ordinary `ssh {alias}` needs a held slot)",
+        "{alias}: hold the slot with `{}` (ordinary `ssh {alias}` needs a held slot)",
         slot_free_command(alias)
     )
 }

@@ -31,7 +31,8 @@
 //!   record). A repair counts as done only when the refreshed listing shows no held
 //!   operation (ADR-0007 §12.19 item 7).
 
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
+use std::collections::{HashMap, HashSet};
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::{DoctorReport, FindingSeverity};
@@ -52,15 +53,29 @@ pub(crate) enum Tab {
     Profiles,
     /// Pending decisions and open operations.
     Activity,
+    /// ⟨M07⟩ The working directory's project (workspace) and the standing policies (the
+    /// screens `w` and `h` open).
+    Projects,
+    /// ⟨M07⟩ Every environment the runtime knows (`inspect environments`).
+    Environments,
+    /// ⟨M07⟩ Adopted identities (`inspect identities`).
+    Identities,
+    /// ⟨M07⟩ Default profile, pause and cutoff, lock behaviour, connection policy.
+    Settings,
 }
 
 impl Tab {
-    /// Every tab, in key order (`1`–`4`).
-    pub(crate) const ALL: [Tab; 4] = [
+    /// Every tab, in key order (`1`–`8`). ⟨M07⟩ The M02 views keep their keys (`4` is
+    /// still Activity); the new views follow.
+    pub(crate) const ALL: [Tab; 8] = [
         Tab::Overview,
         Tab::Destinations,
         Tab::Profiles,
         Tab::Activity,
+        Tab::Projects,
+        Tab::Environments,
+        Tab::Identities,
+        Tab::Settings,
     ];
 
     /// Its title.
@@ -71,15 +86,25 @@ impl Tab {
             Tab::Destinations => "Destinations",
             Tab::Profiles => "Profiles",
             Tab::Activity => "Activity",
+            Tab::Projects => "Projects",
+            Tab::Environments => "Environments",
+            Tab::Identities => "Identities",
+            Tab::Settings => "Settings",
         }
     }
 
-    fn index(self) -> usize {
+    /// Its position in [`Tab::ALL`] (its key is this plus one).
+    #[must_use]
+    pub(crate) fn index(self) -> usize {
         match self {
             Tab::Overview => 0,
             Tab::Destinations => 1,
             Tab::Profiles => 2,
             Tab::Activity => 3,
+            Tab::Projects => 4,
+            Tab::Environments => 5,
+            Tab::Identities => 6,
+            Tab::Settings => 7,
         }
     }
 }
@@ -101,6 +126,10 @@ pub(crate) enum Screen {
     Workspace,
     /// ⟨M05⟩ Every policy with each revision's cause and decision (`h`).
     Policies,
+    /// ⟨M07⟩ One environment's detail, by ID.
+    Environment(String),
+    /// ⟨M07⟩ One identity's detail, by ID.
+    Identity(String),
 }
 
 /// The two repairs of a held setup operation (ADR-0007 §5.7).
@@ -190,6 +219,9 @@ pub(crate) enum Command {
     /// ⟨M05⟩ A narrowing action of the stop menu, sent as the CLI sends it
     /// ([`super::m05::StopAction::request`]).
     Stop(super::m05::StopAction),
+    /// ⟨M07⟩ A Settings change, sent as the CLI sends it
+    /// ([`super::m07::SettingAction::request`]); a widening attends first.
+    Setting(super::m07::SettingAction),
     /// Attend, then submit a previewed repair by its plan digest.
     SubmitRepair {
         /// The held operation.
@@ -290,6 +322,9 @@ pub(crate) enum Update {
         outcome: Outcome,
     },
 }
+
+/// ⟨M07⟩ The code of a decision whose record changed after it was shown (U2).
+pub(crate) const DECISION_STALE: &str = "DECISION_STALE";
 
 /// The authorization text of a real-tree level (ADR-0007 §6).
 pub(crate) const AUTHORIZATION_TEXT: &str =
@@ -546,7 +581,7 @@ pub(crate) struct Search {
 }
 
 /// Overall state (spec §12.1: "Ready" or "Working", not a list of alarms).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Health {
     /// Nothing waits on the owner and nothing runs.
     Ready,
@@ -555,6 +590,7 @@ pub(crate) enum Health {
     /// Something needs the owner.
     Attention,
     /// Not known yet (first read in progress).
+    #[default]
     Checking,
 }
 
@@ -662,6 +698,27 @@ pub(crate) enum Item {
         /// Alias.
         alias: String,
     },
+    /// ⟨M07⟩ The doctor's warning or problem findings about destinations, grouped by
+    /// code: one row per code and severity, with the destinations it concerns (probe
+    /// P4). Enter opens the destination when there is one, else the Destinations tab.
+    Findings {
+        /// Severity `problem` (else `warning`).
+        problem: bool,
+        /// Finding code.
+        code: String,
+        /// The first finding's message.
+        message: String,
+        /// The destinations it concerns (aliases, in report order, each once).
+        aliases: Vec<String>,
+    },
+    /// ⟨M07⟩ A listing whose last read failed (Q4): its view shows the error and the
+    /// last good data, marked stale.
+    ListingFailed {
+        /// The subject's wire name.
+        subject: String,
+        /// The failure's code.
+        code: String,
+    },
 }
 
 impl Item {
@@ -674,6 +731,7 @@ impl Item {
                 | Item::Decision { .. }
                 | Item::Unresolved { .. }
                 | Item::Problem { .. }
+                | Item::Findings { problem: true, .. }
                 | Item::Chore { .. }
                 | Item::Enrollment { .. }
         )
@@ -692,14 +750,25 @@ pub(crate) enum ActivityRow {
 }
 
 /// The whole TUI state.
+///
+/// ⟨M07⟩ The listings, the doctor report, the runtime, the clock and the searches change
+/// only through [`App::apply`] or a `*_mut`/`set_*` method, which drops exactly the
+/// derived data it invalidates (the listings and the clock stay readable as fields
+/// inside the `tui` module, for the shared decision-modal dispatch). The derived data (the overview items
+/// and health, the per-alias finding counts, the destination-ID-to-alias map and the two
+/// filtered lists) is computed at most once per change, never per key or per frame
+/// (m07-plan U1, probe P2).
 #[derive(Debug, Clone)]
 pub(crate) struct App {
     /// The runtime connection.
-    pub runtime: Runtime,
-    /// The runtime's latest listings.
-    pub catalog: Catalog,
+    runtime: Runtime,
+    /// The runtime's latest listings. Readable in the `tui` module as a field (the
+    /// shared decision-modal dispatch reads `&app.catalog`, so M06's one-line addition
+    /// there keeps its shape); every change goes through [`App::apply`] or
+    /// [`App::catalog_mut`], never this field.
+    pub(super) catalog: Catalog,
     /// The latest passive doctor report.
-    pub doctor: Option<Doctor>,
+    doctor: Option<Doctor>,
     /// The open operation detail.
     pub operation: Option<(String, OperationDetail)>,
     /// What fills the screen.
@@ -707,24 +776,77 @@ pub(crate) struct App {
     /// The tab a sub-screen returns to.
     pub tab: Tab,
     /// Selected row per tab.
-    pub selected: [usize; 4],
+    pub selected: [usize; 8],
     /// Searches of Destinations and Profiles.
-    pub searches: [Search; 2],
+    searches: [Search; 2],
     /// Scroll offset of a detail screen.
     pub scroll: u16,
     /// The open modal.
     pub modal: Option<Modal>,
     /// The status line.
     pub status: Option<String>,
-    /// The clock the screen's ages are computed from.
-    pub now: Timestamp,
+    /// The clock the screen's ages are computed from. Readable in the `tui` module as a
+    /// field (the decision-modal dispatch reads `app.now`); set only by
+    /// [`App::set_now`].
+    pub(super) now: Timestamp,
     /// A decision the runtime just issued, opened once it is listed.
     pub open_when_listed: Option<String>,
     /// Whether the color theme is off (`NO_COLOR`).
     pub no_color: bool,
     /// ⟨M03⟩ The pending chores the store reader found while the runtime is not
     /// connected.
-    pub offline_chores: Vec<String>,
+    offline_chores: Vec<String>,
+    /// ⟨M07⟩ The open change prompt of the Settings view (drawn inside that view; keys go
+    /// to it first).
+    pub settings: Option<super::m07::SettingPrompt>,
+    /// ⟨M07⟩ The derived overview data, computed once per change.
+    derived: OnceCell<Derived>,
+    /// ⟨M07⟩ The indices of the destinations the search keeps, computed once per change
+    /// of the destinations or of the search text.
+    destination_filter: OnceCell<Vec<usize>>,
+    /// ⟨M07⟩ The same for the profiles.
+    profile_filter: OnceCell<Vec<usize>>,
+    /// ⟨M07⟩ Whether an update changed what the screen shows since the main loop last
+    /// asked ([`App::take_changed`]).
+    changed: bool,
+}
+
+/// ⟨M07⟩ What the overview and the lists derive from the listings and the doctor report.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Derived {
+    /// The overview's lines.
+    pub items: Vec<Item>,
+    /// Ready, Working, Needs attention or Checking.
+    pub health: Health,
+    /// Per alias, its (problem, warning) finding counts.
+    pub findings_by_alias: HashMap<String, (usize, usize)>,
+    /// Destination ID to alias.
+    pub alias_by_id: HashMap<String, String>,
+    /// The earliest expiry of a pending decision the overview lists: once the clock
+    /// passes it, the overview changes.
+    pub next_expiry: Option<Timestamp>,
+}
+
+/// ⟨M07⟩ The minute a clock reading falls in: relative times change only when it does.
+fn minute(t: Timestamp) -> i64 {
+    t.as_second().div_euclid(60)
+}
+
+/// The alias a finding concerns: its subject, by alias or by destination ID.
+fn finding_alias_in(
+    alias_by_id: &HashMap<String, String>,
+    f: &heimdall_contract::doctor::Finding,
+) -> Option<String> {
+    if f.subject.kind != "destination" && f.subject.kind != "alias" {
+        return None;
+    }
+    let id = f.subject.id.as_deref()?;
+    Some(
+        alias_by_id
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| super::data::clean(id)),
+    )
 }
 
 impl App {
@@ -738,7 +860,7 @@ impl App {
             operation: None,
             screen: Screen::Tab(Tab::Overview),
             tab: Tab::Overview,
-            selected: [0; 4],
+            selected: [0; 8],
             searches: [Search::default(), Search::default()],
             scroll: 0,
             modal: None,
@@ -747,15 +869,164 @@ impl App {
             open_when_listed: None,
             no_color,
             offline_chores: Vec::new(),
+            settings: None,
+            derived: OnceCell::new(),
+            destination_filter: OnceCell::new(),
+            profile_filter: OnceCell::new(),
+            changed: false,
+        }
+    }
+
+    // ---- state and invalidation (M07) -----------------------------------------------
+
+    /// The runtime connection.
+    #[must_use]
+    pub(crate) fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+
+    /// The runtime's latest listings.
+    #[must_use]
+    pub(crate) fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    /// The latest passive doctor report.
+    #[must_use]
+    pub(crate) fn doctor(&self) -> Option<&Doctor> {
+        self.doctor.as_ref()
+    }
+
+    /// The clock the screen's ages are computed from.
+    #[must_use]
+    pub(crate) fn now(&self) -> Timestamp {
+        self.now
+    }
+
+    /// The listings, to change in place: everything derived from them is dropped.
+    #[cfg(test)]
+    pub(crate) fn catalog_mut(&mut self) -> &mut Catalog {
+        self.invalidate_all();
+        &mut self.catalog
+    }
+
+    /// The doctor report, to change in place: the overview data is dropped.
+    pub(crate) fn doctor_mut(&mut self) -> &mut Option<Doctor> {
+        self.derived = OnceCell::new();
+        &mut self.doctor
+    }
+
+    /// Set the runtime connection: the overview data is dropped.
+    pub(crate) fn set_runtime(&mut self, runtime: Runtime) {
+        self.derived = OnceCell::new();
+        self.runtime = runtime;
+    }
+
+    /// Set the clock. Returns whether the screen is due a redraw: the displayed minute
+    /// changed, or a pending decision expired (the overview is then re-derived). Any
+    /// other tick changes nothing on screen (m07-plan U1, probe P1).
+    pub(crate) fn set_now(&mut self, now: Timestamp) -> bool {
+        let expired = self
+            .derived
+            .get()
+            .is_some_and(|d| d.next_expiry.is_some_and(|e| now >= e));
+        let due = minute(now) != minute(self.now) || expired;
+        if due {
+            self.derived = OnceCell::new();
+        }
+        self.now = now;
+        due
+    }
+
+    /// Whether an update changed what the screen shows since the last call.
+    pub(crate) fn take_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
+    }
+
+    #[cfg(test)]
+    fn invalidate_all(&mut self) {
+        self.derived = OnceCell::new();
+        self.destination_filter = OnceCell::new();
+        self.profile_filter = OnceCell::new();
+    }
+
+    /// The derived overview data (computed on first use after a change).
+    #[must_use]
+    pub(crate) fn derived(&self) -> &Derived {
+        self.derived.get_or_init(|| self.derive())
+    }
+
+    fn derive(&self) -> Derived {
+        let alias_by_id: HashMap<String, String> = self
+            .catalog
+            .destinations
+            .iter()
+            .filter(|d| !d.id.is_empty())
+            .map(|d| (d.id.clone(), d.alias.clone()))
+            .collect();
+        let mut findings_by_alias: HashMap<String, (usize, usize)> = HashMap::new();
+        if let Some(doctor) = &self.doctor {
+            for f in &doctor.report.findings {
+                let Some(alias) = finding_alias_in(&alias_by_id, f) else {
+                    continue;
+                };
+                let entry = findings_by_alias.entry(alias).or_default();
+                match f.severity {
+                    FindingSeverity::Problem => entry.0 += 1,
+                    FindingSeverity::Warning => entry.1 += 1,
+                    _ => {}
+                }
+            }
+        }
+        let items = self.overview_items_with(&alias_by_id);
+        let health = if items.iter().any(Item::needs_attention) {
+            Health::Attention
+        } else if items.iter().any(|i| matches!(i, Item::Working { .. })) {
+            Health::Working
+        } else if self.runtime == Runtime::Connecting || self.doctor.is_none() {
+            Health::Checking
+        } else {
+            Health::Ready
+        };
+        let next_expiry = self
+            .catalog
+            .decisions
+            .iter()
+            .filter(|d| !d.expired)
+            .filter_map(|d| d.expires_at)
+            .filter(|t| *t > self.now)
+            .min();
+        Derived {
+            items,
+            health,
+            findings_by_alias,
+            alias_by_id,
+            next_expiry,
         }
     }
 
     // ---- derived views --------------------------------------------------------------
 
-    /// The overview's lines: what needs attention first, then work in progress, then
-    /// warnings.
+    /// The overview's lines (cached; [`App::derived`]).
     #[must_use]
-    pub(crate) fn overview_items(&self) -> Vec<Item> {
+    pub(crate) fn overview_items(&self) -> &[Item] {
+        &self.derived().items
+    }
+
+    /// The (problem, warning) finding counts of `alias` (cached).
+    #[must_use]
+    pub(crate) fn alias_findings(&self, alias: &str) -> (usize, usize) {
+        self.derived()
+            .findings_by_alias
+            .get(alias)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// The overview's lines: what needs attention first, then work in progress, then
+    /// warnings. ⟨M07⟩ The doctor's per-destination findings are grouped by code, one
+    /// row per code and severity with the destinations it concerns (probe P4).
+    fn overview_items_with(&self, alias_by_id: &HashMap<String, String>) -> Vec<Item> {
         let mut attention = Vec::new();
         let mut working = Vec::new();
         let mut warnings = Vec::new();
@@ -823,34 +1094,75 @@ impl App {
                 });
             }
         }
+        // ⟨M07⟩ A listing whose last read failed: its error, never an empty list (Q4).
+        for (subject, f) in &self.catalog.failures {
+            warnings.push(Item::ListingFailed {
+                subject: subject.clone(),
+                code: f.code.clone(),
+            });
+        }
         if let Some(doctor) = &self.doctor {
+            // ⟨M07⟩ (severity is a problem, code) → its row's index in `attention` or
+            // `warnings`, and the aliases already counted.
+            let mut groups: HashMap<(bool, String), (usize, HashSet<String>)> = HashMap::new();
             for f in &doctor.report.findings {
-                let alias = (f.subject.kind == "destination" || f.subject.kind == "alias")
-                    .then(|| f.subject.id.clone())
-                    .flatten()
-                    .map(|a| super::data::clean(&a));
                 let code = super::data::clean(&f.code);
-                let message = super::data::clean(&f.message);
-                match f.severity {
-                    FindingSeverity::Problem => attention.push(Item::Problem {
-                        code,
-                        alias,
-                        message,
-                    }),
-                    FindingSeverity::Warning => warnings.push(Item::Warning {
-                        code,
-                        alias,
-                        message,
-                    }),
+                let problem = match f.severity {
+                    FindingSeverity::Problem => true,
+                    FindingSeverity::Warning => false,
                     // ⟨M03⟩ D10 item 2: `slot_free` is informational and still shown,
                     // with its command; other informational findings stay off the
                     // overview.
-                    _ if code == super::m03::SLOT_FREE => {
-                        if let Some(alias) = self.finding_alias(f) {
+                    _ => {
+                        if code == super::m03::SLOT_FREE
+                            && let Some(alias) = finding_alias_in(alias_by_id, f)
+                        {
                             info.push(Item::SlotFree { alias });
                         }
+                        continue;
                     }
-                    _ => {}
+                };
+                let message = super::data::clean(&f.message);
+                let list = if problem {
+                    &mut attention
+                } else {
+                    &mut warnings
+                };
+                let Some(alias) = finding_alias_in(alias_by_id, f) else {
+                    // Not about one destination: one row, as the doctor reports it.
+                    list.push(if problem {
+                        Item::Problem {
+                            code,
+                            alias: None,
+                            message,
+                        }
+                    } else {
+                        Item::Warning {
+                            code,
+                            alias: None,
+                            message,
+                        }
+                    });
+                    continue;
+                };
+                match groups.entry((problem, code.clone())) {
+                    std::collections::hash_map::Entry::Occupied(mut e) => {
+                        let (at, seen) = e.get_mut();
+                        if seen.insert(alias.clone())
+                            && let Some(Item::Findings { aliases, .. }) = list.get_mut(*at)
+                        {
+                            aliases.push(alias);
+                        }
+                    }
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert((list.len(), HashSet::from([alias.clone()])));
+                        list.push(Item::Findings {
+                            problem,
+                            code,
+                            message,
+                            aliases: vec![alias],
+                        });
+                    }
                 }
             }
         }
@@ -860,74 +1172,92 @@ impl App {
         attention
     }
 
-    /// The alias a finding concerns: its subject, by alias or by destination ID.
+    /// Ready, Working or Needs attention (cached with the overview's items).
     #[must_use]
-    pub(crate) fn finding_alias(&self, f: &heimdall_contract::doctor::Finding) -> Option<String> {
-        if f.subject.kind != "destination" && f.subject.kind != "alias" {
-            return None;
-        }
-        let id = f.subject.id.as_deref()?;
-        Some(
+    pub(crate) fn health(&self) -> Health {
+        self.derived().health
+    }
+
+    /// The destinations the search keeps, in catalog order (⟨M07⟩ filtered once per
+    /// change of the destinations or of the search text).
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn visible_destinations(&self) -> Vec<&super::data::Destination> {
+        self.destination_indices()
+            .iter()
+            .filter_map(|i| self.catalog.destinations.get(*i))
+            .collect()
+    }
+
+    /// The `i`th destination the search keeps.
+    #[must_use]
+    pub(crate) fn visible_destination(&self, i: usize) -> Option<&super::data::Destination> {
+        self.destination_indices()
+            .get(i)
+            .and_then(|i| self.catalog.destinations.get(*i))
+    }
+
+    /// The catalog indices of the destinations the search keeps (cached).
+    fn destination_indices(&self) -> &[usize] {
+        self.destination_filter.get_or_init(|| {
+            let needle = self.searches[0].text.to_lowercase();
             self.catalog
                 .destinations
                 .iter()
-                .find(|d| d.id == id)
-                .map_or_else(|| super::data::clean(id), |d| d.alias.clone()),
-        )
+                .enumerate()
+                .filter(|(_, d)| {
+                    needle.is_empty()
+                        || [
+                            Some(d.alias.as_str()),
+                            d.label.as_deref(),
+                            d.hostname.as_deref(),
+                            Some(d.definition.as_str()),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .any(|t| t.to_lowercase().contains(&needle))
+                })
+                .map(|(i, _)| i)
+                .collect()
+        })
     }
 
-    /// Ready, Working or Needs attention.
+    /// The profiles the search keeps (⟨M07⟩ filtered once per change).
     #[must_use]
-    pub(crate) fn health(&self) -> Health {
-        let items = self.overview_items();
-        if items.iter().any(Item::needs_attention) {
-            Health::Attention
-        } else if items.iter().any(|i| matches!(i, Item::Working { .. })) {
-            Health::Working
-        } else if self.runtime == Runtime::Connecting || self.doctor.is_none() {
-            Health::Checking
-        } else {
-            Health::Ready
-        }
-    }
-
-    /// The destinations the search keeps, in catalog order.
-    #[must_use]
-    pub(crate) fn visible_destinations(&self) -> Vec<&super::data::Destination> {
-        let needle = self.searches[0].text.to_lowercase();
-        self.catalog
-            .destinations
-            .iter()
-            .filter(|d| {
-                needle.is_empty()
-                    || [
-                        Some(d.alias.as_str()),
-                        d.label.as_deref(),
-                        d.hostname.as_deref(),
-                        Some(d.definition.as_str()),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .any(|t| t.to_lowercase().contains(&needle))
-            })
-            .collect()
-    }
-
-    /// The profiles the search keeps.
-    #[must_use]
+    #[cfg(test)]
     pub(crate) fn visible_profiles(&self) -> Vec<&super::data::Profile> {
-        let needle = self.searches[1].text.to_lowercase();
-        self.catalog
-            .profiles
+        self.profile_indices()
             .iter()
-            .filter(|p| {
-                needle.is_empty()
-                    || p.id.to_lowercase().contains(&needle)
-                    || p.label
-                        .as_deref()
-                        .is_some_and(|l| l.to_lowercase().contains(&needle))
-            })
+            .filter_map(|i| self.catalog.profiles.get(*i))
             .collect()
+    }
+
+    /// The `i`th profile the search keeps.
+    #[must_use]
+    pub(crate) fn visible_profile(&self, i: usize) -> Option<&super::data::Profile> {
+        self.profile_indices()
+            .get(i)
+            .and_then(|i| self.catalog.profiles.get(*i))
+    }
+
+    /// The catalog indices of the profiles the search keeps (cached).
+    fn profile_indices(&self) -> &[usize] {
+        self.profile_filter.get_or_init(|| {
+            let needle = self.searches[1].text.to_lowercase();
+            self.catalog
+                .profiles
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    needle.is_empty()
+                        || p.id.to_lowercase().contains(&needle)
+                        || p.label
+                            .as_deref()
+                            .is_some_and(|l| l.to_lowercase().contains(&needle))
+                })
+                .map(|(i, _)| i)
+                .collect()
+        })
     }
 
     /// The Activity rows: pending decisions, then open and unresolved operations.
@@ -953,13 +1283,30 @@ impl App {
             .collect()
     }
 
+    /// The number of rows the view of `tab` lists (cached).
+    #[must_use]
+    pub(crate) fn shown(&self, tab: Tab) -> usize {
+        self.row_count(tab)
+    }
+
     fn row_count(&self, tab: Tab) -> usize {
         match tab {
             Tab::Overview => self.overview_items().len(),
-            Tab::Destinations => self.visible_destinations().len(),
-            Tab::Profiles => self.visible_profiles().len(),
+            Tab::Destinations => self.destination_indices().len(),
+            Tab::Profiles => self.profile_indices().len(),
             Tab::Activity => self.activity_rows().len(),
+            // A scrolled view, not a list.
+            Tab::Projects => 0,
+            Tab::Environments => self.catalog.environments.items.len(),
+            Tab::Identities => self.catalog.identities.len(),
+            Tab::Settings => self.setting_rows().len(),
         }
+    }
+
+    /// ⟨M07⟩ The Settings view's rows.
+    #[must_use]
+    pub(crate) fn setting_rows(&self) -> Vec<super::m07::SettingRow> {
+        super::m07::settings_rows(&self.catalog)
     }
 
     /// The selected row of `tab`, clamped to its rows.
@@ -1005,15 +1352,39 @@ impl App {
     /// Fold one worker update in; returns what it triggers.
     pub(crate) fn apply(&mut self, update: Update) -> Vec<Effect> {
         let mut effects = Vec::new();
+        // ⟨M07⟩ Whether the screen can show something new: an update that changes no
+        // state draws nothing (m07-plan U1, probe P1).
+        let mut changed = true;
         match update {
             Update::Runtime(r) => {
                 if r == Runtime::Connected && self.runtime != Runtime::Connected {
                     effects.push(Effect::Worker(Command::Refresh { doctor: true }));
                 }
-                self.runtime = r;
+                if r == self.runtime {
+                    changed = false;
+                } else {
+                    self.set_runtime(r);
+                }
             }
             Update::Catalog(c) => {
-                self.catalog = *c;
+                if self.catalog.same_listings(&c) {
+                    // The same answers, read again: only the read times move, which a
+                    // later frame shows; nothing derived changes and nothing is drawn.
+                    let c = *c;
+                    self.catalog.read_at = c.read_at;
+                    self.catalog.identities = c.identities;
+                    changed = false;
+                } else {
+                    // Only what the change touches is derived again.
+                    if self.catalog.destinations != c.destinations {
+                        self.destination_filter = OnceCell::new();
+                    }
+                    if self.catalog.profiles != c.profiles {
+                        self.profile_filter = OnceCell::new();
+                    }
+                    self.derived = OnceCell::new();
+                    self.catalog = *c;
+                }
                 if let Some(id) = self.open_when_listed.clone()
                     && self.catalog.decisions.iter().any(|d| d.id == id)
                     && self.modal.is_none()
@@ -1025,13 +1396,34 @@ impl App {
                         input: String::new(),
                         reading: Reading::default(),
                     }));
+                    changed = true;
                 }
             }
-            Update::Doctor(d) => self.doctor = Some(*d),
-            Update::OfflineChores(lines) => self.offline_chores = lines,
+            Update::Doctor(d) => {
+                if self.doctor.as_ref() == Some(&*d) {
+                    changed = false;
+                } else {
+                    *self.doctor_mut() = Some(*d);
+                }
+            }
+            Update::OfflineChores(lines) => {
+                if self.offline_chores == lines {
+                    changed = false;
+                } else {
+                    self.derived = OnceCell::new();
+                    self.offline_chores = lines;
+                }
+            }
             Update::Operation { id, detail } => {
-                if matches!(&self.screen, Screen::Operation(open) if *open == id) {
+                let open = matches!(&self.screen, Screen::Operation(open) if *open == id);
+                let same = self
+                    .operation
+                    .as_ref()
+                    .is_some_and(|(i, d)| *i == id && *d == detail);
+                if open && !same {
                     self.operation = Some((id, detail));
+                } else {
+                    changed = false;
                 }
             }
             Update::ProbePrepared {
@@ -1092,6 +1484,20 @@ impl App {
                     p.plan = Some(plan);
                 }
             }
+            // ⟨M07⟩ U2: the record changed after the owner reviewed it. The TUI did not
+            // create it, so it cannot send its request again: the confirmation is reset (a
+            // typed yes is never carried to another record), the decisions are read again,
+            // and the requester's retry brings the new version here.
+            Update::Done { what, outcome } if outcome.code == DECISION_STALE => {
+                if matches!(self.modal, Some(Modal::Decision(_))) {
+                    self.modal = None;
+                }
+                self.open_when_listed = None;
+                self.status = Some(format!(
+                    "{what}: the request changed after you reviewed it, so nothing was approved; its new version appears here when the requester tries again"
+                ));
+                effects.push(Effect::Worker(Command::Refresh { doctor: false }));
+            }
             Update::Done { what, outcome } => {
                 self.status = Some(if outcome.ok {
                     format!("{what}: {}", outcome.code)
@@ -1104,6 +1510,7 @@ impl App {
                 effects.push(Effect::Worker(Command::Refresh { doctor: true }));
             }
         }
+        self.changed |= changed;
         effects
     }
 
@@ -1119,6 +1526,13 @@ impl App {
     pub(crate) fn key(&mut self, key: Key) -> Vec<Effect> {
         if self.modal.is_some() {
             return self.modal_key(key);
+        }
+        // ⟨M07⟩ The status line shows the last result until the next key, then the footer's
+        // key hints return (a key that reports something sets it again below).
+        self.status = None;
+        // ⟨M07⟩ An open Settings prompt takes every key (it is typed into).
+        if let Some(prompt) = self.settings.take() {
+            return self.setting_prompt_key(prompt, key);
         }
         if let Screen::Tab(tab) = self.screen.clone()
             && self.search(tab).is_some_and(|s| s.editing)
@@ -1151,17 +1565,18 @@ impl App {
                     Vec::new()
                 };
             }
-            Key::Char(c @ '1'..='4') => {
+            Key::Char(c @ '1'..='8') => {
                 let i = usize::from(u8::try_from(c).unwrap_or(b'1') - b'1');
-                self.go_tab(Tab::ALL[i.min(3)]);
+                self.go_tab(Tab::ALL[i.min(Tab::ALL.len() - 1)]);
                 return Vec::new();
             }
             Key::Tab => {
-                self.go_tab(Tab::ALL[(self.tab.index() + 1) % 4]);
+                self.go_tab(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]);
                 return Vec::new();
             }
             Key::BackTab => {
-                self.go_tab(Tab::ALL[(self.tab.index() + 3) % 4]);
+                let n = Tab::ALL.len();
+                self.go_tab(Tab::ALL[(self.tab.index() + n - 1) % n]);
                 return Vec::new();
             }
             _ => {}
@@ -1173,7 +1588,38 @@ impl App {
             Screen::Operation(id) => self.operation_key(&id, key),
             Screen::Enrollment(_) => self.detail_key(key),
             Screen::Workspace => self.workspace_key(key),
-            Screen::Policies => self.detail_key(key),
+            Screen::Policies | Screen::Environment(_) | Screen::Identity(_) => self.detail_key(key),
+        }
+    }
+
+    /// ⟨M07⟩ One key in the open Settings prompt: it sends only after a typed yes.
+    fn setting_prompt_key(
+        &mut self,
+        mut prompt: super::m07::SettingPrompt,
+        key: Key,
+    ) -> Vec<Effect> {
+        use super::m07::SettingStep;
+        match prompt.key(key) {
+            SettingStep::Stay => {
+                self.settings = Some(prompt);
+                Vec::new()
+            }
+            SettingStep::Close(text) => {
+                self.status = Some(text);
+                Vec::new()
+            }
+            SettingStep::Send(action) => {
+                self.status = Some(format!(
+                    "sending {}{}",
+                    action.what(),
+                    if action.widening() {
+                        "; the runtime will ask for your decision"
+                    } else {
+                        ""
+                    }
+                ));
+                vec![Effect::Worker(Command::Setting(action))]
+            }
         }
     }
 
@@ -1258,6 +1704,20 @@ impl App {
     }
 
     fn tab_key(&mut self, tab: Tab, key: Key) -> Vec<Effect> {
+        // ⟨M07⟩ Projects is a scrolled view (the workspace status and the policies).
+        if tab == Tab::Projects {
+            if key == Key::Char('q') {
+                return vec![Effect::Quit];
+            }
+            if key == Key::Enter {
+                return match super::m05::pending_decision(&self.catalog, self.now) {
+                    Some(id) => self.open_decision(id),
+                    None => Vec::new(),
+                };
+            }
+            self.scroll_key(key);
+            return Vec::new();
+        }
         if self.move_selection(tab, key) {
             return Vec::new();
         }
@@ -1273,8 +1733,7 @@ impl App {
         let sel = self.selection(tab);
         match tab {
             Tab::Overview => {
-                let items = self.overview_items();
-                let Some(item) = sel.and_then(|i| items.get(i)).cloned() else {
+                let Some(item) = sel.and_then(|i| self.overview_items().get(i)).cloned() else {
                     return Vec::new();
                 };
                 match (item, key) {
@@ -1306,12 +1765,35 @@ impl App {
                         self.open_destination(a);
                         Vec::new()
                     }
+                    // ⟨M07⟩ One destination: its detail; several: the Destinations tab,
+                    // whose rows carry the [!!]/[ !] markers.
+                    (Item::Findings { aliases, .. }, Key::Enter) => {
+                        match aliases.as_slice() {
+                            [a] if self.catalog.destination(a).is_some()
+                                || self.doctor_alias(a).is_some() =>
+                            {
+                                self.open_destination(a.clone());
+                            }
+                            _ => self.go_tab(Tab::Destinations),
+                        }
+                        Vec::new()
+                    }
+                    (Item::ListingFailed { subject, .. }, Key::Enter) => {
+                        match subject.as_str() {
+                            super::data::subject::DESTINATIONS => self.go_tab(Tab::Destinations),
+                            super::data::subject::PROFILES => self.go_tab(Tab::Profiles),
+                            super::data::subject::OPERATIONS
+                            | super::data::subject::DECISIONS
+                            | super::data::subject::ENROLLMENTS => self.go_tab(Tab::Activity),
+                            _ => {}
+                        }
+                        Vec::new()
+                    }
                     _ => Vec::new(),
                 }
             }
             Tab::Destinations => {
-                let alias =
-                    sel.and_then(|i| self.visible_destinations().get(i).map(|d| d.alias.clone()));
+                let alias = sel.and_then(|i| self.visible_destination(i).map(|d| d.alias.clone()));
                 let Some(alias) = alias else {
                     return Vec::new();
                 };
@@ -1331,7 +1813,7 @@ impl App {
             Tab::Profiles => {
                 if key == Key::Enter
                     && let Some(id) =
-                        sel.and_then(|i| self.visible_profiles().get(i).map(|p| p.id.clone()))
+                        sel.and_then(|i| self.visible_profile(i).map(|p| p.id.clone()))
                 {
                     self.screen = Screen::Profile(id);
                     self.scroll = 0;
@@ -1350,6 +1832,40 @@ impl App {
                     _ => Vec::new(),
                 }
             }
+            Tab::Projects => Vec::new(),
+            Tab::Environments => {
+                if key == Key::Enter
+                    && let Some(e) = sel.and_then(|i| self.catalog.environments.items.get(i))
+                {
+                    self.screen = Screen::Environment(e.id.clone());
+                    self.scroll = 0;
+                }
+                Vec::new()
+            }
+            Tab::Identities => {
+                if key == Key::Enter
+                    && let Some(i) = sel.and_then(|i| self.catalog.identities.get(i))
+                {
+                    self.screen = Screen::Identity(i.id.clone());
+                    self.scroll = 0;
+                }
+                Vec::new()
+            }
+            Tab::Settings => {
+                if key != Key::Enter {
+                    return Vec::new();
+                }
+                let Some(row) = sel.and_then(|i| self.setting_rows().into_iter().nth(i)) else {
+                    return Vec::new();
+                };
+                match super::m07::choices(&self.catalog, &row) {
+                    Ok(choices) => {
+                        self.settings = Some(super::m07::SettingPrompt::new(row, choices));
+                    }
+                    Err(why) => self.status = Some(why),
+                }
+                Vec::new()
+            }
         }
     }
 
@@ -1358,6 +1874,7 @@ impl App {
         let Some(s) = self.search_mut(tab) else {
             return Vec::new();
         };
+        let before_len = s.text.len();
         match key {
             Key::Char(c) => {
                 if s.text.chars().count() < 64 {
@@ -1373,6 +1890,15 @@ impl App {
                 s.text.clear();
             }
             _ => {}
+        }
+        // ⟨M07⟩ A changed text drops only its own list's filter (every edit here
+        // changes the length when it changes the text).
+        if s.text.len() != before_len {
+            match tab {
+                Tab::Destinations => self.destination_filter = OnceCell::new(),
+                Tab::Profiles => self.profile_filter = OnceCell::new(),
+                _ => {}
+            }
         }
         self.selected[i] = 0;
         // Search is immediate and in memory: no effect, ever (spec §12.1).
@@ -2027,11 +2553,17 @@ pub(crate) mod tests {
                 conflict: None,
             }),
             git: None,
-            findings: vec![finding(
-                "identity_selection_not_exclusive",
-                FindingSeverity::Warning,
-                Some("beta"),
-            )],
+            findings: vec![{
+                // ⟨M07⟩ The doctor's own words, as the static pass writes them.
+                let mut f = finding(
+                    "identity_selection_not_exclusive",
+                    FindingSeverity::Warning,
+                    Some("beta"),
+                );
+                f.message =
+                    "ssh may offer other identities than the adopted key for this alias".to_owned();
+                f
+            }],
             probes: Vec::new(),
         }
     }
@@ -2040,8 +2572,8 @@ pub(crate) mod tests {
     /// one running operation, a held setup operation and two pending decisions.
     pub(crate) fn populated() -> App {
         let mut app = App::new(now(), false);
-        app.runtime = Runtime::Connected;
-        app.catalog = Catalog {
+        app.set_runtime(Runtime::Connected);
+        *app.catalog_mut() = Catalog {
             destinations: vec![destination("alpha", true), destination("beta", false)],
             profiles: vec![Profile {
                 id: "dev".to_owned(),
@@ -2078,8 +2610,10 @@ pub(crate) mod tests {
             read_at: Some(t("2026-11-03T09:00:25Z")),
             m03: Default::default(),
             m05: Default::default(),
+            environments: Default::default(),
+            failures: Default::default(),
         };
-        app.doctor = Some(Doctor {
+        *app.doctor_mut() = Some(Doctor {
             report: report(),
             taken_at: t("2026-11-03T09:00:20Z"),
         });
@@ -2115,21 +2649,22 @@ pub(crate) mod tests {
     fn health_is_ready_working_or_needs_attention() {
         let mut app = populated();
         assert_eq!(app.health(), Health::Attention);
-        app.catalog.operations.retain(|o| !o.is_held());
-        app.catalog.decisions.clear();
+        app.catalog_mut().operations.retain(|o| !o.is_held());
+        app.catalog_mut().decisions.clear();
         assert_eq!(app.health(), Health::Working, "a running operation");
-        app.catalog.operations.clear();
+        app.catalog_mut().operations.clear();
         assert_eq!(app.health(), Health::Ready, "warnings alone are not alarms");
-        app.doctor.as_mut().unwrap().report.findings.push(finding(
-            "marker_edited",
-            FindingSeverity::Problem,
-            None,
-        ));
+        app.doctor_mut()
+            .as_mut()
+            .unwrap()
+            .report
+            .findings
+            .push(finding("marker_edited", FindingSeverity::Problem, None));
         assert_eq!(app.health(), Health::Attention, "a problem finding");
         let mut fresh = App::new(now(), false);
         assert_eq!(fresh.health(), Health::Checking);
-        fresh.runtime = Runtime::NotRunning;
-        fresh.doctor = Some(Doctor {
+        fresh.set_runtime(Runtime::NotRunning);
+        *fresh.doctor_mut() = Some(Doctor {
             report: DoctorReport {
                 findings: Vec::new(),
                 ..report()
@@ -2139,9 +2674,9 @@ pub(crate) mod tests {
         assert_eq!(fresh.health(), Health::Ready, "no runtime is not an alarm");
         // An expired decision is not pending work.
         let mut app = populated();
-        app.catalog.operations.clear();
-        app.catalog.decisions.truncate(1);
-        app.catalog.decisions[0].expired = true;
+        app.catalog_mut().operations.clear();
+        app.catalog_mut().decisions.truncate(1);
+        app.catalog_mut().decisions[0].expired = true;
         assert_eq!(app.health(), Health::Ready);
     }
 
@@ -2298,7 +2833,7 @@ pub(crate) mod tests {
         );
         // A record no longer listed is never decided, even after yes.
         press(&mut app, &[Key::Enter]);
-        app.catalog.decisions.clear();
+        app.catalog_mut().decisions.clear();
         read(&app);
         type_text(&mut app, "yes");
         assert!(worker(&press(&mut app, &[Key::Enter])).is_empty());
@@ -2601,7 +3136,7 @@ pub(crate) mod tests {
         assert!(matches!(app.modal, Some(Modal::Decision(_))));
         press(&mut app, &[Key::Esc]);
         // An operation waiting on a decision opens it with Enter.
-        app.catalog.decisions[0].request["operation_id"] = serde_json::json!("op_run1");
+        app.catalog_mut().decisions[0].request["operation_id"] = serde_json::json!("op_run1");
         press(
             &mut app,
             &[Key::Char('4'), Key::End, Key::Enter, Key::Enter],
@@ -2609,7 +3144,7 @@ pub(crate) mod tests {
         assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.id == "dec_apply1"));
         press(&mut app, &[Key::Esc]);
         // Start the runtime when none runs.
-        app.runtime = Runtime::NotRunning;
+        app.set_runtime(Runtime::NotRunning);
         assert_eq!(
             worker(&press(&mut app, &[Key::Char('S')])),
             [Command::StartRuntime]
@@ -2642,11 +3177,11 @@ pub(crate) mod tests {
     #[test]
     fn a_destination_an_import_skipped_is_never_connectable_from_the_tui() {
         let mut app = App::new(now(), false);
-        app.runtime = Runtime::Connected;
+        app.set_runtime(Runtime::Connected);
         let destinations = serde_json::json!({"destinations": [
             {"destination_id": "bastion", "alias": "bastion", "definition": "observed"}
         ]});
-        app.catalog = Catalog::from_answers(
+        *app.catalog_mut() = Catalog::from_answers(
             &destinations,
             &serde_json::Value::Null,
             &serde_json::Value::Null,
@@ -2673,10 +3208,105 @@ pub(crate) mod tests {
         );
     }
 
+    /// ⟨M07⟩ U1 (probe P1, P2): an update that changes nothing keeps the derived data
+    /// and sets no redraw; a change drops what it touches; a search change recomputes only
+    /// its own list; the clock asks for a redraw only when the displayed minute changes or
+    /// a pending decision expires.
+    #[test]
+    fn derived_data_is_computed_once_per_change() {
+        let mut app = populated();
+        let derive_all = |app: &App| {
+            let _ = app.overview_items();
+            let _ = app.shown(Tab::Destinations);
+            let _ = app.shown(Tab::Profiles);
+        };
+        derive_all(&app);
+        let _ = app.take_changed();
+        let cached = |app: &App| {
+            (
+                app.derived.get().is_some(),
+                app.destination_filter.get().is_some(),
+                app.profile_filter.get().is_some(),
+            )
+        };
+        assert_eq!(cached(&app), (true, true, true));
+        // The same answers read again (only the read time moves).
+        let mut same = app.catalog().clone();
+        same.read_at = Some(t("2026-11-03T09:00:28Z"));
+        same.identities[0].checked_at = Some(t("2026-11-03T09:00:28Z"));
+        let before = app.derived().clone();
+        app.apply(Update::Catalog(Box::new(same)));
+        assert!(!app.take_changed(), "an identical poll draws nothing");
+        assert_eq!(cached(&app), (true, true, true), "nothing is derived again");
+        assert_eq!(*app.derived(), before);
+        assert_eq!(app.catalog().read_at, Some(t("2026-11-03T09:00:28Z")));
+        assert_eq!(
+            app.catalog().identities[0].checked_at,
+            Some(t("2026-11-03T09:00:28Z"))
+        );
+        for unchanged in [
+            Update::Runtime(Runtime::Connected),
+            Update::Doctor(Box::new(app.doctor().cloned().unwrap())),
+            Update::OfflineChores(Vec::new()),
+        ] {
+            app.apply(unchanged.clone());
+            assert!(!app.take_changed(), "{unchanged:?}");
+            assert_eq!(cached(&app), (true, true, true), "{unchanged:?}");
+        }
+        // An operation that changed: the overview is derived again, the lists are not.
+        let mut ops = app.catalog().clone();
+        ops.operations.retain(|o| !o.is_held());
+        app.apply(Update::Catalog(Box::new(ops)));
+        assert!(app.take_changed());
+        assert_eq!(cached(&app), (false, true, true));
+        assert_eq!(app.health(), Health::Attention, "the decisions still wait");
+        // A new destination: its filter too.
+        derive_all(&app);
+        let mut more = app.catalog().clone();
+        more.destinations.push(destination("gamma", false));
+        app.apply(Update::Catalog(Box::new(more)));
+        assert!(app.take_changed());
+        assert_eq!(cached(&app), (false, false, true));
+        // A search keystroke recomputes only its own list.
+        derive_all(&app);
+        press(&mut app, &[Key::Char('2'), Key::Char('/')]);
+        assert_eq!(
+            cached(&app),
+            (true, true, true),
+            "opening the search filters nothing"
+        );
+        type_text(&mut app, "gam");
+        assert_eq!(cached(&app), (true, false, true));
+        assert_eq!(app.shown(Tab::Destinations), 1);
+        // A key that does not change the text keeps the filter.
+        press(&mut app, &[Key::Left]);
+        assert_eq!(cached(&app), (true, true, true));
+        // The clock: the same minute asks for nothing; the next minute redraws.
+        assert!(!app.set_now(t("2026-11-03T09:00:59Z")));
+        assert_eq!(cached(&app), (true, true, true));
+        assert!(app.set_now(t("2026-11-03T09:01:00Z")));
+        // A pending decision that expires mid-minute: a redraw, and it leaves the
+        // overview.
+        app.catalog_mut().decisions.truncate(1);
+        app.catalog_mut().decisions[0].expires_at = Some(t("2026-11-03T09:01:30Z"));
+        assert!(
+            app.overview_items()
+                .iter()
+                .any(|i| matches!(i, Item::Decision { .. }))
+        );
+        assert!(!app.set_now(t("2026-11-03T09:01:29Z")));
+        assert!(app.set_now(t("2026-11-03T09:01:30Z")));
+        assert!(
+            !app.overview_items()
+                .iter()
+                .any(|i| matches!(i, Item::Decision { .. }))
+        );
+    }
+
     #[test]
     fn a_decision_the_runtime_just_issued_opens_once_listed() {
         let mut app = populated();
-        let decisions = std::mem::take(&mut app.catalog.decisions);
+        let decisions = std::mem::take(&mut app.catalog_mut().decisions);
         let effects = app.apply(Update::Done {
             what: "keep_held".to_owned(),
             outcome: Outcome {
@@ -2692,5 +3322,95 @@ pub(crate) mod tests {
         c.decisions = decisions;
         app.apply(Update::Catalog(Box::new(c)));
         assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.id == "dec_apply1"));
+    }
+
+    /// ⟨M07⟩ U2 `decision_stale_resets_the_confirmation_and_never_reuses_yes`: the TUI
+    /// approves records another client's request created, so on `DECISION_STALE` it cannot
+    /// send that request again. The confirmation is reset (the modal closes, whatever was
+    /// typed is gone), the decisions are read again, a plain status line says the request
+    /// changed, and the new version does not open by itself: the owner opens it and types
+    /// `yes` to it afresh. A typed yes is never applied to another record.
+    #[test]
+    fn decision_stale_resets_the_confirmation_and_never_reuses_yes() {
+        let stale = |decision_ref: Option<&str>| Update::Done {
+            what: "decision dec_apply1".to_owned(),
+            outcome: Outcome {
+                ok: false,
+                code: DECISION_STALE.to_owned(),
+                message: "the decision is stale".to_owned(),
+                decision_ref: decision_ref.map(str::to_owned),
+            },
+        };
+        let mut app = populated();
+        // The owner reads dec_apply1 to its end and confirms it: Decide is sent.
+        press(&mut app, &[Key::Char('4'), Key::Enter]);
+        read(&app);
+        press(&mut app, &[Key::End]);
+        read(&app);
+        type_text(&mut app, "yes");
+        let sent = worker(&press(&mut app, &[Key::Enter]));
+        assert_eq!(
+            sent,
+            [Command::Decide {
+                id: "dec_apply1".to_owned(),
+                verdict: Verdict::Approve
+            }]
+        );
+        // Before the answer arrives, the owner opens the other decision and types yes.
+        press(&mut app, &[Key::Down, Key::Enter]);
+        read(&app);
+        type_text(&mut app, "yes");
+        // The answer: the record changed (the runtime may even name another record).
+        let effects = app.apply(stale(Some("dec_apply2")));
+        assert_eq!(worker(&effects), [Command::Refresh { doctor: false }]);
+        assert!(
+            app.modal.is_none(),
+            "the confirmation is reset: {:?}",
+            app.modal
+        );
+        assert_eq!(app.open_when_listed, None, "nothing opens by itself");
+        let status = app.status.clone().unwrap();
+        assert!(
+            status.contains("the request changed") && status.contains("nothing was approved"),
+            "{status}"
+        );
+        assert!(!status.contains("DECISION_STALE"), "plain words: {status}");
+        // The typed yes went with the modal: Enter now decides nothing (it opens the
+        // selected record afresh, with an empty confirmation).
+        let sent = worker(&press(&mut app, &[Key::Enter]));
+        assert!(
+            !sent.iter().any(|c| matches!(c, Command::Decide { .. })),
+            "{sent:?}"
+        );
+        assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.input.is_empty()));
+        press(&mut app, &[Key::Esc]);
+        // The requester's retry lists the new version; it does not open by itself, and
+        // when the owner opens it the confirmation starts empty: Enter is default No.
+        let mut c = app.catalog.clone();
+        let mut renewed = apply_decision();
+        renewed.id = "dec_apply2".to_owned();
+        c.decisions = vec![renewed, declare_decision()];
+        app.apply(Update::Catalog(Box::new(c)));
+        assert!(app.modal.is_none());
+        press(&mut app, &[Key::Char('4'), Key::Home, Key::Enter]);
+        let Some(Modal::Decision(p)) = &app.modal else {
+            panic!("{:?}", app.modal);
+        };
+        assert_eq!(p.id, "dec_apply2");
+        assert!(p.input.is_empty(), "an earlier yes never carries over");
+        read(&app);
+        press(&mut app, &[Key::End]);
+        read(&app);
+        assert!(
+            worker(&press(&mut app, &[Key::Enter])).is_empty(),
+            "default No"
+        );
+        // A stale answer while no modal is open changes nothing but the status, and a
+        // later modal opened for the same record also starts empty.
+        let mut app = populated();
+        app.apply(stale(None));
+        assert!(app.modal.is_none());
+        press(&mut app, &[Key::Char('4'), Key::Enter]);
+        assert!(matches!(&app.modal, Some(Modal::Decision(p)) if p.input.is_empty()));
     }
 }

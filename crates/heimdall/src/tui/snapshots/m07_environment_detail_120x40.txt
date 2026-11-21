@@ -1,0 +1,40 @@
+ 1 Overview  2 Destinations  3 Profiles  4 Activity  5 Projects [6 Environments] 7 Identities  8 Settings  [!!] - s stop
+WSL Ubuntu
+Source: the runtime's environment list (inspect environments), read 09:00:25Z (just now)
+  [runtime] ID env_33333333333333333333333333333333
+  [runtime] kind wsl distribution
+  [runtime] state [ !] not running
+  [runtime] label none
+  [runtime] realized as wsl
+  [runtime] name Ubuntu
+  [runtime] account dev
+  [runtime] helper stopped
+  [runtime] modes a, b
+
+Standing access that covers it (inspect policies):
+  none: requests from it ask you each time
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Up/Down scroll · Esc back
