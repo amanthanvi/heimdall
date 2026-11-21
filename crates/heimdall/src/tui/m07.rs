@@ -593,9 +593,8 @@ pub(crate) fn environment_line(catalog: &Catalog, narrow: bool) -> String {
     line
 }
 
-/// The overview's access line: which profiles this environment uses automatically, and
-/// which are paused (from `inspect policies`). ⟨M07⟩ M07-W0-R03: a policy list that was
-/// never read is "not known", never "no standing access"; a stale one is marked.
+/// The overview's configured access, with project policies scoped to their projects.
+/// Unread and stale listings are disclosed separately from the access summary.
 #[must_use]
 pub(crate) fn access_line(catalog: &Catalog, now: Timestamp, narrow: bool) -> String {
     let envs = &catalog.environments;
@@ -615,49 +614,80 @@ pub(crate) fn access_line(catalog: &Catalog, now: Timestamp, narrow: bool) -> St
             }
         };
     };
-    let covering: Vec<&super::m05::Policy> = policies
-        .iter()
-        .filter(|p| {
-            envs.own
-                .as_deref()
-                .is_none_or(|own| p.environments.iter().any(|e| e == own))
+    let current_project = catalog
+        .m05
+        .workspace
+        .as_ref()
+        .filter(|w| {
+            matches!(
+                w.matched,
+                super::m05::Match::Trusted | super::m05::Match::Member
+            )
         })
-        .collect();
-    let mut automatic: Vec<&str> = Vec::new();
-    let mut paused: Vec<&str> = Vec::new();
-    for p in &covering {
+        .and_then(|w| w.workspace_id.as_deref());
+    let scope = |project: Option<&str>| match project {
+        Some(id) if Some(id) == current_project => " in this project".to_owned(),
+        Some(id) => format!(" in project {id}"),
+        None => String::new(),
+    };
+    let mut automatic = Vec::new();
+    let mut paused = Vec::new();
+    for p in policies.iter().filter(|p| {
+        envs.own
+            .as_deref()
+            .is_none_or(|own| p.environments.iter().any(|e| e == own))
+    }) {
         let list = if policy_paused(p, now) {
             &mut paused
         } else {
             &mut automatic
         };
-        if !list.contains(&p.profile.as_str()) {
-            list.push(&p.profile);
+        let entry = (p.profile.as_str(), p.workspace_id.as_deref());
+        if !list.contains(&entry) {
+            list.push(entry);
         }
     }
     paused.retain(|p| !automatic.contains(p));
     let paused_words = if paused.is_empty() {
         String::new()
     } else {
-        format!("; paused: {}", paused.join(", "))
+        let names: Vec<_> = paused
+            .iter()
+            .map(|(profile, project)| format!("{profile}{}", scope(*project)))
+            .collect();
+        format!("; paused: {}", names.join(", "))
     };
+    let auto = if narrow { "auto" } else { "automatically" };
+    let configured: Vec<_> = automatic
+        .iter()
+        .map(|(profile, project)| format!("{profile} {auto}{}", scope(*project)))
+        .collect();
     let line = match (automatic.is_empty(), narrow) {
-        (false, false) => format!(
-            "Access: {who} uses {} automatically{paused_words}",
-            automatic.join(", ")
-        ),
-        (false, true) => format!("Access: {} auto{paused_words}", automatic.join(", ")),
-        (true, false) if covering.is_empty() => {
+        (false, false) => format!("Access: {who} uses {}", configured.join(", ")),
+        (false, true) => format!("Access: {}", configured.join(", ")),
+        (true, false) if paused.is_empty() => {
             format!("Access: {who} has no standing access; each request asks you")
         }
-        (true, false) => format!("Access: {who} has no automatic access now{paused_words}"),
-        (true, true) => format!("Access: none automatic{paused_words}"),
+        (true, false) => format!("Access: {who} has no automatic access now"),
+        (true, true) => "Access: none automatic".to_owned(),
     };
-    let line = format!("{line}{}", known.suffix());
-    if narrow && line.chars().count() > 40 {
+    let full = format!("{line}{paused_words}{}", known.suffix());
+    if !narrow || Line::raw(full.as_str()).width() <= 40 {
+        return full;
+    }
+    if known == Known::Stale {
         return "Access: stale (not read again)".to_owned();
     }
-    line
+    if !automatic.is_empty() && Line::raw(line.as_str()).width() <= 40 {
+        return line;
+    }
+    let personal = automatic
+        .iter()
+        .chain(&paused)
+        .filter(|(_, project)| project.is_none())
+        .count();
+    let projects = automatic.len() + paused.len() - personal;
+    format!("Access: {personal} personal, {projects} project")
 }
 
 /// ⟨M07⟩ The saved lock setting's name as the runtime's own disclosure writes it
@@ -2152,6 +2182,8 @@ mod tests {
             .unwrap();
         app.selected[0] = at;
         press(&mut app, &[Key::Enter]);
+        // `x` cancels what a frame has shown (m07-plan U1c).
+        read(&app);
         let sent = worker(&press(&mut app, &[Key::Char('x')]));
         let Some(Command::Cancel { id }) = sent.first() else {
             panic!("{sent:?}");
@@ -2569,8 +2601,48 @@ mod tests {
         );
         assert_eq!(
             access_line(c, app.now(), false),
-            "Access: this computer uses dev automatically"
+            "Access: this computer uses dev automatically in this project; paused: dev"
         );
         let _ = CWD;
+    }
+
+    #[test]
+    fn overview_scopes_project_access_and_summarizes_long_fresh_listings() {
+        use crate::tui::view::draw_once;
+
+        let mut app = fixtures::app();
+        let now = app.now();
+        let catalog = app.catalog_mut();
+        catalog.m05.workspace = None;
+        let workspace = crate::tui::m05::fixtures::WS;
+        let policies = catalog.m05.policies.as_mut().unwrap();
+        policies[1].paused_since = None;
+        assert_eq!(
+            access_line(catalog, now, false),
+            format!(
+                "Access: this computer uses dev automatically in project {workspace}, dev automatically"
+            )
+        );
+
+        let policies = catalog.m05.policies.as_mut().unwrap();
+        policies.truncate(1);
+        assert_eq!(
+            access_line(catalog, now, false),
+            format!("Access: this computer uses dev automatically in project {workspace}")
+        );
+        assert_eq!(
+            access_line(catalog, now, true),
+            "Access: 0 personal, 1 project"
+        );
+
+        let policies = catalog.m05.policies.as_mut().unwrap();
+        for i in 0..5 {
+            let mut policy = policies[0].clone();
+            policy.profile = format!("a-long-profile-name-{i}");
+            policy.workspace_id = None;
+            policies.push(policy);
+        }
+        let text = draw_once(&app, 40, 12).join("\n");
+        assert!(text.contains("Access: 5 personal, 1 project"), "{text}");
     }
 }

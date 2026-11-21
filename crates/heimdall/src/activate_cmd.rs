@@ -713,6 +713,7 @@ if (-not (Test-Path Function:__heimdall_original_prompt)) {
 
     function global:prompt {
         $promptText = __heimdall_original_prompt
+        $savedErrors = $Error.ToArray()
         try {
             $ErrorActionPreference = 'Stop'
             $location = Get-Location
@@ -763,6 +764,7 @@ if (-not (Test-Path Function:__heimdall_original_prompt)) {
                 $child.StandardInput.Close()
                 $remaining = 1500 - [int]$timer.ElapsedMilliseconds
                 if ($remaining -le 0 -or -not $child.WaitForExit($remaining)) { return $promptText }
+                if ($child.ExitCode -ne 0) { return $promptText }
 
                 # Read raw bytes so the cap holds even for multibyte output. A pipe
                 # inherited by another process can stay open after the child exits.
@@ -794,7 +796,9 @@ if (-not (Test-Path Function:__heimdall_original_prompt)) {
                 $global:__heimdall_due = if ($recheck -ceq '0') { '0' } else { [string]($now + [long]$recheck) }
             }
         } catch {
-            # The integration must never interrupt the prompt.
+            # A caught .NET exception also enters the caller's error history.
+            $Error.Clear()
+            $Error.AddRange($savedErrors)
         }
         return $promptText
     }
@@ -1211,6 +1215,9 @@ mod tests {
             2
         );
         assert!(code.contains("$child.waitforexit($remaining)"));
+        assert!(code.contains("if ($child.exitcode -ne 0) { return $prompttext }"));
+        assert!(code.contains("$savederrors = $error.toarray()"));
+        assert!(code.contains("$error.clear()\n            $error.addrange($savederrors)"));
         assert!(code.contains("$bytes = [byte[]]::new(256)"));
         assert!(code.contains("$stream.readasync($bytes, $count, ($bytes.length - $count))"));
         assert!(code.contains("$read.wait($remaining)"));

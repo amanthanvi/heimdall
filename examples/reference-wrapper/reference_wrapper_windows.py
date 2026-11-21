@@ -2,23 +2,27 @@
 
 `open_pipe` checks the endpoint in this order and writes nothing until all pass:
 
-1. after `GetFullPathNameW`, the path is `\\\\.\\pipe\\heimdall-...` or `\\\\?\\pipe\\heimdall-...`;
-2. `CreateFileW` opens it at identification level, so the server can identify this
-   client and can never act as it;
+1. after `GetFullPathNameW`, the path is `\\\\.\\pipe\\<name>` or `\\\\?\\pipe\\<name>`, where the one
+   name component starts with `heimdall-` and ends in `-control` (a wrapper never opens the
+   signing or issuer pipes);
+2. `CreateFileW` opens it with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, so the
+   server can identify this client and can never act as it;
 3. `GetFileType` says the handle is a pipe;
-4. the pipe's owner SID is the caller's user SID;
+4. the pipe's owner SID is the caller's user SID (from the process token);
 5. the process serving the pipe runs as the caller's user SID.
 
-SIDs are copied as binary SIDs and compared with `EqualSid`; account names are never
-looked up. A call that fails is a refusal. Messages name no SID.
+SIDs are copied as binary SIDs and compared with `EqualSid`. Account names are never
+looked up. A call that fails is a refusal, and messages name no SID.
 
 Reads and writes use overlapped I/O. At the link's timeout the transfer is cancelled
-with `CancelIoEx`, and the call returns only after the cancellation has settled.
+with `CancelIoEx`, and the call returns only after the kernel has let go of its buffer.
+A wait cannot be interrupted before its timeout.
 """
 
 from __future__ import annotations
 
 import ctypes
+import functools
 import math
 import os
 import time
@@ -34,14 +38,15 @@ FILE_TYPE_PIPE = 3
 SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION = 6, 0x00000001
 PROCESS_QUERY_LIMITED_INFORMATION, TOKEN_QUERY, TOKEN_USER_CLASS = 0x1000, 0x0008, 1
 TOKEN_USER_BYTES = 256  # TOKEN_USER is one pointer, one DWORD and a SID of at most 68 bytes.
-ERROR_HANDLE_EOF, ERROR_BROKEN_PIPE, ERROR_PIPE_NOT_CONNECTED = 38, 109, 233
-ERROR_PIPE_BUSY, ERROR_OPERATION_ABORTED, ERROR_IO_PENDING, ERROR_INVALID_SID = 231, 995, 997, 1337
+ERROR_FILE_NOT_FOUND, ERROR_HANDLE_EOF, ERROR_BROKEN_PIPE = 2, 38, 109
+ERROR_FILENAME_EXCED_RANGE, ERROR_PIPE_BUSY, ERROR_PIPE_NOT_CONNECTED = 206, 231, 233
+ERROR_OPERATION_ABORTED, ERROR_IO_PENDING, ERROR_INVALID_SID = 995, 997, 1337
 END_OF_PIPE = (ERROR_HANDLE_EOF, ERROR_BROKEN_PIPE, ERROR_PIPE_NOT_CONNECTED)
 WAIT_OBJECT_0, INFINITE = 0, 0xFFFFFFFF
 MAX_PATH_UNITS = 32768
 PIPE_PREFIXES = ("\\\\.\\pipe\\", "\\\\?\\pipe\\")
-PIPE_NAME = "heimdall-"
-BUSY_WAIT, BUSY_BACKOFF = 0.5, 0.025  # Seconds: the wait when no timeout is given, and the pause.
+PIPE_NAME, CONTROL_NAME = "heimdall-", "-control"
+BUSY_WAIT, BUSY_BACKOFF = 0.5, 0.025  # Seconds, as `ipc::windows::connect` retries a busy pipe.
 WRITE_CHUNK = READ_CHUNK = 65536
 
 
@@ -53,10 +58,11 @@ class OVERLAPPED(ctypes.Structure):
 
 
 _P_VOID, _P_DWORD, _P_OVERLAPPED = ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(DWORD), ctypes.POINTER(OVERLAPPED)
-# library -> function -> (restype, argtypes). Every call below is declared here.
+_BUFFER = _SID = ctypes.c_void_p  # Addresses of caller-owned memory.
+# library -> function -> (restype, argtypes). `Win32` calls nothing that is not declared here.
 SIGNATURES = {
     "kernel32": {
-        "GetFullPathNameW": (DWORD, (ctypes.c_wchar_p, DWORD, ctypes.c_wchar_p, ctypes.c_void_p)),
+        "GetFullPathNameW": (DWORD, (ctypes.c_wchar_p, DWORD, _BUFFER, ctypes.c_void_p)),
         "CreateFileW": (HANDLE, (ctypes.c_wchar_p, DWORD, DWORD, ctypes.c_void_p, DWORD, DWORD, HANDLE)),
         "GetFileType": (DWORD, (HANDLE,)),
         "GetNamedPipeServerProcessId": (BOOL, (HANDLE, _P_DWORD)),
@@ -66,18 +72,18 @@ SIGNATURES = {
         "LocalFree": (ctypes.c_void_p, (ctypes.c_void_p,)),
         "CreateEventW": (HANDLE, (ctypes.c_void_p, BOOL, BOOL, ctypes.c_wchar_p)),
         "WaitForSingleObject": (DWORD, (HANDLE, DWORD)),
-        "ReadFile": (BOOL, (HANDLE, ctypes.c_void_p, DWORD, _P_DWORD, _P_OVERLAPPED)),
-        "WriteFile": (BOOL, (HANDLE, ctypes.c_char_p, DWORD, _P_DWORD, _P_OVERLAPPED)),
+        "ReadFile": (BOOL, (HANDLE, _BUFFER, DWORD, _P_DWORD, _P_OVERLAPPED)),
+        "WriteFile": (BOOL, (HANDLE, _BUFFER, DWORD, _P_DWORD, _P_OVERLAPPED)),
         "GetOverlappedResult": (BOOL, (HANDLE, _P_OVERLAPPED, _P_DWORD, BOOL)),
         "CancelIoEx": (BOOL, (HANDLE, _P_OVERLAPPED)),
     },
     "advapi32": {
         "GetSecurityInfo": (DWORD, (HANDLE, ctypes.c_int, DWORD, _P_VOID, _P_VOID, _P_VOID, _P_VOID, _P_VOID)),
         "OpenProcessToken": (BOOL, (HANDLE, DWORD, _P_VOID)),
-        "GetTokenInformation": (BOOL, (HANDLE, ctypes.c_int, ctypes.c_void_p, DWORD, _P_DWORD)),
-        "IsValidSid": (BOOL, (ctypes.c_void_p,)),
-        "GetLengthSid": (DWORD, (ctypes.c_void_p,)),
-        "EqualSid": (BOOL, (ctypes.c_char_p, ctypes.c_char_p)),
+        "GetTokenInformation": (BOOL, (HANDLE, ctypes.c_int, _BUFFER, DWORD, _P_DWORD)),
+        "IsValidSid": (BOOL, (_SID,)),
+        "GetLengthSid": (DWORD, (_SID,)),
+        "EqualSid": (BOOL, (_SID, _SID)),
     },
 }
 
@@ -111,15 +117,15 @@ class Win32:
         return Win32Error(call, self._last_error())
 
     def full_path(self, path):
-        """`GetFullPathNameW`: string normalization only; it opens nothing."""
+        """`GetFullPathNameW`: string normalization only. It opens nothing."""
         for size in (260, MAX_PATH_UNITS):
             buffer = ctypes.create_unicode_buffer(size)
             written = self._GetFullPathNameW(path, size, buffer, None)
-            if 0 < written < size:
-                return buffer[:written]
             if written == 0:
-                break
-        raise self._failed("GetFullPathNameW")
+                raise self._failed("GetFullPathNameW")
+            if written < size:  # Otherwise it is the size the buffer needs.
+                return buffer[:written]
+        raise Win32Error("GetFullPathNameW", ERROR_FILENAME_EXCED_RANGE)
 
     def create_file(self, path, access, share, disposition, flags):
         handle = self._CreateFileW(path, access, share, None, disposition, flags, None)
@@ -147,7 +153,7 @@ class Win32:
         if code:
             raise Win32Error("GetSecurityInfo", code)
         try:
-            return self._sid(owner.value)
+            return self._sid(owner.value)  # It points into the descriptor.
         finally:
             self._LocalFree(descriptor)
 
@@ -192,31 +198,36 @@ class Win32:
         event = self._CreateEventW(None, True, False, None)
         if not event:
             raise self._failed("CreateEventW")
+        overlapped, done = OVERLAPPED(hEvent=event), DWORD(0)
+        reference, count = ctypes.byref(overlapped), ctypes.byref(done)
+        # Until the transfer settles, the kernel owns the caller's buffer and `overlapped`.
+        settled = False
         try:
-            overlapped, done = OVERLAPPED(hEvent=event), DWORD(0)
-            reference = ctypes.byref(overlapped)
             if not start(reference):
                 code = self._last_error()
                 if code != ERROR_IO_PENDING:
+                    settled = True  # It never started.
                     raise Win32Error(call, code)
                 millis = INFINITE if timeout is None else min(math.ceil(max(timeout, 0) * 1000), INFINITE - 1)
                 if self._WaitForSingleObject(event, millis) != WAIT_OBJECT_0:
                     self._CancelIoEx(handle, reference)
-                    # The kernel owns the buffer and the OVERLAPPED until the transfer settles.
-                    if self._GetOverlappedResult(handle, reference, ctypes.byref(done), True):
-                        return done.value  # It finished before the cancellation landed.
-                    code = self._last_error()
-                    if code == ERROR_OPERATION_ABORTED:
-                        raise TimeoutError("named-pipe transfer timed out")
-                    raise Win32Error(call, code)
-            if not self._GetOverlappedResult(handle, reference, ctypes.byref(done), False):
-                raise self._failed(call)
-            return done.value
+            # This waits only for a cancellation to land. A transfer that won the race is kept.
+            finished = self._GetOverlappedResult(handle, reference, count, True)
+            code = self._last_error()
+            settled = True
+            if finished:
+                return done.value
+            if code == ERROR_OPERATION_ABORTED:
+                raise TimeoutError("named-pipe transfer timed out")
+            raise Win32Error(call, code)
         finally:
+            if not settled:  # An interrupt arrived mid-transfer.
+                self._CancelIoEx(handle, reference)
+                self._GetOverlappedResult(handle, reference, count, True)
             self._CloseHandle(event)
 
     def read(self, handle, size, timeout):
-        """Up to `size` bytes; `b""` when the server has closed its end."""
+        """Up to `size` bytes, or `b""` when the server has closed its end."""
         buffer = ctypes.create_string_buffer(size)
         try:
             count = self._transfer(handle, timeout, "ReadFile",
@@ -228,12 +239,13 @@ class Win32:
         return buffer.raw[:count]
 
     def write(self, handle, data, timeout):
+        """The number of bytes of `data` (a `bytes`) the pipe took."""
         return self._transfer(handle, timeout, "WriteFile",
                               lambda overlapped: self._WriteFile(handle, data, len(data), None, overlapped))
 
 
 def pipe_path(endpoint, full_path):
-    """Normalize, then require a local `heimdall-` pipe name. Opens nothing."""
+    """Normalize, then require a local pipe named `heimdall-...-control`. Opens nothing."""
     text = os.fspath(endpoint)
     if not isinstance(text, str) or not text or "\0" in text:
         raise PipeRefused("endpoint is not a named-pipe path")
@@ -241,21 +253,30 @@ def pipe_path(endpoint, full_path):
         full = full_path(text)
     except OSError as error:
         raise PipeRefused("endpoint path could not be normalized") from error
-    prefix = next((p for p in PIPE_PREFIXES if full[:len(p)].lower() == p), None)
-    name = full[len(prefix):] if prefix else ""
-    if len(name) <= len(PIPE_NAME) or not name.startswith(PIPE_NAME) or "\\" in name or "/" in name:
-        raise PipeRefused("endpoint is not a local Heimdall named pipe")
-    return full
+    for prefix in PIPE_PREFIXES:
+        head, name = full[:len(prefix)], full[len(prefix):]
+        # One name component: no backslash, and no slash that `\\?\` left unnormalized.
+        if (head.isascii() and head.lower() == prefix and name.startswith(PIPE_NAME)
+                and not {"\\", "/"} & set(name)):
+            # The signing and issuer pipes are not for a wrapper, and the two affixes may not
+            # overlap: a name carries a non-empty installation token between them.
+            if not name.endswith(CONTROL_NAME) or len(name) <= len(PIPE_NAME) + len(CONTROL_NAME):
+                raise PipeRefused("endpoint is not a Heimdall control pipe")
+            return full
+    raise PipeRefused("endpoint is not a local Heimdall named pipe")
 
 
 def open_handle(path, create_file, timeout, *, sleep=time.sleep):
     """Open the normalized path at identification level, retrying only a busy pipe."""
-    deadline = time.monotonic() + (BUSY_WAIT if timeout is None else timeout)
+    deadline = time.monotonic() + (BUSY_WAIT if timeout is None else min(timeout, BUSY_WAIT))
     while True:
         try:
             return create_file(path, GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING, OPEN_FLAGS)
         except OSError as error:
-            if getattr(error, "code", None) != ERROR_PIPE_BUSY or time.monotonic() >= deadline:
+            code = getattr(error, "code", None)
+            if code == ERROR_FILE_NOT_FOUND:
+                raise PipeRefused("named pipe not found (no runtime is serving it)") from error
+            if code != ERROR_PIPE_BUSY or time.monotonic() >= deadline:
                 raise PipeRefused("named pipe could not be opened") from error
         sleep(BUSY_BACKOFF)
 
@@ -313,9 +334,12 @@ class PipeLink:
             self._api.close(handle)
 
 
+_win32 = functools.lru_cache(maxsize=1)(Win32)
+
+
 def open_pipe(endpoint, timeout, *, api=None):
     """Return a connected link, or raise `PipeRefused` with the handle closed and nothing written."""
-    api = api or Win32()
+    api = api or _win32()
     path = pipe_path(endpoint, api.full_path)
     handle = None
     try:

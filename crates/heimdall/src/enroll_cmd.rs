@@ -263,12 +263,11 @@ async fn settle<S: Session>(
         && (env.next.as_ref().is_some_and(|n| n.action == "step")
             || env.data.get("next").and_then(|v| v.as_str()) == Some("step"));
     if wants_steps && let Some(op) = env.operation_id.clone() {
-        return output::explain_wait(
-            !mode.json,
-            "the enrollment steps to finish",
-            Some(&op),
-            drive::drive(s, &op, mode),
-        )
+        return output::explain_slow_wait(!mode.json, drive::drive(s, &op, mode), || {
+            format!(
+                "Waiting for the enrollment steps to finish (operation {op}). Ctrl-C interrupts the step. You may need to check its outcome with `heimdall enroll reconcile {op}`."
+            )
+        })
         .await;
     }
     if env.code.is_success()

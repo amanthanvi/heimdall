@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import ctypes
+import importlib.util
 import json
 import os
 import socket
@@ -191,9 +192,28 @@ def open_unix(endpoint, timeout, *, peer_uid=_peer_uid):
     return conn
 
 
+def _pipe_transport():
+    """Load `reference_wrapper_windows` from beside this file.
+
+    Isolated mode (`python3 -I`) and `runpy.run_path` leave this directory off `sys.path`.
+    """
+    name = "reference_wrapper_windows"
+    module = sys.modules.get(name)
+    if module is None:
+        beside = os.path.join(os.path.dirname(os.path.abspath(__file__)), name + ".py")
+        spec = importlib.util.spec_from_file_location(name, beside)
+        module = sys.modules[name] = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[name]
+            raise
+    return module
+
+
 def open_pipe(endpoint, timeout, **options):
     """Open a Windows control pipe after `reference_wrapper_windows` checks it."""
-    import reference_wrapper_windows as windows  # Beside this file; needs its directory on sys.path.
+    windows = _pipe_transport()
     try:
         return windows.open_pipe(endpoint, timeout, **options)
     except windows.PipeRefused as error:

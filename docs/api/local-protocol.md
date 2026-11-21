@@ -3,8 +3,9 @@
 Draft for protocol 1 and schema major `"1"`. Use the wire names and request
 fields in the [client message schema][client-schema], [server message schema][server-schema]
 and [request schema][request-schema]. The [Python reference wrapper][wrapper]
-implements the Unix client against the current protocol. This document marks
-future wire behavior as **planned (ADR-0013, provisional)**.
+implements the client against the current protocol, over Unix sockets and
+Windows named pipes. This document marks future wire behavior as
+**planned (ADR-0013, provisional)**.
 
 ## Endpoint and authentication
 
@@ -13,7 +14,9 @@ together. On Unix the control socket is `control.sock` in the runtime directory.
 On Windows the control pipe uses a local name of the form
 `\\.\pipe\heimdall-<token>-control`. A harness that starts its own runtime can
 supply its socket path and read `data.environment_id` from
-`heimdall --json service status`. Keep the runtime advertisement private.
+`heimdall --json service status`. A pipe name carries an unpredictable token,
+so a Windows client learns it only from the planned `data.control_endpoint`
+described below. Keep the runtime advertisement private.
 The control protocol has no TCP transport. Use a signing endpoint only from
 a binding's `consumer` descriptor, for that binding's child. The signing protocol
 is SSH agent IPC. The issuer endpoint is private to the supervisor.
@@ -27,13 +30,38 @@ Before sending any data, a client MUST perform the checks for its platform.
   the connected peer's UID equals the client's effective UID, using
   `getsockopt(SOL_SOCKET, SO_PEERCRED)` on Linux or `getpeereid` (or
   `LOCAL_PEERCRED`) on macOS. Close on an unavailable or mismatched credential.
-- **Windows.** Normalize the local named-pipe path with `GetFullPathNameW` and
-  verify the `\\.\pipe\` namespace. Open with
-  `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, verify `FILE_TYPE_PIPE`
-  and compare the pipe owner SID to the caller's SID. Verifying the SID of the
-  server process returned by `GetNamedPipeServerProcessId` is
-  **planned (ADR-0013, provisional)**. A client implementing the ADR-0013
-  checks MUST verify that SID also equals the caller's.
+- **Windows.** Perform these steps in order. Close the handle on any failure,
+  including a call that fails.
+  1. Normalize the path with `GetFullPathNameW` and verify the `\\.\pipe\` or
+     `\\?\pipe\` namespace. The pipe name MUST start with `heimdall-`, as
+     defence in depth. It MUST also end in `-control`, because a control client
+     never opens a signing or issuer pipe. Refuse any other path without
+     opening it. [ADR-0013 §8][freeze] gains both name rules as MUSTs at
+     revision 7.
+  2. Open the normalized path with `CreateFileW`, using
+     `GENERIC_READ | GENERIC_WRITE`, `OPEN_EXISTING` and
+     `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`. The server can then
+     identify the client and cannot act as it.
+  3. Verify that `GetFileType` reports `FILE_TYPE_PIPE`.
+  4. Verify that the pipe's owner SID equals the caller's user SID. Read the
+     owner with `GetSecurityInfo` and `OWNER_SECURITY_INFORMATION` on the
+     handle. Read the caller's SID from its process token.
+  5. Verify that the server process runs as the caller's user SID. Take its
+     process ID from `GetNamedPipeServerProcessId`. Read its SID with
+     `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, `OpenProcessToken` and
+     `GetTokenInformation(TokenUser)`. This step is
+     **planned (ADR-0013, provisional)**, and a client implementing the
+     ADR-0013 checks MUST perform it.
+
+  Compare SIDs as SIDs, with `EqualSid` or in `S-1-…` string form. Never
+  compare account names. The reference wrapper performs all five steps,
+  including both name rules. It also requires the name to be a single
+  component. It has no option for another expected owner SID, so it refuses
+  a pipe with any other owner, including an elevated runtime's default
+  owner. A pipe handle has no socket timeout. The wrapper uses
+  overlapped reads and writes. At its timeout it cancels the transfer with
+  `CancelIoEx`, waits for the cancellation to settle and closes the
+  connection.
 - **Both.** Verify the server hello's `environment_id` equals the expected ID
   before sending a request. Close on mismatch. The server independently
   authenticates the client against the runtime owner's UID or SID.

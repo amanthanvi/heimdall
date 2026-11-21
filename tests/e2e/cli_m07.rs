@@ -580,12 +580,30 @@ async fn status_counts_only_live_approvals_in_human_output() {
         "inspect lists operations",
     );
     let human = cli_output(&home, cli(&home, &root, &["status"])).await;
+    let (capabilities, capabilities_output) = inspect("capabilities").await;
+    let disclosure = capabilities["data"]["lock"]["disclosure"].as_str();
+    verify(
+        &home,
+        &capabilities_output,
+        disclosure.is_some_and(|text| text.contains("has not been verified yet")),
+        "the fixture runtime reports unverified lock continuity",
+    );
     verify(
         &home,
         &human,
         human.status.success()
             && String::from_utf8_lossy(&human.stdout).contains("1 waiting for your approval."),
         "only one approval is live",
+    );
+    let shown = String::from_utf8_lossy(&human.stdout);
+    verify(
+        &home,
+        &human,
+        shown.contains(&format!(
+            "Desktop lock: saved personal setting \"continue\".\n{}\n",
+            disclosure.unwrap()
+        )),
+        "status shows the saved setting with the runtime's verbatim lock disclosure",
     );
     let prior_shape = heimdall_contract::Envelope::ok(serde_json::json!({
         "running": true,
@@ -740,6 +758,199 @@ async fn cli_sync_wait_explains_itself() {
     stop_test_runtime(&home, &root, serving).await;
 }
 
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn enrollment_wait_explains_an_interrupted_step() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use heimdall_app::enrollment::StepAnswer;
+    use heimdall_contract::enrollment::{
+        EnrollmentRequest, NarrowingPins, RemoteStage, RemoteStep, SshOption, StepPins,
+    };
+    use heimdall_contract::ipc::{
+        ClientMessage, MAX_CONTROL_FRAME_BYTES, PeerInfo, PrincipalInfo, ServerMessage,
+    };
+    use heimdall_contract::request::Request;
+    use heimdall_contract::{Code, Envelope, OperationState};
+    use heimdall_ipc::unix::{Listener, current_uid};
+    use heimdall_ipc::{EndpointKind, EndpointPaths, encode_frame};
+    use heimdall_runtime::instance::InstanceInfo;
+    use heimdall_testkit::registry::{PauseHooks, hook};
+    use rustix::process::{Pid, Signal, kill_process};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio::net::UnixStream;
+
+    async fn receive(stream: &mut UnixStream) -> Option<ClientMessage> {
+        let len = match stream.read_u32().await {
+            Ok(len) => len as usize,
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return None,
+            Err(error) => panic!("fixture control read failed: {}", error.kind()),
+        };
+        assert!(len <= MAX_CONTROL_FRAME_BYTES);
+        let mut frame = vec![0; len];
+        stream.read_exact(&mut frame).await.unwrap();
+        Some(heimdall_ipc::session::parse_frame(&frame).unwrap())
+    }
+
+    const OP: &str = "op_enroll-interrupt";
+    let home = cli_scratch();
+    let root = home.root.join("heimdall");
+    let paths = Paths::under(&root);
+    paths.ensure().unwrap();
+    let endpoints = EndpointPaths::for_runtime(&paths.runtime_dir, "");
+    let control = Listener::bind(&endpoints.control, EndpointKind::Control).unwrap();
+    let _signing = Listener::bind(&endpoints.signing, EndpointKind::Signing).unwrap();
+    InstanceInfo {
+        pid: std::process::id(),
+        started_at: InstanceInfo::current_started_at().unwrap(),
+        version: "0.0.0".into(),
+        control_endpoint: endpoints.control.to_str().unwrap().into(),
+        signing_endpoint: endpoints.signing.to_str().unwrap().into(),
+    }
+    .write(&paths.runtime_dir)
+    .unwrap();
+
+    // Reuse M03's pause point with a local stand-in for SSH. The real CLI receives
+    // the ready line, sends the script and starts waiting without opening a connection.
+    let hooks = PauseHooks::new(home.scratch()).unwrap();
+    hooks.arm(hook::BEFORE_WRITE).unwrap();
+    let shim = home.root.join("step-client");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\n{}\n",
+            heimdall_enroll::remote::STEP_REMOTE_COMMAND
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let step = StepAnswer::Step {
+        step: Box::new(RemoteStep {
+            stage: RemoteStage::Append,
+            step_token: "1".repeat(32),
+            client: shim.to_str().unwrap().to_owned(),
+            pins: StepPins {
+                narrowing: NarrowingPins(vec![SshOption {
+                    key: "BatchMode".into(),
+                    value: "yes".into(),
+                }]),
+                ..StepPins::default()
+            },
+            alias: "fixture".into(),
+            remote_command: heimdall_enroll::remote::STEP_REMOTE_COMMAND.into(),
+            script: hooks.snippet(hook::BEFORE_WRITE) + "\n",
+            timeout_ms: 15000,
+            hard_deadline_ms: 15000,
+            not_after_remote: None,
+        }),
+    };
+
+    let mut cmd = cli(&home, &root, &["enroll", "reconcile", OP]);
+    cmd.stdin(Stdio::null());
+    let (mut child, log) = ChildLog::start(&home, cmd);
+    let (mut wire, hello) = tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let (mut wire, _) = control.accept().await.unwrap();
+            // The launcher first checks socket liveness without sending a hello.
+            if let Some(ClientMessage::Hello(hello)) = receive(&mut wire).await {
+                break (wire, hello);
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let hello = heimdall_ipc::session::negotiate(
+        &hello,
+        PrincipalInfo::OsUserUnix { uid: current_uid() },
+        heimdall_contract::ids::EnvironmentId::parse("env_fixture").unwrap(),
+        PeerInfo {
+            name: "fixture-runtime".into(),
+            version: "0.0.0".into(),
+        },
+    )
+    .unwrap();
+    wire.write_all(&encode_frame(&ServerMessage::Hello(hello), MAX_CONTROL_FRAME_BYTES).unwrap())
+        .await
+        .unwrap();
+    let mut accepted = Envelope::ok(serde_json::json!({"next": "step"}));
+    accepted.code = Code::Accepted;
+    accepted.state = OperationState::Running;
+    accepted.operation_id = Some(heimdall_contract::ids::OperationId::parse(OP).unwrap());
+    for envelope in [accepted, Envelope::ok(serde_json::to_value(step).unwrap())] {
+        let message = tokio::time::timeout(TIMEOUT, receive(&mut wire))
+            .await
+            .unwrap();
+        let Some(ClientMessage::Request {
+            seq,
+            request: Request::Enrollment(request),
+        }) = message
+        else {
+            panic!("expected an enrollment request");
+        };
+        match request {
+            EnrollmentRequest::Reconcile { operation_id, .. }
+                if envelope.code == Code::Accepted =>
+            {
+                assert_eq!(operation_id.as_str(), OP);
+            }
+            EnrollmentRequest::Step { operation_id } if envelope.code == Code::Ok => {
+                assert_eq!(operation_id.as_str(), OP);
+            }
+            _ => panic!("unexpected enrollment request"),
+        }
+        let reply = ServerMessage::Response {
+            in_reply_to: seq,
+            envelope,
+        };
+        wire.write_all(&encode_frame(&reply, MAX_CONTROL_FRAME_BYTES).unwrap())
+            .await
+            .unwrap();
+    }
+
+    const NOTICE: &str = "Ctrl-C interrupts the step.";
+    log.wait_for(
+        &home,
+        &mut child,
+        &log.stderr,
+        "enrollment wait notice",
+        |text| text.contains("Waiting for the enrollment steps to finish"),
+    )
+    .await;
+    let reached = hooks
+        .wait_at_for(hook::BEFORE_WRITE, Duration::from_secs(3))
+        .unwrap();
+    assert!(reached.pid.is_some());
+    assert!(child.try_wait().unwrap().is_none());
+    kill_process(
+        Pid::from_raw(child.id().unwrap().try_into().unwrap()).unwrap(),
+        Signal::INT,
+    )
+    .unwrap();
+    let out = log.finish(&home, child).await;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    verify(
+        &home,
+        &out,
+        out.status.code() == Some(7)
+            && stderr.matches(NOTICE).count() == 1
+            && stderr.contains(&format!(
+                "You may need to check its outcome with `heimdall enroll reconcile {OP}`."
+            ))
+            && stderr.contains(&format!(
+                "the change may have been applied; run `heimdall enroll reconcile {OP}`"
+            ))
+            && !stderr.contains("does not cancel the request"),
+        "interrupt describes its uncertain enrollment outcome",
+    );
+    assert!(
+        tokio::time::timeout(TIMEOUT, receive(&mut wire))
+            .await
+            .unwrap()
+            .is_none(),
+        "interrupted step sent a result"
+    );
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn cli_standalone_access_and_stop() {
     let home = cli_scratch();
@@ -891,9 +1102,10 @@ async fn cli_standalone_access_and_stop() {
     verify(&home, &status, status.status.success(), "status succeeded");
     let shown = String::from_utf8_lossy(&status.stdout);
     for expected in [
-        "uses lab-access automatically.",
+        "Personal access on this computer: lab-access configured for automatic use.",
         "Active work on this computer: 1 session has access.",
-        "Desktop lock: work continues while your desktop is locked.",
+        "Desktop lock: saved personal setting \"continue\".",
+        "Approved work is designed to keep working while your screen or password manager is locked",
         "heimdall access pause --profile <profile>",
         "heimdall access stop --work <work-id>",
     ] {

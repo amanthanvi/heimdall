@@ -4,14 +4,27 @@
 The skill is guidance only (R-AP-08): it may name the six primitive groups and
 read-only commands, and it must never contain an approval, a confirmation, a way
 around the boundary, or a real host, path or key. This script checks that, and that
-every `heimdall ...` command line in a code block names a command path the given
-binary actually has (`<bin> <path> --help` exits 0), so the skill cannot drift from
-the installed CLI.
+every `heimdall ...` command in code names a command path the given binary actually
+has (`<bin> <path> --help` exits 0), so the skill cannot drift from the installed CLI.
 
-A self-check first runs every rule against a known-bad skill text and requires each
-rule to fire, so a lint that accepts everything cannot pass.
+⟨M07-W1-R05⟩ The Markdown is read in one pass (`scan`), and every code check uses its
+result. Code is: a fenced block (backtick or tilde fence of three or more characters, with
+or without an info string, closed only by a fence of the same character that is at least
+as long; an unclosed fence runs to the end), a line indented by four spaces or a tab, and
+an inline span (which may wrap across the lines of a paragraph). A block quote's `>`
+markers are removed first, and a fence may open on a list item's first line, so code
+inside a quote or a list is read the same way.
 
-Usage: python3 -I tools/validation/skill_lint.py [--heimdall BIN] [SKILL.md]
+A command is one plain invocation. The program name must be the first word of its code
+line or span. Anywhere else it is a finding: after a shell prompt (`$ `, `> `, `PS> `),
+after `&&`, behind another program, or in prose. A command line with shell syntax
+(`&&`, `||`, `;`, `|`, a backtick, `$(`, a redirection, a line continuation) is a finding
+as a whole. Findings give a line number and a rule, and never echo the skill's text.
+
+A self-check first runs every rule against known-bad skill text and requires each rule to
+fire, so a lint that accepts everything cannot pass.
+
+Usage: python3 -I -B tools/validation/skill_lint.py [--heimdall BIN] [SKILL.md]
 Exit: 0 clean, 1 findings (or a failed self-check), 2 usage (missing file or binary).
 """
 
@@ -91,56 +104,78 @@ ALLOWED = {
 }
 
 
-def code_lines(text):
-    """Lines inside code: 4-space indented blocks, fenced blocks; plus inline spans."""
-    out = []
-    fenced = False
-    for line in text.splitlines():
-        if line.strip().startswith("```"):
-            fenced = not fenced
-            continue
-        if fenced or line.startswith("    "):
-            out.append(line.strip())
-    out.extend(re.findall(r"`([^`]+)`", text))
-    return out
+QUOTE = re.compile(r"(?: {0,3}>[ \t]?)+")
+FENCE = re.compile(r"\s*(?:(?:[-*+]|\d+[.)])\s+)*(`{3,}|~{3,})(.*)")
+SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+NAME = r"\bheimdall\b"
+PROMPT = re.compile(r"(?:[$>%#]|PS[^>]*>)\s+(?=heimdall\b)")
+PLACEHOLDER = re.compile(r"<[a-z][a-z0-9-]*>")
+SHELL_SYNTAX = re.compile(r"[;|&`$<>\\]")
 
 
-def commands(text):
-    """Each `heimdall ...` invocation in code: (subcommand path, its flags, 1-based line)."""
-    found = []
-    fenced = False
-    spans = []
-    for n, line in enumerate(text.splitlines(), 1):
-        if line.strip().startswith("```"):
-            fenced = not fenced
+def scan(text):
+    """One pass over the Markdown, tracking fence state.
+
+    Returns `(code, prose)`. `code` lists every piece of code as `(line, text)`: each line of
+    a fenced or indented block, and each inline span (joined to one line, at the line where
+    it opens). `prose` lists every other line as `(line, text)` with its inline spans blanked.
+    """
+    code, prose, paragraph, fence, fence_quoted = [], [], [], None, False
+
+    def flush():  # An inline span may wrap, so spans are found per paragraph.
+        joined = "\n".join(line for _, line in paragraph)
+        for span in SPAN.finditer(joined):
+            code.append((paragraph[joined.count("\n", 0, span.start())][0], " ".join(span[2].split())))
+        blanked = SPAN.sub(lambda span: re.sub(r"[^\n]", " ", span[0]), joined)
+        prose.extend(zip((n for n, _ in paragraph), blanked.split("\n")))
+        paragraph.clear()
+
+    for n, raw in enumerate(text.splitlines(), 1):
+        quote = QUOTE.match(raw)
+        line = raw[quote.end():] if quote else raw
+        if fence:
+            # Inside a fence, `> ` is a quote marker only when the fence itself is quoted.
+            inner = line if fence_quoted else raw
+            if re.fullmatch(rf"\s*{re.escape(fence[0])}{{{len(fence)},}}\s*", inner):
+                fence = None
+            else:
+                code.append((n, inner.strip()))
             continue
-        if fenced or line.startswith("    "):
-            spans.append((n, line.strip()))
-        spans.extend((n, span) for span in re.findall(r"`([^`]+)`", line))
-    for n, span in spans:
-        words = span.split()
-        if not words or words[0] != "heimdall":
-            continue
-        rest = [w for w in words[1:] if w not in GLOBAL_FLAGS]
-        path = []
-        while rest and not rest[0].startswith(("-", "<")):
-            path.append(rest.pop(0))
-        # `inspect <subject>` and `schema show <name>` take a literal operand.
-        for known in sorted(ALLOWED, key=len, reverse=True):
-            if tuple(path[:len(known)]) == known:
-                path = path[:len(known)]
-                break
-        flags = []
-        for w in rest:
-            if w == "--":
-                flags.append(w)
-                break
-            if w.startswith("-"):
-                flags.append(w.split("=", 1)[0])
-        if not path and not flags:
-            continue  # the bare program name in prose
-        found.append((tuple(path), flags, n))
-    return found
+        opener = FENCE.match(line)
+        # A backtick fence's info string holds no backtick (that is an inline span).
+        if opener and not (opener[1][0] == "`" and "`" in opener[2]):
+            flush()
+            fence, fence_quoted = opener[1], bool(quote)
+        elif line.startswith(("    ", "\t")):
+            flush()
+            code.append((n, line.strip()))
+        elif not line.strip():
+            flush()
+        else:
+            paragraph.append((n, line))
+    flush()
+    return code, prose
+
+
+def command(snippet):
+    """The subcommand path and flags of one `heimdall ...` invocation."""
+    rest = [w for w in snippet.split()[1:] if w not in GLOBAL_FLAGS]
+    path = []
+    while rest and not rest[0].startswith(("-", "<")):
+        path.append(rest.pop(0))
+    # `inspect <subject>` and `schema show <name>` take a literal operand.
+    for known in sorted(ALLOWED, key=len, reverse=True):
+        if tuple(path[:len(known)]) == known:
+            path = path[:len(known)]
+            break
+    flags = []
+    for w in rest:
+        if w == "--":
+            flags.append(w)
+            break
+        if w.startswith("-"):
+            flags.append(w.split("=", 1)[0])
+    return tuple(path), flags
 
 
 def lint(text, path_exists):
@@ -148,15 +183,30 @@ def lint(text, path_exists):
     lines = text.splitlines()
     if len(lines) > MAX_LINES:
         findings.append(f"{len(lines)} lines, above the {MAX_LINES}-line cap")
-    if not re.match(r"^---\nname: \S+\ndescription: .+\n---\n", text):
+    front = re.match(r"^---\nname: \S+\ndescription: .+\n---\n", text)
+    if not front:
         findings.append("front matter must start the file with `name:` and `description:`")
-    section = re.search(r"^## The six groups\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-    if not section:
+    code, prose = scan(text)
+
+    # Group headings are reported by line number and expected name, never by their own text.
+    inside, found, heads = False, False, []
+    for n, line in prose:
+        if re.match(r"##(?!#)", line):
+            inside = line.rstrip() == "## The six groups"
+            found = found or inside
+        elif inside and re.match(r"###(?!#)", line):
+            heads.append((n, line.rstrip()))
+    if not found:
         findings.append("no `## The six groups` section")
     else:
-        heads = re.findall(r"^### (.+)$", section.group(1), re.M)
-        if heads != GROUPS:
-            findings.append(f"group headings {heads} are not exactly {GROUPS}")
+        for i, (n, line) in enumerate(heads):
+            if i >= len(GROUPS):
+                findings.append(f"line {n}: a group heading beyond the six")
+            elif line != f"### {GROUPS[i]}":
+                findings.append(f"line {n}: group heading {i + 1} is not `{GROUPS[i]}`")
+        if len(heads) < len(GROUPS):
+            findings.append(f"{len(heads)} group headings in `## The six groups`, not {len(GROUPS)}")
+
     # A match is reported by line number and rule only: its value (a path, an ID, a key)
     # is never echoed into the lint's output.
     def line_of(source, m):
@@ -165,15 +215,36 @@ def lint(text, path_exists):
     for pattern, what in FORBIDDEN_TEXT:
         for m in re.finditer(pattern, text, re.I):
             findings.append(f"line {line_of(text, m)}: forbidden: {what}")
-    for n, line in enumerate(lines, 1):
-        code = " ".join(code_lines(line + "\n")) if "`" in line or line.startswith("    ") else ""
+    for n, snippet in code:
         for pattern, what in FORBIDDEN_CODE:
-            if re.search(pattern, code):
+            if re.search(pattern, snippet):
                 findings.append(f"line {n}: forbidden in code: {what}")
     for pattern, what in REAL_DATA:
         for m in re.finditer(pattern, text):
             findings.append(f"line {line_of(text, m)}: real-looking data: {what}")
-    for path, flags, n in commands(text):
+
+    # Every mention of the program name is accounted for: it starts a code line or span that
+    # holds one plain, allowed invocation, or it is a finding.
+    for n, line in prose:
+        named = front and n == 2  # The front matter's own `name:` line.
+        if re.search(NAME, line) and not named:
+            findings.append(f"line {n}: the program name outside code")
+    for n, snippet in code:
+        prompt = PROMPT.match(snippet)
+        if prompt:
+            findings.append(f"line {n}: a shell prompt before the command")
+            snippet = snippet[prompt.end():]
+        starts = snippet.split()[:1] == ["heimdall"]
+        if len(re.findall(NAME, snippet, re.I)) > starts:
+            findings.append(f"line {n}: the program name is not at the start of its code line or span")
+        if not starts:
+            continue
+        if SHELL_SYNTAX.search(PLACEHOLDER.sub("", snippet)):
+            findings.append(f"line {n}: shell syntax in a command line (one plain invocation only)")
+            continue
+        path, flags = command(snippet)
+        if not path and not flags:
+            continue  # the bare program name
         if path not in ALLOWED:
             findings.append(f"line {n}: command outside the six groups and the named "
                             f"discovery and handoff paths")
@@ -221,9 +292,9 @@ description: a bad skill
 ### ensure
 ### bind
 ### delegate
-### observe
+### watchgroup
 ### release / revoke
-### extra
+### surplusgroup
 
     heimdall decision approve dec_0123456789abcdef0123456789abcdef
     heimdall frobnicate --json
@@ -235,32 +306,97 @@ description: a bad skill
     cat ~/.ssh/config; sqlite3 heimdall.db; 10.0.0.1; a@b.example
 """
 
+HEAD = ("---\nname: x\ndescription: y\n---\n## The six groups\n"
+        + "".join(f"### {g}\n" for g in GROUPS) + "\n")
+
+# Allowed commands in every form of code, and prose that only looks like a protocol message.
+GOOD = HEAD + """```sh
+heimdall --json inspect capabilities
+```
+
+~~~~
+heimdall tui
+~~~~
+
+    heimdall --json operation show <operation-id>
+
+Use `heimdall decision list` or the bare `heimdall`, and wait with `heimdall --json
+operation wait <operation-id>`. Decide from `code`.
+"""
+
+REMOVE = "heimdall destination remove <alias>"  # A command the CLI has and the table lacks.
+OUTSIDE = "command outside the six groups"
+SYNTAX = "shell syntax in a command line"
+# ⟨M07-W1-R05⟩ Each body follows HEAD. The finding must name that line of the body and the rule.
+NEGATIVES = [
+    # The review's four.
+    ("```\nDecide\n```\n", 2, "the Decide message"),
+    (f"~~~sh\n{REMOVE}\n~~~\n", 2, OUTSIDE),
+    (f"    $ {REMOVE}\n", 1, "a shell prompt"),
+    (f"    heimdall --json inspect capabilities && {REMOVE}\n", 1, SYNTAX),
+    # A shorter or different fence does not close a fence.
+    ("````text\n```\nDecide\n````\n", 3, "the Decide message"),
+    (f"~~~\n```\n{REMOVE}\n~~~\n", 3, OUTSIDE),
+    # Code inside a block quote and inside a list item.
+    ("> ```\n> Decide\n> ```\n", 2, "the Decide message"),
+    (">     Decide\n", 1, "the Decide message"),
+    (f"- ```\n  {REMOVE}\n  ```\n", 2, OUTSIDE),
+    # The other prompts. An unindented `> ` outside a fence is a Markdown quote, so its text is
+    # prose. Inside an unquoted fence it is a prompt.
+    (f"```\n> {REMOVE}\n```\n", 2, "a shell prompt"),
+    (f"    $ {REMOVE}\n", 1, OUTSIDE),
+    (f"    > {REMOVE}\n", 1, "a shell prompt"),
+    (f"    PS> {REMOVE}\n", 1, "a shell prompt"),
+    (f"Run `PS C:> {REMOVE}` now.\n", 1, "a shell prompt"),
+    (f"> {REMOVE}\n", 1, "the program name outside code"),
+    # The other compound forms.
+    ("    heimdall --json inspect capabilities || heimdall tui\n", 1, SYNTAX),
+    ("    heimdall --json inspect capabilities; heimdall tui\n", 1, SYNTAX),
+    ("    heimdall --json inspect capabilities | sh\n", 1, SYNTAX),
+    ("    heimdall --json inspect `id`\n", 1, SYNTAX),
+    ("    heimdall --json inspect $(id)\n", 1, SYNTAX),
+    ("    heimdall --json inspect capabilities > <file>\n", 1, SYNTAX),
+    # The program name behind another program, in another case, and in a span that wraps.
+    (f"    sudo {REMOVE}\n", 1, "not at the start"),
+    ("    Heimdall destination remove <alias>\n", 1, "not at the start"),
+    ("Run `heimdall destination\nremove <alias>` now.\n", 1, OUTSIDE),
+]
+
 
 def self_check():
     findings = lint(BAD, lambda path: True)
     expected = [
-        "group headings", "an approval command", "a time confirmation command",
+        "group heading 5 is not", "a group heading beyond the six",
+        "an approval command", "a time confirmation command",
         "a home override", "the SSH directory", "the private database",
         "answering a confirmation", "the Decide message", "the Attend message",
         "an absolute path", "an IP address", "an email address", "a real ID",
         # ⟨M07-W0-R10⟩ The three bypasses the W0 review found: an owner-only command the CLI
         # has, a flag outside the table, and an ordinary single-backslash Windows path.
-        "command outside the six groups", "flag not allowed", "a Windows path",
+        OUTSIDE, "flag not allowed", "a Windows path",
     ]
     missing = [e for e in expected if not any(e in f for f in findings)]
-    # No finding may echo a matched value.
-    leaked = [f for f in findings if "0123456789abcdef" in f or "someone" in f or "Temp" in f]
+    # No finding may echo a matched value or a heading's text.
+    echoed = ("0123456789abcdef", "Temp", "example", "frobnicate", "watchgroup", "surplusgroup")
+    leaked = [f for f in findings if any(value in f for value in echoed)]
     if missing or leaked:
         print("skill-lint: self-check failed; rules that did not fire: " + ", ".join(missing)
               + ("; a finding echoed a matched value" if leaked else ""))
         return False
     # A command in the table that the binary lacks is still a finding.
-    absent = lint("---\nname: x\ndescription: y\n---\n## The six groups\n"
-                  + "".join(f"### {g}\n" for g in GROUPS) + "\n    heimdall tui\n",
-                  lambda path: False)
+    absent = lint(HEAD + "    heimdall tui\n", lambda path: False)
     if not any("command not in the CLI" in f for f in absent):
         print("skill-lint: self-check failed; a missing command was accepted")
         return False
+    if lint(GOOD, lambda path: True):
+        print("skill-lint: self-check failed; a clean skill has findings")
+        return False
+    first = HEAD.count("\n")
+    for number, (body, line, rule) in enumerate(NEGATIVES, 1):
+        found = lint(HEAD + body, lambda path: True)
+        if not any(f.startswith(f"line {first + line}: ") and rule in f for f in found):
+            print(f"skill-lint: self-check failed; negative {number} was accepted (rule: {rule})")
+            return False
     return True
 
 

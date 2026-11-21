@@ -127,7 +127,7 @@ mod pty {
     use std::os::unix::process::CommandExt as _;
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, Stdio};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -824,6 +824,60 @@ mod pty {
             .unwrap();
     }
 
+    /// A loopback fixture for the `network` probe level (m07-plan U1c): a listener on
+    /// `127.0.0.1` (an ephemeral port; never a public address) that counts the
+    /// connections it accepts and answers each with an SSH identification line, then
+    /// closes it. It reads nothing and speaks no SSH beyond that line.
+    struct BannerFixture {
+        port: u16,
+        accepted: Arc<AtomicUsize>,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl BannerFixture {
+        fn start() -> BannerFixture {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let accepted = Arc::new(AtomicUsize::new(0));
+            let stop = Arc::new(AtomicBool::new(false));
+            let (count, done) = (accepted.clone(), stop.clone());
+            let thread = std::thread::spawn(move || {
+                while !done.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            let _ = stream.set_nonblocking(false);
+                            let _ = stream.write_all(b"SSH-2.0-hm-m07-banner-fixture\r\n");
+                        }
+                        Err(_) => std::thread::sleep(Duration::from_millis(10)),
+                    }
+                }
+            });
+            BannerFixture {
+                port,
+                accepted,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        /// How many connections the fixture has accepted so far.
+        fn accepted(&self) -> usize {
+            self.accepted.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Drop for BannerFixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(t) = self.thread.take() {
+                let _ = t.join();
+            }
+        }
+    }
+
     /// The selected tab's number, from the header (`[2 Destinations]`).
     fn selected_tab(screen: &str) -> Option<u8> {
         let header = screen.lines().next()?;
@@ -1276,8 +1330,11 @@ mod pty {
     /// still selected and visible, the footer's key hints readable and the search results
     /// shown; the stop menu opened and escaped; a stop whose keys arrive in one batch, with
     /// no frame between them, refused (the M07-W0-R01 ruling for the stop menu); the
-    /// operation cancelled with `x`; `?`; and `q`, with the terminal's modes byte-identical
-    /// to before.
+    /// operation's detail opened and `x` pressed in one batch, which cancels nothing, then
+    /// the operation cancelled with `x` once its detail is on screen (m07-plan U1c); the
+    /// `network` probe of an alias that names a loopback fixture, not run by a batch that
+    /// opens the menu and presses Enter, then run once the menu is on screen (U1c); `?`;
+    /// and `q`, with the terminal's modes byte-identical to before.
     #[test]
     fn a20_keyboard_walkthrough() {
         let w = World::new(&[
@@ -1300,6 +1357,22 @@ mod pty {
             "--async",
         ]);
         let op = ensure["operation_id"].as_str().unwrap().to_owned();
+        // m07-plan U1c: an observed alias that the scratch configuration (the static
+        // pass's too) points at a loopback fixture, the only thing a probe here contacts.
+        const PROBED: &str = "hm-m07-probed";
+        let banner = BannerFixture::start();
+        let ssh_dir = w.ssh_home.join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        std::fs::write(
+            ssh_dir.join("config"),
+            format!(
+                "Host {PROBED}\n    HostName 127.0.0.1\n    Port {}\n",
+                banner.port
+            ),
+        )
+        .unwrap();
+        let added = w.json(&["--json", "destination", "add", PROBED, "--observed"]);
+        assert_eq!(added["code"], "OK", "{added}");
         let n = w.destination_count();
         let pty = Pty::open(40, 120);
         let before = modes(&pty.termios());
@@ -1415,6 +1488,39 @@ mod pty {
             "{}",
             w.screen()
         );
+        // m07-plan U1c, in the real input loop. One write is one batch of keys with no
+        // frame between them: Enter opens the operation's detail and `x` would cancel
+        // it. No frame had drawn that operation when the `x` arrived, so nothing is
+        // sent: the detail is on screen, the status line says why, and the operation
+        // still runs.
+        pty.write(b"\rx");
+        w.wait_screen("the batch's outcome", LONG, |s| {
+            footer(s).contains("not on screen yet") || footer(s).contains("cancel")
+        });
+        let refused = w.screen();
+        for shown in [op.as_str(), "State: running", "x cancels it"] {
+            assert!(refused.contains(shown), "{shown}:\n{refused}");
+        }
+        assert_eq!(
+            footer(&refused),
+            "not on screen yet: nothing was sent",
+            "{refused}"
+        );
+        let shown = w.json(&["--json", "operation", "show", &op]);
+        assert!(
+            shown["state"] == "running" || shown["state"] == "queued",
+            "the batched x cancelled nothing: {shown}"
+        );
+        pty.write(b"\x1b");
+        w.wait_screen("back on the overview", LONG, |s| {
+            selected_tab(s) == Some(1) && !s.contains("State: running")
+        });
+        assert!(
+            selected_row(&w.screen()).unwrap().contains(&op),
+            "{}",
+            w.screen()
+        );
+        // The same keys with a frame between them: the detail is drawn, then x.
         pty.write(b"\r");
         w.wait_screen("the operation detail", LONG, |s| {
             s.contains("State: running") && footer(s).contains("x cancel")
@@ -1439,6 +1545,77 @@ mod pty {
         pty.write(b"\x1b");
         w.wait_screen("back on the overview", LONG, |s| {
             selected_tab(s) == Some(1) && s.contains("Static pass:")
+        });
+
+        // m07-plan U1c, the network probe, in the real input loop. The alias that names
+        // the loopback fixture is selected on Destinations (the earlier search cleared).
+        pty.write(b"2");
+        w.wait_screen("Destinations again", LONG, |s| {
+            selected_tab(s) == Some(2) && s.contains("Filter: host-00001")
+        });
+        pty.write(b"/");
+        w.wait_screen("the search field", LONG, |s| {
+            s.contains("Search: host-00001_")
+        });
+        pty.write(b"\x1b");
+        w.wait_screen("the search cleared", LONG, |s| {
+            s.contains("total · / to search")
+        });
+        pty.write(format!("/{PROBED}").as_bytes());
+        w.wait_screen("the fixture alias found", LONG, |s| {
+            s.contains(&format!("Search: {PROBED}_  (1 of"))
+        });
+        pty.write(b"\r");
+        w.wait_screen("the fixture alias selected", LONG, |s| {
+            s.contains(&format!("Filter: {PROBED}  (1 of"))
+                && selected_row(s).is_some_and(|r| r.contains(PROBED))
+        });
+        // One write is one batch: open the probe menu, move to `network`, Enter. No
+        // frame had drawn the menu when the Enter arrived, so no probe runs: the menu
+        // stays open on that level, says why, and the fixture saw no connection.
+        pty.write(b"p\x1b[B\x1b[B\x1b[B\r");
+        w.wait_screen("the batch's outcome", LONG, |s| {
+            s.contains("Enter refused") || s.contains("network probe: ")
+        });
+        let refused = w.screen();
+        for shown in [
+            format!("Explicit probes for {PROBED}; each names its level:"),
+            "> network ".to_owned(),
+            "Enter refused: it was not on screen".to_owned(),
+            "not on screen yet: no probe ran".to_owned(),
+        ] {
+            assert!(refused.contains(&shown), "{shown}:\n{refused}");
+        }
+        assert_eq!(banner.accepted(), 0, "the batched Enter probed nothing");
+        pty.write(b"\x1b");
+        w.wait_screen("the probe menu closed", LONG, |s| {
+            !s.contains("Explicit probes")
+        });
+        // The same keys with a frame after each: the menu, the level, then Enter.
+        pty.write(b"p");
+        w.wait_screen("the probe menu", LONG, |s| {
+            s.contains(&format!("Explicit probes for {PROBED};")) && s.contains("> static ")
+        });
+        for name in ["evaluate", "agent", "network"] {
+            pty.write(b"\x1b[B");
+            w.wait_screen(&format!("the {name} level selected"), LONG, |s| {
+                s.contains(&format!("> {name} "))
+            });
+        }
+        assert_eq!(banner.accepted(), 0, "nothing is probed before Enter");
+        pty.write(b"\r");
+        let target = format!("network 127.0.0.1:{}: ", banner.port);
+        w.wait_screen("the network probe's result", LONG, |s| s.contains(&target));
+        let result = w.screen();
+        assert!(result.contains(&format!("{target}ok")), "{result}");
+        assert_eq!(
+            banner.accepted(),
+            1,
+            "one connection, to the loopback fixture"
+        );
+        pty.write(b"\x1b");
+        w.wait_screen("the probe's result closed", LONG, |s| {
+            !s.contains("network probe: ")
         });
 
         // The key help, and any key closes it.

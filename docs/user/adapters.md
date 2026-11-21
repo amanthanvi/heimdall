@@ -86,3 +86,12 @@ on them.
 | Trusted projects and shell integration | Heimdall refuses to match a project to saved trust if its filesystem can't report a stable identity for the project files. <!-- workspace_identity_unavailable_is_refused --> |
 | Managed certificate signing during uninstall | If a signing request times out during an access check or work allowed through the uninstall pause, uninstall can proceed while the signing process is still running. A late signature can't publish a certificate. <!-- issuer_request_hold_absent_for_leader_and_lease_work --> |
 | Managing a timed-out certificate signing process | If cleanup is cancelled while waiting for a timed-out signing process, it can signal that child before it verifies the child's identity. The signal is limited to the child it started, and the request leaves no certificate behind. <!-- issuer_cleanup_cancelled_kill_on_drop_signals_unreaped_child --> |
+
+## About this page
+
+A script checks this page against the compatibility matrix and the claims
+table. It checks each setup's matrix rows, its support label and its
+**verified** and **blocked** words. It checks the guarantee table and the known
+limits word for word. It also holds every sentence about revocation, expiry or
+a guarantee to reviewed wording. The rest of the text is written by hand,
+including the details of what was tested, and the script doesn't check it.

@@ -33,6 +33,12 @@
 //!   menu** (`m05::StopMenu::unseen`): they only narrow, but they are persistent changes.
 //!   Both share one drawn-frame marker ([`Seen`]): the draw path counts its frames
 //!   ([`App::begin_frame`]), and only what the latest one drew stands.
+//! * ⟨M07⟩ **Two keys that act with no confirmation act only on what the latest frame
+//!   drew** (m07-plan U1c): `x`, which cancels the operation whose detail is open, and
+//!   Enter on a probe level that contacts something with no typed authorization before
+//!   it ([`contacts_unasked`]: `agent` and `network`). Each has a marker of the same kind
+//!   ([`Sight`]). A key sequence typed ahead of the screen (`4 Enter x`) sends nothing,
+//!   and the status line says why.
 //! * ⟨M07⟩ **A stale decision resets only its own confirmation** (M07-W0-R07), and one
 //!   the TUI's own request created is asked for again with that same request
 //!   ([`Origin`]); its fresh version needs a fresh confirmation.
@@ -672,6 +678,124 @@ impl Seen {
     }
 }
 
+/// ⟨M07⟩ Why Enter on the probe menu ran nothing: the latest frame did not draw that
+/// level of the menu for that alias.
+pub(crate) const REFUSED_PROBE_NOT_DRAWN: &str = "not on screen yet: no probe ran";
+/// ⟨M07⟩ Why Enter on the probe menu ran nothing on a terminal too small for the menu's
+/// alias and that level.
+pub(crate) const REFUSED_PROBE_TOO_SMALL: &str = "too small to show the probe: not run";
+
+/// ⟨M07⟩ Whether the level contacts something outside Heimdall (an agent endpoint, the
+/// host) on the probe menu's Enter alone, with no typed authorization before it. `static`
+/// only reads files again, and the real-tree levels ([`runs_real_tree`]) ask first.
+#[must_use]
+pub(crate) fn contacts_unasked(level: ProbeLevel) -> bool {
+    matches!(level, ProbeLevel::Agent | ProbeLevel::Network)
+}
+
+/// The bit of `PROBE_LEVELS[index]` in a [`Sight`]'s level set.
+fn level_bit(index: usize) -> u8 {
+    u32::try_from(index)
+        .ok()
+        .and_then(|i| 1u8.checked_shl(i))
+        .unwrap_or(0)
+}
+
+/// ⟨M07⟩ The drawn-frame marker of an action that one key sends with no typed
+/// confirmation before it (m07-plan U1c): an operation's cancel (`x`), and Enter on a
+/// probe level that contacts something ([`contacts_unasked`]).
+///
+/// Neither has a confirmation to read, so the guard is on the key: it acts only on a
+/// target the latest frame drew. The marker is named after its target (the operation's
+/// ID, the probe menu's alias). The model starts a fresh one where the target is opened
+/// ([`Sight::of`]), the view reports to it only while it draws that very target
+/// ([`Sight::seen_of`], [`Sight::report_levels`]), and the key is refused when the names
+/// differ or the latest frame reported nothing. Keys handled before a frame (a batch such
+/// as `4 Enter x`) therefore send nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Sight {
+    /// What the marker is of: an operation's ID, or the probe menu's alias.
+    target: String,
+    /// What the frames drew of it ([`Seen`]): for an operation, also which rows of its
+    /// head (its ID, kind and state, and what `x` does).
+    seen: Seen,
+    /// The probe menu only: the levels whose rows the frame last reported drew in full
+    /// ([`level_bit`]).
+    levels: Cell<u8>,
+}
+
+impl Sight {
+    /// A fresh marker of `target`: nothing of it has been drawn.
+    fn of(target: &str) -> Self {
+        Self {
+            target: target.to_owned(),
+            ..Self::default()
+        }
+    }
+
+    /// The marker's [`Seen`], if it is the marker of `target`.
+    #[must_use]
+    pub(crate) fn seen_of(&self, target: &str) -> Option<&Seen> {
+        (self.target == target).then_some(&self.seen)
+    }
+
+    /// The view's report of frame `frame` of the probe menu for `alias`: what it showed,
+    /// and the levels (by index into [`PROBE_LEVELS`]) whose rows it drew in full under
+    /// the alias. A menu for another alias than the marker's reports nothing.
+    pub(crate) fn report_levels(
+        &self,
+        alias: &str,
+        frame: u64,
+        shown: Shown,
+        levels: impl IntoIterator<Item = usize>,
+    ) {
+        if let Some(seen) = self.seen_of(alias) {
+            self.levels
+                .set(levels.into_iter().fold(0, |bits, i| bits | level_bit(i)));
+            seen.report(frame, shown);
+        }
+    }
+
+    /// Why `x` cannot cancel operation `id` now, if it cannot: the latest frame (`frame`,
+    /// [`App::frame`]) must have drawn that operation's detail, and the frames of this
+    /// visit every row of its head ([`Seen::unseen`]).
+    #[must_use]
+    fn cancel_unseen(&self, id: &str, frame: u64) -> Option<&'static str> {
+        match self.seen_of(id) {
+            Some(seen) => seen.unseen(frame),
+            None => Some(REFUSED_NOT_DRAWN),
+        }
+    }
+
+    /// Why Enter cannot run `PROBE_LEVELS[index]` for `alias` now, if it cannot: the
+    /// latest frame must have drawn the menu with that alias and that level's row in
+    /// full.
+    #[must_use]
+    fn level_unseen(&self, alias: &str, index: usize, frame: u64) -> Option<&'static str> {
+        match self.seen_of(alias).map(|s| s.shown(frame)) {
+            Some(Shown::TooSmall) => Some(REFUSED_PROBE_TOO_SMALL),
+            Some(Shown::Drawn) if self.levels.get() & level_bit(index) != 0 => None,
+            _ => Some(REFUSED_PROBE_NOT_DRAWN),
+        }
+    }
+
+    /// Refuse the key for `why`; the next frame says so until the next key.
+    fn refuse(&mut self, why: &'static str) {
+        self.seen.refuse(why, &mut String::new());
+    }
+
+    /// Forget a refusal (the next key was pressed).
+    fn clear_refusal(&mut self) {
+        self.seen.reading.refused = false;
+    }
+
+    /// Why the last key was refused, until the next key.
+    #[must_use]
+    pub(crate) fn refusal(&self, target: &str) -> Option<&'static str> {
+        self.seen_of(target).and_then(Seen::refusal)
+    }
+}
+
 /// The decision modal: the exact recorded request and a typed confirmation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecisionPrompt {
@@ -1022,6 +1146,12 @@ pub(crate) struct App {
     /// ⟨M07⟩ How many frames the draw path has drawn ([`App::begin_frame`]): the clock
     /// the confirmations outside the decision modal are checked against ([`Seen`]).
     frames: Cell<u64>,
+    /// ⟨M07⟩ U1c: what the frames drew of the open operation's detail: `x` cancels only
+    /// an operation the latest frame showed (a fresh marker each time one is opened).
+    operation_sight: Sight,
+    /// ⟨M07⟩ U1c: what the latest frame drew of the open probe menu: Enter runs a level
+    /// that contacts something only if that frame showed it (a fresh marker per menu).
+    probe_sight: Sight,
 }
 
 /// ⟨M07⟩ The most TUI-sent requests remembered for a stale retry.
@@ -1094,6 +1224,8 @@ impl App {
             scope: None,
             origins: Vec::new(),
             frames: Cell::new(0),
+            operation_sight: Sight::default(),
+            probe_sight: Sight::default(),
         }
     }
 
@@ -1110,6 +1242,18 @@ impl App {
     #[must_use]
     pub(crate) fn frame(&self) -> u64 {
         self.frames.get()
+    }
+
+    /// ⟨M07⟩ U1c: the open operation detail's drawn-frame marker (the view reports to it).
+    #[must_use]
+    pub(crate) fn operation_sight(&self) -> &Sight {
+        &self.operation_sight
+    }
+
+    /// ⟨M07⟩ U1c: the open probe menu's drawn-frame marker (the view reports to it).
+    #[must_use]
+    pub(crate) fn probe_sight(&self) -> &Sight {
+        &self.probe_sight
     }
 
     // ---- state and invalidation (M07) -----------------------------------------------
@@ -2222,10 +2366,7 @@ impl App {
                         Vec::new()
                     }
                     Key::Char('c') => self.connect(alias),
-                    Key::Char('p') => {
-                        self.modal = Some(Modal::ProbeMenu { alias, selected: 0 });
-                        Vec::new()
-                    }
+                    Key::Char('p') => self.open_probe_menu(alias),
                     _ => Vec::new(),
                 }
             }
@@ -2352,7 +2493,16 @@ impl App {
         self.scroll = 0;
     }
 
+    /// ⟨M07⟩ U1c: every probe menu starts with a fresh marker: no frame has drawn it.
+    fn open_probe_menu(&mut self, alias: String) -> Vec<Effect> {
+        self.probe_sight = Sight::of(&alias);
+        self.modal = Some(Modal::ProbeMenu { alias, selected: 0 });
+        Vec::new()
+    }
+
+    /// ⟨M07⟩ U1c: every visit of an operation's detail starts with a fresh marker.
     fn open_operation(&mut self, id: String) -> Vec<Effect> {
+        self.operation_sight = Sight::of(&id);
         self.screen = Screen::Operation(id.clone());
         self.scroll = 0;
         self.operation = None;
@@ -2416,13 +2566,7 @@ impl App {
     fn destination_key(&mut self, alias: &str, key: Key) -> Vec<Effect> {
         match key {
             Key::Char('c') => self.connect(alias.to_owned()),
-            Key::Char('p') => {
-                self.modal = Some(Modal::ProbeMenu {
-                    alias: alias.to_owned(),
-                    selected: 0,
-                });
-                Vec::new()
-            }
+            Key::Char('p') => self.open_probe_menu(alias.to_owned()),
             _ => self.detail_key(key),
         }
     }
@@ -2457,6 +2601,13 @@ impl App {
                 self.repair(id.to_owned(), HeldRepair::Keep)
             }
             Key::Char('x') if op.as_ref().is_some_and(super::data::Operation::is_active) => {
+                // ⟨M07⟩ U1c: a cancel stops someone's running work, so `x` cancels only
+                // the operation the latest frame showed. Typed ahead of the screen (a
+                // batch such as `4 Enter x`) it sends nothing; the status line says why.
+                if let Some(why) = self.operation_sight.cancel_unseen(id, self.frame()) {
+                    self.status = Some(why.to_owned());
+                    return Vec::new();
+                }
                 self.status = Some(format!("cancelling {id}"));
                 vec![Effect::Worker(Command::Cancel { id: id.to_owned() })]
             }
@@ -2485,7 +2636,7 @@ impl App {
         let (keep, effects) = match modal {
             Modal::Help => (None, Vec::new()),
             Modal::Decision(p) => self.decision_key(p, key),
-            Modal::ProbeMenu { alias, selected } => Self::probe_menu_key(alias, selected, key),
+            Modal::ProbeMenu { alias, selected } => self.probe_menu_key(alias, selected, key),
             Modal::Authorization(p) => self.authorization_key(p, key),
             Modal::Repair(p) => self.repair_key(p, key),
             Modal::StopMenu(m) => self.stop_menu_key(m, key),
@@ -2642,8 +2793,19 @@ impl App {
         true
     }
 
-    fn probe_menu_key(alias: String, selected: usize, key: Key) -> (Option<Modal>, Vec<Effect>) {
+    /// One key in the probe menu. ⟨M07⟩ U1c: Enter on a level that contacts something
+    /// with no typed authorization ([`contacts_unasked`]) runs it only when the latest
+    /// frame drew the menu with this alias and that level's row in full
+    /// ([`Sight::level_unseen`]). Otherwise the menu stays open, nothing runs, and the
+    /// menu's frame says why until the next key.
+    fn probe_menu_key(
+        &mut self,
+        alias: String,
+        selected: usize,
+        key: Key,
+    ) -> (Option<Modal>, Vec<Effect>) {
         let last = PROBE_LEVELS.len() - 1;
+        self.probe_sight.clear_refusal();
         match key {
             Key::Up => (
                 Some(Modal::ProbeMenu {
@@ -2660,7 +2822,14 @@ impl App {
                 Vec::new(),
             ),
             Key::Enter => {
-                let level = PROBE_LEVELS[selected.min(last)].0;
+                let index = selected.min(last);
+                let level = PROBE_LEVELS[index].0;
+                if contacts_unasked(level)
+                    && let Some(why) = self.probe_sight.level_unseen(&alias, index, self.frame())
+                {
+                    self.probe_sight.refuse(why);
+                    return (Some(Modal::ProbeMenu { alias, selected }), Vec::new());
+                }
                 if runs_real_tree(level) {
                     (
                         Some(Modal::Authorization(AuthPrompt {
@@ -3367,7 +3536,9 @@ pub(crate) mod tests {
             );
             assert!(!matches!(app.modal, Some(Modal::Authorization(_))));
         }
-        // The levels that run no configuration run on their labelled action alone.
+        // The levels that run no configuration run on their labelled action alone:
+        // ⟨M07⟩ once a frame has drawn the menu (m07-plan U1c;
+        // `batched_network_probe_is_not_run_before_its_menu_is_drawn`).
         for (index, level) in [
             (0, ProbeLevel::Static),
             (2, ProbeLevel::Agent),
@@ -3375,10 +3546,10 @@ pub(crate) mod tests {
         ] {
             let mut app = populated();
             press(&mut app, &[Key::Char('2'), Key::Char('p')]);
-            let mut keys = vec![Key::Down; index];
-            keys.push(Key::Enter);
+            press(&mut app, &vec![Key::Down; index]);
+            read(&app);
             assert_eq!(
-                worker(&press(&mut app, &keys)),
+                worker(&press(&mut app, &[Key::Enter])),
                 [Command::Probe {
                     alias: "alpha".to_owned(),
                     level,
@@ -3386,6 +3557,366 @@ pub(crate) mod tests {
                 }]
             );
         }
+    }
+
+    /// The last row of a frame: the footer, where the status line is shown.
+    fn footer_of(rows: &[String]) -> &str {
+        rows.last().map_or("", String::as_str)
+    }
+
+    /// m07-plan U1c `batched_cancel_is_not_sent_before_its_operation_is_drawn`: `x` stops
+    /// someone's running work with no confirmation, so it cancels only the operation
+    /// whose detail the latest frame drew. Keys handled before a frame (`4 End Enter x`
+    /// in one batch) open the detail and send no cancel, and the status line says why.
+    #[test]
+    fn batched_cancel_is_not_sent_before_its_operation_is_drawn() {
+        use crate::tui::view::draw_once;
+        let cancel = |id: &str| [Command::Cancel { id: id.to_owned() }];
+        let cancels = |app: &App| worker(&press(&mut app.clone(), &[Key::Char('x')]));
+        // Two running operations, so a batch can also reach one from the other's detail.
+        let mut base = populated();
+        base.catalog_mut().operations.push(
+            Operation::of(&serde_json::json!({
+                "operation_id": "op_run2", "kind": "ensure", "state": "running",
+                "created_at": "2026-11-03T09:00:12Z",
+            }))
+            .unwrap(),
+        );
+        draw_once(&base, 120, 40);
+
+        // One batch, no frame between its keys: the detail opens, nothing is cancelled.
+        let mut app = base.clone();
+        let sent = worker(&press(
+            &mut app,
+            &[Key::Char('4'), Key::End, Key::Enter, Key::Char('x')],
+        ));
+        assert_eq!(app.screen, Screen::Operation("op_run2".to_owned()));
+        assert_eq!(
+            sent,
+            [Command::Operation {
+                id: "op_run2".to_owned()
+            }],
+            "only the detail's read: no cancel for an operation no frame has drawn"
+        );
+        assert_eq!(app.status.as_deref(), Some(REFUSED_NOT_DRAWN));
+        // The next frame shows the operation, what x does, and why nothing was sent.
+        let rows = draw_once(&app, 120, 40);
+        let text = rows.join("\n");
+        assert!(text.contains("op_run2 ensure"), "{text}");
+        assert!(text.contains("x cancels it"), "{text}");
+        assert_eq!(footer_of(&rows), REFUSED_NOT_DRAWN, "{text}");
+        // The same key, now that a frame has drawn that operation's detail.
+        assert_eq!(
+            worker(&press(&mut app, &[Key::Char('x')])),
+            cancel("op_run2")
+        );
+        assert_eq!(app.status.as_deref(), Some("cancelling op_run2"));
+
+        // From one drawn detail to another operation in one batch: that one was not drawn.
+        draw_once(&app, 120, 40);
+        let sent = worker(&press(
+            &mut app,
+            &[Key::Esc, Key::Up, Key::Enter, Key::Char('x')],
+        ));
+        assert_eq!(app.screen, Screen::Operation("op_run1".to_owned()));
+        assert!(
+            !sent.iter().any(|c| matches!(c, Command::Cancel { .. })),
+            "{sent:?}"
+        );
+        assert_eq!(app.status.as_deref(), Some(REFUSED_NOT_DRAWN));
+        // Back to the first one in one batch: what an earlier visit drew does not count.
+        let sent = worker(&press(
+            &mut app,
+            &[Key::Esc, Key::Down, Key::Enter, Key::Char('x')],
+        ));
+        assert_eq!(app.screen, Screen::Operation("op_run2".to_owned()));
+        assert!(
+            !sent.iter().any(|c| matches!(c, Command::Cancel { .. })),
+            "{sent:?}"
+        );
+        draw_once(&app, 120, 40);
+        assert_eq!(cancels(&app), cancel("op_run2"));
+
+        // Only the latest frame counts: one with no room for any view drew nothing.
+        draw_once(&app, 9, 2);
+        assert!(cancels(&app).is_empty(), "the latest frame was 9x2");
+        // Nor did a frame that drew the key help over the detail.
+        draw_once(&app, 120, 40);
+        press(&mut app, &[Key::Char('?')]);
+        draw_once(&app, 120, 40);
+        assert!(
+            worker(&press(&mut app, &[Key::Esc, Key::Char('x')])).is_empty(),
+            "the latest frame drew the help over the detail"
+        );
+        assert_eq!(app.status.as_deref(), Some(REFUSED_NOT_DRAWN));
+        draw_once(&app, 120, 40);
+        assert_eq!(cancels(&app), cancel("op_run2"));
+
+        // A terminal with room for two rows of the detail: every row of the head (the
+        // ID and kind, the state, `x cancels it`) has to be drawn, from the top down.
+        let mut app = base.clone();
+        press(&mut app, &[Key::Char('4'), Key::End, Key::Enter]);
+        // A jump past the head before the first frame shows none of it.
+        press(&mut app, &[Key::PageDown]);
+        draw_once(&app, 40, 4);
+        assert!(cancels(&app).is_empty(), "a jump past the head");
+        press(&mut app, &[Key::Char('x')]);
+        assert_eq!(app.status.as_deref(), Some(REFUSED_UNREAD));
+        assert_eq!(footer_of(&draw_once(&app, 40, 4)), REFUSED_UNREAD);
+        press(&mut app, &[Key::Home]);
+        let mut read_rows = Vec::new();
+        let mut frames = 0;
+        loop {
+            let rows = draw_once(&app, 40, 4);
+            read_rows.extend(rows[1..3].iter().cloned());
+            if !cancels(&app).is_empty() {
+                break;
+            }
+            frames += 1;
+            assert!(frames < 20, "the head is never read:\n{read_rows:#?}");
+            press(&mut app, &[Key::Down]);
+        }
+        assert!(frames > 0, "two rows cannot show the whole head at once");
+        let read_text = read_rows.join("\n");
+        for shown in ["op_run2 ensure", "State: running", "x cancels it"] {
+            assert!(read_text.contains(shown), "{shown}:\n{read_text}");
+        }
+        // Read through, the cancel is accepted further down too (the events)…
+        press(&mut app, &[Key::PageDown]);
+        draw_once(&app, 40, 4);
+        assert_eq!(cancels(&app), cancel("op_run2"));
+        // …also after the clock moved (the relative times are no part of what x names)…
+        assert!(app.set_now(t("2026-11-03T09:05:00Z")));
+        draw_once(&app, 40, 4);
+        assert_eq!(cancels(&app), cancel("op_run2"));
+        // …but not once the head says something else: that has to be read again.
+        app.catalog_mut().operations[2].effect = Some("started".to_owned());
+        draw_once(&app, 40, 4);
+        assert!(
+            cancels(&app).is_empty(),
+            "the state line changed off screen"
+        );
+        press(&mut app, &[Key::Home]);
+        for _ in 0..frames {
+            draw_once(&app, 40, 4);
+            press(&mut app, &[Key::Down]);
+        }
+        draw_once(&app, 40, 4);
+        assert_eq!(cancels(&app), cancel("op_run2"));
+    }
+
+    /// m07-plan U1c `batched_network_probe_is_not_run_before_its_menu_is_drawn`: the
+    /// `network` level opens a TCP connection to the host and `agent` asks each agent
+    /// endpoint, both on the menu's Enter alone. Enter runs them only when the latest
+    /// frame drew the menu with that level's row and its alias. A batch that opens the
+    /// menu, moves to the level and presses Enter runs nothing, and the menu says why.
+    #[test]
+    fn batched_network_probe_is_not_run_before_its_menu_is_drawn() {
+        use crate::tui::view::draw_once;
+        let probe = |alias: &str, level| {
+            [Command::Probe {
+                alias: alias.to_owned(),
+                level,
+                allow_config_commands: false,
+            }]
+        };
+        let to_level = |index: usize| {
+            let mut keys = vec![Key::Down; index];
+            keys.push(Key::Enter);
+            keys
+        };
+        for (index, level) in [(2, ProbeLevel::Agent), (3, ProbeLevel::Network)] {
+            assert!(contacts_unasked(level));
+            let name = level_name(level);
+            let mut app = populated();
+            draw_once(&app, 120, 40);
+            // One batch, no frame between its keys.
+            let mut keys = vec![Key::Char('2'), Key::Char('p')];
+            keys.extend(to_level(index));
+            assert_eq!(press(&mut app, &keys), [], "{name}: nothing drawn");
+            assert_eq!(
+                app.modal,
+                Some(Modal::ProbeMenu {
+                    alias: "alpha".to_owned(),
+                    selected: index
+                }),
+                "{name}: the menu stays open on the level"
+            );
+            // The next frame shows the alias, the level, and why nothing ran.
+            let rows = draw_once(&app, 120, 40);
+            let text = rows.join("\n");
+            for shown in [
+                "Explicit probes for alpha; each names its level:".to_owned(),
+                format!("> {name}"),
+                "Enter refused: it was not on screen".to_owned(),
+            ] {
+                assert!(text.contains(&shown), "{name}: {shown}:\n{text}");
+            }
+            assert_eq!(footer_of(&rows), REFUSED_PROBE_NOT_DRAWN, "{name}:\n{text}");
+            // The same Enter, now that a frame has drawn that level for that alias.
+            assert_eq!(
+                worker(&press(&mut app, &[Key::Enter])),
+                probe("alpha", level)
+            );
+            assert!(matches!(app.modal, Some(Modal::Probe(_))), "{name}");
+
+            // A menu for another alias in one batch: the frame drew alpha's menu.
+            let mut app = populated();
+            press(&mut app, &[Key::Char('2'), Key::Char('p')]);
+            draw_once(&app, 120, 40);
+            let mut keys = vec![Key::Esc, Key::Down, Key::Char('p')];
+            keys.extend(to_level(index));
+            assert_eq!(press(&mut app, &keys), [], "{name}: beta's menu not drawn");
+            assert!(matches!(&app.modal, Some(Modal::ProbeMenu { alias, .. }) if alias == "beta"));
+            let rows = draw_once(&app, 120, 40);
+            assert_eq!(footer_of(&rows), REFUSED_PROBE_NOT_DRAWN, "{name}");
+            // The refusal is said until the next key.
+            press(&mut app, &[Key::Up, Key::Down]);
+            let rows = draw_once(&app, 120, 40);
+            assert!(
+                !rows.join("\n").contains("refused") && footer_of(&rows).contains("Enter run"),
+                "{name}:\n{}",
+                rows.join("\n")
+            );
+            assert_eq!(
+                worker(&press(&mut app, &[Key::Enter])),
+                probe("beta", level)
+            );
+
+            // Only the latest frame counts: one with no room for any view drew nothing.
+            let mut app = populated();
+            press(&mut app, &[Key::Char('2'), Key::Char('p')]);
+            draw_once(&app, 120, 40);
+            draw_once(&app, 9, 2);
+            assert_eq!(press(&mut app, &to_level(index)), [], "{name}: 9x2");
+
+            // A frame that drew the menu with every level and the alias, but another level
+            // selected: keys typed ahead that move to this level and press Enter run
+            // nothing (only the level a frame drew as selected counts). Once a frame has
+            // shown it selected, Enter runs it.
+            let mut app = populated();
+            press(&mut app, &[Key::Char('2'), Key::Char('p')]);
+            let text = draw_once(&app, 120, 40).join("\n");
+            assert!(text.contains(name) && text.contains("alpha"), "{text}");
+            assert_eq!(press(&mut app, &to_level(index)), [], "{name}: typed ahead");
+            draw_once(&app, 120, 40);
+            assert_eq!(
+                worker(&press(&mut app, &[Key::Enter])),
+                probe("alpha", level)
+            );
+        }
+        // The other levels are as they were in a batch: `static` only reads files again,
+        // and a real-tree level asks for its typed authorization first.
+        let mut app = populated();
+        assert_eq!(
+            worker(&press(
+                &mut app,
+                &[Key::Char('2'), Key::Char('p'), Key::Enter]
+            )),
+            probe("alpha", ProbeLevel::Static)
+        );
+        for (index, level) in [
+            (1, ProbeLevel::Evaluate),
+            (4, ProbeLevel::HostVerification),
+            (5, ProbeLevel::Authentication),
+        ] {
+            assert!(!contacts_unasked(level) && runs_real_tree(level));
+            let mut app = populated();
+            let mut keys = vec![Key::Char('2'), Key::Char('p')];
+            keys.extend(to_level(index));
+            assert_eq!(
+                worker(&press(&mut app, &keys)),
+                [Command::PrepareProbe {
+                    alias: "alpha".to_owned(),
+                    level
+                }]
+            );
+            assert!(matches!(app.modal, Some(Modal::Authorization(_))));
+        }
+    }
+
+    /// m07-plan U1c, the terminal too small for the probe menu: a frame with no room for
+    /// the sentence that names the alias and the selected level's rows shows a notice
+    /// instead, and Enter on `agent` or `network` runs nothing and says why. A frame
+    /// that draws the menu without that level's row does not count for it either.
+    #[test]
+    fn network_probe_short_terminal_refuses_to_run() {
+        use crate::tui::view::draw_once;
+        let network = [Command::Probe {
+            alias: "alpha".to_owned(),
+            level: ProbeLevel::Network,
+            allow_config_commands: false,
+        }];
+        let on_network = || {
+            let mut app = populated();
+            press(
+                &mut app,
+                &[
+                    Key::Char('2'),
+                    Key::Char('p'),
+                    Key::Down,
+                    Key::Down,
+                    Key::Down,
+                ],
+            );
+            app
+        };
+        for (w, h) in [(120, 5), (120, 4), (120, 3), (40, 6), (20, 8), (12, 10)] {
+            let mut app = on_network();
+            let text = draw_once(&app, w, h).join("\n");
+            assert!(
+                text.contains("[!!] Too")
+                    && !text.contains("Explicit")
+                    && !text.contains("network  "),
+                "{w}x{h}: the notice, not a cut menu:\n{text}"
+            );
+            assert_eq!(press(&mut app, &[Key::Enter]), [], "{w}x{h}: nothing runs");
+            assert!(
+                matches!(app.modal, Some(Modal::ProbeMenu { .. })),
+                "{w}x{h}"
+            );
+            let rows = draw_once(&app, w, h);
+            let said: String = REFUSED_PROBE_TOO_SMALL
+                .chars()
+                .take(usize::from(w))
+                .collect();
+            assert_eq!(footer_of(&rows), said.trim_end(), "{w}x{h}: it says why");
+            // Enlarged, the same Enter runs it.
+            let text = draw_once(&app, 120, 40).join("\n");
+            assert!(
+                text.contains("> network") && text.contains("alpha"),
+                "{text}"
+            );
+            assert_eq!(worker(&press(&mut app, &[Key::Enter])), network, "{w}x{h}");
+        }
+        // Drawn in full, then a frame too small for it: only the latest frame counts.
+        let mut app = on_network();
+        draw_once(&app, 120, 40);
+        draw_once(&app, 120, 5);
+        assert_eq!(press(&mut app, &[Key::Enter]), []);
+
+        // 40x12 has room for the alias and some levels, not all six. With `static`
+        // selected the frame does not show `network`: a batch that moves there and
+        // presses Enter runs nothing. The next frame shows it, and Enter runs it.
+        let mut app = populated();
+        press(&mut app, &[Key::Char('2'), Key::Char('p')]);
+        let text = draw_once(&app, 40, 12).join("\n");
+        assert!(
+            text.contains("> static") && text.contains("alpha") && !text.contains("network"),
+            "{text}"
+        );
+        assert_eq!(
+            press(&mut app, &[Key::Down, Key::Down, Key::Down, Key::Enter]),
+            []
+        );
+        let rows = draw_once(&app, 40, 12);
+        let text = rows.join("\n");
+        assert!(
+            text.contains("> network") && text.contains("alpha"),
+            "{text}"
+        );
+        assert_eq!(footer_of(&rows), REFUSED_PROBE_NOT_DRAWN, "{text}");
+        assert_eq!(worker(&press(&mut app, &[Key::Enter])), network);
     }
 
     /// ADR-0007 §12.31 item 3: the scroll keys move a page less one row (so no row is
@@ -3559,6 +4090,8 @@ pub(crate) mod tests {
         press(&mut app, &[Key::Esc, Key::Esc]);
         press(&mut app, &[Key::Char('4'), Key::End, Key::Enter]);
         assert_eq!(app.screen, Screen::Operation("op_run1".to_owned()));
+        // ⟨M07⟩ `x` cancels what a frame has shown (m07-plan U1c).
+        read(&app);
         assert_eq!(
             worker(&press(&mut app, &[Key::Char('x')])),
             [Command::Cancel {

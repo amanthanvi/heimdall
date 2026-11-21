@@ -287,19 +287,23 @@ pub(crate) fn render_status(
     let mut status = if data["running"] == true {
         let listings = &data[STATUS_LISTINGS];
         let access = status_access(listings, s(data, "environment_id"));
-        let lock = match s(&listings["capabilities"]["lock"], "behavior") {
-            "continue" => "work continues while your desktop is locked",
-            "revoke_on_lock" => "locking your desktop ends managed access",
-            "" => {
-                "not available (the runtime did not report what happens when you lock your desktop)"
-            }
-            _ => "not available (the runtime reported an unrecognized setting)",
+        let lock = &listings["capabilities"]["lock"];
+        let setting = match s(lock, "behavior") {
+            "continue" => "saved personal setting \"continue\"",
+            "revoke_on_lock" => "saved personal setting \"revoke on lock\"",
+            "" => "saved setting not reported by the runtime",
+            _ => "saved setting not recognized",
         };
+        let disclosure = lock["disclosure"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or("The runtime sent no disclosure. Whether work keeps going at a lock is unverified here.");
         format!(
             "Heimdall is running on this machine.\n\
              Activity: {open} open, {waiting} waiting for your approval.\n\
              {access}\n\
-             Desktop lock: {lock}.\n\
+             Desktop lock: {setting}.\n\
+             {disclosure}\n\
              Pause automatic access with `heimdall access pause --profile <profile>` or stop work with `heimdall access stop --work <work-id>`."
         )
     } else {
@@ -369,34 +373,46 @@ fn status_access(listings: &serde_json::Value, own: &str) -> String {
                 let _ = writeln!(access, "Access for {name}: not available.");
                 continue;
             };
-            let mut automatic = BTreeSet::new();
-            let mut paused = BTreeSet::new();
+            let mut scopes = BTreeMap::new();
+            scopes.insert(None, (BTreeSet::new(), BTreeSet::new()));
             for policy in policies
                 .items
                 .iter()
                 .filter(|p| p.environments.contains(&env.environment_id))
             {
+                let scope = policy.workspace_id.as_ref().map(|id| id.as_str());
+                let (automatic, paused) = scopes.entry(scope).or_default();
                 let profiles = if policy.paused_since.is_some()
                     || policy.cutoff_at.is_some_and(|at| at <= now)
                 {
-                    &mut paused
+                    paused
                 } else {
-                    &mut automatic
+                    automatic
                 };
                 profiles.insert(policy.profile.as_str());
             }
-            let _ = write!(access, "Access: {name} ");
-            if automatic.is_empty() {
-                access.push_str("has no automatic access now");
-            } else {
-                let automatic = automatic.iter().copied().collect::<Vec<_>>().join(", ");
-                let _ = write!(access, "uses {automatic} automatically");
+            for (project, (automatic, paused)) in scopes {
+                if let Some(project) = project {
+                    let _ = write!(
+                        access,
+                        "Project {} access on {name}: ",
+                        quoted_field(project)
+                    );
+                } else {
+                    let _ = write!(access, "Personal access on {name}: ");
+                }
+                if automatic.is_empty() {
+                    access.push_str("none configured for automatic use");
+                } else {
+                    let automatic = automatic.iter().copied().collect::<Vec<_>>().join(", ");
+                    let _ = write!(access, "{automatic} configured for automatic use");
+                }
+                let paused: Vec<_> = paused.difference(&automatic).copied().collect();
+                if !paused.is_empty() {
+                    let _ = write!(access, " (paused: {})", paused.join(", "));
+                }
+                access.push_str(".\n");
             }
-            let paused: Vec<_> = paused.difference(&automatic).copied().collect();
-            if !paused.is_empty() {
-                let _ = write!(access, " (paused: {})", paused.join(", "));
-            }
-            access.push_str(".\n");
         }
         // The current listings expose active work without the environment that holds it.
         if environments.items.len() == 1 && environments.items[0].environment_id.as_str() == own {
@@ -449,12 +465,29 @@ fn active_work(count: Option<(usize, usize)>) -> String {
     }
 }
 
-/// Report a slow synchronous wait once and keep driving the same future.
+/// Explain a slow synchronous server request.
 pub(crate) async fn explain_wait<T>(
     human: bool,
     what: &str,
     operation: Option<&heimdall_contract::ids::OperationId>,
     wait: impl std::future::Future<Output = T>,
+) -> T {
+    explain_slow_wait(human, wait, || {
+        let here = operation.map_or_else(String::new, |id| format!(" (operation {id})"));
+        let next = operation.map_or_else(
+            || "Find the ID with `heimdall inspect operations`, then run `heimdall operation show <id>`.".to_owned(),
+            |id| format!("Check with `heimdall operation show {id}`."),
+        );
+        format!("Waiting for {what}{here}. Ctrl-C stops waiting but does not cancel the request. {next}")
+    })
+    .await
+}
+
+/// Report a slow wait once and keep driving the same future.
+pub(crate) async fn explain_slow_wait<T>(
+    human: bool,
+    wait: impl std::future::Future<Output = T>,
+    notice: impl FnOnce() -> String,
 ) -> T {
     if !human {
         return wait.await;
@@ -465,19 +498,11 @@ pub(crate) async fn explain_wait<T>(
         answer = &mut wait => return answer,
         () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
     }
-    let here = operation.map_or_else(String::new, |id| format!(" (operation {id})"));
-    let next = operation.map_or_else(
-        || "Find the ID with `heimdall inspect operations`, then run `heimdall operation show <id>`.".to_owned(),
-        |id| format!("Check with `heimdall operation show {id}`."),
-    );
-    let notice = format!(
-        "Waiting for {what}{here}. Ctrl-C stops waiting but does not cancel the request. {next}"
-    );
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr().lock(),
         "{}",
-        sanitize_for_terminal(&notice)
+        sanitize_for_terminal(&notice())
     );
     wait.await
 }
@@ -1064,6 +1089,8 @@ pub(crate) fn m03_lines(data: &serde_json::Value) -> Vec<String> {
 mod tests {
     use super::*;
 
+    const UNVERIFIED_LOCK: &str = "Approved work is designed to keep working while your screen or password manager is locked, until the end time you approve. On this computer that has not been verified yet.";
+
     fn status_data() -> serde_json::Value {
         let mut data = serde_json::json!({
             "running": true,
@@ -1093,7 +1120,7 @@ mod tests {
                 {"grant_id": "ready", "state": "active", "expires_at": "2099-01-01T00:00:00Z"},
                 {"grant_id": "expired", "state": "active", "expires_at": "2000-01-01T00:00:00Z"}
             ]},
-            "capabilities": {"lock": {"behavior": "continue"}},
+            "capabilities": {"lock": {"behavior": "continue", "disclosure": UNVERIFIED_LOCK}},
         });
         data
     }
@@ -1123,7 +1150,9 @@ mod tests {
         }
         assert!(shown.contains("this machine"));
         assert!(shown.contains("activity: 3 open, 1 waiting"));
-        assert!(shown.contains("access: this computer uses lab automatically (paused: ops)"));
+        assert!(shown.contains(
+            "personal access on this computer: lab configured for automatic use (paused: ops)"
+        ));
         let chore = crate::doctor_cmd::PendingChore {
             chore: crate::doctor_cmd::TIME_CONFIRMATION_CHORE,
             command: crate::doctor_cmd::TIME_CONFIRM_COMMAND,
@@ -1138,9 +1167,13 @@ mod tests {
     fn status_answers_the_three_questions() {
         let mut data = status_data();
         let shown = render_status(&data, &[]);
-        assert!(shown.contains("Access: this computer uses lab automatically (paused: ops)."));
+        assert!(shown.contains(
+            "Personal access on this computer: lab configured for automatic use (paused: ops)."
+        ));
         assert!(shown.contains("Active work on this computer: 1 session has access."));
-        assert!(shown.contains("Desktop lock: work continues while your desktop is locked."));
+        assert!(shown.contains(&format!(
+            "Desktop lock: saved personal setting \"continue\".\n{UNVERIFIED_LOCK}\n"
+        )));
         assert!(shown.contains("heimdall access pause --profile"));
         assert!(shown.contains("heimdall access stop --work"));
 
@@ -1157,11 +1190,21 @@ mod tests {
             .unwrap()
             .push("env_other".into());
         listings["capabilities"]["lock"]["behavior"] = "revoke_on_lock".into();
+        let disclosure = format!(
+            "{UNVERIFIED_LOCK} Work under your saved policy \"pol-off\" ends when you lock the screen (revoke on lock)."
+        );
+        listings["capabilities"]["lock"]["disclosure"] = disclosure.as_str().into();
         let shown = render_status(&data, &[]);
-        assert!(shown.contains("Access: \"Other machine\" uses lab automatically."));
+        assert!(
+            shown.contains(
+                "Personal access on \"Other machine\": lab configured for automatic use."
+            )
+        );
         assert!(shown.contains("Active work across environments: 1 session has access."));
         assert!(shown.contains("Work by environment is not available from this runtime."));
-        assert!(shown.contains("Desktop lock: locking your desktop ends managed access."));
+        assert!(shown.contains(&format!(
+            "Desktop lock: saved personal setting \"revoke on lock\".\n{disclosure}\n"
+        )));
 
         data[STATUS_LISTINGS]["grants"]["grants"][0]["state"] = "degraded".into();
         let shown = render_status(&data, &[]);
@@ -1173,7 +1216,7 @@ mod tests {
         paused[STATUS_LISTINGS]["bindings"]["bindings"] = serde_json::json!([]);
         let shown = render_status(&paused, &[]);
         assert!(
-            shown.contains("Access: this computer has no automatic access now (paused: lab, ops).")
+            shown.contains("Personal access on this computer: none configured for automatic use (paused: lab, ops).")
         );
         assert!(shown.contains("Active work on this computer: no sessions have access."));
 
@@ -1181,7 +1224,38 @@ mod tests {
         let shown = render_status(&data, &[]);
         assert!(shown.contains("Access by environment: not available."));
         assert!(shown.contains("Active work: not available."));
-        assert!(shown.contains("Desktop lock: not available (the runtime did not report"));
+        assert!(shown.contains("Desktop lock: saved setting not reported by the runtime."));
+        assert!(shown.contains("Whether work keeps going at a lock is unverified here."));
+    }
+
+    #[test]
+    fn status_scopes_project_policies_separately_from_personal_policies() {
+        let mut data = status_data();
+        let items = data[STATUS_LISTINGS]["policies"]["items"]
+            .as_array_mut()
+            .unwrap();
+        items[0]["paused_since"] = "2000-01-01T00:00:00Z".into();
+        items.push(serde_json::json!({
+            "policy_id": "pol-project", "revision": 1, "profile": "lab",
+            "environments": ["env_lab"], "workspace_id": "ws_project"
+        }));
+        let shown = render_status(&data, &[]);
+        let project =
+            "Project \"ws_project\" access on this computer: lab configured for automatic use.";
+        assert!(shown.contains(project));
+        assert!(shown.contains(
+            "Personal access on this computer: none configured for automatic use (paused: lab, ops)."
+        ));
+
+        data[STATUS_LISTINGS]["policies"]["items"]
+            .as_array_mut()
+            .unwrap()
+            .drain(..2);
+        let shown = render_status(&data, &[]);
+        assert!(shown.contains(project));
+        assert!(
+            shown.contains("Personal access on this computer: none configured for automatic use.")
+        );
     }
 
     #[test]

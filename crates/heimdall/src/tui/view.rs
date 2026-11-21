@@ -19,6 +19,11 @@
 //! screen. ⟨M07⟩ A Settings change and the stop menu's confirmation are drawn by one
 //! renderer of their own ([`render_guarded_confirm`]), which also reports to their
 //! [`Seen`] whether this frame, counted by [`App::begin_frame`], drew them at all.
+//! ⟨M07⟩ U1c: an operation's detail ([`render_operation`]) and the probe menu
+//! ([`render_probe_menu`]) report in the same way what a frame drew of them
+//! ([`super::model::Sight`]), wrapping their rows themselves so that what is recorded is
+//! what was drawn: `x` and a probe that contacts something act only on what was on
+//! screen.
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::{
@@ -223,9 +228,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
             );
         }
         Screen::Profile(id) => render_scrolled(frame, body, profile_lines(app, id), app.scroll),
-        Screen::Operation(id) => {
-            render_scrolled(frame, body, operation_lines(app, id, theme), app.scroll);
-        }
+        Screen::Operation(id) => render_operation(frame, app, number, id, body, theme),
         Screen::Enrollment(id) => render_scrolled(
             frame,
             body,
@@ -251,6 +254,10 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
         // Settings change is (M07-W0-R01); the shared modal dispatch draws the rest.
         Some(Modal::StopMenu(menu)) if let super::m05::StopPhase::Confirm(action) = &menu.phase => {
             render_stop_confirm(frame, number, body, menu, action, theme);
+        }
+        // ⟨M07⟩ U1c: so is the probe menu, whose Enter can contact an agent or the host.
+        Some(Modal::ProbeMenu { alias, selected }) => {
+            render_probe_menu(frame, app, number, body, alias, *selected, theme);
         }
         Some(modal) => render_modal(frame, app, modal, body, theme),
         None => {}
@@ -660,7 +667,20 @@ fn modal_hint(app: &App) -> &'static str {
         }
         Some(Modal::Decision(_)) => "type yes, Enter · Tab approve/deny · Esc cancel",
         Some(Modal::Authorization(_) | Modal::Repair(_)) => "type yes, Enter · Esc cancel",
-        Some(Modal::ProbeMenu { .. }) => "Up/Down choose · Enter run · Esc close",
+        // ⟨M07⟩ U1c: a refused Enter says why here (the status line is under the menu).
+        Some(Modal::ProbeMenu { alias, .. }) => {
+            let sight = app.probe_sight();
+            match sight.refusal(alias) {
+                Some(why) => why,
+                None if sight
+                    .seen_of(alias)
+                    .is_some_and(|s| s.shown(app.frame()) == Shown::TooSmall) =>
+                {
+                    "enlarge the terminal · Esc close"
+                }
+                None => "Up/Down choose · Enter run · Esc close",
+            }
+        }
         Some(Modal::Probe(_)) => "Up/Down scroll · Esc close",
         Some(Modal::StopMenu(m)) => match m.phase {
             super::m05::StopPhase::Choose => "Up/Down or 1-4 choose · Enter select · Esc close",
@@ -1751,6 +1771,137 @@ fn render_stop_confirm(
     render_guarded_confirm(frame, number, body, confirm, place, theme);
 }
 
+/// ⟨M07⟩ What the probe menu says when the terminal cannot show its alias and the
+/// selected level.
+const PROBE_TOO_SMALL: &str = "[!!] Too small to show the probes. Enlarge the terminal: no agent or network probe runs. Esc closes.";
+
+/// ⟨M07⟩ The probe menu, behind the reading guard (m07-plan U1c): Enter on `agent` or
+/// `network` contacts an agent endpoint or the host with no typed authorization, so the
+/// model runs it only when the latest frame drew the menu with its alias and that level's
+/// row in full ([`super::model::Sight::report_levels`]).
+///
+/// The sentence that names the alias stays fixed at the top. Under it come the levels,
+/// each wrapped (never cut) and drawn whole or not at all: the selected one always, and as
+/// many of its neighbours as fit. A frame with no room for the sentence and the selected
+/// level draws a notice instead and reports `TooSmall`.
+fn render_probe_menu(
+    frame: &mut Frame<'_>,
+    app: &App,
+    number: u64,
+    body: Rect,
+    alias: &str,
+    selected: usize,
+    theme: Theme,
+) {
+    let sight = app.probe_sight();
+    let width = body.width.saturating_sub(2).clamp(10, 110).min(body.width);
+    let inner_width = usize::from(width.saturating_sub(2)).max(1);
+    let head: Vec<Line<'static>> = wrap_text(
+        &format!("Explicit probes for {alias}; each names its level:"),
+        inner_width,
+    )
+    .into_iter()
+    .map(plain)
+    .collect();
+    let selected = selected.min(PROBE_LEVELS.len() - 1);
+    // Each level: the marker of the selected row, then its name and label; further rows
+    // of a wrapped level are indented under it.
+    let text_width = inner_width.saturating_sub(4).max(1);
+    let levels: Vec<Vec<Line<'static>>> = PROBE_LEVELS
+        .iter()
+        .enumerate()
+        .map(|(i, (_, name, label))| {
+            let style = if i == selected {
+                theme.selected()
+            } else {
+                Style::new()
+            };
+            wrap_text(&format!("{name:<17} {label}"), text_width)
+                .into_iter()
+                .enumerate()
+                .map(|(k, text)| {
+                    let lead = match (k, i == selected) {
+                        (0, true) => "> ",
+                        (0, false) => "  ",
+                        _ => "    ",
+                    };
+                    Line::styled(format!("{lead}{text}"), style)
+                })
+                .collect()
+        })
+        .collect();
+    let most = usize::from(body.height).saturating_sub(2);
+    if most < head.len() + levels[selected].len() {
+        sight.report_levels(alias, number, Shown::TooSmall, []);
+        frame.render_widget(Clear, body);
+        frame.render_widget(
+            Paragraph::new(Line::styled(PROBE_TOO_SMALL, theme.bold())).wrap(Wrap { trim: false }),
+            body,
+        );
+        return;
+    }
+    // The window of whole levels: from the first one when the selected level fits under
+    // them, else ending at it.
+    let room = most - head.len();
+    let rows_of = |from: usize, to: usize| levels[from..to].iter().map(Vec::len).sum::<usize>();
+    let mut first = 0;
+    while rows_of(first, selected + 1) > room {
+        first += 1;
+    }
+    let mut end = selected + 1;
+    while end < levels.len() && rows_of(first, end + 1) <= room {
+        end += 1;
+    }
+    let rows = head.len() + rows_of(first, end);
+    let height = u16::try_from(rows + 2)
+        .unwrap_or(body.height)
+        .min(body.height);
+    let area = Rect::new(
+        body.x + (body.width - width) / 2,
+        body.y + (body.height - height) / 2,
+        width,
+        height,
+    );
+    frame.render_widget(Clear, area);
+    let mut block = Block::new()
+        .borders(Borders::ALL)
+        .title(Span::styled("Probes", theme.bold()));
+    let inner = block.inner(area);
+    // A box with less room than the layout asked for (rows or columns) shows a cut menu:
+    // that is not shown.
+    if usize::from(inner.width) < inner_width || usize::from(inner.height) < rows {
+        sight.report_levels(alias, number, Shown::TooSmall, []);
+    } else {
+        // Only the level drawn as SELECTED counts (the integrator's ruling on U1c): keys
+        // typed ahead that move the selection and press Enter run nothing until a frame has
+        // shown the new selection.
+        let _ = (first, end);
+        sight.report_levels(alias, number, Shown::Drawn, [selected]);
+    }
+    let below = levels.len() - end;
+    let status = if sight.refusal(alias).is_some() {
+        Some(Line::styled(
+            " Enter refused: it was not on screen ",
+            theme.bold(),
+        ))
+    } else {
+        match (first, below) {
+            (0, 0) => None,
+            (0, _) => Some(format!(" {below} more below (Down) ")),
+            (_, 0) => Some(format!(" {first} more above (Up) ")),
+            _ => Some(format!(" {first} above, {below} below (Up/Down) ")),
+        }
+        .map(|text| Line::styled(text, theme.dim()))
+    };
+    if let Some(status) = status {
+        block = block.title_bottom(status);
+    }
+    frame.render_widget(block, area);
+    let mut content = head;
+    content.extend(levels[first..end].iter().flatten().cloned());
+    frame.render_widget(Paragraph::new(content), inner);
+}
+
 // ---- details -------------------------------------------------------------------------
 
 fn role_of(report: &DoctorReport, path: &str) -> Option<ConfigFileRole> {
@@ -2064,7 +2215,23 @@ fn profile_lines(app: &App, id: &str) -> Vec<Line<'static>> {
     lines
 }
 
-fn operation_lines(app: &App, id: &str, theme: Theme) -> Vec<Line<'static>> {
+/// ⟨M07⟩ An operation's detail, in the two parts the cancel guard tells apart (m07-plan
+/// U1c).
+struct OperationParts {
+    /// What names the operation and says what its keys do: its ID and kind, its state,
+    /// its result, the repairs of a held one, `x cancels it`, the decision it waits on.
+    /// These are the rows `x` is checked against.
+    head: Vec<Line<'static>>,
+    /// The head's line of relative times, if it has one. It changes with the clock, not
+    /// with the operation, so it is no part of what must be read again.
+    times: Option<usize>,
+    /// Whether the head offers the cancel (the operation is active).
+    cancellable: bool,
+    /// The event list.
+    events: Vec<Line<'static>>,
+}
+
+fn operation_parts(app: &App, id: &str, theme: Theme) -> OperationParts {
     let listed = app.catalog().operations.iter().find(|o| o.id == id);
     let detail = app
         .operation
@@ -2073,6 +2240,7 @@ fn operation_lines(app: &App, id: &str, theme: Theme) -> Vec<Line<'static>> {
         .map(|(_, d)| d);
     let op = detail.and_then(|d| d.operation.as_ref()).or(listed);
     let mut lines = Vec::new();
+    let mut times = None;
     match op {
         Some(o) => {
             lines.push(Line::styled(format!("{} {}", o.id, o.kind), theme.bold()));
@@ -2083,6 +2251,7 @@ fn operation_lines(app: &App, id: &str, theme: Theme) -> Vec<Line<'static>> {
                 o.code.as_deref().unwrap_or("-"),
                 o.effect.as_deref().unwrap_or("-")
             )));
+            times = Some(lines.len());
             lines.push(plain(format!(
                 "Created {} · updated {}",
                 when(app.now(), o.created_at),
@@ -2122,17 +2291,17 @@ fn operation_lines(app: &App, id: &str, theme: Theme) -> Vec<Line<'static>> {
         }
         None => lines.push(plain(format!("{id}: reading the operation"))),
     }
-    lines.push(Line::styled("Events (observe events):", theme.bold()));
+    let mut events = vec![Line::styled("Events (observe events):", theme.bold())];
     match detail {
         Some(d) => {
             if let Some(e) = &d.error {
-                lines.push(plain(format!("  {}", clean(e))));
+                events.push(plain(format!("  {}", clean(e))));
             }
             if d.events.is_empty() {
-                lines.push(plain("  none yet"));
+                events.push(plain("  none yet"));
             }
             for e in &d.events {
-                lines.push(plain(format!(
+                events.push(plain(format!(
                     "  {} {} {}",
                     e.at.map_or_else(|| "?".to_owned(), hms),
                     e.kind,
@@ -2140,9 +2309,63 @@ fn operation_lines(app: &App, id: &str, theme: Theme) -> Vec<Line<'static>> {
                 )));
             }
         }
-        None => lines.push(plain("  reading")),
+        None => events.push(plain("  reading")),
     }
-    lines
+    OperationParts {
+        head: lines,
+        times,
+        cancellable: op.is_some_and(super::data::Operation::is_active),
+        events,
+    }
+}
+
+/// ⟨M07⟩ An operation's detail, behind the cancel guard (m07-plan U1c): `x` stops
+/// someone's running work with no confirmation, so the model accepts it only for an
+/// operation the latest frame showed ([`super::model::Sight`]).
+///
+/// The rows are wrapped here, never cut, and scrolled as every detail is, so what frame
+/// `number` reports is what it drew: the rows of the head on screen ([`Reading::record`];
+/// the head's fingerprint leaves the relative times out and includes the width), and that
+/// it drew this operation's detail at all. It reports nothing when the detail offers no
+/// cancel (the operation is not active, or not read yet) or a modal is drawn over it.
+fn render_operation(
+    frame: &mut Frame<'_>,
+    app: &App,
+    number: u64,
+    id: &str,
+    area: Rect,
+    theme: Theme,
+) {
+    let parts = operation_parts(app, id, theme);
+    let width = usize::from(area.width).max(1);
+    let mut rows = Vec::new();
+    let mut said = Vec::new();
+    for (i, line) in parts.head.iter().enumerate() {
+        let wrapped = wrap_line(line, width);
+        if parts.times != Some(i) {
+            said.extend(wrapped.iter().map(ToString::to_string));
+        }
+        rows.extend(wrapped);
+    }
+    let head = rows.len();
+    rows.extend(wrap_lines(&parts.events, width));
+    // As every detail scrolls: past the last row the screen is empty.
+    let first = usize::from(app.scroll).min(rows.len());
+    let end = (first + usize::from(area.height)).min(rows.len());
+    frame.render_widget(Paragraph::new(rows[first..end].to_vec()), area);
+    let Some(seen) = app.operation_sight().seen_of(id) else {
+        return;
+    };
+    if !parts.cancellable || app.modal.is_some() {
+        seen.report(number, Shown::Nothing);
+        return;
+    }
+    said.push(width.to_string());
+    let said: Vec<&str> = said.iter().map(String::as_str).collect();
+    let top = first.min(head);
+    seen.reading
+        .record(fingerprint(&said), head, end.min(head) - top, top);
+    seen.report(number, Shown::Drawn);
 }
 
 // ---- modals --------------------------------------------------------------------------
@@ -3313,6 +3536,21 @@ mod tests {
         press(&mut stop, &[Key::Enter]);
         out.push(("m07_stop_confirm", stop));
         out.push(("m07_help", after(&[Key::Char('?')], "")));
+        // U1c: the probe menu on `network`, which at 40x12 shows the alias and the
+        // levels that fit around the selected one.
+        out.push((
+            "m07_probe_menu",
+            after(
+                &[
+                    Key::Char('2'),
+                    Key::Char('p'),
+                    Key::Down,
+                    Key::Down,
+                    Key::Down,
+                ],
+                "",
+            ),
+        ));
         out
     }
 
@@ -3720,7 +3958,8 @@ mod tests {
             "m07_stop_confirm",
         ];
         // Detail and list screens: provenance, codes and mechanisms are their content.
-        const DETAIL: [&str; 24] = [
+        const DETAIL: [&str; 25] = [
+            "m07_probe_menu",
             "m07_lock",
             "m07_settings_policies_unread",
             "m07_destinations_scoped",

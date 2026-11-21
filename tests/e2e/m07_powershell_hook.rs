@@ -459,6 +459,45 @@ async fn powershell_hook_missing_executable_leaves_the_error_history_alone() {
     .await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn powershell_hook_ignores_start_failures_and_failed_answers() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    for_each_host(|host| async move {
+        for (start_fails, stub) in [
+            (true, None),
+            (false, Some("#!/bin/sh\n: > ran\nprintf 'active 1 60\\n'\nexit 1\n")),
+        ] {
+            let fixture = Fixture::new();
+            let path = fixture.root.join("heimdall");
+            let missing_interpreter = format!("#!{}\n", fixture.root.join("missing").display());
+            std::fs::write(&path, stub.unwrap_or(&missing_interpreter)).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let body = format!(
+                r#"
+$env:PATH = $PWD.ProviderPath
+$null = Get-Command -Name heimdall -CommandType Application -ErrorAction Stop
+try {{ throw 'older error' }} catch {{}}
+try {{ throw 'newer error' }} catch {{}}
+$before = $Error.ToArray()
+{RENDER}
+if ($Error.Count -ne $before.Length) {{ throw 'hook changed the error count' }}
+for ($i = 0; $i -lt $before.Length; $i++) {{
+    if (-not [object]::ReferenceEquals($Error[$i], $before[$i])) {{ throw 'hook changed the error history' }}
+}}
+if ($global:__heimdall_state -cne 'none' -or $global:__heimdall_seq -cne '0' -or $global:__heimdall_due -cne '0') {{
+    throw 'hook accepted a failed answer'
+}}
+"#
+            );
+            fixture.run(&host, &body, &["loaded", PROMPT, "rendered"]).await;
+            assert_eq!(fixture.root.join("ran").exists(), !start_fails);
+        }
+    })
+    .await;
+}
+
 // Unix shell stubs let us exercise both timeout paths without compiling an executable.
 #[cfg(unix)]
 #[tokio::test]

@@ -17,15 +17,16 @@ from reference_wrapper import Client, code_defaults  # noqa: E402
 
 SMOKE_BIN = os.environ.get("HEIMDALL_WRAPPER_SMOKE_BIN")
 HOME_KEYS = ("HOME", "HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME")
+WINDOWS = sys.platform == "win32"
 
 
 @unittest.skipUnless(SMOKE_BIN, "set HEIMDALL_WRAPPER_SMOKE_BIN to the prebuilt debug binary")
-@unittest.skipUnless(sys.platform in ("darwin", "linux"), "requires Darwin or Linux Unix sockets")
+@unittest.skipUnless(sys.platform in ("darwin", "linux", "win32"), "requires Darwin, Linux or Windows")
 class RealBinarySmoke(unittest.TestCase):
     def test_control_endpoint(self):
         binary = Path(SMOKE_BIN)
         self.assertTrue(binary.is_absolute() and binary.is_file(), "supply an absolute debug binary path")
-        root = Path(tempfile.mkdtemp(prefix="hm-u5a-", dir="/tmp"))
+        root = Path(tempfile.mkdtemp(prefix="hm-u5a-", dir=None if WINDOWS else "/tmp"))
         self.addCleanup(shutil.rmtree, root)
         root = root.resolve()
         env = {
@@ -38,10 +39,23 @@ class RealBinarySmoke(unittest.TestCase):
             directory.mkdir(mode=0o700)
             env[key] = str(directory)
         (Path(env["HEIMDALL_TEST_SSH_HOME"]) / "etc-ssh").mkdir(mode=0o700)
+        inside = list(HOME_KEYS)
+        if WINDOWS:
+            # The platform minimum, with the profile, ProgramData and temporary files in the root.
+            system = Path(os.environ["SystemRoot"])
+            (root / "tmp").mkdir()
+            env.update({
+                "SystemRoot": str(system),
+                "PATH": os.pathsep.join(map(str, (system / "System32" / "OpenSSH", system / "System32", system))),
+                "USERPROFILE": env["HOME"], "ProgramData": env["HOME"],
+                "TEMP": str(root / "tmp"), "TMP": str(root / "tmp"),
+            })
+            inside += ["USERPROFILE", "ProgramData", "TEMP", "TMP"]
 
         homes = [Path(env[key]).resolve(strict=True) for key in HOME_KEYS]
         self.assertEqual(len(set(homes)), len(HOME_KEYS))
-        self.assertTrue(all(path.is_dir() and root in path.parents for path in homes))
+        self.assertTrue(all(root in Path(env[key]).resolve(strict=True).parents for key in inside))
+        self.assertTrue(all(path.is_dir() for path in homes))
         self.assertFalse(list((homes[-1] / "etc-ssh").iterdir()))
         self.assertNotIn("SSH_AUTH_SOCK", env)
 
@@ -55,6 +69,12 @@ class RealBinarySmoke(unittest.TestCase):
             self.assertEqual(status["data"]["pid"], runtime.pid)
             expected = status["data"]["environment_id"]
             endpoint = Path(env["HEIMDALL_HOME"]) / "run" / "control.sock"
+            if WINDOWS:
+                # The pipe name carries an unpredictable token. Only the runtime can report it.
+                endpoint = status["data"].get("control_endpoint")
+                if not isinstance(endpoint, str) or not endpoint:
+                    self.skipTest("service status reports no data.control_endpoint: this build does not "
+                                  "serve ADR-0013 D12 yet, and this test never reads instance.json")
             with Client(endpoint, expected, required=("events/1",), timeout=2) as client:
                 self.assertIn("events/1", client.capabilities)
                 capabilities = client.request("inspect", subject="capabilities")
