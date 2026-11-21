@@ -9,6 +9,7 @@ Commands:
   revoke-client  Revoke one client on a runner (narrowing; no decision)
   remove         Revoke this device on a runner, then forget the runner. The management key is kept
   update         Ask a runner for its explicit, checksum-verified binary update
+  recheck        Recheck a runner that went owner-only: probe a real management session to it and send the runner what the probes observed. Owner only. Nothing is lifted here: the runner's owner lifts the downgrade at the runner, within 15 minutes
   status         This controller's view of its runners. Opens no connection
   help           Print this message or the help of the given subcommand(s)
 

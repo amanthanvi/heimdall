@@ -6,6 +6,7 @@ Commands:
   enable       Enable the Iroh transport
   disable      Disable the Iroh transport
   adopt-roost  Adopt an existing Pigeons roost as a route (a widening, confirmed locally)
+  rotate       Rotate this device's endpoint key
   help         Print this message or the help of the given subcommand(s)
 
 Options:

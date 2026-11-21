@@ -1383,6 +1383,14 @@ pub enum Request {
     /// ⟨M06⟩ Revision 6 (ADR-0012 §4, §7): the runner-internal requests
     /// ([`crate::remote::RunnerRequest`]; needs `runner/1`).
     Runner(crate::remote::RunnerRequest),
+    /// ⟨M06⟩ Revision 6.3 (ADR-0006 §18.7 item 7): the runner's own `issuer_trust` and
+    /// time-source designation ([`crate::remote::RunnerLocalRequest`]; local owner only,
+    /// the widening forms attended; needs `remote-control/1`).
+    RunnerLocal(crate::remote::RunnerLocalRequest),
+    /// ⟨M06⟩ Revision 6.3 (ADR-0006 §18.7 item 6): the controller's records of its runners,
+    /// written through its runtime ([`crate::controller_record::ControllerRecordRequest`];
+    /// local owner only, a paired session is refused).
+    ControllerRecord(crate::controller_record::ControllerRecordRequest),
 }
 
 /// How the application admits a request (m02-plan U0 "journaled kinds"; ADR-0006
@@ -1429,6 +1437,8 @@ impl Request {
             Request::Route(r) => r.kind(),
             Request::Transport(r) => r.kind(),
             Request::Runner(r) => r.kind(),
+            Request::RunnerLocal(r) => r.kind(),
+            Request::ControllerRecord(r) => r.kind(),
         }
     }
 
@@ -1512,6 +1522,8 @@ impl Request {
                 | crate::remote::RemoteEnvironmentRequest::Invite { .. }
                 | crate::remote::RemoteEnvironmentRequest::Join { .. }
                 | crate::remote::RemoteEnvironmentRequest::ActivationProbe { .. }
+                | crate::remote::RemoteEnvironmentRequest::RotateEndpoint { .. }
+                | crate::remote::RemoteEnvironmentRequest::RunnerPolicyRecheck { .. }
                 | crate::remote::RemoteEnvironmentRequest::RevokeClient { .. }
                 | crate::remote::RemoteEnvironmentRequest::Remove { .. }
                 | crate::remote::RemoteEnvironmentRequest::Update { .. },
@@ -1525,7 +1537,8 @@ impl Request {
             | Request::Transport(
                 crate::route::TransportRequest::Enable { .. }
                 | crate::route::TransportRequest::Disable
-                | crate::route::TransportRequest::AdoptRoost { .. },
+                | crate::route::TransportRequest::AdoptRoost { .. }
+                | crate::route::TransportRequest::Rotate,
             )
             | Request::Runner(
                 crate::remote::RunnerRequest::PrepareRemoteGrant { .. }
@@ -1533,6 +1546,20 @@ impl Request {
                 | crate::remote::RunnerRequest::TimeChallenge
                 | crate::remote::RunnerRequest::TimeResponse { .. }
                 | crate::remote::RunnerRequest::DeliverEffect { .. },
+            )
+            // ⟨rev6.3⟩ Runner-local decisions on `meta` keys, settled synchronously.
+            | Request::RunnerLocal(
+                crate::remote::RunnerLocalRequest::TrustIssuer { .. }
+                | crate::remote::RunnerLocalRequest::DesignateTimeSource { .. }
+                | crate::remote::RunnerLocalRequest::DistrustIssuer { .. }
+                | crate::remote::RunnerLocalRequest::ClearTimeSource
+                | crate::remote::RunnerLocalRequest::EnrollOwner { .. }
+                | crate::remote::RunnerLocalRequest::PolicyRecheck { .. },
+            )
+            // ⟨rev6.3⟩ The controller's own records, settled synchronously.
+            | Request::ControllerRecord(
+                crate::controller_record::ControllerRecordRequest::PutEnvironment { .. }
+                | crate::controller_record::ControllerRecordRequest::RemoveEnvironment { .. },
             ) => Admission::Synchronous,
         }
     }
@@ -1573,11 +1600,15 @@ impl Request {
             Request::Environment(_) => Some(crate::ipc::capability::ENVIRONMENTS_V1),
             // ⟨M06⟩ Revision 6 (ADR-0006 §18): each form names its capability, none offered
             // in wave 0, so a session gets `SCHEMA_UNSUPPORTED` before dispatch.
-            Request::RemoteEnvironment(_) | Request::Device(_) => {
+            Request::RemoteEnvironment(_) | Request::Device(_) | Request::RunnerLocal(_) => {
                 Some(crate::ipc::capability::REMOTE_CONTROL_V1)
             }
             Request::Route(_) => Some(crate::ipc::capability::ROUTES_V1),
             Request::Transport(_) => Some(crate::ipc::capability::TRANSPORT_IROH_V1),
+            // ⟨rev6.3⟩ The controller's own records: no capability beyond `operations/1`
+            // (a controller offers no `remote-control/1`); the runtime serves them to the
+            // local owner only.
+            Request::ControllerRecord(_) => None,
             Request::Runner(_) => Some(crate::ipc::capability::RUNNER_V1),
             // ⟨M05⟩ Revision 5: the trusted-work forms need `trusted-work/1`, so a runtime
             // that does not offer it refuses them explicitly (`SCHEMA_UNSUPPORTED`)
@@ -1650,6 +1681,8 @@ impl Request {
                 | Request::Route(_)
                 | Request::Transport(_)
                 | Request::Runner(_)
+                | Request::RunnerLocal(_)
+                | Request::ControllerRecord(_)
         )
     }
 

@@ -574,6 +574,7 @@ fn seed_client(store: &Store, ctx: &CallerContext, role: Role, n: u8) {
         state: InvitationState::Pending,
         consumed_at: None,
         join: None,
+        iroh_admission: false,
     };
     store
         .transaction(|tx| {
@@ -854,6 +855,11 @@ async fn a_paired_caller_receives_live_events_only_within_its_scope() {
         .await
         .unwrap();
     assert_eq!(decide.code, Code::InteractionRequired);
+    assert_eq!(
+        decide.data["error"]["reason"],
+        heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED,
+        "{decide:?}"
+    );
     let still = w
         .store
         .transaction(|tx| tx.decision(&DecisionId::parse(&decision).unwrap()))

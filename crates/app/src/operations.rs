@@ -290,10 +290,13 @@ pub mod wsl_m04;
 mod login_entry_m04;
 // ⟨M06⟩ Wave 0 (ADR-0006 §18): the fail-closed landing of the revision-6 request forms.
 mod remote_m06;
+// ⟨M06 W3 grant-path⟩ A runner's grant waits for its issuer (ADR-0012 §4 item 2).
+mod runner_m06;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use login_entry_m04::login_resource_id;
 pub use remote_m06::revision_6_refusal;
+pub use runner_m06::RunnerGrants;
 // ⟨M05⟩ U6: the handover the runtime's slot cleanup commits (ADR-0011 §5.2).
 pub use slots_m05::{SlotHandover, slot_files_removed_or_hand_over_in};
 pub use uninstall_fence_m03::{
@@ -7653,6 +7656,14 @@ impl Operations {
                 )
                 .await;
         };
+        // ⟨M06 W3 grant-path; ADR-0012 §4 item 2⟩ On a remote runner a managed grant waits
+        // for its issuer: admitted and `preparing`, with no new attempt recorded, until the
+        // controller's host has installed its certificates (`runner_m06`). The operation
+        // stays `running`; `Operations::runner_grant_issued` drives it on. (An earlier
+        // attempt was reconciled above first, as on any installation.)
+        if self.awaits_issuer(&identity.mechanism, &grant_id) {
+            return Ok(Flow::Stop);
+        }
         // 3. Fresh attempt (code review A03). Wait for an adapter slot first, then
         // authorize the attempt in one transaction: time assessed by the gate,
         // current authority, deadline, cutoff and continuous admission validated
@@ -9177,6 +9188,15 @@ impl Operations {
                     st = self.load_work(id).await?;
                 }
             }
+        }
+        // ⟨M06 W3 grant-path⟩ On a remote runner, a running operation whose managed grant
+        // waits for its issuer names that grant (the forwarding controller records it).
+        if st.op.state == OperationState::Running
+            && let Some(resolved) = &st.intent.resolved
+            && let (Some(grant), Some(adapter)) = (&resolved.grant, &resolved.adapter)
+            && self.awaits_issuer(&adapter.mechanism, grant)
+        {
+            return Err(Self::awaiting_issuer(id, grant));
         }
         let mut done = render_settled::<EnsureData>(&st.op)?;
         self.withhold_claims_outside_own_environment(&mut done.data);

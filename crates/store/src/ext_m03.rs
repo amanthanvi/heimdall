@@ -265,18 +265,12 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
     // table compares rows).
     ("remote_clients", RecoveryClass::Rows),
     ("remote_invitations", RecoveryClass::Rows),
-    (
-        "remote_effect_outbox",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
-    (
-        "remote_effect_acks",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
-    (
-        "remote_policy_revisions",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
+    // ⟨M06 U4⟩ Written by `crate::ext_effects`: the controller's undelivered narrowing effects,
+    // the runner's acknowledgements and its delivered policy revisions are authority-bearing
+    // (m06-plan rule 4b), so the rows compare.
+    ("remote_effect_outbox", RecoveryClass::Rows),
+    ("remote_effect_acks", RecoveryClass::Rows),
+    ("remote_policy_revisions", RecoveryClass::Rows),
     // ⟨M06 W2⟩ Written by `crate::ext_m06` (U2): the controller's pinned runner identities
     // (environment ID, host keys, this device's client) are authority-bearing: rows compare.
     ("remote_environment_pins", RecoveryClass::Rows),
@@ -299,9 +293,16 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
     // records' key and recorded terminal result, ADR-0012 §3.10): what a runner-local
     // decision executed is authority, so the rows compare (ruling of 2026-11-21).
     ("remote_widening", RecoveryClass::Rows),
+    // ⟨M06 W3⟩ Migration 0011, written by `crate::ext_m06` (ADR-0006 §18.7 item 1): a paired
+    // client's Iroh endpoint ID is the serve allowlist's source (admission authority), so the
+    // rows compare.
+    ("remote_client_endpoints", RecoveryClass::Rows),
 ];
 
 /// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).
+/// ⟨M06 U4⟩ No table carries it any more (every 0009 table has its writer and its class); the
+/// placeholder test keeps reading it, so a later table added under it is still checked.
+#[cfg_attr(not(test), allow(dead_code))]
 const M06_UNWRITTEN: &str = "M06 wave 0: created by migration 0009 with no writer; the unit that adds its writer (m06-plan U1-U5) classifies it first (fail closed: `Rows` for a record the purge must not lose)";
 
 /// ⟨ADR-0008 §17.32 item 1 (audit A4)⟩ Every `meta` key the store writes, by exact key
@@ -377,6 +378,46 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
     // ⟨M06 U3⟩ `crate::ext_runner`: runner-local widenings (ADR-0012 §3.10), so they compare.
     ("runner_time_source", None),
     ("runner_issuer_trust:", None),
+    // ⟨M06 W3; ADR-0006 §18.7 item 18⟩ The runner's owner-only downgrade: authority-bearing,
+    // so it is in the snapshot and compared (a database without it is never taken for one
+    // with it).
+    ("runner_owner_only", None),
+    // ⟨§18.7 item 19⟩ The evidence an attended lift judges.
+    (
+        "runner_policy_recheck",
+        Some(
+            "the recheck evidence of an attended lift: it grants nothing by itself, expires in 15 minutes and is bound to the downgrade's epoch, which is in the snapshot",
+        ),
+    ),
+    // ⟨M06 U4⟩ `crate::ext_effects` (ADR-0012 §7.1): what this controller last saw of a runner.
+    (
+        "remote_contact:",
+        Some("the controller's connectivity observations of its runners; local, not authority"),
+    ),
+    // ⟨M06 W3⟩ `crate::ext_effects` (ADR-0005 §3.5 "Remote reservations"): the controller's
+    // records of the grants it delivered to its runners. Authority-bearing: a remote
+    // certificate's content comes from them.
+    ("remote_delivered_grant:", None),
+    // ⟨M06 W3⟩ `crate::ext_transport` (ADR-0012 §2.1 ⟨2026-11-21⟩): the serve port the
+    // first successful bind recorded, reused at every start.
+    (
+        "transport_serve_port",
+        Some(
+            "the Iroh serve endpoint's recorded port: a local reachability parameter, not authority",
+        ),
+    ),
+    (
+        "transport_serve_port_unbindable",
+        Some("the serve port the last start could not bind: a local diagnostic for the doctor"),
+    ),
+    // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `crate::ext_transport`: the K_iroh rotation still
+    // being announced to this device's recorded runners.
+    (
+        "transport_rotation",
+        Some(
+            "which recorded runners still await this device's rotated Iroh endpoint ID: local progress of a rotation, not authority (the key references are the transport_keys rows)",
+        ),
+    ),
 ];
 
 /// ⟨ADR-0008 §17.32 item 1⟩ One row of a [`RecoveryClass::Rows`] table
@@ -2665,6 +2706,7 @@ mod tests {
         ("ext_routes.rs", include_str!("ext_routes.rs")),
         ("ext_transport.rs", include_str!("ext_transport.rs")),
         ("ext_runner.rs", include_str!("ext_runner.rs")),
+        ("ext_effects.rs", include_str!("ext_effects.rs")),
         ("lib.rs", include_str!("lib.rs")),
         ("migrations.rs", include_str!("migrations.rs")),
     ];

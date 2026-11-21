@@ -40,6 +40,11 @@ heimdall-project = { workspace = true }
 # (`paired.rs`). The crate graph allows the edge (remote never depends on the runtime); no
 # third-party package enters the lock.
 heimdall-remote = { workspace = true }
+# ⟨M06 W3⟩ (ADR-0012 §3.5 ⟨2026-11-21⟩, ruling 8 (c)): `paired_lines` writes the management
+# line through the one authorized_keys safety module, `heimdall_registry::keys_file`. The
+# registry depends on contract and domain only, and is already in the runtime's graph through
+# app and enroll: only the edge is new, and no cycle can form.
+heimdall-registry = { workspace = true }
 # ⟨M06 U56⟩ (ADR-0012 §1-§2, §13; m06-plan U56): the runtime supervises the Iroh serve child
 # and holds the admission authority (`supervise_transport.rs`), and gives the route helper its
 # Iroh leg. The crate graph allows the edge (the transport depends on the contract only; app
@@ -49,6 +54,10 @@ heimdall-transport-iroh = { workspace = true }
 # ⟨M06 U56⟩ The supervisor implements heimdall-app's async ports (`ServeControl`,
 # `IrohLegDialer`); already in the lock through heimdall-app.
 async-trait = { workspace = true }
+# ⟨M06 W3⟩ The runner's signer table installs the certificates runner issuance accepted
+# (`runner_issuance.rs`; `SignerTable::install` takes a parsed certificate). Already in the lock
+# through heimdall-credential: only the edge is new.
+ssh-key = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -265,3 +274,26 @@ path = "../../tests/integration/runner_runtime_m06.rs"
 [[test]]
 name = "model_runner_delivery"
 path = "../../tests/model/runner_delivery.rs"
+
+# ⟨M06 U4⟩ (ADR-0012 §7; m06-plan U4 "model"): typed narrowing effects through the runner's
+# real operations and the controller's real outbox and issuer barrier: two controllers'
+# effects interleaved, a lost acknowledgement, a stale issuance against a tombstone, a pause
+# over running grants, a cutoff delivered while disconnected, and a future cutoff delivered
+# early, late and replayed under uncertain time.
+[[test]]
+name = "model_remote_sync"
+path = "../../tests/model/remote_sync.rs"
+
+# ⟨M06 U4, U4b⟩ (ADR-0012 §7.4-§7.5, §8; m06-plan U4 "adapter", U4b): resynchronization over a
+# management session in process (uncertain time, the issuer's barrier after another
+# controller's revoke, `held` on a changed identity), the paired dispatch path, and the T06
+# set for a second controller.
+[[test]]
+name = "integration_runner_effects_m06"
+path = "../../tests/integration/runner_effects_m06.rs"
+
+# ⟨M06 W3 `driver`⟩ The controller's sync and issuance driver against the runner fixture: the
+# per-session issuance gate, remote issuance behind the barrier, and the 2026-11-21 rulings.
+[[test]]
+name = "integration_controller_driver_m06"
+path = "../../tests/integration/controller_driver_m06.rs"

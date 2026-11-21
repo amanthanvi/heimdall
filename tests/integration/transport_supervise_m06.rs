@@ -12,6 +12,7 @@
 //! Cases:
 //! * `revocation_is_applied_only_after_the_child_closed_the_live_connection`;
 //! * `rotation_replaces_the_child_under_a_new_endpoint`;
+//! * `the_serve_port_is_stable_and_an_unbindable_one_fails_closed` (⟨M06 W3⟩ ADR-0012 §2.1);
 //! * `route_connect_through_iroh_reaches_a_server_first_target` (M06-W1-R04);
 //! * `an_invalid_or_silent_client_reaches_no_target_through_iroh` (ADR-0012 §5.5 item 5);
 //! * `an_unacknowledged_suspend_stops_the_child_by_its_exact_pid` (pending meanwhile);
@@ -34,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use heimdall_app::routes::failover::{FailoverConfig, run_failover};
+use heimdall_app::routes::failover::{ClientIdentification, FailoverConfig, run_failover};
 use heimdall_app::routes::legs::{RouteLegDialer, TokioLegDialer};
 use heimdall_app::routes::{LegPlan, PlannedRoute};
 use heimdall_app::transport::{AdmissionReport, ApprovedWidening, NoPeerEnrollments, TransportOps};
@@ -316,6 +317,7 @@ fn seed_client(store: &Store, n: u8) -> ClientId {
         state: InvitationState::Pending,
         consumed_at: None,
         join: None,
+        iroh_admission: false,
     };
     let join = JoinRecord {
         environment: EnvironmentId::from_random_bytes([9; 16]),
@@ -683,7 +685,7 @@ fn rotation_replaces_the_child_under_a_new_endpoint() {
             peers: &NoPeerEnrollments,
         };
         let g = w.generation();
-        let rotated = ops.rotate(now()).await.unwrap();
+        let rotated = ops.rotate(None, now()).await.unwrap();
         assert_eq!(rotated.previous, first);
         assert_ne!(rotated.endpoint, first);
         assert_eq!(rotated.admission, AdmissionReport::Applied);
@@ -706,6 +708,93 @@ fn rotation_replaces_the_child_under_a_new_endpoint() {
         };
         assert!(!reached, "the withdrawn endpoint does not serve");
         assert_eq!(sup.stop().await, AdmissionReport::Applied);
+    });
+}
+
+/// The IPv4 port of a running child's bound sockets.
+fn v4_port(serving: &Serving) -> u16 {
+    serving
+        .addresses
+        .iter()
+        .filter_map(|a| a.parse::<std::net::SocketAddr>().ok())
+        .find(std::net::SocketAddr::is_ipv4)
+        .map(|a| a.port())
+        .unwrap()
+}
+
+/// ⟨M06 W3; ADR-0012 §2.1 ⟨2026-11-21⟩, ADR-0006 §18.7 item 5⟩ The serve port: a policy that
+/// names none records the first successful bind's port, and a restarted supervisor binds it
+/// again; a recorded port that another socket holds fails closed (`transport_unavailable`,
+/// naming the port; no other port is tried) and is recorded for the doctor, until a start
+/// binds it; `disable` forgets it; a named port is bound as named.
+fn the_serve_port_is_stable_and_an_unbindable_one_fails_closed() {
+    rt().block_on(async {
+        let w = World::new().await;
+        let sup = w.supervisor("child");
+        w.enable_serving(&sup).await;
+        let first = v4_port(&sup.serving().await.unwrap());
+        let recorded = |w: &World| {
+            w.store
+                .transaction(|tx| {
+                    Ok((
+                        tx.transport_serve_port()?,
+                        tx.transport_serve_bind_failure()?,
+                    ))
+                })
+                .unwrap()
+        };
+        assert_eq!(recorded(&w), (Some(first), None));
+        assert_eq!(sup.stop().await, AdmissionReport::Applied);
+        // A restart (a new supervisor over the same state) binds the same port.
+        let again = w.supervisor("child");
+        again.start().await.unwrap();
+        assert_eq!(v4_port(&again.serving().await.unwrap()), first);
+        assert_eq!(again.stop().await, AdmissionReport::Applied);
+        // Another socket holds the port: fail closed, naming it; nothing else is bound.
+        let blocker = std::net::UdpSocket::bind(("127.0.0.1", first)).unwrap();
+        let held = w.supervisor("child");
+        let err = held.start().await.unwrap_err();
+        assert_eq!(err.reason.as_deref(), Some("transport_unavailable"));
+        assert!(err.message.contains(&first.to_string()), "{}", err.message);
+        assert!(held.serving().await.is_none());
+        assert_eq!(recorded(&w), (Some(first), Some(first)));
+        drop(blocker);
+        held.start().await.unwrap();
+        assert_eq!(v4_port(&held.serving().await.unwrap()), first);
+        assert_eq!(
+            recorded(&w),
+            (Some(first), None),
+            "a bind clears the failure"
+        );
+        // `disable` forgets the port; a named port is then bound as named.
+        let keys = w.keys();
+        let ops = TransportOps {
+            store: &w.store,
+            keys: &keys,
+            serve: held.as_ref(),
+            peers: &NoPeerEnrollments,
+        };
+        ops.disable(now()).await.unwrap();
+        assert_eq!(recorded(&w), (None, None));
+        let named = {
+            let probe = std::net::UdpSocket::bind(("127.0.0.1", 0)).unwrap();
+            probe.local_addr().unwrap().port()
+        };
+        let policy = ExposurePolicy {
+            port: Some(named),
+            ..ExposurePolicy::default()
+        };
+        let delta = ops.enable_delta(true, Some(&policy)).unwrap();
+        let approved = ApprovedWidening {
+            decision: DecisionId::from_random_bytes([0x5f; 16]),
+            delta,
+        };
+        ops.enable(true, Some(policy), Some(&approved), now())
+            .await
+            .unwrap();
+        assert_eq!(v4_port(&held.serving().await.unwrap()), named);
+        assert_eq!(recorded(&w), (None, None), "a named port is not recorded");
+        assert_eq!(held.stop().await, AdmissionReport::Applied);
     });
 }
 
@@ -1424,10 +1513,11 @@ async fn route_connect_raw_client(
     (outcome, health)
 }
 
-/// ⟨ADR-0012 §5.5 item 5⟩ Through the real serve child: a first client line that is not
-/// `SSH-2.0-` CRLF within 255 bytes, a 256-byte line with no CRLF, and a silent client each
-/// fail the Iroh attempt closed (`identification_timeout`): no stream ever reaches the serve
-/// side, so the server-first target accepts nothing.
+/// ⟨ADR-0012 §5.5 item 5; ruling 3, 2026-11-21⟩ Through the real serve child: a first client
+/// line that is not `SSH-2.0-` CRLF within 255 bytes and a 256-byte line with no CRLF end the
+/// connect (malformed, overlong: terminal), and a silent client times out (route-local); none
+/// is recorded against the Iroh route, and no stream ever reaches the serve side, so the
+/// server-first target accepts nothing.
 fn an_invalid_or_silent_client_reaches_no_target_through_iroh() {
     rt().block_on(async {
         let w = World::new().await;
@@ -1449,21 +1539,26 @@ fn an_invalid_or_silent_client_reaches_no_target_through_iroh() {
             }
             b
         };
-        let cases: [(&str, &'static [u8]); 3] = [
-            ("not SSH-2.0", b"SSH-1.99-old\r\n"),
-            ("256 bytes, no CRLF", LONG),
-            ("silent", b""),
+        let cases: [(&str, &'static [u8], ClientIdentification); 3] = [
+            (
+                "not SSH-2.0",
+                b"SSH-1.99-old\r\n",
+                ClientIdentification::Malformed,
+            ),
+            ("256 bytes, no CRLF", LONG, ClientIdentification::Overlong),
+            ("silent", b"", ClientIdentification::Timeout),
         ];
-        for (what, bytes) in cases {
+        for (what, bytes, why) in cases {
             let (outcome, health) = route_connect_raw_client(w.c2.1.clone(), &serving, bytes).await;
+            let outcome = outcome.unwrap_or_else(|| panic!("{what}: the helper ran"));
             assert!(
-                outcome.is_some_and(|o| o.final_route.is_none()),
+                outcome.final_route.is_none(),
                 "{what}: no route established"
             );
-            assert_eq!(
-                health.last().unwrap().attempts[0].failure,
-                Some(RouteFailureClass::IdentificationTimeout),
-                "{what}"
+            assert_eq!(outcome.client_failure, Some(why), "{what}");
+            assert!(
+                health.last().unwrap().attempts.is_empty(),
+                "{what}: not counted against the Iroh route"
             );
             assert_eq!(probe.accepted(), 0, "{what}: the target saw nothing");
         }
@@ -1637,6 +1732,10 @@ fn main() {
         (
             "rotation_replaces_the_child_under_a_new_endpoint",
             rotation_replaces_the_child_under_a_new_endpoint,
+        ),
+        (
+            "the_serve_port_is_stable_and_an_unbindable_one_fails_closed",
+            the_serve_port_is_stable_and_an_unbindable_one_fails_closed,
         ),
         (
             "an_unacknowledged_suspend_stops_the_child_by_its_exact_pid",

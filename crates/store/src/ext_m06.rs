@@ -1,6 +1,7 @@
 //! ⟨M06⟩ Store methods for the runner's role table and invitations (ADR-0012 §3.7–§3.9,
 //! §3.11; m06-plan U1). Schema: `migrations/0009_remote.sql` (`remote_clients`,
-//! `remote_invitations`, `remote_authority_generation`); no migration of its own.
+//! `remote_invitations`, `remote_authority_generation`); ⟨W3⟩ `0011_remote_client_endpoints`
+//! (`remote_client_endpoints`, `remote_invitations.iroh_admission`; ADR-0006 §18.7 item 1).
 //!
 //! Conventions (as [`crate::ext_m05`]): every method runs inside the caller's [`Txn`];
 //! reads return `Option`/`Vec`; the store reads no clock (every instant is the caller's);
@@ -16,16 +17,22 @@
 //!
 //! **Generations.** Creating an invitation (a pending client), activating a client and
 //! revoking one widen or narrow authority, so each moves the authority generation
-//! (ADR-0006 §13.7 item 5) **and** the runner's admission authority generation
-//! (`remote_authority_generation`, ADR-0012 §2.3 items 3–5) in the same transaction. A
-//! client's line-reconcile bookkeeping moves neither.
+//! (ADR-0006 §13.7 item 5). ⟨M06 W3; m06-plan U56, ruling W0C-Q4⟩ The runner's admission
+//! authority generation (`remote_authority_generation`, ADR-0012 §2.3 items 3–5) moves only
+//! for a change that narrows remote admission: here, a client's tombstone and the
+//! replacement of a client's Iroh endpoint ID ([`Txn::set_remote_client_endpoint`]); in
+//! [`crate::ext_transport`], transport disable, exposure narrowing and K_iroh rotation or
+//! removal. Invitations, activation and the bootstrap owner's enrollment widen and leave it,
+//! so an invitation records the admission generation current at its creation and `join`
+//! refuses when anything narrowed in between. A client's line-reconcile bookkeeping moves
+//! neither.
 
 use std::time::Duration;
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{
-    AccountName, ClientId, DecisionId, DestinationId, EnvironmentId, InvitationId, KeyFingerprint,
-    RequestId,
+    AccountName, ClientId, DecisionId, DestinationId, EnvironmentId, InvitationId, IrohEndpointId,
+    KeyFingerprint, RequestId,
 };
 use heimdall_contract::remote::Role;
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
@@ -184,6 +191,38 @@ pub struct RemoteInvitationRecord {
     /// The recorded join result.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub join: Option<JoinRecord>,
+    /// ⟨M06 W3; ADR-0006 §18.7 item 2⟩ Whether the invited client may reach this runner
+    /// over Iroh (mirrored in the `iroh_admission` column). Omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub iroh_admission: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// ⟨ADR-0006 §18.7 item 8⟩ What [`Txn::admit_bootstrap_owner_iroh`] did with the endpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnerEndpoint {
+    /// The owner had none: this one was recorded.
+    Recorded,
+    /// The owner already had exactly this one.
+    Unchanged,
+    /// The owner has another endpoint, which was kept (never replaced here).
+    Kept(IrohEndpointId),
+}
+
+/// ⟨M06 W3⟩ What [`Txn::set_remote_client_endpoint`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointChange {
+    /// The client had no endpoint; it has this one now (no generation moved: admitting a
+    /// new peer narrows nothing).
+    Recorded,
+    /// The client's endpoint was replaced; the admission authority generation moved to
+    /// this value in the same transaction.
+    Replaced(u64),
+    /// The client already had this endpoint; nothing was written.
+    Unchanged,
 }
 
 fn millis(d: Duration) -> Result<i64> {
@@ -224,8 +263,8 @@ impl Txn<'_> {
             self.tx.execute(
                 "INSERT INTO remote_invitations (invitation_id, client_id, role, key_fingerprint,
                      generation, created_wall, created_boot_id, created_elapsed_ms, expires_wall,
-                     elapsed_bound_ms, state, consumed_at, record_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                     elapsed_bound_ms, state, consumed_at, record_json, iroh_admission)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 rusqlite::params![
                     rec.invitation.as_str(),
                     rec.client.as_str(),
@@ -240,6 +279,7 @@ impl Txn<'_> {
                     codec::enum_str(&rec.state)?,
                     rec.consumed_at.map(codec::ts),
                     codec::doc(rec)?,
+                    i64::from(rec.iroh_admission),
                 ],
             )?;
             return Ok(());
@@ -264,13 +304,13 @@ impl Txn<'_> {
     /// IDs must be new ([`StoreError::GenerationConflict`] otherwise); both records must be
     /// pending, name each other and agree on the role and the key fingerprint, and the
     /// client's line state must be [`AppliedLine::Absent`] (the line is written after this
-    /// commit). Moves the authority generation and the admission authority generation.
-    /// Returns the new admission authority generation.
+    /// commit). Moves the authority generation; ⟨W3⟩ never the admission authority
+    /// generation (module docs). Returns the admission authority generation, unchanged.
     pub fn insert_remote_invitation(
         &mut self,
         client: &RemoteClientRecord,
         invitation: &RemoteInvitationRecord,
-        now: Timestamp,
+        _now: Timestamp,
     ) -> Result<u64> {
         let consistent = client.state == ClientState::Pending
             && invitation.state == InvitationState::Pending
@@ -297,7 +337,7 @@ impl Txn<'_> {
         self.write_client(client, true)?;
         self.write_invitation(invitation, true)?;
         self.bump_generation()?;
-        self.bump_remote_authority_generation(now)
+        self.remote_authority_generation()
     }
 
     /// One client, whatever its state.
@@ -356,7 +396,9 @@ impl Txn<'_> {
     /// against the records read in this same transaction. A missing invitation is
     /// `QueryReturnedNoRows`; an invitation or client that is not pending, or a `join` that
     /// does not name the records, is [`StoreError::GenerationConflict`] and writes nothing.
-    /// Moves the authority generation and the admission authority generation.
+    /// Moves the authority generation; ⟨W3⟩ never the admission authority generation
+    /// (module docs). The caller records the client's endpoint in the same transaction
+    /// ([`Self::set_remote_client_endpoint`]) when the join carries one.
     pub fn activate_remote_client(
         &mut self,
         join: &JoinRecord,
@@ -386,8 +428,11 @@ impl Txn<'_> {
         client.updated_at = join.joined_at;
         self.write_invitation(&inv, false)?;
         self.write_client(&client, false)?;
+        // ⟨§18.7 item 8⟩ The invitation's Iroh admission becomes the client's.
+        if inv.iroh_admission {
+            self.admit_remote_client_iroh(&client.client)?;
+        }
         self.bump_generation()?;
-        self.bump_remote_authority_generation(join.joined_at)?;
         Ok((client, inv))
     }
 
@@ -395,8 +440,10 @@ impl Txn<'_> {
     /// `pending | active → revoked`, recording the admission authority generation it
     /// produces and the cause; a pending invitation of the client becomes `expired` (cause
     /// [`RevocationCause::InvitationExpired`]) or `revoked`. Moves the authority generation
-    /// and the admission authority generation. Idempotent: a client already revoked is
-    /// returned unchanged and moves nothing. A missing client is `QueryReturnedNoRows`.
+    /// and the admission authority generation. ⟨W3; ADR-0012 §3.11⟩ The client's
+    /// `remote_client_endpoints` row is deleted in this same transaction. Idempotent: a
+    /// client already revoked is returned unchanged and moves nothing. A missing client is
+    /// `QueryReturnedNoRows`.
     pub fn revoke_remote_client(
         &mut self,
         id: &ClientId,
@@ -419,6 +466,10 @@ impl Txn<'_> {
             };
             self.write_invitation(&inv, false)?;
         }
+        self.tx.execute(
+            "DELETE FROM remote_client_endpoints WHERE client_id = ?1",
+            [id.as_str()],
+        )?;
         self.bump_generation()?;
         let generation = self.bump_remote_authority_generation(now)?;
         client.state = ClientState::Revoked;
@@ -467,6 +518,198 @@ impl Txn<'_> {
             self.write_client(&client, false)?;
         }
         Ok(true)
+    }
+
+    // --- ⟨M06 W3⟩ paired clients' Iroh endpoint IDs (ADR-0006 §18.7 items 1, 3, 4) ------
+
+    /// ⟨ADR-0006 §18.7 item 8⟩ Whether `client` is admitted over Iroh (the client's own
+    /// attribute: copied from its invitation at `join`, or set for the bootstrap owner by
+    /// [`Self::admit_bootstrap_owner_iroh`]). `false` for an unknown client.
+    pub fn remote_client_iroh_admission(&mut self, client: &ClientId) -> Result<bool> {
+        let admitted: Option<i64> = self
+            .tx
+            .query_row(
+                "SELECT iroh_admission FROM remote_clients WHERE client_id = ?1",
+                [client.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(admitted == Some(1))
+    }
+
+    /// Set `client`'s Iroh admission (never cleared: a tombstone ends it with the client).
+    fn admit_remote_client_iroh(&mut self, client: &ClientId) -> Result<()> {
+        let n = self.tx.execute(
+            "UPDATE remote_clients SET iroh_admission = 1 WHERE client_id = ?1",
+            [client.as_str()],
+        )?;
+        if n == 1 { Ok(()) } else { Err(missing()) }
+    }
+
+    /// ⟨ADR-0006 §18.7 item 8⟩ The bootstrap owner's Iroh admission and first endpoint, in
+    /// the caller's transaction (the owner enrollment's, or `remote init`'s repair of the
+    /// same key and client): `client` must be an **active owner with no invitation** (what
+    /// [`Self::enroll_bootstrap_owner`] returns), else [`StoreError::GenerationConflict`]
+    /// with nothing written. It sets the client's admission and records `endpoint` only when
+    /// the client has none: an existing endpoint is **never replaced** (that is the
+    /// rotation form's job) and is answered as [`OwnerEndpoint::Kept`]. Another client's
+    /// endpoint is a conflict. No generation moves (a first endpoint, as at a join).
+    pub fn admit_bootstrap_owner_iroh(
+        &mut self,
+        client: &ClientId,
+        endpoint: &IrohEndpointId,
+        now: Timestamp,
+    ) -> Result<OwnerEndpoint> {
+        let Some(record) = self.remote_client(client)? else {
+            return Err(missing());
+        };
+        if record.state != ClientState::Active
+            || record.role != Role::Owner
+            || record.invitation.is_some()
+        {
+            return Err(conflict("only the bootstrap owner is admitted this way"));
+        }
+        if let Some((current, _)) = self.remote_client_endpoint(client)?
+            && &current != endpoint
+        {
+            // Admission stands (it was needed to record `current`); the endpoint is kept.
+            self.admit_remote_client_iroh(client)?;
+            return Ok(OwnerEndpoint::Kept(current));
+        }
+        self.admit_remote_client_iroh(client)?;
+        Ok(
+            match self.set_remote_client_endpoint(client, endpoint, now)? {
+                EndpointChange::Recorded => OwnerEndpoint::Recorded,
+                EndpointChange::Unchanged | EndpointChange::Replaced(_) => OwnerEndpoint::Unchanged,
+            },
+        )
+    }
+
+    /// Set or replace `client`'s Iroh endpoint ID (`join`'s commit transaction, or the
+    /// client's rotation form). The client must be **active** and admitted over Iroh
+    /// ([`Self::remote_client_iroh_admission`]; the caller checked both against the records
+    /// it read in this transaction; they are checked again here). A first endpoint is recorded with no
+    /// generation move, insert-if-absent (a first set never overwrites a row; the serve child
+    /// learns of it by its replacement, U56-Q10); a different endpoint replaces the row by a
+    /// compare-and-set on the current one and moves the admission authority generation in
+    /// this transaction (module docs); the same endpoint again writes nothing. Another client's endpoint, a client that is not active or whose
+    /// invitation did not admit Iroh, is [`StoreError::GenerationConflict`] and writes
+    /// nothing; a missing client is `QueryReturnedNoRows`.
+    pub fn set_remote_client_endpoint(
+        &mut self,
+        client: &ClientId,
+        endpoint: &IrohEndpointId,
+        now: Timestamp,
+    ) -> Result<EndpointChange> {
+        let Some(record) = self.remote_client(client)? else {
+            return Err(missing());
+        };
+        if record.state != ClientState::Active {
+            return Err(conflict("only an active client records an endpoint"));
+        }
+        // ⟨§18.7 item 8⟩ The client's own attribute (a first set reads it).
+        if !self.remote_client_iroh_admission(client)? {
+            return Err(conflict("the client is not admitted over Iroh"));
+        }
+        let holder: Option<String> = self
+            .tx
+            .query_row(
+                "SELECT client_id FROM remote_client_endpoints WHERE endpoint_id = ?1",
+                [endpoint.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if holder.as_deref().is_some_and(|h| h != client.as_str()) {
+            return Err(conflict("the endpoint is another client's"));
+        }
+        match self.remote_client_endpoint(client)? {
+            Some((current, _)) if &current == endpoint => Ok(EndpointChange::Unchanged),
+            Some((current, _)) => {
+                // A compare-and-set on the endpoint read above: a concurrent writer that
+                // replaced it first wins, and this one writes nothing.
+                let n = self.tx.execute(
+                    "UPDATE remote_client_endpoints SET endpoint_id = ?3, recorded_at = ?4
+                     WHERE client_id = ?1 AND endpoint_id = ?2",
+                    rusqlite::params![
+                        client.as_str(),
+                        current.as_str(),
+                        endpoint.as_str(),
+                        codec::ts(now)
+                    ],
+                )?;
+                if n != 1 {
+                    return Err(conflict("the client's endpoint changed meanwhile"));
+                }
+                Ok(EndpointChange::Replaced(
+                    self.bump_remote_authority_generation(now)?,
+                ))
+            }
+            None => {
+                // ⟨orchestrator condition 2, 2026-11-21⟩ A first set is insert-if-absent in one
+                // statement: of two concurrent first sets only one inserts, and a first set
+                // never overwrites a row (the same endpoint again is a no-op).
+                let n = self.tx.execute(
+                    "INSERT INTO remote_client_endpoints (client_id, endpoint_id, recorded_at)
+                     VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING",
+                    rusqlite::params![client.as_str(), endpoint.as_str(), codec::ts(now)],
+                )?;
+                if n == 1 {
+                    return Ok(EndpointChange::Recorded);
+                }
+                match self.remote_client_endpoint(client)? {
+                    Some((current, _)) if &current == endpoint => Ok(EndpointChange::Unchanged),
+                    _ => Err(conflict("another endpoint was recorded first")),
+                }
+            }
+        }
+    }
+
+    /// `client`'s endpoint ID and when it was recorded, whatever the client's state.
+    pub fn remote_client_endpoint(
+        &mut self,
+        client: &ClientId,
+    ) -> Result<Option<(IrohEndpointId, Timestamp)>> {
+        let raw: Option<(String, String)> = self
+            .tx
+            .query_row(
+                "SELECT endpoint_id, recorded_at FROM remote_client_endpoints
+                 WHERE client_id = ?1",
+                [client.as_str()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        raw.map(|(e, at)| {
+            let e = IrohEndpointId::parse(&e)
+                .map_err(|_| StoreError::Corrupt("a client endpoint ID is malformed".into()))?;
+            Ok((e, codec::parse_ts(&at)?))
+        })
+        .transpose()
+    }
+
+    /// The serve allowlist's source (ADR-0012 §2.3 item 1): every **active**, non-tombstoned
+    /// client's endpoint ID, by client ID. A row of a client that is not active (a
+    /// tombstone's row is deleted with it; this filter is the second guard) is left out.
+    pub fn remote_client_endpoints(&mut self) -> Result<Vec<(ClientId, IrohEndpointId)>> {
+        let mut stmt = self.tx.prepare(
+            "SELECT e.client_id, e.endpoint_id FROM remote_client_endpoints e
+             JOIN remote_clients c ON c.client_id = e.client_id
+             WHERE c.state = ?1 ORDER BY e.client_id",
+        )?;
+        let active = codec::enum_str(&ClientState::Active)?;
+        let rows = stmt.query_map([active], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (c, e) = row?;
+            let c = ClientId::parse(&c).map_err(|_| {
+                StoreError::Corrupt("a client endpoint's client is malformed".into())
+            })?;
+            let e = IrohEndpointId::parse(&e)
+                .map_err(|_| StoreError::Corrupt("a client endpoint ID is malformed".into()))?;
+            out.push((c, e));
+        }
+        Ok(out)
     }
 
     // --- the admission authority generation ---------------------------------------------
@@ -759,8 +1002,9 @@ impl Txn<'_> {
     /// ⟨M06 U2⟩ The bootstrap's owner enrollment on the runner (ADR-0012 §3.3 step 3):
     /// `client` is inserted **active** with role `owner`, no invitation, no revocation and
     /// line state [`AppliedLine::Absent`] (the line is written after this commit), moving the
-    /// authority generation and the admission authority generation. The caller confirmed it
-    /// on the runner's own terminal (a runner-local widening, §3.10).
+    /// authority generation (⟨W3⟩ never the admission authority generation: an enrollment
+    /// widens; module docs). The caller confirmed it on the runner's own terminal (a
+    /// runner-local widening, §3.10).
     ///
     /// Idempotent for a retried bootstrap of the same key: a non-revoked **active owner**
     /// that already holds this key fingerprint (under this client ID or another one) is
@@ -772,7 +1016,7 @@ impl Txn<'_> {
     pub fn enroll_bootstrap_owner(
         &mut self,
         client: &RemoteClientRecord,
-        now: Timestamp,
+        _now: Timestamp,
     ) -> Result<(RemoteClientRecord, bool)> {
         let consistent = client.state == ClientState::Active
             && client.role == Role::Owner
@@ -804,7 +1048,6 @@ impl Txn<'_> {
         }
         self.write_client(client, true)?;
         self.bump_generation()?;
-        self.bump_remote_authority_generation(now)?;
         Ok((client.clone(), true))
     }
 }
@@ -913,8 +1156,9 @@ mod controller_tests {
         );
     }
 
-    /// The bootstrap owner: inserted active, moving the admission authority generation; a
-    /// retried bootstrap of the same key (same or new client ID) returns the existing owner
+    /// The bootstrap owner: inserted active, moving the authority generation and (⟨W3, ruling
+    /// W0C-Q4⟩ an enrollment widens) not the admission authority generation; a retried
+    /// bootstrap of the same key (same or new client ID) returns the existing owner
     /// and moves nothing; a key held by a pending or limited client, or a client ID taken by
     /// another key, is a conflict that writes nothing.
     #[test]
@@ -928,7 +1172,8 @@ mod controller_tests {
         let generation = store
             .transaction(|tx| tx.remote_authority_generation())
             .unwrap();
-        assert_eq!(generation, 1);
+        assert_eq!(generation, 0);
+        let authority = store.transaction(|tx| tx.authority_generation()).unwrap();
         for retry in [owner(1, 'K'), owner(2, 'K')] {
             let (again, created) = store
                 .transaction(|tx| tx.enroll_bootstrap_owner(&retry, now))
@@ -940,7 +1185,12 @@ mod controller_tests {
             store
                 .transaction(|tx| tx.remote_authority_generation())
                 .unwrap(),
-            1
+            0
+        );
+        assert_eq!(
+            store.transaction(|tx| tx.authority_generation()).unwrap(),
+            authority,
+            "a retry moves nothing"
         );
         assert!(
             store
@@ -1029,6 +1279,7 @@ mod tests {
                 state: InvitationState::Pending,
                 consumed_at: None,
                 join: None,
+                iroh_admission: false,
             },
         )
     }
@@ -1046,7 +1297,8 @@ mod tests {
 
     /// Invite, join once (a second join is a conflict that writes nothing), revoke (the
     /// tombstone records the admission generation; a second revoke changes nothing); each
-    /// change moves both generations, the line bookkeeping moves neither.
+    /// change moves the authority generation; ⟨W3, ruling W0C-Q4⟩ only the tombstone moves
+    /// the admission authority generation; the line bookkeeping moves neither.
     #[test]
     fn invite_join_revoke_round_trip_and_generations() {
         let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
@@ -1060,7 +1312,7 @@ mod tests {
                 Ok(r)
             })
             .unwrap();
-        assert_eq!(g, 1);
+        assert_eq!(g, 0, "an invitation widens: the admission generation stays");
         let dup = store.transaction(|tx| tx.insert_remote_invitation(&client, &inv, at));
         assert!(matches!(dup, Err(StoreError::GenerationConflict(_))));
 
@@ -1076,6 +1328,10 @@ mod tests {
         let before = store
             .transaction(|tx| tx.remote_authority_generation())
             .unwrap();
+        assert_eq!(
+            before, 0,
+            "an activation widens: the admission generation stays"
+        );
         store
             .transaction(|tx| tx.set_remote_client_line(&client.client, AppliedLine::Active))
             .unwrap();
@@ -1308,5 +1564,319 @@ mod tests {
                 .transaction(|tx| tx.insert_remote_widening(&other, &hash))
                 .is_err()
         );
+    }
+
+    fn endpoint(c: char) -> IrohEndpointId {
+        IrohEndpointId::parse(&c.to_string().repeat(64)).unwrap()
+    }
+
+    /// An active client whose consumed invitation has `iroh_admission` as given.
+    fn joined(store: &Store, n: u8, iroh_admission: bool) -> ClientId {
+        let (mut client, mut inv) = pair(n);
+        client.key_fingerprint = KeyFingerprint::parse(&format!(
+            "SHA256:{}",
+            char::from(b'A' + n).to_string().repeat(43)
+        ))
+        .unwrap();
+        inv.key_fingerprint = client.key_fingerprint.clone();
+        inv.iroh_admission = iroh_admission;
+        let at = client.created_at;
+        store
+            .transaction(|tx| {
+                tx.insert_remote_invitation(&client, &inv, at)?;
+                tx.activate_remote_client(&join_of(&inv)).map(drop)
+            })
+            .unwrap();
+        client.client
+    }
+
+    /// ⟨ADR-0006 §18.7 item 8⟩ Iroh admission is the client's attribute: a join copies the
+    /// invitation's; the bootstrap owner (no invitation) gets it, with a first endpoint,
+    /// from `admit_bootstrap_owner_iroh`, which adds but never replaces an endpoint and
+    /// moves no generation; a first set and a rotation read the client's attribute.
+    #[test]
+    fn iroh_admission_is_the_clients_and_the_bootstrap_owner_adds_but_never_replaces() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let at = now("2026-11-20T10:06:00Z");
+        let invited = joined(&store, 1, true);
+        let plain = joined(&store, 2, false);
+        let owner = RemoteClientRecord {
+            client: ClientId::from_random_bytes([9; 16]),
+            role: Role::Owner,
+            key_fingerprint: KeyFingerprint::parse(&format!("SHA256:{}", "o".repeat(43))).unwrap(),
+            public_key: "ssh-ed25519 AAAA".into(),
+            state: ClientState::Active,
+            invitation: None,
+            revoked_generation: None,
+            revocation: None,
+            created_at: at,
+            updated_at: at,
+            line: AppliedLine::Absent,
+        };
+        let admitted = |c: &ClientId| {
+            store
+                .transaction(|tx| tx.remote_client_iroh_admission(c))
+                .unwrap()
+        };
+        assert!(
+            admitted(&invited),
+            "the join copied the invitation's admission"
+        );
+        assert!(!admitted(&plain));
+        // Without the token: the owner is enrolled with no admission, and a first set is
+        // refused with nothing written.
+        store
+            .transaction(|tx| tx.enroll_bootstrap_owner(&owner, at))
+            .unwrap();
+        assert!(!admitted(&owner.client));
+        assert!(matches!(
+            store.transaction(|tx| tx.set_remote_client_endpoint(
+                &owner.client,
+                &endpoint('a'),
+                at
+            )),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        // An invited client, or one that is not an owner, is not admitted this way.
+        assert!(matches!(
+            store.transaction(|tx| tx.admit_bootstrap_owner_iroh(&plain, &endpoint('a'), at)),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        assert!(!admitted(&plain));
+        // With the token (in the enrollment's transaction, idempotent for the same key).
+        let g0 = admission_generation(&store);
+        let recorded = store
+            .transaction(|tx| {
+                let (o, created) = tx.enroll_bootstrap_owner(&owner, at)?;
+                assert!(!created);
+                tx.admit_bootstrap_owner_iroh(&o.client, &endpoint('a'), at)
+            })
+            .unwrap();
+        assert_eq!(recorded, OwnerEndpoint::Recorded);
+        assert!(admitted(&owner.client));
+        let again = store
+            .transaction(|tx| tx.admit_bootstrap_owner_iroh(&owner.client, &endpoint('a'), at))
+            .unwrap();
+        assert_eq!(again, OwnerEndpoint::Unchanged);
+        // The repair never replaces an endpoint.
+        let kept = store
+            .transaction(|tx| tx.admit_bootstrap_owner_iroh(&owner.client, &endpoint('b'), at))
+            .unwrap();
+        assert_eq!(kept, OwnerEndpoint::Kept(endpoint('a')));
+        let current = store
+            .transaction(|tx| tx.remote_client_endpoint(&owner.client))
+            .unwrap()
+            .map(|(e, _)| e);
+        assert_eq!(current, Some(endpoint('a')));
+        assert_eq!(admission_generation(&store), g0, "nothing narrowed");
+        // The rotation form's set reads the client's attribute: it replaces.
+        let rotated = store
+            .transaction(|tx| tx.set_remote_client_endpoint(&owner.client, &endpoint('b'), at))
+            .unwrap();
+        assert!(matches!(rotated, EndpointChange::Replaced(g) if g == g0 + 1));
+    }
+
+    fn admission_generation(store: &Store) -> u64 {
+        store
+            .transaction(|tx| tx.remote_authority_generation())
+            .unwrap()
+    }
+
+    /// ⟨W3; ADR-0006 §18.7 items 1, 3, 4⟩ A client's endpoint: recorded only for an active
+    /// client whose consumed invitation admitted Iroh (a first record moves no generation);
+    /// the same endpoint again writes nothing; a replacement moves the admission authority
+    /// generation in its transaction; another client's endpoint, a pending client and an
+    /// invitation without `iroh_admission` are refused with nothing written. The allowlist
+    /// source lists active clients only, and the invitation's flag survives a round trip
+    /// through its document and its column.
+    #[test]
+    fn client_endpoints_are_admitted_only_by_the_invitation_and_replacement_moves_the_generation() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let at = now("2026-11-20T10:06:00Z");
+        let a = joined(&store, 1, true);
+        let b = joined(&store, 2, true);
+        let plain = joined(&store, 3, false);
+        let g0 = admission_generation(&store);
+        assert_eq!(g0, 0);
+        let column: i64 = store
+            .transaction(|tx| {
+                Ok(tx.tx.query_row(
+                    "SELECT count(*) FROM remote_invitations WHERE iroh_admission = 1",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(column, 2, "the column mirrors the document");
+
+        let set = |c: &ClientId, e: char| {
+            store.transaction(|tx| tx.set_remote_client_endpoint(c, &endpoint(e), at))
+        };
+        assert_eq!(set(&a, 'a').unwrap(), EndpointChange::Recorded);
+        assert_eq!(
+            admission_generation(&store),
+            g0,
+            "a first endpoint narrows nothing"
+        );
+        assert_eq!(set(&a, 'a').unwrap(), EndpointChange::Unchanged);
+        assert_eq!(admission_generation(&store), g0);
+        // Refusals write nothing.
+        assert!(matches!(
+            set(&b, 'a'),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        assert!(matches!(
+            set(&plain, 'c'),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        let (pending, pending_inv) = pair(9);
+        store
+            .transaction(|tx| tx.insert_remote_invitation(&pending, &pending_inv, at))
+            .unwrap();
+        assert!(matches!(
+            set(&pending.client, 'd'),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        assert!(matches!(
+            set(&ClientId::from_random_bytes([42; 16]), 'e'),
+            Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
+        ));
+        assert_eq!(admission_generation(&store), g0);
+        // A replacement moves the generation in its own transaction.
+        assert_eq!(set(&a, 'f').unwrap(), EndpointChange::Replaced(g0 + 1));
+        assert_eq!(admission_generation(&store), g0 + 1);
+        assert_eq!(
+            set(&b, 'a').unwrap(),
+            EndpointChange::Recorded,
+            "the old ID is free"
+        );
+        assert_eq!(
+            store
+                .transaction(|tx| tx.remote_client_endpoints())
+                .unwrap(),
+            {
+                let mut v = vec![(a.clone(), endpoint('f')), (b.clone(), endpoint('a'))];
+                v.sort();
+                v
+            }
+        );
+        assert_eq!(
+            store
+                .transaction(|tx| tx.remote_client_endpoint(&a))
+                .unwrap()
+                .map(|(e, _)| e),
+            Some(endpoint('f'))
+        );
+    }
+
+    /// ⟨W3; ADR-0012 §3.11 as amended⟩ Revocation deletes the client's endpoint row in the
+    /// tombstone's transaction: a transaction that tombstones and then fails leaves both the
+    /// row and the active client; a committed one leaves neither, and the allowlist source
+    /// no longer names the client.
+    #[test]
+    fn revocation_deletes_the_endpoint_row_in_the_tombstone_transaction() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let at = now("2026-11-20T10:07:00Z");
+        let a = joined(&store, 1, true);
+        store
+            .transaction(|tx| tx.set_remote_client_endpoint(&a, &endpoint('a'), at))
+            .unwrap();
+        let rolled_back = store.transaction(|tx| {
+            let r = tx.revoke_remote_client(&a, RevocationCause::Revoked, at)?;
+            assert_eq!(r.state, ClientState::Revoked);
+            assert!(
+                tx.remote_client_endpoint(&a)?.is_none(),
+                "gone inside the txn"
+            );
+            Err::<(), _>(StoreError::Corrupt("abort".into()))
+        });
+        assert!(rolled_back.is_err());
+        assert!(
+            store
+                .transaction(|tx| tx.remote_client_endpoint(&a))
+                .unwrap()
+                .is_some(),
+            "the row stays with the active client when the tombstone did not commit"
+        );
+        assert_eq!(
+            store
+                .transaction(|tx| tx.remote_client(&a))
+                .unwrap()
+                .unwrap()
+                .state,
+            ClientState::Active
+        );
+        let g = admission_generation(&store);
+        let revoked = store
+            .transaction(|tx| tx.revoke_remote_client(&a, RevocationCause::Revoked, at))
+            .unwrap();
+        assert_eq!(revoked.revoked_generation, Some(g + 1));
+        assert!(
+            store
+                .transaction(|tx| tx.remote_client_endpoint(&a))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .transaction(|tx| tx.remote_client_endpoints())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// ⟨orchestrator condition 2⟩ Two writers race to set the same client's first endpoint
+    /// from two threads over one file-backed store, each in its own transaction: exactly one
+    /// records a **first** endpoint. The other either lost the insert-if-absent (refused,
+    /// nothing written) or ran after it, saw the row and became a replacement, which moved
+    /// the admission generation in its own transaction; a first set never overwrote a row.
+    /// Repeated to vary the interleaving.
+    #[test]
+    fn two_concurrent_first_sets_cannot_both_win() {
+        for round in 0..16u8 {
+            let dir = tempfile::tempdir().unwrap();
+            let store =
+                Arc::new(Store::open(&dir.path().join("s.db"), Arc::new(NoFaults)).unwrap());
+            let a = joined(&store, 1, true);
+            let g0 = admission_generation(&store);
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let at = now("2026-11-20T10:06:00Z");
+            let racers: Vec<_> = ['b', 'c']
+                .into_iter()
+                .map(|e| {
+                    let (store, barrier, a) = (Arc::clone(&store), Arc::clone(&barrier), a.clone());
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        let r = store
+                            .transaction(|tx| tx.set_remote_client_endpoint(&a, &endpoint(e), at));
+                        (e, r)
+                    })
+                })
+                .collect();
+            let results: Vec<_> = racers.into_iter().map(|t| t.join().unwrap()).collect();
+            let first: Vec<char> = results
+                .iter()
+                .filter(|(_, r)| matches!(r, Ok(EndpointChange::Recorded)))
+                .map(|(e, _)| *e)
+                .collect();
+            assert_eq!(first.len(), 1, "round {round}: one first set: {results:?}");
+            let other = results.iter().find(|(e, _)| *e != first[0]).unwrap();
+            let row = store
+                .transaction(|tx| tx.remote_client_endpoint(&a))
+                .unwrap()
+                .map(|(e, _)| e);
+            match &other.1 {
+                Err(StoreError::GenerationConflict(_)) => {
+                    assert_eq!(row, Some(endpoint(first[0])), "round {round}");
+                    assert_eq!(admission_generation(&store), g0, "round {round}");
+                }
+                Ok(EndpointChange::Replaced(g)) => {
+                    assert_eq!(*g, g0 + 1, "round {round}");
+                    assert_eq!(row, Some(endpoint(other.0)), "round {round}");
+                    assert_eq!(admission_generation(&store), g0 + 1, "round {round}");
+                }
+                r => panic!("round {round}: unexpected {r:?}"),
+            }
+        }
     }
 }

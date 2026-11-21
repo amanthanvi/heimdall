@@ -71,6 +71,9 @@ pub struct InviteBinding {
     pub public_key: String,
     /// Its fingerprint, recomputed by the runner and equal to the one the owner confirmed.
     pub key_fingerprint: KeyFingerprint,
+    /// ⟨M06 W3; ADR-0006 §18.7 item 2⟩ Whether the invitation admits Iroh, read from the
+    /// exact recorded request (whose hash the record binds), never stored apart from it.
+    pub iroh_admission: bool,
 }
 
 /// ⟨M06-W0-R07⟩ The binding of an `invite` request: the runner recomputes the fingerprint
@@ -85,6 +88,7 @@ pub fn invite_binding(request: &Request) -> Result<Option<InviteBinding>, Refusa
         role,
         key_fingerprint,
         public_key,
+        iroh_admission,
         ..
     }) = request
     else {
@@ -99,6 +103,7 @@ pub fn invite_binding(request: &Request) -> Result<Option<InviteBinding>, Refusa
         role: *role,
         public_key: key.openssh(),
         key_fingerprint: key_fingerprint.clone(),
+        iroh_admission: *iroh_admission,
     }))
 }
 
@@ -263,6 +268,13 @@ fn to_record(
         .transpose()
         .map_err(|_| LedgerError::Store)?;
     let w = *w;
+    let iroh_admission = matches!(
+        &w.request,
+        Request::RemoteEnvironment(RemoteEnvironmentRequest::Invite {
+            iroh_admission: true,
+            ..
+        })
+    );
     Ok(WideningRecord {
         decision: d.id,
         key: WideningKey {
@@ -276,6 +288,7 @@ fn to_record(
             role: b.role,
             public_key: b.public_key,
             key_fingerprint: b.key_fingerprint,
+            iroh_admission,
         }),
         exposure: w.exposure,
         generation: d.generation,
@@ -794,5 +807,96 @@ mod tests {
         );
         assert!(out.is_ok());
         assert_eq!(runs, 1);
+    }
+
+    /// ⟨M06 W3; orchestrator condition 1⟩ `Invite.iroh_admission` is part of the exact request
+    /// a runner-local invite decision is bound to: the binding carries it (also through the
+    /// store's record, where it is read from the hashed request), a record whose request
+    /// flipped it no longer matches its hash, a binding that disagrees with the intact
+    /// request is refused, and the intact record runs with it.
+    #[tokio::test]
+    async fn iroh_admission_is_bound_into_the_invite_decision() {
+        let with_iroh = |n: u8, id: &str, admit: bool| {
+            let mut r = invite(n, id);
+            if let Request::RemoteEnvironment(RemoteEnvironmentRequest::Invite {
+                iroh_admission,
+                ..
+            }) = &mut r
+            {
+                *iroh_admission = admit;
+            }
+            r
+        };
+        let client = ClientId::from_random_bytes([1; 16]);
+        let now: Timestamp = "2026-11-21T09:00:00Z".parse().unwrap();
+        let generation = AuthorityGeneration(3);
+        let local = DecidingSession {
+            remote_client: None,
+            attended: true,
+        };
+        // Through the store: the binding read back carries the flag.
+        let store = std::sync::Arc::new(
+            heimdall_store::Store::open_in_memory(std::sync::Arc::new(heimdall_store::NoFaults))
+                .unwrap(),
+        );
+        let stored = StoreWidening::new(std::sync::Arc::clone(&store));
+        let (Submitted::Created(d), _) =
+            submit(&stored, &client, &with_iroh(1, "s", true), generation, now).unwrap()
+        else {
+            panic!("not created");
+        };
+        let back = stored.by_decision(&d).unwrap().unwrap();
+        assert!(back.invite.as_ref().unwrap().iroh_admission);
+        assert_eq!(verify_binding(&back), Ok(()));
+
+        let records = MemoryWidening::new();
+        let mut ids = Vec::new();
+        for (n, id) in [(1u8, "a"), (2, "b"), (3, "c")] {
+            let (Submitted::Created(d), _) =
+                submit(&records, &client, &with_iroh(n, id, true), generation, now).unwrap()
+            else {
+                panic!("not created");
+            };
+            ids.push(d);
+        }
+        let all = records.all();
+        let pick = |id: &DecisionId| all.iter().find(|r| &r.decision == id).unwrap().clone();
+        // (a) the request's flag flipped: its hash no longer matches.
+        let mut flipped_request = pick(&ids[0]);
+        flipped_request.request = with_iroh(1, "a", false);
+        // (b) the binding's flag disagrees with the intact request.
+        let mut flipped_binding = pick(&ids[1]);
+        flipped_binding.invite.as_mut().unwrap().iroh_admission = false;
+        let replaced = MemoryWidening::new();
+        for r in [flipped_request, flipped_binding, pick(&ids[2])] {
+            replaced.insert(r).unwrap();
+        }
+        for id in &ids[..2] {
+            let out = decide(
+                &replaced,
+                local,
+                id,
+                Verdict::Approve,
+                generation,
+                now,
+                |_| panic!("nothing executes"),
+            );
+            assert_eq!(out, Err(Refusal::BindingMismatch));
+        }
+        let mut admitted = None;
+        let out = decide(
+            &replaced,
+            local,
+            &ids[2],
+            Verdict::Approve,
+            generation,
+            now,
+            |claimed| {
+                admitted = claimed.invite.as_ref().map(|b| b.iroh_admission);
+                pending_envelope(&ids[2])
+            },
+        );
+        assert!(out.is_ok());
+        assert_eq!(admitted, Some(true));
     }
 }

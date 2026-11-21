@@ -26,11 +26,20 @@
 //!    Iroh leg the helper reads the client's SSH identification line and sends **only that
 //!    line** before the server's identification arrives (no preamble: raw `/pigeons/0`). The
 //!    line is validated before anything is sent: it starts with `SSH-2.0-`, ends in CRLF
-//!    and is at most 255 bytes including the CRLF (RFC 4253 §4.2), read within the route's
-//!    identification wait. Anything else, no CRLF within 255 bytes, EOF or no line in time
-//!    fails the attempt closed (`identification_timeout`) with nothing sent to the route;
-//!    once the first bytes are known invalid no Iroh leg is dialed. Every other client byte
-//!    stays held. The line is stateless, so it is kept and replayed exactly once to the next
+//!    and is at most 255 bytes including the CRLF (RFC 4253 §4.2), read within the connect's
+//!    one client window (the first Iroh route's identification wait; ⟨2026-11-21⟩ a later
+//!    Iroh route replays the held line and starts no new client window, so it waits only
+//!    for the server). Anything else fails closed with nothing sent to the route.
+//!    ⟨M06-W2-R06⟩ The line is read and validated **before the Iroh leg is dialed**: an
+//!    invalid or silent client causes no outbound connection to that route (the server's
+//!    identification wait starts after the dial, as on every leg).
+//!    ⟨Ruling 3, 2026-11-21⟩ Which failures end what ([`ClientIdentification`]): a malformed
+//!    or overlong line (or a client that ended first) is terminal for the whole connect,
+//!    with a precise diagnostic, and no other route is tried (the client's bytes would be
+//!    the same on every route); a timeout waiting for the line is route-local, so the next
+//!    approved route may be tried. Neither counts against the Iroh route's health: no
+//!    attempt is recorded for it ([`FailoverOutcome::client_failure`] keeps the reason).
+//!    Every other client byte stays held. The line is stateless, so it is kept and replayed exactly once to the next
 //!    candidate (written first on another Iroh leg; forwarded first, after the server's
 //!    identification, on a direct or jump leg). Failover stays allowed until the server's
 //!    identification arrives; an Iroh close with Pigeons' refusal before it is
@@ -193,6 +202,10 @@ pub struct FailoverOutcome {
     pub final_route: Option<RouteId>,
     /// A failure after the forwarding boundary ended the attempt.
     pub late_failure: bool,
+    /// ⟨2026-11-21, ruling 3⟩ The last reason the client's identification line could not be
+    /// sent to an Iroh leg (module docs, item 5). A terminal one ended the connect; neither
+    /// kind is recorded as a route attempt.
+    pub client_failure: Option<ClientIdentification>,
 }
 
 impl FailoverOutcome {
@@ -257,6 +270,56 @@ async fn establish(
     }
 }
 
+/// ⟨2026-11-21, ruling 3; ADR-0012 §5.5 item 5⟩ Why the client's identification line could
+/// not be sent to an Iroh leg. The client's bytes would be the same on every route, so a
+/// malformed or overlong line (or a client that closed first) is terminal for the whole
+/// connect: no further route is tried, and the helper reports it precisely
+/// ([`Self::message`]). A timeout waiting for the line stays route-local: the next approved
+/// route may be tried. Neither counts against the Iroh route's health: no route attempt is
+/// recorded for it (the route-health classes describe the route, and this is the client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClientIdentification {
+    /// The first line does not start with `SSH-2.0-` or does not end in CRLF.
+    Malformed,
+    /// No line end within 255 bytes (RFC 4253 §4.2's bound, CRLF included).
+    Overlong,
+    /// The client side ended before a complete line.
+    Closed,
+    /// No complete line within the route's identification wait (route-local).
+    Timeout,
+}
+
+impl ClientIdentification {
+    /// Whether it ends the whole connect (every case but [`Self::Timeout`]).
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, ClientIdentification::Timeout)
+    }
+
+    /// The helper's diagnostic (never the line's contents).
+    #[must_use]
+    pub fn message(self) -> &'static str {
+        match self {
+            ClientIdentification::Malformed => {
+                "the client's SSH identification line is malformed (it must start with \
+                 `SSH-2.0-` and end in CRLF): nothing was forwarded and no other route was tried"
+            }
+            ClientIdentification::Overlong => {
+                "the client's SSH identification line is longer than 255 bytes: nothing was \
+                 forwarded and no other route was tried"
+            }
+            ClientIdentification::Closed => {
+                "the client closed before sending its SSH identification line: nothing was \
+                 forwarded and no other route was tried"
+            }
+            ClientIdentification::Timeout => {
+                "the client did not send its SSH identification line within the Iroh route's \
+                 identification wait: nothing was sent to that route"
+            }
+        }
+    }
+}
+
 /// ⟨M06 U56⟩ The client bytes the helper has read before any leg was established (module
 /// docs, item 5): only ever the client's identification line and what arrived with it.
 #[derive(Debug, Default)]
@@ -266,69 +329,79 @@ struct ClientPrefix {
     /// Where the client's identification line ends (one past its CRLF), once read and
     /// valid.
     line_end: Option<usize>,
-    /// The client's first bytes are not a valid identification line (not `SSH-2.0-`, no
-    /// CRLF within 255 bytes): no Iroh leg can be used, and nothing is sent to one (the
-    /// bytes stay held for a direct or jump leg, which forwards nothing before the server's
-    /// identification).
-    unusable: bool,
-    /// The client side ended before identifying.
-    eof: bool,
+    /// ⟨ruling 3⟩ The client's first bytes cannot be an identification line (malformed,
+    /// overlong) or it ended first: terminal for the connect, nothing is sent anywhere.
+    failure: Option<ClientIdentification>,
+    /// ⟨2026-11-21; ADR-0012 §5.5 item 5, "waited for once"⟩ When the client window of this
+    /// connect ends: set by the first Iroh route (now plus its identification wait) and
+    /// never moved, so a later Iroh route starts no new window.
+    window_ends: Option<tokio::time::Instant>,
 }
 
 /// The prefix an identification line sent to an Iroh leg must have (ADR-0012 §5.5 item 5).
 const CLIENT_IDENTIFICATION_PREFIX: &[u8] = b"SSH-2.0-";
 
 impl ClientPrefix {
-    /// Whether no Iroh leg can be used: the client's first bytes are known not to be a valid
-    /// identification line, or it ended first.
-    fn cannot_identify(&self) -> bool {
-        self.unusable || (self.eof && self.line_end.is_none())
-    }
-
-    /// The client's identification line, reading it from `client_in` by `deadline` if it
-    /// has not been read yet (ADR-0012 §5.5 item 5): it must start with `SSH-2.0-`, end in
-    /// CRLF and be at most 255 bytes including the CRLF (RFC 4253 §4.2). `None` when the
-    /// client cannot identify first: anything else, no CRLF within 255 bytes, EOF, or no
-    /// line by `deadline`. Nothing read here is sent anywhere until the caller sends the
-    /// returned line; its contents are never logged.
+    /// The client's identification line, reading it from `client_in` within the connect's
+    /// one client window if it has not been read yet (ADR-0012 §5.5 item 5): it must start
+    /// with `SSH-2.0-`, end in CRLF and be at most 255 bytes including the CRLF (RFC 4253
+    /// §4.2). Otherwise why not ([`ClientIdentification`]): a terminal failure is kept
+    /// (every later call answers it again); a timeout keeps what was read.
+    ///
+    /// **The window applies once per connect.** The first call opens it (`wait` from now);
+    /// every later call, on any later Iroh route, reads against the same end and so waits
+    /// no further once it has passed (bytes that have already arrived are still taken). A
+    /// held line is replayed without any wait. Nothing read here is sent anywhere until the
+    /// caller sends the returned line; its contents are never logged.
     async fn identification<I>(
         &mut self,
         client_in: &mut I,
-        deadline: tokio::time::Instant,
-    ) -> Option<&[u8]>
+        wait: Duration,
+    ) -> Result<&[u8], ClientIdentification>
     where
         I: AsyncRead + Unpin + Send,
     {
+        let deadline = *self
+            .window_ends
+            .get_or_insert_with(|| tokio::time::Instant::now() + wait);
         let mut chunk = [0u8; IDENTIFICATION_LINE_MAX];
-        while self.line_end.is_none() && !self.unusable && !self.eof {
+        while self.line_end.is_none() && self.failure.is_none() {
             if let Some(i) = self.bytes.iter().position(|b| *b == b'\n') {
                 let line = &self.bytes[..=i];
-                let valid = line.len() <= IDENTIFICATION_LINE_MAX
-                    && line.starts_with(CLIENT_IDENTIFICATION_PREFIX)
-                    && line.ends_with(b"\r\n");
-                if valid {
+                if line.len() > IDENTIFICATION_LINE_MAX {
+                    self.failure = Some(ClientIdentification::Overlong);
+                } else if line.starts_with(CLIENT_IDENTIFICATION_PREFIX) && line.ends_with(b"\r\n")
+                {
                     self.line_end = Some(i + 1);
                 } else {
-                    self.unusable = true;
+                    self.failure = Some(ClientIdentification::Malformed);
                 }
                 break;
             }
             let n = self.bytes.len().min(CLIENT_IDENTIFICATION_PREFIX.len());
-            let prefix_ok = self.bytes[..n] == CLIENT_IDENTIFICATION_PREFIX[..n];
-            if !prefix_ok || self.bytes.len() >= IDENTIFICATION_LINE_MAX {
-                self.unusable = true;
+            if self.bytes[..n] != CLIENT_IDENTIFICATION_PREFIX[..n] {
+                self.failure = Some(ClientIdentification::Malformed);
+                break;
+            }
+            if self.bytes.len() >= IDENTIFICATION_LINE_MAX {
+                self.failure = Some(ClientIdentification::Overlong);
                 break;
             }
             // Never read past the line's bound: what is read is held, not sent.
             let room = IDENTIFICATION_LINE_MAX - self.bytes.len();
             match tokio::time::timeout_at(deadline, client_in.read(&mut chunk[..room])).await {
-                // The bound passed: try again on the next Iroh leg with its own bound.
-                Err(_) => return None,
-                Ok(Ok(0) | Err(_)) => self.eof = true,
+                // The window passed: route-local (another approved route may be tried; a
+                // later Iroh route opens no new window).
+                Err(_) => return Err(ClientIdentification::Timeout),
+                Ok(Ok(0) | Err(_)) => self.failure = Some(ClientIdentification::Closed),
                 Ok(Ok(n)) => self.bytes.extend_from_slice(&chunk[..n]),
             }
         }
-        self.line_end.map(|end| &self.bytes[..end])
+        match (self.failure, self.line_end) {
+            (Some(f), _) => Err(f),
+            (None, Some(end)) => Ok(&self.bytes[..end]),
+            (None, None) => Err(ClientIdentification::Timeout),
+        }
     }
 
     /// The held client bytes an established leg still needs, before the rest of the client
@@ -456,6 +529,7 @@ where
         health: Vec::new(),
         final_route: None,
         late_failure: false,
+        client_failure: None,
     };
     let mut attempts: Vec<RouteAttempt> = Vec::new();
     let failed = |route: &PlannedRoute, class| RouteAttempt {
@@ -464,12 +538,31 @@ where
     };
     for route in routes {
         let client_first = matches!(route.leg, LegPlan::Iroh { .. });
-        if client_first && held.cannot_identify() {
-            // ⟨M06 U56⟩ ADR-0012 §5.5 item 5: the client cannot identify first, so no Iroh
-            // leg is dialed and nothing is sent to one.
-            attempts.push(failed(route, RouteFailureClass::IdentificationTimeout));
-            continue;
-        }
+        // ⟨M06 U56; M06-W2-R06⟩ An Iroh leg is sent the client's identification line, and
+        // only that, before the server's (module docs, item 5). The line is read and
+        // validated BEFORE the dial: invalid or silent client bytes cause no outbound
+        // connection at all.
+        let client_line: Option<Vec<u8>> = if client_first {
+            // ⟨2026-11-21⟩ One client window per connect: the first Iroh route opens it.
+            match held
+                .identification(&mut client_in, route.identification_timeout)
+                .await
+            {
+                Ok(line) => Some(line.to_vec()),
+                Err(why) => {
+                    // ⟨2026-11-21, ruling 3⟩ The client's failure, not the route's: no
+                    // attempt is recorded against the route. A malformed or overlong line
+                    // (or a closed client) ends the whole connect; a timeout is route-local.
+                    outcome.client_failure = Some(why);
+                    if why.is_terminal() {
+                        break;
+                    }
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
         let mut leg = match dialer.dial(route, config.connect_timeout).await {
             Ok(leg) => leg,
             Err(DialFailure::Refused) => {
@@ -492,20 +585,8 @@ where
             }
         };
         let deadline = tokio::time::Instant::now() + route.identification_timeout;
-        // ⟨M06 U56⟩ An Iroh leg is sent the client's identification line, and only that,
-        // before the server's (module docs, item 5).
-        if client_first {
-            let sent = match held.identification(&mut client_in, deadline).await {
-                Some(line) => send_identification(&mut leg, line, deadline).await,
-                None => {
-                    attempts.push(failed(route, RouteFailureClass::IdentificationTimeout));
-                    if let Some(mut e) = leg.ending.take() {
-                        drop(leg);
-                        e.abort().await;
-                    }
-                    continue;
-                }
-            };
+        if let Some(line) = &client_line {
+            let sent = send_identification(&mut leg, line, deadline).await;
             if !sent {
                 let (class, terminal) = ended_before_identification(&mut leg).await;
                 attempts.push(failed(route, class));
@@ -1026,6 +1107,21 @@ mod tests {
         client: &[u8],
         legs: &[Option<IrohScript>],
     ) -> (FailoverOutcome, IrohLog, Vec<u8>, Vec<RouteHealthPayload>) {
+        let (outcome, log, got, recorded, _) = run_iroh_timed(client, legs);
+        (outcome, log, got, recorded)
+    }
+
+    /// [`run_iroh`], also returning how long (virtual time) the helper ran.
+    fn run_iroh_timed(
+        client: &[u8],
+        legs: &[Option<IrohScript>],
+    ) -> (
+        FailoverOutcome,
+        IrohLog,
+        Vec<u8>,
+        Vec<RouteHealthPayload>,
+        Duration,
+    ) {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .start_paused(true)
@@ -1068,6 +1164,7 @@ mod tests {
                 rec.lock().unwrap().push(p);
                 async {}
             };
+            let started = tokio::time::Instant::now();
             let outcome = run_failover(
                 &DestinationId::parse("lab").unwrap(),
                 &AccountName::parse("deploy").unwrap(),
@@ -1079,11 +1176,12 @@ mod tests {
                 &record,
             )
             .await;
+            let elapsed = started.elapsed();
             drop(client_write);
             let got = reader.await.unwrap();
             let log = std::mem::take(&mut *log.lock().unwrap());
             let recorded = recorded.lock().unwrap().clone();
-            (outcome, log, got, recorded)
+            (outcome, log, got, recorded, elapsed)
         })
     }
 
@@ -1164,92 +1262,109 @@ mod tests {
         log.before.get(id).map_or(0, Vec::len) + log.after.get(id).map_or(0, Vec::len)
     }
 
-    /// ⟨M06 U56; ADR-0012 §5.5 item 5⟩ A first client line that is not `SSH-2.0-…` CRLF
-    /// within 255 bytes (another version, a bare LF, 256 bytes with no CRLF, not SSH) fails
-    /// the Iroh attempt closed: the route's server sees zero bytes, the next Iroh route is
-    /// not even dialed, and no route is established.
+    /// ⟨M06 U56; ADR-0012 §5.5 item 5; ruling 3 (2026-11-21)⟩ A first client line that is
+    /// not `SSH-2.0-…` CRLF within 255 bytes (another version, a bare LF, 256 bytes with no
+    /// CRLF, not SSH) is terminal for the whole connect: ⟨M06-W2-R06⟩ no route is dialed at
+    /// all (the line is validated before the Iroh dial, so not even that route; no later
+    /// Iroh or direct route either), no route is established, nothing is recorded against
+    /// the route, and the precise reason is kept.
     #[test]
-    fn an_invalid_client_identification_sends_nothing_to_an_iroh_route() {
+    fn an_invalid_client_identification_ends_the_whole_connect() {
         let long = [b"SSH-2.0-".as_slice(), &[b'x'; 248]].concat();
         assert_eq!(long.len(), 256);
-        let inputs: [&[u8]; 4] = [
-            b"SSH-1.99-old\r\n",
-            b"SSH-2.0-bare_lf\n",
-            &long,
-            b"hello\r\n",
+        let inputs: [(&[u8], ClientIdentification); 4] = [
+            (b"SSH-1.99-old\r\n", ClientIdentification::Malformed),
+            (b"SSH-2.0-bare_lf\n", ClientIdentification::Malformed),
+            (&long, ClientIdentification::Overlong),
+            (b"hello\r\n", ClientIdentification::Malformed),
         ];
-        for input in inputs {
-            let (outcome, log, got, recorded) = run_iroh(
-                input,
-                &[Some(IrohScript::Identifies), Some(IrohScript::Identifies)],
-            );
-            let (first, second) = (planned_iroh(1).id, planned_iroh(2).id);
-            assert_eq!(outcome.final_route, None, "{input:?}");
-            assert_eq!(seen(&log, &first), 0, "nothing forwarded: {input:?}");
-            assert_eq!(
-                log.dialed,
-                std::slice::from_ref(&first),
-                "no second Iroh dial: {input:?}"
-            );
-            assert!(got.is_empty(), "nothing reached the client: {input:?}");
-            assert_eq!(
-                recorded[0].attempts,
-                [
-                    RouteAttempt {
-                        route: first,
-                        failure: Some(RouteFailureClass::IdentificationTimeout)
-                    },
-                    RouteAttempt {
-                        route: second,
-                        failure: Some(RouteFailureClass::IdentificationTimeout)
-                    },
-                ],
-                "{input:?}"
-            );
+        for (input, why) in inputs {
+            for next in [Some(IrohScript::Identifies), None] {
+                let (outcome, log, got, recorded) =
+                    run_iroh(input, &[Some(IrohScript::Identifies), next]);
+                let first = planned_iroh(1).id;
+                assert_eq!(outcome.final_route, None, "{input:?}");
+                assert_eq!(outcome.client_failure, Some(why), "{input:?}");
+                assert_eq!(seen(&log, &first), 0, "nothing forwarded: {input:?}");
+                assert!(
+                    log.dialed.is_empty(),
+                    "no dial at all, the Iroh route included ({next:?}): {input:?}"
+                );
+                assert!(got.is_empty(), "nothing reached the client: {input:?}");
+                assert_eq!(recorded.len(), 1);
+                assert!(
+                    recorded[0].attempts.is_empty(),
+                    "not counted against the route: {input:?}"
+                );
+            }
+            assert!(why.is_terminal());
         }
         // The largest valid line (255 bytes including the CRLF) is accepted.
         let max = [b"SSH-2.0-".as_slice(), &[b'x'; 245], b"\r\n"].concat();
         assert_eq!(max.len(), 255);
         let (outcome, log, _, _) = run_iroh(&max, &[Some(IrohScript::Identifies)]);
         assert!(outcome.succeeded(), "{outcome:?}");
+        assert_eq!(outcome.client_failure, None);
         assert_eq!(log.before[&planned_iroh(1).id], max);
     }
 
-    /// ⟨M06 U56; ADR-0012 §5.5 item 5⟩ A silent client (no line before the route's
-    /// identification wait) fails the Iroh attempt closed with nothing forwarded.
+    /// ⟨Ruling 3⟩ A silent client (no line before the route's identification wait) sends
+    /// nothing to the Iroh route, which is not even dialed (M06-W2-R06); the timeout is
+    /// route-local and not counted against it.
     #[test]
     fn a_silent_client_sends_nothing_to_an_iroh_route() {
         let (outcome, log, got, recorded) = run_iroh(b"", &[Some(IrohScript::Identifies)]);
         let id = planned_iroh(1).id;
         assert_eq!(outcome.final_route, None);
+        assert_eq!(outcome.client_failure, Some(ClientIdentification::Timeout));
         assert_eq!(seen(&log, &id), 0);
+        assert!(log.dialed.is_empty(), "no dial for a silent client");
         assert!(got.is_empty());
+        assert!(recorded[0].attempts.is_empty(), "{recorded:?}");
+    }
+
+    /// ⟨Ruling 3⟩ A timeout waiting for the client's line is route-local: the next approved
+    /// route (here a direct one) is tried and used; the Iroh route got nothing, was not
+    /// dialed (M06-W2-R06), and no attempt is recorded against it.
+    #[test]
+    fn a_client_line_timeout_is_route_local() {
+        let (outcome, log, got, recorded) = run_iroh(b"", &[Some(IrohScript::Identifies), None]);
+        let (first, second) = (planned_iroh(1).id, planned(2).id);
+        assert!(outcome.succeeded(), "{outcome:?}");
+        assert_eq!(outcome.final_route, Some(second.clone()));
+        assert_eq!(outcome.client_failure, Some(ClientIdentification::Timeout));
+        assert_eq!(log.dialed, std::slice::from_ref(&second));
+        assert_eq!(seen(&log, &first), 0);
+        assert!(got.starts_with(IDENT));
         assert_eq!(
             recorded[0].attempts,
             [RouteAttempt {
-                route: id,
-                failure: Some(RouteFailureClass::IdentificationTimeout)
+                route: second,
+                failure: None
             }]
         );
     }
 
-    /// ⟨M06 U56⟩ A client whose first bytes are not an identification line cannot use an
-    /// Iroh leg (`identification_timeout`, failed over, nothing sent to it); a direct leg
-    /// still gets every held byte after the server identified.
+    /// ⟨2026-11-21; ADR-0012 §5.5 item 5, "waited for once"⟩ The client window applies once
+    /// per connect: with a silent client and two Iroh routes, the second Iroh route starts
+    /// no new client window (the whole connect waits one window, not two), neither route is
+    /// dialed, and nothing is recorded against either.
     #[test]
-    fn a_client_that_does_not_identify_first_skips_iroh_legs() {
-        let (outcome, log, _, recorded) =
-            run_iroh(b"not-ssh\n", &[Some(IrohScript::Identifies), None]);
-        assert!(outcome.succeeded(), "{outcome:?}");
-        let first = planned_iroh(1).id;
-        assert_eq!(
-            recorded[0].attempts[0],
-            RouteAttempt {
-                route: first.clone(),
-                failure: Some(RouteFailureClass::IdentificationTimeout)
-            }
+    fn a_second_iroh_route_starts_no_new_client_window() {
+        let (outcome, log, got, recorded, elapsed) = run_iroh_timed(
+            b"",
+            &[Some(IrohScript::Identifies), Some(IrohScript::Identifies)],
         );
-        assert_eq!(log.after[&planned(2).id], b"not-ssh\n");
+        let window = planned_iroh(1).identification_timeout;
+        assert_eq!(outcome.final_route, None);
+        assert_eq!(outcome.client_failure, Some(ClientIdentification::Timeout));
+        assert!(log.dialed.is_empty(), "no dial for a silent client");
+        assert!(got.is_empty());
+        assert!(recorded[0].attempts.is_empty(), "{recorded:?}");
+        assert!(
+            elapsed >= window && elapsed < window + Duration::from_secs(1),
+            "one client window for the connect, not one per Iroh route: {elapsed:?}"
+        );
     }
 
     fn script() -> impl Strategy<Value = Script> {

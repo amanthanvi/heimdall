@@ -149,6 +149,11 @@ pub enum FromChild {
     Refused {
         /// The reason.
         reason: String,
+        /// ⟨M06 W3; ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The serve port the endpoint could not bind
+        /// (the policy's, or the one recorded at the first bind): `transport_unavailable`,
+        /// and no other port is tried.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unbindable_port: Option<u16>,
     },
     /// A suspend's acknowledgement.
     Suspended {
@@ -443,8 +448,36 @@ impl PeerEndpoints for NoPeerEndpoints {
 pub struct ServePlan {
     /// Where K_iroh lives.
     pub key: KeyRef,
-    /// The endpoint's exposure policy.
+    /// The endpoint's exposure policy (as consented).
     pub policy: ExposurePolicy,
+    /// ⟨M06 W3; ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The serve port recorded at the first successful
+    /// bind (`Txn::transport_serve_port`), used when the policy names none.
+    pub recorded_port: Option<u16>,
+}
+
+impl ServePlan {
+    /// The policy the child binds: the consented one, with the recorded port when it names
+    /// none (`None` before the first bind: any port, then recorded).
+    #[must_use]
+    pub fn effective_policy(&self) -> ExposurePolicy {
+        let mut policy = self.policy.clone();
+        if policy.port.is_none() {
+            policy.port = self.recorded_port;
+        }
+        policy
+    }
+}
+
+/// The IPv4 port first, else any, of the sockets a child reported bound (`ip:port`).
+fn bound_port(addresses: &[String]) -> Option<u16> {
+    let sockets: Vec<std::net::SocketAddr> =
+        addresses.iter().filter_map(|a| a.parse().ok()).collect();
+    sockets
+        .iter()
+        .find(|s| s.is_ipv4())
+        .or_else(|| sockets.first())
+        .map(std::net::SocketAddr::port)
+        .filter(|p| *p != 0)
 }
 
 /// The admission authority as durable state has it now.
@@ -492,6 +525,7 @@ pub fn read_authority(
                         store_ref: key.store_ref,
                     },
                     policy: state.policy,
+                    recorded_port: tx.transport_serve_port()?,
                 }),
                 _ => None,
             };
@@ -794,7 +828,7 @@ impl TransportSupervisor {
             protocol: PROTOCOL.to_owned(),
             generation: snapshot.generation,
             allowlist: snapshot.admitted.iter().cloned().collect(),
-            policy: plan.policy.clone(),
+            policy: plan.effective_policy(),
             target: format!("127.0.0.1:{}", self.config.sshd_port),
             key: plan.key.clone(),
         };
@@ -821,15 +855,60 @@ impl TransportSupervisor {
                 generation,
                 addresses,
             })) if endpoint == running.plan.key.endpoint && generation == snapshot.generation => {
+                // ⟨ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The first successful bind of a policy that
+                // names no port records the port durably; every later start reuses it. A
+                // record that cannot be written stops the child (fail closed: the routes'
+                // addresses would not survive a restart).
+                let first =
+                    running.plan.policy.port.is_none() && running.plan.recorded_port.is_none();
+                let recorded = self.store.transaction(|tx| {
+                    if first && let Some(port) = bound_port(&addresses) {
+                        tx.record_transport_serve_port(port)?;
+                    }
+                    tx.clear_transport_serve_bind_failure()?;
+                    tx.transport_serve_port()
+                });
+                match recorded {
+                    Ok(port) => {
+                        if running.plan.policy.port.is_none() {
+                            running.plan.recorded_port = port;
+                        }
+                    }
+                    Err(_) => {
+                        drop(running.kill(self.config.stop_bound).await);
+                        return Err(fail(
+                            reason::TRANSPORT_AUTHORITY_LOST,
+                            "the serve port cannot be recorded; the serve child is stopped",
+                        ));
+                    }
+                }
                 running.endpoint = endpoint;
                 running.addresses = addresses;
                 Ok(running)
             }
-            Ok(Some(FromChild::Refused { reason })) => {
+            Ok(Some(FromChild::Refused {
+                reason,
+                unbindable_port,
+            })) => {
                 let token = known_reason(&reason);
                 // A child that refused binds nothing; one whose exit cannot be confirmed is
                 // dropped (`kill_on_drop` kills it again).
                 drop(running.kill(self.config.stop_bound).await);
+                if let Some(port) = unbindable_port {
+                    // ⟨ADR-0012 §2.1 ⟨2026-11-21⟩⟩ Fail closed on the port (no other port is
+                    // tried), and record it for the doctor's finding.
+                    let _ = self
+                        .store
+                        .transaction(|tx| tx.record_transport_serve_bind_failure(port));
+                    return Err(fail(
+                        reason::TRANSPORT_UNAVAILABLE,
+                        &format!(
+                            "the serve port {port} cannot be bound, so the serve child is not \
+                             started (`heimdall doctor` names it; to change the port, disable \
+                             then enable the transport)"
+                        ),
+                    ));
+                }
                 Err(fail(token, "the serve child refused to start"))
             }
             _ => {
@@ -1100,6 +1179,358 @@ impl ServeControl for TransportSupervisor {
     }
 }
 
+// --- ⟨M06 W3⟩ the runtime's route and transport forms -------------------------------------------
+
+/// ⟨M06 W3⟩ How `service run` wires the route and transport forms and the serve child
+/// (`crate::service::ServiceOptions::transport`).
+#[derive(Clone)]
+pub struct TransportWiring {
+    /// The program the serve child runs as `transport serve --environment <id>` (this
+    /// executable; the hidden CLI entry calls [`serve_child_stdio`]).
+    pub program: PathBuf,
+    /// K_iroh custody; `None`: this installation's verified platform store
+    /// (`heimdall_credential::iroh::product_store`).
+    pub keys: Option<Arc<dyn IrohKeyStore>>,
+    /// The local sshd port the serve child forwards to (`127.0.0.1:<port>`).
+    pub sshd_port: u16,
+    /// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `transport.rotate`'s management channel to this
+    /// device's recorded runners (the executable's wiring over its management sessions);
+    /// `None`: a rotation with recorded runners is refused before any key is minted.
+    pub announcer: Option<Arc<dyn heimdall_app::transport::EndpointAnnouncer>>,
+}
+
+impl std::fmt::Debug for TransportWiring {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransportWiring")
+            .field("sshd_port", &self.sshd_port)
+            .finish_non_exhaustive()
+    }
+}
+
+/// ⟨M06 W3⟩ This installation's verified platform K_iroh store for `environment`
+/// (`heimdall_credential::iroh::product_store` under the account database's home), or the
+/// unsupported store when the home cannot be read (every use then refuses
+/// `transport_key_store_unavailable`).
+#[must_use]
+pub fn product_iroh_store(
+    environment: &heimdall_contract::ids::EnvironmentId,
+) -> Arc<dyn IrohKeyStore> {
+    match heimdall_localenv::sys::account_home() {
+        Ok(home) => Arc::from(heimdall_credential::iroh::product_store(environment, &home)),
+        Err(_) => Arc::new(heimdall_credential::iroh::UnsupportedIrohStore),
+    }
+}
+
+/// ⟨M06 W3⟩ The serve child's key factory over `keys` (the hidden `transport serve` entry):
+/// the reference must name `keys`' own store kind, then [`StoreKeySource`] for its endpoint
+/// (the child checks the bound endpoint against it again).
+pub fn serve_key_factory(
+    keys: Arc<dyn IrohKeyStore>,
+) -> impl Fn(&KeyRef) -> Result<Arc<dyn KeySource>, KeySourceError> + Send + Sync {
+    move |key: &KeyRef| {
+        if key.store_kind != keys.kind().column() {
+            return Err(KeySourceError::StoreUnavailable);
+        }
+        Ok(
+            Arc::new(StoreKeySource::new(Arc::clone(&keys), key.endpoint.clone()))
+                as Arc<dyn KeySource>,
+        )
+    }
+}
+
+/// ⟨M06 W3⟩ This installation's active K_iroh endpoint ID, when a verified store holds its
+/// key (`keys` loads it: a locked, missing or unsupported store gives `None`). What
+/// `environment join` sends as `Join.iroh_endpoint` (ADR-0006 §18.7 item 3).
+#[must_use]
+pub fn held_endpoint(state: &Store, keys: &dyn IrohKeyStore) -> Option<IrohEndpointId> {
+    let key = state.transaction(|tx| tx.active_transport_key()).ok()??;
+    if key.store_kind != keys.kind().column() {
+        return None;
+    }
+    keys.load(&key.endpoint).ok().map(|_| key.endpoint)
+}
+
+/// ⟨M06 W3⟩ The route helper's Iroh leg with this installation's active K_iroh in `keys`, or
+/// `None` (no active key, another store kind, or a build without the `iroh` feature): every
+/// Iroh route is then refused and failed over, and direct and jump routes are unaffected.
+#[must_use]
+pub fn route_iroh_leg(
+    state: &Store,
+    keys: Arc<dyn IrohKeyStore>,
+) -> Option<Arc<dyn heimdall_app::routes::legs::IrohLegDialer>> {
+    #[cfg(feature = "iroh")]
+    {
+        let key = state.transaction(|tx| tx.active_transport_key()).ok()??;
+        if key.store_kind != keys.kind().column() {
+            return None;
+        }
+        let source: Arc<dyn KeySource> = Arc::new(StoreKeySource::new(keys, key.endpoint));
+        Some(Arc::new(IrohRouteLeg::new(source)))
+    }
+    #[cfg(not(feature = "iroh"))]
+    {
+        let _ = (state, keys);
+        None
+    }
+}
+
+impl TransportWiring {
+    /// The serve child's arguments for `environment` (argv only; the child reads no state:
+    /// its whole configuration and its lease arrive over the supervision channel).
+    #[must_use]
+    pub fn serve_args(environment: &heimdall_contract::ids::EnvironmentId) -> Vec<OsString> {
+        ["transport", "serve", "--environment", environment.as_str()]
+            .into_iter()
+            .map(OsString::from)
+            .collect()
+    }
+
+    /// The supervisor and K_iroh custody for `environment` over `store`: the serve allowlist
+    /// from the paired clients' recorded endpoints (`crate::paired_endpoints`).
+    #[must_use]
+    pub fn build(
+        &self,
+        store: &Arc<Store>,
+        environment: &heimdall_contract::ids::EnvironmentId,
+    ) -> (Arc<TransportSupervisor>, Arc<dyn TransportKeys>) {
+        let keys: Arc<dyn IrohKeyStore> = match &self.keys {
+            Some(k) => Arc::clone(k),
+            None => product_iroh_store(environment),
+        };
+        let mut config = SupervisorConfig::new(ServeSpawn {
+            program: self.program.clone(),
+            args: Self::serve_args(environment),
+            env: Vec::new(),
+        });
+        config.sshd_port = self.sshd_port;
+        let supervisor = Arc::new(TransportSupervisor::new(
+            Arc::clone(store),
+            Arc::new(crate::paired_endpoints::StorePeerEndpoints),
+            config,
+        ));
+        (supervisor, Arc::new(CredentialKeys(keys)))
+    }
+}
+
+/// ⟨M06 W3; m06-plan W2 carry-over⟩ The route and transport forms a runtime serves
+/// (ADR-0012 §2, §5; ADR-0006 §18 `route.*`, `transport.*`), over the state store, the
+/// serve child's supervision and K_iroh custody:
+///
+/// * **`route add|remove|prefer`**: `heimdall_app::routes::ops::RouteOps` (a widening
+///   `add` is refused `exposure_unconsented` until a local decision record exists for it);
+/// * **`route resolve_binding`** (the helper's `ResolveRouteBinding`, ADR-0012 §5.4): the
+///   caller's active bindings whose live endpoint is exactly the alias's, by
+///   `heimdall_app::routes::select_route_binding` (zero or several: `route_binding_ambiguous`);
+/// * **`transport enable|disable|adopt_roost`**: `heimdall_app::transport::TransportOps`
+///   with no approved decision, so a widening is `exposure_unconsented` with nothing
+///   generated or recorded, and a narrowing or a minimal dialer endpoint runs.
+///
+/// Authorization: the changes need the owner role (a paired owner's narrowing reaches here
+/// only after its frame check; its widening never does, it stays a pending runner-local
+/// record); the lookup is read-only, scoped to the caller's own bindings.
+pub struct RouteTransport {
+    store: Arc<Store>,
+    supervisor: Arc<TransportSupervisor>,
+    keys: Arc<dyn TransportKeys>,
+    peers: Arc<dyn heimdall_app::transport::PeerEnrollments>,
+    endpoints: Option<Arc<dyn crate::connections::BindingEndpoints>>,
+    /// ⟨rev6.3⟩ `transport.rotate`'s management channel to the recorded runners.
+    announcer: Option<Arc<dyn heimdall_app::transport::EndpointAnnouncer>>,
+    /// ⟨rev6.3⟩ One rotation at a time: a second `transport.rotate` waits, then continues
+    /// the first one's record instead of minting a second key.
+    rotating: tokio::sync::Mutex<()>,
+}
+
+impl std::fmt::Debug for RouteTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RouteTransport").finish_non_exhaustive()
+    }
+}
+
+impl RouteTransport {
+    /// Over `store`, the serve child's `supervisor`, K_iroh custody `keys` and the serve
+    /// allowlist's `peers` (cleared on disable).
+    #[must_use]
+    pub fn new(
+        store: Arc<Store>,
+        supervisor: Arc<TransportSupervisor>,
+        keys: Arc<dyn TransportKeys>,
+        peers: Arc<dyn heimdall_app::transport::PeerEnrollments>,
+    ) -> Self {
+        Self {
+            store,
+            supervisor,
+            keys,
+            peers,
+            endpoints: None,
+            announcer: None,
+            rotating: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ The management channel `transport.rotate` tells each
+    /// recorded runner the new endpoint through. Without one, a rotation on an installation
+    /// that has recorded runners is refused before any key is minted.
+    #[must_use]
+    pub fn with_announcer(
+        mut self,
+        announcer: Arc<dyn heimdall_app::transport::EndpointAnnouncer>,
+    ) -> Self {
+        self.announcer = Some(announcer);
+        self
+    }
+
+    /// The binding endpoints `resolve_binding` reads (the managed signer's registry);
+    /// without them every lookup is `route_binding_ambiguous` (no binding is served at any
+    /// endpoint).
+    #[must_use]
+    pub fn with_binding_endpoints(
+        mut self,
+        endpoints: Arc<dyn crate::connections::BindingEndpoints>,
+    ) -> Self {
+        self.endpoints = Some(endpoints);
+        self
+    }
+
+    /// The serve child's supervisor.
+    #[must_use]
+    pub fn supervisor(&self) -> &Arc<TransportSupervisor> {
+        &self.supervisor
+    }
+
+    /// K_iroh custody.
+    #[must_use]
+    pub fn keys(&self) -> &Arc<dyn TransportKeys> {
+        &self.keys
+    }
+
+    /// The serve allowlist's enrollments.
+    #[must_use]
+    pub fn peers(&self) -> &Arc<dyn heimdall_app::transport::PeerEnrollments> {
+        &self.peers
+    }
+
+    fn owner_only(caller: &heimdall_app::Caller) -> Result<(), OpError> {
+        if caller.context.is_owner() {
+            Ok(())
+        } else {
+            Err(OpError::new(
+                Code::CapabilityUnavailable,
+                "this request needs the owner role",
+            )
+            .with_effect(EffectStatus::None))
+        }
+    }
+
+    /// One `Request::Route` form (type docs).
+    ///
+    /// # Errors
+    /// The operation's.
+    pub fn route(
+        &self,
+        caller: &heimdall_app::Caller,
+        request: &heimdall_contract::route::RouteRequest,
+        now: heimdall_contract::Timestamp,
+    ) -> Result<serde_json::Value, OpError> {
+        use heimdall_contract::route::RouteRequest;
+        if let RouteRequest::ResolveBinding {
+            destination,
+            account,
+            endpoint,
+        } = request
+        {
+            return self.resolve_binding(caller, destination, account, endpoint);
+        }
+        Self::owner_only(caller)?;
+        heimdall_app::routes::ops::RouteOps { store: &self.store }.execute(request, now)
+    }
+
+    /// `route.resolve_binding` (type docs).
+    fn resolve_binding(
+        &self,
+        caller: &heimdall_app::Caller,
+        destination: &heimdall_contract::ids::DestinationId,
+        account: &heimdall_contract::ids::AccountName,
+        endpoint: &str,
+    ) -> Result<serde_json::Value, OpError> {
+        use heimdall_app::routes::{
+            ResolvedRouteBinding, RouteBinding, RouteHelperError, select_route_binding,
+        };
+        let ambiguous = || {
+            let e = RouteHelperError::BindingAmbiguous;
+            OpError::new(Code::CapabilityUnavailable, e.to_string())
+                .with_reason(reason::ROUTE_BINDING_AMBIGUOUS)
+                .with_effect(EffectStatus::None)
+        };
+        let Some(endpoints) = &self.endpoints else {
+            return Err(ambiguous());
+        };
+        let bindings = self
+            .store
+            .transaction(|tx| tx.active_bindings())
+            .map_err(OpError::from)?;
+        let candidates: Vec<RouteBinding> = bindings
+            .into_iter()
+            .filter(|b| caller.context.may_access(&b.owner))
+            .filter_map(|b| {
+                let served = endpoints.endpoint(&b.id)?;
+                let at = served.locator == endpoint;
+                at.then_some(RouteBinding {
+                    binding: b.id,
+                    grant: b.grant,
+                    endpoint: served.locator,
+                    pairs: b.scope.pairs,
+                })
+            })
+            .collect();
+        let pair = heimdall_domain::scope::AccessPair {
+            destination: destination.clone(),
+            account: account.clone(),
+        };
+        let one = select_route_binding(&candidates, &pair, endpoint).map_err(|_| ambiguous())?;
+        serde_json::to_value(ResolvedRouteBinding::from(one))
+            .map_err(|_| OpError::new(Code::InternalError, "a binding cannot be rendered"))
+    }
+
+    /// One `Request::Transport` form (type docs).
+    ///
+    /// # Errors
+    /// The operation's.
+    pub async fn transport(
+        &self,
+        caller: &heimdall_app::Caller,
+        request: &heimdall_contract::route::TransportRequest,
+        now: heimdall_contract::Timestamp,
+    ) -> Result<serde_json::Value, OpError> {
+        let rotate = matches!(request, heimdall_contract::route::TransportRequest::Rotate);
+        if rotate && caller.context.remote_client.is_some() {
+            // ⟨rev6.3; ADR-0006 §18.7 items 9-10⟩ Rotating this device's key is the local
+            // owner's alone; a paired session's retry can never succeed, and says so.
+            return Err(OpError::new(
+                Code::InteractionRequired,
+                "this device's transport key is rotated by its local owner only",
+            )
+            .with_reason(reason::LOCAL_OWNER_REQUIRED)
+            .with_effect(EffectStatus::None));
+        }
+        Self::owner_only(caller)?;
+        let ops = heimdall_app::transport::TransportOps {
+            store: &self.store,
+            keys: self.keys.as_ref(),
+            serve: self.supervisor.as_ref(),
+            peers: self.peers.as_ref(),
+        };
+        if rotate {
+            let _one = self.rotating.lock().await;
+            let rotated = ops.rotate(self.announcer.as_deref(), now).await?;
+            return serde_json::to_value(rotated).map_err(|_| {
+                OpError::new(Code::InternalError, "a transport result cannot be rendered")
+            });
+        }
+        ops.execute(request, None, now).await
+    }
+}
+
 // --- the serve child (feature `iroh`) -----------------------------------------------------------
 
 /// How the child gets its K_iroh from the [`KeyRef`] the runtime sent (the integrator's
@@ -1152,6 +1583,7 @@ where
             &mut output,
             &FromChild::Refused {
                 reason: reason::DRIVER_UNAVAILABLE.to_owned(),
+                unbindable_port: None,
             },
         )
         .await;
@@ -1172,6 +1604,7 @@ where
     let mut input = tokio::io::BufReader::new(input);
     let refused = |token: &'static str| FromChild::Refused {
         reason: token.to_owned(),
+        unbindable_port: None,
     };
     let start = read_message::<_, ToChild>(&mut input).await;
     let Ok(ToChild::Start {
@@ -1191,6 +1624,8 @@ where
         let _ = write_message(&mut output, &refused(reason::TRANSPORT_UNAVAILABLE)).await;
         return ChildExit::Refused(reason::TRANSPORT_UNAVAILABLE);
     }
+    // ⟨ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The port the runtime asked for (named or recorded).
+    let wanted_port = policy.port.filter(|p| *p != 0);
     let config = (|| {
         let allowlist = Allowlist::new(allowlist.clone()).map_err(|e| e.reason())?;
         let addr: std::net::SocketAddr =
@@ -1221,7 +1656,16 @@ where
         Ok(s) => s,
         Err(e) => {
             let token = known_reason(e.reason());
-            let _ = write_message(&mut output, &refused(token)).await;
+            let mut refusal = refused(token);
+            if let (heimdall_transport_iroh::serve::ServeError::Bind, Some(port)) =
+                (&e, wanted_port)
+                && let FromChild::Refused {
+                    unbindable_port, ..
+                } = &mut refusal
+            {
+                *unbindable_port = Some(port);
+            }
+            let _ = write_message(&mut output, &refusal).await;
             return ChildExit::Refused(token);
         }
     };

@@ -254,6 +254,7 @@ impl World {
                 public_key: &text,
                 key_fingerprint: &fp,
                 lifetime: FIFTEEN_MIN,
+                iroh_admission: false,
             },
             policy,
             &now,
@@ -266,6 +267,8 @@ impl World {
             invitation: inv.invitation.invitation.clone(),
             role: inv.invitation.role,
             generation: inv.invitation.generation,
+            iroh_endpoint: None,
+            probe: None,
         }
     }
 
@@ -840,6 +843,8 @@ fn pending_key_reaches_only_probe_and_join() {
         invitation: inv.invitation.invitation.clone(),
         role: Role::Requester,
         generation: inv.invitation.generation,
+        iroh_endpoint: None,
+        probe: None,
     });
     assert_eq!(
         check(Some(&rec), SessionFrame::Request(&join), &NoConsents),
@@ -978,6 +983,7 @@ fn invitation_gates() {
                     public_key: &k4,
                     key_fingerprint: &fp5,
                     lifetime: FIFTEEN_MIN,
+                    iroh_admission: false,
                 },
                 ManagementPolicy::OwnerOnly,
                 &now,
@@ -1011,6 +1017,7 @@ fn invite_req(id: &str) -> Request {
         key_fingerprint: key(7).1,
         public_key: key(7).0,
         request_id: rid(id),
+        iroh_admission: false,
     })
 }
 
@@ -1157,20 +1164,38 @@ fn t_ra1_owner_widening_stays_pending_including_exposure() {
 #[test]
 fn t_ra2_decide_and_attend_refused_before_dispatch() {
     let owner = active(Role::Owner);
-    for frame in [
+    // ⟨rev 6.3; §18.7 item 9⟩ `decide` has no remote path at all: it names its reason.
+    let refused = check(
+        Some(&owner),
         SessionFrame::Request(&json(
             r#"{"op":"decide","decision_id":"dec_00","verdict":"approve"}"#,
         )),
+        &NoConsents,
+    );
+    assert_eq!(refused, Verdict::Refuse(Refusal::LocalOwnerRequired));
+    let env = Refusal::LocalOwnerRequired.envelope();
+    assert_eq!(env.code, heimdall_contract::Code::InteractionRequired);
+    assert_eq!(
+        env.data.error.reason.as_deref(),
+        Some(heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED)
+    );
+    for frame in [
         SessionFrame::Request(&json(
             r#"{"op":"confirm_time","observed_wall":"2026-11-20T10:00:00Z"}"#,
         )),
         SessionFrame::Request(&json(r#"{"op":"device","action":"retire"}"#)),
+        SessionFrame::Request(&json(r#"{"op":"issuer","action":"unlock"}"#)),
+        SessionFrame::Request(&json(r#"{"op":"transport","action":"rotate"}"#)),
         SessionFrame::Attend,
     ] {
-        assert_eq!(
-            check(Some(&owner), frame, &NoConsents),
-            Verdict::Refuse(Refusal::InteractionRequired)
-        );
+        // ⟨rev 6.3; §18.7 items 10 and 15⟩ One rule: the same reason, whatever the role.
+        for role in [Role::Owner, Role::Requester, Role::Viewer] {
+            assert_eq!(
+                check(Some(&active(role)), frame, &NoConsents),
+                Verdict::Refuse(Refusal::LocalOwnerRequired),
+                "{frame:?} as {role:?}"
+            );
+        }
     }
     let ledger = MemoryWidening::new();
     let now = ts(T0);
@@ -1467,6 +1492,7 @@ fn invite_decision_binds_the_exact_key_and_role() {
             key_fingerprint: key(7).1,
             public_key,
             request_id: rid("r-mismatch"),
+            iroh_admission: false,
         })
     };
     for bad in [
@@ -1497,6 +1523,7 @@ fn invite_decision_binds_the_exact_key_and_role() {
         key_fingerprint: fp.clone(),
         public_key: format!("{} new-device", text.trim_end_matches('=')),
         request_id: rid("r-bound"),
+        iroh_admission: false,
     });
     let (Submitted::Created(id), _) =
         submit(&ledger, &owner.client, &req, AuthorityGeneration(1), now).unwrap()
@@ -1553,6 +1580,7 @@ fn invite_decision_binds_the_exact_key_and_role() {
         role: Role::Owner,
         public_key: key(9).0,
         key_fingerprint: fp,
+        iroh_admission: false,
     };
     let before = w.lines.files();
     let reading = w.read();
@@ -1809,6 +1837,139 @@ fn join_rechecks_liveness_at_its_commit_point() {
     );
 }
 
+// --- Gemini W2 review (M06-W2-R01), the reviewer's probe inverted ---------------------------
+
+/// A join whose line read blocks while `step` moves the runner's live clock; returns the
+/// join's answer. The join's sample is the gate's reading before the read.
+fn join_across_a_clock_step(
+    w: &mut World,
+    inv: &Invited,
+    step: impl FnOnce(&mut Clock),
+) -> Result<heimdall_store::ext_m06::JoinRecord, Refusal> {
+    let sample = w.read();
+    assert!(
+        sample.checked_wall.is_some(),
+        "the gate accepted the sample"
+    );
+    let mut stepped = w.clock.clone();
+    step(&mut stepped);
+    let (entered, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+    let port = ReviewerLines::nth(&w.lines, &entered, &release, true, 1);
+    let service = Invitations {
+        lines: &port,
+        ..w.svc()
+    };
+    let req = w.join_req(inv);
+    let cid = &inv.client.client;
+    let live = &w.live;
+    std::thread::scope(|s| {
+        let join = s.spawn(|| service.join(cid, &req, &sample));
+        entered.wait();
+        live.set(stepped.anchor());
+        release.wait();
+        join.join().unwrap().map(|j| j.join)
+    })
+}
+
+/// ⟨M06-W2-R01, forward⟩ While the join reads the key files, one second passes on the
+/// continuous clock and the wall clock jumps 20 minutes, past the 15-minute deadline. The
+/// commit-time instant is the later of the projection and the wall clock, so the join is
+/// refused: the client stays pending and its line keeps `expiry-time`.
+#[test]
+fn a_forward_wall_jump_during_the_join_expires_the_invitation() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 21, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let cid = inv.client.client.clone();
+    let answer = join_across_a_clock_step(&mut w, &inv, |c| {
+        c.wall = plus(c.wall, 20 * 60);
+        c.continuous += Duration::from_secs(1);
+    });
+    assert_eq!(answer, Err(Refusal::InvitationExpired));
+    assert_eq!(w.client(&cid).state, ClientState::Pending);
+    assert!(
+        w.lines_for(&cid).iter().all(|l| l.contains("expiry-time=")),
+        "{:?}",
+        w.lines_for(&cid)
+    );
+}
+
+/// ⟨M06-W2-R01, rollback⟩ While the join reads the key files, one second passes on the
+/// continuous clock and the wall clock is set back two hours: beyond the gate's step
+/// tolerance against the projection, so the join answers `TIME_UNCERTAIN` and nothing is
+/// activated. A step back within the tolerance still joins.
+#[test]
+fn a_wall_rollback_during_the_join_is_time_uncertain() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 22, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let cid = inv.client.client.clone();
+    let answer = join_across_a_clock_step(&mut w, &inv, |c| {
+        c.wall = plus(c.wall, -2 * 3600);
+        c.continuous += Duration::from_secs(1);
+    });
+    assert_eq!(answer, Err(Refusal::TimeUncertain));
+    assert_eq!(w.client(&cid).state, ClientState::Pending);
+    assert!(
+        w.lines_for(&cid).iter().all(|l| l.contains("expiry-time=")),
+        "{:?}",
+        w.lines_for(&cid)
+    );
+    let answer = join_across_a_clock_step(&mut w, &inv, |c| {
+        c.wall = plus(c.wall, -3);
+        c.continuous += Duration::from_secs(1);
+    });
+    assert!(answer.is_ok(), "{answer:?}");
+    assert_eq!(w.client(&cid).state, ClientState::Active);
+}
+
+/// A clock whose continuous source is unavailable at the commit point (the platform's
+/// `try_continuous` is `None` while `continuous` answers its last value).
+struct NoContinuous<'a>(&'a LiveClock);
+
+impl heimdall_domain::time::Clock for NoContinuous<'_> {
+    fn wall(&self) -> Timestamp {
+        self.0.wall()
+    }
+    fn continuous(&self) -> Duration {
+        self.0.continuous()
+    }
+    fn try_continuous(&self) -> Option<Duration> {
+        None
+    }
+    fn boot_id(&self) -> BootId {
+        self.0.boot_id()
+    }
+}
+
+/// ⟨2026-11-21, ruling 2; runner Q6⟩ An unavailable continuous clock at the commit point
+/// refuses the join (`invitation_expired`); it is never read as "no time elapsed". The
+/// same join over a working clock commits.
+#[test]
+fn an_unavailable_continuous_clock_refuses_the_join() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 23, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let cid = inv.client.client.clone();
+    let sample = w.read();
+    let req = w.join_req(&inv);
+    let svc = w.svc();
+    let frozen = NoContinuous(&w.live);
+    let blind = Invitations {
+        clock: &frozen,
+        ..svc
+    };
+    assert_eq!(
+        blind.join(&cid, &req, &sample).map(|j| j.join),
+        Err(Refusal::InvitationExpired)
+    );
+    assert_eq!(w.client(&cid).state, ClientState::Pending);
+    assert!(svc.join(&cid, &req, &sample).is_ok());
+}
+
 // --- Gemini W1 review (M06-W1-R01, R03) --------------------------------------------------------
 
 /// Wait (bounded) until `cid`'s row is a tombstone: the revoking or expiring thread committed
@@ -1881,6 +2042,7 @@ fn revocation_wins_over_an_invite_line_write() {
                     public_key: &text,
                     key_fingerprint: &fp,
                     lifetime: FIFTEEN_MIN,
+                    iroh_admission: false,
                 },
                 ManagementPolicy::OwnerOnly,
                 &now,
@@ -1982,6 +2144,7 @@ fn invite_samples_time_at_its_commit() {
         public_key: &text,
         key_fingerprint: &fp,
         lifetime: FIFTEEN_MIN,
+        iroh_admission: false,
     };
     let invited = std::thread::scope(|s| {
         let invite = s.spawn(|| service.invite(&new, ManagementPolicy::OwnerOnly, &sample));
@@ -2017,6 +2180,7 @@ fn invite_samples_time_at_its_commit() {
                 public_key: &text2,
                 key_fingerprint: &fp2,
                 lifetime: FIFTEEN_MIN,
+                iroh_admission: false,
             },
             ManagementPolicy::OwnerOnly,
             &sample,

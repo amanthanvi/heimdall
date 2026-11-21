@@ -1438,7 +1438,13 @@ impl Operations {
         intent: &heimdall_domain::revocation::CleanupIntent,
     ) -> IntentDisposition {
         use heimdall_contract::OperationState;
-        let preparing = self.is_preparing(&intent.operation);
+        // ⟨M06 W3 grant-path⟩ On a remote runner the live key is the runner signer's (no
+        // credential instance is recorded for it): an open operation's intent stays while
+        // the controller's certificates for the grant are installed there.
+        let preparing = self.is_preparing(&intent.operation)
+            || self
+                .runner_grants()
+                .is_some_and(|r| r.issued(&intent.grant));
         let (gid, op) = (intent.grant.clone(), intent.operation.clone());
         self.write(move |tx, _| {
             if !grant_is_managed(tx, &gid)? {

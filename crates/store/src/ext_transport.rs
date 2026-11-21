@@ -30,7 +30,7 @@
 //! [`crate::ext_m06`]. Recording a key or a consent (a widening) does not move it.
 
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{ConsentId, DecisionId, IrohEndpointId, RouteId};
+use heimdall_contract::ids::{ConsentId, DecisionId, EnvironmentId, IrohEndpointId, RouteId};
 use heimdall_contract::route::{BindScope, ExposurePolicy};
 use rusqlite::OptionalExtension as _;
 use serde::{Deserialize, Serialize};
@@ -435,7 +435,171 @@ impl Txn<'_> {
     pub fn narrow_remote_admission(&mut self, now: Timestamp) -> Result<u64> {
         self.bump_remote_authority_generation(now)
     }
+
+    // --- ⟨M06 W3⟩ the route helper's binding candidates (ADR-0012 §5.4) ---------------------
+
+    /// Every `active` binding, oldest first: the candidates the runtime's
+    /// `route.resolve_binding` filters to the caller's context and the alias's endpoint.
+    ///
+    /// # Errors
+    /// The store's.
+    pub fn active_bindings(&mut self) -> Result<Vec<heimdall_domain::binding::BindingRecord>> {
+        let active = codec::enum_str(&heimdall_domain::binding::BindingState::Active)?;
+        self.docs(
+            "SELECT record_json FROM bindings WHERE state = ?1 ORDER BY created_at, id",
+            [active.as_str()],
+        )
+    }
+
+    // --- ⟨rev6.3⟩ the rotation being announced (ADR-0006 §18.7 item 10) ------------------
+
+    /// The K_iroh rotation still being announced ([`META_TRANSPORT_ROTATION`]), if any.
+    ///
+    /// # Errors
+    /// The store's; a stored value that does not decode is corrupt (fail closed).
+    pub fn transport_rotation(&mut self) -> Result<Option<TransportRotation>> {
+        match self.meta(META_TRANSPORT_ROTATION)? {
+            None => Ok(None),
+            Some(v) => serde_json::from_str(&v)
+                .map(Some)
+                .map_err(|_| corrupt("transport rotation record")),
+        }
+    }
+
+    /// Record (or replace) the rotation being announced.
+    ///
+    /// # Errors
+    /// The store's.
+    pub fn set_transport_rotation(&mut self, rotation: &TransportRotation) -> Result<()> {
+        let json =
+            serde_json::to_string(rotation).map_err(|_| corrupt("transport rotation record"))?;
+        self.set_meta(META_TRANSPORT_ROTATION, &json)
+    }
+
+    /// Forget the rotation record (every runner acknowledged or was forgotten and the old
+    /// item is gone; or `transport disable`); returns whether one was recorded.
+    ///
+    /// # Errors
+    /// The store's.
+    pub fn clear_transport_rotation(&mut self) -> Result<bool> {
+        let had = self.meta(META_TRANSPORT_ROTATION)?.is_some();
+        if had {
+            self.delete_meta(META_TRANSPORT_ROTATION)?;
+        }
+        Ok(had)
+    }
+
+    // --- ⟨M06 W3⟩ the recorded serve port (ADR-0012 §2.1 ⟨2026-11-21⟩, ADR-0006 §18.7 item 5)
+
+    /// The serve port recorded at the first successful bind of a policy that names none
+    /// ([`META_TRANSPORT_SERVE_PORT`]); every later start binds it again.
+    ///
+    /// # Errors
+    /// The store's; a stored value that is not a port `1..=65535` is corrupt (fail closed).
+    pub fn transport_serve_port(&mut self) -> Result<Option<u16>> {
+        match self.meta(META_TRANSPORT_SERVE_PORT)? {
+            None => Ok(None),
+            Some(v) => match v.parse::<u16>() {
+                Ok(p) if p != 0 => Ok(Some(p)),
+                _ => Err(corrupt("transport serve port")),
+            },
+        }
+    }
+
+    /// Record `port` as the serve port when none is recorded yet; returns whether it was
+    /// written. A different recorded port is kept (the first successful bind's port wins:
+    /// changing it is `disable` then `enable`). `0` is never recorded.
+    ///
+    /// # Errors
+    /// The store's; [`StoreError::GenerationConflict`] for port `0`.
+    pub fn record_transport_serve_port(&mut self, port: u16) -> Result<bool> {
+        if port == 0 {
+            return Err(conflict("transport serve port 0"));
+        }
+        if self.transport_serve_port()?.is_some() {
+            return Ok(false);
+        }
+        self.set_meta(META_TRANSPORT_SERVE_PORT, &port.to_string())?;
+        Ok(true)
+    }
+
+    /// Forget the recorded serve port and any recorded bind failure (`transport disable`,
+    /// ADR-0012 §2.5); returns whether a port was recorded.
+    ///
+    /// # Errors
+    /// The store's.
+    pub fn clear_transport_serve_port(&mut self) -> Result<bool> {
+        let had = self.meta(META_TRANSPORT_SERVE_PORT)?.is_some();
+        if had {
+            self.delete_meta(META_TRANSPORT_SERVE_PORT)?;
+        }
+        self.clear_transport_serve_bind_failure()?;
+        Ok(had)
+    }
+
+    /// The serve port the last start could not bind (the doctor's finding names it), until
+    /// a start binds or the transport is disabled.
+    ///
+    /// # Errors
+    /// The store's; a stored value that is not a port is corrupt.
+    pub fn transport_serve_bind_failure(&mut self) -> Result<Option<u16>> {
+        match self.meta(META_TRANSPORT_SERVE_PORT_UNBINDABLE)? {
+            None => Ok(None),
+            Some(v) => match v.parse::<u16>() {
+                Ok(p) if p != 0 => Ok(Some(p)),
+                _ => Err(corrupt("transport serve bind failure")),
+            },
+        }
+    }
+
+    /// Record that the serve port `port` could not be bound.
+    ///
+    /// # Errors
+    /// The store's; [`StoreError::GenerationConflict`] for port `0`.
+    pub fn record_transport_serve_bind_failure(&mut self, port: u16) -> Result<()> {
+        if port == 0 {
+            return Err(conflict("transport serve port 0"));
+        }
+        self.set_meta(META_TRANSPORT_SERVE_PORT_UNBINDABLE, &port.to_string())
+    }
+
+    /// Forget a recorded bind failure (a start bound its port).
+    ///
+    /// # Errors
+    /// The store's.
+    pub fn clear_transport_serve_bind_failure(&mut self) -> Result<()> {
+        self.delete_meta(META_TRANSPORT_SERVE_PORT_UNBINDABLE)
+    }
 }
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ The `meta` key of the K_iroh rotation still being
+/// announced ([`Txn::transport_rotation`]), classified in [`crate::ext_m03::META_RECOVERY`].
+pub const META_TRANSPORT_ROTATION: &str = "transport_rotation";
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ A K_iroh rotation whose new endpoint ID has not reached
+/// every recorded runner yet (`transport.rotate`): the new endpoint, the withdrawn one
+/// (whose platform item is kept until `pending` is empty) and the runners still to be told.
+/// IDs only: no key material and no host name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransportRotation {
+    /// The new (active) endpoint.
+    pub endpoint: IrohEndpointId,
+    /// The withdrawn endpoint, whose platform item still exists.
+    pub previous: IrohEndpointId,
+    /// The recorded runners that have not acknowledged `endpoint` yet.
+    pub pending: Vec<EnvironmentId>,
+    /// When the rotation started.
+    pub started_at: Timestamp,
+}
+
+/// ⟨M06 W3⟩ The `meta` key of the recorded serve port ([`Txn::transport_serve_port`]),
+/// classified in [`crate::ext_m03::META_RECOVERY`].
+pub const META_TRANSPORT_SERVE_PORT: &str = "transport_serve_port";
+
+/// ⟨M06 W3⟩ The `meta` key of the serve port the last start could not bind
+/// ([`Txn::transport_serve_bind_failure`]), classified in
+/// [`crate::ext_m03::META_RECOVERY`].
+pub const META_TRANSPORT_SERVE_PORT_UNBINDABLE: &str = "transport_serve_port_unbindable";
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
@@ -487,6 +651,7 @@ mod tests {
                         relays: vec!["https://relay.invalid".into()],
                     },
                     direct_fallback: true,
+                    port: None,
                 },
             },
             recorded_at: now("2026-11-21T10:00:00Z"),
@@ -638,5 +803,65 @@ mod tests {
             1
         );
         assert_eq!(generation(&store), 2);
+    }
+
+    /// ⟨M06 W3; ADR-0006 §18.7 item 5⟩ The serve port: recorded once (the first bind's port
+    /// wins, `0` never), read back, kept across a second record, cleared by disable; it moves
+    /// no admission generation; a stored non-port is corrupt.
+    #[test]
+    fn the_serve_port_is_recorded_once_and_cleared() {
+        let store = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+        let port = |s: &Store| s.transaction(|tx| tx.transport_serve_port()).unwrap();
+        assert_eq!(port(&store), None);
+        assert!(matches!(
+            store.transaction(|tx| tx.record_transport_serve_port(0)),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        assert!(
+            store
+                .transaction(|tx| tx.record_transport_serve_port(40_001))
+                .unwrap()
+        );
+        assert!(
+            !store
+                .transaction(|tx| tx.record_transport_serve_port(40_002))
+                .unwrap()
+        );
+        assert_eq!(port(&store), Some(40_001));
+        assert_eq!(generation(&store), 0);
+        store
+            .transaction(|tx| tx.record_transport_serve_bind_failure(40_001))
+            .unwrap();
+        assert_eq!(
+            store
+                .transaction(|tx| tx.transport_serve_bind_failure())
+                .unwrap(),
+            Some(40_001)
+        );
+        assert!(
+            store
+                .transaction(|tx| tx.clear_transport_serve_port())
+                .unwrap()
+        );
+        assert!(
+            !store
+                .transaction(|tx| tx.clear_transport_serve_port())
+                .unwrap()
+        );
+        assert_eq!(port(&store), None);
+        assert_eq!(
+            store
+                .transaction(|tx| tx.transport_serve_bind_failure())
+                .unwrap(),
+            None,
+            "disable forgets the failure too"
+        );
+        store
+            .transaction(|tx| tx.set_meta(META_TRANSPORT_SERVE_PORT, "0"))
+            .unwrap();
+        assert!(matches!(
+            store.transaction(|tx| tx.transport_serve_port()),
+            Err(StoreError::Corrupt(_))
+        ));
     }
 }

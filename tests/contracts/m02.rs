@@ -185,6 +185,15 @@ fn one_of_every_request() -> Vec<Request> {
             .iter()
             .map(|row| request(row["json"].clone())),
     );
+    // ⟨rev6.3⟩ ADR-0006 §18.7 item 6: the `controller_record` forms (the same golden's
+    // `no_capability_requests`).
+    out.extend(
+        rev6["no_capability_requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| request(row["json"].clone())),
+    );
     out
 }
 
@@ -342,7 +351,9 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
             }
             // ⟨rev6⟩ ADR-0006 §18: each revision-6 form names its capability
             // (`contracts::rev6`).
-            "remote_environment" | "device" => {
+            // ⟨rev6.3⟩ ADR-0006 §18.7 item 7: `runner_local` is `remote-control/1`'s too;
+            // `controller_record` (item 6) needs none and falls to the last arm.
+            "remote_environment" | "device" | "runner_local" => {
                 assert_eq!(r.required_capability(), Some(capability::REMOTE_CONTROL_V1));
             }
             "route" => assert_eq!(r.required_capability(), Some(capability::ROUTES_V1)),

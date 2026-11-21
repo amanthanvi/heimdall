@@ -32,5 +32,8 @@ Options:
       --request-id <ID>
           Reuse the request ID the pending answer named, after confirming at the runner
 
+      --iroh
+          Let the invited device reach the runner over Iroh: it sends its own endpoint ID when it joins (confirmed at the runner with the invitation)
+
   -h, --help
           Print help (see a summary with '-h')

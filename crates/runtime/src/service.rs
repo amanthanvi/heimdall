@@ -404,6 +404,16 @@ pub struct ServiceOptions {
     /// Used only when this installation is a remote runner (`crate::paired::is_runner`,
     /// read at start); default: none, `owner_only`.
     pub runner: crate::paired::RunnerOptions,
+    /// ⟨M06 W3⟩ The route and transport forms and the Iroh serve child
+    /// (`crate::supervise_transport::TransportWiring`): production, this executable and the
+    /// platform K_iroh store; [`Self::with_clock`]: `None` (the forms answer
+    /// `driver_unavailable`, wave 0's landing).
+    pub transport: Option<crate::supervise_transport::TransportWiring>,
+    /// ⟨M06 W3 host⟩ The controller's hosted sync and issuance driver
+    /// (`crate::controller_host`): how it opens management sessions to the recorded runners.
+    /// `service run` wires the CLI's opener; `None` (the default): no host, so an outbox row
+    /// waits and nothing is issued remotely. Never used by a remote runner.
+    pub controller: Option<crate::controller_host::ControllerHostWiring>,
 }
 
 /// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
@@ -506,6 +516,14 @@ impl ServiceOptions {
             projection: ProjectionWiring::Account,
             existing_access: true,
             managed: Some(ManagedOptions::default()),
+            transport: std::env::current_exe().ok().map(|program| {
+                crate::supervise_transport::TransportWiring {
+                    program,
+                    keys: None,
+                    sshd_port: 22,
+                    announcer: None,
+                }
+            }),
             ..Self::with_clock(Arc::new(clock), Arc::new(crate::platform::SystemTimeSync))
         })
     }
@@ -533,6 +551,8 @@ impl ServiceOptions {
             wsl_helper: None,
             wsl_bridge: None,
             runner: crate::paired::RunnerOptions::default(),
+            transport: None,
+            controller: None,
         }
     }
 }
@@ -629,6 +649,17 @@ pub struct Service {
     operations: Operations,
     /// ⟨M06 W2⟩ The paired-session service when this installation is a remote runner.
     runner: Option<Arc<crate::paired::PairedRunner>>,
+    /// ⟨M06 W3⟩ The serve child's supervisor and K_iroh custody
+    /// ([`ServiceOptions::transport`]).
+    transport: Option<(
+        Arc<crate::supervise_transport::TransportSupervisor>,
+        Arc<dyn heimdall_app::transport::TransportKeys>,
+    )>,
+    /// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `transport.rotate`'s management channel to the
+    /// recorded runners (`TransportWiring::announcer`).
+    transport_announcer: Option<Arc<dyn heimdall_app::transport::EndpointAnnouncer>>,
+    /// ⟨M06 W3 host⟩ The hosted controller driver's wiring ([`ServiceOptions::controller`]).
+    controller: Option<crate::controller_host::ControllerHostWiring>,
     shutdown: CancellationToken,
     _background: StopOnDrop,
     _lock: InstanceLock,
@@ -792,6 +823,14 @@ impl Service {
                 ProjectionWiring::Disabled => None,
             })
             .flatten();
+        // ⟨M06-W2-R02⟩ The effective sshd policy check behind that writer's files and the
+        // management policy: the options' own, else the account's against the system sshd
+        // (never under a test configuration's scratch home).
+        let runner_sshd = options.runner.sshd.clone().or_else(|| {
+            matches!(options.projection, ProjectionWiring::Account)
+                .then(|| crate::paired::RunnerSshd::account(&paths.state_dir))
+                .flatten()
+        });
         let wired = match options.projection {
             ProjectionWiring::Disabled => None,
             ProjectionWiring::Account => account_projection(&paths).and_then(wire),
@@ -811,8 +850,27 @@ impl Service {
         let managed_adapter = managed_parts
             .as_ref()
             .map(|parts| parts.adapter(wired.as_ref().map(|w| Arc::clone(&w.writer))));
-        if let Some(a) = &managed_adapter {
-            adapters.push(Arc::clone(a) as Arc<dyn CredentialAdapter>);
+        // ⟨M06 W3 grant-path; ADR-0012 §4 item 2⟩ A remote runner never issues locally: its
+        // `managed_certificate` adapter is the runner's (`crate::runner::adapter`), which
+        // realizes a grant only from certificates the controller's issuer installed. The
+        // local managed adapter (key, reserve, sign with an issuer here) is not configured
+        // on a runner at all.
+        let is_runner_installation = {
+            let s = store.clone();
+            blocking(move || s.transaction(crate::paired::is_runner)).await??
+        };
+        let runner_adapter = (is_runner_installation && managed_adapter.is_some()).then(|| {
+            Arc::new(crate::runner::adapter::RunnerManagedAdapter::new(
+                store.clone(),
+            ))
+        });
+        match (&runner_adapter, &managed_adapter) {
+            (Some(a), _) => adapters.push(Arc::clone(a) as Arc<dyn CredentialAdapter>),
+            (None, Some(a)) => adapters.push(Arc::clone(a) as Arc<dyn CredentialAdapter>),
+            (None, None) => {}
+        }
+        if let Some(parts) = managed_parts.as_mut() {
+            parts.runner_adapter.clone_from(&runner_adapter);
         }
         let operations = Operations::start(OperationsConfig {
             store: store.clone(),
@@ -882,22 +940,84 @@ impl Service {
         let relay = EventRelay::spawn(&operations, background.0.clone());
         // ⟨M06 W2⟩ A remote runner (its own environment record says so, the runner-init
         // marker) serves paired sessions; any other runtime refuses them.
+        // ⟨M06 W3⟩ The serve child's supervisor and K_iroh custody (task 2): a runner's
+        // revocations apply their narrowing there, and its approved transport records run
+        // over them, unless the options name their own.
+        let transport = options
+            .transport
+            .as_ref()
+            .map(|w| w.build(&store, operations.environment()));
+        let transport_announcer = options.transport.as_ref().and_then(|w| w.announcer.clone());
         let runner = {
             let s = store.clone();
             let is_runner = blocking(move || s.transaction(crate::paired::is_runner)).await??;
             let mut runner_options = options.runner.clone();
-            if let Some(dir) = &runner_user_dir {
-                let files: Arc<dyn heimdall_remote::line::ManagementLines> =
-                    Arc::new(crate::paired_lines::AuthorizedKeysFiles::sshd_default(dir));
-                runner_options.lines = Some(files);
+            if let Some((supervisor, keys)) = &transport {
+                if runner_options.admission.is_none() {
+                    runner_options.admission = Some(supervisor.clone());
+                }
+                if runner_options.transport.is_none() {
+                    runner_options.transport = Some(crate::paired::RunnerTransport {
+                        keys: keys.clone(),
+                        serve: supervisor.clone(),
+                        peers: Arc::new(heimdall_app::transport::NoPeerEnrollments),
+                    });
+                }
             }
-            is_runner.then(|| {
-                Arc::new(crate::paired::PairedRunner::new(
+            if let Some(dir) = &runner_user_dir {
+                // ⟨M06-W2-R02⟩ A runner's files and management policy come from its
+                // effective sshd policy (`paired::runner_lines`: verified, its own list and
+                // `verified`; anything else, sshd's default pair and `owner_only`). Another
+                // runtime runs no check.
+                let sshd = runner_sshd.as_ref().filter(|_| is_runner);
+                let (files, policy) = crate::paired::runner_lines(sshd, dir).await;
+                let files: Arc<dyn heimdall_remote::line::ManagementLines> = Arc::new(files);
+                runner_options.lines = Some(files);
+                if sshd.is_some() {
+                    runner_options.management_policy = policy;
+                }
+            }
+            // ⟨M06 W3⟩ The runner runtime serves paired controllers' `runner/1` forms: K_env
+            // in its own vault (memory only, zeroized with it), the default time policy, and
+            // the lifetime detected read-only (`runner::lifetime::detect`).
+            let runtime = if is_runner {
+                let lifetime = blocking(runner_lifetime).await??;
+                Some(Arc::new(crate::runner::RunnerRuntime::new(
                     store.clone(),
-                    operations.clone(),
                     options.clock.clone(),
-                    runner_options,
-                ))
+                    Arc::new(KeyVault::new()),
+                    crate::runner::time::RunnerTimePolicy::default(),
+                    lifetime,
+                )))
+            } else {
+                None
+            };
+            // ⟨M06 W3 grant-path⟩ The `ensure` pipeline reads the runner's signer (a managed
+            // grant waits for its issuer), and a completed install drives the waiting
+            // operations on.
+            if let Some(rt) = &runtime {
+                let grants: Arc<dyn heimdall_app::operations::RunnerGrants> = rt.clone();
+                operations.set_runner_grants(grants);
+                let (ops, handle) = (operations.clone(), tokio::runtime::Handle::current());
+                rt.on_issued(Arc::new(move |grant| {
+                    let (ops, grant) = (ops.clone(), grant.clone());
+                    handle.spawn(async move {
+                        if let Err(e) = ops.runner_grant_issued(&grant).await {
+                            tracing::warn!(code = %e.code, "an issued grant's waiting operations were not resumed");
+                        }
+                    });
+                }));
+            }
+            runtime.map(|rt| {
+                Arc::new(
+                    crate::paired::PairedRunner::new(
+                        store.clone(),
+                        operations.clone(),
+                        options.clock.clone(),
+                        runner_options,
+                    )
+                    .with_runtime(rt),
+                )
             })
         };
         // ⟨M06 W2⟩ The management lines follow the role table (persist-then-rewrite's
@@ -928,6 +1048,7 @@ impl Service {
                             &EndpointPaths::for_runtime(&paths.runtime_dir, &token).control,
                         )?,
                         wsl_host.clone().zip(wsl_bridge),
+                        runner.as_ref().and_then(|r| r.runtime().cloned()),
                     )
                     .await?,
             ),
@@ -1004,6 +1125,9 @@ impl Service {
             cleaner,
             operations,
             runner,
+            transport,
+            transport_announcer,
+            controller: options.controller,
             shutdown,
             _background: background,
             _lock: lock,
@@ -1031,6 +1155,9 @@ impl Service {
             cleaner,
             operations,
             runner,
+            transport,
+            transport_announcer,
+            controller,
             shutdown,
             _background,
             _lock,
@@ -1039,7 +1166,50 @@ impl Service {
         // Owner `Shutdown` requests cancel the same token a signal does, so both
         // take the graceful drain below (ADR-0006 §13.6 item 8).
         let mut dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
-            .with_service_control(shutdown.clone());
+            .with_service_control(shutdown.clone())
+            // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's records, written for the CLI.
+            .with_controller_records(store.clone());
+        // ⟨M06 W3 host⟩ The controller's driver (`crate::controller_host`): reconnect to the
+        // recorded runners, drain the outbox, issue for the delivered grants. Never on a
+        // runner; issuing through this runtime's issuer child when it has one.
+        let host = match (&runner, controller) {
+            (None, Some(wiring)) => {
+                let issuer = managed
+                    .as_ref()
+                    .and_then(|m| m.teardown.issuer.clone())
+                    .map(|child| {
+                        let port: Arc<dyn heimdall_app::ports::IssuerPort> = Arc::new(child);
+                        let issuer: Arc<dyn heimdall_app::remote_status_driver::RemoteIssuer> =
+                            Arc::new(heimdall_issuer::remote::ChildRemoteIssuer::new(
+                                store.clone(),
+                                port,
+                            ));
+                        issuer
+                    });
+                let instance = heimdall_app::remote_status::instance_identity(
+                    advertisement.info.pid,
+                    &advertisement.info.started_at,
+                );
+                Some(crate::controller_host::ControllerHost::new(
+                    store.clone(),
+                    clock.clone(),
+                    wiring,
+                    issuer,
+                    instance,
+                ))
+            }
+            _ => None,
+        };
+        if let Some(h) = &host {
+            dispatcher = dispatcher
+                .with_outbox_delivery(Arc::new(crate::controller_host::HostDelivery(Arc::clone(
+                    h,
+                ))))
+                // ⟨M06 W3 grant-path⟩ An `ensure` naming a recorded runner is forwarded.
+                .with_ensure_forwarding(Arc::new(crate::controller_host::HostDelivery(
+                    Arc::clone(h),
+                )));
+        }
         if let Some(r) = runner {
             dispatcher = dispatcher.with_runner(r);
         }
@@ -1048,6 +1218,38 @@ impl Service {
             dispatcher = dispatcher
                 .with_connections(Arc::clone(&m.connections))
                 .with_binding_endpoints(endpoints);
+        }
+        // ⟨M06 W3⟩ The route and transport forms, and the serve child under this runtime
+        // (ADR-0012 §2.3 item 5: started from durable state, closure replayed first, when an
+        // enabled serve policy exists; a refusal is logged and the watchdog keeps checking).
+        if let Some((supervisor, keys)) = transport {
+            let mut service = crate::supervise_transport::RouteTransport::new(
+                store.clone(),
+                supervisor.clone(),
+                keys,
+                Arc::new(heimdall_app::transport::NoPeerEnrollments),
+            );
+            // ⟨rev6.3⟩ `transport.rotate` tells the recorded runners through it.
+            if let Some(a) = transport_announcer {
+                service = service.with_announcer(a);
+            }
+            if let Some(m) = &managed {
+                let endpoints: Arc<dyn crate::connections::BindingEndpoints> =
+                    m.teardown.late.clone();
+                service = service.with_binding_endpoints(endpoints);
+            }
+            dispatcher = dispatcher.with_route_transport(Arc::new(service));
+            let serving = crate::supervise_transport::read_authority(
+                &store,
+                &crate::paired_endpoints::StorePeerEndpoints,
+            )
+            .map(|a| a.serve.is_some());
+            if !matches!(serving, Ok(false))
+                && let Err(e) = supervisor.start().await
+            {
+                tracing::warn!(reason = ?e.reason, "the Iroh serve child was not started");
+            }
+            let _watch = supervisor.spawn_watch(shutdown.clone());
         }
         let environment = operations.environment().clone();
         let mut tasks = JoinSet::new();
@@ -1091,6 +1293,9 @@ impl Service {
             }
         }
         tasks.spawn(sup.run(shutdown.clone()));
+        if let Some(h) = host {
+            tasks.spawn(h.run(shutdown.clone()));
+        }
 
         shutdown.cancelled().await;
         tracing::info!("runtime stopping");
@@ -1229,6 +1434,24 @@ impl Service {
             .enable_all()
             .build()
     }
+}
+
+/// ⟨M06 W3⟩ This runner runtime's lifetime (ADR-0012 §4.3; `runner::lifetime::detect`): read
+/// only, bounded, and `unknown` where it cannot be determined (off Linux, or no uid).
+fn runner_lifetime() -> Result<heimdall_contract::remote::RunnerLifetime, ServiceError> {
+    #[cfg(target_os = "linux")]
+    let uid = {
+        use std::os::unix::fs::MetadataExt as _;
+        // `/proc/self` belongs to this process's effective user: no unsafe call needed.
+        std::fs::metadata("/proc/self").ok().map(|m| m.uid())
+    };
+    #[cfg(not(target_os = "linux"))]
+    let uid: Option<u32> = None;
+    let exe = std::env::current_exe().ok();
+    Ok(match (uid, exe) {
+        (Some(uid), Some(exe)) => crate::runner::lifetime::detect(uid, &exe).lifetime,
+        _ => heimdall_contract::remote::RunnerLifetime::Unknown,
+    })
 }
 
 async fn blocking<T: Send + 'static>(
@@ -1910,8 +2133,15 @@ pub mod start_step {
 /// binding endpoints. Until the registry is set (and after the stop clears it) it knows
 /// no endpoint, so nothing is materialized and no master starts (fail closed). Clearing
 /// it at stop also breaks the `Operations` → adapter → registry → `Operations` cycle.
+///
+/// ⟨M06 W3; runner Q7⟩ On a runner it also holds the runner's own binding endpoints
+/// ([`RunnerBindingEndpoints`]): a binding of a grant whose K_env the runner signer holds is
+/// created, found and removed there, never in the registry above (ADR-0012 §4.1, §4.6).
 #[derive(Default)]
-struct LateRegistry(std::sync::RwLock<Option<EndpointRegistry>>);
+struct LateRegistry(
+    std::sync::RwLock<Option<EndpointRegistry>>,
+    std::sync::RwLock<Option<RunnerBindingEndpoints>>,
+);
 
 impl LateRegistry {
     fn set(&self, registry: EndpointRegistry) {
@@ -1921,11 +2151,27 @@ impl LateRegistry {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(registry);
     }
 
+    /// ⟨M06 W3⟩ The runner's binding endpoints (a runner runtime only).
+    fn set_runner(&self, runner: RunnerBindingEndpoints) {
+        *self
+            .1
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(runner);
+    }
+
     fn clear(&self) {
         *self
             .0
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        let runner = self
+            .1
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(r) = runner {
+            r.stop_all();
+        }
     }
 
     fn get(&self) -> Option<EndpointRegistry> {
@@ -1934,13 +2180,214 @@ impl LateRegistry {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
+
+    fn runner(&self) -> Option<RunnerBindingEndpoints> {
+        self.1
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The newest endpoint of `binding`: the runner's own for a runner grant's binding.
+    fn endpoint_of(&self, binding: &heimdall_contract::ids::BindingId) -> Option<EndpointRef> {
+        self.runner().and_then(|r| r.endpoint(binding)).or_else(|| {
+            self.get()
+                .and_then(|r| r.binding_endpoint(binding))
+                .map(|(e, _)| e)
+        })
+    }
+}
+
+/// ⟨M06 W3; runner Q7; ADR-0012 §4.1, §4.6⟩ **A runner grant's binding endpoints.** A
+/// second [`EndpointRegistry`], built here over the runner signer's own table
+/// (`RunnerKeys::table`) and nothing else, so an endpoint it creates lists and signs for the
+/// runner's K_env certificates of the binding's grant only: never the plain K_env, never
+/// another grant's key, never a key of the runtime's local managed table, never a
+/// controller's socket (nothing here opens or relays one).
+///
+/// **Routing is by grant.** A binding is the runner's when `grant_of` names its grant and
+/// the runner signer holds a K_env for that grant now. Anything else (an unknown binding, a
+/// store failure in `grant_of`, a grant the runner generated no key for) is not routed here:
+/// the caller falls back to the local registry, whose table holds no key of a runner grant,
+/// so such an endpoint lists nothing (fail closed). After the grant ends
+/// (`RunnerKeys::destroy`) its endpoint lists nothing.
+#[derive(Clone)]
+pub struct RunnerBindingEndpoints {
+    runtime: Arc<crate::runner::RunnerRuntime>,
+    registry: EndpointRegistry,
+    grant_of: Arc<GrantOfBinding>,
+}
+
+/// The grant a binding realizes, read from the runner's store.
+type GrantOfBinding = dyn Fn(&heimdall_contract::ids::BindingId) -> Option<heimdall_contract::ids::GrantId>
+    + Send
+    + Sync;
+
+impl std::fmt::Debug for RunnerBindingEndpoints {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunnerBindingEndpoints")
+            .field("registry", &self.registry)
+            .finish_non_exhaustive()
+    }
+}
+
+impl RunnerBindingEndpoints {
+    /// The runner's binding endpoints at `layout`, accepting only `owner`, signing from
+    /// `runtime`'s own signer table under `authority`; `grant_of` reads a binding's grant.
+    /// Every endpoint stops when `shutdown` is cancelled.
+    #[must_use]
+    pub fn new(
+        runtime: Arc<crate::runner::RunnerRuntime>,
+        layout: EndpointLayout,
+        owner: ExpectedOwner,
+        authority: Arc<dyn heimdall_app::ports::SignatureAuthority>,
+        limits: SignerLimits,
+        shutdown: CancellationToken,
+        grant_of: Arc<GrantOfBinding>,
+    ) -> Self {
+        let registry = EndpointRegistry::new(
+            layout,
+            owner,
+            runtime.issuance().keys().table().clone(),
+            authority,
+            limits,
+            shutdown,
+        );
+        Self {
+            runtime,
+            registry,
+            grant_of,
+        }
+    }
+
+    /// [`Self::new`] reading a binding's grant from `store`.
+    #[must_use]
+    pub fn over_store(
+        store: Arc<Store>,
+        runtime: Arc<crate::runner::RunnerRuntime>,
+        layout: EndpointLayout,
+        owner: ExpectedOwner,
+        authority: Arc<dyn heimdall_app::ports::SignatureAuthority>,
+        limits: SignerLimits,
+        shutdown: CancellationToken,
+    ) -> Self {
+        let grant_of: Arc<GrantOfBinding> = Arc::new(move |binding| {
+            store
+                .transaction(|tx| Ok(tx.binding(binding)?.map(|b| b.grant)))
+                .ok()
+                .flatten()
+        });
+        Self::new(
+            runtime, layout, owner, authority, limits, shutdown, grant_of,
+        )
+    }
+
+    /// ⟨M06 W3 grant-path⟩ Also know a binding by the grant it is being materialized for
+    /// during its own activation (`crate::runner::adapter::PendingBindings`), before its row
+    /// is committed. The store's row, once it exists, is asked first.
+    #[must_use]
+    pub fn with_pending(mut self, pending: crate::runner::adapter::PendingBindings) -> Self {
+        let stored = Arc::clone(&self.grant_of);
+        self.grant_of =
+            Arc::new(move |binding| stored(binding).or_else(|| pending.grant_of(binding)));
+        self
+    }
+
+    /// The runner grant `binding` realizes: its grant, while the runner signer holds that
+    /// grant's K_env. `None` for every other binding.
+    #[must_use]
+    pub fn runner_grant(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+    ) -> Option<heimdall_contract::ids::GrantId> {
+        let grant = (self.grant_of)(binding)?;
+        self.runtime.issuance().keys().slot(&grant)?;
+        Some(grant)
+    }
+
+    /// ⟨M06 W3 `driver`⟩ K_env.pub and the installed certificates of the runner grant
+    /// `grant`, for materializing `binding` (`ManagedEffectsImpl::materialize`): only when
+    /// `binding` is that grant's binding in the runner's store and the runner signer holds
+    /// the grant's K_env. Public text only.
+    #[must_use]
+    pub fn installed(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        grant: &heimdall_contract::ids::GrantId,
+    ) -> Option<(String, Vec<heimdall_app::ports::MaterializedCertificate>)> {
+        if self.runner_grant(binding).as_ref() != Some(grant) {
+            return None;
+        }
+        let keys = self.runtime.issuance().keys();
+        let (_, public) = keys.public_key(grant)?;
+        let certificates = keys
+            .certificates(grant)
+            .into_iter()
+            .map(|(pair, c)| heimdall_app::ports::MaterializedCertificate {
+                pair,
+                certificate: c.certificate,
+            })
+            .collect();
+        Some((public.openssh_line, certificates))
+    }
+
+    /// Create `binding`'s endpoint at `generation` when it is a runner grant's (attached to
+    /// that grant in the runner's table, so it lists that grant's certificates only), or
+    /// return the one already running at that generation. `None` when the binding is not a
+    /// runner grant's: nothing was created here.
+    pub fn create(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+        placement: &heimdall_credential::endpoints::EndpointPlacement,
+    ) -> Option<Result<EndpointRef, heimdall_app::ports::AdapterError>> {
+        use heimdall_adapters::managed::effects::BindingEndpoints as _;
+        let grant = self.runner_grant(binding)?;
+        if !self
+            .runtime
+            .issuance()
+            .keys()
+            .attach_binding(binding, &grant)
+        {
+            // The grant ended in between: nothing is created, here or elsewhere.
+            return Some(Err(heimdall_app::ports::AdapterError::Unavailable(
+                heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+            )));
+        }
+        Some(
+            self.registry
+                .create_binding_endpoint_at(binding, generation, placement),
+        )
+    }
+
+    /// The newest endpoint this registry runs for `binding`.
+    #[must_use]
+    pub fn endpoint(&self, binding: &heimdall_contract::ids::BindingId) -> Option<EndpointRef> {
+        self.registry.binding_endpoint(binding).map(|(e, _)| e)
+    }
+
+    /// Remove `binding`'s endpoint of exactly `generation`; `false` when none runs here.
+    ///
+    /// # Errors
+    /// As `EndpointRegistry::remove`.
+    pub fn remove(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+    ) -> Result<bool, heimdall_app::ports::AdapterError> {
+        use heimdall_adapters::managed::effects::BindingEndpoints as _;
+        self.registry.remove_binding_endpoint(binding, generation)
+    }
+
+    /// Stop every endpoint (runtime stop).
+    pub fn stop_all(&self) {
+        self.registry.stop_all();
+    }
 }
 
 impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
     fn binding_endpoint(&self, binding: &heimdall_contract::ids::BindingId) -> Option<EndpointRef> {
-        self.get()
-            .and_then(|r| r.binding_endpoint(binding))
-            .map(|(e, _)| e)
+        self.endpoint_of(binding)
     }
 
     /// ⟨§17.21 item 1⟩ Step 6's endpoint creation, through the live registry; before it
@@ -1957,6 +2404,16 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
         )
     }
 
+    /// ⟨M06 W3 `driver`⟩ A runner grant's key and installed certificates, from the runner's
+    /// own signer (`RunnerBindingEndpoints::installed`); `None` on every other runtime.
+    fn runner_grant_content(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        grant: &heimdall_contract::ids::GrantId,
+    ) -> Option<(String, Vec<heimdall_app::ports::MaterializedCertificate>)> {
+        self.runner()?.installed(binding, grant)
+    }
+
     /// ⟨M04⟩ U5: the same creation at a placement (a container's stable directory).
     fn create_binding_endpoint_at(
         &self,
@@ -1964,6 +2421,13 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
         generation: u64,
         placement: &heimdall_credential::endpoints::EndpointPlacement,
     ) -> Result<EndpointRef, heimdall_app::ports::AdapterError> {
+        // ⟨M06 W3; runner Q7⟩ A runner grant's binding is served by the runner signer only.
+        if let Some(created) = self
+            .runner()
+            .and_then(|r| r.create(binding, generation, placement))
+        {
+            return created;
+        }
         self.get()
             .ok_or_else(|| {
                 heimdall_app::ports::AdapterError::Unavailable(
@@ -1975,6 +2439,9 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
 
     fn remove_container_endpoints(&self, dir_tag: &str) -> usize {
         self.get().map_or(0, |r| r.remove_container(dir_tag))
+            + self
+                .runner()
+                .map_or(0, |r| r.registry.remove_container(dir_tag))
     }
 
     fn start_environment(
@@ -2036,18 +2503,22 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
         binding: &heimdall_contract::ids::BindingId,
         generation: u64,
     ) -> Result<bool, heimdall_app::ports::AdapterError> {
-        match self.get() {
-            Some(r) => r.remove_binding_endpoint(binding, generation),
-            None => Ok(false),
-        }
+        // ⟨M06 W3⟩ Whichever registry runs it (a runner grant's is the runner's).
+        let runner = match self.runner() {
+            Some(r) => r.remove(binding, generation)?,
+            None => false,
+        };
+        let local = match self.get() {
+            Some(r) => r.remove_binding_endpoint(binding, generation)?,
+            None => false,
+        };
+        Ok(runner || local)
     }
 }
 
 impl crate::connections::BindingEndpoints for LateRegistry {
     fn endpoint(&self, binding: &heimdall_contract::ids::BindingId) -> Option<EndpointRef> {
-        self.get()
-            .and_then(|r| r.binding_endpoint(binding))
-            .map(|(e, _)| e)
+        self.endpoint_of(binding)
     }
 }
 
@@ -2276,6 +2747,51 @@ struct ManagedParts {
     cleanup: Arc<sources::LateCleanup>,
     /// ⟨R3-A, §17.22 item 7⟩ The evidence comparison's inputs, bound in `start`.
     evidence: Arc<sources::LateEvidenceFeed>,
+    /// ⟨M06 W3 grant-path⟩ On a remote runner: its adapter for `managed_certificate`,
+    /// bound to the runner runtime and these effects in `start`.
+    runner_adapter: Option<Arc<crate::runner::adapter::RunnerManagedAdapter>>,
+}
+
+/// ⟨M06 W3 grant-path⟩ A runner grant's binding, realized through the managed effects'
+/// materialize site: its endpoint is the runner's own (`RunnerBindingEndpoints`), its files
+/// carry K_env.pub and the certificates the controller installed.
+struct EffectsMaterializer {
+    effects: ManagedEffectsImpl,
+    late: Arc<LateRegistry>,
+}
+
+impl crate::runner::adapter::RunnerMaterializer for EffectsMaterializer {
+    fn materialize(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        grant: &heimdall_contract::ids::GrantId,
+    ) -> Result<EndpointRef, heimdall_app::ports::AdapterError> {
+        use heimdall_app::ports::ManagedEffects as _;
+        let spec = heimdall_app::ports::MaterializeSpec {
+            generation: crate::runner::adapter::BINDING_GENERATION,
+            source: heimdall_app::ports::MaterializeSource::InstalledKeyOf {
+                grant: grant.clone(),
+            },
+            environment_slots: false,
+            start: heimdall_app::ports::DistributionStart::Forbidden,
+        };
+        let files = self.effects.materialize(binding, &spec)?;
+        files
+            .endpoint
+            .or_else(|| self.late.endpoint_of(binding))
+            .ok_or_else(|| {
+                heimdall_app::ports::AdapterError::Unavailable(
+                    heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+                )
+            })
+    }
+
+    fn clear(
+        &self,
+        grant: &heimdall_contract::ids::GrantId,
+    ) -> Result<(), heimdall_app::ports::AdapterError> {
+        self.effects.clear_bindings_of(std::slice::from_ref(grant))
+    }
 }
 
 /// The store-backed sources of the managed adapter (`crate::managed_store`, U10-C):
@@ -2619,6 +3135,7 @@ impl ManagedParts {
             install_view,
             cleanup: Arc::new(sources::LateCleanup::default()),
             evidence: Arc::new(sources::LateEvidenceFeed::default()),
+            runner_adapter: None,
         })
     }
 
@@ -2670,6 +3187,7 @@ impl ManagedParts {
             Arc<dyn heimdall_app::ports::DistributionHost>,
             Arc<dyn crate::wsl_bridge::BridgeFactory>,
         )>,
+        runner: Option<Arc<crate::runner::RunnerRuntime>>,
     ) -> Result<ManagedRuntime, ServiceError> {
         let mut steps = Vec::new();
         // ⟨M03-F1⟩ The verified ssh client: the claim table's client ranges are judged
@@ -2697,6 +3215,35 @@ impl ManagedParts {
         let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(
             crate::default_activation::ActivatingAuthority::new(authority, Arc::new(activation)),
         );
+        // ⟨M06 W3; runner Q7⟩ On a runner, a runner grant's binding endpoints: the same
+        // layout, owner and signature authority, over the runner signer's own table only.
+        let runner_endpoints = runner.map(|rt| {
+            // ⟨M06 W3 grant-path⟩ The runner's adapter realizes a grant's binding through
+            // these effects; a binding in activation is known by its grant before its row
+            // is committed.
+            if let Some(adapter) = &self.runner_adapter {
+                adapter.bind(
+                    Arc::clone(&rt),
+                    Arc::new(EffectsMaterializer {
+                        effects: self.effects.clone(),
+                        late: Arc::clone(&self.late),
+                    }),
+                );
+            }
+            let endpoints = RunnerBindingEndpoints::over_store(
+                Arc::clone(store),
+                rt,
+                self.layout.clone(),
+                owner.clone(),
+                Arc::clone(&authority),
+                SignerLimits::default(),
+                stop.clone(),
+            );
+            match &self.runner_adapter {
+                Some(adapter) => endpoints.with_pending(adapter.pending()),
+                None => endpoints,
+            }
+        });
         let registry = EndpointRegistry::new(
             self.layout.clone(),
             owner,
@@ -2737,6 +3284,9 @@ impl ManagedParts {
             stopped: false,
         };
         self.late.set(registry.clone());
+        if let Some(r) = runner_endpoints {
+            self.late.set_runner(r);
+        }
         // U2-Q2: the install view reads through the operations.
         self.install_view
             .set(Some(crate::managed_store::OpsInstallView::new(ops.clone())));

@@ -42,23 +42,43 @@
 //! join re-reads the boot anchor from [`Invitations::clock`] and advances the checked wall
 //! clock by the continuous time elapsed since the sample ([`at_commit`]); both bounds are
 //! evaluated on that reading, and an invitation that expired meanwhile never commits.
+//! ⟨2026-11-21, ruling 2; ADR-0012 §3.9 item 5⟩ The wall deadline is judged on the **upper**
+//! bound of now: the gate-checked time plus the tolerance the gate accepted it with
+//! ([`TimeReading::slack`]), advanced by the elapsed reading of the process's continuous,
+//! suspend-inclusive clock (Linux `CLOCK_BOOTTIME`). A backwards reading, another boot, or
+//! an unavailable boot anchor (the platform's `unavailable:` sentinel) leaves the commit
+//! uncertain, which refuses (`invitation_expired`).
+//!
+//! **The admission generation** (⟨M06 W3; m06-plan U56, ruling W0C-Q4⟩): an invitation records
+//! the runner's admission authority generation current at its creation, and `join` commits
+//! only while it is still current, so any narrowing in between (a revocation, a transport
+//! disable, an endpoint replacement…) refuses the join (`invitation_expired`).
+//!
+//! **Iroh endpoints** (⟨M06 W3; ADR-0006 §18.7 items 2–4⟩): `join` records the client's own
+//! endpoint ID in its commit transaction only when the invitation has `iroh_admission`, and
+//! refuses it otherwise ([`Refusal::InvalidRequest`], effect `none`); [`rotate_endpoint`] sets or
+//! replaces an active client's own row under the same condition.
 
 use std::time::Duration;
 
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{ClientId, EnvironmentId, InvitationId, KeyFingerprint};
-use heimdall_contract::remote::{ManagementPolicy, RemoteEnvironmentRequest, Role};
+use heimdall_contract::ids::{
+    ClientId, EnvironmentId, InvitationId, IrohEndpointId, KeyFingerprint,
+};
+use heimdall_contract::remote::{
+    ManagementPolicy, ProbeObservation, RemoteEnvironmentRequest, Role,
+};
 use heimdall_contract::request::Request;
 use heimdall_domain::time::{BootId, Clock, TimeAnchor};
 use heimdall_store::Store;
 use heimdall_store::ext_m06::{
-    AppliedLine, ClientState, InvitationState, JoinRecord, RemoteClientRecord,
+    AppliedLine, ClientState, EndpointChange, InvitationState, JoinRecord, RemoteClientRecord,
     RemoteInvitationRecord, RevocationCause,
 };
 
 use crate::line::{
     DesiredLine, ManagementLine, ManagementLines, PublicKeyText, ServeCommand,
-    key_already_authorized, line_fingerprint, reconcile_line,
+    key_already_authorized, line_fingerprint, marked_lines,
 };
 use crate::roles::Refusal;
 use crate::sshd_policy::limited_role_gate;
@@ -75,27 +95,54 @@ pub struct BootReading {
     pub continuous: Duration,
 }
 
+/// The prefix of the per-process boot ID a platform clock reports when the boot identifier
+/// is unreadable (`heimdall_runtime::platform`): such an anchor is unavailable, never a boot.
+pub const UNAVAILABLE_BOOT_PREFIX: &str = "unavailable:";
+
+/// ⟨M06-W2-R01; ADR-0012 §3.9 item 5⟩ The gate's step tolerance: how far the wall clock read
+/// at a commit point may be behind the projection of the gate-checked time before the commit
+/// is `TIME_UNCERTAIN` (`TimePolicy::default().max_tolerated_rollback`, the policy the
+/// runner's gate runs with; a test holds the two equal).
+pub const WALL_STEP_TOLERANCE: Duration = Duration::from_secs(5);
+
 /// A time reading for the invitation rules. The runtime builds it from the shared time
 /// gate: `checked_wall` is set only when the gate assessed the observation `Safe`
 /// (ADR-0006 §10), and `boot` only when the boot ID and continuous clock were readable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimeReading {
-    /// The wall clock, when checked `Safe`.
+    /// The wall clock, when checked `Safe`: the **lower** bound of now (the accepted wall
+    /// time may lag the truth by [`Self::slack`]).
     pub checked_wall: Option<Timestamp>,
     /// The boot anchor, when readable.
     pub boot: Option<BootReading>,
+    /// ⟨2026-11-21, ruling 2⟩ How far the truth may exceed `checked_wall` (the gate's
+    /// `tolerance_used`): deadlines are judged on `checked_wall + slack`, the upper bound.
+    pub slack: Duration,
+    /// ⟨M06-W2-R01⟩ Set only by [`at_commit`]: the wall clock read at the commit point was
+    /// behind the projection by more than [`WALL_STEP_TOLERANCE`]. `checked_wall` is then
+    /// `None`, and a join answers `TIME_UNCERTAIN`.
+    pub wall_stepped_back: bool,
 }
 
 impl TimeReading {
-    /// A `Safe` gate observation (`heimdall_app::SafeNow::anchor`).
+    /// A `Safe` gate observation (`heimdall_app::SafeNow::anchor`) with no tolerance.
     #[must_use]
     pub fn safe(anchor: &TimeAnchor) -> Self {
+        Self::safe_within(anchor, Duration::ZERO)
+    }
+
+    /// A `Safe` gate observation accepted with `tolerance` (`heimdall_app::SafeNow::
+    /// tolerance_used`): the truth lies in `[anchor.wall, anchor.wall + tolerance]`.
+    #[must_use]
+    pub fn safe_within(anchor: &TimeAnchor, tolerance: Duration) -> Self {
         Self {
             checked_wall: Some(anchor.wall),
             boot: Some(BootReading {
                 boot_id: anchor.boot_id.clone(),
                 continuous: anchor.continuous,
             }),
+            slack: tolerance,
+            wall_stepped_back: false,
         }
     }
 
@@ -105,11 +152,25 @@ impl TimeReading {
         Self {
             checked_wall: None,
             boot,
+            slack: Duration::ZERO,
+            wall_stepped_back: false,
         }
     }
 
     fn safe_parts(&self) -> Option<(Timestamp, &BootReading)> {
         Some((self.checked_wall?, self.boot.as_ref()?))
+    }
+
+    /// The upper bound of now (`checked_wall + slack`), when checked; an overflow fails
+    /// closed as "past every deadline".
+    fn upper_wall(&self) -> Option<Timestamp> {
+        let wall = self.checked_wall?;
+        Some(
+            jiff::SignedDuration::try_from(self.slack)
+                .ok()
+                .and_then(|d| wall.checked_add(d).ok())
+                .unwrap_or(Timestamp::MAX),
+        )
     }
 }
 
@@ -142,7 +203,8 @@ pub fn liveness(inv: &RemoteInvitationRecord, now: &TimeReading) -> Liveness {
             .checked_sub(inv.created_elapsed)
             .is_none_or(|elapsed| elapsed >= inv.elapsed_bound)
     });
-    let wall_passed = now.checked_wall.is_some_and(|w| w >= inv.expires_wall);
+    // ⟨2026-11-21, ruling 2⟩ The upper bound of now.
+    let wall_passed = now.upper_wall().is_some_and(|w| w >= inv.expires_wall);
     if other_boot || elapsed_passed || wall_passed {
         return Liveness::Expired;
     }
@@ -163,6 +225,9 @@ pub struct NewInvitation<'a> {
     pub key_fingerprint: &'a KeyFingerprint,
     /// The lifetime, clamped to 1 s ..= [`MAX_INVITATION_LIFETIME`].
     pub lifetime: Duration,
+    /// ⟨M06 W3⟩ Whether the client may reach this runner over Iroh (`Invite.
+    /// iroh_admission`, confirmed with the rest of the invitation).
+    pub iroh_admission: bool,
 }
 
 /// The runner-minted identifiers of a new invitation.
@@ -250,6 +315,7 @@ pub fn pending_records(
         state: InvitationState::Pending,
         consumed_at: None,
         join: None,
+        iroh_admission: new.iroh_admission,
     };
     Ok((client, invitation))
 }
@@ -265,6 +331,11 @@ pub struct JoinRequest {
     pub role: Role,
     /// The generation.
     pub generation: u64,
+    /// ⟨M06 W3⟩ The client's own Iroh endpoint ID, when it sent one.
+    pub iroh_endpoint: Option<IrohEndpointId>,
+    /// ⟨M06 W3; §18.7 item 16⟩ What the joining device's confirming probes observed, when it
+    /// reported them.
+    pub probe: Option<ProbeObservation>,
 }
 
 impl JoinRequest {
@@ -277,11 +348,15 @@ impl JoinRequest {
                 invitation,
                 role,
                 generation,
+                iroh_endpoint,
+                probe,
             }) => Some(Self {
                 environment: environment.clone(),
                 invitation: invitation.clone(),
                 role: *role,
                 generation: *generation,
+                iroh_endpoint: iroh_endpoint.clone(),
+                probe: *probe,
             }),
             _ => None,
         }
@@ -314,6 +389,99 @@ impl ProbeRequest {
     }
 }
 
+/// ⟨M06 W3⟩ A rotation form's fields (`RemoteEnvironmentRequest::RotateEndpoint`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RotateRequest {
+    /// The runner environment the client names.
+    pub environment: EnvironmentId,
+    /// The client's new endpoint ID.
+    pub endpoint: IrohEndpointId,
+}
+
+impl RotateRequest {
+    /// The rotation fields of a request, when it is a rotation form.
+    #[must_use]
+    pub fn from_request(request: &Request) -> Option<Self> {
+        match request {
+            Request::RemoteEnvironment(RemoteEnvironmentRequest::RotateEndpoint {
+                environment,
+                endpoint,
+            }) => Some(Self {
+                environment: environment.clone(),
+                endpoint: endpoint.clone(),
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// ⟨M06 W3⟩ What [`rotate_endpoint`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rotated {
+    /// The session's client.
+    pub client: ClientId,
+    /// Its endpoint ID now.
+    pub endpoint: IrohEndpointId,
+    /// Recorded, replaced (with the admission generation it moved to) or unchanged.
+    pub change: EndpointChange,
+}
+
+/// ⟨M06 W3; ADR-0006 §18.7 item 4; ADR-0012 §2.3 item 1⟩ Set or replace the session's own
+/// client's endpoint ID, in one transaction: only for an **active** client of **this**
+/// runner that is admitted over Iroh (⟨§18.7 item 8⟩ the client's own attribute, copied from
+/// its invitation at `join` or confirmed for the bootstrap owner at `remote init`), and only for an endpoint no other
+/// client holds. A replacement moves the admission authority generation in the same
+/// transaction; the same endpoint again is a no-op.
+///
+/// # Errors
+///
+/// [`Refusal::InvalidRequest`] for another environment, a client not admitted over Iroh,
+/// or another client's endpoint;
+/// `client_revoked` / `invitation_pending` for a client that is not active;
+/// `STATE_UNAVAILABLE`.
+pub fn rotate_endpoint(
+    store: &Store,
+    runner: &EnvironmentId,
+    session: &ClientId,
+    request: &RotateRequest,
+    now: Timestamp,
+) -> Result<Rotated, Refusal> {
+    if &request.environment != runner {
+        return Err(Refusal::InvalidRequest);
+    }
+    let change = store
+        .transaction(|tx| {
+            let Some(client) = tx.remote_client(session)? else {
+                return Ok(Err(Refusal::ClientRevoked));
+            };
+            match client.state {
+                ClientState::Active => {}
+                ClientState::Pending => return Ok(Err(Refusal::InvitationPending)),
+                ClientState::Revoked => return Ok(Err(Refusal::ClientRevoked)),
+            }
+            // ⟨§18.7 item 8⟩ The client's own attribute: copied from its invitation at
+            // `join`, or confirmed for the bootstrap owner at `remote init`.
+            if !tx.remote_client_iroh_admission(session)? {
+                return Ok(Err(Refusal::InvalidRequest));
+            }
+            let taken = tx
+                .remote_client_endpoints()?
+                .iter()
+                .any(|(c, held)| held == &request.endpoint && c != session);
+            if taken {
+                return Ok(Err(Refusal::InvalidRequest));
+            }
+            tx.set_remote_client_endpoint(session, &request.endpoint, now)
+                .map(Ok)
+        })
+        .map_err(state_err)??;
+    Ok(Rotated {
+        client: session.clone(),
+        endpoint: request.endpoint.clone(),
+        change,
+    })
+}
+
 /// What [`decide_join`] decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JoinDecision {
@@ -323,6 +491,22 @@ pub enum JoinDecision {
     Replay(JoinRecord),
     /// Refuse.
     Refuse(Refusal),
+}
+
+/// What `join` reads in its transaction besides the records (module docs, "Join re-checks
+/// time", "The admission generation", "Iroh endpoints").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JoinContext<'a> {
+    /// This runner's environment.
+    pub runner: &'a EnvironmentId,
+    /// The commit point's time reading ([`at_commit`]).
+    pub now: &'a TimeReading,
+    /// The runner's admission authority generation now.
+    pub generation: u64,
+    /// The endpoint ID recorded for the session's client, if any.
+    pub recorded_endpoint: Option<&'a IrohEndpointId>,
+    /// Whether another client holds the request's endpoint ID.
+    pub endpoint_taken: bool,
 }
 
 /// `join`'s pure decision over the records read in the join's transaction (module docs).
@@ -335,9 +519,9 @@ pub fn decide_join(
     session: &ClientId,
     line_fingerprint: Option<&KeyFingerprint>,
     request: &JoinRequest,
-    runner: &EnvironmentId,
-    now: &TimeReading,
+    admission: JoinContext<'_>,
 ) -> JoinDecision {
+    let (runner, now) = (admission.runner, admission.now);
     // 1. Identity, before anything about the record is used. A mismatch is the uniform
     // "not live" answer, whatever the record holds.
     let Some(inv) = invitation.filter(|inv| {
@@ -352,10 +536,21 @@ pub fn decide_join(
     let binding_matches = &request.environment == runner
         && request.role == inv.role
         && request.generation == inv.generation;
+    // ⟨M06 W3; §18.7 item 3⟩ An endpoint the invitation did not admit is refused, first time
+    // or retried, before anything is recorded.
+    if request.iroh_endpoint.is_some() && !inv.iroh_admission {
+        return JoinDecision::Refuse(Refusal::InvalidRequest);
+    }
     match inv.state {
         InvitationState::Consumed => match (&inv.join, client) {
             (Some(j), Some(c)) if c.state == ClientState::Active => {
-                if binding_matches && &j.environment == runner {
+                // A retry replays only the join it repeats: an endpoint other than the one
+                // recorded is not that join (the client rotates it instead).
+                let same_endpoint = request
+                    .iroh_endpoint
+                    .as_ref()
+                    .is_none_or(|e| admission.recorded_endpoint == Some(e));
+                if binding_matches && &j.environment == runner && same_endpoint {
                     JoinDecision::Replay(j.clone())
                 } else {
                     JoinDecision::Refuse(Refusal::InvitationConsumed)
@@ -375,6 +570,13 @@ pub fn decide_join(
             if !binding_matches || c.role != inv.role || c.key_fingerprint != inv.key_fingerprint {
                 return JoinDecision::Refuse(Refusal::BindingMismatch);
             }
+            if admission.endpoint_taken {
+                return JoinDecision::Refuse(Refusal::InvalidRequest);
+            }
+            // ⟨M06 W3, ruling W0C-Q4⟩ Any narrowing since the invitation refuses the join.
+            if admission.generation != inv.generation {
+                return JoinDecision::Refuse(Refusal::InvitationExpired);
+            }
             match (liveness(inv, now), now.checked_wall) {
                 (Liveness::Live, Some(joined_at)) => JoinDecision::Activate(JoinRecord {
                     environment: runner.clone(),
@@ -384,6 +586,11 @@ pub fn decide_join(
                     generation: inv.generation,
                     joined_at,
                 }),
+                // ⟨M06-W2-R01⟩ Not known to have expired, but the wall clock stepped back
+                // at the commit point: uncertain time, not an expiry.
+                (Liveness::Undetermined, _) if now.wall_stepped_back => {
+                    JoinDecision::Refuse(Refusal::TimeUncertain)
+                }
                 _ => JoinDecision::Refuse(Refusal::InvitationExpired),
             }
         }
@@ -445,6 +652,11 @@ fn state_err(_: heimdall_store::StoreError) -> Refusal {
     Refusal::State
 }
 
+/// The runner's check of a join that would activate ([`Invitations::join_confirmed`]): run
+/// inside the join's commit transaction, which it may read and write.
+pub type JoinCheck<'a> = dyn Fn(&mut heimdall_store::Txn<'_>, &JoinRecord) -> heimdall_store::Result<Result<(), Refusal>>
+    + 'a;
+
 /// The runner's line-write lock (module docs, "Line writes are serialized"): one per runner
 /// (per store), shared by every [`Invitations`] over it.
 #[derive(Debug, Default)]
@@ -458,34 +670,75 @@ impl LineSerial {
     }
 }
 
-/// The time reading at a join's commit point (module docs, "Join re-checks time"): the
-/// sample's checked wall clock advanced by the continuous time elapsed since the sample, in
-/// the sample's boot. Uncertain when the sample was, when the boot changed (liveness then
-/// sees another boot) or when the continuous clock went backwards.
+/// The time reading at a commit point (module docs, "Join re-checks time"): the sample's
+/// checked wall clock advanced by the continuous time elapsed since the sample, in the
+/// sample's boot, keeping the sample's slack (so deadlines see the upper bound of now).
+///
+/// ⟨M06-W2-R01; ADR-0012 §3.9 item 5⟩ **The projection is a floor.** The wall clock read at
+/// the commit point (`now.wall`) can only move the reading later: the result's
+/// `checked_wall` is the later of the projection and `now.wall`, so a forward wall step past
+/// a deadline expires it at once. A wall clock behind the projection by more than
+/// [`WALL_STEP_TOLERANCE`] is a backward step: the reading is uncertain with
+/// [`TimeReading::wall_stepped_back`] set.
+///
+/// Uncertain also when the sample was, when the boot changed (liveness then sees another
+/// boot), when either boot anchor is the platform's unavailable sentinel, or when the
+/// continuous clock went backwards.
 #[must_use]
 pub fn at_commit(sample: &TimeReading, now: &TimeAnchor) -> TimeReading {
+    let unavailable = now.boot_id.0.starts_with(UNAVAILABLE_BOOT_PREFIX);
     let fresh = BootReading {
         boot_id: now.boot_id.clone(),
         continuous: now.continuous,
     };
+    if unavailable {
+        return TimeReading::uncertain(None);
+    }
     let (Some(wall), Some(boot)) = (sample.checked_wall, sample.boot.as_ref()) else {
         return TimeReading::uncertain(Some(fresh));
     };
-    if boot.boot_id != now.boot_id {
+    if boot.boot_id != now.boot_id || boot.boot_id.0.starts_with(UNAVAILABLE_BOOT_PREFIX) {
         return TimeReading::uncertain(Some(fresh));
     }
-    let advanced = now
+    let projected = now
         .continuous
         .checked_sub(boot.continuous)
         .and_then(|d| jiff::SignedDuration::try_from(d).ok())
         .and_then(|d| wall.checked_add(d).ok());
-    match advanced {
-        Some(w) => TimeReading {
-            checked_wall: Some(w),
-            boot: Some(fresh),
-        },
-        None => TimeReading::uncertain(Some(fresh)),
+    let Some(projected) = projected else {
+        return TimeReading::uncertain(Some(fresh));
+    };
+    let tolerance =
+        jiff::SignedDuration::try_from(WALL_STEP_TOLERANCE).unwrap_or(jiff::SignedDuration::ZERO);
+    if projected.duration_since(now.wall) > tolerance {
+        return TimeReading {
+            wall_stepped_back: true,
+            ..TimeReading::uncertain(Some(fresh))
+        };
     }
+    TimeReading {
+        checked_wall: Some(projected.max(now.wall)),
+        boot: Some(fresh),
+        slack: sample.slack,
+        wall_stepped_back: false,
+    }
+}
+
+/// ⟨2026-11-21, ruling 2; runner Q6⟩ The reading at a commit point from `clock`: [`at_commit`]
+/// over one observation, or uncertain when the continuous clock is unavailable
+/// (`Clock::try_continuous` is `None`), which a join refuses as `invitation_expired`. An
+/// unavailable clock never reads as "no time elapsed".
+fn commit_reading(sample: &TimeReading, clock: &dyn Clock) -> TimeReading {
+    let Some(continuous) = clock.try_continuous() else {
+        return TimeReading::uncertain(None);
+    };
+    let observed = clock.observe();
+    // The later of the two readings: never less elapsed than the fallible one saw.
+    let now = TimeAnchor {
+        continuous: observed.continuous.max(continuous),
+        ..observed
+    };
+    at_commit(sample, &now)
 }
 
 /// The invitation service over the store and the line port (module docs).
@@ -568,15 +821,28 @@ impl Invitations<'_> {
     /// unknown client gets no line.
     fn sync_line(&self, id: &ClientId, now: &TimeReading) -> Result<Option<bool>, Refusal> {
         let _held = self.serial.hold();
-        // The reading under the lock, as at a commit: a record created at its commit
-        // (after `now` was sampled) is judged against time no earlier than its creation.
-        let now = &at_commit(now, &self.clock.observe());
+        // ⟨M06-W2-R01⟩ The files first (the read can block), then the reading: under the
+        // lock, as at a commit, and never older than the read. A record created at its
+        // commit (after `now` was sampled) is judged against time no earlier than its
+        // creation.
+        let Ok(files) = self.lines.read_all() else {
+            return Ok(None);
+        };
+        let now = &commit_reading(now, self.clock);
+        let have = marked_lines(&files, id);
+        // `reconcile_line`'s comparison, over the files read above.
+        let apply = |desired: &DesiredLine| match desired {
+            DesiredLine::Absent if have.is_empty() => Ok(false),
+            DesiredLine::Absent => self.lines.remove(id).map(|()| true),
+            DesiredLine::Present(line) if have.len() == 1 && &have[0] == line => Ok(false),
+            DesiredLine::Present(line) => self.lines.put(id, line).map(|()| true),
+        };
         let Some(client) = self.reread(id)? else {
-            return Ok(reconcile_line(self.lines, id, &DesiredLine::Absent).ok());
+            return Ok(apply(&DesiredLine::Absent).ok());
         };
         let client = &client;
         let desired = self.desired_line(client, now)?;
-        let Ok(changed) = reconcile_line(self.lines, &client.client, &desired) else {
+        let Ok(changed) = apply(&desired) else {
             return Ok(None);
         };
         let applied = match (&desired, client.state) {
@@ -641,10 +907,12 @@ impl Invitations<'_> {
                 if held {
                     return Ok(Err(Refusal::KeyAlreadyAuthorized));
                 }
-                let generation = tx.authority_generation()?.0;
+                // ⟨M06 W3, ruling W0C-Q4⟩ The admission generation current now: `join`
+                // commits only while it still is (module docs).
+                let generation = tx.remote_authority_generation()?;
                 // ⟨Gemini R01⟩ The commit point's reading: the record's created_wall, boot
                 // anchor and deadline are those of the commit, not of the (older) sample.
-                let commit_time = at_commit(now, &self.clock.observe());
+                let commit_time = commit_reading(now, self.clock);
                 let (client, invitation) =
                     match pending_records(new, ids, &commit_time, generation, policy) {
                         Ok(pair) => pair,
@@ -685,6 +953,7 @@ impl Invitations<'_> {
                 public_key: &binding.public_key,
                 key_fingerprint: &binding.key_fingerprint,
                 lifetime: MAX_INVITATION_LIFETIME,
+                iroh_admission: binding.iroh_admission,
             },
             policy,
             now,
@@ -713,6 +982,31 @@ impl Invitations<'_> {
         request: &JoinRequest,
         now: &TimeReading,
     ) -> Result<Joined, Refusal> {
+        self.join_confirmed(session, request, now, &|_, _| Ok(Ok(())))
+    }
+
+    /// [`Self::join`], with the runner's policy check run **before the commit** (ADR-0006
+    /// §18.7 item 16): `confirm` is called with the join that would activate, inside the
+    /// commit's transaction and only for an activation (never for a refusal or a replayed
+    /// join, so only a client holding a live invitation reaches it).
+    ///
+    /// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ `confirm` is handed that transaction:
+    /// it reads the policy in force there, and what it writes (the runner's owner-only
+    /// downgrade for a disagreeing probe) commits with the outcome. Its refusal refuses the
+    /// join: the transaction then commits what `confirm` wrote and **none** of the join's
+    /// own changes (the client stays pending, the invitation unconsumed, no endpoint). Its
+    /// store error rolls everything back.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::join`], and `confirm`'s refusal.
+    pub fn join_confirmed(
+        &self,
+        session: &ClientId,
+        request: &JoinRequest,
+        now: &TimeReading,
+        confirm: &JoinCheck<'_>,
+    ) -> Result<Joined, Refusal> {
         let files = self
             .lines
             .read_all()
@@ -723,19 +1017,43 @@ impl Invitations<'_> {
             .transaction(|tx| {
                 let inv = tx.remote_invitation(&request.invitation)?;
                 let client = tx.remote_client(session)?;
+                let generation = tx.remote_authority_generation()?;
+                let recorded = tx.remote_client_endpoint(session)?.map(|(e, _)| e);
+                let endpoint_taken = match &request.iroh_endpoint {
+                    Some(e) => tx
+                        .remote_client_endpoints()?
+                        .iter()
+                        .any(|(c, held)| held == e && c != session),
+                    None => false,
+                };
                 // The commit point's reading, not the (possibly stale) sample.
-                let at = at_commit(now, &self.clock.observe());
+                let at = commit_reading(now, self.clock);
                 let d = decide_join(
                     inv.as_ref(),
                     client.as_ref(),
                     session,
                     on_line.as_ref(),
                     request,
-                    self.environment,
-                    &at,
+                    JoinContext {
+                        runner: self.environment,
+                        now: &at,
+                        generation,
+                        recorded_endpoint: recorded.as_ref(),
+                        endpoint_taken,
+                    },
                 );
                 if let JoinDecision::Activate(j) = &d {
+                    // A refusal returns before any of the join's own writes, so the
+                    // commit below carries the check's writes alone.
+                    if let Err(refused) = confirm(tx, j)? {
+                        return Ok(JoinDecision::Refuse(refused));
+                    }
                     tx.activate_remote_client(j)?;
+                    // §18.7 item 3: recorded in the join's commit transaction (the
+                    // decision already refused an endpoint the invitation did not admit).
+                    if let Some(e) = &request.iroh_endpoint {
+                        tx.set_remote_client_endpoint(session, e, j.joined_at)?;
+                    }
                 }
                 Ok(d)
             })
@@ -933,6 +1251,7 @@ mod tests {
             state: InvitationState::Pending,
             consumed_at: None,
             join: None,
+            iroh_admission: false,
         }
     }
 
@@ -964,6 +1283,353 @@ mod tests {
         assert_eq!(
             liveness(&i, &TimeReading::uncertain(None)),
             Liveness::Undetermined
+        );
+    }
+
+    fn client_of(i: &RemoteInvitationRecord) -> RemoteClientRecord {
+        RemoteClientRecord {
+            client: i.client.clone(),
+            role: i.role,
+            key_fingerprint: i.key_fingerprint.clone(),
+            public_key: "ssh-ed25519 AAAA".into(),
+            state: ClientState::Pending,
+            invitation: Some(i.invitation.clone()),
+            revoked_generation: None,
+            revocation: None,
+            created_at: i.created_wall,
+            updated_at: i.created_wall,
+            line: AppliedLine::Absent,
+        }
+    }
+
+    fn join_req(i: &RemoteInvitationRecord, runner: &EnvironmentId) -> JoinRequest {
+        JoinRequest {
+            environment: runner.clone(),
+            invitation: i.invitation.clone(),
+            role: i.role,
+            generation: i.generation,
+            iroh_endpoint: None,
+            probe: None,
+        }
+    }
+
+    fn endpoint(c: char) -> IrohEndpointId {
+        IrohEndpointId::parse(&c.to_string().repeat(64)).unwrap()
+    }
+
+    /// ⟨M06 W3⟩ `join`'s refusals beyond W2's: an endpoint the invitation did not admit
+    /// (`INVALID_REQUEST`-class, also on a retry), an endpoint another client holds, any
+    /// admission-generation move since the invitation (`invitation_expired`), and a retry
+    /// with an endpoint other than the recorded one; a live join with an admitted endpoint
+    /// activates.
+    #[test]
+    fn join_refuses_unadmitted_endpoints_and_any_narrowing_since_the_invitation() {
+        let runner = EnvironmentId::from_random_bytes([5; 16]);
+        let now = TimeReading::safe(&anchor("2026-11-20T10:05:00Z", "b1", 1300));
+        let mut i = inv();
+        let c = client_of(&i);
+        let fp = i.key_fingerprint.clone();
+        fn ctx<'a>(
+            runner: &'a EnvironmentId,
+            now: &'a TimeReading,
+            generation: u64,
+            recorded: Option<&'a IrohEndpointId>,
+            taken: bool,
+        ) -> JoinContext<'a> {
+            JoinContext {
+                runner,
+                now,
+                generation,
+                recorded_endpoint: recorded,
+                endpoint_taken: taken,
+            }
+        }
+        let decide = |i: &RemoteInvitationRecord,
+                      c: &RemoteClientRecord,
+                      r: &JoinRequest,
+                      x: JoinContext<'_>| {
+            decide_join(Some(i), Some(c), &i.client, Some(&fp), r, x)
+        };
+        let mut with_endpoint = join_req(&i, &runner);
+        with_endpoint.iroh_endpoint = Some(endpoint('a'));
+        // No `iroh_admission`: the endpoint is refused before anything else.
+        assert_eq!(
+            decide(&i, &c, &with_endpoint, ctx(&runner, &now, 1, None, false)),
+            JoinDecision::Refuse(Refusal::InvalidRequest)
+        );
+        assert!(matches!(
+            decide(
+                &i,
+                &c,
+                &join_req(&i, &runner),
+                ctx(&runner, &now, 1, None, false)
+            ),
+            JoinDecision::Activate(_)
+        ));
+        // A narrowing since the invitation (the admission generation moved) refuses.
+        assert_eq!(
+            decide(
+                &i,
+                &c,
+                &join_req(&i, &runner),
+                ctx(&runner, &now, 2, None, false)
+            ),
+            JoinDecision::Refuse(Refusal::InvitationExpired)
+        );
+        i.iroh_admission = true;
+        assert!(matches!(
+            decide(&i, &c, &with_endpoint, ctx(&runner, &now, 1, None, false)),
+            JoinDecision::Activate(_)
+        ));
+        assert_eq!(
+            decide(&i, &c, &with_endpoint, ctx(&runner, &now, 1, None, true)),
+            JoinDecision::Refuse(Refusal::InvalidRequest),
+            "another client's endpoint"
+        );
+        // A retry after the commit replays only with the recorded endpoint (or none).
+        let JoinDecision::Activate(j) =
+            decide(&i, &c, &with_endpoint, ctx(&runner, &now, 1, None, false))
+        else {
+            panic!("activates");
+        };
+        let mut consumed = i.clone();
+        consumed.state = InvitationState::Consumed;
+        consumed.join = Some(j.clone());
+        let mut active = c.clone();
+        active.state = ClientState::Active;
+        let recorded = endpoint('a');
+        assert_eq!(
+            decide(
+                &consumed,
+                &active,
+                &with_endpoint,
+                ctx(&runner, &now, 7, Some(&recorded), false)
+            ),
+            JoinDecision::Replay(j.clone())
+        );
+        assert_eq!(
+            decide(
+                &consumed,
+                &active,
+                &join_req(&i, &runner),
+                ctx(&runner, &now, 7, Some(&recorded), false)
+            ),
+            JoinDecision::Replay(j)
+        );
+        let mut other = with_endpoint.clone();
+        other.iroh_endpoint = Some(endpoint('b'));
+        assert_eq!(
+            decide(
+                &consumed,
+                &active,
+                &other,
+                ctx(&runner, &now, 7, Some(&recorded), false)
+            ),
+            JoinDecision::Refuse(Refusal::InvitationConsumed)
+        );
+    }
+
+    /// ⟨2026-11-21, ruling 2; ADR-0012 §3.9 item 5⟩ The commit-time reading: the wall deadline
+    /// is judged on the upper bound of now (the gate's tolerance carried through
+    /// `at_commit`); a continuous clock that went backwards since the sample, another boot,
+    /// or the platform's unavailable boot anchor leaves it uncertain, and `join` refuses
+    /// (`invitation_expired`).
+    #[test]
+    fn the_commit_reading_projects_the_upper_bound_and_refuses_backwards_or_unavailable_clocks() {
+        let runner = EnvironmentId::from_random_bytes([5; 16]);
+        let i = inv();
+        let c = client_of(&i);
+        let fp = i.key_fingerprint.clone();
+        let decide = |at: &TimeReading| {
+            decide_join(
+                Some(&i),
+                Some(&c),
+                &i.client,
+                Some(&fp),
+                &join_req(&i, &runner),
+                JoinContext {
+                    runner: &runner,
+                    now: at,
+                    generation: 1,
+                    recorded_endpoint: None,
+                    endpoint_taken: false,
+                },
+            )
+        };
+        // Sampled at 10:14:00 (continuous 1840 s, elapsed 840 of 900): live on its own.
+        let exact = TimeReading::safe(&anchor("2026-11-20T10:14:00Z", "b1", 1840));
+        let commit = anchor("2026-11-20T10:14:10Z", "b1", 1850);
+        assert!(matches!(
+            decide(&at_commit(&exact, &commit)),
+            JoinDecision::Activate(_)
+        ));
+        // The same sample accepted with 60 s of tolerance: its upper bound at the commit
+        // (10:14:10 + 60 s) is past the wall deadline, so the join is refused.
+        let tolerant = TimeReading::safe_within(
+            &anchor("2026-11-20T10:14:00Z", "b1", 1840),
+            Duration::from_secs(60),
+        );
+        let at = at_commit(&tolerant, &commit);
+        assert_eq!(at.slack, Duration::from_secs(60), "the slack is carried");
+        assert_eq!(
+            decide(&at),
+            JoinDecision::Refuse(Refusal::InvitationExpired)
+        );
+        // Backwards since the sample.
+        let back = at_commit(&exact, &anchor("2026-11-20T10:14:01Z", "b1", 1839));
+        assert_eq!(back.checked_wall, None);
+        assert_eq!(
+            decide(&back),
+            JoinDecision::Refuse(Refusal::InvitationExpired)
+        );
+        // The boot anchor became unavailable (the platform's per-process sentinel).
+        let gone = at_commit(
+            &exact,
+            &anchor("2026-11-20T10:14:01Z", "unavailable:4242:1", 1850),
+        );
+        assert_eq!(gone, TimeReading::uncertain(None));
+        assert_eq!(
+            decide(&gone),
+            JoinDecision::Refuse(Refusal::InvitationExpired)
+        );
+        // A sample whose own anchor was the sentinel never advances either.
+        let sentinel = TimeReading::safe(&anchor("2026-11-20T10:14:00Z", "unavailable:1:2", 1840));
+        assert_eq!(
+            at_commit(
+                &sentinel,
+                &anchor("2026-11-20T10:14:01Z", "unavailable:1:2", 1850)
+            ),
+            TimeReading::uncertain(None)
+        );
+    }
+
+    /// ⟨M06-W2-R01; ADR-0012 §3.9 item 5⟩ The projection is a floor: the commit point's wall
+    /// clock moves the reading later, never earlier; a step back within the tolerance keeps
+    /// the projection, and one beyond it is uncertain with the step recorded.
+    #[test]
+    fn the_commit_wall_clock_is_a_floor_and_a_step_back_is_uncertain() {
+        assert_eq!(
+            WALL_STEP_TOLERANCE,
+            heimdall_domain::time::TimePolicy::default().max_tolerated_rollback
+        );
+        let ts = |s: &str| s.parse::<Timestamp>().unwrap();
+        let sample = TimeReading::safe_within(
+            &anchor("2026-11-20T10:00:00Z", "b1", 1000),
+            Duration::from_secs(2),
+        );
+        // One second elapsed; the wall clock reads 20 minutes later: the later one wins.
+        let ahead = at_commit(&sample, &anchor("2026-11-20T10:20:01Z", "b1", 1001));
+        assert_eq!(ahead.checked_wall, Some(ts("2026-11-20T10:20:01Z")));
+        assert_eq!(ahead.slack, Duration::from_secs(2));
+        assert!(!ahead.wall_stepped_back);
+        // Behind the projection by exactly the tolerance: the projection stands.
+        let near = at_commit(&sample, &anchor("2026-11-20T09:59:56Z", "b1", 1001));
+        assert_eq!(near.checked_wall, Some(ts("2026-11-20T10:00:01Z")));
+        assert!(!near.wall_stepped_back);
+        // Behind it by more: uncertain, with the boot anchor kept.
+        let back = at_commit(&sample, &anchor("2026-11-20T09:59:55Z", "b1", 1001));
+        assert_eq!(back.checked_wall, None);
+        assert!(back.wall_stepped_back);
+        assert_eq!(
+            back.boot.as_ref().map(|b| b.continuous),
+            Some(Duration::from_secs(1001))
+        );
+    }
+
+    /// ⟨M06 W3; ADR-0006 §18.7 item 4⟩ Rotation over a real store: refused for another
+    /// environment, a pending client, an invitation without `iroh_admission` and another
+    /// client's endpoint, writing nothing; the first endpoint records, the same one is a
+    /// no-op, a different one replaces and moves the admission generation once.
+    #[test]
+    fn rotation_is_admitted_by_the_invitation_and_a_replacement_moves_the_generation() {
+        use std::sync::Arc;
+        let store = Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap();
+        let runner = EnvironmentId::from_random_bytes([5; 16]);
+        let at: Timestamp = "2026-11-20T10:06:00Z".parse().unwrap();
+        let make = |n: u8, admitted: bool, join: bool| {
+            let mut i = inv();
+            i.invitation = InvitationId::from_random_bytes([n; 16]);
+            i.client = ClientId::from_random_bytes([n; 16]);
+            i.key_fingerprint = KeyFingerprint::parse(&format!(
+                "SHA256:{}",
+                char::from(b'A' + n).to_string().repeat(43)
+            ))
+            .unwrap();
+            i.iroh_admission = admitted;
+            i.generation = 0;
+            let c = client_of(&i);
+            store
+                .transaction(|tx| {
+                    tx.insert_remote_invitation(&c, &i, at)?;
+                    if join {
+                        tx.activate_remote_client(&JoinRecord {
+                            environment: runner.clone(),
+                            invitation: i.invitation.clone(),
+                            client: i.client.clone(),
+                            role: i.role,
+                            generation: i.generation,
+                            joined_at: at,
+                        })?;
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            i.client
+        };
+        let a = make(1, true, true);
+        let b = make(2, true, true);
+        let plain = make(3, false, true);
+        let pending = make(4, true, false);
+        let req = |e: char| RotateRequest {
+            environment: runner.clone(),
+            endpoint: endpoint(e),
+        };
+        let generation = || {
+            store
+                .transaction(|tx| tx.remote_authority_generation())
+                .unwrap()
+        };
+        let g0 = generation();
+        let wrong_env = RotateRequest {
+            environment: EnvironmentId::from_random_bytes([6; 16]),
+            endpoint: endpoint('a'),
+        };
+        assert_eq!(
+            rotate_endpoint(&store, &runner, &a, &wrong_env, at),
+            Err(Refusal::InvalidRequest)
+        );
+        assert_eq!(
+            rotate_endpoint(&store, &runner, &plain, &req('a'), at),
+            Err(Refusal::InvalidRequest)
+        );
+        assert_eq!(
+            rotate_endpoint(&store, &runner, &pending, &req('a'), at),
+            Err(Refusal::InvitationPending)
+        );
+        assert_eq!(
+            rotate_endpoint(&store, &runner, &a, &req('a'), at).map(|r| r.change),
+            Ok(EndpointChange::Recorded)
+        );
+        assert_eq!(
+            rotate_endpoint(&store, &runner, &b, &req('a'), at),
+            Err(Refusal::InvalidRequest),
+            "another client's endpoint"
+        );
+        assert_eq!(
+            rotate_endpoint(&store, &runner, &a, &req('a'), at).map(|r| r.change),
+            Ok(EndpointChange::Unchanged)
+        );
+        assert_eq!(generation(), g0, "recording and repeating narrow nothing");
+        assert_eq!(
+            rotate_endpoint(&store, &runner, &a, &req('c'), at).map(|r| r.change),
+            Ok(EndpointChange::Replaced(g0 + 1))
+        );
+        assert_eq!(generation(), g0 + 1);
+        assert_eq!(
+            store
+                .transaction(|tx| tx.remote_client_endpoints())
+                .unwrap(),
+            vec![(a, endpoint('c'))]
         );
     }
 }

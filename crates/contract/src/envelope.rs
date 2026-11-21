@@ -776,6 +776,14 @@ pub mod reason {
     pub const TRANSPORT_AUTHORITY_LOST: &str = "transport_authority_lost";
     /// ⟨M06⟩ The key is already authorized under another line (§3.5).
     pub const KEY_ALREADY_AUTHORIZED: &str = "key_already_authorized";
+    /// ⟨M06, rev6.3⟩ A local-only form (`runner_local.*`, `controller_record.*`, `decide`)
+    /// sent from a paired session (`INTERACTION_REQUIRED`): only the owner at this machine
+    /// can do it, so retrying from the paired session can never succeed (ADR-0006 §18.7).
+    pub const LOCAL_OWNER_REQUIRED: &str = "local_owner_required";
+    /// ⟨M06, rev6.3⟩ Issuance is gated until the session has completed the authority report
+    /// and resynchronization (ADR-0012 §7.4): the controller's barrier and the runner's
+    /// per-session gate both answer it.
+    pub const RESYNC_PENDING: &str = "resync_pending";
 
     /// ⟨M06⟩ Revision 6's reasons with their codes, kept separate from [`ALL`], [`M03`],
     /// [`M04`] and [`M05`] (the code table is unchanged): golden
@@ -805,6 +813,8 @@ pub mod reason {
         (TRANSPORT_REFUSED, Code::CapabilityUnavailable),
         (TRANSPORT_AUTHORITY_LOST, Code::CapabilityUnavailable),
         (KEY_ALREADY_AUTHORIZED, Code::CapabilityUnavailable),
+        (LOCAL_OWNER_REQUIRED, Code::InteractionRequired),
+        (RESYNC_PENDING, Code::CapabilityUnavailable),
     ];
 
     /// ⟨M06⟩ A `remote_pending` reason, not an error reason: an Iroh revocation is

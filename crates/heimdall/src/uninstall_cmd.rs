@@ -205,6 +205,11 @@ struct Inventory {
     /// pending (`Txn::remote_revocations`): unfinished security actions on a remote
     /// system, which a purge would lose with no retry.
     remote_revocations: Vec<heimdall_domain::revocation::PendingRemoteRevocation>,
+    /// ⟨M06 W3; ADR-0006 §18.7 item 18⟩ A remote runner's owner-only downgrade, when its
+    /// row stands: the cause token and when it was recorded (no time for a row that cannot
+    /// be read). The row itself is in the snapshot (`META_RECOVERY`) and compared; this is
+    /// its listing.
+    runner_downgrade: Option<(String, Option<Timestamp>)>,
 }
 
 /// ⟨ADR-0008 §17.32 item 1 (W5-D01; audit A2, A4, A5)⟩ Every recovery-relevant record of
@@ -808,6 +813,11 @@ impl Inventory {
                 let snapshot = (
                     RecoverySnapshot::read(tx, &outstanding.operations, &unresolved)?,
                     tx.remote_revocations()?,
+                    // A row that cannot be read is still a downgrade, and is listed as one.
+                    match tx.runner_downgrade() {
+                        Ok(d) => d.map(|d| (d.cause, Some(d.recorded_at))),
+                        Err(_) => Some(("unreadable".to_owned(), None)),
+                    },
                 );
                 Ok((outstanding, unresolved, all, issuers, locators, snapshot))
             })
@@ -818,7 +828,7 @@ impl Inventory {
                     all,
                     issuers,
                     locators,
-                    (snapshot, remote_revocations),
+                    (snapshot, remote_revocations, runner_downgrade),
                 )| {
                     let views: Vec<EnrollmentView> = all.iter().map(view).collect();
                     let cas = issuers
@@ -873,6 +883,7 @@ impl Inventory {
                         items,
                         snapshot,
                         remote_revocations,
+                        runner_downgrade,
                     }
                 },
             )
@@ -894,6 +905,17 @@ impl Inventory {
     /// and the same last change.
     /// ⟨§17.32 item 1⟩ And every recovery-relevant record ([`RecoverySnapshot`], but
     /// the projection resources).
+    /// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ This inventory without the runner's
+    /// owner-only downgrade row (the one record a restore carries forward instead of
+    /// comparing: [`restored_is_original`]).
+    fn without_downgrade(&self) -> Inventory {
+        let mut out = self.clone();
+        out.snapshot
+            .meta
+            .retain(|(key, _)| key != heimdall_store::ext_runner::META_RUNNER_OWNER_ONLY);
+        out
+    }
+
     fn same_as(&self, now: &Inventory) -> bool {
         self.open == now.open
             && self.foreign == now.foreign
@@ -1064,6 +1086,9 @@ impl Inventory {
                 self.remote_revocations_json(),
             );
         }
+        if let Some(listing) = self.runner_downgrade_json() {
+            map.insert(RUNNER_OWNER_ONLY.to_owned(), listing);
+        }
         if !self.unresolved_steps.is_empty() {
             map.insert(
                 "unresolved_steps".to_owned(),
@@ -1093,6 +1118,25 @@ impl Inventory {
                 })
                 .collect(),
         )
+    }
+
+    /// ⟨M06 W3; ADR-0006 §18.7 item 18⟩ The `runner_owner_only` listing: the downgrade's
+    /// cause and when it was recorded. `None` when the runner is not downgraded.
+    fn runner_downgrade_json(&self) -> Option<serde_json::Value> {
+        self.runner_downgrade
+            .as_ref()
+            .map(|(cause, at)| serde_json::json!({ "cause": cause, "recorded_at": at }))
+    }
+
+    /// The human line for the runner's owner-only downgrade (empty when none).
+    fn runner_downgrade_text(&self) -> String {
+        match &self.runner_downgrade {
+            Some((cause, at)) => format!(
+                "  This remote runner is owner-only (its sshd policy proved unverifiable: {cause}{}). That downgrade is part of this state.\n",
+                at.map(|t| format!(", recorded {t}")).unwrap_or_default()
+            ),
+            None => String::new(),
+        }
     }
 
     /// ⟨§17.32 item 7⟩ The human lines for the pending remote revocations (empty when
@@ -1289,6 +1333,9 @@ fn obligation_lines(inv: &Inventory) -> String {
     out
 }
 
+/// ⟨M06 W3; ADR-0006 §18.7 item 18⟩ The inventory key of a runner's owner-only downgrade.
+const RUNNER_OWNER_ONLY: &str = "runner_owner_only";
+
 /// The heading of the obligation listing.
 const OBLIGATIONS: &str = "Outstanding remote obligations (enrollments that are not final or whose late write is unresolved, foreign removals that are not final, enrollment operations in flight)";
 
@@ -1314,6 +1361,13 @@ fn annotate(mut out: Outcome, inv: &Inventory, bundle: Option<&str>) -> Outcome 
                 inv.remote_revocations_json(),
             );
             human.push_str(&inv.remote_revocations_text());
+        }
+        if let (Some(listing), false) = (
+            inv.runner_downgrade_json(),
+            map.contains_key(RUNNER_OWNER_ONLY),
+        ) {
+            map.insert(RUNNER_OWNER_ONLY.to_owned(), listing);
+            human.push_str(&inv.runner_downgrade_text());
         }
         if let Some(b) = bundle {
             map.insert(
@@ -2367,11 +2421,61 @@ fn copy_reads(path: &Path) -> bool {
 /// read-only (schema and integrity checked) and its whole recovery snapshot equals the
 /// one read, read-only, from the original family's database (`original`, in its
 /// quarantine directory).
+///
+/// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ **A restore carries the downgrade forward,
+/// and both directions converge on owner-only.** When the two differ only in the runner's
+/// owner-only downgrade:
+/// * the original (the database the restore replaces) has it set: the row and its epoch
+///   are written into the restored database in one transaction
+///   ([`carry_downgrade_forward`]: set-only, never lowering an epoch; the caller holds the
+///   instance lock), and the restored database is read again. It is confirmed only with a
+///   row standing in it;
+/// * the restored database has it and the original lacks it, or the restored one's is the
+///   later event: accepted as it is (the more restrictive state; nothing is written and
+///   the row is never cleared or lowered).
+///
+/// So the restored database is owner-only if either side says so, and is never confirmed
+/// without the row when the original has one. Any other difference refuses as before,
+/// with nothing written.
 fn restored_is_original(restored: &Path, original: &Path) -> bool {
-    match (Inventory::read(restored), Inventory::read(original)) {
-        (Ok(now), Ok(was)) => was.same_as(&now),
-        _ => false,
+    let (Ok(now), Ok(was)) = (Inventory::read(restored), Inventory::read(original)) else {
+        return false;
+    };
+    if was.same_as(&now) {
+        return true;
     }
+    if !was.without_downgrade().same_as(&now.without_downgrade()) {
+        return false;
+    }
+    let standing = read_family_no_write(original, |opened| {
+        opened.and_then(|store| store.transaction(|tx| tx.runner_downgrade()))
+    });
+    match standing {
+        // Only the restored database says owner-only: the more restrictive state stands.
+        Ok(None) => now.runner_downgrade.is_some(),
+        // The original says so: the restored database has the row, at no earlier an epoch,
+        // once the carry is through (a row of its own from a later event is kept).
+        Ok(Some(standing)) => {
+            carry_downgrade_forward(restored, &standing)
+                && Inventory::read(restored).is_ok_and(|now| {
+                    now.runner_downgrade.is_some()
+                        && was.without_downgrade().same_as(&now.without_downgrade())
+                })
+        }
+        Err(_) => false,
+    }
+}
+
+/// Write `standing` into the restored database at `restored`, in one transaction
+/// (`Txn::carry_runner_downgrade`: set-only, never lowering an epoch). `false` when the
+/// database cannot be opened or written.
+fn carry_downgrade_forward(
+    restored: &Path,
+    standing: &heimdall_store::ext_runner::RunnerDowngrade,
+) -> bool {
+    Store::open(restored, Arc::new(NoFaults))
+        .and_then(|store| store.transaction(|tx| tx.carry_runner_downgrade(standing)))
+        .is_ok()
 }
 
 /// ⟨§17.35 item 7⟩ The opening of the refusal when a quarantine is found.
@@ -2474,7 +2578,9 @@ async fn uninstall_after_recovery<P: Prompter>(
                 )
             });
             d.store_items = inv.store_items_text();
-            d.remote_revocations = inv.remote_revocations_text();
+            // The runner's owner-only downgrade is discarded with the state too: listed with
+            // the other authority records the purge prompt names.
+            d.remote_revocations = inv.remote_revocations_text() + &inv.runner_downgrade_text();
             d
         })
         .await
@@ -5212,6 +5318,46 @@ mod tests {
 
     /// ⟨M06⟩ A pending client and its invitation (synthetic: a placeholder key).
     fn seed_invitation(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        seed_invitation_with(tx, false)
+    }
+
+    /// ⟨M06 W3⟩ [`seed_invitation`], joined, with an invitation that admitted Iroh and the
+    /// client's endpoint recorded (`remote_client_endpoints`).
+    fn seed_client_endpoint(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        seed_invitation_with(tx, true)?;
+        tx.activate_remote_client(&join_record())?;
+        tx.set_remote_client_endpoint(&client_id(), &client_endpoint('a'), t0())
+            .map(drop)
+    }
+
+    /// ⟨M06 W3⟩ The bootstrap's owner client (no invitation; a placeholder key).
+    fn seed_bootstrap_owner(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        use heimdall_store::ext_m06::{AppliedLine, ClientState, RemoteClientRecord};
+        let owner = RemoteClientRecord {
+            client: client_id(),
+            role: heimdall_contract::remote::Role::Owner,
+            key_fingerprint: key_fingerprint(),
+            public_key: "ssh-ed25519 AAAA".to_owned(),
+            state: ClientState::Active,
+            invitation: None,
+            revoked_generation: None,
+            revocation: None,
+            created_at: t0(),
+            updated_at: t0(),
+            line: AppliedLine::Absent,
+        };
+        tx.enroll_bootstrap_owner(&owner, t0()).map(drop)
+    }
+
+    fn client_endpoint(c: char) -> heimdall_contract::ids::IrohEndpointId {
+        heimdall_contract::ids::IrohEndpointId::parse(&c.to_string().repeat(64))
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    fn seed_invitation_with(
+        tx: &mut heimdall_store::Txn<'_>,
+        iroh_admission: bool,
+    ) -> heimdall_store::Result<()> {
         use heimdall_store::ext_m06::{
             AppliedLine, ClientState, InvitationState, RemoteClientRecord, RemoteInvitationRecord,
         };
@@ -5246,6 +5392,7 @@ mod tests {
             state: InvitationState::Pending,
             consumed_at: None,
             join: None,
+            iroh_admission,
         };
         tx.insert_remote_invitation(&client, &invitation, t0())
             .map(drop)
@@ -5312,6 +5459,78 @@ mod tests {
         }
     }
 
+    /// ⟨M06 U4⟩ A typed effect's key for the recovery cases: effect `n`, a cutoff of every
+    /// policy at revision 1.
+    fn effect_key(n: u8, at: &str) -> heimdall_store::ext_effects::EffectKey {
+        heimdall_store::ext_effects::EffectKey {
+            producer: client_id(),
+            effect: heimdall_contract::ids::EffectId::from_random_bytes([n; 16]),
+            target: heimdall_contract::remote::EffectTarget::PolicyCutoff {
+                scope: heimdall_contract::trust::PolicyTarget::All,
+                at: at.parse().unwrap_or_else(|e| panic!("{e}")),
+                revision: 1,
+            },
+        }
+    }
+
+    fn effect_environment() -> heimdall_contract::ids::EnvironmentId {
+        heimdall_contract::ids::EnvironmentId::from_random_bytes([0x4e; 16])
+    }
+
+    /// ⟨M06 U4⟩ The policy revision row that `effect_key(n, at)` names.
+    fn effect_revision(n: u8, at: &str) -> heimdall_store::ext_effects::PolicyRevisionRecord {
+        let key = effect_key(n, at);
+        heimdall_store::ext_effects::PolicyRevisionRecord {
+            scope_key: "all".to_owned(),
+            scope: heimdall_contract::trust::PolicyTarget::All,
+            producer: key.producer,
+            revision: 1,
+            runner_seq: 0,
+            kind: heimdall_store::ext_effects::PolicyRevisionKind::Cutoff,
+            effect: key.effect,
+            received_at: t0(),
+            cutoff_at: Some(at.parse().unwrap_or_else(|e| panic!("{e}"))),
+            fired_uncertain_at: None,
+        }
+    }
+
+    fn effect_ack(n: u8, fired: bool) -> heimdall_store::ext_effects::EffectAck {
+        heimdall_store::ext_effects::EffectAck {
+            key: effect_key(n, "2026-12-01T00:00:00Z"),
+            applied_at: t0(),
+            record: heimdall_store::ext_effects::AppliedRecord::PolicyRevision {
+                scope_key: "all".to_owned(),
+                runner_seq: 1,
+                policies: Vec::new(),
+                cutoff_at: Some(
+                    "2026-12-01T00:00:00Z"
+                        .parse()
+                        .unwrap_or_else(|e| panic!("{e}")),
+                ),
+                fired,
+            },
+        }
+    }
+
+    fn seed_outbox_effect(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.enqueue_remote_effect(
+            &effect_environment(),
+            &effect_key(1, "2026-12-01T00:00:00Z"),
+            t0(),
+        )
+        .map(drop)
+    }
+
+    fn seed_policy_revision(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.record_remote_policy_revision(&effect_revision(1, "2026-12-01T00:00:00Z"))
+            .map(drop)
+    }
+
+    fn seed_effect_ack(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        seed_policy_revision(tx)?;
+        tx.record_remote_effect_ack(&effect_ack(1, false))
+    }
+
     fn seed_grant_pin(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
         tx.pin_remote_grant_issuer(&grant_pin('A')).map(drop)
     }
@@ -5321,6 +5540,10 @@ mod tests {
             client: client_id(),
             designated_at: t0(),
         })
+    }
+
+    fn seed_downgrade(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.record_runner_downgrade("session_pty", t0()).map(drop)
     }
 
     fn seed_issuer_trust(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
@@ -5629,9 +5852,32 @@ mod tests {
                     tx.clear_time_source().map(drop)
                 }),
                 case("trust an issuer", nothing, seed_issuer_trust),
+                // ⟨M06 W3⟩ The same CA re-trusted for another controller (a replacement).
+                case(
+                    "re-trust it for another controller",
+                    seed_issuer_trust,
+                    |tx| {
+                        tx.trust_remote_issuer(&heimdall_store::ext_runner::TrustedIssuer {
+                            ca_fingerprint: grant_pin('A').ca_fingerprint,
+                            ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".to_owned(),
+                            controller: heimdall_contract::ids::ClientId::from_random_bytes(
+                                [0x3c; 16],
+                            ),
+                            trusted_at: t0(),
+                        })
+                    },
+                ),
                 case("untrust it", seed_issuer_trust, |tx| {
                     tx.untrust_remote_issuer(&grant_pin('A').ca_fingerprint)
                         .map(drop)
+                }),
+                // ⟨M06 W3; ADR-0006 §18.7 item 18⟩ The runner's owner-only downgrade: set,
+                // moved by a later event, and cleared are each a difference, so a database
+                // without it is never taken for the one that had it.
+                case("downgrade the runner", nothing, seed_downgrade),
+                case("downgrade it again", seed_downgrade, seed_downgrade),
+                case("clear the downgrade", seed_downgrade, |tx| {
+                    tx.lift_runner_downgrade(1).map(drop)
                 }),
             ],
             "resources" => vec![
@@ -5676,6 +5922,22 @@ mod tests {
                     seed_invitation,
                     |tx| {
                         tx.revoke_remote_client(&client_id(), RevocationCause::Revoked, t0())
+                            .map(drop)
+                    },
+                ),
+                // ⟨M06 W3; ADR-0006 §18.7 item 8⟩ Iroh admission is the client's attribute
+                // (the `iroh_admission` column): a join copies the invitation's, and the
+                // bootstrap owner's is set by `remote init --iroh-endpoint`.
+                case(
+                    "a join copies the invitation's Iroh admission",
+                    |tx| seed_invitation_with(tx, true),
+                    |tx| tx.activate_remote_client(&join_record()).map(drop),
+                ),
+                case(
+                    "admit the bootstrap owner over Iroh",
+                    seed_bootstrap_owner,
+                    |tx| {
+                        tx.admit_bootstrap_owner_iroh(&client_id(), &client_endpoint('a'), t0())
                             .map(drop)
                     },
                 ),
@@ -5728,15 +5990,46 @@ mod tests {
                     |tx| tx.remove_remote_environment_pin(&env7()).map(drop),
                 ),
             ],
+            // ⟨M06 W3, ruling W0C-Q4⟩ Only narrowing moves it: an invitation no longer does.
             "remote_authority_generation" => vec![
                 case(
-                    "the first invitation sets the generation",
-                    nothing,
+                    "the first tombstone sets the generation",
                     seed_invitation,
+                    |tx| {
+                        tx.revoke_remote_client(&client_id(), RevocationCause::Revoked, t0())
+                            .map(drop)
+                    },
                 ),
                 case(
-                    "a tombstone moves it on (it is never deleted)",
-                    seed_invitation,
+                    "an endpoint replacement sets it too (it is never deleted)",
+                    seed_client_endpoint,
+                    |tx| {
+                        tx.set_remote_client_endpoint(&client_id(), &client_endpoint('b'), t0())
+                            .map(drop)
+                    },
+                ),
+            ],
+            // ⟨M06 W3⟩ Migration 0011: a client's endpoint, recorded at its join, replaced by
+            // its rotation, deleted with its tombstone.
+            "remote_client_endpoints" => vec![
+                case(
+                    "record a client's endpoint",
+                    |tx| {
+                        seed_invitation_with(tx, true)?;
+                        tx.activate_remote_client(&join_record()).map(drop)
+                    },
+                    |tx| {
+                        tx.set_remote_client_endpoint(&client_id(), &client_endpoint('a'), t0())
+                            .map(drop)
+                    },
+                ),
+                case("replace it (rotation)", seed_client_endpoint, |tx| {
+                    tx.set_remote_client_endpoint(&client_id(), &client_endpoint('b'), t0())
+                        .map(drop)
+                }),
+                case(
+                    "delete it with the client's tombstone",
+                    seed_client_endpoint,
                     |tx| {
                         tx.revoke_remote_client(&client_id(), RevocationCause::Revoked, t0())
                             .map(drop)
@@ -5829,6 +6122,48 @@ mod tests {
                         .map(drop)
                 }),
             ],
+            // ⟨M06 U4⟩ The controller's outbox of typed narrowing effects: an effect produced,
+            // acknowledged, or dropped between the confirmation and the purge is a changed
+            // inventory (an undelivered revoke or cutoff must not be lost silently).
+            "remote_effect_outbox" => vec![
+                case("produce an effect", nothing, seed_outbox_effect),
+                case("acknowledge it", seed_outbox_effect, |tx| {
+                    tx.acknowledge_remote_effect(&effect_ack(1, false), t0())
+                        .map(drop)
+                }),
+                case("drop the environment's effects", seed_outbox_effect, |tx| {
+                    tx.forget_remote_effect_outbox(&effect_environment())
+                        .map(drop)
+                }),
+            ],
+            // ⟨M06 U4⟩ The runner's acknowledgements: a new one, and one whose enforcement
+            // state a re-application rewrote.
+            "remote_effect_acks" => vec![
+                case("acknowledge an effect", seed_policy_revision, |tx| {
+                    tx.record_remote_effect_ack(&effect_ack(1, false))
+                }),
+                case("rewrite its enforcement state", seed_effect_ack, |tx| {
+                    tx.record_remote_effect_ack(&effect_ack(1, true))
+                }),
+            ],
+            // ⟨M06 U4⟩ The runner's delivered policy revisions: a new revision, another
+            // producer's revision of the same number, and a redelivery that shortens a cutoff.
+            "remote_policy_revisions" => vec![
+                case("record a delivered cutoff", nothing, seed_policy_revision),
+                case(
+                    "another effect's revision of the same scope",
+                    seed_policy_revision,
+                    |tx| {
+                        let mut row = effect_revision(2, "2026-12-01T00:00:00Z");
+                        row.revision = 2;
+                        tx.record_remote_policy_revision(&row).map(drop)
+                    },
+                ),
+                case("shorten it by redelivery", seed_policy_revision, |tx| {
+                    tx.record_remote_policy_revision(&effect_revision(1, "2026-11-30T00:00:00Z"))
+                        .map(drop)
+                }),
+            ],
             other => panic!(
                 "`{other}` is classified Rows or Part but has no case here: add its insert, modify and delete cases"
             ),
@@ -5899,6 +6234,43 @@ mod tests {
         );
     }
 
+    /// ⟨M06 W3; ADR-0006 §18.7 item 18⟩ The inventory lists a remote runner's owner-only
+    /// downgrade (JSON and text), and nothing for a runner without one.
+    #[test]
+    fn the_inventory_lists_a_runners_owner_only_downgrade() {
+        let (_d, state, _) = state_dir();
+        let store =
+            Store::open(&db_of(&state), Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}"));
+        let read = || Inventory::read_store(&store).unwrap_or_else(|e| panic!("{e}"));
+        let plain = annotate(
+            report(true, true, true, None, Vec::new(), Vec::new()),
+            &read(),
+            None,
+        );
+        assert!(plain.env.data.get(RUNNER_OWNER_ONLY).is_none());
+        assert!(!plain.human.contains("owner-only"), "{}", plain.human);
+        store
+            .transaction(seed_downgrade)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let inv = read();
+        let out = annotate(
+            report(true, true, true, None, Vec::new(), Vec::new()),
+            &inv,
+            None,
+        );
+        assert_eq!(out.env.data[RUNNER_OWNER_ONLY]["cause"], "session_pty");
+        assert!(out.env.data[RUNNER_OWNER_ONLY]["recorded_at"].is_string());
+        assert!(
+            out.human.contains("owner-only") && out.human.contains("session_pty"),
+            "{}",
+            out.human
+        );
+        // A refusal's listing carries it too.
+        let mut map = serde_json::Map::new();
+        inv.insert_listing(&mut map);
+        assert_eq!(map[RUNNER_OWNER_ONLY]["cause"], "session_pty");
+    }
+
     /// `meta_keys_are_classified_for_the_snapshot` (audit A4): every `META_*` key
     /// constant of the store's sources is classified in `META_RECOVERY` (exactly, or by
     /// its prefix), and no store source writes a literal key past them.
@@ -5913,6 +6285,10 @@ mod tests {
             include_str!("../../store/src/ext_m05.rs"),
             // ⟨M06 U3⟩ The runner's time source and issuer_trust.
             include_str!("../../store/src/ext_runner.rs"),
+            // ⟨M06 W3⟩ The recorded serve port and its bind failure (ADR-0012 §2.1).
+            include_str!("../../store/src/ext_transport.rs"),
+            // ⟨M06 U4⟩ The controller's contact observations of its runners (ADR-0012 §7.1).
+            include_str!("../../store/src/ext_effects.rs"),
         ];
         let mut keys = Vec::new();
         for src in sources {
@@ -8004,6 +8380,114 @@ mod tests {
         let u = crate::purge_sweep::tests::unit_dir(state).unwrap_or_else(|| panic!("no unit"));
         assert!(u.join(crate::purge_sweep::tests::COPY_NAME).exists());
         (u, bytes, wal)
+    }
+
+    /// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ A restore carries the downgrade
+    /// forward. The recovery copy is a snapshot from **before** the runner went owner-only
+    /// (the downgrade is written to the original family after the copy was taken, twice,
+    /// so its epoch is 2). Recovery restores the copy, writes the row with its epoch into
+    /// it, confirms it and deletes the original family: the restored database is still
+    /// owner-only, at the same epoch, with the first cause.
+    #[test]
+    fn a_restore_from_before_the_downgrade_is_still_owner_only() {
+        let (_d, state, confirmed) = state_dir();
+        let (u, _, _) = unit_with_copy(&state, &confirmed);
+        let downgrade = |db: &Path| {
+            read_family_no_write(db, |opened| {
+                opened
+                    .and_then(|s| s.transaction(|tx| tx.runner_downgrade()))
+                    .unwrap_or_else(|e| panic!("{e}"))
+            })
+        };
+        let copy = u.join(crate::purge_sweep::tests::COPY_NAME);
+        assert_eq!(
+            downgrade(&copy),
+            None,
+            "the snapshot predates the downgrade"
+        );
+        let original = u.join(heimdall_runtime::service::STATE_DB_FILE);
+        let standing = Store::open(&original, Arc::new(NoFaults))
+            .and_then(|s| {
+                s.transaction(|tx| {
+                    tx.record_runner_downgrade("session_pty", t0())?;
+                    tx.record_runner_downgrade("probe_disagreed", t0())
+                })
+            })
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            (standing.cause.as_str(), standing.epoch),
+            ("session_pty", 2)
+        );
+
+        let top = state.parent().map(Path::to_path_buf);
+        let restored = block_on(recover_quarantine(&paths_of(&state), top.as_deref()))
+            .unwrap_or_else(|out| panic!("not restored: {}", out.env.data));
+        assert!(restored.iter().any(|p| p == &db_of(&state)), "{restored:?}");
+        assert!(
+            heimdall_runtime::service::quarantine_leftovers(&state)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty(),
+            "the original family was not deleted after the carry-forward"
+        );
+        assert_eq!(downgrade(&db_of(&state)), Some(standing));
+        assert!(shows(&db_of(&state), 7), "a commit is lost");
+    }
+
+    /// The carry-forward is only for the downgrade row, and both directions converge on
+    /// owner-only: a restored database that differs in anything else is refused with
+    /// nothing written into it; one whose own downgrade is the later event, or that has
+    /// the row when the original lacks it, is accepted and keeps its row (never cleared,
+    /// never lowered); one from before the downgrade gets the row and is accepted.
+    #[test]
+    fn the_restore_carries_only_the_downgrade_and_never_lowers_it() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let make = |name: &str, seed: &dyn Fn(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()>| {
+            let d = dir.path().join(name);
+            std::fs::create_dir(&d).unwrap_or_else(|e| panic!("{e}"));
+            database(&d, |tx| {
+                tx.insert_issuer(&issuer())?;
+                seed(tx)
+            })
+        };
+        let downgrade = |db: &Path| {
+            read_family_no_write(db, |opened| {
+                opened
+                    .and_then(|s| s.transaction(|tx| tx.runner_downgrade()))
+                    .unwrap_or_else(|e| panic!("{e}"))
+            })
+        };
+        let original = make("original", &|tx| seed_downgrade(tx));
+        // Another difference beside the row: refused, the restored database untouched.
+        let other = make("other", &|tx| tx.insert_foreign_removal(&foreign(7)));
+        assert!(!restored_is_original(&other, &original));
+        assert_eq!(
+            downgrade(&other),
+            None,
+            "written into a database not confirmed"
+        );
+        // The restored database's downgrade is the later one: accepted, its row kept.
+        let later = make("later", &|tx| {
+            seed_downgrade(tx)?;
+            seed_downgrade(tx)
+        });
+        assert!(restored_is_original(&later, &original));
+        assert_eq!(downgrade(&later).map(|d| d.epoch), Some(2));
+        assert_eq!(downgrade(&original).map(|d| d.epoch), Some(1));
+        // The original has no downgrade and the restored one does: accepted (the more
+        // restrictive state), its row kept; the original is not written.
+        let plain = make("plain", &|_| Ok(()));
+        assert!(restored_is_original(&original, &plain));
+        assert_eq!(downgrade(&original).map(|d| d.epoch), Some(1));
+        assert_eq!(downgrade(&plain), None);
+        // That direction too only for the row: another difference still refuses.
+        let lowered_other = make("lowered_other", &|tx| {
+            seed_downgrade(tx)?;
+            tx.insert_foreign_removal(&foreign(8))
+        });
+        assert!(!restored_is_original(&lowered_other, &plain));
+        // From before the downgrade: carried forward, then confirmed.
+        assert!(restored_is_original(&plain, &original));
+        assert_eq!(downgrade(&plain), downgrade(&original));
     }
 
     /// After a forged mark: `heimdall uninstall`'s recovery refuses, naming what is left;

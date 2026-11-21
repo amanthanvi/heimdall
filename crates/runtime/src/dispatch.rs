@@ -218,6 +218,10 @@ fn fenced(request: &Request) -> bool {
     heimdall_app::operations::uninstall_fenced(request)
 }
 
+/// ⟨M06 W3 host⟩ How long a local cutoff of every policy waits for the hosted driver's
+/// delivery pass before it answers with what is still pending.
+const RUNNER_DELIVERY_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// [`Dispatcher`] over the shared application operations.
 #[derive(Clone)]
 pub struct OperationsDispatcher {
@@ -244,6 +248,20 @@ pub struct OperationsDispatcher {
     /// ([`Dispatcher::bind_paired`]) for the session's lifetime. A clone keeps it, so a
     /// bound dispatcher never becomes the local owner.
     paired: Option<PairedSession>,
+    /// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The store the controller-record forms write
+    /// ([`Self::with_controller_records`]); `None`: they answer `driver_unavailable`.
+    controller_records: Option<Arc<heimdall_store::Store>>,
+    /// ⟨M06 W3 host⟩ The hosted controller driver ([`Self::with_outbox_delivery`]): a
+    /// narrowing put in a runner's outbox is delivered without waiting for its next pass.
+    /// `None`: the row waits for the next reconnect.
+    outbox_delivery: Option<Arc<dyn heimdall_app::remote_status_driver::OutboxDelivery>>,
+    /// ⟨M06 W3 grant-path⟩ The hosted controller driver as the forwarder of an `ensure`
+    /// that names a recorded runner's environment ([`Self::with_ensure_forwarding`]).
+    ensure_forwarding: Option<Arc<dyn heimdall_app::remote_status_driver::EnsureForwarding>>,
+    /// ⟨M06 W3⟩ The route and transport forms ([`Self::with_route_transport`]); `None`: they
+    /// answer `driver_unavailable` (wave 0's landing) and `routes/1` and `transport-iroh/1`
+    /// are not offered.
+    route_transport: Option<Arc<crate::supervise_transport::RouteTransport>>,
 }
 
 /// ⟨ADR-0008 §17.27 item 2⟩ One connection's identity for the uninstall fence. A
@@ -300,7 +318,117 @@ impl OperationsDispatcher {
             binding_endpoints: None,
             runner: None,
             paired: None,
+            controller_records: None,
+            outbox_delivery: None,
+            ensure_forwarding: None,
+            route_transport: None,
         }
+    }
+
+    /// ⟨M06 W3 grant-path; ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ Forward the local owner's
+    /// `ensure` that names a runner this controller records through `forwarding` (the hosted
+    /// controller driver), which records exactly what was asked. An `ensure` naming any
+    /// other environment, a paired caller's, and every `ensure` on a runner take the local
+    /// path unchanged.
+    #[must_use]
+    pub fn with_ensure_forwarding(
+        mut self,
+        forwarding: Arc<dyn heimdall_app::remote_status_driver::EnsureForwarding>,
+    ) -> Self {
+        self.ensure_forwarding = Some(forwarding);
+        self
+    }
+
+    /// ⟨M06 W3 host⟩ Tell `delivery` (the hosted controller driver) when a local narrowing
+    /// became an outbox row for a runner.
+    #[must_use]
+    pub fn with_outbox_delivery(
+        mut self,
+        delivery: Arc<dyn heimdall_app::remote_status_driver::OutboxDelivery>,
+    ) -> Self {
+        self.outbox_delivery = Some(delivery);
+        self
+    }
+
+    /// ⟨M06 W3; m06-plan W2 carry-over⟩ Serve `Request::Route` and `Request::Transport`
+    /// through `service` (`crate::supervise_transport::RouteTransport`), and offer `routes/1`
+    /// and `transport-iroh/1`.
+    #[must_use]
+    pub fn with_route_transport(
+        mut self,
+        service: Arc<crate::supervise_transport::RouteTransport>,
+    ) -> Self {
+        self.route_transport = Some(service);
+        self
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ Serve `Request::ControllerRecord` over `store` (the
+    /// controller's records of its runners, which the CLI writes through the runtime while
+    /// one runs): the local owner only; a paired session is refused.
+    #[must_use]
+    pub fn with_controller_records(mut self, store: Arc<heimdall_store::Store>) -> Self {
+        self.controller_records = Some(store);
+        self
+    }
+
+    /// `Request::ControllerRecord` ([`Self::with_controller_records`]): a paired caller is
+    /// refused `INTERACTION_REQUIRED` with reason `local_owner_required` (ruling Q5, ADR-0006
+    /// §18.7 item 9), a local caller without the owner role `CAPABILITY_UNAVAILABLE`; then
+    /// `heimdall_app::remote_env::apply_controller_record`, with the host-key fingerprint from
+    /// `heimdall-credential`.
+    fn controller_record(
+        &self,
+        caller: &Caller,
+        request: &heimdall_contract::controller_record::ControllerRecordRequest,
+    ) -> Envelope<serde_json::Value> {
+        if caller.context.remote_client.is_some() {
+            // ⟨ruling Q5; ADR-0006 §18.7 item 9⟩ The controller's records are the local
+            // owner's alone.
+            return error_value(
+                OpError::new(
+                    Code::InteractionRequired,
+                    "the controller's records are written by the local owner only",
+                )
+                .with_reason(heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED)
+                .with_effect(EffectStatus::None),
+            );
+        }
+        if !caller.context.has_global_access() {
+            return error_value(
+                OpError::new(
+                    Code::CapabilityUnavailable,
+                    "this request needs the owner role",
+                )
+                .with_effect(EffectStatus::None),
+            );
+        }
+        let Some(store) = &self.controller_records else {
+            return error_value(OpError::driver_unavailable(
+                "the controller's records are not available in this runtime",
+            ));
+        };
+        render(
+            heimdall_app::remote_env::apply_controller_record(
+                store,
+                request,
+                &heimdall_credential::mgmt::openssh_fingerprint,
+            )
+            .map(|data| heimdall_app::error::Completed::ok(Code::Ok, data)),
+        )
+    }
+
+    /// ⟨M06 W3 `driver`⟩ The controller's store for a narrowing that names a runner's grant
+    /// or policy ([`Self::with_controller_records`]'s store, which holds the pins and the
+    /// outbox): for the local owner only, and never on a runner (a runner records no
+    /// runners; a paired owner's narrowing of this runtime's own grants is local).
+    fn runner_narrowing_store(&self, caller: &Caller) -> Option<&Arc<heimdall_store::Store>> {
+        if caller.context.remote_client.is_some()
+            || !caller.context.has_global_access()
+            || self.runner.is_some()
+        {
+            return None;
+        }
+        self.controller_records.as_ref()
     }
 
     /// ⟨M06 W2⟩ Serve paired sessions as a runner (`crate::paired`): offer
@@ -384,6 +512,22 @@ impl OperationsDispatcher {
         // (`crate::paired`); only a request that passes reaches the application, as the
         // client's caller.
         if let Some(paired) = &self.paired {
+            // ⟨ruling Q5; ADR-0006 §18.7 item 9⟩ A paired session's controller-record form is
+            // answered here, whatever its role (the refusal names the local owner).
+            if let Request::ControllerRecord(r) = &request {
+                return self.controller_record(&self.caller(session), r);
+            }
+            // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ So is `transport.rotate`: rotating this
+            // device's K_iroh is the local owner's alone (`local_owner_required`), whatever
+            // the paired client's role, and nothing is left pending.
+            if matches!(
+                request,
+                Request::Transport(heimdall_contract::route::TransportRequest::Rotate)
+            ) {
+                return error_value(
+                    heimdall_remote::roles::Refusal::LocalOwnerRequired.to_op_error(),
+                );
+            }
             let Some(runner) = &self.runner else {
                 return error_value(
                     OpError::new(
@@ -447,6 +591,15 @@ impl OperationsDispatcher {
         request: Request,
     ) -> Envelope<serde_json::Value> {
         let caller = caller.clone();
+        // ⟨rev 6.3; ADR-0006 §18.7 item 9⟩ A paired session's `decide` has no remote path:
+        // it names its reason, so a wrapper does not ask the user and retry.
+        // ⟨§18.7 item 15⟩ So does every attended-only form: a paired caller is never the
+        // local owner, whatever its session says about attendance.
+        if (matches!(request, Request::Decide(_)) || request.requires_attended_session())
+            && caller.context.remote_client.is_some()
+        {
+            return error_value(heimdall_remote::roles::Refusal::LocalOwnerRequired.to_op_error());
+        }
         if request.requires_attended_session() && !caller.is_attended() {
             return error_value(OpError::new(
                 Code::InteractionRequired,
@@ -501,18 +654,122 @@ impl OperationsDispatcher {
         {
             return runner.revoke_client(environment, client).await;
         }
+        // ⟨M06 W3⟩ On a runner, a controller's `runner/1` forms reach the runner runtime (a
+        // paired session's arrive here only after `PairedRunner::frame`'s role-table and
+        // pre-dispatch checks; `RunnerRuntime::handle` refuses a caller without a paired
+        // client), and the runner-local decisions are the runner's (local owner only). Every
+        // other runtime refuses both below, as before.
+        if let Some(runner) = &self.runner {
+            match &request {
+                Request::Runner(r) if runner.runtime().is_some() => {
+                    return runner
+                        .runner_request(&caller, self.scope.id, r.clone())
+                        .await;
+                }
+                Request::RunnerLocal(r) => return runner.runner_local(&caller, r.clone()).await,
+                _ => {}
+            }
+        }
         match request {
             Request::Inspect(r) => render(ops.inspect(&caller, r).await),
-            Request::Ensure(r) => render(ops.ensure(&caller, r).await),
+            Request::Ensure(r) => {
+                // ⟨M06 W3 grant-path⟩ The local owner's `ensure` naming a recorded runner's
+                // environment is forwarded over the management session; the forwarder
+                // answers `None` for every other environment, and the local path stands.
+                if r.environment.is_some()
+                    && self.runner_narrowing_store(&caller).is_some()
+                    && let Some(forwarding) = &self.ensure_forwarding
+                    && let Some(answer) = forwarding.forward(&r).await
+                {
+                    return render(answer);
+                }
+                render(ops.ensure(&caller, r).await)
+            }
             Request::Bind(r) => render(self.bind_result(ops.bind(&caller, r).await)),
             Request::Delegate(r) => render(ops.delegate(&caller, r).await),
             Request::Observe(r) => render(ops.observe(&caller, r).await),
             Request::Cancel(r) => render(ops.cancel(&caller, r).await),
             Request::Release(r) => render(ops.release(&caller, r).await),
-            Request::Revoke(r) => render(ops.revoke(&caller, r).await),
+            Request::Revoke(r) => {
+                let named = r.grant_id.clone();
+                let local = ops.revoke(&caller, r).await;
+                // ⟨M06 W3 `driver`; ADR-0012 §7.2⟩ A grant this installation does not hold
+                // may live on a runner this controller records: the owner's revoke is then a
+                // typed effect in the outbox, `remote_pending` until the runner acknowledges.
+                match (&local, named, self.runner_narrowing_store(&caller)) {
+                    (Err(e), Some(grant), Some(store)) if e.code == Code::NotFound => {
+                        let narrowed = heimdall_app::remote_status_driver::revoke_on_runner(
+                            store,
+                            &grant,
+                            heimdall_contract::Timestamp::now(),
+                        );
+                        // ⟨host⟩ `OK`, `local_applied: false`, the grant `remote_pending`:
+                        // the hosted driver delivers it without waiting for its next pass.
+                        if matches!(narrowed, Some(Ok(_)))
+                            && let Some(d) = &self.outbox_delivery
+                        {
+                            d.notify();
+                        }
+                        render(narrowed.unwrap_or(local))
+                    }
+                    _ => render(local),
+                }
+            }
             // Widening actions included: the application answers with a decision
             // record and never executes them here (R5, N04).
-            Request::Policy(r) => render(ops.policy(&caller, r).await),
+            Request::Policy(r) => {
+                let local = ops.policy(&caller, r.clone()).await;
+                // ⟨M06 W3 `driver`⟩ As the revoke above, for a pause or cutoff naming one
+                // policy a recorded runner's last report listed. Never a widening.
+                match (local, self.runner_narrowing_store(&caller)) {
+                    (Err(e), Some(store)) if e.code == Code::NotFound => {
+                        let narrowed = heimdall_app::remote_status_driver::policy_on_runner(
+                            store,
+                            &r,
+                            heimdall_contract::Timestamp::now(),
+                        );
+                        if matches!(narrowed, Some(Ok(_)))
+                            && let Some(d) = &self.outbox_delivery
+                        {
+                            d.notify();
+                        }
+                        render(narrowed.unwrap_or(Err(e)))
+                    }
+                    // ⟨M06 W3 host; ruling on `driver` Q2⟩ A local cutoff of every policy
+                    // that was applied here also goes to every runner this controller
+                    // owns (it only narrows); a profile's or a workspace's stays local.
+                    // The answer lists every runner it was delivered to and every runner
+                    // it is still pending on.
+                    (Ok(mut done), Some(store))
+                        if done.state == heimdall_contract::OperationState::Succeeded
+                            && done.data.get("policies").is_some() =>
+                    {
+                        if let Some(at) = heimdall_app::remote_status_driver::cutoff_of_all(&r)
+                            && let Ok(sent) =
+                                heimdall_app::remote_status_driver::cutoff_all_on_runners(
+                                    store,
+                                    at,
+                                    heimdall_contract::Timestamp::now(),
+                                )
+                            && !sent.is_empty()
+                        {
+                            if let Some(d) = &self.outbox_delivery {
+                                d.deliver(RUNNER_DELIVERY_BOUND).await;
+                            }
+                            if let Some(data) = done.data.as_object_mut() {
+                                data.insert(
+                                    "runners".to_owned(),
+                                    heimdall_app::remote_status_driver::runner_deliveries(
+                                        store, &sent,
+                                    ),
+                                );
+                            }
+                        }
+                        render(Ok(done))
+                    }
+                    (local, _) => render(local),
+                }
+            }
             Request::Decide(r) => render(ops.decide(&caller, r).await),
             Request::ConfirmTime(r) => render(ops.confirm_time(&caller, r).await),
             // ⟨M02⟩ m02-plan U0b row 17: routed to the application's entry points
@@ -574,6 +831,26 @@ impl OperationsDispatcher {
                 }
                 render(ops.environment_request(&caller, r).await)
             }
+            // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's own records.
+            Request::ControllerRecord(r) => self.controller_record(&caller, &r),
+            // ⟨M06 W3⟩ The route and transport forms, when this runtime serves them.
+            Request::Route(r) if self.route_transport.is_some() => match &self.route_transport {
+                Some(t) => render(
+                    t.route(&caller, &r, self.clock.wall())
+                        .map(|data| heimdall_app::error::Completed::ok(Code::Ok, data)),
+                ),
+                None => error_value(OpError::driver_unavailable("routes are not served")),
+            },
+            Request::Transport(r) if self.route_transport.is_some() => {
+                match &self.route_transport {
+                    Some(t) => render(
+                        t.transport(&caller, &r, self.clock.wall())
+                            .await
+                            .map(|data| heimdall_app::error::Completed::ok(Code::Ok, data)),
+                    ),
+                    None => error_value(OpError::driver_unavailable("transport is not served")),
+                }
+            }
             // ⟨M06⟩ ADR-0006 revision 6 (§18): every revision-6 form answers
             // `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) from the application before
             // any record is written, whatever the role (wave 0; a session never gets here,
@@ -582,7 +859,8 @@ impl OperationsDispatcher {
             | Request::Device(_)
             | Request::Route(_)
             | Request::Transport(_)
-            | Request::Runner(_) => render(ops.revision_6_request(&caller, &request).await),
+            | Request::Runner(_)
+            | Request::RunnerLocal(_) => render(ops.revision_6_request(&caller, &request).await),
             // A request kind this build does not know is never executed.
             _ => error_value(OpError::new(
                 Code::UsageError,
@@ -801,8 +1079,19 @@ impl Dispatcher for OperationsDispatcher {
     /// runtime keeps this build's offer.
     fn offered_capabilities(&self) -> BTreeSet<String> {
         let mut offer = server_capabilities();
-        if self.runner.is_some() {
+        if let Some(runner) = &self.runner {
             offer.insert(capability::REMOTE_CONTROL_V1.to_owned());
+            // ⟨M06 W3⟩ A runner with its runner runtime also offers `runner/1`, so a paired
+            // owner controller's `runner.*` forms reach it (the role term keeps it from
+            // limited roles; a pending session negotiates `remote-control/1` only).
+            if runner.runtime().is_some() {
+                offer.insert(capability::RUNNER_V1.to_owned());
+            }
+        }
+        // ⟨M06 W3⟩ The route and transport forms are offered where they are served.
+        if self.route_transport.is_some() {
+            offer.insert(capability::ROUTES_V1.to_owned());
+            offer.insert(capability::TRANSPORT_IROH_V1.to_owned());
         }
         offer
     }
@@ -1302,8 +1591,10 @@ mod tests {
             ClientRole::LimitedConsumer,
         ));
         let rows = golden["requests"].as_array().unwrap();
-        // 24 forms at revision 6; revision 6.1 (ADR-0006 §18.4) adds the activation probe.
-        assert_eq!(rows.len(), 25);
+        // 24 forms at revision 6; revision 6.1 (ADR-0006 §18.4) adds the activation probe;
+        // revision 6.3 (§18.7) adds rotate_endpoint, runner_policy_recheck, transport.rotate
+        // and the six runner_local forms.
+        assert_eq!(rows.len(), 34);
         for row in rows {
             let request: Request = serde_json::from_value(row["json"].clone()).unwrap();
             assert!(request.is_revision_6());
@@ -1329,6 +1620,368 @@ mod tests {
             }
         }
         assert_eq!(records(), before, "a revision-6 request wrote a record");
+    }
+
+    /// ⟨M06 W3 grant-path; ADR-0012 §4 item 2⟩ The forwarding arm: the local owner's
+    /// `ensure` that names an environment is offered to the forwarder, whose answer stands
+    /// when it has one (a recorded runner) and whose `None` leaves the local path as it was.
+    /// A paired caller's, a limited caller's and an `ensure` naming no environment never
+    /// reach the forwarder.
+    #[tokio::test]
+    async fn an_ensure_naming_a_recorded_runner_is_forwarded_for_the_local_owner_only() {
+        use heimdall_app::remote_status_driver::{EnsureForwarding, forwarded_pending};
+        use heimdall_contract::request::EnsureRequest;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        /// Records the runner `known`; counts what it was offered.
+        struct Forwarder {
+            known: EnvironmentId,
+            offered: AtomicUsize,
+        }
+        #[async_trait::async_trait]
+        impl EnsureForwarding for Forwarder {
+            async fn forward(
+                &self,
+                request: &EnsureRequest,
+            ) -> Option<heimdall_app::OpResult<serde_json::Value>> {
+                self.offered.fetch_add(1, Ordering::SeqCst);
+                (request.environment.as_ref() == Some(&self.known)).then(|| {
+                    Err(forwarded_pending(
+                        &heimdall_contract::ids::GrantId::from_random_bytes([4; 16]),
+                    ))
+                })
+            }
+        }
+        let runner = EnvironmentId::from_random_bytes([7; 16]);
+        let forwarder = Arc::new(Forwarder {
+            known: runner.clone(),
+            offered: AtomicUsize::new(0),
+        });
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        let d = dispatcher()
+            .await
+            .with_controller_records(store)
+            .with_ensure_forwarding(forwarder.clone());
+        let ensure = |environment: Option<&EnvironmentId>, id: &str| -> Request {
+            Request::Ensure(EnsureRequest {
+                profile: Some(heimdall_contract::ids::ProfileId::parse("dev").unwrap()),
+                profile_revision: None,
+                scope: [heimdall_contract::request::AccessPairRef {
+                    destination: heimdall_contract::ids::DestinationId::parse("h1").unwrap(),
+                    account: heimdall_contract::ids::AccountName::parse("deploy").unwrap(),
+                }]
+                .into_iter()
+                .collect(),
+                environment: environment.cloned(),
+                work_id: heimdall_contract::ids::WorkId::parse("w1").unwrap(),
+                until: Some(heimdall_contract::request::DeadlineIntent::Duration(
+                    "1h".into(),
+                )),
+                required_capabilities: heimdall_contract::request::RequiredCapabilities::default(),
+                request_id: heimdall_contract::ids::RequestId::parse(id).unwrap(),
+                interaction: heimdall_contract::request::InteractionMode::NonInteractive,
+                wait: heimdall_contract::request::WaitMode::default(),
+                connection: None,
+                context: None,
+                covered_only: false,
+            })
+        };
+        // The recorded runner: the forwarder's answer, naming the grant.
+        let env = d.handle_as(&owner(), ensure(Some(&runner), "r1")).await;
+        assert_eq!(env.code, Code::Accepted, "{env:?}");
+        assert_eq!(env.data["error"]["resource"]["kind"], "grant");
+        assert_eq!(forwarder.offered.load(Ordering::SeqCst), 1);
+        // Another environment: offered, not taken; the local answer stands (not managed here).
+        let other = EnvironmentId::from_random_bytes([8; 16]);
+        let env = d.handle_as(&owner(), ensure(Some(&other), "r2")).await;
+        assert_eq!(env.code, Code::NotFound, "{env:?}");
+        assert_eq!(forwarder.offered.load(Ordering::SeqCst), 2);
+        // No environment named, a paired owner, a limited caller: never offered.
+        let _ = d.handle_as(&owner(), ensure(None, "r3")).await;
+        let paired = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+            remote_client: Some(heimdall_contract::ids::ClientId::from_random_bytes([9; 16])),
+        });
+        let env = d.handle_as(&paired, ensure(Some(&runner), "r4")).await;
+        assert_ne!(env.code, Code::Accepted, "{env:?}");
+        let limited = Caller::unattended(CallerContext::local(
+            PrincipalRef::UnixUser { uid: 501 },
+            ClientRole::LimitedConsumer,
+        ));
+        let env = d.handle_as(&limited, ensure(Some(&runner), "r5")).await;
+        assert_ne!(env.code, Code::Accepted, "{env:?}");
+        assert_eq!(forwarder.offered.load(Ordering::SeqCst), 2);
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ `controller_record.*` through the dispatcher: the local
+    /// owner's put and remove write `remote_environment_pins`; a paired caller (owner role
+    /// included) and a local limited caller are refused before anything is written; a
+    /// dispatcher with no store answers `driver_unavailable`.
+    #[tokio::test]
+    async fn controller_records_are_written_for_the_local_owner_only() {
+        use heimdall_contract::controller_record::{
+            ControllerRecordRequest, ManagementHop, ManagementRoute, RemoteEnvironmentPin,
+        };
+        let unwired = dispatcher().await;
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        let d = unwired.clone().with_controller_records(store.clone());
+        let runner = EnvironmentId::from_random_bytes([7; 16]);
+        let pin = RemoteEnvironmentPin {
+            environment: runner.clone(),
+            destination: heimdall_contract::ids::DestinationId::parse("lab").unwrap(),
+            route: ManagementRoute {
+                runner: ManagementHop {
+                    hostname: "10.0.0.7".into(),
+                    port: None,
+                    account: heimdall_contract::ids::AccountName::parse("runner").unwrap(),
+                    host_keys: vec![
+                        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOVqmTNbwT7nI0Fk7RzD4mgwA0ke2pRDCgUNQ0FHb8xn"
+                            .into(),
+                    ],
+                },
+                jump: None,
+            },
+            client: heimdall_contract::ids::ClientId::from_random_bytes([8; 16]),
+            role: heimdall_contract::remote::Role::Owner,
+            key_fingerprint: heimdall_contract::ids::KeyFingerprint::parse(&format!(
+                "SHA256:{}",
+                "K".repeat(43)
+            ))
+            .unwrap(),
+            label: None,
+            pinned_at: t0(),
+        };
+        let put = Request::ControllerRecord(ControllerRecordRequest::PutEnvironment {
+            record: pin.clone(),
+        });
+        let remove = Request::ControllerRecord(ControllerRecordRequest::RemoveEnvironment {
+            environment: runner.clone(),
+        });
+        let rows = || {
+            store
+                .transaction(|tx| tx.remote_environment_pins())
+                .unwrap()
+        };
+        let paired = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+            remote_client: Some(heimdall_contract::ids::ClientId::from_random_bytes([9; 16])),
+        });
+        let limited = Caller::unattended(CallerContext::local(
+            PrincipalRef::UnixUser { uid: 501 },
+            ClientRole::LimitedConsumer,
+        ));
+        // ⟨ruling Q5; ADR-0006 §18.7 item 9⟩ A paired caller (owner role included).
+        let env = d.handle_as(&paired, put.clone()).await;
+        assert_eq!(env.code, Code::InteractionRequired, "{env:?}");
+        assert_eq!(
+            env.data["error"]["reason"],
+            heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED
+        );
+        assert_eq!(env.data["error"]["effect_status"], "none");
+        let env = d.handle_as(&limited, put.clone()).await;
+        assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+        assert_eq!(env.data["error"]["effect_status"], "none");
+        assert!(rows().is_empty(), "a refused caller wrote nothing");
+        let env = unwired.handle_as(&owner(), put.clone()).await;
+        assert_eq!(
+            env.data["error"]["reason"],
+            heimdall_contract::envelope::reason::DRIVER_UNAVAILABLE
+        );
+        let env = d.handle_as(&owner(), put).await;
+        assert_eq!(env.code, Code::Ok, "{env:?}");
+        let stored = rows();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(
+            serde_json::from_str::<RemoteEnvironmentPin>(&stored[0].1).unwrap(),
+            pin
+        );
+        let env = d.handle_as(&owner(), remove.clone()).await;
+        assert_eq!(env.data["removed"], true, "{env:?}");
+        assert!(rows().is_empty());
+        let env = d.handle_as(&owner(), remove).await;
+        assert_eq!(env.data["removed"], false);
+    }
+
+    /// ⟨M06 W3⟩ The route and transport forms through a dispatcher that serves them: the
+    /// owner's route add and remove change the stored list, a limited caller is refused,
+    /// the helper's lookup without a served binding is `route_binding_ambiguous`, a widening
+    /// `transport enable --serve` writes nothing, `disable` narrows, and `routes/1` and
+    /// `transport-iroh/1` are offered only by such a dispatcher.
+    #[tokio::test]
+    async fn route_and_transport_forms_are_served_when_wired() {
+        use heimdall_contract::ids::{AccountName, DestinationId, IdentityId};
+        use heimdall_contract::route::{RouteRequest, RouteSpec, TransportRequest};
+        let unwired = dispatcher().await;
+        assert!(
+            !unwired
+                .offered_capabilities()
+                .contains(capability::ROUTES_V1)
+        );
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        let lab = DestinationId::parse("lab").unwrap();
+        store
+            .transaction(|tx| {
+                tx.upsert_destination(&heimdall_domain::catalog::DestinationRecord {
+                    id: lab.clone(),
+                    alias: "lab".into(),
+                    revision: 1,
+                    definition: heimdall_domain::catalog::DestinationDefinition::Managed {
+                        hostname: "lab.lan".into(),
+                        port: None,
+                        account: AccountName::parse("deploy").unwrap(),
+                        identity: IdentityId::from_random_bytes([1; 16]),
+                        jump: None,
+                    },
+                    label: None,
+                    updated_at: t0(),
+                })
+            })
+            .unwrap();
+        let supervisor = Arc::new(crate::supervise_transport::TransportSupervisor::new(
+            store.clone(),
+            Arc::new(crate::supervise_transport::NoPeerEndpoints),
+            crate::supervise_transport::SupervisorConfig::new(
+                crate::supervise_transport::ServeSpawn {
+                    program: std::path::PathBuf::from("/nonexistent/heimdall"),
+                    args: Vec::new(),
+                    env: Vec::new(),
+                },
+            ),
+        ));
+        let keys: Arc<dyn heimdall_app::transport::TransportKeys> =
+            Arc::new(crate::supervise_transport::CredentialKeys(Arc::new(
+                heimdall_credential::iroh::FixtureIrohStore::new(),
+            )));
+        let d = unwired.with_route_transport(Arc::new(
+            crate::supervise_transport::RouteTransport::new(
+                store.clone(),
+                supervisor,
+                keys,
+                Arc::new(heimdall_app::transport::NoPeerEnrollments),
+            ),
+        ));
+        let offer = d.offered_capabilities();
+        assert!(
+            offer.contains(capability::ROUTES_V1) && offer.contains(capability::TRANSPORT_IROH_V1)
+        );
+        let add = Request::Route(RouteRequest::Add {
+            destination: lab.clone(),
+            route: RouteSpec::Direct {
+                host: "10.0.0.9".into(),
+                port: Some(2222),
+            },
+            exposure: None,
+            request_id: heimdall_contract::ids::RequestId::parse("req_route").unwrap(),
+        });
+        let limited = Caller::unattended(CallerContext::local(
+            PrincipalRef::UnixUser { uid: 501 },
+            ClientRole::LimitedConsumer,
+        ));
+        let refused = d.handle_as(&limited, add.clone()).await;
+        assert_eq!(refused.code, Code::CapabilityUnavailable, "{refused:?}");
+        let routes = || store.transaction(|tx| tx.destination_routes(&lab)).unwrap();
+        assert!(routes().is_empty());
+        let added = d.handle_as(&owner(), add).await;
+        assert_eq!(added.code, Code::Ok, "{added:?}");
+        assert_eq!(
+            routes().len(),
+            2,
+            "the one-element case made explicit, plus the new route"
+        );
+        let new_route =
+            heimdall_contract::ids::RouteId::parse(added.data["route"].as_str().unwrap()).unwrap();
+        let removed = d
+            .handle_as(
+                &owner(),
+                Request::Route(RouteRequest::Remove {
+                    destination: lab.clone(),
+                    route: new_route,
+                }),
+            )
+            .await;
+        assert_eq!(removed.code, Code::Ok, "{removed:?}");
+        assert!(routes().is_empty(), "back to the one-element case");
+        let lookup = d
+            .handle_as(
+                &owner(),
+                Request::Route(RouteRequest::ResolveBinding {
+                    destination: lab.clone(),
+                    account: AccountName::parse("deploy").unwrap(),
+                    endpoint: "/run/agent.sock".into(),
+                }),
+            )
+            .await;
+        assert_eq!(
+            lookup.data["error"]["reason"],
+            heimdall_contract::envelope::reason::ROUTE_BINDING_AMBIGUOUS,
+            "{lookup:?}"
+        );
+        let serve = d
+            .handle_as(
+                &owner(),
+                Request::Transport(TransportRequest::Enable {
+                    serve: true,
+                    exposure: None,
+                    request_id: heimdall_contract::ids::RequestId::parse("req_serve").unwrap(),
+                }),
+            )
+            .await;
+        assert_eq!(serve.code, Code::CapabilityUnavailable, "{serve:?}");
+        assert_eq!(serve.data["error"]["effect_status"], "none");
+        #[cfg(feature = "iroh")]
+        assert_eq!(
+            serve.data["error"]["reason"],
+            heimdall_contract::envelope::reason::EXPOSURE_UNCONSENTED
+        );
+        assert!(
+            store
+                .transaction(|tx| tx.transport_keys())
+                .unwrap()
+                .is_empty(),
+            "a widening generated and recorded nothing"
+        );
+        // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `transport.rotate` is the local owner's alone: a
+        // paired caller (owner role included) is refused `INTERACTION_REQUIRED` with
+        // `local_owner_required`, before any effect; a limited local caller has no access;
+        // the local owner reaches the rotation (here nothing is enabled).
+        let rotate = || Request::Transport(TransportRequest::Rotate);
+        let paired = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+            remote_client: Some(heimdall_contract::ids::ClientId::from_random_bytes([9; 16])),
+        });
+        let env = d.handle_as(&paired, rotate()).await;
+        assert_eq!(env.code, Code::InteractionRequired, "{env:?}");
+        assert_eq!(
+            env.data["error"]["reason"],
+            heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED
+        );
+        assert_eq!(env.data["error"]["effect_status"], "none");
+        let limited = Caller::unattended(CallerContext::local(
+            PrincipalRef::UnixUser { uid: 501 },
+            ClientRole::LimitedConsumer,
+        ));
+        let env = d.handle_as(&limited, rotate()).await;
+        assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+        let env = d.handle_as(&owner(), rotate()).await;
+        assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+        assert_eq!(
+            env.data["error"]["reason"],
+            heimdall_contract::envelope::reason::TRANSPORT_UNAVAILABLE,
+            "the local owner reaches the rotation: nothing is enabled"
+        );
+        assert!(
+            store
+                .transaction(|tx| tx.transport_keys())
+                .unwrap()
+                .is_empty()
+        );
+        let disable = d
+            .handle_as(&owner(), Request::Transport(TransportRequest::Disable))
+            .await;
+        assert_eq!(disable.code, Code::Ok, "{disable:?}");
     }
 
     /// Only the owner may take or lift the fence.

@@ -18,6 +18,8 @@ pub mod autostart;
 pub mod config;
 // ⟨M03⟩ m03-plan U7 (ADR-0008 D8): owned masters, owned dedicated connections, policies.
 pub mod connections;
+// ⟨M06 W3 host⟩ The controller's sync and issuance driver, hosted in the runtime.
+pub mod controller_host;
 // ⟨M05⟩ U5 (ADR-0011 §3): personal default and ordinary-`ssh` activation.
 pub mod default_activation;
 pub mod dispatch;
@@ -28,6 +30,8 @@ pub mod launcher;
 pub mod managed_store;
 // ⟨M06⟩ W2 (ADR-0012 §3.6–§3.11): the runner runtime's paired sessions.
 pub mod paired;
+// ⟨M06⟩ W3 (ADR-0012 §2.3 item 1): the serve allowlist's source, paired clients' endpoints.
+pub mod paired_endpoints;
 // ⟨M06⟩ W2: the runner's production authorized_keys writer (ADR-0012 §3.5).
 pub mod paired_lines;
 pub mod paths;

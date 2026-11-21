@@ -31,11 +31,12 @@
 //!
 //! **⟨M06⟩ M06 commands (m06-plan U0, U2; ADR-0006 §18; the G08 naming ruling).**
 //! `environment` (op `remote_environment`; no `env` alias) and `device` are answered by
-//! `m06_cmd` through the controller operations (`heimdall_app::remote_env`); `route
-//! add|remove|prefer` and `transport enable|disable|adopt-roost` are registered and answered
-//! with the "not available in this build (planned for M06)" usage envelope, before any
-//! runtime contact, until U56 lands. `route connect` (the `ProxyCommand` helper rendered
-//! configuration names) is hidden and frozen. There is no top-level `roost`.
+//! `m06_cmd` through the controller operations (`heimdall_app::remote_env`); ⟨M06 W3⟩ `route
+//! add|remove|prefer` and `transport enable|disable|adopt-roost` are sent to the runtime
+//! (`route.*`, `transport.*`), and `transport rotate` rotates K_iroh and announces it to the
+//! recorded runners. `route connect` (the `ProxyCommand` helper rendered configuration
+//! names) and `transport serve` (the supervised serve child) are hidden and frozen. There is
+//! no top-level `roost`.
 //!
 //! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
 //! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007

@@ -4,9 +4,16 @@
 //!
 //! **The files.** Every `AuthorizedKeysFile` sshd consults for the account, in order
 //! ([`AuthorizedKeysFiles::new`]: the verified policy's list, or sshd's default pair under
-//! the account's `~/.ssh`, [`AuthorizedKeysFiles::sshd_default`]). All of them are read, so
+//! the account's `~/.ssh`, [`AuthorizedKeysFiles::sshd_default`]). All of them are read
+//! (bounded, regular files only, no link followed: a symlinked, oversized or non-regular
+//! listed file is `Io`, so nothing is activated on it; M06-W2-R03), so
 //! `key_already_authorized` and the join's line fingerprint see every line sshd would; only
 //! the first, the account's own `authorized_keys`, is ever written.
+//!
+//! ⟨M06 W3⟩ **One safety module.** The steps below are not implemented here: they are
+//! `heimdall_registry::keys_file` (ADR-0012 §3.5 ⟨2026-11-21⟩, ruling 8 (c)), the module the
+//! enrollment writer's post-write checks use too. This file supplies the list of files, the
+//! selector ("a key line marked for this client") and the port's error mapping.
 //!
 //! **The procedure** (ADR-0005 §3.3, as `heimdall_registry`'s scripts carry it out for an
 //! enrolled account, applied locally):
@@ -21,7 +28,7 @@
 //!   target's identity, size, modification time and content are checked again, and any
 //!   difference abandons the edit (`Changed`). A file that is a symlink, has more than one
 //!   link, is not owned by the account, or sits in a directory writable by others is not
-//!   rewritten.
+//!   written at all (⟨W3⟩ the add included, as the enrollment script refuses it).
 //! * **After every write** the file is read again; anything but the expected post-image (an
 //!   administrator append landing after ours is allowed) is `Changed` and nothing is retried
 //!   blindly: the invitation service's reconciler makes the line match the database later.
@@ -38,6 +45,8 @@
 use std::path::{Path, PathBuf};
 
 use heimdall_contract::ids::ClientId;
+#[cfg(unix)]
+use heimdall_registry::keys_file::{self, local};
 #[cfg(unix)]
 use heimdall_remote::line::parse_key_line;
 use heimdall_remote::line::{KeysFile, LineIoError, ManagementLines};
@@ -81,207 +90,70 @@ impl AuthorizedKeysFiles {
     }
 }
 
-// Unix-only: the writer that calls these is `#[cfg(unix)]` (Windows has no runner in V1).
+/// Whether one raw line (without its `\n`) is marked for `client`: the selector this
+/// writer gives the shared module.
+// Unix-only: the writer that calls it is `#[cfg(unix)]` (Windows has no runner in V1).
 #[cfg(unix)]
-/// Whether one raw line (without its `\n`) is marked for `client`.
 fn marked(raw: &[u8], client: &ClientId) -> bool {
     std::str::from_utf8(raw)
         .is_ok_and(|t| parse_key_line(t).is_some_and(|k| k.is_marked_for(client)))
 }
 
-// Unix-only: the writer that calls these is `#[cfg(unix)]` (Windows has no runner in V1).
+/// The shared module's outcome as the port's: a concurrent change is `Changed`; a file
+/// the module refuses (a link, a non-regular or oversized file, a directory writable by
+/// others) and every other failure is `Io`.
 #[cfg(unix)]
-/// The lines of `bytes` marked for `client`, without their terminator.
-fn marked_lines(bytes: &[u8], client: &ClientId) -> Vec<Vec<u8>> {
-    bytes
-        .split_inclusive(|b| *b == b'\n')
-        .map(|p| p.strip_suffix(b"\n").unwrap_or(p))
-        .filter(|l| marked(l, client))
-        .map(<[u8]>::to_vec)
-        .collect()
-}
-
-// Unix-only: the writer that calls these is `#[cfg(unix)]` (Windows has no runner in V1).
-#[cfg(unix)]
-/// `bytes` minus exactly the lines marked for `client` (each with its own `\n`); every
-/// other byte kept, in order.
-fn without_marked(bytes: &[u8], client: &ClientId) -> Vec<u8> {
-    let mut out = Vec::with_capacity(bytes.len());
-    for piece in bytes.split_inclusive(|b| *b == b'\n') {
-        if !marked(piece.strip_suffix(b"\n").unwrap_or(piece), client) {
-            out.extend_from_slice(piece);
-        }
-    }
-    out
-}
-
-// Unix-only: the writer that calls these is `#[cfg(unix)]` (Windows has no runner in V1).
-#[cfg(unix)]
-/// `base` followed by `line` on its own line.
-fn with_line(base: &[u8], line: &str) -> Vec<u8> {
-    let mut out = base.to_vec();
-    if !out.is_empty() && !out.ends_with(b"\n") {
-        out.push(b'\n');
-    }
-    out.extend_from_slice(line.as_bytes());
-    out.push(b'\n');
-    out
-}
-
-// Unix-only: the writer that calls these is `#[cfg(unix)]` (Windows has no runner in V1).
-#[cfg(unix)]
-/// The post-write check (module docs): after a put, exactly one line marked for the client
-/// and equal to `line`, and the rest starting with `base`; after a remove (`line: None`),
-/// no marked line and the content starting with `base`.
-fn check_post(
-    post: &[u8],
-    base: &[u8],
-    client: &ClientId,
-    line: Option<&str>,
-) -> Result<(), LineIoError> {
-    let have = marked_lines(post, client);
-    let ok = match line {
-        Some(l) => have.len() == 1 && have[0] == l.as_bytes(),
-        None => have.is_empty(),
-    };
-    if ok && without_marked(post, client).starts_with(base) {
-        Ok(())
-    } else {
-        Err(LineIoError::Changed)
+fn port_error(e: local::LocalError) -> LineIoError {
+    match e {
+        local::LocalError::Changed => LineIoError::Changed,
+        local::LocalError::Refused(_) | local::LocalError::Io(_) => LineIoError::Io,
     }
 }
 
-#[cfg(unix)]
-mod unix {
-    use std::fs::{File, Metadata, OpenOptions};
-    use std::io::{Read as _, Write as _};
-    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
-    use std::path::Path;
-
-    use heimdall_remote::line::LineIoError;
-
-    fn io(_: std::io::Error) -> LineIoError {
-        LineIoError::Io
+impl AuthorizedKeysFiles {
+    /// One listed file's bytes, read through the shared module: bounded, a regular file
+    /// only, no link followed, never blocking on a FIFO or device (M06-W2-R03). A missing
+    /// file is empty; anything refused is `Io`, so the caller fails closed.
+    #[cfg(unix)]
+    fn read_listed(path: &Path) -> Result<Vec<u8>, LineIoError> {
+        local::read(path, local::MAX_BYTES)
+            .map(|s| s.map_or_else(Vec::new, |s| s.bytes))
+            .map_err(port_error)
     }
 
-    /// The written file's content and metadata, read without following a symlink; `None`
-    /// when it does not exist.
-    pub(super) fn read_nofollow(path: &Path) -> Result<Option<(Vec<u8>, Metadata)>, LineIoError> {
-        let mut f = match OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(path)
-        {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(io(e)),
-        };
-        let meta = f.metadata().map_err(io)?;
-        if !meta.is_file() {
-            return Err(LineIoError::Io);
+    /// Off Unix there is no writer and no runner (module docs); the read is bounded.
+    #[cfg(not(unix))]
+    fn read_listed(path: &Path) -> Result<Vec<u8>, LineIoError> {
+        use std::io::Read as _;
+        const MAX_BYTES: u64 = 128 * 1024;
+        match std::fs::symlink_metadata(path) {
+            Ok(m) if m.is_file() && m.len() <= MAX_BYTES => {}
+            Ok(_) => return Err(LineIoError::Io),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(_) => return Err(LineIoError::Io),
         }
         let mut bytes = Vec::new();
-        f.read_to_end(&mut bytes).map_err(io)?;
-        Ok(Some((bytes, meta)))
-    }
-
-    /// The directory holding `path`: owned by the account and not writable by others.
-    fn owner_only_dir(path: &Path) -> Result<&Path, LineIoError> {
-        let dir = path.parent().ok_or(LineIoError::Io)?;
-        let meta = std::fs::symlink_metadata(dir).map_err(io)?;
-        if !meta.is_dir()
-            || meta.uid() != heimdall_localenv::sys::current_uid()
-            || meta.mode() & 0o022 != 0
-        {
+        std::fs::File::open(path)
+            .map_err(|_| LineIoError::Io)?
+            .take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| LineIoError::Io)?;
+        if bytes.len() as u64 > MAX_BYTES {
             return Err(LineIoError::Io);
         }
-        Ok(dir)
+        Ok(bytes)
     }
 
-    /// A regular file with one link, owned by the account.
-    fn rewritable(meta: &Metadata) -> bool {
-        meta.is_file() && meta.nlink() == 1 && meta.uid() == heimdall_localenv::sys::current_uid()
-    }
-
-    /// Create the file exclusively (0600) and write `bytes` in one write.
-    pub(super) fn create(path: &Path, bytes: &[u8]) -> Result<(), LineIoError> {
-        owner_only_dir(path)?;
-        let mut f = heimdall_localenv::sys::create_owner_only_exclusive(path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::AlreadyExists {
-                LineIoError::Changed
-            } else {
-                LineIoError::Io
+    /// No file Heimdall does not write holds a line marked for `client` (module docs).
+    #[cfg(unix)]
+    fn others_unmarked(&self, client: &ClientId) -> Result<(), LineIoError> {
+        for path in &self.files[1..] {
+            let bytes = Self::read_listed(path)?;
+            if !keys_file::selected(&bytes, |l| marked(l, client)).is_empty() {
+                return Err(LineIoError::Io);
             }
-        })?;
-        f.write_all(bytes).map_err(io)?;
-        f.sync_all().map_err(io)
-    }
-
-    /// Append `bytes` in one write through `O_APPEND` (never a rewrite).
-    pub(super) fn append(path: &Path, bytes: &[u8]) -> Result<(), LineIoError> {
-        owner_only_dir(path)?;
-        let mut f = OpenOptions::new()
-            .append(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(path)
-            .map_err(io)?;
-        let meta = f.metadata().map_err(io)?;
-        if !meta.is_file() || meta.uid() != heimdall_localenv::sys::current_uid() {
-            return Err(LineIoError::Io);
         }
-        f.write_all(bytes).map_err(io)?;
-        f.sync_all().map_err(io)
-    }
-
-    fn same_file(a: &Metadata, b: &Metadata) -> bool {
-        a.dev() == b.dev()
-            && a.ino() == b.ino()
-            && a.len() == b.len()
-            && a.mtime() == b.mtime()
-            && a.mtime_nsec() == b.mtime_nsec()
-    }
-
-    /// Compare, then rename (module docs): replace `path` (read as `pre` with `pre_meta`) by
-    /// `post`, abandoning the edit when the file changed in between.
-    pub(super) fn rewrite(
-        path: &Path,
-        pre: &[u8],
-        pre_meta: &Metadata,
-        post: &[u8],
-    ) -> Result<(), LineIoError> {
-        let dir = owner_only_dir(path)?;
-        if !rewritable(pre_meta) {
-            return Err(LineIoError::Io);
-        }
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or(LineIoError::Io)?;
-        let suffix = heimdall_app::ids::random_u64().map_err(|_| LineIoError::Io)?;
-        let tmp = dir.join(format!(".{name}.hm-{suffix:016x}"));
-        let written = (|| {
-            let mut f = heimdall_localenv::sys::create_owner_only_exclusive(&tmp).map_err(io)?;
-            f.write_all(post).map_err(io)?;
-            f.sync_all().map_err(io)
-        })();
-        if let Err(e) = written {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(e);
-        }
-        // The compare step, immediately before the rename.
-        let unchanged = match read_nofollow(path) {
-            Ok(Some((now, now_meta))) => now == pre && same_file(pre_meta, &now_meta),
-            _ => false,
-        };
-        if !unchanged {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(LineIoError::Changed);
-        }
-        if let Err(e) = std::fs::rename(&tmp, path) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(io(e));
-        }
-        File::open(dir).and_then(|d| d.sync_all()).map_err(io)
+        Ok(())
     }
 }
 
@@ -290,17 +162,13 @@ impl ManagementLines for AuthorizedKeysFiles {
         self.files
             .iter()
             .map(|path| {
-                let bytes = match std::fs::read(path) {
-                    Ok(b) => b,
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-                    Err(_) => return Err(LineIoError::Io),
-                };
                 Ok(KeysFile {
                     name: path
                         .file_name()
                         .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
                     // A file that is not text fails closed.
-                    text: String::from_utf8(bytes).map_err(|_| LineIoError::Io)?,
+                    text: String::from_utf8(Self::read_listed(path)?)
+                        .map_err(|_| LineIoError::Io)?,
                 })
             })
             .collect()
@@ -309,52 +177,23 @@ impl ManagementLines for AuthorizedKeysFiles {
     #[cfg(unix)]
     fn put(&self, client: &ClientId, line: &str) -> Result<(), LineIoError> {
         self.others_unmarked(client)?;
-        let path = self.written();
-        let base = match unix::read_nofollow(path)? {
-            None => {
-                unix::create(path, &with_line(&[], line))?;
-                Vec::new()
-            }
-            Some((pre, meta)) => {
-                let have = marked_lines(&pre, client);
-                if have.len() == 1 && have[0] == line.as_bytes() {
-                    return Ok(());
-                }
-                if have.is_empty() {
-                    let lead: &[u8] = if pre.is_empty() || pre.ends_with(b"\n") {
-                        b""
-                    } else {
-                        b"\n"
-                    };
-                    let mut bytes = lead.to_vec();
-                    bytes.extend_from_slice(line.as_bytes());
-                    bytes.push(b'\n');
-                    unix::append(path, &bytes)?;
-                    pre
-                } else {
-                    let base = without_marked(&pre, client);
-                    unix::rewrite(path, &pre, &meta, &with_line(&base, line))?;
-                    base
-                }
-            }
-        };
-        let post = unix::read_nofollow(path)?.ok_or(LineIoError::Changed)?.0;
-        check_post(&post, &base, client, Some(line))
+        local::put(
+            self.written(),
+            heimdall_localenv::sys::current_uid(),
+            |l| marked(l, client),
+            line.as_bytes(),
+        )
+        .map(|_| ())
+        .map_err(port_error)
     }
 
     #[cfg(unix)]
     fn remove(&self, client: &ClientId) -> Result<(), LineIoError> {
-        let path = self.written();
-        let Some((pre, meta)) = unix::read_nofollow(path)? else {
-            return Ok(());
-        };
-        if marked_lines(&pre, client).is_empty() {
-            return Ok(());
-        }
-        let base = without_marked(&pre, client);
-        unix::rewrite(path, &pre, &meta, &base)?;
-        let post = unix::read_nofollow(path)?.ok_or(LineIoError::Changed)?.0;
-        check_post(&post, &base, client, None)
+        local::remove(self.written(), heimdall_localenv::sys::current_uid(), |l| {
+            marked(l, client)
+        })
+        .map(|_| ())
+        .map_err(port_error)
     }
 
     #[cfg(not(unix))]
@@ -365,22 +204,6 @@ impl ManagementLines for AuthorizedKeysFiles {
     #[cfg(not(unix))]
     fn remove(&self, _: &ClientId) -> Result<(), LineIoError> {
         Err(LineIoError::Unavailable)
-    }
-}
-
-impl AuthorizedKeysFiles {
-    /// No file Heimdall does not write holds a line marked for `client` (module docs).
-    #[cfg(unix)]
-    fn others_unmarked(&self, client: &ClientId) -> Result<(), LineIoError> {
-        for path in &self.files[1..] {
-            match std::fs::read(path) {
-                Ok(b) if !marked_lines(&b, client).is_empty() => return Err(LineIoError::Io),
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err(LineIoError::Io),
-            }
-        }
-        Ok(())
     }
 }
 
@@ -534,12 +357,19 @@ mod tests {
         let a = ClientId::from_random_bytes([0xa1; 16]);
         f.put(&a, &line(&a, 1, Some("2026-11-21T09:15:00Z")))
             .unwrap();
-        let (pre, meta) = unix::read_nofollow(f.written()).unwrap().unwrap();
-        let admin = format!("{}admin-line\n", String::from_utf8(pre.clone()).unwrap());
+        let uid = heimdall_localenv::sys::current_uid();
+        let pre = local::read(f.written(), local::MAX_BYTES).unwrap().unwrap();
+        let admin = format!(
+            "{}admin-line\n",
+            String::from_utf8(pre.bytes.clone()).unwrap()
+        );
         std::fs::write(f.written(), &admin).unwrap();
-        let post = with_line(&without_marked(&pre, &a), &line(&a, 1, None));
+        let post = keys_file::with_line(
+            &keys_file::without(&pre.bytes, |l| marked(l, &a)),
+            line(&a, 1, None).as_bytes(),
+        );
         assert_eq!(
-            unix::rewrite(f.written(), &pre, &meta, &post),
+            local::rewrite(f.written(), uid, &pre, &post).map_err(port_error),
             Err(LineIoError::Changed)
         );
         assert_eq!(std::fs::read_to_string(f.written()).unwrap(), admin);
@@ -550,5 +380,50 @@ mod tests {
             1,
             "no temporary file is left"
         );
+    }
+
+    /// ⟨M06-W2-R03; the reviewer's probe `review_probe_read_all_and_others_unmarked_follow_
+    /// symlink`, inverted⟩ Every listed file is read bounded, as a regular file, with no
+    /// link followed: a symlinked `authorized_keys2` (even to a file holding the client's
+    /// line), an oversized one, a directory and a FIFO each fail `read_all` and `put`
+    /// closed (`Io`) without blocking, and the written file is untouched.
+    #[test]
+    fn listed_files_are_read_bounded_and_never_through_a_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = files(dir.path());
+        let a = ClientId::from_random_bytes([0xa1; 16]);
+        let active = line(&a, 1, None);
+        let second = f.files()[1].clone();
+        let outside = dir.path().join("outside");
+        std::fs::write(&outside, format!("{active}\n")).unwrap();
+        let refused = |what: &str| {
+            assert_eq!(f.read_all().map(|_| ()), Err(LineIoError::Io), "{what}");
+            assert_eq!(f.put(&a, &active), Err(LineIoError::Io), "{what}");
+            assert!(!f.written().exists(), "{what}: nothing written");
+        };
+        std::os::unix::fs::symlink(&outside, &second).unwrap();
+        refused("symlinked authorized_keys2");
+        std::fs::remove_file(&second).unwrap();
+        std::fs::write(&second, vec![b'#'; local::MAX_BYTES + 1]).unwrap();
+        refused("oversized authorized_keys2");
+        std::fs::remove_file(&second).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        refused("directory");
+        std::fs::remove_dir(&second).unwrap();
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&second)
+                .status()
+                .unwrap()
+                .success()
+        );
+        refused("fifo");
+        std::fs::remove_file(&second).unwrap();
+        // The written file itself, symlinked: the read fails closed too.
+        std::os::unix::fs::symlink(&outside, f.written()).unwrap();
+        assert_eq!(f.read_all().map(|_| ()), Err(LineIoError::Io));
+        std::fs::remove_file(f.written()).unwrap();
+        f.put(&a, &active).unwrap();
+        assert_eq!(f.read_all().unwrap()[0].text, format!("{active}\n"));
     }
 }

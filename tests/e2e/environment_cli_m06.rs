@@ -328,20 +328,20 @@ fn environment_commands_use_the_controller_records_under_the_instance_lock() {
     assert_eq!(add.code, 3, "{add:?}");
     assert_eq!(add.json()["code"], "INTERACTION_REQUIRED");
     assert!(!rt.mgmt.exists());
-    // With the runtime running, a writing command refuses before any effect (no request
-    // form carries a controller record, so the runtime cannot write it for the CLI).
+    // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ With the runtime running, a writing command no longer
+    // refuses `SERVICE_UNAVAILABLE`: it reads the records and would write them through the
+    // runtime (`controller_record.*`), so an unknown runner is `NOT_FOUND` as without one.
     let started = rt.run(&["--json", "access", "default-profile", "--clear"]);
     assert_eq!(started.code, 0, "{started:?}");
-    let held = rt.run(&[
+    let beside = rt.run(&[
         "--json",
         "--non-interactive",
         "environment",
         "remove",
         "env_0123",
     ]);
-    assert_eq!(held.code, 5, "{held:?}");
-    let env = held.json();
-    assert_eq!(env["code"], "SERVICE_UNAVAILABLE");
+    let env = beside.json();
+    assert_eq!(env["code"], "NOT_FOUND", "{beside:?}");
     assert_eq!(env["data"]["error"]["effect_status"], "none");
     // Reads still work beside the runtime.
     assert_eq!(rt.run(&["--json", "environment", "status"]).code, 0);

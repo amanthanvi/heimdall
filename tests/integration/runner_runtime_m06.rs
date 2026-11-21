@@ -478,6 +478,200 @@ fn a_tombstone_refuses_installation_and_grant_end_destroys_the_key() {
     assert!(!w.runner.issuance().destroy(&w.grant));
 }
 
+/// A signature authority that admits nothing: the listing test never signs.
+struct NoAuthority;
+
+#[async_trait::async_trait]
+impl heimdall_app::ports::SignatureAuthority for NoAuthority {
+    async fn precheck(
+        &self,
+        _facts: &heimdall_app::ports::SignatureRequestFacts,
+    ) -> Result<(), heimdall_app::ports::SignRefusal> {
+        Err(heimdall_app::ports::SignRefusal::Unavailable)
+    }
+    async fn admit(
+        &self,
+        _facts: &heimdall_app::ports::SignatureRequestFacts,
+    ) -> Result<heimdall_app::managed::SignPermit, heimdall_app::ports::SignRefusal> {
+        Err(heimdall_app::ports::SignRefusal::Unavailable)
+    }
+}
+
+/// ⟨M06 W3; ADR-0012 §4.1, §4.6⟩ The runner's working keys are served by the existing local
+/// binding-endpoint machinery over the runner's own signer table: a binding of the runner
+/// grant lists exactly the certificates runner issuance accepted, never the plain K_env and
+/// never a key the runner did not generate (another grant's, or the controller's CA); a
+/// binding of a grant the runner holds no K_env for gets no signer; nothing is listed before
+/// an install, and grant end empties the endpoint.
+#[test]
+fn the_runner_binding_endpoint_serves_only_runner_owned_keys() {
+    use heimdall_app::ports::SignerEndpoint;
+    use heimdall_contract::ids::{BindingId, GrantId};
+    let w = world();
+    w.trust(&w.ca_a, &controller_a());
+    let g = w.generation();
+    let iss = w.runner.issuance();
+    let p = iss.prepare(&controller_a(), &w.grant, g).unwrap();
+    let binding = BindingId::from_random_bytes([0x61; 16]);
+    let authority: std::sync::Arc<dyn heimdall_app::ports::SignatureAuthority> =
+        std::sync::Arc::new(NoAuthority);
+    let limits = heimdall_credential::signer::SignerLimits::default();
+    let signer = iss
+        .keys()
+        .binding_signer(&binding, &w.grant, authority.clone(), limits)
+        .expect("the runner holds K_env for its grant");
+    assert_eq!(signer.endpoint(), &SignerEndpoint::Binding(binding.clone()));
+    let table = iss.keys().table();
+    let listed = |b: &BindingId| table.list(&SignerEndpoint::Binding(b.clone()));
+    assert!(listed(&binding).is_empty(), "nothing before an install");
+    w.good_sample();
+    let cert = w.sign(&w.ca_a, &p, &pair("h1"), grant_bound_until(&w));
+    iss.install(&controller_a(), &w.grant, g, &cert).unwrap();
+    let ids = listed(&binding);
+    assert_eq!(ids.len(), 1, "exactly the installed certificate");
+    let installed = ssh_key::Certificate::from_openssh(cert.trim())
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+    assert_eq!(ids[0].0, installed);
+    assert!(ids[0].1.starts_with("heimdall:"));
+    // Never the plain K_env, never the controller's CA key.
+    let k_env = ssh_key::PublicKey::from_openssh(&p.public_key)
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+    let ca = w.ca_a.public_key().to_bytes().unwrap();
+    assert!(ids.iter().all(|(blob, _)| blob != &k_env && blob != &ca));
+    // Another grant: the runner generated no key for it, so no signer and nothing listed.
+    let other_grant = GrantId::from_random_bytes([0x62; 16]);
+    let other = BindingId::from_random_bytes([0x63; 16]);
+    assert!(
+        iss.keys()
+            .binding_signer(&other, &other_grant, authority, limits)
+            .is_none()
+    );
+    assert!(listed(&other).is_empty());
+    // Grant end: the endpoint lists nothing.
+    assert!(iss.destroy(&w.grant));
+    assert!(listed(&binding).is_empty());
+}
+
+/// ⟨M06 W3; runner Q7; ADR-0012 §4.1, §4.6⟩ The managed wiring's route for a runner grant's
+/// binding (`service::RunnerBindingEndpoints`, what `LateRegistry` asks first): its endpoint
+/// is created over the runner signer's own table, and a real agent client on its socket is
+/// listed exactly the grant's K_env certificate (never the plain K_env, never the CA's key);
+/// a binding of a grant the runner holds no K_env for, or one the store does not know, is not
+/// routed here at all; after `destroy` the endpoint lists nothing and no new one is created.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_runner_grants_binding_endpoint_lists_its_k_env_identity_only() {
+    use heimdall_contract::ids::{BindingId, GrantId};
+    use heimdall_credential::endpoints::{EndpointLayout, EndpointPlacement};
+    use heimdall_runtime::service::RunnerBindingEndpoints;
+    use heimdall_testkit::agent::{AgentConnection, Endpoint};
+    let w = world();
+    w.trust(&w.ca_a, &controller_a());
+    let g = w.generation();
+    let p = w
+        .runner
+        .issuance()
+        .prepare(&controller_a(), &w.grant, g)
+        .unwrap();
+    let binding = BindingId::from_random_bytes([0x71; 16]);
+    let other = BindingId::from_random_bytes([0x72; 16]);
+    let other_grant = GrantId::from_random_bytes([0x73; 16]);
+    let unknown = BindingId::from_random_bytes([0x74; 16]);
+    let (grant, b, o) = (w.grant.clone(), binding.clone(), other.clone());
+    // A short runtime directory: a socket path stays under the platform's limit.
+    let dir = tempfile::Builder::new()
+        .prefix("hm-rb")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let stop = tokio_util::sync::CancellationToken::new();
+    let endpoints = RunnerBindingEndpoints::new(
+        std::sync::Arc::clone(&w.runner),
+        EndpointLayout::unix(dir.path()).unwrap(),
+        heimdall_ipc::endpoint::ExpectedOwner::Uid(heimdall_ipc::unix::current_uid()),
+        std::sync::Arc::new(NoAuthority),
+        heimdall_credential::signer::SignerLimits::default(),
+        stop.clone(),
+        std::sync::Arc::new(move |id: &BindingId| {
+            if id == &b {
+                Some(grant.clone())
+            } else if id == &o {
+                Some(other_grant.clone())
+            } else {
+                None
+            }
+        }),
+    );
+    // Not the runner's: another grant's binding and an unknown binding create nothing here.
+    assert!(
+        endpoints
+            .create(&other, 1, &EndpointPlacement::Native)
+            .is_none()
+    );
+    assert!(
+        endpoints
+            .create(&unknown, 1, &EndpointPlacement::Native)
+            .is_none()
+    );
+    assert!(endpoints.endpoint(&other).is_none());
+    assert_eq!(endpoints.runner_grant(&binding), Some(w.grant.clone()));
+    let endpoint = endpoints
+        .create(&binding, 1, &EndpointPlacement::Native)
+        .expect("a runner grant's binding is routed to the runner signer")
+        .unwrap();
+    assert_eq!(endpoints.endpoint(&binding), Some(endpoint.clone()));
+    let socket = Endpoint::UnixSocket(endpoint.locator.clone().into());
+    let list = |socket: Endpoint| async move {
+        tokio::task::spawn_blocking(move || {
+            AgentConnection::connect(&socket, Duration::from_secs(10))
+                .unwrap()
+                .list()
+                .unwrap()
+        })
+        .await
+        .unwrap()
+    };
+    assert!(
+        list(socket.clone()).await.is_empty(),
+        "nothing before an install"
+    );
+    w.good_sample();
+    let cert = w.sign(&w.ca_a, &p, &pair("h1"), grant_bound_until(&w));
+    w.runner
+        .issuance()
+        .install(&controller_a(), &w.grant, g, &cert)
+        .unwrap();
+    let ids = list(socket.clone()).await;
+    let installed = ssh_key::Certificate::from_openssh(cert.trim())
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+    assert_eq!(ids.len(), 1, "exactly the grant's K_env certificate");
+    assert_eq!(ids[0].0, installed);
+    let k_env = ssh_key::PublicKey::from_openssh(&p.public_key)
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+    let ca = w.ca_a.public_key().to_bytes().unwrap();
+    assert!(ids.iter().all(|(blob, _)| blob != &k_env && blob != &ca));
+    // Grant end: the same endpoint lists nothing, and the binding is no longer the runner's.
+    assert!(w.runner.issuance().destroy(&w.grant));
+    assert!(list(socket).await.is_empty(), "nothing after destroy");
+    assert_eq!(endpoints.runner_grant(&binding), None);
+    assert!(
+        endpoints
+            .create(&binding, 2, &EndpointPlacement::Native)
+            .is_none()
+    );
+    assert!(endpoints.remove(&binding, 1).unwrap());
+    assert!(endpoints.endpoint(&binding).is_none());
+    endpoints.stop_all();
+    stop.cancel();
+}
+
 /// The dispatcher entry: only a paired controller is served, and the forms route.
 #[test]
 fn only_a_paired_controller_is_served() {
@@ -501,16 +695,31 @@ fn only_a_paired_controller_is_served() {
         )
         .unwrap();
     assert_eq!(done.data["nonce"].as_str().unwrap().len(), 32);
+    let prepare = RunnerRequest::PrepareRemoteGrant {
+        grant: w.grant.clone(),
+        grant_generation: w.generation(),
+    };
+    // ⟨M06 W3; ADR-0006 §18.7 item 11⟩ A session that has not read the authority report is
+    // refused before any issuance check (the per-session gate); once it has, the form routes
+    // to issuance, which refuses this untrusted controller.
     let e = w
         .runner
-        .handle(
-            &World::caller(&controller_a()),
-            1,
-            &RunnerRequest::PrepareRemoteGrant {
-                grant: w.grant.clone(),
-                grant_generation: w.generation(),
-            },
-        )
+        .handle(&World::caller(&controller_a()), 1, &prepare)
+        .unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some(reason::RESYNC_PENDING));
+    w.runner.note_report_served(&controller_a(), 1);
+    let e = w
+        .runner
+        .handle(&World::caller(&controller_a()), 2, &prepare)
+        .unwrap_err();
+    assert_eq!(
+        e.reason.as_deref(),
+        Some(reason::RESYNC_PENDING),
+        "the gate is per session"
+    );
+    let e = w
+        .runner
+        .handle(&World::caller(&controller_a()), 1, &prepare)
         .unwrap_err();
     assert_eq!(e.reason.as_deref(), Some(reason::ISSUER_UNTRUSTED));
     let e = w

@@ -3,7 +3,8 @@
 //! Expected values are transcribed from ADR-0012 §9 and §18.1, never from the code under
 //! test:
 //! * `rev6_reason_golden`: the M06 reasons and their codes (`golden/rev6-reasons.golden.json`)
-//!   against `envelope::reason::M06`, both ways; every one `CAPABILITY_UNAVAILABLE`; no
+//!   against `envelope::reason::M06`, both ways; every one `CAPABILITY_UNAVAILABLE` except
+//!   revision 6.3's `local_owner_required` (`INTERACTION_REQUIRED`); no
 //!   reason string reused across M02–M06 (`route_dependency_out_of_scope` stays M04's); the
 //!   pending reason has no code and is not an error reason; the code table is unchanged;
 //! * `rev6_request_forms`: one request of every revision-6 form
@@ -101,11 +102,19 @@ fn rev6_reason_golden() {
     assert_eq!(got, want, "M06 reasons and codes");
     assert_eq!(
         got.len(),
-        24,
-        "revision 6.2 added mgmt_key_store_unavailable"
+        26,
+        "revision 6.2 added mgmt_key_store_unavailable; revision 6.3 added \
+         local_owner_required and resync_pending"
     );
     for (r, c) in &got {
-        assert_eq!(c, "CAPABILITY_UNAVAILABLE", "{r}");
+        // Revision 6.3 (ADR-0006 §18.7): `local_owner_required` is the one M06 reason under
+        // `INTERACTION_REQUIRED`; every other is `CAPABILITY_UNAVAILABLE`.
+        let code = if r == reason::LOCAL_OWNER_REQUIRED {
+            "INTERACTION_REQUIRED"
+        } else {
+            "CAPABILITY_UNAVAILABLE"
+        };
+        assert_eq!(c, code, "{r}");
         assert!(
             r.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
             "{r}"
@@ -144,6 +153,18 @@ fn rev6_reason_golden() {
     assert!(pending.is_disjoint(&m06) && pending.is_disjoint(&earlier));
     assert_eq!(Code::all().len(), 30, "the code table is unchanged");
 }
+
+/// The revision-6 ops whose every form needs a revision-6 capability (the golden's
+/// `requests`). Revision 6.3 (ADR-0006 §18.7) adds `runner_local`; its other new op,
+/// `controller_record`, needs no capability and is the golden's `no_capability_requests`.
+const REVISION_6_OPS: [&str; 6] = [
+    "remote_environment",
+    "device",
+    "route",
+    "transport",
+    "runner",
+    "runner_local",
+];
 
 #[test]
 fn rev6_request_forms() {
@@ -186,15 +207,7 @@ fn rev6_request_forms() {
     let mut from_schema = BTreeSet::new();
     for alt in doc["oneOf"].as_array().unwrap() {
         let op = alt["properties"]["op"]["const"].as_str().unwrap();
-        if ![
-            "remote_environment",
-            "device",
-            "route",
-            "transport",
-            "runner",
-        ]
-        .contains(&op)
-        {
+        if !REVISION_6_OPS.contains(&op) {
             continue;
         }
         let def = alt["$ref"]
@@ -207,8 +220,58 @@ fn rev6_request_forms() {
         }
     }
     assert_eq!(ops_actions, from_schema, "the golden covers every form");
-    // 21 forms at revision 6; revision 6.1 (M06 wave 1) adds `remote_environment.activation_probe`.
-    assert_eq!(from_schema.len(), 22);
+    // 21 forms at revision 6; revision 6.1 (M06 wave 1) adds `remote_environment.activation_probe`;
+    // revision 6.3 (M06 wave 3) adds `remote_environment.rotate_endpoint`,
+    // `remote_environment.runner_policy_recheck`, `transport.rotate` and the six
+    // `runner_local` forms.
+    assert_eq!(from_schema.len(), 31);
+    // Revision 6.3's `controller_record` forms (ADR-0006 §18.7 item 6): revision-6 forms
+    // that need no capability beyond `operations/1`, so they are not in `requests`. Every
+    // other assertion of the loop above holds for them.
+    let mut record_actions = BTreeSet::new();
+    for row in golden["no_capability_requests"].as_array().unwrap() {
+        let what = row["what"].as_str().unwrap();
+        let v = &row["json"];
+        let r: Request = exact(what, v, Some("request"));
+        assert!(r.is_revision_6(), "{what}");
+        assert_eq!(r.kind(), row["kind"].as_str().unwrap(), "{what}");
+        assert_eq!(r.admission(), Admission::Synchronous, "{what}");
+        assert_eq!(row["admission"], "synchronous", "{what}");
+        assert_eq!(r.required_capability(), None, "{what}");
+        assert!(row["capability"].is_null(), "{what}");
+        assert!(!r.requires_attended_session(), "{what}");
+        assert!(!r.is_widening_policy_action(), "{what}");
+        let mut extra = v.clone();
+        extra["later"] = json!(1);
+        let back: Request = serde_json::from_value(extra).unwrap();
+        assert_eq!(back, r, "{what}");
+        assert_eq!(v["op"], "controller_record", "{what}");
+        record_actions.insert(v["action"].as_str().unwrap().to_owned());
+    }
+    let record_def = doc["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|alt| alt["properties"]["op"]["const"] == "controller_record")
+        .and_then(|alt| alt["$ref"].as_str())
+        .and_then(|r| doc.pointer(r.trim_start_matches('#')))
+        .unwrap();
+    let record_schema: BTreeSet<String> = record_def["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            a["properties"]["action"]["const"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(
+        record_actions, record_schema,
+        "every controller_record form"
+    );
+    assert_eq!(record_schema.len(), 2);
     // No RemoteDecide (ADR-0012 §3.10) and no serve-child lease or suspend message (§2.3):
     // no op or action of the whole request schema names one.
     let mut every_name = BTreeSet::new();
@@ -243,15 +306,7 @@ fn rev6_request_forms() {
     // principal or a producer (the producer of an effect is the session's client).
     for alt in doc["oneOf"].as_array().unwrap() {
         let op = alt["properties"]["op"]["const"].as_str().unwrap();
-        if ![
-            "remote_environment",
-            "device",
-            "route",
-            "transport",
-            "runner",
-        ]
-        .contains(&op)
-        {
+        if !REVISION_6_OPS.contains(&op) {
             continue;
         }
         let def = alt["$ref"]

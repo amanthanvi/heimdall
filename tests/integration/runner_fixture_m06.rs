@@ -150,7 +150,8 @@ fn owner_record(c: &ClientId, b: char) -> RemoteClientRecord {
 pub struct World {
     pub store: Arc<Store>,
     pub clock: Arc<VirtualClock>,
-    pub runner: RunnerRuntime,
+    /// Shared: the runner's binding endpoints hold it too (⟨M06 W3⟩ runner Q7).
+    pub runner: Arc<RunnerRuntime>,
     pub env: EnvironmentId,
     pub grant: GrantId,
     pub ca_a: SecretCaKey,
@@ -248,7 +249,7 @@ pub fn world() -> World {
     World {
         store,
         clock,
-        runner,
+        runner: Arc::new(runner),
         env,
         grant,
         ca_a: SecretCaKey::generate().unwrap(),

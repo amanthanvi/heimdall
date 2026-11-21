@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::Timestamp;
 use crate::ids::{
-    AccountName, ClientId, DestinationId, EffectId, EnvironmentId, GrantId, InvitationId,
-    KeyFingerprint, PolicyId, RequestId,
+    AccountName, CaFingerprint, ClientId, DestinationId, EffectId, EnvironmentId, GrantId,
+    InvitationId, IrohEndpointId, KeyFingerprint, PolicyId, RequestId,
 };
 use crate::trust::PolicyTarget;
 
@@ -159,6 +159,11 @@ pub enum RemoteEnvironmentRequest {
         public_key: String,
         /// Idempotency key (ADR-0006 §7).
         request_id: RequestId,
+        /// ⟨rev6.3⟩ Whether the invited client may reach this runner over Iroh (ADR-0012
+        /// §2.3 item 1). Part of the invitation's exact request, so the runner-local widening
+        /// decision confirms it. Omitted when false.
+        #[serde(default, skip_serializing_if = "is_false")]
+        iroh_admission: bool,
     },
     /// ⟨rev6.1⟩ The activation probe (ADR-0012 §3.2): the enrolled key's first session
     /// echoes the pending record's nonce through the bridge, which reports the client ID
@@ -182,6 +187,42 @@ pub enum RemoteEnvironmentRequest {
         role: Role,
         /// The invitation's generation.
         generation: u64,
+        /// ⟨rev6.3⟩ The joining client's own Iroh endpoint ID, sent over its K_mgmt session
+        /// (ADR-0012 §2.3 item 1). Recorded in the join's commit transaction only when the
+        /// invitation has `iroh_admission`; otherwise the join is refused
+        /// (`INVALID_REQUEST`, effect `none`). Omitted when none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        iroh_endpoint: Option<IrohEndpointId>,
+        /// ⟨rev6.3; ADR-0006 §18.7 item 16⟩ What the joining device's four confirming probes
+        /// observed on its real connection (ADR-0012 §3.2). The runner checks it before the
+        /// join's commit: a disagreeing observation refuses the join
+        /// (`management_sshd_unsupported`) and leaves the runner owner-only; a limited-role
+        /// join without one is refused; owner joins are exempt. Omitted when none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        probe: Option<ProbeObservation>,
+    },
+    /// ⟨rev6.3⟩ Set or replace the session's own client's Iroh endpoint ID (ADR-0012 §2.3
+    /// item 1): only when its consumed invitation had `iroh_admission`. A replacement moves
+    /// the runner's admission authority generation in the same transaction; the same
+    /// endpoint again is a no-op. Any role, the session's own client only. Kind
+    /// `remote_environment.rotate_endpoint`.
+    RotateEndpoint {
+        /// The runner environment.
+        environment: EnvironmentId,
+        /// The client's new endpoint ID.
+        endpoint: IrohEndpointId,
+    },
+    /// ⟨rev6.3; ADR-0006 §18.7 item 19⟩ An owner controller's recheck of a runner that went
+    /// owner-only: what its four confirming probes observed now, over a real management
+    /// session (ADR-0012 §3.2). The runner records it as evidence only when its own
+    /// `sshd -T` check verifies now and the observation agrees; otherwise it refuses with
+    /// the reason. It lifts nothing: only the attended `runner_local.policy_recheck` at the
+    /// runner does. Owner only. Kind `remote_environment.runner_policy_recheck`.
+    RunnerPolicyRecheck {
+        /// The runner environment.
+        environment: EnvironmentId,
+        /// What the probes observed.
+        probe: ProbeObservation,
     },
     /// Revoke one client on the runner (ADR-0012 §3.11): tombstone, close Iroh admission,
     /// then remove the line. Narrowing; no decision. Kind
@@ -224,6 +265,10 @@ impl RemoteEnvironmentRequest {
             RemoteEnvironmentRequest::Join { .. } => "remote_environment.join",
             RemoteEnvironmentRequest::ActivationProbe { .. } => {
                 "remote_environment.activation_probe"
+            }
+            RemoteEnvironmentRequest::RotateEndpoint { .. } => "remote_environment.rotate_endpoint",
+            RemoteEnvironmentRequest::RunnerPolicyRecheck { .. } => {
+                "remote_environment.runner_policy_recheck"
             }
             RemoteEnvironmentRequest::RevokeClient { .. } => "remote_environment.revoke_client",
             RemoteEnvironmentRequest::Remove { .. } => "remote_environment.remove",
@@ -385,6 +430,104 @@ impl RunnerRequest {
             RunnerRequest::DeliverEffect { .. } => "runner.deliver_effect",
             RunnerRequest::AuthorityReport => "runner.authority_report",
         }
+    }
+}
+
+// --- ⟨rev6.3⟩ the runner-local requests (ADR-0006 §18.7 item 7) ---------------------------
+
+/// Maximum size of a CA public key line in `trust_issuer` (the 16 KiB public-key bound,
+/// [`crate::catalog::MAX_PUBLIC_KEY_BYTES`]).
+pub const MAX_CA_PUBLIC_KEY_BYTES: usize = crate::catalog::MAX_PUBLIC_KEY_BYTES;
+
+/// `Request::RunnerLocal`, tagged by `action` (ADR-0006 §18.7 item 7; ADR-0012 §3.10, §4.2,
+/// §4.4): the runner's own `issuer_trust` and time-source designation, decided at the
+/// runner. The widening forms (`trust_issuer`, `designate_time_source`) are served only to
+/// a local owner in an attended session, after the CLI's typed confirmation; the narrowing
+/// forms (`distrust_issuer`, `clear_time_source`) to a local owner. A paired session is
+/// refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "action", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RunnerLocalRequest {
+    /// Trust a controller's CA as an issuer of this runner's grants (widening). Kind
+    /// `runner_local.trust_issuer`.
+    TrustIssuer {
+        /// The paired owner client whose issuer holds the CA.
+        controller: ClientId,
+        /// The CA's OpenSSH public key line (public text; the runner computes the
+        /// fingerprint), at most [`MAX_CA_PUBLIC_KEY_BYTES`].
+        ca_public_key: String,
+        /// Idempotency key (ADR-0006 §7).
+        request_id: RequestId,
+    },
+    /// Designate a paired owner client as this runner's trusted time source (widening;
+    /// ADR-0012 §4.4). Kind `runner_local.designate_time_source`.
+    DesignateTimeSource {
+        /// The paired owner client.
+        client: ClientId,
+        /// Idempotency key (ADR-0006 §7).
+        request_id: RequestId,
+    },
+    /// Stop trusting a CA (narrowing). Kind `runner_local.distrust_issuer`.
+    DistrustIssuer {
+        /// The CA's fingerprint.
+        ca_fingerprint: CaFingerprint,
+    },
+    /// Clear the time-source designation (narrowing). Kind `runner_local.clear_time_source`.
+    ClearTimeSource,
+    /// ⟨M06-W2-R02⟩ `heimdall remote init` while this runner's runtime runs (widening):
+    /// enroll a controller's management key as an owner client, or repair the enrollment of
+    /// the same key (its management line is written again; ADR-0012 §3.3). With
+    /// `iroh_endpoint`, the owner client is also admitted over Iroh and the endpoint is
+    /// recorded when it has none; an existing endpoint is never replaced (ADR-0006 §18.7
+    /// item 8). Kind `runner_local.enroll_owner`.
+    EnrollOwner {
+        /// The client ID the controller records for itself.
+        client: ClientId,
+        /// The controller's management key (`ssh-ed25519 <base64>`, public text), at most
+        /// [`MAX_CA_PUBLIC_KEY_BYTES`].
+        public_key: String,
+        /// The controller device's Iroh endpoint ID. Omitted when none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        iroh_endpoint: Option<IrohEndpointId>,
+        /// Idempotency key (ADR-0006 §7).
+        request_id: RequestId,
+    },
+    /// ⟨ADR-0006 §18.7 item 19⟩ `heimdall remote policy recheck` while this runner's
+    /// runtime runs (widening): lift the owner-only downgrade, on the evidence an owner
+    /// controller's `remote_environment.runner_policy_recheck` left. Refused without
+    /// evidence, with evidence older than 15 minutes, or with evidence from before a later
+    /// downgrade. Kind `runner_local.policy_recheck`.
+    PolicyRecheck {
+        /// Idempotency key (ADR-0006 §7).
+        request_id: RequestId,
+    },
+}
+
+impl RunnerLocalRequest {
+    /// The operation-kind name.
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            RunnerLocalRequest::TrustIssuer { .. } => "runner_local.trust_issuer",
+            RunnerLocalRequest::DesignateTimeSource { .. } => "runner_local.designate_time_source",
+            RunnerLocalRequest::DistrustIssuer { .. } => "runner_local.distrust_issuer",
+            RunnerLocalRequest::ClearTimeSource => "runner_local.clear_time_source",
+            RunnerLocalRequest::EnrollOwner { .. } => "runner_local.enroll_owner",
+            RunnerLocalRequest::PolicyRecheck { .. } => "runner_local.policy_recheck",
+        }
+    }
+
+    /// Whether the form widens authority (attended local owner only).
+    #[must_use]
+    pub fn is_widening(&self) -> bool {
+        matches!(
+            self,
+            RunnerLocalRequest::TrustIssuer { .. }
+                | RunnerLocalRequest::DesignateTimeSource { .. }
+                | RunnerLocalRequest::EnrollOwner { .. }
+                | RunnerLocalRequest::PolicyRecheck { .. }
+        )
     }
 }
 
@@ -553,6 +696,26 @@ pub struct RemoteEffectEventPayload {
     pub target: EffectTarget,
 }
 
+/// ⟨rev6.3; ADR-0006 §18.7 item 16⟩ What a joining device's confirming probes observed
+/// through its enrolled key (ADR-0012 §3.2 "Behaviour probes confirm the result"): `Join.probe`.
+/// The joining device makes the report itself, so it catches a misconfigured sshd, not a
+/// hostile joiner. Every field is stated: none has a default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProbeObservation {
+    /// A PTY request was refused.
+    pub pty_refused: bool,
+    /// A `-W` forward was refused.
+    pub forward_refused: bool,
+    /// Agent forwarding, offered with a disposable agent, was refused.
+    pub agent_forward_refused: bool,
+    /// A canary `SetEnv` reached the bridge.
+    pub setenv_canary_delivered: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -581,6 +744,26 @@ mod tests {
             serde_json::to_string(&Role::Requester).unwrap(),
             "\"requester\""
         );
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 16⟩ `Join.probe` is omitted when none, so an earlier
+    /// join document is byte-identical; an observation states all four fields.
+    #[test]
+    fn a_joins_probe_observation_is_additive_and_complete() {
+        let earlier = r#"{"action":"join","environment":"env_aa","invitation":"inv_1","role":"viewer","generation":2}"#;
+        let join: RemoteEnvironmentRequest = serde_json::from_str(earlier).unwrap();
+        assert!(matches!(
+            &join,
+            RemoteEnvironmentRequest::Join { probe: None, .. }
+        ));
+        assert_eq!(serde_json::to_string(&join).unwrap(), earlier);
+        let observed = r#"{"pty_refused":true,"forward_refused":true,"agent_forward_refused":true,"setenv_canary_delivered":false}"#;
+        let with = earlier.replace('}', &format!(r#","probe":{observed}}}"#));
+        let join: RemoteEnvironmentRequest = serde_json::from_str(&with).unwrap();
+        assert_eq!(serde_json::to_string(&join).unwrap(), with);
+        // No field of an observation has a default.
+        let partial = with.replace(r#""pty_refused":true,"#, "");
+        assert!(serde_json::from_str::<RemoteEnvironmentRequest>(&partial).is_err());
     }
 
     /// The typed targets' wire forms and their generation.

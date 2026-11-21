@@ -65,6 +65,12 @@ pub struct PreparedRemoteGrant {
     /// The grant's issuer pin, when a certificate was already installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_issuer: Option<PinnedIssuer>,
+    /// ⟨M06 W3; ADR-0006 §18.7 item 12⟩ The runner's standing policy the grant was admitted
+    /// under, so the controller's barrier can refuse a paused or cut-off scope before it
+    /// reserves. Omitted when the grant has none (a decision confirmed runner-locally). The
+    /// runner's install check stays authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<heimdall_contract::ids::PolicyId>,
 }
 
 /// What the controller asked and pinned, against which a runner's answer is held.
@@ -99,6 +105,9 @@ pub struct RemoteIssuanceRequest {
     pub pairs: Vec<AccessPairRef>,
     /// No reservation's `valid_before` may be later.
     pub bound: Timestamp,
+    /// ⟨M06 W3⟩ The runner's policy the grant was admitted under, as the runner stated it
+    /// (the barrier's earlier refusal only; never an authority input).
+    pub policy: Option<heimdall_contract::ids::PolicyId>,
 }
 
 /// Why a runner's prepared answer is refused (nothing is reserved).
@@ -302,6 +311,7 @@ pub fn verify_prepared(
         subject_fingerprint: fingerprint,
         pairs: prepared.pairs.clone(),
         bound: prepared.bound,
+        policy: prepared.policy.clone(),
     })
 }
 
@@ -328,6 +338,364 @@ pub fn install_request(
         grant_generation: request.grant_generation,
         certificate: certificate.to_owned(),
     })
+}
+
+// --- ⟨M06 W3⟩ the `remote` reservation kind (ADR-0005 §3.5 "Remote reservations") ---------
+
+/// Whether ADR-0012's role table lets `role` issue for a runner's grants (condition 1): the
+/// role must hold the permission the table gives the two issuance forms
+/// (`runner.prepare_remote_grant`, `runner.install_certificate`), as
+/// [`heimdall_remote::roles::classify`] states it. Owner in today's table; nothing here names
+/// a role.
+#[must_use]
+pub fn role_may_issue(role: heimdall_contract::remote::Role, grant: &GrantId) -> bool {
+    use heimdall_contract::request::Request;
+    use heimdall_remote::roles::{Effect, NoConsents, classify};
+    let forms = [
+        RunnerRequest::PrepareRemoteGrant {
+            grant: grant.clone(),
+            grant_generation: 0,
+        },
+        RunnerRequest::InstallCertificate {
+            grant: grant.clone(),
+            grant_generation: 0,
+            certificate: String::new(),
+        },
+    ];
+    forms.into_iter().all(|form| {
+        let class = classify(&Request::Runner(form), &NoConsents);
+        class.effect != Effect::Unclassified && role.permissions().contains(&class.permission)
+    })
+}
+
+/// Why a reservation of kind `remote` is not admitted (ADR-0005 §3.5 "Remote reservations";
+/// the condition each variant belongs to is in its doc).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+#[non_exhaustive]
+pub enum RemoteReservationRefusal {
+    /// This store holds the grant itself: it is a local grant, never a remote reservation.
+    #[error("the grant is a local grant")]
+    LocalGrant,
+    /// Condition 1: no record of a paired runner environment the entry names.
+    #[error("no record of the runner environment")]
+    NoRunnerRecord,
+    /// Condition 1: this controller's role there may not issue (the role table).
+    #[error("this controller's role on the runner may not issue")]
+    RoleMayNotIssue,
+    /// Condition 2: the barrier is not open on the report the reservation rests on (another
+    /// report was read since, a session attempt failed, or the outbox is not drained).
+    #[error("the reconciliation barrier is not open for the runner")]
+    BarrierClosed,
+    /// Condition 3: no verified prepare answer is recorded for the grant.
+    #[error("no key binding from the runner's prepare answer")]
+    NoKeyBinding,
+    /// Condition 3: the entry's subject, generation or pair is not the one the answer bound.
+    #[error("the entry does not match the runner's key binding")]
+    KeyBindingMismatch,
+    /// Condition 4: the entry's CA is not the one the grant is pinned to, or it is not an
+    /// active CA of this controller.
+    #[error("the grant is not pinned to this controller's active CA")]
+    CaNotPinned,
+    /// Condition 5: the key ID does not name the runner's environment and the grant.
+    #[error("the key ID does not name the runner's environment")]
+    KeyId,
+    /// Condition 6: no record of a grant this controller delivered to that runner.
+    #[error("no record of a grant delivered to the runner")]
+    NotDelivered,
+    /// Condition 6: the principal is not one of the delivered pairs' (as narrowed by the
+    /// runner's answer).
+    #[error("the principal was not delivered")]
+    PrincipalNotDelivered,
+    /// Condition 6: an extension the delivered grant does not carry, or one no certificate
+    /// may carry.
+    #[error("an extension was not delivered")]
+    ExtensionNotDelivered,
+    /// Conditions 6 and 7: `valid_before` is past the grant's expiry, the effective cutoff
+    /// or the runner's reported latest possible credential expiry, or the validity is
+    /// longer than the delivered grant's window.
+    #[error("the validity exceeds the delivered grant's bound")]
+    ValidityTooLate,
+    /// Condition 7: the bound has passed, or the validity is empty.
+    #[error("the bound has passed")]
+    BoundPassed,
+    /// The grant is tombstoned in this ledger (a revoked grant is never issued for again).
+    #[error("the grant is revoked")]
+    GrantRevoked,
+}
+
+/// Everything a `remote` reservation is judged against, read in one snapshot of this
+/// controller's own store ([`crate::check::assess_remote_reservation`] assembles it).
+#[derive(Debug, Clone, Copy)]
+pub struct RemoteReservationView<'a> {
+    /// The reserved entry.
+    pub entry: &'a heimdall_domain::issuance::IssuanceEntry,
+    /// The SHA-256 fingerprint of the `sign` request's subject key, when it is one key line.
+    pub subject_fingerprint: Option<&'a str>,
+    /// Whether this store holds a grant of the entry's ID (then it is not a runner's).
+    pub local_grant: bool,
+    /// This controller's record of the runner environment the key ID names.
+    pub pin: Option<&'a heimdall_contract::controller_record::RemoteEnvironmentPin>,
+    /// This controller's record of the grant it delivered there.
+    pub delivered: Option<&'a heimdall_store::ext_effects::DeliveredGrant>,
+    /// What this controller last saw of the runner.
+    pub contact: &'a heimdall_store::ext_effects::RemoteContact,
+    /// Whether this controller's outbox for the runner has an unacknowledged effect.
+    pub outbox_pending: bool,
+    /// Whether the grant is tombstoned in this ledger.
+    pub tombstoned: bool,
+    /// Whether the entry's CA is registered `active` in this store.
+    pub ca_active: bool,
+    /// The issuer's accepted time.
+    pub now: Timestamp,
+}
+
+/// The environment a `heimdall:<environment>:<id>:<serial>` key ID names.
+#[must_use]
+pub fn key_id_environment(key_id: &str) -> Option<EnvironmentId> {
+    let mut parts = key_id.split(':');
+    match (parts.next(), parts.next()) {
+        (Some("heimdall"), Some(env)) => EnvironmentId::parse(env).ok(),
+        _ => None,
+    }
+}
+
+/// ADR-0005 §3.5 "Remote reservations": admit a reservation of kind `remote` only when
+/// conditions 1–7 all hold in `view`. Pure: it reads nothing and trusts nothing of the
+/// `sign` request but the subject's fingerprint, which must equal the bound key's.
+///
+/// # Errors
+///
+/// The first [`RemoteReservationRefusal`] that applies, in the amendment's order.
+pub fn admit_remote_reservation(
+    view: &RemoteReservationView<'_>,
+) -> Result<(), RemoteReservationRefusal> {
+    use RemoteReservationRefusal as R;
+    let entry = view.entry;
+    let bounds = &entry.bounds;
+    if view.local_grant {
+        return Err(R::LocalGrant);
+    }
+    // 1. The environment, and this controller's role there.
+    let pin = view.pin.ok_or(R::NoRunnerRecord)?;
+    if !role_may_issue(pin.role, &entry.grant) {
+        return Err(R::RoleMayNotIssue);
+    }
+    if view.tombstoned {
+        return Err(R::GrantRevoked);
+    }
+    // 6 (the record itself): nothing is signed for a grant this controller did not deliver.
+    let delivered = view
+        .delivered
+        .filter(|d| d.environment == pin.environment && d.grant == entry.grant)
+        .ok_or(R::NotDelivered)?;
+    // 3. The key binding of the verified prepare answer.
+    let binding = delivered.prepared.as_ref().ok_or(R::NoKeyBinding)?;
+    // 2. The barrier: the outbox drained, and the reservation rests on the report on record.
+    let report_current = view
+        .contact
+        .last_report
+        .as_ref()
+        .is_some_and(|r| r.at == binding.report_at);
+    if view.outbox_pending || view.contact.last_failure.is_some() || !report_current {
+        return Err(R::BarrierClosed);
+    }
+    if binding.grant_generation != entry.generation.0
+        || binding.key_fingerprint != bounds.subject_fingerprint
+        || view.subject_fingerprint != Some(bounds.subject_fingerprint.as_str())
+        || !binding.pairs.contains(&entry.pair)
+    {
+        return Err(R::KeyBindingMismatch);
+    }
+    // 4. The CA.
+    if bounds.ca_fingerprint.as_ref() != Some(&binding.ca_fingerprint) || !view.ca_active {
+        return Err(R::CaNotPinned);
+    }
+    // 5. The key ID names the runner's environment (and the grant).
+    if !crate::check::key_id_within_ceiling(
+        &bounds.key_id,
+        pin.environment.as_str(),
+        entry.grant.as_str(),
+    ) {
+        return Err(R::KeyId);
+    }
+    // 6. The content: this controller's record, narrowed by the runner's answer.
+    if !delivered.pairs.contains(&entry.pair)
+        || bounds.principal != principal_for(&entry.pair)
+        || !principal_within_ceiling(&bounds.principal)
+    {
+        return Err(R::PrincipalNotDelivered);
+    }
+    if !bounds.extensions.is_subset(&delivered.extensions)
+        || !crate::check::extensions_within_ceiling(bounds.extensions.iter())
+    {
+        return Err(R::ExtensionNotDelivered);
+    }
+    // 7. The validity bound.
+    if bounds.valid_before <= bounds.valid_after || view.now >= bounds.valid_before {
+        return Err(R::BoundPassed);
+    }
+    let bound = [Some(binding.runner_bound), binding.cutoff]
+        .into_iter()
+        .flatten()
+        .fold(delivered.expires_at, Timestamp::min);
+    let window =
+        std::time::Duration::try_from(delivered.expires_at.duration_since(delivered.delivered_at))
+            .unwrap_or(std::time::Duration::ZERO);
+    if bounds.valid_before > bound || !crate::check::validity_within_ceiling(bounds, window) {
+        return Err(R::ValidityTooLate);
+    }
+    Ok(())
+}
+
+/// This controller's issuer as remote issuance uses it
+/// (`heimdall_app::remote_status_driver::RemoteIssuer`): [`verify_prepared`], and a `sign` of
+/// kind `remote` through the issuer child, which admits the reservation only under
+/// [`admit_remote_reservation`].
+pub struct ChildRemoteIssuer {
+    store: std::sync::Arc<heimdall_store::Store>,
+    issuer: std::sync::Arc<dyn heimdall_app::ports::IssuerPort>,
+}
+
+impl std::fmt::Debug for ChildRemoteIssuer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChildRemoteIssuer").finish_non_exhaustive()
+    }
+}
+
+impl ChildRemoteIssuer {
+    /// The issuer over this controller's `store` (its CA registry) and its issuer child.
+    #[must_use]
+    pub fn new(
+        store: std::sync::Arc<heimdall_store::Store>,
+        issuer: std::sync::Arc<dyn heimdall_app::ports::IssuerPort>,
+    ) -> Self {
+        Self { store, issuer }
+    }
+}
+
+fn refused(message: impl Into<String>) -> heimdall_app::OpError {
+    heimdall_app::OpError::new(
+        heimdall_contract::code::Code::CapabilityUnavailable,
+        message,
+    )
+    .with_effect(heimdall_contract::envelope::EffectStatus::None)
+}
+
+#[async_trait::async_trait]
+impl heimdall_app::remote_status_driver::RemoteIssuer for ChildRemoteIssuer {
+    /// The one `active` CA registered in this store. No CA, or more than one active (the
+    /// store's rotation keeps one), refuses: nothing is signed with a guessed key.
+    fn ca(&self) -> Result<CaFingerprint, heimdall_app::OpError> {
+        use heimdall_contract::envelope::reason;
+        let unavailable = || {
+            refused("this controller has no active issuer CA")
+                .with_reason(reason::ISSUER_UNAVAILABLE)
+        };
+        // ⟨ADR-0005 §3.5 condition 9⟩ Exactly one active CA: remote issuance pauses while a
+        // rotation holds two.
+        let rotating = || {
+            refused(
+                "this controller has more than one active issuer CA: remote issuance pauses \
+                 during a CA rotation",
+            )
+            .with_reason(reason::ISSUER_UNAVAILABLE)
+        };
+        let active: Vec<CaFingerprint> = self
+            .store
+            .transaction(|tx| tx.issuers())
+            .map_err(|_| unavailable())?
+            .into_iter()
+            .filter(|i| i.state == heimdall_contract::issuer::CaState::Active)
+            .map(|i| i.ca_fingerprint)
+            .collect();
+        match active.as_slice() {
+            [one] => Ok(one.clone()),
+            [] => Err(unavailable()),
+            _ => Err(rotating()),
+        }
+    }
+
+    fn verify(
+        &self,
+        ask: &heimdall_app::remote_status_driver::RemoteAsk,
+        answer: serde_json::Value,
+        now: Timestamp,
+    ) -> Result<heimdall_app::remote_status_driver::RemoteSubject, heimdall_app::OpError> {
+        let prepared: PreparedRemoteGrant = serde_json::from_value(answer)
+            .map_err(|_| refused("the runner's prepare answer is not well formed"))?;
+        let expected = RemoteExpectation {
+            environment: ask.environment.clone(),
+            grant: ask.grant.clone(),
+            grant_generation: ask.grant_generation,
+            controller: ask.controller.clone(),
+            ca_fingerprint: ask.ca_fingerprint.clone(),
+        };
+        let request = verify_prepared(&expected, &prepared, now).map_err(|r| {
+            let e = refused(r.to_string());
+            match r.reason() {
+                Some(reason) => e.with_reason(reason),
+                None => e,
+            }
+        })?;
+        Ok(heimdall_app::remote_status_driver::RemoteSubject {
+            subject_public_key: request.subject_public_key,
+            subject_fingerprint: request.subject_fingerprint,
+            pairs: request.pairs,
+            bound: request.bound,
+            policy: request.policy,
+        })
+    }
+
+    async fn sign(
+        &self,
+        entry: &heimdall_domain::issuance::IssuanceEntry,
+        subject: &str,
+    ) -> Result<String, heimdall_app::OpError> {
+        use heimdall_app::ports::{IssuanceRef, IssuanceTable, IssuerError};
+        use heimdall_contract::code::Code;
+        use heimdall_contract::envelope::reason;
+        let reference = IssuanceRef {
+            table: IssuanceTable::Remote,
+            id: entry.id.clone(),
+        };
+        self.issuer
+            .sign(reference, subject)
+            .await
+            .map_err(|e| match e {
+                // ⟨M06 W3 grant-path⟩ The wire names the nearest existing reason only; the
+                // condition that refuses is read from this same store and named in the text.
+                IssuerError::Refused(r) => {
+                    match crate::check::explain_remote_refusal(
+                        &self.store,
+                        &entry.id,
+                        subject,
+                        entry.reserved_at,
+                    ) {
+                        Some(condition) => refused(format!(
+                            "the issuer refused the remote reservation ({r}): {condition}"
+                        )),
+                        None => refused(format!("the issuer refused the remote reservation: {r}")),
+                    }
+                }
+                IssuerError::Unavailable(why) => heimdall_app::OpError::new(
+                    Code::CapabilityUnavailable,
+                    "this controller's issuer is not available",
+                )
+                .with_reason(if why.is_empty() {
+                    reason::ISSUER_UNAVAILABLE
+                } else {
+                    &why
+                }),
+                IssuerError::Timeout => heimdall_app::OpError::new(
+                    Code::ServiceUnavailable,
+                    "the issuer did not answer in time",
+                ),
+                _ => heimdall_app::OpError::new(
+                    Code::InternalError,
+                    "the issuer's answer was not understood",
+                ),
+            })
+    }
 }
 
 #[cfg(test)]
@@ -386,6 +754,7 @@ mod tests {
             pairs: vec![pair("h1"), pair("h2")],
             bound: t("2026-11-21T12:00:00Z"),
             pinned_issuer: None,
+            policy: None,
         }
     }
 

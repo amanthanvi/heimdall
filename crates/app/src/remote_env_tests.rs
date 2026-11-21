@@ -157,18 +157,19 @@ impl FakeRegistry {
     }
 }
 
+#[async_trait::async_trait]
 impl EnvironmentRegistry for FakeRegistry {
     fn list(&self) -> Result<Vec<RemoteEnvironmentRecord>, OpError> {
         Ok(self.0.lock().unwrap().values().cloned().collect())
     }
-    fn put(&self, record: &RemoteEnvironmentRecord) -> Result<(), OpError> {
+    async fn put(&self, record: &RemoteEnvironmentRecord) -> Result<(), OpError> {
         self.0
             .lock()
             .unwrap()
             .insert(record.environment.clone(), record.clone());
         Ok(())
     }
-    fn remove(&self, environment: &EnvironmentId) -> Result<bool, OpError> {
+    async fn remove(&self, environment: &EnvironmentId) -> Result<bool, OpError> {
         Ok(self.0.lock().unwrap().remove(environment).is_some())
     }
 }
@@ -213,7 +214,18 @@ struct FakeSessions {
     unreachable: Vec<EnvironmentId>,
     /// When set, the hello reports the session's own recorded environment.
     echo_name: bool,
+    /// What each session's confirming probes report (`None`: inconclusive, or none run).
+    probe: Option<heimdall_contract::remote::ProbeObservation>,
 }
+
+/// What the probes observe on a restricted session.
+const PROBES_AGREE: heimdall_contract::remote::ProbeObservation =
+    heimdall_contract::remote::ProbeObservation {
+        pty_refused: true,
+        forward_refused: true,
+        agent_forward_refused: true,
+        setenv_canary_delivered: false,
+    };
 
 impl FakeSessions {
     fn new(hello: EnvironmentId, responder: Responder) -> Self {
@@ -226,6 +238,7 @@ impl FakeSessions {
             opened: Arc::default(),
             unreachable: Vec::new(),
             echo_name: false,
+            probe: Some(PROBES_AGREE),
         }
     }
     fn sent(&self) -> Vec<(SessionName, Request)> {
@@ -238,12 +251,16 @@ struct FakeSession {
     hello: SessionHello,
     responder: Arc<Responder>,
     sent: Arc<Mutex<Vec<(SessionName, Request)>>>,
+    probe: Option<heimdall_contract::remote::ProbeObservation>,
 }
 
 #[async_trait::async_trait]
 impl ManagementSession for FakeSession {
     fn hello(&self) -> &SessionHello {
         &self.hello
+    }
+    async fn probe(&mut self) -> Option<heimdall_contract::remote::ProbeObservation> {
+        self.probe
     }
     async fn call(&mut self, call: ManagementCall) -> Result<Envelope<serde_json::Value>, OpError> {
         let request = call.into_request();
@@ -276,6 +293,7 @@ impl ManagementSessions for FakeSessions {
             },
             responder,
             sent: self.sent.clone(),
+            probe: self.probe,
         }))
     }
 }
@@ -518,6 +536,7 @@ async fn locked_store_refuses_management_and_leaves_runners_alone() {
             public_key: NEW_KEY.into(),
             key_fingerprint: fp('N'),
             request_id: RequestId::parse("req_1").unwrap(),
+            iroh_admission: false,
         })
         .await
         .unwrap_err(),
@@ -591,6 +610,7 @@ async fn controller_never_sends_decide_and_returns_the_runners_decision_ref() {
         public_key: NEW_KEY.into(),
         key_fingerprint: fp('N'),
         request_id: RequestId::parse("req_invite_1").unwrap(),
+        iroh_admission: false,
     };
     match c.invite(&input).await.unwrap() {
         InviteOutcome::Pending {
@@ -786,6 +806,7 @@ async fn rotation_is_invite_then_revoke() {
             public_key: NEW_KEY.into(),
             key_fingerprint: fp('N'),
             request_id: RequestId::parse("req_rotate").unwrap(),
+            iroh_admission: false,
         })
         .await
         .unwrap()
@@ -816,6 +837,7 @@ async fn join_confirms_the_runner_then_sends_only_probe_and_join() {
         generation: 2,
         key_fingerprint: fp('K'),
         nonce: Some("abc".into()),
+        iroh_admission: false,
     };
     let w = World {
         key: FakeKey::existing(),
@@ -949,6 +971,7 @@ fn runner_errors_pass_through_and_bundles_round_trip() {
         generation: 2,
         key_fingerprint: fp('K'),
         nonce: None,
+        iroh_admission: false,
     };
     let text = serde_json::to_string(&bundle).unwrap();
     assert_eq!(
@@ -963,4 +986,463 @@ fn runner_errors_pass_through_and_bundles_round_trip() {
             .into_request(),
         Request::RemoteEnvironment(_)
     ));
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The controller's records written through the
+/// controller-record form ([`apply_controller_record`] over a real store: what the runtime's
+/// arm runs for the CLI while a runtime runs).
+struct FormRegistry {
+    store: heimdall_store::Store,
+    forms: Mutex<Vec<&'static str>>,
+}
+
+impl FormRegistry {
+    fn with(records: &[RemoteEnvironmentRecord]) -> Self {
+        let r = FormRegistry {
+            store: heimdall_store::Store::open_in_memory(Arc::new(heimdall_store::NoFaults))
+                .unwrap(),
+            forms: Mutex::new(Vec::new()),
+        };
+        for rec in records {
+            r.apply(&ControllerRecordRequest::PutEnvironment {
+                record: rec.clone(),
+            })
+            .unwrap();
+        }
+        r.forms.lock().unwrap().clear();
+        r
+    }
+
+    fn apply(&self, form: &ControllerRecordRequest) -> Result<serde_json::Value, OpError> {
+        self.forms.lock().unwrap().push(form.kind());
+        apply_controller_record(&self.store, form, &|line| {
+            FakeKey::default().fingerprint_of(line)
+        })
+    }
+
+    fn ids(&self) -> Vec<EnvironmentId> {
+        self.list()
+            .unwrap()
+            .into_iter()
+            .map(|r| r.environment)
+            .collect()
+    }
+}
+
+#[async_trait::async_trait]
+impl EnvironmentRegistry for FormRegistry {
+    fn list(&self) -> Result<Vec<RemoteEnvironmentRecord>, OpError> {
+        let rows = self
+            .store
+            .transaction(|tx| tx.remote_environment_pins())
+            .unwrap();
+        Ok(rows
+            .into_iter()
+            .map(|(_, json)| serde_json::from_str(&json).unwrap())
+            .collect())
+    }
+    async fn put(&self, record: &RemoteEnvironmentRecord) -> Result<(), OpError> {
+        self.apply(&ControllerRecordRequest::PutEnvironment {
+            record: record.clone(),
+        })
+        .map(drop)
+    }
+    async fn remove(&self, environment: &EnvironmentId) -> Result<bool, OpError> {
+        let v = self.apply(&ControllerRecordRequest::RemoveEnvironment {
+            environment: environment.clone(),
+        })?;
+        Ok(v["removed"] == serde_json::json!(true))
+    }
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The form's writer checks what it writes and round-trips
+/// the record byte for byte: a record without pins, or with a bad label, writes nothing.
+#[test]
+fn the_controller_record_form_writes_exactly_the_record() {
+    let r = FormRegistry::with(&[record(1)]);
+    assert_eq!(r.list().unwrap(), vec![record(1)]);
+    let mut bad = record(2);
+    bad.route.runner.host_keys.clear();
+    let e = r
+        .apply(&ControllerRecordRequest::PutEnvironment { record: bad })
+        .unwrap_err();
+    assert_eq!(e.code, Code::UsageError);
+    assert_eq!(e.effect_status, EffectStatus::None);
+    let mut label = record(3);
+    label.label = Some("bad\nlabel".into());
+    assert!(
+        r.apply(&ControllerRecordRequest::PutEnvironment { record: label })
+            .is_err()
+    );
+    assert_eq!(r.ids(), vec![env_id(1)]);
+    let gone = r
+        .apply(&ControllerRecordRequest::RemoveEnvironment {
+            environment: env_id(1),
+        })
+        .unwrap();
+    assert_eq!(gone["removed"], true);
+    let again = r
+        .apply(&ControllerRecordRequest::RemoveEnvironment {
+            environment: env_id(1),
+        })
+        .unwrap();
+    assert_eq!(again["removed"], false);
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ `device retire` with a running runtime (the records
+/// written through the controller-record form): each runner revoked is forgotten through
+/// `remove_environment`, and K_mgmt is destroyed only after every revocation succeeded; an
+/// unreachable runner keeps K_mgmt and its record until a retry finishes.
+#[tokio::test]
+async fn retirement_through_the_runtime_form_destroys_k_mgmt_last() {
+    let key = FakeKey::existing();
+    let registry = FormRegistry::with(&[record(1), record(2)]);
+    let catalog = FakeCatalog(None);
+    let bootstrap = FakeBootstrap::default();
+    let confirm = FakeConfirm::yes();
+    let mut sessions = FakeSessions::new(env_id(1), always_ok());
+    sessions.echo_name = true;
+    sessions.unreachable = vec![env_id(2)];
+    let ports = |sessions| ControllerPorts {
+        key: &key,
+        registry: &registry,
+        catalog: &catalog,
+        bootstrap: &bootstrap,
+        sessions,
+        confirm: &confirm,
+        now: Timestamp::UNIX_EPOCH,
+    };
+    let err = RemoteEnvController::new(ports(&sessions))
+        .retire()
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, Code::OutcomeUnknown);
+    assert_eq!(
+        key.destroyed(),
+        0,
+        "K_mgmt kept while a revocation is incomplete"
+    );
+    assert_eq!(registry.ids(), vec![env_id(2)]);
+    assert_eq!(
+        *registry.forms.lock().unwrap(),
+        ["controller_record.remove_environment"]
+    );
+    let mut sessions = FakeSessions::new(env_id(1), always_ok());
+    sessions.echo_name = true;
+    let outcome = RemoteEnvController::new(ports(&sessions))
+        .retire()
+        .await
+        .unwrap();
+    assert_eq!(outcome.revoked_on, vec![env_id(2)]);
+    assert!(outcome.key_destroyed);
+    assert_eq!(key.destroyed(), 1);
+    assert!(registry.ids().is_empty());
+    assert_eq!(registry.forms.lock().unwrap().len(), 2);
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 items 2–3⟩ `invite --iroh` puts `iroh_admission` in the exact
+/// request and the bundle carries it; `join` sends this device's endpoint ID only when the
+/// bundle admits Iroh (and none without a verified K_iroh).
+#[tokio::test]
+async fn iroh_admission_reaches_the_invite_and_the_join_carries_the_endpoint() {
+    let invited = Arc::new(Mutex::new(None::<bool>));
+    let seen = invited.clone();
+    let responder: Responder = Box::new(move |r: &Request| {
+        if let Request::RemoteEnvironment(RemoteEnvironmentRequest::Invite {
+            iroh_admission, ..
+        }) = r
+        {
+            *seen.lock().unwrap() = Some(*iroh_admission);
+            return ok(serde_json::json!({
+                "invitation": "inv_9",
+                "client": ClientId::from_random_bytes([9; 16]),
+                "generation": 3,
+            }));
+        }
+        ok(serde_json::json!({}))
+    });
+    let mut sessions = FakeSessions::new(env_id(1), responder);
+    sessions.echo_name = true;
+    let w = World {
+        key: FakeKey::existing(),
+        registry: FakeRegistry::with(&[record(1)]),
+        catalog: FakeCatalog(None),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let outcome = w
+        .controller()
+        .invite(&InviteInput {
+            environment: env_id(1),
+            role: Role::Viewer,
+            public_key: NEW_KEY.into(),
+            key_fingerprint: fp('N'),
+            request_id: RequestId::parse("req_iroh").unwrap(),
+            iroh_admission: true,
+        })
+        .await
+        .unwrap();
+    assert_eq!(*invited.lock().unwrap(), Some(true));
+    let InviteOutcome::Created(bundle) = outcome else {
+        panic!("created");
+    };
+    assert!(bundle.iroh_admission);
+    let text = serde_json::to_value(&*bundle).unwrap();
+    assert_eq!(text["iroh_admission"], true);
+
+    let endpoint = heimdall_contract::ids::IrohEndpointId::parse(&"ab".repeat(32)).unwrap();
+    let join_endpoint = |sent: Vec<(SessionName, Request)>| {
+        sent.into_iter().find_map(|(_, r)| match r {
+            Request::RemoteEnvironment(RemoteEnvironmentRequest::Join {
+                iroh_endpoint, ..
+            }) => Some(iroh_endpoint),
+            _ => None,
+        })
+    };
+    let bundle = InvitationBundle {
+        key_fingerprint: fp('K'),
+        nonce: None,
+        ..(*bundle).clone()
+    };
+    for (admits, own, expected) in [
+        (true, Some(endpoint.clone()), Some(endpoint.clone())),
+        (true, None, None),
+        (false, Some(endpoint.clone()), None),
+    ] {
+        let mut sessions = FakeSessions::new(env_id(1), always_ok());
+        sessions.echo_name = true;
+        let w = World {
+            key: FakeKey::existing(),
+            registry: FakeRegistry::default(),
+            catalog: FakeCatalog(None),
+            bootstrap: FakeBootstrap::default(),
+            sessions,
+            confirm: FakeConfirm::yes(),
+        };
+        let b = InvitationBundle {
+            iroh_admission: admits,
+            ..bundle.clone()
+        };
+        w.controller().join_with_endpoint(&b, own).await.unwrap();
+        assert_eq!(join_endpoint(w.sessions.sent()), Some(expected), "{admits}");
+    }
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 16⟩ `environment join` reports what its confirming probes
+/// observed (`Join.probe`), whatever they observed: a disagreement is the runner's to refuse.
+/// Probes that were inconclusive are never reported as anything: a limited role's join is
+/// then not sent at all (effect `none`, nothing recorded), and an owner's goes without one.
+#[tokio::test]
+async fn join_reports_its_probes_and_sends_nothing_for_a_limited_role_without_them() {
+    use heimdall_contract::remote::ProbeObservation;
+    let template = InvitationBundle {
+        environment: env_id(4),
+        route: route(&[HOST]),
+        destination: dest("lab4"),
+        invitation: heimdall_contract::ids::InvitationId::parse("inv_4").unwrap(),
+        client: ClientId::from_random_bytes([4; 16]),
+        role: Role::Viewer,
+        generation: 2,
+        key_fingerprint: fp('K'),
+        nonce: Some("abc".into()),
+        iroh_admission: false,
+    };
+    let bundle = |role| InvitationBundle {
+        role,
+        ..template.clone()
+    };
+    let granted = ProbeObservation {
+        pty_refused: false,
+        ..PROBES_AGREE
+    };
+    for (role, probe, sent) in [
+        (Role::Viewer, Some(PROBES_AGREE), Some(Some(PROBES_AGREE))),
+        (Role::Requester, Some(granted), Some(Some(granted))),
+        (Role::Viewer, None, None),
+        (Role::Owner, None, Some(None)),
+    ] {
+        let mut sessions = FakeSessions::new(env_id(4), always_ok());
+        sessions.probe = probe;
+        let w = World {
+            key: FakeKey::existing(),
+            registry: FakeRegistry::default(),
+            catalog: FakeCatalog(None),
+            bootstrap: FakeBootstrap::default(),
+            sessions,
+            confirm: FakeConfirm::yes(),
+        };
+        let outcome = w.controller().join(&bundle(role)).await;
+        let joined: Vec<_> = w
+            .sessions
+            .sent()
+            .into_iter()
+            .filter_map(|(_, r)| match r {
+                Request::RemoteEnvironment(RemoteEnvironmentRequest::Join { probe, .. }) => {
+                    Some(probe)
+                }
+                _ => None,
+            })
+            .collect();
+        match sent {
+            Some(expected) => {
+                outcome.unwrap();
+                assert_eq!(joined, [expected], "{role:?}");
+            }
+            None => {
+                let e = outcome.unwrap_err();
+                assert_eq!(e.code, Code::DestinationUnreachable, "{role:?}");
+                assert_eq!(e.effect_status, EffectStatus::None);
+                // ⟨§18.7, the ruling under item 19⟩ The message says the probe was
+                // inconclusive (never that the runner refused), and that only an owner
+                // join is possible.
+                assert!(
+                    e.message
+                        .contains("probe of the management session was inconclusive")
+                        && e.message.contains("only an owner join is possible")
+                        && e.message.contains("nothing was joined"),
+                    "{}",
+                    e.message
+                );
+                assert!(joined.is_empty(), "no join was sent");
+                assert!(w.registry.list().unwrap().is_empty(), "nothing recorded");
+            }
+        }
+    }
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 19⟩ `environment recheck` runs the session's probes and
+/// sends exactly what they observed (an agreement or not: the runner judges it) as
+/// `runner_policy_recheck`, over the recorded runner's management session. An inconclusive
+/// probe sends nothing and says so; a record whose role is not `owner` opens no session.
+#[tokio::test]
+async fn recheck_sends_what_the_probes_observed_and_nothing_when_inconclusive() {
+    use heimdall_contract::remote::ProbeObservation;
+    let world = |probe, role| {
+        let mut sessions = FakeSessions::new(
+            env_id(1),
+            Box::new(|_: &Request| ok(serde_json::json!({ "recorded": true }))),
+        );
+        sessions.probe = probe;
+        World {
+            key: FakeKey::existing(),
+            registry: FakeRegistry::with(&[RemoteEnvironmentRecord { role, ..record(1) }]),
+            catalog: FakeCatalog(None),
+            bootstrap: FakeBootstrap::default(),
+            sessions,
+            confirm: FakeConfirm::yes(),
+        }
+    };
+    let granted = ProbeObservation {
+        agent_forward_refused: false,
+        ..PROBES_AGREE
+    };
+    for observed in [PROBES_AGREE, granted] {
+        let w = world(Some(observed), Role::Owner);
+        let data = w.controller().recheck(&env_id(1)).await.unwrap();
+        assert_eq!(data["recorded"], true);
+        let sent = w.sessions.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0, SessionName::Environment(env_id(1)));
+        assert_eq!(
+            sent[0].1,
+            Request::RemoteEnvironment(RemoteEnvironmentRequest::RunnerPolicyRecheck {
+                environment: env_id(1),
+                probe: observed,
+            })
+        );
+    }
+    // Inconclusive: nothing is sent, and the message says so.
+    let w = world(None, Role::Owner);
+    let e = w.controller().recheck(&env_id(1)).await.unwrap_err();
+    assert_eq!(e.code, Code::DestinationUnreachable);
+    assert_eq!(e.effect_status, EffectStatus::None);
+    assert!(
+        e.message
+            .contains("probe of the management session was inconclusive")
+            && e.message.contains("nothing was sent to the runner"),
+        "{}",
+        e.message
+    );
+    assert!(w.sessions.sent().is_empty());
+    // Not this runner's owner: refused here, before any session.
+    let w = world(Some(PROBES_AGREE), Role::Viewer);
+    let e = w.controller().recheck(&env_id(1)).await.unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some(reason::ROLE_INSUFFICIENT));
+    assert!(w.sessions.opened.lock().unwrap().is_empty());
+    // No such record.
+    let e = w.controller().recheck(&env_id(9)).await.unwrap_err();
+    assert_eq!(e.code, Code::NotFound);
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 4⟩ `transport rotate`'s announcement goes to every recorded
+/// runner; one that refuses (its invitation did not admit Iroh) or cannot be reached is
+/// reported, and the others still get it.
+#[tokio::test]
+async fn the_endpoint_announcement_reports_each_runner() {
+    let responder: Responder = Box::new(|r: &Request| match r {
+        Request::RemoteEnvironment(RemoteEnvironmentRequest::RotateEndpoint {
+            environment,
+            ..
+        }) if *environment == env_id(2) => Envelope {
+            state: OperationState::Failed,
+            code: Code::UsageError,
+            ..Envelope::ok(
+                serde_json::to_value(ErrorData {
+                    error: ErrorDetail {
+                        code: Code::UsageError,
+                        effect_status: EffectStatus::None,
+                        retryable: false,
+                        resource: None,
+                        next: NextAction::default(),
+                        message: "not admitted".into(),
+                        reason: None,
+                        entries: Vec::new(),
+                    },
+                    setup: None,
+                })
+                .unwrap(),
+            )
+        },
+        _ => ok(serde_json::json!({ "recorded": true })),
+    });
+    let mut sessions = FakeSessions::new(env_id(1), responder);
+    sessions.echo_name = true;
+    sessions.unreachable = vec![env_id(3)];
+    let w = World {
+        key: FakeKey::existing(),
+        registry: FakeRegistry::with(&[record(1), record(2), record(3)]),
+        catalog: FakeCatalog(None),
+        bootstrap: FakeBootstrap::default(),
+        sessions,
+        confirm: FakeConfirm::yes(),
+    };
+    let endpoint = heimdall_contract::ids::IrohEndpointId::parse(&"cd".repeat(32)).unwrap();
+    let reports = w.controller().announce_endpoint(&endpoint).await.unwrap();
+    assert_eq!(reports.len(), 3);
+    assert!(matches!(
+        reports[0].result,
+        AnnouncementResult::Accepted { .. }
+    ));
+    assert!(matches!(
+        &reports[1].result,
+        AnnouncementResult::Refused {
+            code: Code::UsageError,
+            ..
+        }
+    ));
+    assert!(matches!(
+        &reports[2].result,
+        AnnouncementResult::Refused {
+            code: Code::DestinationUnreachable,
+            ..
+        }
+    ));
+    let sent: Vec<_> = w
+        .sessions
+        .sent()
+        .into_iter()
+        .filter(|(_, r)| r.kind() == "remote_environment.rotate_endpoint")
+        .collect();
+    assert_eq!(sent.len(), 2, "every reachable runner got it");
 }

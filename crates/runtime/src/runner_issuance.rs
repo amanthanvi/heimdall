@@ -33,6 +33,14 @@
 //!    the controller.
 //! 5. **Grant end.** [`RunnerIssuance::destroy`] zeroizes K_env and drops its certificates
 //!    (expiry, cutoff, revocation, release; ADR-0005 §3.6 "At grant end").
+//! 6. ⟨M06 W3; ADR-0012 §4.1, §4.6⟩ **The runner's signer.** K_env is registered, and each
+//!    certificate the checks above accepted is installed, in the runner's own
+//!    `heimdall_credential::table::SignerTable` ([`RunnerKeys::table`]) over the same vault:
+//!    the existing local binding-endpoint machinery (ADR-0008 D2: certificates only, never the
+//!    plain K_env; a binding endpoint lists and signs for its own grant only). Runner-onward
+//!    ssh is served by [`RunnerKeys::binding_signer`] for a binding attached to a runner grant,
+//!    never by a controller socket; the table's install view re-reads the runner's store (the
+//!    grant still issuable, not tombstoned) at the install.
 //!
 //! Nothing here reaches the controller's agent or any other signer (ADR-0012 §4.6).
 
@@ -46,6 +54,8 @@ use heimdall_contract::envelope::reason;
 use heimdall_contract::ids::{CaFingerprint, ClientId, EnvironmentId, GrantId};
 use heimdall_contract::request::AccessPairRef;
 use heimdall_contract::{GrantState, Timestamp};
+use heimdall_credential::signer::{ManagedSigner, SignerLimits};
+use heimdall_credential::table::{InstallRefusal, InstallView, SignerTable};
 use heimdall_credential::vault::{KeyVault, PublicKeyInfo, VaultSlot};
 use heimdall_domain::issuance::{CertificateBounds, IssuanceRefusal, principal_for};
 use heimdall_domain::time::{Clock, SyncStatus, TimeStatus, TimeUncertainty};
@@ -169,10 +179,54 @@ struct PreparedKey {
     installed: BTreeMap<AccessPairRef, RunnerCertificate>,
 }
 
-/// The runner signer's working keys: K_env per grant, in the vault's memory only.
+/// The runner signer's working keys: K_env per grant, in the vault's memory only, and the
+/// runner's signer table that serves them (module docs item 6).
 pub struct RunnerKeys {
     vault: Arc<KeyVault>,
     keys: Mutex<HashMap<GrantId, PreparedKey>>,
+    table: SignerTable,
+}
+
+/// ⟨M06 W3⟩ The runner table's install view (ADR-0008 D2 item 6's read): at the install, the
+/// grant is still this runner's, issuable and not tombstoned (the full ADR-0005 §3.5 check
+/// already ran in [`RunnerIssuance::install`]'s transaction; this re-reads it at the table's
+/// own install, so a grant ended in between is never listed).
+struct RunnerInstallView {
+    store: Arc<Store>,
+}
+
+#[async_trait::async_trait]
+impl InstallView for RunnerInstallView {
+    async fn check(
+        &self,
+        grant: &GrantId,
+        _entry: &heimdall_domain::issuance::IssuanceEntry,
+    ) -> Result<(), InstallRefusal> {
+        let live = self.store.transaction(|tx| {
+            let Ok((_, g)) = runner_grant(tx, grant) else {
+                return Ok(false);
+            };
+            Ok(g.state.permits_issuance() && tx.denied_ancestor(grant)?.is_none())
+        });
+        match live {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(InstallRefusal::View("runner_grant_not_live")),
+            Err(_) => Err(InstallRefusal::View("store")),
+        }
+    }
+}
+
+/// Drive a future that never waits on I/O (the runner table's install: its view reads the
+/// store synchronously) to completion on this thread.
+fn run_ready<F: std::future::Future>(f: F) -> F::Output {
+    let mut f = std::pin::pin!(f);
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    loop {
+        if let std::task::Poll::Ready(v) = f.as_mut().poll(&mut cx) {
+            return v;
+        }
+        std::thread::yield_now();
+    }
 }
 
 impl std::fmt::Debug for RunnerKeys {
@@ -184,13 +238,62 @@ impl std::fmt::Debug for RunnerKeys {
 }
 
 impl RunnerKeys {
-    /// Keys held in `vault`.
+    /// Keys held in `vault`, served by a signer table over the same vault whose install view
+    /// reads `store`.
     #[must_use]
-    pub fn new(vault: Arc<KeyVault>) -> Self {
+    pub fn new(vault: Arc<KeyVault>, store: Arc<Store>) -> Self {
+        let table = SignerTable::new(Arc::clone(&vault));
+        table.set_install_view(Arc::new(RunnerInstallView { store }));
         Self {
             vault,
             keys: Mutex::new(HashMap::new()),
+            table,
         }
+    }
+
+    /// ⟨M06 W3⟩ The runner's signer table (module docs item 6).
+    #[must_use]
+    pub fn table(&self) -> &SignerTable {
+        &self.table
+    }
+
+    /// ⟨M06 W3; ADR-0012 §4.6⟩ The signer of `binding`'s endpoint, a binding of the runner grant
+    /// `grant` (ADR-0008 D2: it lists and signs for that grant's installed certificates only,
+    /// never the plain K_env, never another grant's key, never a controller's). `None` when
+    /// the runner holds no K_env for `grant`. The caller serves it on the binding's local
+    /// endpoint (`heimdall_ipc::signing`) under the runtime's `SignatureAuthority`.
+    #[must_use]
+    pub fn binding_signer(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        grant: &GrantId,
+        authority: Arc<dyn heimdall_app::ports::SignatureAuthority>,
+        limits: SignerLimits,
+    ) -> Option<ManagedSigner> {
+        self.table.slot(grant)?;
+        self.table.attach_binding(binding, grant);
+        Some(ManagedSigner::new(
+            heimdall_app::ports::SignerEndpoint::Binding(binding.clone()),
+            self.table.clone(),
+            authority,
+            limits,
+        ))
+    }
+
+    /// ⟨M06 W3; runner Q7⟩ Attach `binding` to the runner grant `grant` in the runner's
+    /// table, so the binding's endpoint (a registry over [`Self::table`]) lists that
+    /// grant's installed certificates. `false`, attaching nothing, when the runner holds
+    /// no K_env for `grant`.
+    pub fn attach_binding(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        grant: &GrantId,
+    ) -> bool {
+        if self.table.slot(grant).is_none() {
+            return false;
+        }
+        self.table.attach_binding(binding, grant);
+        true
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<GrantId, PreparedKey>> {
@@ -220,9 +323,35 @@ impl RunnerKeys {
             .unwrap_or_default()
     }
 
-    /// Zeroize `grant`'s K_env and drop its certificates; `false` when none was held.
+    /// ⟨M06 U4⟩ Every grant that has a K_env now.
+    #[must_use]
+    pub fn grants(&self) -> Vec<GrantId> {
+        self.lock().keys().cloned().collect()
+    }
+
+    /// ⟨M06 U4⟩ Every installed certificate now, as `(grant, its generation, pair,
+    /// certificate)`, by grant and pair (the authority report, ADR-0012 §7.4 step 3).
+    #[must_use]
+    pub fn installed(&self) -> Vec<(GrantId, u64, AccessPairRef, RunnerCertificate)> {
+        let mut out: Vec<_> = self
+            .lock()
+            .iter()
+            .flat_map(|(g, k)| {
+                k.installed
+                    .iter()
+                    .map(|(p, c)| (g.clone(), k.generation, p.clone(), c.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        out.sort_by(|a, b| (a.0.as_str(), &a.2).cmp(&(b.0.as_str(), &b.2)));
+        out
+    }
+
+    /// Zeroize `grant`'s K_env and drop its certificates (also from the signer table, with
+    /// its bindings); `false` when none was held.
     pub fn destroy(&self, grant: &GrantId) -> bool {
         let removed = self.lock().remove(grant);
+        self.table.destroy_grant(grant);
         match removed {
             Some(k) => {
                 self.vault.destroy(&k.slot);
@@ -234,8 +363,9 @@ impl RunnerKeys {
 
     /// Zeroize every K_env (process exit, a time closure).
     pub fn destroy_all(&self) {
-        let all: Vec<PreparedKey> = self.lock().drain().map(|(_, k)| k).collect();
-        for k in all {
+        let all: Vec<(GrantId, PreparedKey)> = self.lock().drain().collect();
+        for (g, k) in all {
+            self.table.destroy_grant(&g);
             self.vault.destroy(&k.slot);
         }
     }
@@ -325,10 +455,10 @@ impl RunnerIssuance {
         vault: Arc<KeyVault>,
     ) -> Self {
         Self {
+            keys: RunnerKeys::new(vault, Arc::clone(&store)),
             store,
             clock,
             time,
-            keys: RunnerKeys::new(vault),
         }
     }
 
@@ -360,7 +490,7 @@ impl RunnerIssuance {
         grant: &GrantId,
         generation: u64,
     ) -> Result<PreparedRemoteGrant, IssuanceFailure> {
-        let (env, snapshot, bound, pin) = self
+        let (env, snapshot, bound, pin, policy) = self
             .store
             .transaction(|tx| {
                 Ok((|| {
@@ -388,7 +518,23 @@ impl RunnerIssuance {
                         None => {}
                     }
                     let bound = runner_bound(tx, &g).map_err(state)?.bound;
-                    Ok((env, g, bound, pin))
+                    // ⟨ADR-0006 §18.7 item 12⟩ The standing policy the grant rests on: the
+                    // one recorded with it, else the one its origin resolves to now (the
+                    // policy `runner_bound` takes the cutoff from).
+                    let origin = tx.grant_origin(grant).map_err(state)?;
+                    let policy = match &origin {
+                        Some(o) if o.policy_id.is_some() => o.policy_id.clone(),
+                        Some(o) => {
+                            let context =
+                                heimdall_app::policy_context::grant_context(origin.as_ref());
+                            let policies =
+                                tx.policies_for(&o.profile, &g.environment).map_err(state)?;
+                            heimdall_domain::policy::resolve_policy(&policies, &context)
+                                .map(|p| p.id.clone())
+                        }
+                        None => None,
+                    };
+                    Ok((env, g, bound, pin, policy))
                 })())
             })
             .map_err(state)??;
@@ -398,6 +544,7 @@ impl RunnerIssuance {
                 Some(k) if k.generation == generation => k.public.clone(),
                 _ => {
                     if let Some(old) = keys.remove(grant) {
+                        self.keys.table.destroy_grant(grant);
                         self.keys.vault.destroy(&old.slot);
                     }
                     let (slot, public) = self
@@ -405,6 +552,18 @@ impl RunnerIssuance {
                         .vault
                         .generate_ed25519()
                         .map_err(|_| IssuanceFailure::Vault)?;
+                    // ⟨M06 W3⟩ The runner's signer serves it (module docs item 6); nothing
+                    // is listed until a certificate is installed.
+                    let pairs: Vec<AccessPairRef> = snapshot.scope.pairs.iter().cloned().collect();
+                    if self
+                        .keys
+                        .table
+                        .register(grant, slot, public.clone(), &pairs)
+                        .is_err()
+                    {
+                        self.keys.vault.destroy(&slot);
+                        return Err(IssuanceFailure::Vault);
+                    }
                     keys.insert(
                         grant.clone(),
                         PreparedKey {
@@ -431,6 +590,7 @@ impl RunnerIssuance {
                 controller: p.issuer_client,
                 ca_fingerprint: p.ca_fingerprint,
             }),
+            policy,
         })
     }
 
@@ -562,17 +722,55 @@ impl RunnerIssuance {
             .map_err(state)??;
         // Installed only while the same K_env is still live (a revocation may have destroyed
         // it meanwhile: then nothing is installed and the entry stays counted).
-        let mut keys = self.keys.lock();
-        let k = keys
-            .get_mut(grant)
-            .filter(|k| k.generation == generation && k.public.fingerprint == key_fingerprint)
-            .ok_or(IssuanceFailure::NoKey)?;
+        let live =
+            self.keys.lock().get(grant).is_some_and(|k| {
+                k.generation == generation && k.public.fingerprint == key_fingerprint
+            });
+        if !live {
+            return Err(IssuanceFailure::NoKey);
+        }
         let cert = RunnerCertificate {
             certificate: certificate.to_owned(),
             serial: facts.serial,
             valid_before: facts.valid_before,
             ca_fingerprint: facts.ca_fingerprint.clone(),
         };
+        // ⟨M06 W3⟩ Installed in the runner's signer table too (module docs item 6), against
+        // an entry built from the facts just accepted; its view re-reads the grant.
+        let entry = heimdall_domain::issuance::IssuanceEntry {
+            id: heimdall_contract::ids::IssuanceId::from_random_bytes(
+                heimdall_app::ids::random_u64()
+                    .and_then(|a| heimdall_app::ids::random_u64().map(|b| (a, b)))
+                    .map(|(a, b)| {
+                        let mut out = [0u8; 16];
+                        out[..8].copy_from_slice(&a.to_be_bytes());
+                        out[8..].copy_from_slice(&b.to_be_bytes());
+                        out
+                    })
+                    .map_err(|_| IssuanceFailure::Vault)?,
+            ),
+            grant: grant.clone(),
+            generation: heimdall_domain::policy::AuthorityGeneration(generation),
+            pair: pair.clone(),
+            bounds: CertificateBounds {
+                ca_fingerprint: Some(facts.ca_fingerprint.clone()),
+                ..bounds.clone()
+            },
+            state: heimdall_domain::issuance::IssuanceState::Published,
+            reserved_at: self.clock.wall(),
+            settled_at: Some(self.clock.wall()),
+            void_reason: None,
+            continuing: false,
+        };
+        let parsed = ssh_key::Certificate::from_openssh(certificate.trim())
+            .map_err(|_| IssuanceFailure::Certificate)?;
+        run_ready(self.keys.table.install(grant, &pair, &parsed, &entry))
+            .map_err(|_| IssuanceFailure::Certificate)?;
+        let mut keys = self.keys.lock();
+        let k = keys
+            .get_mut(grant)
+            .filter(|k| k.generation == generation && k.public.fingerprint == key_fingerprint)
+            .ok_or(IssuanceFailure::NoKey)?;
         k.installed.insert(pair.clone(), cert.clone());
         let complete = k.installed.len() == k.pairs.len();
         Ok(InstalledRemoteCertificate {

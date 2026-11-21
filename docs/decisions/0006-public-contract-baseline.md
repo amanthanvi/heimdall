@@ -2493,3 +2493,87 @@ major stays `"1"`; every earlier document, stored record and golden is byte-iden
 - `issuer_trust` and the time-source designation persist as `meta` keys (classified for the recovery snapshot) until a unit needs a table.
 - The runner's authorized_keys writer (`runtime::paired_lines`) re-implements ADR-0005 §3.3's steps (append-only add, compare-then-rename rewrite and remove, symlink and hard-link refusal, re-read after every write) because the registry helpers fit only enrollment lines; it reads every `AuthorizedKeysFile` and writes only the account's own `authorized_keys`.
 
+
+### 18.7 Revision 6.3 (M06 wave 3)
+
+The orchestrator's rulings of 2026-11-21 on the W2 questions (m06-plan §2 "W3 rulings"; ADR-0012's
+⟨2026-11-21⟩ amendments). Additive: schema major stays `"1"`; every earlier document, stored record
+and golden is byte-identical; each new field is omitted when empty or false.
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 1 | Migration `0011` (schema 11): table `remote_client_endpoints (client_id TEXT PRIMARY KEY REFERENCES remote_clients, endpoint_id TEXT NOT NULL UNIQUE, recorded_at TEXT NOT NULL)`, recovery class `Rows`, with recovery cases; column `remote_invitations.iroh_admission INTEGER NOT NULL DEFAULT 0` | `store` | ruling 4 (Q2) |
+| 2 | `Invite.iroh_admission: bool` (omitted when false): the invited client may reach this runner over Iroh. It is part of the invitation's exact request, so the runner-local widening decision confirms it | `contract::remote` | ruling 4 |
+| 3 | `Join.iroh_endpoint: Option<IrohEndpointId>` (omitted when none): the client's own endpoint ID, sent over its K_mgmt session. The runner records it in the join's commit transaction only when the invitation has `iroh_admission`; otherwise the join is refused (`USAGE_ERROR`, `fix_request`, effect `none`; corrected 2026-11-21: the code table has no `INVALID_REQUEST`). The owner never types endpoint IDs | `contract::remote`, `remote`, `store` | ruling 4 |
+| 4 | `RemoteEnvironmentRequest::RotateEndpoint { environment, endpoint }`, kind `remote_environment.rotate_endpoint` (capability `remote-control/1`, any role, the session's own client only). It sets or atomically replaces that client's `remote_client_endpoints` row, only when its consumed invitation had `iroh_admission`. A replacement bumps `remote_authority_generation` in the same transaction; the same endpoint again is a no-op. The controller's `heimdall transport rotate` rotates this device's K_iroh and sends it to each recorded runner. Revocation deletes the client's row in the tombstone's transaction | `contract::remote`, `remote`, `runtime::paired`, `app` | ruling 4 (answers U56-Q7 for client endpoints) |
+| 5 | `ExposurePolicy.port: Option<u16>` (omitted when none; `0` refused): the serve port. `heimdall transport enable --port <n>`. Without it the first successful bind's port is recorded durably and reused. An unbindable port fails closed (`CAPABILITY_UNAVAILABLE`, reason `transport_unavailable`) with a doctor finding naming the port; changing it is `disable` then `enable` | `contract::route`, `runtime::supervise_transport`, `heimdall` | ruling 5 (Q5) |
+| 6 | `Request::ControllerRecord(ControllerRecordRequest)`: `put_environment { record: RemoteEnvironmentPin }` and `remove_environment { environment }` (kinds `controller_record.put_environment`, `controller_record.remove_environment`). `RemoteEnvironmentPin` and `ManagementRoute` move from `app::remote_env` into the contract unchanged. Local owner only; a paired session is refused. The CLI keeps the TTY confirmations and the ssh bootstrap, sends the form when a runtime answers, and writes directly under the instance lock when none does, so `environment add/join/remove` and `device retire` no longer answer `SERVICE_UNAVAILABLE` while a runtime runs | `contract`, `runtime`, `heimdall`, `app::remote_env` | ruling 6 (W-Q1) |
+| 7 | `Request::RunnerLocal(RunnerLocalRequest)`: `trust_issuer { controller, ca_public_key, request_id }` (the paired owner client whose issuer holds the CA; the runner computes the fingerprint) and `designate_time_source { client, request_id }` (widening: a local owner in an attended session only, after the CLI's typed confirmation), `distrust_issuer { ca_fingerprint }` and `clear_time_source` (narrowing: a local owner). Kinds `runner_local.*`. A paired session is refused. Hidden CLI `heimdall remote issuer-trust add <file> \| remove <fingerprint> \| list` and `heimdall remote time-source set <client> \| clear \| show`, run at the runner (an interactive ssh TTY counts); `environment add`'s bootstrap may run them in its TTY session | `contract`, `runtime::runner*`, `heimdall` | ruling 8 (b); U3-Q7 |
+
+**Readings confirmed by the rulings (2026-11-21), subject to the W2 review:**
+- §18.6 items 1–7 are approved.
+- (a) The refresh dependency of a runner's managed binding is the contract value `controller` (ADR-0012 §4.5 names it).
+- (b) `issuer_trust` and the time-source designation stay `meta` keys. Recovery treats them as authority-bearing: they are in the snapshot and compared, and never silently restored to a different value. Their writers are runner-local and attended (item 7).
+- (c) The re-implemented authorized_keys writer stands for W2. In W3 the shared safety steps (link refusal, compare-then-rename, append-only add, the re-read check) move into one module that both the enrollment writer and `runtime::paired_lines` use, with both callers' tests passing.
+- Several `authorizedkeysfile` entries verify only as sshd's default pair; any other list leaves the runner owner-only (ADR-0012 §3.2).
+
+**The orchestrator's confirmation of the items 2, 4 and 7 readings (2026-11-21), with conditions:**
+- **Item 2:** `iroh_admission` is part of the exact request bound into the `RemoteWidening` decision: its hash, and the exposure delta the owner confirmed runner-locally.
+- **Item 4:** a first set is insert-if-absent, as one compare-and-set.
+  - Two concurrent first sets cannot both win, and a first set never overwrites an existing row.
+  - It is allowed only for a live, unrevoked client whose invitation carried `iroh_admission`, after the per-request role check and the revocation recheck.
+  - Only a replacement bumps `remote_authority_generation`. A first set reaches the serve child through the documented child replacement (U56-Q10), not through a bump.
+  - A race test is added only if the existing compare-and-set tests do not already cover two writers.
+- **Item 7:** paired sessions are refused outright, never left pending: these forms have no remote decision path. The `meta` keys stay authority-bearing in recovery.
+
+**The orchestrator's rulings on the W3 runner unit's questions (2026-11-21):**
+- **Q1:** item 3's refusal is `USAGE_ERROR`, `fix_request`, effect `none`. The code table has no `INVALID_REQUEST` (a doc correction).
+- **Q2, the bootstrap owner and Iroh (item 8 below).**
+- **Q5, local-only forms from a paired session:** `INTERACTION_REQUIRED` with the new additive reason `local_owner_required` (item 9 below).
+- **Q3:** a runner with its runtime offers `runner/1` to owner sessions only. This holds while ADR-0012's role table makes every `runner.*` form owner-only; a form that belongs to another role is gated per request instead. The per-request role check applies to every form either way.
+- **Q4:** `RunnerLocal` sits under `remote-control/1`. The capability only gates availability; authority is checked per request.
+- **Q12:** `remote issuer-trust add --controller <cid>` defaults to the only active owner and must be named when there are several. It stays hidden. The attended confirmation shows the controller's client ID and its K_mgmt fingerprint.
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 8 | **Iroh admission is an attribute of the client**, as well as of the invitation. Invited clients and the bootstrap owner follow one rule.<br>- **Join:** copies the invitation's `iroh_admission` to the client.<br>- **First set:** `RotateEndpoint`'s first set reads the client's admission.<br>- **The bootstrap owner:** `remote init --iroh-endpoint <id>`, validated by the Iroh library's own parser (anything else is refused). The runner-local TTY confirmation shows the endpoint ID next to the owner key's fingerprint. The admission and the endpoint row are recorded in the owner enrollment's transaction.<br>- **A later opt-in:** `remote init`'s idempotent repair path (same key, same client), with the same confirmation. It only adds admission and a first endpoint, and never replaces an existing endpoint (that is `RotateEndpoint`'s job). | `store` (migration 0011), `remote`, `runtime::paired`, `heimdall` (`remote init`), `app::remote_env_ssh` | orchestrator ruling Q2 |
+| 9 | **Reason `local_owner_required`** (`INTERACTION_REQUIRED`), for a local-only form sent from a paired session: `runner_local.*`, `controller_record.*`, and a paired `decide`, which had no reason before. Without a reason a wrapper cannot tell this from "ask the user and retry", and a retry from the paired session can never succeed. Adding a reason where there was none is additive; the goldens that change are listed at integration | `contract::envelope` (`reason::M06`), `runtime::paired`, `remote::roles` | orchestrator ruling Q5 |
+| 10 | **`TransportRequest::Rotate`** (kind `transport.rotate`; a rotation, not a widening): rotates this device's K_iroh through the runtime, so `transport rotate` no longer answers `SERVICE_UNAVAILABLE` while a runtime runs. Local owner only; a paired session gets `INTERACTION_REQUIRED` / `local_owner_required`.<br>- **Retry-safe, as `device retire`:** the new key is stored as a new item and the old key is never overwritten.<br>- **Per runner:** each recorded runner gets `RotateEndpoint`; a runner that fails stays recorded as pending.<br>- **A re-run** finishes the pending runners and mints no further key.<br>- **The old K_iroh** is destroyed only after every recorded runner has acknowledged or been forgotten.<br>- **Output:** names the runners still pending. | `contract::route`, `runtime`, `app::transport`, `credential`, `heimdall` | orchestrator ruling (surface Q1), 2026-11-21 |
+
+**Also ruled (surface Q2, 2026-11-21):** on an Iroh leg the client-line window applies once per connect, not once per route: the line is held and replayed, so later routes wait only for the server's identification (ADR-0012 §5.5 item 5).
+
+**The orchestrator's rulings on the U4 unit's questions (2026-11-21):**
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 11 | **Reason `resync_pending`** (`CAPABILITY_UNAVAILABLE`): issuance refused until the authority report and resynchronization are complete. The controller's barrier answers it, and so does a **per-session gate on the runner**: the runner refuses prepare and install from any session that has not completed the report and resync, whatever the controller does | `contract::envelope`, `app::remote_status`, `runtime::runner*` | U4 Q1, Q2 |
+| 12 | The prepare answer carries an optional **policy ID** (omitted when none), so the controller's barrier can refuse a paused or cut-off scope earlier. The runner's install check stays authoritative | `contract`, `runtime::runner_issuance`, `app::remote_status` | U4 Q6 |
+| 13 | `environment status --json`: the remote fields (connectivity, last-known readiness, pending effects, residuals) sit in each environment's entry. There is no separate `remote_status` array | `app::remote_env`, `heimdall` | U4 Q8 |
+
+**Semantics ruled with them (recorded in ADR-0012 §7):** a cutoff that fired under uncertain time stays fired; a runner-local attended `resume` or `clear_cutoff` lifts a delivered pause or cutoff; a cutoff covers the policies that exist at delivery; a revoke is never defeated by a stale generation.
+| 14 | `RunnerLocalRequest::EnrollOwner { client, public_key, iroh_endpoint, request_id }`, kind `runner_local.enroll_owner`: `remote init`'s repair path when a runtime already runs (M06-W2-R02). Attended, local owner only, with the same TTY confirmation as `remote init`; it adds admission and a first endpoint and never replaces one (item 8). Approved (2026-11-21): idempotent per `request_id` and for the same key and client; a paired session gets `local_owner_required` | `contract::remote`, `runtime::paired`, `heimdall` | follow-ups A (W2-R02) |
+| 15 | `local_owner_required` also on the remaining attended-only forms sent from a paired session: `confirm_time`, issuer unlock, `device retire` and attend. One rule everywhere; the goldens that change are listed at integration | `runtime`, `ipc`, `remote::roles` | orchestrator ruling, 2026-11-21 |
+
+**Also ruled (2026-11-21):**
+- `remote init` may create a missing `~/.ssh` (0700) after the TTY confirmation: only if absent, never changing an existing directory's mode or owner, refusing a symlink or a directory the account does not own, and writing `authorized_keys` 0600 through the shared module. A home directory that would fail sshd's `StrictModes` is reported in the output and in `doctor`, not fixed.
+- A debug-only variable `HEIMDALL_TEST_RUNNER_SSHD_CONFIG` (an absolute path, used only as the `sshd -T` check's configuration path) is read under `cfg(debug_assertions)` and is in `testcfg`'s refused set for release builds.
+- A first `remote init` while a non-runner runtime runs answers `driver_unavailable`, and its message says to stop the local runtime first.
+
+**The orchestrator's ruling on the probe-mismatch trigger (2026-11-21):**
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 16 | `Join.probe: Option<ProbeObservation>` (omitted when none): what the joining device's four probes observed (PTY, `-W` forward, agent forwarding with a disposable agent, `SetEnv` canary). The runner runs the policy check before the join's commit. A disagreeing join is refused (`management_sshd_unsupported`) and the runner goes owner-only, permanently. A limited-role join without an observation is refused; owner joins are exempt | `contract::remote`, `remote`, `runtime::paired`, `app::remote_env` | ruling on follow-ups C Q3 |
+| 17 | **The bridge checks its own session at start.** If sshd allocated a PTY (`SSH_TTY` set) or forwarded an agent (`SSH_AUTH_SOCK` set), it refuses the session, and the runner goes owner-only, permanently, with a doctor finding. No contract type | `heimdall` (`remote serve`), `runtime::paired` | same ruling |
+
+- `request_id` is **advisory** for `runner_local.*`: those forms are idempotent by convergence, and each is attended, so a reused ID with a different body gets its own confirmation. Wrappers must not rely on detecting a mismatched reuse for them.
+- A refused `~/.ssh` answers `CONFIG_CONFLICT` before the confirmation. New output names: `strict_modes` (`remote init`) and the doctor finding `runner_ssh_strict_modes`.
+
+**The orchestrator's ruling on storing and lifting the owner-only downgrade (2026-11-21):**
+
+| Item | What lands | Where | Source |
+|---|---|---|---|
+| 18 | **The downgrade is an authority-bearing `meta` key**, not a marker file: in the recovery snapshot, compared, and never silently restored to a different value (a restore that would clear it keeps it set). The uninstall inventory lists it | `store`, `runtime::paired`, `heimdall` | ruling on follow-ups D Q1–Q2 |
+| 19 | **Lifting it is a local, attended widening that needs fresh evidence from the real path**; `sshd -T` alone never lifts it.<br>- **On the owner's controller:** `heimdall environment recheck <env>` (owner only) runs the four probes over a real management session and sends `RemoteEnvironmentRequest::RunnerPolicyRecheck { environment, probe }` (kind `remote_environment.runner_policy_recheck`, owner only). The runner records the result only when `sshd -T` verifies now and the probe agrees; otherwise it refuses with the reason.<br>- **On the runner:** `heimdall remote policy recheck` (hidden; `RunnerLocalRequest::PolicyRecheck { request_id }` when a runtime runs; `local_owner_required` from a paired session) shows that evidence, with its time and the probing controller, and clears the downgrade only after the TTY confirmation.<br>- **Refused:** evidence older than 15 minutes, or from before a later downgrade. | `contract::remote`, `remote`, `runtime::paired`, `app::remote_env`, `heimdall` | same ruling |
+
+- An inconclusive probe means no limited-role join; the controller's message says the probe was inconclusive, so only an owner join is possible.

@@ -53,6 +53,8 @@ pub mod ext_routes;
 pub mod ext_transport;
 // ⟨M06 U3⟩ The runner's grant-to-issuer pins, issuer_trust and time source (ADR-0012 §4).
 pub mod ext_runner;
+// ⟨M06 U4⟩ Typed narrowing effects: the outbox, acknowledgements and policy revisions (ADR-0012 §7).
+pub mod ext_effects;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
@@ -2076,7 +2078,8 @@ mod tests {
         // M03 wave 0 (S): 0006 (the M03 tables) adds tables only as well.
         // ⟨M04/M05 wave 0⟩ 0007 and 0008 add tables, and 0008 one nullable column.
         // ⟨M06 wave 0⟩ 0009 adds tables only. ⟨M06 wave 2⟩ 0010 adds one table.
-        assert_eq!(migrations::SCHEMA_VERSION, 10);
+        // ⟨M06 wave 3⟩ 0011 adds one table and one defaulted column.
+        assert_eq!(migrations::SCHEMA_VERSION, 11);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"

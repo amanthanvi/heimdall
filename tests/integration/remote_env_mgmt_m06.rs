@@ -370,6 +370,8 @@ async fn bootstrap_refuses_an_unverified_host_key_and_never_scans() {
         scratch_dir: dir.clone(),
         config: Some(user_config),
         extra_options: vec!["CertificateFile=none".into()],
+        issuer_ca: None,
+        iroh_endpoint: None,
     };
     let mgmt_key = MgmtKey::generate().unwrap().public().unwrap();
     let plan = |pin: String| BootstrapPlan {

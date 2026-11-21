@@ -102,16 +102,31 @@ pub struct ExposurePolicy {
     /// Direct fallback to learned or public addresses (reveals public IPs; a widening).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub direct_fallback: bool,
+    /// ⟨rev6.3⟩ The serve port (ADR-0012 §2.1 ⟨2026-11-21⟩; `heimdall transport enable
+    /// --port <n>`). Omitted when none: the first successful bind's port is then recorded
+    /// durably and reused at every later start. `0` is refused. A port that cannot be bound
+    /// fails closed (`transport_unavailable`); changing it is `disable` then `enable`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+}
+
+impl ExposurePolicy {
+    /// Whether the policy's own values are well formed: a named port is not `0`.
+    #[must_use]
+    pub fn port_is_valid(&self) -> bool {
+        self.port != Some(0)
+    }
 }
 
 impl Default for ExposurePolicy {
     /// The minimal policy: loopback bind, no relays, no lookup, direct paths only to the
-    /// route record's own addresses.
+    /// route record's own addresses, and no named port.
     fn default() -> Self {
         Self {
             bind: BindScope::Loopback,
             infrastructure: InfrastructureProfile::None,
             direct_fallback: false,
+            port: None,
         }
     }
 }
@@ -259,6 +274,16 @@ pub enum TransportRequest {
         /// Idempotency key (ADR-0006 §7).
         request_id: RequestId,
     },
+    /// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ Rotate this device's K_iroh through the runtime (a
+    /// rotation, not a widening; ADR-0012 §2.4 item 4). Local owner only: a paired session
+    /// is refused `INTERACTION_REQUIRED`, reason `local_owner_required`. Retry-safe: the
+    /// new key is stored as a new item and the old one is never overwritten; each recorded
+    /// runner is sent `remote_environment.rotate_endpoint`, and one that fails stays
+    /// recorded as pending; running the form again finishes the pending runners and mints
+    /// no further key; the old K_iroh is destroyed only after every recorded runner has
+    /// acknowledged or been forgotten. The result names the runners still pending. Kind
+    /// `transport.rotate`.
+    Rotate,
 }
 
 impl TransportRequest {
@@ -269,6 +294,7 @@ impl TransportRequest {
             TransportRequest::Enable { .. } => "transport.enable",
             TransportRequest::Disable => "transport.disable",
             TransportRequest::AdoptRoost { .. } => "transport.adopt_roost",
+            TransportRequest::Rotate => "transport.rotate",
         }
     }
 }
@@ -359,5 +385,26 @@ mod tests {
                 .is_err(),
             "a policy without its bind is refused, never defaulted"
         );
+        assert_eq!(back.port, None);
+        assert!(back.port_is_valid());
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 5⟩ The serve port is omitted when none (every earlier
+    /// document is byte-identical) and round-trips when named; `0` is not a valid port.
+    #[test]
+    fn the_serve_port_is_additive() {
+        let named = ExposurePolicy {
+            port: Some(4433),
+            ..ExposurePolicy::default()
+        };
+        let v = serde_json::to_value(&named).unwrap();
+        assert_eq!(v["port"], 4433);
+        assert_eq!(serde_json::from_value::<ExposurePolicy>(v).unwrap(), named);
+        assert!(named.port_is_valid());
+        let zero = ExposurePolicy {
+            port: Some(0),
+            ..ExposurePolicy::default()
+        };
+        assert!(!zero.port_is_valid());
     }
 }

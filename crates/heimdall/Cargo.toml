@@ -63,6 +63,14 @@ ratatui = { workspace = true }
 # `internal issuer` can select `ScratchSecretStore` under `cfg(debug_assertions)`.
 heimdall-testkit = { workspace = true, default-features = false, features = ["app", "managed"] }
 
+[features]
+default = []
+# ⟨M06 W3⟩ ADR-0012 §1 item 1: the Iroh transport in this binary (the supervised serve child
+# `transport serve` and the route helper's Iroh leg). Without it both refuse
+# (`driver_unavailable`) and direct and jump routes are unaffected. Which release builds enable
+# it is the distribution's decision (ADR-0012 §1, §2.6).
+iroh = ["heimdall-runtime/iroh"]
+
 [target.'cfg(unix)'.dependencies]
 # ⟨M02⟩ U10 `tui` (Unix): the terminal is read with `poll`/`read` and sized with
 # `tcgetwinsize`, and raw mode is set and restored with `tcgetattr`/`tcsetattr`, all

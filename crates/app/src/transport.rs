@@ -22,6 +22,9 @@
 //!   installation already enabled with the same configuration answers the same result;
 //!   with another one it is refused `CONFIG_CONFLICT` (disable first: an exposure change is
 //!   never applied in place, so narrowing always goes through `disable`'s generation bump).
+//!   ⟨M06 W3⟩ The policy may name the serve `port` (ADR-0012 §2.1 ⟨2026-11-21⟩; `0` is
+//!   refused); without one the serve child's first successful bind records it, and `disable`
+//!   forgets it, so changing the port is `disable` then `enable`.
 //! * **`disable`** narrows (no decision, §3.10): in one transaction it withdraws every
 //!   K_iroh reference and the serving endpoint's consents, and removes every route that
 //!   names one of this installation's endpoints with that route's consents; each of those
@@ -43,7 +46,9 @@ use async_trait::async_trait;
 use heimdall_contract::Timestamp;
 use heimdall_contract::code::Code;
 use heimdall_contract::envelope::{EffectStatus, reason};
-use heimdall_contract::ids::{ConsentId, DecisionId, DestinationId, IrohEndpointId, RouteId};
+use heimdall_contract::ids::{
+    ConsentId, DecisionId, DestinationId, EnvironmentId, IrohEndpointId, RouteId,
+};
 use heimdall_contract::route::{
     BindScope, DestinationRoute, ExposurePolicy, InfrastructureProfile, RouteSpec, TransportRequest,
 };
@@ -54,7 +59,7 @@ use serde::Serialize;
 use crate::error::OpError;
 
 pub use heimdall_store::ext_transport::{
-    ExposureDelta, RouteConsentRecord, TransportKeyRecord, TransportKeyState,
+    ExposureDelta, RouteConsentRecord, TransportKeyRecord, TransportKeyState, TransportRotation,
 };
 
 /// What adopting a stock roost discloses (ADR-0012 §2.8), shown before the decision and
@@ -290,6 +295,24 @@ impl PeerEnrollments for NoPeerEnrollments {
     }
 }
 
+/// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ How `transport.rotate` tells one recorded runner this
+/// device's new endpoint ID: `remote_environment.rotate_endpoint` on that runner's own
+/// management session (the runtime's or the CLI's wiring over
+/// `crate::remote_env::RemoteEnvController`). Never an unauthenticated announcement.
+#[async_trait]
+pub trait EndpointAnnouncer: Send + Sync {
+    /// Send `endpoint` to the recorded runner `environment`. `Ok` only when the runner
+    /// answered that it recorded (or already had) it.
+    ///
+    /// # Errors
+    /// The session's or the runner's refusal: the runner stays pending.
+    async fn announce(
+        &self,
+        environment: &EnvironmentId,
+        endpoint: &IrohEndpointId,
+    ) -> Result<(), OpError>;
+}
+
 /// A widening the caller has already claimed through an attended runner-local decision
 /// (ADR-0012 §3.10), bound to its exact delta.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,15 +365,56 @@ pub struct DisableResult {
 /// K_iroh rotation's result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RotateResult {
-    /// The new endpoint ID (to announce over the management channel).
+    /// The new endpoint ID (announced over the management channel).
     pub endpoint: IrohEndpointId,
     /// The withdrawn one.
     pub previous: IrohEndpointId,
     /// Iroh admission (the serve child replaced).
     pub admission: AdmissionReport,
-    /// The previous platform item is destroyed and its row deleted (`false`: its
-    /// `destroyed` row stays; `disable` finishes it).
+    /// The previous platform item is destroyed and its row deleted. `false` while a
+    /// recorded runner is still pending (the old key is kept until then), or when the item
+    /// could not be destroyed now: run `transport rotate` again (`disable` finishes it too).
     pub previous_destroyed: bool,
+    /// ⟨rev6.3⟩ What happened with each runner this run had to tell. Omitted when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub runners: Vec<RunnerAnnouncement>,
+    /// ⟨rev6.3⟩ The recorded runners that still have not acknowledged the new endpoint:
+    /// run `transport rotate` again to finish them. Omitted when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pending: Vec<EnvironmentId>,
+    /// ⟨rev6.3⟩ This run continued an earlier rotation: no key was minted.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub resumed: bool,
+}
+
+/// ⟨rev6.3⟩ One runner in a rotation's result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RunnerAnnouncement {
+    /// The runner environment.
+    pub environment: EnvironmentId,
+    /// What happened.
+    #[serde(flatten)]
+    pub outcome: AnnouncementOutcome,
+}
+
+/// ⟨rev6.3⟩ What happened with one runner of a rotation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum AnnouncementOutcome {
+    /// The runner recorded (or already had) the new endpoint.
+    Acknowledged,
+    /// The runner is no longer recorded on this device: nothing to tell.
+    Forgotten,
+    /// The runner refused or could not be reached: it stays pending.
+    Pending {
+        /// The refusal's code.
+        code: Code,
+        /// Its reason.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        /// Its message.
+        message: String,
+    },
 }
 
 /// `transport adopt_roost`'s result.
@@ -464,6 +528,11 @@ impl TransportOps<'_> {
         now: Timestamp,
     ) -> Result<EnableResult, OpError> {
         let after = exposure.unwrap_or_default();
+        if !after.port_is_valid() {
+            // ⟨ADR-0006 §18.7 item 5⟩ `0` is not a serve port.
+            return Err(OpError::new(Code::UsageError, "port 0 is not a serve port")
+                .with_effect(EffectStatus::None));
+        }
         self.serve.check_policy(&after).map_err(policy_refused)?;
         let state = self.store.transaction(endpoint_state)?;
         if let Some(key) = &state.key {
@@ -544,6 +613,12 @@ impl TransportOps<'_> {
                 endpoints.push(k.endpoint.clone());
             }
             let mut consents = tx.remove_route_consents(None, now)?;
+            // ⟨ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The recorded serve port goes with the endpoint: a
+            // later `enable` binds afresh (changing the port is disable then enable).
+            tx.clear_transport_serve_port()?;
+            // ⟨rev6.3⟩ A rotation still being announced ends with the endpoint: every
+            // reference, the withdrawn one it kept included, is destroyed below.
+            tx.clear_transport_rotation()?;
             let ours: BTreeSet<&IrohEndpointId> = endpoints.iter().collect();
             let mut removed = Vec::new();
             for (destination, routes) in tx.all_destination_routes()? {
@@ -594,59 +669,181 @@ impl TransportOps<'_> {
     }
 
     /// K_iroh rotation (ADR-0012 §2.4 item 4; also the recovery of a lost key, which is
-    /// treated as a rotation): a new K_iroh in the verified store gives a new endpoint ID; in
-    /// one transaction the old reference is withdrawn (the admission authority generation
-    /// moves: rotation narrows admission) and the new one recorded; the serve child is
-    /// replaced from durable state; then the old platform item is destroyed (already gone
-    /// for a lost key) and its row deleted. The endpoint's consents and exposure carry over.
-    /// The new endpoint ID is returned for the announcement to clients over the management
-    /// channel; when Iroh was the only route to this host, the owner re-pairs it through
+    /// treated as a rotation; ⟨rev6.3⟩ ADR-0006 §18.7 item 10, `transport.rotate`).
+    ///
+    /// **A fresh rotation** (no rotation is being announced): a new K_iroh in the verified
+    /// store, as a **new item** (the old item is never overwritten), gives a new endpoint
+    /// ID. In one transaction the old reference is withdrawn (the admission authority
+    /// generation moves: rotation narrows admission), the new one recorded, and the
+    /// rotation recorded with every recorded runner pending ([`TransportRotation`]). The
+    /// serve child is replaced from durable state. The endpoint's consents and exposure
+    /// carry over.
+    ///
+    /// **Per runner.** Each pending runner is sent the new endpoint ID through `announcer`
+    /// (its own management session). One that acknowledges leaves the record at once (so a
+    /// crash keeps the progress); one that refuses or cannot be reached **stays pending**;
+    /// one no longer recorded on this device is dropped (forgotten).
+    ///
+    /// **A re-run** (a rotation of the active endpoint is recorded) mints **no key**: it
+    /// only tells the runners still pending.
+    ///
+    /// **The old K_iroh** is destroyed, and its row deleted, only once no runner is pending.
+    /// Until then its platform item stays (its row stays `destroyed`, withdrawn).
+    ///
+    /// When Iroh was the only route to a runner, the owner re-pairs the new endpoint through
     /// independently host-verified access (a direct or bastion route with the pinned host
     /// key, or at the host itself), never through an unauthenticated announcement.
     ///
+    /// **Limit:** a crash between the platform store's creation of the new item and the
+    /// commit leaves that item unreferenced (no row names it); the next run mints another.
+    ///
     /// # Errors
     /// `transport_unavailable` when nothing is enabled, `transport_key_store_unavailable`,
-    /// or the store's (nothing is withdrawn then).
-    pub async fn rotate(&self, now: Timestamp) -> Result<RotateResult, OpError> {
-        let state = self.store.transaction(endpoint_state)?;
-        let Some(old) = state.key else {
+    /// `driver_unavailable` when runners must be told and there is no `announcer` (checked
+    /// before any key is minted), or the store's (nothing is withdrawn then).
+    pub async fn rotate(
+        &self,
+        announcer: Option<&dyn EndpointAnnouncer>,
+        now: Timestamp,
+    ) -> Result<RotateResult, OpError> {
+        let (state, recorded_rotation, recorded) = self.store.transaction(|tx| {
+            let recorded: Vec<EnvironmentId> = tx
+                .remote_environment_pins()?
+                .into_iter()
+                .map(|(environment, _)| environment)
+                .collect();
+            Ok((endpoint_state(tx)?, tx.transport_rotation()?, recorded))
+        })?;
+        let Some(active) = state.key else {
             return Err(
                 OpError::new(Code::CapabilityUnavailable, "the transport is not enabled")
                     .with_reason(reason::TRANSPORT_UNAVAILABLE)
                     .with_effect(EffectStatus::None),
             );
         };
-        let created = self.keys.create().map_err(KeyStoreRefusal::into_op_error)?;
-        let record = TransportKeyRecord {
-            endpoint: created.endpoint.clone(),
-            store_kind: created.store_kind,
-            store_ref: created.store_ref,
-            state: TransportKeyState::Active,
-            created_at: now,
-            destroyed_at: None,
+        // A record of a rotation the active endpoint does not continue (a disable and
+        // enable in between) is stale: the fresh rotation below replaces it.
+        let resumed = recorded_rotation.filter(|r| r.endpoint == active.endpoint);
+        let to_tell = match &resumed {
+            Some(r) => r.pending.iter().any(|e| recorded.contains(e)),
+            None => !recorded.is_empty(),
         };
-        let rotated = self
-            .store
-            .transaction(|tx| tx.rotate_transport_key(&record, now));
-        let withdrawn = match rotated {
-            Ok(w) => w.unwrap_or(old),
-            Err(e) => {
-                let _ = self.keys.destroy(&record);
-                return Err(e.into());
+        if to_tell && announcer.is_none() {
+            return Err(OpError::driver_unavailable(
+                "this device's recorded runners must be told the new endpoint, and this \
+                 caller has no management channel to them: nothing was rotated",
+            )
+            .with_effect(EffectStatus::None));
+        }
+        let was_resumed = resumed.is_some();
+        let mut rotation = match resumed {
+            Some(r) => r,
+            None => {
+                let created = self.keys.create().map_err(KeyStoreRefusal::into_op_error)?;
+                let record = TransportKeyRecord {
+                    endpoint: created.endpoint.clone(),
+                    store_kind: created.store_kind,
+                    store_ref: created.store_ref,
+                    state: TransportKeyState::Active,
+                    created_at: now,
+                    destroyed_at: None,
+                };
+                let fresh = TransportRotation {
+                    endpoint: created.endpoint,
+                    previous: active.endpoint.clone(),
+                    pending: recorded.clone(),
+                    started_at: now,
+                };
+                let committed = self.store.transaction(|tx| {
+                    tx.rotate_transport_key(&record, now)?;
+                    tx.set_transport_rotation(&fresh)
+                });
+                if let Err(e) = committed {
+                    // Our own just-created item, which no row names.
+                    let _ = self.keys.destroy(&record);
+                    return Err(e.into());
+                }
+                fresh
             }
         };
+        // Also on a re-run: an earlier run may have ended between its commit and this.
         let admission = self.serve.apply_narrowing().await;
-        let old_destroyed = self.keys.destroy(&withdrawn).is_ok()
-            && self
-                .store
-                .transaction(|tx| tx.remove_transport_key(&withdrawn.endpoint))
-                .is_ok();
+        let mut runners = Vec::new();
+        for environment in rotation.pending.clone() {
+            let outcome = if !recorded.contains(&environment) {
+                AnnouncementOutcome::Forgotten
+            } else {
+                match announcer {
+                    Some(a) => match a.announce(&environment, &rotation.endpoint).await {
+                        Ok(()) => AnnouncementOutcome::Acknowledged,
+                        Err(e) => AnnouncementOutcome::Pending {
+                            code: e.code,
+                            reason: e.reason,
+                            message: e.message,
+                        },
+                    },
+                    // Not reached (refused above); kept pending if it ever is.
+                    None => AnnouncementOutcome::Pending {
+                        code: Code::CapabilityUnavailable,
+                        reason: Some(reason::DRIVER_UNAVAILABLE.to_owned()),
+                        message: "no management channel".to_owned(),
+                    },
+                }
+            };
+            if !matches!(outcome, AnnouncementOutcome::Pending { .. }) {
+                rotation.pending.retain(|e| e != &environment);
+                // Progress is durable per runner: a failed write keeps it pending.
+                if let Err(e) = self
+                    .store
+                    .transaction(|tx| tx.set_transport_rotation(&rotation))
+                {
+                    return Err(e.into());
+                }
+            }
+            runners.push(RunnerAnnouncement {
+                environment,
+                outcome,
+            });
+        }
+        // The old key goes only once no recorded runner is pending.
+        let previous_destroyed = rotation.pending.is_empty() && self.finish_rotation(&rotation);
         Ok(RotateResult {
-            endpoint: created.endpoint,
-            previous: withdrawn.endpoint,
+            endpoint: rotation.endpoint,
+            previous: rotation.previous,
             admission,
-            previous_destroyed: old_destroyed,
+            previous_destroyed,
+            runners,
+            pending: rotation.pending,
+            resumed: was_resumed,
         })
+    }
+
+    /// Destroy the withdrawn item of a rotation with nobody pending, delete its row and
+    /// forget the rotation record. `false` leaves the record (with nobody pending), so the
+    /// next run retries.
+    fn finish_rotation(&self, rotation: &TransportRotation) -> bool {
+        let Ok(old) = self
+            .store
+            .transaction(|tx| tx.transport_key(&rotation.previous))
+        else {
+            return false;
+        };
+        let gone = match old {
+            // A lost key's row may be gone already.
+            None => true,
+            Some(rec) if rec.state == TransportKeyState::Active => false,
+            Some(rec) => {
+                self.keys.destroy(&rec).is_ok()
+                    && self
+                        .store
+                        .transaction(|tx| tx.remove_transport_key(&rec.endpoint))
+                        .is_ok()
+            }
+        };
+        gone && self
+            .store
+            .transaction(|tx| tx.clear_transport_rotation())
+            .is_ok()
     }
 
     /// The delta adopting `endpoint` as a roost route with the dialer policy `exposure`
@@ -770,7 +967,8 @@ impl TransportOps<'_> {
             TransportRequest::AdoptRoost {
                 endpoint, exposure, ..
             } => Ok(Some(Self::adopt_delta(endpoint, exposure.as_ref()))),
-            TransportRequest::Disable => Ok(None),
+            // A rotation narrows (the old endpoint's admission ends): no decision.
+            TransportRequest::Disable | TransportRequest::Rotate => Ok(None),
             _ => Err(OpError::driver_unavailable(
                 "this transport request is not known to this build",
             )),
@@ -801,6 +999,9 @@ impl TransportOps<'_> {
                 self.enable(*serve, exposure.clone(), approved, now).await?,
             )),
             TransportRequest::Disable => json(serde_json::to_value(self.disable(now).await?)),
+            // ⟨rev6.3⟩ Without a management channel here: only an installation with no
+            // recorded runner to tell rotates through this entry ([`Self::rotate`]).
+            TransportRequest::Rotate => json(serde_json::to_value(self.rotate(None, now).await?)),
             TransportRequest::AdoptRoost {
                 destination,
                 endpoint,

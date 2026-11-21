@@ -206,3 +206,183 @@ pub fn verify_reservation(
         })
         .unwrap_or(Err(IssuerRefusal::EntryNotReserved))
 }
+
+// --- ⟨M06 W3⟩ the `remote` reservation kind (ADR-0005 §3.5 "Remote reservations") ---------
+
+/// Whether a reservation made at `reserved_at` is older, or further in the future, than the
+/// issuer accepts at `now` (D3 item 4 step 1).
+fn stale(reserved_at: heimdall_contract::Timestamp, now: heimdall_contract::Timestamp) -> bool {
+    now.duration_since(reserved_at).unsigned_abs() > issuance_ro::MAX_RESERVATION_AGE
+}
+
+/// A refused `remote` reservation: the issuer's own step (the entry, its age, time), or the
+/// amendment's condition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteCheckRefusal {
+    /// Not a `reserved` entry of the grant issuance log.
+    EntryNotReserved,
+    /// Reserved more than 60 s ago (or in the future).
+    EntryStale,
+    /// The issuer's time is uncertain.
+    TimeUncertain,
+    /// One of conditions 1–7.
+    Condition(crate::remote::RemoteReservationRefusal),
+}
+
+impl RemoteCheckRefusal {
+    /// The frozen wire refusal (`heimdall-issuer/1` has no remote-specific reasons): the
+    /// nearest existing one. The condition itself is [`RemoteCheckRefusal::Condition`].
+    #[must_use]
+    pub fn to_wire(&self) -> IssuerRefusal {
+        use crate::remote::RemoteReservationRefusal as R;
+        use heimdall_domain::issuance::IssuanceRefusal as I;
+        match self {
+            Self::EntryNotReserved => IssuerRefusal::EntryNotReserved,
+            Self::EntryStale => IssuerRefusal::EntryStale,
+            Self::TimeUncertain => IssuerRefusal::Issuance(I::TimeUncertain),
+            Self::Condition(c) => match c {
+                R::BarrierClosed => IssuerRefusal::EntryStale,
+                R::NoKeyBinding | R::KeyBindingMismatch => IssuerRefusal::SubjectMismatch,
+                R::CaNotPinned => IssuerRefusal::CaNotLoaded,
+                R::PrincipalNotDelivered => IssuerRefusal::Issuance(I::WrongPrincipal),
+                R::ExtensionNotDelivered => IssuerRefusal::Issuance(I::UnpermittedExtension),
+                R::ValidityTooLate => IssuerRefusal::Issuance(I::BoundTooLate),
+                R::BoundPassed => IssuerRefusal::Issuance(I::BoundPassed),
+                R::GrantRevoked => IssuerRefusal::Issuance(I::Tombstoned),
+                _ => IssuerRefusal::CeilingExceeded,
+            },
+        }
+    }
+}
+
+/// ADR-0005 §3.5 "Remote reservations": judge the `remote` reservation `entry` for `subject`
+/// in `txn`, a snapshot of this controller's own (read-only) store, at the issuer's time.
+/// Everything the amendment's conditions name is read here, from this store only: the pin
+/// of the runner the key ID names, the delivered grant and its key binding, the contact and
+/// the outbox (the barrier), the ledger's tombstone and the CA registry. Returns the bounds
+/// to sign.
+///
+/// # Errors
+///
+/// A store error (outer); the refusal (inner).
+pub fn assess_remote_reservation(
+    txn: &mut Txn<'_>,
+    time: &TimeGate,
+    entry: &IssuanceRef,
+    subject: &str,
+) -> heimdall_store::Result<Result<CertificateBounds, RemoteCheckRefusal>> {
+    let Some(stored) = txn.issuance_entry(&entry.id)? else {
+        return Ok(Err(RemoteCheckRefusal::EntryNotReserved));
+    };
+    if stored.state != IssuanceState::Reserved {
+        return Ok(Err(RemoteCheckRefusal::EntryNotReserved));
+    }
+    let (now, status) = time.assess_read_only_in(txn)?;
+    if status != heimdall_domain::time::TimeStatus::Safe {
+        return Ok(Err(RemoteCheckRefusal::TimeUncertain));
+    }
+    if stale(stored.reserved_at, now.wall) {
+        return Ok(Err(RemoteCheckRefusal::EntryStale));
+    }
+    Ok(remote_condition(txn, &stored, subject, now.wall)?
+        .map(|()| stored.bounds.clone())
+        .map_err(RemoteCheckRefusal::Condition))
+}
+
+/// Conditions 1–7 for the stored `remote` reservation `stored` and `subject`, at `now`: the
+/// part of [`assess_remote_reservation`] after the issuer's own steps (the entry's state and
+/// age, the issuer's time). Also what [`explain_remote_refusal`] names a refusal by.
+fn remote_condition(
+    txn: &mut Txn<'_>,
+    stored: &heimdall_domain::issuance::IssuanceEntry,
+    subject: &str,
+    now: heimdall_contract::Timestamp,
+) -> heimdall_store::Result<Result<(), crate::remote::RemoteReservationRefusal>> {
+    use crate::remote::{RemoteReservationRefusal as R, RemoteReservationView};
+    // Condition 5's environment is the lookup key of everything else: a key ID that names
+    // no environment names no runner.
+    let Some(environment) = crate::remote::key_id_environment(&stored.bounds.key_id) else {
+        return Ok(Err(R::KeyId));
+    };
+    let pin = txn
+        .remote_environment_pins()?
+        .into_iter()
+        .find(|(e, _)| *e == environment)
+        .and_then(|(_, json)| {
+            serde_json::from_str::<heimdall_contract::controller_record::RemoteEnvironmentPin>(
+                &json,
+            )
+            .ok()
+        })
+        .filter(|p| p.environment == environment);
+    let delivered = txn.delivered_grant(&environment, &stored.grant)?;
+    let contact = txn.remote_contact(&environment)?;
+    let outbox_pending = !txn
+        .remote_effect_outbox(Some(&environment), true)?
+        .is_empty();
+    let tombstoned = txn.tombstone(&stored.grant)?.is_some();
+    let ca_active = match &stored.bounds.ca_fingerprint {
+        Some(ca) => txn.issuers()?.iter().any(|i| {
+            &i.ca_fingerprint == ca && i.state == heimdall_contract::issuer::CaState::Active
+        }),
+        None => false,
+    };
+    let local_grant = txn.grant(&stored.grant)?.is_some();
+    let subject_fingerprint = issuance_ro::subject_fingerprint(subject);
+    let view = RemoteReservationView {
+        entry: stored,
+        subject_fingerprint: subject_fingerprint.as_deref(),
+        local_grant,
+        pin: pin.as_ref(),
+        delivered: delivered.as_ref(),
+        contact: &contact,
+        outbox_pending,
+        tombstoned,
+        ca_active,
+        now,
+    };
+    Ok(crate::remote::admit_remote_reservation(&view))
+}
+
+/// Which of the amendment's conditions refuses the `remote` reservation `entry` for
+/// `subject`, read from `store` at `now`: the condition's own text, for the caller's error
+/// message. The frozen wire carries only the nearest existing reason
+/// ([`RemoteCheckRefusal::to_wire`]), so the controller's runtime, which reads the same
+/// store, names the condition itself. `None` when no condition refuses now, the entry is
+/// gone, or the store cannot be read. It decides nothing: the issuer child's own check is
+/// the only one that signs.
+#[must_use]
+pub fn explain_remote_refusal(
+    store: &Store,
+    entry: &heimdall_contract::ids::IssuanceId,
+    subject: &str,
+    now: heimdall_contract::Timestamp,
+) -> Option<crate::remote::RemoteReservationRefusal> {
+    store
+        .transaction(|txn| {
+            let Some(stored) = txn.issuance_entry(entry)? else {
+                return Ok(None);
+            };
+            Ok(remote_condition(txn, &stored, subject, now)?.err())
+        })
+        .ok()
+        .flatten()
+}
+
+/// [`assess_remote_reservation`] in one read transaction over `ro_store`, with the wire
+/// refusal. A store that cannot be read refuses `entry_not_reserved`.
+///
+/// # Errors
+///
+/// The [`IssuerRefusal`].
+pub fn verify_remote_reservation(
+    ro_store: &Store,
+    time: &TimeGate,
+    entry: &IssuanceRef,
+    subject: &str,
+) -> Result<CertificateBounds, IssuerRefusal> {
+    ro_store
+        .transaction(|txn| assess_remote_reservation(txn, time, entry, subject))
+        .unwrap_or(Err(RemoteCheckRefusal::EntryNotReserved))
+        .map_err(|r| r.to_wire())
+}

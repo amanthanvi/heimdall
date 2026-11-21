@@ -341,7 +341,9 @@ impl Operations {
             .await?;
         // ⟨wave 4⟩ Open only with the managed wiring (effects and issuer) and the
         // managed adapter configured; otherwise refused before any record.
-        let managed_available = self.managed_driver_wired()
+        // ⟨M06 W3 grant-path⟩ On a remote runner the mechanism needs no issuer here: the
+        // grant waits for the controller's (`super::runner_m06`).
+        let managed_available = (self.managed_driver_wired() || self.runner_grants().is_some())
             && self
                 .adapter_infos()
                 .iter()

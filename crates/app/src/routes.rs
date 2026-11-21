@@ -43,6 +43,8 @@
 pub mod failover;
 #[path = "routes_legs.rs"]
 pub mod legs;
+#[path = "routes_ops.rs"]
+pub mod ops;
 #[path = "routes_verify.rs"]
 pub mod verify;
 
@@ -63,7 +65,7 @@ use heimdall_domain::catalog::{
 use heimdall_domain::scope::AccessPair;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub use failover::{FailoverConfig, FailoverOutcome};
+pub use failover::{ClientIdentification, FailoverConfig, FailoverOutcome};
 /// The pure pieces the helper builds on (`heimdall-registry`), re-exported for its callers.
 pub use heimdall_registry::routes::{
     DefeatKind, ExpectedProxy, HOST_PIN_DEFEATED, HostPinDefeated, JumpHop, JumpLegError,
@@ -200,6 +202,58 @@ pub struct RouteBinding {
     pub endpoint: String,
     /// The grant's destination/account pairs.
     pub pairs: BTreeSet<AccessPair>,
+}
+
+/// ⟨M06 W3⟩ The runtime's answer to `route.resolve_binding` (ADR-0012 §5.4): the one
+/// binding served at the endpoint for the caller's context, its grant and the grant's pairs.
+/// The helper checks it again ([`select_route_binding`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ResolvedRouteBinding {
+    /// The binding.
+    pub binding: BindingId,
+    /// Its grant.
+    pub grant: GrantId,
+    /// The endpoint it is served at.
+    pub endpoint: String,
+    /// The grant's destination/account pairs.
+    pub pairs: Vec<AccessPair>,
+}
+
+impl From<RouteBinding> for ResolvedRouteBinding {
+    fn from(b: RouteBinding) -> Self {
+        Self {
+            binding: b.binding,
+            grant: b.grant,
+            endpoint: b.endpoint,
+            pairs: b.pairs.into_iter().collect(),
+        }
+    }
+}
+
+impl From<ResolvedRouteBinding> for RouteBinding {
+    fn from(b: ResolvedRouteBinding) -> Self {
+        Self {
+            binding: b.binding,
+            grant: b.grant,
+            endpoint: b.endpoint,
+            pairs: b.pairs.into_iter().collect(),
+        }
+    }
+}
+
+/// ⟨M06 W3⟩ The route facts the helper plans from, read in one transaction: the catalog's
+/// destinations and pair preferences, and every stored route list.
+///
+/// # Errors
+/// The store's.
+pub fn route_catalog_view(
+    store: &heimdall_store::Store,
+) -> heimdall_store::Result<RouteCatalogView> {
+    store.transaction(|tx| {
+        let mut view = crate::catalog::route_view(tx)?;
+        view.routes = tx.all_destination_routes()?;
+        Ok(view)
+    })
 }
 
 /// `ResolveRouteBinding`'s rule over the bindings an implementation finds for the caller's
@@ -479,6 +533,13 @@ where
         &|payload| ports.record_health(payload),
     )
     .await;
+    // ⟨2026-11-21, ruling 3⟩ The precise reason a client's identification line ended the
+    // connect, or kept it off an Iroh route when nothing was established (never its bytes).
+    if let Some(why) = outcome.client_failure
+        && (why.is_terminal() || outcome.final_route.is_none())
+    {
+        let _ = writeln!(diagnostics, "heimdall route connect: {}", why.message());
+    }
     Ok(outcome)
 }
 

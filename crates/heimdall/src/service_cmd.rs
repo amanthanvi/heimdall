@@ -306,6 +306,19 @@ async fn serve(
     if let Some(command) = runner_command {
         options.runner.command = Some(command);
     }
+    // ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `transport.rotate` tells this device's recorded
+    // runners the new endpoint over their management sessions (the CLI's own wiring).
+    if let Some(t) = options.transport.as_mut() {
+        t.announcer = Some(std::sync::Arc::new(
+            crate::m06_cmd::ManagementAnnouncer::new(ctx, &paths),
+        ));
+    }
+    // ⟨M06 W3 host⟩ The controller's hosted driver opens its management sessions through
+    // the CLI's own wiring (K_mgmt, the recorded pins, never a prompt). A runner hosts none.
+    options.controller = Some(heimdall_runtime::controller_host::ControllerHostWiring {
+        sessions: std::sync::Arc::new(crate::m06_cmd::DriverSessions::new(ctx, &paths)),
+        interval: heimdall_runtime::controller_host::DEFAULT_INTERVAL,
+    });
     #[cfg(debug_assertions)]
     let setup = crate::testcfg::prepare(&mut options, &paths, ctx.home.is_some(), &|n| {
         std::env::var_os(n)

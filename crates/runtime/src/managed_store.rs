@@ -1863,6 +1863,30 @@ mod live_tests {
         release: tokio::sync::Notify,
     }
 
+    /// ⟨M06-W2-R05⟩ How long a test waits for a held preparation to be reached.
+    const HOLD_WAIT: Duration = Duration::from_secs(60);
+
+    impl Hold {
+        /// Wait until the armed preparation announced `reached`, for at most
+        /// [`HOLD_WAIT`]: a leader that failed or ended before `prepare_from` (an
+        /// unbindable endpoint, for one) fails the test with this message instead of
+        /// leaving it waiting for ever.
+        async fn wait_reached(&self) {
+            Self::bounded(self.reached.notified()).await;
+        }
+
+        /// `reached`, as a future a test created earlier, bounded the same way.
+        async fn bounded(reached: impl Future<Output = ()>) {
+            assert!(
+                tokio::time::timeout(HOLD_WAIT, reached).await.is_ok(),
+                "the held preparation was not reached within {} s: the request that \
+                 should reach `prepare_from` failed or ended first (check its endpoint \
+                 and socket paths, and TMPDIR's length)",
+                HOLD_WAIT.as_secs()
+            );
+        }
+    }
+
     /// The real managed adapter, whose `prepare_from` refuses (after the effect
     /// driver ran) while `fail` is set: a failure between materialization and commit.
     /// ⟨R3-C2⟩ It also waits at an armed [`Hold`].
@@ -2162,7 +2186,10 @@ mod live_tests {
         /// ⟨R3-C2⟩ A world over `pairs` (each seeded as in [`seed`]) whose clock starts
         /// at `start`.
         fn seeded(pairs: &[AccessPair], start: Timestamp) -> Self {
-            let dir = tempfile::tempdir().unwrap();
+            // ⟨M06-W2-R05⟩ A root short enough for the endpoint sockets below it (a long
+            // TMPDIR used to make every bind fail and the held tests wait for ever).
+            let dir = heimdall_testkit::home::short_tempdir("hm-live-")
+                .unwrap_or_else(|e| panic!("the live fixture's scratch directory: {e}"));
             owner_only(&dir.path().join("state"));
             owner_only(&dir.path().join("run"));
             let store = Arc::new(

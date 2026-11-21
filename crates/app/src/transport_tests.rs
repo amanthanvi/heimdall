@@ -132,6 +132,7 @@ fn relays(urls: &[&str]) -> ExposurePolicy {
             relays: urls.iter().map(|u| (*u).to_owned()).collect(),
         },
         direct_fallback: false,
+        port: None,
     }
 }
 
@@ -439,6 +440,7 @@ fn deltas_name_the_exact_change_and_narrowing_never_widens() {
             ],
         },
         direct_fallback: true,
+        port: None,
     };
     let d = exposure_delta(None, &before, false, &after, false, None);
     assert_eq!(d.relays_added, vec!["https://b.example.invalid".to_owned()]);
@@ -486,7 +488,7 @@ fn rotation_gives_a_new_endpoint_and_narrows_admission() {
     let store = store();
     let f = Fakes::new();
     let o = ops(&store, &f);
-    let err = run(o.rotate(now())).unwrap_err();
+    let err = run(o.rotate(None, now())).unwrap_err();
     assert_eq!(err.reason.as_deref(), Some("transport_unavailable"));
     let approved = ApprovedWidening {
         decision: DecisionId::from_random_bytes([8; 16]),
@@ -494,7 +496,7 @@ fn rotation_gives_a_new_endpoint_and_narrows_admission() {
     };
     let first = run(o.enable(true, None, Some(&approved), now())).unwrap();
     let before = admission_generation(&store);
-    let rotated = run(o.rotate(now())).unwrap();
+    let rotated = run(o.rotate(None, now())).unwrap();
     assert_ne!(rotated.endpoint, first.endpoint);
     assert_eq!(rotated.previous, first.endpoint);
     assert!(rotated.previous_destroyed);
@@ -508,7 +510,245 @@ fn rotation_gives_a_new_endpoint_and_narrows_admission() {
         1,
         "the withdrawn row is deleted once its item is gone"
     );
+    assert!(rotated.runners.is_empty() && rotated.pending.is_empty() && !rotated.resumed);
+    assert_eq!(
+        store.transaction(|tx| tx.transport_rotation()).unwrap(),
+        None,
+        "nothing was left to announce"
+    );
     let calls = f.calls.lock().unwrap();
     assert_eq!(calls.narrowed, 1);
     assert_eq!(calls.destroyed, vec![first.endpoint.clone()]);
+}
+
+/// A scripted management channel: the runners in `failing` refuse; every call is logged.
+#[derive(Default)]
+struct Announcer {
+    failing: Mutex<Vec<EnvironmentId>>,
+    told: Mutex<Vec<(EnvironmentId, IrohEndpointId)>>,
+}
+
+#[async_trait]
+impl EndpointAnnouncer for Announcer {
+    async fn announce(
+        &self,
+        environment: &EnvironmentId,
+        endpoint: &IrohEndpointId,
+    ) -> Result<(), OpError> {
+        self.told
+            .lock()
+            .unwrap()
+            .push((environment.clone(), endpoint.clone()));
+        if self.failing.lock().unwrap().contains(environment) {
+            return Err(
+                OpError::new(Code::ServiceUnavailable, "the runner cannot be reached")
+                    .with_effect(EffectStatus::None),
+            );
+        }
+        Ok(())
+    }
+}
+
+fn runner(n: u8) -> EnvironmentId {
+    EnvironmentId::from_random_bytes([n; 16])
+}
+
+fn record_runner(store: &Store, environment: &EnvironmentId) {
+    store
+        .transaction(|tx| {
+            tx.put_remote_environment_pin(
+                environment,
+                &DestinationId::parse("lab").unwrap(),
+                &AccountName::parse("runner").unwrap(),
+                &heimdall_contract::ids::KeyFingerprint::parse(&format!(
+                    "SHA256:{}",
+                    "A".repeat(43)
+                ))
+                .unwrap(),
+                r#"{"v":1}"#,
+                now(),
+            )
+        })
+        .unwrap();
+}
+
+fn enabled(store: &Store, f: &Fakes) -> IrohEndpointId {
+    let o = ops(store, f);
+    let approved = ApprovedWidening {
+        decision: DecisionId::from_random_bytes([8; 16]),
+        delta: o.enable_delta(true, None).unwrap(),
+    };
+    run(o.enable(true, None, Some(&approved), now()))
+        .unwrap()
+        .endpoint
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ `transport.rotate` is retry-safe. A runner that fails
+/// stays recorded as pending and is named in the result; the old key survives (its item is
+/// not destroyed and its withdrawn row stays) while anyone is pending. A re-run mints no
+/// further key, tells only the pending runner, and once it acknowledges the old key is
+/// destroyed and the record forgotten. A third run is then a fresh rotation.
+#[test]
+fn a_failed_runner_stays_pending_and_a_rerun_finishes_without_a_new_key() {
+    let store = store();
+    let f = Fakes::new();
+    let old = enabled(&store, &f);
+    let (a, b) = (runner(0xa1), runner(0xb2));
+    record_runner(&store, &a);
+    record_runner(&store, &b);
+    let channel = Announcer::default();
+    channel.failing.lock().unwrap().push(b.clone());
+    let o = ops(&store, &f);
+    let generation = admission_generation(&store);
+
+    let first = run(o.rotate(Some(&channel), now())).unwrap();
+    assert_eq!(first.previous, old);
+    assert!(!first.resumed);
+    assert_eq!(first.pending, vec![b.clone()], "the failed runner is named");
+    assert!(!first.previous_destroyed, "the old key survives");
+    assert_eq!(first.runners.len(), 2);
+    assert_eq!(first.runners[0].outcome, AnnouncementOutcome::Acknowledged);
+    assert!(matches!(
+        &first.runners[1].outcome,
+        AnnouncementOutcome::Pending {
+            code: Code::ServiceUnavailable,
+            ..
+        }
+    ));
+    assert_eq!(
+        f.calls.lock().unwrap().created,
+        2,
+        "enable's key and the new one"
+    );
+    assert!(f.calls.lock().unwrap().destroyed.is_empty());
+    assert_eq!(admission_generation(&store), generation + 1);
+    let keys = store.transaction(|tx| tx.transport_keys()).unwrap();
+    assert_eq!(
+        keys.len(),
+        2,
+        "the withdrawn row stays while a runner is pending"
+    );
+    let record = store
+        .transaction(|tx| tx.transport_rotation())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (&record.endpoint, &record.previous, &record.pending),
+        (&first.endpoint, &old, &vec![b.clone()])
+    );
+
+    // Re-run while the runner still fails: nothing minted, only the pending runner told.
+    let again = run(o.rotate(Some(&channel), now())).unwrap();
+    assert!(again.resumed);
+    assert_eq!(again.endpoint, first.endpoint, "no further key");
+    assert_eq!(again.pending, vec![b.clone()]);
+    assert_eq!(again.runners.len(), 1);
+    assert_eq!(f.calls.lock().unwrap().created, 2);
+    assert!(f.calls.lock().unwrap().destroyed.is_empty());
+    assert_eq!(
+        admission_generation(&store),
+        generation + 1,
+        "a re-run narrows nothing further"
+    );
+
+    // The runner comes back: the re-run finishes it and only then destroys the old key.
+    channel.failing.lock().unwrap().clear();
+    let done = run(o.rotate(Some(&channel), now())).unwrap();
+    assert!(done.resumed && done.pending.is_empty() && done.previous_destroyed);
+    assert_eq!(done.endpoint, first.endpoint);
+    assert_eq!(f.calls.lock().unwrap().created, 2, "still no further key");
+    assert_eq!(f.calls.lock().unwrap().destroyed, vec![old.clone()]);
+    assert_eq!(
+        store.transaction(|tx| tx.transport_keys()).unwrap().len(),
+        1
+    );
+    assert_eq!(
+        store.transaction(|tx| tx.transport_rotation()).unwrap(),
+        None
+    );
+    let told = channel.told.lock().unwrap().clone();
+    assert_eq!(
+        told,
+        vec![
+            (a.clone(), first.endpoint.clone()),
+            (b.clone(), first.endpoint.clone()),
+            (b.clone(), first.endpoint.clone()),
+            (b.clone(), first.endpoint.clone()),
+        ],
+        "an acknowledged runner is never told again"
+    );
+    drop(told);
+
+    // Nothing pending any more: the next run is a fresh rotation.
+    let fresh = run(o.rotate(Some(&channel), now())).unwrap();
+    assert!(!fresh.resumed);
+    assert_ne!(fresh.endpoint, first.endpoint);
+    assert_eq!(fresh.previous, first.endpoint);
+    assert!(fresh.previous_destroyed);
+}
+
+/// ⟨rev6.3⟩ A pending runner that is forgotten (its record removed) no longer holds the old
+/// key; with runners to tell and no management channel nothing is rotated at all; and
+/// `disable` ends a rotation still being announced, destroying both keys.
+#[test]
+fn forgotten_runners_release_the_old_key_and_no_channel_rotates_nothing() {
+    let store = store();
+    let f = Fakes::new();
+    let old = enabled(&store, &f);
+    let a = runner(0xa1);
+    record_runner(&store, &a);
+    let o = ops(&store, &f);
+    // No management channel: refused before any key is minted.
+    let err = run(o.rotate(None, now())).unwrap_err();
+    assert_eq!(err.reason.as_deref(), Some(reason::DRIVER_UNAVAILABLE));
+    assert_eq!(f.calls.lock().unwrap().created, 1);
+    assert_eq!(
+        store.transaction(|tx| tx.transport_rotation()).unwrap(),
+        None
+    );
+    assert_eq!(
+        store
+            .transaction(endpoint_state)
+            .unwrap()
+            .key
+            .unwrap()
+            .endpoint,
+        old
+    );
+    let channel = Announcer::default();
+    channel.failing.lock().unwrap().push(a.clone());
+    let first = run(o.rotate(Some(&channel), now())).unwrap();
+    assert_eq!(first.pending, vec![a.clone()]);
+    assert!(f.calls.lock().unwrap().destroyed.is_empty());
+    // The owner removes the environment: the runner is forgotten.
+    store
+        .transaction(|tx| tx.remove_remote_environment_pin(&a))
+        .unwrap();
+    let done = run(o.rotate(None, now())).unwrap();
+    assert!(done.resumed && done.pending.is_empty() && done.previous_destroyed);
+    assert_eq!(done.runners[0].outcome, AnnouncementOutcome::Forgotten);
+    assert_eq!(f.calls.lock().unwrap().destroyed, vec![old.clone()]);
+    assert_eq!(
+        channel.told.lock().unwrap().len(),
+        1,
+        "a forgotten runner is not told"
+    );
+
+    // A rotation still being announced, then `disable`: no key and no record is left.
+    record_runner(&store, &a);
+    let second = run(o.rotate(Some(&channel), now())).unwrap();
+    assert_eq!(second.pending, vec![a]);
+    run(o.disable(now())).unwrap();
+    assert_eq!(
+        store.transaction(|tx| tx.transport_rotation()).unwrap(),
+        None
+    );
+    assert!(
+        store
+            .transaction(|tx| tx.transport_keys())
+            .unwrap()
+            .is_empty()
+    );
+    let destroyed = f.calls.lock().unwrap().destroyed.clone();
+    assert!(destroyed.contains(&second.endpoint) && destroyed.contains(&second.previous));
 }

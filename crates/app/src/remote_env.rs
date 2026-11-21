@@ -76,62 +76,15 @@ pub const MAX_HOST_KEYS: usize = 16;
 
 // --- records -----------------------------------------------------------------------------
 
-/// One hop of a management route: where it is and the host keys pinned for it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagementHop {
-    /// `HostName`.
-    pub hostname: String,
-    /// `Port`; 22 when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<u16>,
-    /// The account.
-    pub account: AccountName,
-    /// The catalog-pinned host keys (OpenSSH public key lines, at least one).
-    pub host_keys: Vec<String>,
-}
+/// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ The record types moved to the contract unchanged in shape
+/// (`heimdall_contract::controller_record`), so the runtime can write them for the CLI.
+pub use heimdall_contract::controller_record::{
+    ControllerRecordRequest, ManagementHop, ManagementJump, ManagementRoute, RemoteEnvironmentPin,
+};
 
-/// The single jump hop of a management route (ADR-0012 §5.1 `jump{via}`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagementJump {
-    /// The jump destination.
-    pub destination: DestinationId,
-    /// Its hop.
-    pub hop: ManagementHop,
-}
-
-/// The route a management session takes to a runner.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagementRoute {
-    /// The runner hop.
-    pub runner: ManagementHop,
-    /// The single jump hop, when the approved route is a jump.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jump: Option<ManagementJump>,
-}
-
-/// The controller's record of one paired runner environment: the authoritative document of
-/// a `remote_environment_pins` row (ADR-0012 §7.5: a changed host key or environment ID is
-/// `held`, never silently re-pinned).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteEnvironmentRecord {
-    /// The runner's environment ID, as its hello reported it.
-    pub environment: EnvironmentId,
-    /// The catalog destination that reaches it.
-    pub destination: DestinationId,
-    /// The route and pins.
-    pub route: ManagementRoute,
-    /// This device's client on that runner.
-    pub client: ClientId,
-    /// This device's role there.
-    pub role: Role,
-    /// The fingerprint of the K_mgmt enrolled there.
-    pub key_fingerprint: KeyFingerprint,
-    /// The owner's label.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    /// When the record was written.
-    pub pinned_at: Timestamp,
-}
+/// The controller's record of one paired runner environment (the contract's
+/// [`RemoteEnvironmentPin`]; this name is kept for the controller's code).
+pub type RemoteEnvironmentRecord = RemoteEnvironmentPin;
 
 /// The public invitation bundle the owner hands to the new device (ADR-0012 §3.9 item 1).
 /// Nothing in it is secret: it names the runner, its pinned host keys, the invitation and
@@ -158,6 +111,10 @@ pub struct InvitationBundle {
     /// The pending record's activation nonce, when the runner returned one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
+    /// ⟨rev6.3; ADR-0006 §18.7 item 2⟩ The invitation admits the client over Iroh: the
+    /// joining device sends its own endpoint ID with `join` (omitted when false).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub iroh_admission: bool,
 }
 
 // --- ports -------------------------------------------------------------------------------
@@ -239,7 +196,11 @@ pub trait MgmtKeyPort: Send + Sync {
     fn fingerprint_of(&self, openssh_line: &str) -> Option<KeyFingerprint>;
 }
 
-/// The controller's records (`remote_environment_pins`).
+/// The controller's records (`remote_environment_pins`). ⟨rev6.3⟩ The writes are async: the
+/// CLI's implementation sends `Request::ControllerRecord` when a runtime answers (the
+/// runtime is its store's single writer) and writes directly under the instance lock when
+/// none does.
+#[async_trait::async_trait]
 pub trait EnvironmentRegistry: Send + Sync {
     /// Every record, by environment ID.
     ///
@@ -251,13 +212,89 @@ pub trait EnvironmentRegistry: Send + Sync {
     ///
     /// # Errors
     /// [`OpError`].
-    fn put(&self, record: &RemoteEnvironmentRecord) -> Result<(), OpError>;
+    async fn put(&self, record: &RemoteEnvironmentRecord) -> Result<(), OpError>;
 
     /// Remove the record of `environment`; `false` when there was none.
     ///
     /// # Errors
     /// [`OpError`].
-    fn remove(&self, environment: &EnvironmentId) -> Result<bool, OpError>;
+    async fn remove(&self, environment: &EnvironmentId) -> Result<bool, OpError>;
+}
+
+/// ⟨rev6.3; ADR-0006 §18.7 item 6⟩ Apply one controller-record form to `store`: the one writer
+/// of `remote_environment_pins` for the runtime's form and the CLI's direct path alike.
+/// `put_environment` checks the record (its route's pins: 1 to [`MAX_HOST_KEYS`] key lines
+/// per hop; a label of 1 to 64 bytes without control characters) and inserts or replaces it,
+/// keyed by its environment, with the runner hop's first pinned key's fingerprint
+/// (`host_fingerprint`, the crypto staying in `heimdall-credential`); `remove_environment`
+/// forgets one (`removed: false` when there was none). Who may send it (the local owner
+/// only) is the caller's check. Answers `{environment, put: true}` or `{environment,
+/// removed}`.
+///
+/// # Errors
+/// `USAGE_ERROR` (effect `none`) for a record that does not check; `STATE_UNAVAILABLE` when
+/// the store fails; `driver_unavailable` for a form this build does not know.
+pub fn apply_controller_record(
+    store: &heimdall_store::Store,
+    request: &ControllerRecordRequest,
+    host_fingerprint: &dyn Fn(&str) -> Option<KeyFingerprint>,
+) -> Result<serde_json::Value, OpError> {
+    let unwritable = || {
+        OpError::new(
+            Code::StateUnavailable,
+            "the controller's remote environment records cannot be written",
+        )
+        .with_effect(heimdall_contract::envelope::EffectStatus::None)
+    };
+    let invalid = |m: &str| {
+        OpError::new(Code::UsageError, m.to_owned())
+            .with_effect(heimdall_contract::envelope::EffectStatus::None)
+    };
+    match request {
+        ControllerRecordRequest::PutEnvironment { record } => {
+            check_pins(&record.route)
+                .map_err(|_| invalid("the record's route has no valid pins"))?;
+            if let Some(label) = &record.label
+                && (label.is_empty()
+                    || label.len() > heimdall_contract::remote::MAX_REMOTE_LABEL_BYTES
+                    || label.chars().any(char::is_control))
+            {
+                return Err(invalid(
+                    "the label must be 1 to 64 bytes without control characters",
+                ));
+            }
+            let host = record
+                .route
+                .runner
+                .host_keys
+                .first()
+                .and_then(|k| host_fingerprint(k))
+                .ok_or_else(|| invalid("the record's first pinned host key is not a public key"))?;
+            let json = serde_json::to_string(record).map_err(|_| unwritable())?;
+            store
+                .transaction(|tx| {
+                    tx.put_remote_environment_pin(
+                        &record.environment,
+                        &record.destination,
+                        &record.route.runner.account,
+                        &host,
+                        &json,
+                        record.pinned_at,
+                    )
+                })
+                .map_err(|_| unwritable())?;
+            Ok(serde_json::json!({ "environment": record.environment, "put": true }))
+        }
+        ControllerRecordRequest::RemoveEnvironment { environment } => {
+            let removed = store
+                .transaction(|tx| tx.remove_remote_environment_pin(environment))
+                .map_err(|_| unwritable())?;
+            Ok(serde_json::json!({ "environment": environment, "removed": removed }))
+        }
+        _ => Err(OpError::driver_unavailable(
+            "this controller-record form is not known to this build",
+        )),
+    }
 }
 
 /// The owner's existing, independently host-verified access to a runner account
@@ -346,6 +383,19 @@ pub struct SessionHello {
     pub client: Option<ClientId>,
 }
 
+/// ⟨ADR-0006 §18.7, the ruling under item 19⟩ What the controller says when a confirming
+/// probe gave no answer either way: the probe was inconclusive (never "refused").
+pub const PROBE_INCONCLUSIVE: &str =
+    "a confirming probe of the management session was inconclusive";
+
+/// The rest of the join's message: without an observation only an owner join is possible.
+pub const PROBE_INCONCLUSIVE_JOIN: &str = "this device's limited-role join was not sent and nothing was joined; only an owner \
+     join is possible without a conclusive probe; try again";
+
+/// The rest of the recheck's message.
+pub const PROBE_INCONCLUSIVE_RECHECK: &str =
+    "nothing was sent to the runner, and its owner-only state is unchanged; try again";
+
 /// A request a management session may carry: the revision-6 management forms only. There
 /// is no `Decide` and no `Attend` form, so the controller can never decide on a runner
 /// (ADR-0012 §3.10).
@@ -353,6 +403,16 @@ pub struct SessionHello {
 pub enum ManagementCall {
     /// A `remote_environment` form.
     Environment(RemoteEnvironmentRequest),
+    /// ⟨M06 W3⟩ A `runner/1` form (`crate::remote_status_driver::SessionChannel`): typed
+    /// narrowing effects, the authority report, the time exchange and remote issuance. None
+    /// of them decides anything at the runner; a session that did not negotiate `runner/1`
+    /// has such a request refused by the runner before dispatch.
+    Runner(heimdall_contract::remote::RunnerRequest),
+    /// ⟨M06 W3 grant-path; ADR-0012 §4 item 2⟩ An `ensure` this controller forwards to the
+    /// runner (`crate::remote_status_driver::ControllerSync::forward_ensure`). The runner
+    /// admits it as a paired client's request, under its own standing policy or a decision
+    /// confirmed at the runner; the session never decides.
+    Ensure(Box<heimdall_contract::request::EnsureRequest>),
 }
 
 impl ManagementCall {
@@ -361,6 +421,8 @@ impl ManagementCall {
     pub fn into_request(self) -> Request {
         match self {
             ManagementCall::Environment(r) => Request::RemoteEnvironment(r),
+            ManagementCall::Runner(r) => Request::Runner(r),
+            ManagementCall::Ensure(r) => Request::Ensure(*r),
         }
     }
 }
@@ -370,6 +432,20 @@ impl ManagementCall {
 pub trait ManagementSession: Send {
     /// The runner's hello.
     fn hello(&self) -> &SessionHello;
+
+    /// ⟨M06 W3⟩ Whether the session negotiated `runner/1` (the runner offers it to owner
+    /// sessions only). `false` unless the opener says otherwise.
+    fn runner_negotiated(&self) -> bool {
+        false
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 16⟩ Run the four confirming probes (ADR-0012 §3.2: a
+    /// PTY, a `-W` forward, agent forwarding with a disposable agent, a `SetEnv` variable)
+    /// with this session's key over this session's route, and report what they observed.
+    /// `None` when the opener runs none, or when any probe was inconclusive.
+    async fn probe(&mut self) -> Option<heimdall_contract::remote::ProbeObservation> {
+        None
+    }
 
     /// Send one call and read its response envelope.
     ///
@@ -481,6 +557,41 @@ pub struct InviteInput {
     /// The idempotency key: reuse it to read the runner's terminal result after its local
     /// confirmation.
     pub request_id: RequestId,
+    /// ⟨rev6.3; ADR-0006 §18.7 item 2⟩ The invited client may reach the runner over Iroh
+    /// (`environment invite --iroh`): part of the invitation's exact request, so the
+    /// runner-local decision confirms it.
+    pub iroh_admission: bool,
+}
+
+/// ⟨rev6.3⟩ One runner's answer to `transport rotate`'s announcement
+/// ([`RemoteEnvController::announce_endpoint`]).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EndpointAnnouncement {
+    /// The runner environment.
+    pub environment: EnvironmentId,
+    /// Its answer.
+    pub result: AnnouncementResult,
+}
+
+/// A runner's answer to the endpoint announcement.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum AnnouncementResult {
+    /// The runner recorded (or already had) the endpoint.
+    Accepted {
+        /// The runner's result.
+        data: serde_json::Value,
+    },
+    /// The runner refused, or could not be reached.
+    Refused {
+        /// The code.
+        code: Code,
+        /// The reason.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        /// The message.
+        message: String,
+    },
 }
 
 /// `invite`'s outcome.
@@ -504,6 +615,12 @@ pub struct EnvironmentStatus {
     /// The record.
     #[serde(flatten)]
     pub record: RemoteEnvironmentRecord,
+    /// ⟨M06 W3; ADR-0006 §18.7 item 13⟩ The remote fields, in this environment's own entry:
+    /// connectivity, the last-known readiness, the pending effects and the residuals
+    /// (`crate::remote_status::status_of`). Absent when the caller has no state to read
+    /// them from.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<crate::remote_status::RemoteStatus>,
 }
 
 /// `status`' report: the controller's own view (no session is opened).
@@ -780,7 +897,7 @@ impl<'a> RemoteEnvController<'a> {
             label: input.label.clone(),
             pinned_at: self.ports.now,
         };
-        self.ports.registry.put(&record)?;
+        self.ports.registry.put(&record).await?;
         Ok(record)
     }
 
@@ -820,6 +937,7 @@ impl<'a> RemoteEnvController<'a> {
                     key_fingerprint: input.key_fingerprint.clone(),
                     public_key: input.public_key.clone(),
                     request_id: input.request_id.clone(),
+                    iroh_admission: input.iroh_admission,
                 },
             ))
             .await?;
@@ -841,6 +959,7 @@ impl<'a> RemoteEnvController<'a> {
                     generation: created.generation,
                     key_fingerprint: input.key_fingerprint.clone(),
                     nonce: created.nonce,
+                    iroh_admission: input.iroh_admission,
                 })))
             }
             Err(e) if e.code == Code::ApprovalRequired && e.next.decision_ref.is_some() => {
@@ -853,14 +972,29 @@ impl<'a> RemoteEnvController<'a> {
         }
     }
 
-    /// `environment join` on the new device (module docs; ADR-0012 §3.9).
+    /// `environment join` on the new device (module docs; ADR-0012 §3.9), sending no Iroh
+    /// endpoint ([`Self::join_with_endpoint`]).
+    ///
+    /// # Errors
+    /// As [`Self::join_with_endpoint`].
+    pub async fn join(
+        &self,
+        bundle: &InvitationBundle,
+    ) -> Result<RemoteEnvironmentRecord, OpError> {
+        self.join_with_endpoint(bundle, None).await
+    }
+
+    /// `environment join` (module docs; ADR-0012 §3.9). ⟨rev6.3; ADR-0006 §18.7 item 3⟩
+    /// `own_endpoint` is this device's K_iroh endpoint ID when a verified store holds K_iroh;
+    /// it is sent (`Join.iroh_endpoint`) only when the bundle's invitation admits Iroh.
     ///
     /// # Errors
     /// [`OpError`]: the user did not confirm the runner (`INTERACTION_REQUIRED`), the bundle
     /// names another key, an environment ID mismatch, or the runner's refusal.
-    pub async fn join(
+    pub async fn join_with_endpoint(
         &self,
         bundle: &InvitationBundle,
+        own_endpoint: Option<heimdall_contract::ids::IrohEndpointId>,
     ) -> Result<RemoteEnvironmentRecord, OpError> {
         check_pins(&bundle.route)?;
         let host_fingerprints = bundle
@@ -923,6 +1057,17 @@ impl<'a> RemoteEnvController<'a> {
                     .await?,
             )?;
         }
+        // ⟨rev6.3; ADR-0006 §18.7 item 16⟩ What this device's confirming probes observed on
+        // its real connection. The runner refuses a limited role without it, so nothing is
+        // sent then; an owner join is exempt and goes without one.
+        let probe = session.probe().await;
+        if probe.is_none() && bundle.role != Role::Owner {
+            return Err(OpError::new(
+                Code::DestinationUnreachable,
+                format!("{PROBE_INCONCLUSIVE}: {PROBE_INCONCLUSIVE_JOIN}"),
+            )
+            .with_effect(heimdall_contract::envelope::EffectStatus::None));
+        }
         runner_result(
             session
                 .call(ManagementCall::Environment(
@@ -931,6 +1076,11 @@ impl<'a> RemoteEnvController<'a> {
                         invitation: bundle.invitation.clone(),
                         role: bundle.role,
                         generation: bundle.generation,
+                        // ⟨rev6.3; ADR-0006 §18.7 item 3⟩ Only an invitation that admits
+                        // Iroh carries this device's endpoint (the runner refuses it
+                        // otherwise); none when no verified store holds K_iroh.
+                        iroh_endpoint: own_endpoint.filter(|_| bundle.iroh_admission),
+                        probe,
                     },
                 ))
                 .await?,
@@ -945,7 +1095,7 @@ impl<'a> RemoteEnvController<'a> {
             label: None,
             pinned_at: self.ports.now,
         };
-        self.ports.registry.put(&record)?;
+        self.ports.registry.put(&record).await?;
         Ok(record)
     }
 
@@ -969,6 +1119,100 @@ impl<'a> RemoteEnvController<'a> {
         .await
     }
 
+    /// ⟨rev6.3; ADR-0006 §18.7 item 4⟩ `transport rotate`'s announcement: send this
+    /// device's new K_iroh endpoint ID (`remote_environment.rotate_endpoint`) to every
+    /// recorded runner, each over its own management session, and report each runner's
+    /// answer. A runner whose invitation did not admit Iroh refuses; that is reported and the
+    /// others still get it.
+    ///
+    /// # Errors
+    /// [`OpError`] when the records cannot be read (no runner was contacted).
+    pub async fn announce_endpoint(
+        &self,
+        endpoint: &heimdall_contract::ids::IrohEndpointId,
+    ) -> Result<Vec<EndpointAnnouncement>, OpError> {
+        let mut out = Vec::new();
+        for record in self.ports.registry.list()? {
+            let answer = self
+                .announce_endpoint_to(&record.environment, endpoint)
+                .await;
+            out.push(EndpointAnnouncement {
+                environment: record.environment.clone(),
+                result: match answer {
+                    Ok(data) => AnnouncementResult::Accepted { data },
+                    Err(e) => AnnouncementResult::Refused {
+                        code: e.code.clone(),
+                        reason: e.reason.clone(),
+                        message: e.message.clone(),
+                    },
+                },
+            });
+        }
+        Ok(out)
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 10⟩ [`Self::announce_endpoint`] to one recorded
+    /// runner: `transport.rotate`'s per-runner step (`crate::transport::EndpointAnnouncer`).
+    ///
+    /// # Errors
+    /// [`OpError`]: no such record, K_mgmt unavailable, the session's failure, or the
+    /// runner's refusal (the runner then stays pending).
+    pub async fn announce_endpoint_to(
+        &self,
+        environment: &EnvironmentId,
+        endpoint: &heimdall_contract::ids::IrohEndpointId,
+    ) -> Result<serde_json::Value, OpError> {
+        self.call_recorded(
+            environment,
+            ManagementCall::Environment(RemoteEnvironmentRequest::RotateEndpoint {
+                environment: environment.clone(),
+                endpoint: endpoint.clone(),
+            }),
+        )
+        .await
+    }
+
+    /// ⟨rev6.3; ADR-0006 §18.7 item 19⟩ `environment recheck`: run the four confirming
+    /// probes over a real management session to a recorded runner and send what they
+    /// observed (`remote_environment.runner_policy_recheck`). The runner records it as the
+    /// evidence its attended `remote policy recheck` judges; nothing is lifted here. Only
+    /// this controller's owner client may send it (checked here from the record, and by the
+    /// runner per request).
+    ///
+    /// # Errors
+    /// [`OpError`]: no such record, a record whose role is not `owner` (`role_insufficient`),
+    /// K_mgmt unavailable, the session's failure, an inconclusive probe (nothing sent), or
+    /// the runner's refusal.
+    pub async fn recheck(&self, environment: &EnvironmentId) -> Result<serde_json::Value, OpError> {
+        let record = self.record(environment)?;
+        if record.role != Role::Owner {
+            return Err(refuse(
+                Code::CapabilityUnavailable,
+                "only this runner's owner may recheck its sshd policy: nothing was sent",
+                reason::ROLE_INSUFFICIENT,
+            ));
+        }
+        self.key_ready()?;
+        let mut session = self.open_recorded(&record).await?;
+        let Some(probe) = session.probe().await else {
+            return Err(OpError::new(
+                Code::DestinationUnreachable,
+                format!("{PROBE_INCONCLUSIVE}: {PROBE_INCONCLUSIVE_RECHECK}"),
+            )
+            .with_effect(heimdall_contract::envelope::EffectStatus::None));
+        };
+        runner_result(
+            session
+                .call(ManagementCall::Environment(
+                    RemoteEnvironmentRequest::RunnerPolicyRecheck {
+                        environment: environment.clone(),
+                        probe,
+                    },
+                ))
+                .await?,
+        )
+    }
+
     /// `environment remove`: revoke this device's client on that runner, then forget the
     /// record (pins included). K_mgmt is kept: it may serve other runners.
     ///
@@ -977,7 +1221,7 @@ impl<'a> RemoteEnvController<'a> {
     pub async fn remove(&self, environment: &EnvironmentId) -> Result<(), OpError> {
         let record = self.record(environment)?;
         self.revoke_client(environment, &record.client).await?;
-        self.ports.registry.remove(environment)?;
+        self.ports.registry.remove(environment).await?;
         Ok(())
     }
 
@@ -1023,7 +1267,10 @@ impl<'a> RemoteEnvController<'a> {
             management,
             environments: records
                 .into_iter()
-                .map(|record| EnvironmentStatus { record })
+                .map(|record| EnvironmentStatus {
+                    record,
+                    remote: None,
+                })
                 .collect(),
         })
     }
@@ -1069,7 +1316,7 @@ impl<'a> RemoteEnvController<'a> {
             .await;
             match outcome {
                 Ok(_) => {
-                    self.ports.registry.remove(&record.environment)?;
+                    self.ports.registry.remove(&record.environment).await?;
                     revoked_on.push(record.environment.clone());
                 }
                 Err(e) => {

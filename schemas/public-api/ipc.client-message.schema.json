@@ -834,6 +834,47 @@
         }
       ]
     },
+    "ControllerRecordRequest": {
+      "description": "`Request::ControllerRecord`, tagged by `action` (ADR-0006 §18.7 item 6): write the\ncontroller's own records of its runners through its runtime. Local owner only; a paired\nsession is refused. Neither form widens anything on a runner: the runner-side effects\n(enrollment, revocation) are the management session's, confirmed where ADR-0012 §3.10\nsays.",
+      "oneOf": [
+        {
+          "description": "Insert or replace the record of `record.environment`. Kind\n`controller_record.put_environment`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "put_environment"
+            },
+            "record": {
+              "description": "The record.",
+              "$ref": "#/$defs/RemoteEnvironmentPin"
+            }
+          },
+          "required": [
+            "action",
+            "record"
+          ]
+        },
+        {
+          "description": "Forget one runner's record (absent: nothing to remove). Kind\n`controller_record.remove_environment`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove_environment"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            }
+          },
+          "required": [
+            "action",
+            "environment"
+          ]
+        }
+      ]
+    },
     "Cursor": {
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
       "type": "string"
@@ -1937,6 +1978,16 @@
         "infrastructure": {
           "description": "Relay and lookup infrastructure.",
           "$ref": "#/$defs/InfrastructureProfile"
+        },
+        "port": {
+          "description": "⟨rev6.3⟩ The serve port (ADR-0012 §2.1 ⟨2026-11-21⟩; `heimdall transport enable\n--port <n>`). Omitted when none: the first successful bind's port is then recorded\ndurably and reused at every later start. `0` is refused. A port that cannot be bound\nfails closed (`transport_unavailable`); changing it is `disable` then `enable`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
         }
       },
       "required": [
@@ -2499,6 +2550,84 @@
           "type": "string",
           "const": "revoke_on_lock"
         }
+      ]
+    },
+    "ManagementHop": {
+      "description": "One hop of a management route: where it is and the host keys pinned for it.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "The account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "host_keys": {
+          "description": "The catalog-pinned host keys (OpenSSH public key lines, at least one).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hostname": {
+          "description": "`HostName`.",
+          "type": "string"
+        },
+        "port": {
+          "description": "`Port`; 22 when absent.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "hostname",
+        "account",
+        "host_keys"
+      ]
+    },
+    "ManagementJump": {
+      "description": "The single jump hop of a management route (ADR-0012 §5.1 `jump{via}`).",
+      "type": "object",
+      "properties": {
+        "destination": {
+          "description": "The jump destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "hop": {
+          "description": "Its hop.",
+          "$ref": "#/$defs/ManagementHop"
+        }
+      },
+      "required": [
+        "destination",
+        "hop"
+      ]
+    },
+    "ManagementRoute": {
+      "description": "The route a management session takes to a runner.",
+      "type": "object",
+      "properties": {
+        "jump": {
+          "description": "The single jump hop, when the approved route is a jump.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ManagementJump"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runner": {
+          "description": "The runner hop.",
+          "$ref": "#/$defs/ManagementHop"
+        }
+      },
+      "required": [
+        "runner"
       ]
     },
     "MultiplexingMode": {
@@ -3416,6 +3545,34 @@
         }
       ]
     },
+    "ProbeObservation": {
+      "description": "⟨rev6.3; ADR-0006 §18.7 item 16⟩ What a joining device's confirming probes observed\nthrough its enrolled key (ADR-0012 §3.2 \"Behaviour probes confirm the result\"): `Join.probe`.\nThe joining device makes the report itself, so it catches a misconfigured sshd, not a\nhostile joiner. Every field is stated: none has a default.",
+      "type": "object",
+      "properties": {
+        "agent_forward_refused": {
+          "description": "Agent forwarding, offered with a disposable agent, was refused.",
+          "type": "boolean"
+        },
+        "forward_refused": {
+          "description": "A `-W` forward was refused.",
+          "type": "boolean"
+        },
+        "pty_refused": {
+          "description": "A PTY request was refused.",
+          "type": "boolean"
+        },
+        "setenv_canary_delivered": {
+          "description": "A canary `SetEnv` reached the bridge.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pty_refused",
+        "forward_refused",
+        "agent_forward_refused",
+        "setenv_canary_delivered"
+      ]
+    },
     "ProcessHolder": {
       "description": "The process holding a binding reference: its PID and an opaque OS start-time\ntoken, so a reused PID never counts (ADR-0007 §8). Lifecycle metadata, never\nauthorization; excluded from the request hash.",
       "type": "object",
@@ -3547,6 +3704,57 @@
         "binding_id"
       ]
     },
+    "RemoteEnvironmentPin": {
+      "description": "The controller's record of one paired runner environment: the authoritative document of\na `remote_environment_pins` row (ADR-0012 §7.5: a changed host key or environment ID is\n`held`, never silently re-pinned).",
+      "type": "object",
+      "properties": {
+        "client": {
+          "description": "This device's client on that runner.",
+          "$ref": "#/$defs/ClientId"
+        },
+        "destination": {
+          "description": "The catalog destination that reaches it.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "environment": {
+          "description": "The runner's environment ID, as its hello reported it.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "key_fingerprint": {
+          "description": "The fingerprint of the K_mgmt enrolled there.",
+          "$ref": "#/$defs/KeyFingerprint"
+        },
+        "label": {
+          "description": "The owner's label.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pinned_at": {
+          "description": "When the record was written.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "role": {
+          "description": "This device's role there.",
+          "$ref": "#/$defs/Role"
+        },
+        "route": {
+          "description": "The route and pins.",
+          "$ref": "#/$defs/ManagementRoute"
+        }
+      },
+      "required": [
+        "environment",
+        "destination",
+        "route",
+        "client",
+        "role",
+        "key_fingerprint",
+        "pinned_at"
+      ]
+    },
     "RemoteEnvironmentRequest": {
       "description": "`Request::RemoteEnvironment`, tagged by `action` (ADR-0012 §3, §6.4, §9 item 6:\n`env add|invite|join|revoke-client|remove|update|status`). Capability\n`remote-control/1`. A form that can widen authority or exposure (`invite`) carries a\n`request_id`, so a replay after the runner-local decision returns the recorded\nterminal result (ADR-0012 §3.10 T-RA3).",
       "oneOf": [
@@ -3591,6 +3799,10 @@
             "environment": {
               "description": "The runner environment.",
               "$ref": "#/$defs/EnvironmentId"
+            },
+            "iroh_admission": {
+              "description": "⟨rev6.3⟩ Whether the invited client may reach this runner over Iroh (ADR-0012\n§2.3 item 1). Part of the invitation's exact request, so the runner-local widening\ndecision confirms it. Omitted when false.",
+              "type": "boolean"
             },
             "key_fingerprint": {
               "description": "The receiving key's fingerprint, which the owner confirmed against the new\ndevice's display (§3.9 item 1).",
@@ -3663,6 +3875,28 @@
               "description": "The invitation.",
               "$ref": "#/$defs/InvitationId"
             },
+            "iroh_endpoint": {
+              "description": "⟨rev6.3⟩ The joining client's own Iroh endpoint ID, sent over its K_mgmt session\n(ADR-0012 §2.3 item 1). Recorded in the join's commit transaction only when the\ninvitation has `iroh_admission`; otherwise the join is refused\n(`INVALID_REQUEST`, effect `none`). Omitted when none.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/IrohEndpointId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "probe": {
+              "description": "⟨rev6.3; ADR-0006 §18.7 item 16⟩ What the joining device's four confirming probes\nobserved on its real connection (ADR-0012 §3.2). The runner checks it before the\njoin's commit: a disagreeing observation refuses the join\n(`management_sshd_unsupported`) and leaves the runner owner-only; a limited-role\njoin without one is refused; owner joins are exempt. Omitted when none.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProbeObservation"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "role": {
               "description": "The role the invitation was created for.",
               "$ref": "#/$defs/Role"
@@ -3674,6 +3908,52 @@
             "invitation",
             "role",
             "generation"
+          ]
+        },
+        {
+          "description": "⟨rev6.3⟩ Set or replace the session's own client's Iroh endpoint ID (ADR-0012 §2.3\nitem 1): only when its consumed invitation had `iroh_admission`. A replacement moves\nthe runner's admission authority generation in the same transaction; the same\nendpoint again is a no-op. Any role, the session's own client only. Kind\n`remote_environment.rotate_endpoint`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "rotate_endpoint"
+            },
+            "endpoint": {
+              "description": "The client's new endpoint ID.",
+              "$ref": "#/$defs/IrohEndpointId"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            }
+          },
+          "required": [
+            "action",
+            "environment",
+            "endpoint"
+          ]
+        },
+        {
+          "description": "⟨rev6.3; ADR-0006 §18.7 item 19⟩ An owner controller's recheck of a runner that went\nowner-only: what its four confirming probes observed now, over a real management\nsession (ADR-0012 §3.2). The runner records it as evidence only when its own\n`sshd -T` check verifies now and the observation agrees; otherwise it refuses with\nthe reason. It lifts nothing: only the attended `runner_local.policy_recheck` at the\nrunner does. Owner only. Kind `remote_environment.runner_policy_recheck`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "runner_policy_recheck"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            },
+            "probe": {
+              "description": "What the probes observed.",
+              "$ref": "#/$defs/ProbeObservation"
+            }
+          },
+          "required": [
+            "action",
+            "environment",
+            "probe"
           ]
         },
         {
@@ -4171,6 +4451,34 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6.3 (ADR-0006 §18.7 item 7): the runner's own `issuer_trust` and\ntime-source designation ([`crate::remote::RunnerLocalRequest`]; local owner only,\nthe widening forms attended; needs `remote-control/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "runner_local"
+            }
+          },
+          "$ref": "#/$defs/RunnerLocalRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6.3 (ADR-0006 §18.7 item 6): the controller's records of its runners,\nwritten through its runtime ([`crate::controller_record::ControllerRecordRequest`];\nlocal owner only, a paired session is refused).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "controller_record"
+            }
+          },
+          "$ref": "#/$defs/ControllerRecordRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -4513,6 +4821,150 @@
           "required": [
             "kind",
             "endpoint"
+          ]
+        }
+      ]
+    },
+    "RunnerLocalRequest": {
+      "description": "`Request::RunnerLocal`, tagged by `action` (ADR-0006 §18.7 item 7; ADR-0012 §3.10, §4.2,\n§4.4): the runner's own `issuer_trust` and time-source designation, decided at the\nrunner. The widening forms (`trust_issuer`, `designate_time_source`) are served only to\na local owner in an attended session, after the CLI's typed confirmation; the narrowing\nforms (`distrust_issuer`, `clear_time_source`) to a local owner. A paired session is\nrefused.",
+      "oneOf": [
+        {
+          "description": "Trust a controller's CA as an issuer of this runner's grants (widening). Kind\n`runner_local.trust_issuer`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "trust_issuer"
+            },
+            "ca_public_key": {
+              "description": "The CA's OpenSSH public key line (public text; the runner computes the\nfingerprint), at most [`MAX_CA_PUBLIC_KEY_BYTES`].",
+              "type": "string"
+            },
+            "controller": {
+              "description": "The paired owner client whose issuer holds the CA.",
+              "$ref": "#/$defs/ClientId"
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "controller",
+            "ca_public_key",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Designate a paired owner client as this runner's trusted time source (widening;\nADR-0012 §4.4). Kind `runner_local.designate_time_source`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "designate_time_source"
+            },
+            "client": {
+              "description": "The paired owner client.",
+              "$ref": "#/$defs/ClientId"
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "client",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Stop trusting a CA (narrowing). Kind `runner_local.distrust_issuer`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "distrust_issuer"
+            },
+            "ca_fingerprint": {
+              "description": "The CA's fingerprint.",
+              "$ref": "#/$defs/CaFingerprint"
+            }
+          },
+          "required": [
+            "action",
+            "ca_fingerprint"
+          ]
+        },
+        {
+          "description": "Clear the time-source designation (narrowing). Kind `runner_local.clear_time_source`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "clear_time_source"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "⟨M06-W2-R02⟩ `heimdall remote init` while this runner's runtime runs (widening):\nenroll a controller's management key as an owner client, or repair the enrollment of\nthe same key (its management line is written again; ADR-0012 §3.3). With\n`iroh_endpoint`, the owner client is also admitted over Iroh and the endpoint is\nrecorded when it has none; an existing endpoint is never replaced (ADR-0006 §18.7\nitem 8). Kind `runner_local.enroll_owner`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "enroll_owner"
+            },
+            "client": {
+              "description": "The client ID the controller records for itself.",
+              "$ref": "#/$defs/ClientId"
+            },
+            "iroh_endpoint": {
+              "description": "The controller device's Iroh endpoint ID. Omitted when none.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/IrohEndpointId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "public_key": {
+              "description": "The controller's management key (`ssh-ed25519 <base64>`, public text), at most\n[`MAX_CA_PUBLIC_KEY_BYTES`].",
+              "type": "string"
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "client",
+            "public_key",
+            "request_id"
+          ]
+        },
+        {
+          "description": "⟨ADR-0006 §18.7 item 19⟩ `heimdall remote policy recheck` while this runner's\nruntime runs (widening): lift the owner-only downgrade, on the evidence an owner\ncontroller's `remote_environment.runner_policy_recheck` left. Refused without\nevidence, with evidence older than 15 minutes, or with evidence from before a later\ndowngrade. Kind `runner_local.policy_recheck`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "policy_recheck"
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "request_id"
           ]
         }
       ]
@@ -4861,6 +5313,19 @@
             "destination",
             "endpoint",
             "request_id"
+          ]
+        },
+        {
+          "description": "⟨rev6.3; ADR-0006 §18.7 item 10⟩ Rotate this device's K_iroh through the runtime (a\nrotation, not a widening; ADR-0012 §2.4 item 4). Local owner only: a paired session\nis refused `INTERACTION_REQUIRED`, reason `local_owner_required`. Retry-safe: the\nnew key is stored as a new item and the old one is never overwritten; each recorded\nrunner is sent `remote_environment.rotate_endpoint`, and one that fails stays\nrecorded as pending; running the form again finishes the pending runners and mints\nno further key; the old K_iroh is destroyed only after every recorded runner has\nacknowledged or been forgotten. The result names the runners still pending. Kind\n`transport.rotate`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "rotate"
+            }
+          },
+          "required": [
+            "action"
           ]
         }
       ]

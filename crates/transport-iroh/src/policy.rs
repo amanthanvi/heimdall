@@ -140,6 +140,7 @@ pub struct EffectivePolicy {
     bind: BindPlan,
     relays: Vec<String>,
     direct_fallback: bool,
+    port: Option<u16>,
 }
 
 impl EffectivePolicy {
@@ -157,8 +158,13 @@ impl EffectivePolicy {
     ///   iroh 1.4.2's NAT traversal cannot be switched off through its public builder, so on
     ///   a non-loopback socket an address the peer advertises could be used. On a loopback
     ///   socket it cannot (a loopback socket reaches loopback only);
-    /// * a bind scope or profile this build does not know.
+    /// * a bind scope or profile this build does not know;
+    /// * ⟨rev6.3⟩ a named port `0`, or a named port with a relay-only bind (nothing to bind
+    ///   it on).
     pub fn from_contract(policy: &ExposurePolicy) -> Result<Self, PolicyError> {
+        if !policy.port_is_valid() {
+            return Err(PolicyError::unavailable("port 0 is not a serve port"));
+        }
         let relays = match &policy.infrastructure {
             InfrastructureProfile::None => Vec::new(),
             InfrastructureProfile::Custom { relays } => {
@@ -205,6 +211,11 @@ impl EffectivePolicy {
             BindScope::Wildcard => BindPlan::Wildcard,
             _ => return Err(PolicyError::unavailable("unknown bind scope")),
         };
+        if policy.port.is_some() && bind == BindPlan::None {
+            return Err(PolicyError::unavailable(
+                "a named port needs an IP bind (the policy is relay-only)",
+            ));
+        }
         if !bind.is_loopback_only() && !policy.direct_fallback {
             return Err(PolicyError::unavailable(
                 "a non-loopback bind cannot keep learned addresses out without direct fallback",
@@ -214,7 +225,16 @@ impl EffectivePolicy {
             bind,
             relays,
             direct_fallback: policy.direct_fallback,
+            port: policy.port,
         })
+    }
+
+    /// ⟨rev6.3⟩ The serve port the policy names (ADR-0012 §2.1 ⟨2026-11-21⟩); `None`: any
+    /// (the runtime then supplies the recorded one, or `0` at the first bind). A dialer
+    /// always binds an ephemeral port.
+    #[must_use]
+    pub fn port(&self) -> Option<u16> {
+        self.port
     }
 
     /// The bind.
@@ -331,6 +351,7 @@ mod tests {
             bind,
             infrastructure,
             direct_fallback: fb,
+            port: None,
         }
     }
 
@@ -345,6 +366,41 @@ mod tests {
     }
 
     /// The default policy is the minimal one: loopback bind, no relay, no lookup.
+    /// ⟨rev6.3; ADR-0012 §2.1 ⟨2026-11-21⟩⟩ A named serve port is kept for the serving
+    /// endpoint; `0`, or a named port with nothing to bind it on (relay-only), is refused
+    /// `transport_unavailable`.
+    #[test]
+    fn a_named_serve_port_is_kept_and_zero_or_relay_only_is_refused() {
+        let named = ExposurePolicy {
+            port: Some(4433),
+            ..policy(BindScope::Loopback, InfrastructureProfile::None, false)
+        };
+        assert_eq!(
+            EffectivePolicy::from_contract(&named).unwrap().port(),
+            Some(4433)
+        );
+        let zero = ExposurePolicy {
+            port: Some(0),
+            ..named.clone()
+        };
+        let relay_only = ExposurePolicy {
+            port: Some(4433),
+            ..policy(
+                BindScope::None,
+                custom(&["https://relay.example.test/"]),
+                false,
+            )
+        };
+        for refused in [zero, relay_only] {
+            assert_eq!(
+                EffectivePolicy::from_contract(&refused).unwrap_err().reason,
+                PolicyReason::TransportUnavailable
+            );
+        }
+        let any = policy(BindScope::Loopback, InfrastructureProfile::None, false);
+        assert_eq!(EffectivePolicy::from_contract(&any).unwrap().port(), None);
+    }
+
     #[test]
     fn minimal_policy_is_loopback_without_relays_or_lookup() {
         let p = EffectivePolicy::from_contract(&ExposurePolicy::default()).unwrap();

@@ -49,6 +49,64 @@ use heimdall_sshconf::parse::Line;
 
 use crate::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig};
 
+/// The longest Unix socket path the platform binds, in bytes without the terminator
+/// (`sun_path` is 104 bytes on macOS and the BSDs, 108 on Linux).
+#[cfg(unix)]
+pub const SOCKET_PATH_MAX: usize = if cfg!(target_os = "linux") { 107 } else { 103 };
+
+/// The room a fixture needs below its scratch root for a socket path: the longest the
+/// fixtures and the runtime's endpoint layout add (`/run/b/<16 hex>/agent.sock`, 34 bytes),
+/// with a margin.
+#[cfg(unix)]
+pub const SOCKET_PATH_ROOM: usize = 40;
+
+/// ⟨M06-W2-R05⟩ A fresh temporary directory `<prefix>XXXXXX` whose path leaves
+/// [`SOCKET_PATH_ROOM`] for a Unix socket below it. It is created under the system
+/// temporary directory; when that is too long for a socket path (a long `TMPDIR`: a bind
+/// then fails, and a fixture waiting for its peer used to wait for ever), it is created
+/// under `/tmp` instead (silently: the fixture's own files never leave a directory this
+/// process created and removes). Off Unix, the system temporary directory.
+///
+/// # Errors
+/// The directory cannot be created, or no root short enough exists: the error names the
+/// path and the limit, so the run fails at once instead of at a later bind.
+pub fn short_tempdir(prefix: &str) -> io::Result<tempfile::TempDir> {
+    let dir = tempfile::Builder::new().prefix(prefix).tempdir()?;
+    #[cfg(unix)]
+    {
+        let fits = |p: &Path| p.as_os_str().len() + SOCKET_PATH_ROOM <= SOCKET_PATH_MAX;
+        if fits(dir.path()) {
+            return Ok(dir);
+        }
+        let long = dir.path().to_path_buf();
+        drop(dir);
+        let too_long = |path: &Path| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "the scratch directory {} ({} bytes) leaves no room for a Unix socket path \
+                     (limit {SOCKET_PATH_MAX} bytes, {SOCKET_PATH_ROOM} needed below it): set \
+                     TMPDIR to a shorter directory",
+                    path.display(),
+                    path.as_os_str().len()
+                ),
+            )
+        };
+        let short = tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir_in("/tmp")
+            .map_err(|_| too_long(&long))?;
+        if !fits(short.path()) {
+            return Err(too_long(short.path()));
+        }
+        Ok(short)
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(dir)
+    }
+}
+
 /// A temporary directory owned by this process, removed on drop.
 #[derive(Debug)]
 pub struct Scratch {
@@ -60,12 +118,13 @@ pub struct Scratch {
 }
 
 impl Scratch {
-    /// Create `hm-XXXXXX` under the system temporary directory (owner-only on Unix).
+    /// Create `hm-XXXXXX` under the system temporary directory (owner-only on Unix), or
+    /// under `/tmp` when that is too long for a fixture's socket paths ([`short_tempdir`]).
     ///
     /// # Errors
     /// The directory cannot be created.
     pub fn new() -> io::Result<Scratch> {
-        let dir = tempfile::Builder::new().prefix("hm-").tempdir()?;
+        let dir = short_tempdir("hm-")?;
         set_owner_only_dir(dir.path())?;
         Ok(Scratch {
             dir,

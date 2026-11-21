@@ -1,6 +1,6 @@
 # M06 plan: connect environments without making the controller essential
 
-**Status:** accepted, revision 3 (2026-11-20), with ADR-0012. It applies the scoped re-check (`tests/evidence/artifacts/review-m06-design/round2-recheck-codex.md`) and the orchestrator's rulings of 2026-11-20, as folded into ADR-0012 revision 3. Under ADR-0009 there is no further independent re-check: the orchestrator reviewed this revision and accepted it. Earlier history:
+**Status:** accepted, revision 3 (2026-11-20), with ADR-0012; the orchestrator's later rulings are recorded where they apply (W1: rules 4a–4b, U1, U56; W3: §2 "W3 rulings", 2026-11-21). It applies the scoped re-check (`tests/evidence/artifacts/review-m06-design/round2-recheck-codex.md`) and the orchestrator's rulings of 2026-11-20, as folded into ADR-0012 revision 3. Under ADR-0009 there is no further independent re-check: the orchestrator reviewed this revision and accepted it. Earlier history:
 
 **Revision 2 (2026-11-19).**
 - **What changed:** it applies the independent design review (M06-D-R01…R13) and the orchestrator's rulings, as folded into ADR-0012 revision 2.
@@ -318,6 +318,7 @@
   - the A24, A25, A26 and A07 runner journeys of §3;
   - the fixtures of §4;
   - the combined exit suite and its records.
+- **The native harness builds the `iroh`-feature targets** (for example `integration_transport_supervise_m06`) on every platform it runs. The M05 harness used for W1–W3's merge candidates does not (W2 devbox run, recorded).
 
 ## 2. Waves
 
@@ -326,10 +327,56 @@ W0  U0 contract rev 6 + migration + skeletons + vendored netdev + audit gate
 W1  U1 roles/bridge/invitations/runner-local widening │ U5a routes (no Iroh) │ U6a iroh transport
 W2  U2 controller env mgmt (U1) │ U3 runner runtime (U1) │ U56 route+transport integration (U5a, U6a)
 W3  U4 disconnected/revocation/resync (U2, U3) │ U4b second controller + T06 set (U2, U4; owner: the U4 implementer) │ W2 carry-over wiring (below)
-W4  U7 combined exit suite, native runs, records
+W4  grant-e2e (the four items below) first │ U7 combined exit suite, native runs, records
 ```
 
-- **W2 carry-over into W3** (recorded at the W2 candidate; each fails closed until done): the runner dispatch and service wiring of `RunnerRuntime::handle`, the runner's binding endpoint for its working keys, and the runner-local commands for `issuer_trust` and time-source designation (without them nothing issues); the CLI for `route` and `transport` (still "planned for M06" stubs; `transport adopt-roost` included) and the hidden `transport serve` entry with `service run` supervision; the source of paired clients' Iroh endpoint IDs for the serve allowlist and a rotation form (pending the orchestrator's ruling); a stable serve port across restarts; controller-record request forms so `environment add/join/remove` and `device retire` work while a runtime runs (W2 refuses them with `SERVICE_UNAVAILABLE` then).
+- **W2 carry-over into W3** (recorded at the W2 candidate; each fails closed until done): the runner dispatch and service wiring of `RunnerRuntime::handle`, the runner's binding endpoint for its working keys, and the runner-local commands for `issuer_trust` and time-source designation (without them nothing issues); the CLI for `route` and `transport` (still "planned for M06" stubs; `transport adopt-roost` included) and the hidden `transport serve` entry with `service run` supervision; the source of paired clients' Iroh endpoint IDs for the serve allowlist and a rotation form (ruled below, item 4); a stable serve port across restarts (item 5); controller-record request forms so `environment add/join/remove` and `device retire` work while a runtime runs (W2 refuses them with `SERVICE_UNAVAILABLE` then; item 6).
+- **W3 rulings (orchestrator, 2026-11-21, on the W2 questions; recorded in ADR-0012's ⟨2026-11-21⟩ amendments and ADR-0006 §18.7, revision 6.3):**
+  1. **Several `AuthorizedKeysFile` entries:** owner-only, except sshd's default pair (ADR-0012 §3.2). Approved as built.
+  2. **The join's commit-time check:** approved with conditions. Project the **upper** bound of now; take the elapsed reading from a continuous, suspend-inclusive clock in the same process; refuse an unavailable or backwards reading as expired. Add a test only where none covers it (ADR-0012 §3.9 item 5).
+  3. **A bad client identification line on an Iroh leg:**
+     - a malformed or overlong line is terminal for the whole connect, with a precise error;
+     - a timeout waiting for the line stays route-local;
+     - neither counts against the Iroh route's health;
+     - W3 adjusts the tests (ADR-0012 §5.5 item 5).
+  4. **Client endpoint IDs (U56-Q2; answers U56-Q7 for client endpoints):**
+     - **The table:** migration `0011` adds `remote_client_endpoints (client_id PK → client, endpoint_id unique, recorded_at)`, class `Rows`.
+     - **Recorded at join:** the client supplies its endpoint ID in `join` over its K_mgmt session. It is recorded in the join's commit transaction only when the invitation's exposure includes Iroh (`iroh_admission`); otherwise the join refuses it. The owner never types IDs.
+     - **Rotation:** a rotation form replaces the row atomically and bumps `remote_authority_generation`.
+     - **Revocation** deletes the row in the same transaction.
+  5. **The serve port (U56-Q5):**
+     - an optional `port` in the exposure policy (`transport enable --port <n>`);
+     - otherwise the first successful bind's port is recorded durably and reused;
+     - an unbindable port fails closed (`transport_unavailable`), with a doctor finding naming it;
+     - a change is `disable` then `enable`.
+  6. **Controller-record form (W-Q1):** the runtime writes the controller's records for `environment add/join/remove` and `device retire`.
+     - **In the CLI:** the TTY confirmations and the ssh bootstrap stay there. It sends the form when a runtime answers, and writes directly when none does.
+     - **Who:** local owner only; paired sessions are refused.
+     - **What goes:** the `SERVICE_UNAVAILABLE` refusal.
+  7. **macOS keychain and other backups:** a residual like K_ca's (ADR-0005 §5.2), in ADR-0012 §3.4 and §10 and in the user-facing residuals table (`docs/compatibility/matrix.md`, M06 residuals).
+  8. **ADR-0006 §18.6:** items 1–7 approved, subject to the W2 review.
+     - **(a)** `controller` is the refresh-dependency value (ADR-0012 §4.5).
+     - **(b)** `issuer_trust` and the time-source designation stay `meta` keys that recovery treats as authority-bearing: compared, never silently restored to a different value. Their W3 writers are runner-local and attended (ADR-0006 §18.7 item 7).
+     - **(c)** The re-implemented authorized_keys writer stands for W2. In W3 the shared safety steps move into one module used by the enrollment writer and `runtime::paired_lines`; both callers' tests pass.
+- **W2 review (Gemini, FIX FIRST; `tests/evidence/artifacts/review-m06/w2.md`).** W1's R01–R06 are closed. W2 does not merge alone: its fixes land in W3, which is the next merge candidate, and W3's review re-checks them.
+  - **M06-W2-R01 (blocking):** the join's commit-time instant is `max(projected upper bound, wall now)`; a backward wall step past the gate's tolerance against the projection refuses `TIME_UNCERTAIN`; sampled inside the committing transaction after `read_all()`. This tightens ruling 2. Tests: the reviewer's probe inverted for both directions, each with a revert proof.
+  - **R02 (required for W3):** `remote init` writes the management line through the shared module; `service run --runner` takes its key files and management policy from `sshd_policy::check_effective_policy` (unverifiable: sshd default, owner-only); with a runtime running, `remote init`'s repair goes through an attended `RunnerLocal` form. Tests: an e2e from `remote init` through the runner runtime to the controller's bootstrap session authenticating, and a verified non-default policy reaching the runner.
+  - **R03:** every listed key file is read bounded, regular-file only, without following links; otherwise the policy is unverifiable (owner-only).
+  - **R04:** the Windows DPAPI stores refuse reparse points in `ensure_dir` and `load`; covered by the W3 candidate's PC run.
+  - **R05:** bounded waits in `managed_store::live_tests`, and short or fail-fast fixture socket paths.
+  - **R06:** the client's identification line is validated before the first Iroh leg is dialed.
+  - **Also:** U4, U4b and this carry-over list stay W3's. U7's native harness builds the `iroh`-feature targets (W2's devbox run did not build `integration_transport_supervise_m06`). Nonblocking W2 review findings fold into W3.
+- **What W3 carries, and what it does not** (orchestrator, 2026-11-21): W3 carries the W2 review fixes, the carry-over wiring, U4 and U4b, the controller's hosted sync and issuance driver, the issuer's remote reservations (ADR-0005 §3.5 amendment), forwarding of `ensure --environment <runner>`, and runner admission that waits for its issuer. **It carries no end-to-end proof of onward ssh from a runner.** Four items remain, each failing closed, and are **W4's first unit (`grant-e2e`), reviewed with W4 before its exit journeys run:**
+  1. **The real-binary end-to-end journey** (a runner-side bind, onward ssh with the controller stopped). The forwarded `ensure` names, per pair, the CA fingerprint the controller will issue from. The runner resolves the pair to a managed certificate only if that CA is in its `issuer_trust` for the forwarding controller, and otherwise refuses with `issuer_untrusted`. Nothing comes from the runner's own catalog.
+  2. **Renewal inside the refresh window.** The window is the shorter of 15 minutes and half the certificate's lifetime. Two certificates per pair are allowed while they overlap; the signer prefers the newer, and the old one is removed when it expires or once the new one is confirmed in use, whichever comes first.
+  3. **Record source (b):** a standing policy held on the controller that names the runner. It needs the runner's authority report to list pending grants.
+  4. **The attach rule:** only the runner's local owner or the forwarding client may attach a local `ensure` to a live grant; the pairs must be a subset and the deadline no later; attaching creates a new binding on the same grant.
+  - **Also ruled for that unit:**
+    - the controller resolves an omitted scope from its own copy of the profile before forwarding, and refuses if it cannot;
+    - the pending answer is `ACCEPTED` with no reason, with `refresh_dependency: controller` and a `remote_pending` entry in the data;
+    - only a role the role table allows to issue may forward (`role_insufficient` otherwise, and nothing is sent);
+    - an owner-awaited pass bypasses the host's backoff;
+    - the forwarded request is non-interactive with a 5 s sync wait, after which the local caller gets the pending state and can use `operation wait`.
 - **Ownership:** W1's units own disjoint crates. The shared files are the integrator's (rule 1).
 - **The Iroh/route split:** U5a and U6a have no dependency on each other. Their integration is U56 in W2. This fixes the W1 cycle the review found.
 - **Review:** each wave gets one review and one re-check. The plan §6.7 security review covers:

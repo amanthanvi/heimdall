@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -82,6 +82,13 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 10,
         name: "remote_widening",
         sql: include_str!("../migrations/0010_remote_widening.sql"),
+    },
+    // ⟨M06⟩ Wave 3 (ADR-0006 §18.7 item 1): paired clients' Iroh endpoint IDs and the
+    // invitation's `iroh_admission`.
+    Migration {
+        version: 11,
+        name: "remote_client_endpoints",
+        sql: include_str!("../migrations/0011_remote_client_endpoints.sql"),
     },
 ];
 
@@ -318,7 +325,10 @@ mod tests {
         let before = tables(&c);
         c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w2-probe', 'kept')")
             .unwrap();
-        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 10);
+        assert_eq!(
+            apply_steps(&mut c, &NoFaults, &MIGRATIONS[..10]).unwrap(),
+            10
+        );
         let after = tables(&c);
         let added: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
         assert_eq!(added, vec!["remote_widening"]);
@@ -346,6 +356,86 @@ mod tests {
         assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
         assert_eq!(user_version(&c).unwrap(), 9);
         assert_eq!(tables(&c), before);
+    }
+
+    /// ⟨M06⟩ Wave 3 (ADR-0006 §18.7 item 1): `0011_remote_client_endpoints` applies on a
+    /// database at version 10, adds exactly its table and the invitation column (existing
+    /// invitations admit no Iroh), keeping every row; a failure inside the step leaves
+    /// version 10, no table and no column.
+    #[test]
+    fn remote_client_endpoints_step_applies_on_version_10_and_rolls_back_whole() {
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let columns = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare("SELECT name FROM pragma_table_info('remote_invitations') ORDER BY cid")
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..10];
+        assert_eq!(MIGRATIONS[10].version, 11);
+        assert_eq!(MIGRATIONS[10].name, "remote_client_endpoints");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 10);
+        let before = tables(&c);
+        let before_columns = columns(&c);
+        c.execute_batch(
+            "INSERT INTO remote_invitations (invitation_id, client_id, role, key_fingerprint,
+                 generation, created_wall, created_boot_id, created_elapsed_ms, expires_wall,
+                 elapsed_bound_ms, state, record_json)
+             VALUES ('inv_probe', 'cl_probe', 'owner', 'SHA256:x', 0, 't', 'b', 0, 't', 0,
+                 'pending', '{}')",
+        )
+        .unwrap();
+        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 11);
+        let added: Vec<String> = tables(&c)
+            .into_iter()
+            .filter(|t| !before.contains(t))
+            .collect();
+        assert_eq!(added, vec!["remote_client_endpoints".to_owned()]);
+        let new_columns: Vec<String> = columns(&c)
+            .into_iter()
+            .filter(|col| !before_columns.contains(col))
+            .collect();
+        assert_eq!(new_columns, vec!["iroh_admission".to_owned()]);
+        let admission: i64 = c
+            .query_row(
+                "SELECT iroh_admission FROM remote_invitations WHERE invitation_id = 'inv_probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(admission, 0, "an existing invitation admits no Iroh");
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 11,
+                name: "remote_client_endpoints_broken",
+                sql: concat!(
+                    include_str!("../migrations/0011_remote_client_endpoints.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 10);
+        assert_eq!(tables(&c), before);
+        assert_eq!(columns(&c), before_columns);
     }
 
     #[test]

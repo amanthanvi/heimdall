@@ -21,6 +21,9 @@ use super::{
     MgmtKey, MgmtKeyStore, MgmtStoreAvailability, MgmtStoreError, MgmtStoreKind, item_label,
 };
 use crate::sys::windows as sys;
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+};
 
 /// The blob file's name.
 pub const BLOB_FILE: &str = "k_mgmt.dpapi";
@@ -101,19 +104,89 @@ impl WindowsDpapiMgmt {
         e
     }
 
+    /// ⟨M06-W2-R04⟩ The store directory itself, never what a reparse point names: an
+    /// existing entry must be a plain directory ([`dir_state`]); a symlink, junction or
+    /// any other reparse point there is refused.
     fn ensure_dir(&self) -> Result<(), MgmtStoreError> {
-        if self.dir.is_dir() {
-            return Ok(());
+        match dir_state(&self.dir) {
+            DirState::Plain => return Ok(()),
+            DirState::Refused => return Err(MgmtStoreError::Failed),
+            DirState::Absent => {}
         }
         if let Some(parent) = self.dir.parent() {
             std::fs::create_dir_all(parent).map_err(|_| MgmtStoreError::Failed)?;
         }
         match sys::create_owner_only_dir(&self.dir) {
             Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && self.dir.is_dir() => Ok(()),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::AlreadyExists
+                    && dir_state(&self.dir) == DirState::Plain =>
+            {
+                Ok(())
+            }
             Err(_) => Err(MgmtStoreError::Failed),
         }
     }
+}
+
+/// What is at a store directory's path, read without following a link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DirState {
+    /// A directory that is not a reparse point.
+    Plain,
+    /// Nothing.
+    Absent,
+    /// Anything else: a file, a symlink, a junction, another reparse point, or an entry
+    /// that cannot be read.
+    Refused,
+}
+
+/// ⟨M06-W2-R04⟩ [`DirState`] of `dir` (`symlink_metadata`: the entry itself).
+pub(crate) fn dir_state(dir: &Path) -> DirState {
+    use std::os::windows::fs::MetadataExt as _;
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) if m.is_dir() && m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 => {
+            DirState::Plain
+        }
+        Ok(_) => DirState::Refused,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => DirState::Absent,
+        Err(_) => DirState::Refused,
+    }
+}
+
+/// Why a blob was not opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BlobOpenError {
+    /// No entry at the path.
+    NotFound,
+    /// The entry is not a regular file: a reparse point (never followed), a directory.
+    NotRegular,
+    /// Any other failure.
+    Failed,
+}
+
+/// ⟨M06-W2-R04⟩ Open a sealed blob for reading: the entry itself
+/// (`FILE_FLAG_OPEN_REPARSE_POINT`, so a symlink or junction at the name is opened as the
+/// link, not its target), which must be a regular file and not a reparse point, judged on
+/// the opened handle.
+pub(crate) fn open_blob(path: &Path) -> Result<std::fs::File, BlobOpenError> {
+    use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                BlobOpenError::NotFound
+            } else {
+                BlobOpenError::Failed
+            }
+        })?;
+    let meta = file.metadata().map_err(|_| BlobOpenError::Failed)?;
+    if !meta.is_file() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(BlobOpenError::NotRegular);
+    }
+    Ok(file)
 }
 
 impl MgmtKeyStore for WindowsDpapiMgmt {
@@ -164,12 +237,15 @@ impl MgmtKeyStore for WindowsDpapiMgmt {
     }
 
     fn load(&self) -> Result<MgmtKey, MgmtStoreError> {
-        let file = match std::fs::File::open(self.blob_path()) {
+        // ⟨M06-W2-R04⟩ The directory and the blob themselves, never through a link.
+        if dir_state(&self.dir) == DirState::Refused {
+            return Err(MgmtStoreError::Failed);
+        }
+        let file = match open_blob(&self.blob_path()) {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(MgmtStoreError::NotFound);
-            }
-            Err(_) => return Err(MgmtStoreError::Failed),
+            Err(BlobOpenError::NotFound) => return Err(MgmtStoreError::NotFound),
+            Err(BlobOpenError::NotRegular) => return Err(MgmtStoreError::Corrupt),
+            Err(BlobOpenError::Failed) => return Err(MgmtStoreError::Failed),
         };
         let mut sealed = Vec::new();
         file.take(BLOB_MAX_BYTES + 1)
@@ -254,5 +330,46 @@ mod tests {
 
         store.destroy().unwrap();
         assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::NotFound));
+    }
+
+    /// ⟨M06-W2-R04⟩ Fixture/mechanism evidence only (scratch directories; run only on
+    /// native Windows, compile-checked elsewhere): a blob path that is not a regular file
+    /// is `Corrupt`, a store path that is not a plain directory is refused, and, where
+    /// this account may create symbolic links, neither a linked store directory nor a
+    /// linked blob is followed.
+    #[test]
+    fn reparse_points_and_non_regular_entries_are_never_followed() {
+        let scratch = tempfile::tempdir().unwrap();
+        let key = MgmtKey::generate().unwrap();
+        // A real store elsewhere, holding a valid blob for the same environment.
+        let real = scratch.path().join("real");
+        WindowsDpapiMgmt::in_dir(&real, &environment())
+            .put(&key)
+            .unwrap();
+        // A directory where the blob should be.
+        let odd = scratch.path().join("odd");
+        std::fs::create_dir_all(odd.join(BLOB_FILE)).unwrap();
+        let store = WindowsDpapiMgmt::in_dir(&odd, &environment());
+        assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::Corrupt));
+        // A file where the store directory should be.
+        let file = scratch.path().join("file");
+        std::fs::write(&file, b"x").unwrap();
+        assert_eq!(dir_state(&file), DirState::Refused);
+        assert_eq!(dir_state(&real), DirState::Plain);
+        assert_eq!(dir_state(&scratch.path().join("absent")), DirState::Absent);
+        // Links, where the account may create them (developer mode or the privilege).
+        let linked_dir = scratch.path().join("linked");
+        if std::os::windows::fs::symlink_dir(&real, &linked_dir).is_ok() {
+            let store = WindowsDpapiMgmt::in_dir(&linked_dir, &environment());
+            assert_eq!(dir_state(&linked_dir), DirState::Refused);
+            assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::Failed));
+            assert_eq!(store.ensure_dir(), Err(MgmtStoreError::Failed));
+        }
+        let via = scratch.path().join("via");
+        std::fs::create_dir(&via).unwrap();
+        if std::os::windows::fs::symlink_file(real.join(BLOB_FILE), via.join(BLOB_FILE)).is_ok() {
+            let store = WindowsDpapiMgmt::in_dir(&via, &environment());
+            assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::Corrupt));
+        }
     }
 }

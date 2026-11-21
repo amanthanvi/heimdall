@@ -81,6 +81,12 @@ pub enum Refusal {
     /// A paired remote session is never attended (`INTERACTION_REQUIRED`).
     #[error("this request needs an owner attending at the runner")]
     InteractionRequired,
+    /// ⟨rev 6.3; ADR-0006 §18.7 items 9, 10 and 15⟩ A local-only form from a paired session
+    /// (`runner_local.*`, `decide`, `confirm_time`, issuer unlock, `device retire`,
+    /// `transport.rotate`, and `Attend`): `INTERACTION_REQUIRED` with reason
+    /// `local_owner_required`. A retry from the paired session can never succeed.
+    #[error("this request is decided by the owner at the runner, never by a paired session")]
+    LocalOwnerRequired,
     /// Time is uncertain (`TIME_UNCERTAIN`).
     #[error("the runner's time is uncertain")]
     TimeUncertain,
@@ -107,6 +113,13 @@ pub enum Refusal {
     /// (`SCHEMA_UNSUPPORTED`, as `heimdall_ipc::session::negotiate_for_role` answers it).
     #[error("this runtime does not accept a paired client")]
     NotARunner,
+    /// ⟨M06 W3; ADR-0006 §18.7 items 3–4⟩ The request carries what its invitation did not
+    /// admit: an Iroh endpoint ID without `iroh_admission`, another client's endpoint ID, or
+    /// another environment. ADR-0006 §18.7 item 3 names `INVALID_REQUEST`, which the code
+    /// table does not have: the nearest existing code, `USAGE_ERROR` (`fix_request`), with
+    /// effect `none`, until the contract owner rules (DONE question M06-W3-runner-Q1).
+    #[error("the request is not admitted by the client's invitation")]
+    InvalidRequest,
 }
 
 impl Refusal {
@@ -114,18 +127,19 @@ impl Refusal {
     #[must_use]
     pub fn code(self) -> Code {
         match self {
-            Self::InteractionRequired => Code::InteractionRequired,
+            Self::InteractionRequired | Self::LocalOwnerRequired => Code::InteractionRequired,
             Self::TimeUncertain => Code::TimeUncertain,
             Self::State => Code::StateUnavailable,
             Self::RequestConflict => Code::RequestConflict,
             Self::DecisionStale => Code::DecisionStale,
             Self::OutcomeUnknown => Code::OutcomeUnknown,
             Self::NotARunner => Code::SchemaUnsupported,
+            Self::InvalidRequest => Code::UsageError,
             _ => Code::CapabilityUnavailable,
         }
     }
 
-    /// The reason, for a `CAPABILITY_UNAVAILABLE` refusal.
+    /// The reason: of a `CAPABILITY_UNAVAILABLE` refusal, and `local_owner_required`.
     #[must_use]
     pub fn reason(self) -> Option<&'static str> {
         Some(match self {
@@ -139,13 +153,15 @@ impl Refusal {
             Self::ManagementSshdUnsupported => reason::MANAGEMENT_SSHD_UNSUPPORTED,
             Self::KeyAlreadyAuthorized => reason::KEY_ALREADY_AUTHORIZED,
             Self::NotAvailableRemotely | Self::LinesUnavailable => reason::DRIVER_UNAVAILABLE,
+            Self::LocalOwnerRequired => reason::LOCAL_OWNER_REQUIRED,
             Self::InteractionRequired
             | Self::TimeUncertain
             | Self::State
             | Self::RequestConflict
             | Self::DecisionStale
             | Self::OutcomeUnknown
-            | Self::NotARunner => return None,
+            | Self::NotARunner
+            | Self::InvalidRequest => return None,
         })
     }
 
@@ -303,6 +319,12 @@ pub fn classify(request: &Request, consents: &dyn ConsentLookup) -> RequestClass
             RemoteEnvironmentRequest::Join { .. } => class(P::View, Act),
             // ⟨Gemini R03⟩ Also routed there first; read-only (an echo).
             RemoteEnvironmentRequest::ActivationProbe { .. } => class(P::View, Read),
+            // ⟨M06 W3; §18.7 item 4⟩ Any role, its own client only, within what its
+            // runner-locally confirmed invitation admitted (served by the runner).
+            RemoteEnvironmentRequest::RotateEndpoint { .. } => class(P::View, Act),
+            // ⟨§18.7 item 19⟩ Owner only: it records evidence and lifts nothing (the lift
+            // is the attended `runner_local.policy_recheck`).
+            RemoteEnvironmentRequest::RunnerPolicyRecheck { .. } => class(P::Enroll, Act),
             RemoteEnvironmentRequest::Remove { .. } => class(P::Service, Narrow),
             RemoteEnvironmentRequest::Add { .. } | RemoteEnvironmentRequest::Update { .. } => {
                 class(P::Service, Act)
@@ -342,8 +364,30 @@ pub fn classify(request: &Request, consents: &dyn ConsentLookup) -> RequestClass
             }
             // §2.8: adopting a roost is always a widening.
             TransportRequest::AdoptRoost { .. } => class(P::Service, WidenRunnerLocal),
+            // ⟨rev 6.3; §18.7 item 10⟩ Rotating this device's K_iroh is the local owner's
+            // alone: no remote decision path, as the runner-local forms.
+            TransportRequest::Rotate => class(P::Service, AttendedOnly),
             _ => class(P::Service, Unclassified),
         },
+        // ⟨M06 W3; ADR-0006 §18.7 item 7⟩ Runner-local decisions: never from a paired session
+        // (§3.10 item 1: a paired session is never attended; the narrowing forms are the local
+        // owner's too).
+        Request::RunnerLocal(r) => {
+            use heimdall_contract::remote::RunnerLocalRequest as L;
+            match r {
+                L::TrustIssuer { .. } | L::DistrustIssuer { .. } => {
+                    class(P::IssuerTrust, AttendedOnly)
+                }
+                L::DesignateTimeSource { .. } | L::ClearTimeSource => {
+                    class(P::TimeSource, AttendedOnly)
+                }
+                // ⟨M06-W2-R02⟩ `remote init`'s form: an owner enrollment.
+                L::EnrollOwner { .. } => class(P::Enroll, AttendedOnly),
+                // ⟨§18.7 item 19⟩ Lifting the owner-only downgrade re-admits limited roles.
+                L::PolicyRecheck { .. } => class(P::Enroll, AttendedOnly),
+                _ => class(P::IssuerTrust, Unclassified),
+            }
+        }
         Request::Runner(r) => match r {
             RunnerRequest::PrepareRemoteGrant { .. } | RunnerRequest::InstallCertificate { .. } => {
                 class(P::IssuerTrust, Act)
@@ -493,7 +537,9 @@ pub fn check(
         _ if record.state == ClientState::Pending => {
             return Verdict::Refuse(Refusal::InvitationPending);
         }
-        SessionFrame::Attend => return Verdict::Refuse(Refusal::InteractionRequired),
+        // ⟨rev 6.3; §18.7 item 15⟩ A paired session is never attended: the refusal names
+        // its reason, so a wrapper does not ask the user and retry.
+        SessionFrame::Attend => return Verdict::Refuse(Refusal::LocalOwnerRequired),
         SessionFrame::Subscribe | SessionFrame::Unsubscribe => {
             return if record.role.has(Permission::View) {
                 Verdict::Dispatch {
@@ -510,8 +556,15 @@ pub fn check(
         return Verdict::Refuse(Refusal::NotAvailableRemotely);
     };
     let c = classify(request, consents);
-    if c.effect == Effect::AttendedOnly || request.requires_attended_session() {
-        return Verdict::Refuse(Refusal::InteractionRequired);
+    // ⟨rev 6.3; §18.7 items 9, 10 and 15⟩ One rule: a form with no remote decision path
+    // (every attended-only form: `runner_local.*`, `decide`, `confirm_time`, issuer unlock,
+    // `device retire`, `transport.rotate`) names its reason, whatever the client's role. A
+    // retry from the paired session can never succeed.
+    if c.effect == Effect::AttendedOnly
+        || request.requires_attended_session()
+        || matches!(request, Request::RunnerLocal(_))
+    {
+        return Verdict::Refuse(Refusal::LocalOwnerRequired);
     }
     if !record.role.has(c.permission) {
         return Verdict::Refuse(Refusal::RoleInsufficient);
@@ -524,7 +577,7 @@ pub fn check(
             }
         }
         Effect::WidenRunnerLocal => Verdict::PendingRunnerLocal { role: record.role },
-        Effect::AttendedOnly => Verdict::Refuse(Refusal::InteractionRequired),
+        Effect::AttendedOnly => Verdict::Refuse(Refusal::LocalOwnerRequired),
         Effect::Unclassified => Verdict::Refuse(Refusal::NotAvailableRemotely),
     }
 }
@@ -611,6 +664,11 @@ mod tests {
                 None,
             ),
             (
+                Refusal::LocalOwnerRequired,
+                Code::InteractionRequired,
+                Some(reason::LOCAL_OWNER_REQUIRED),
+            ),
+            (
                 Refusal::ManagementSshdUnverified,
                 Code::CapabilityUnavailable,
                 Some("management_sshd_unverified"),
@@ -620,6 +678,55 @@ mod tests {
             assert_eq!(env.code, code);
             assert_eq!(env.data.error.reason.as_deref(), why);
             assert_eq!(env.data.error.effect_status, EffectStatus::None);
+        }
+    }
+
+    /// ⟨ADR-0006 §18.7 item 19⟩ The recheck forms in the role table: the controller's
+    /// `runner_policy_recheck` is dispatched for an active owner only (`role_insufficient`
+    /// for a limited role, `invitation_pending` for a pending client); the runner-local
+    /// `policy_recheck` is refused for every paired client (`local_owner_required`).
+    #[test]
+    fn the_policy_recheck_is_the_owners_and_its_lift_is_never_a_paired_clients() {
+        let recheck = req(
+            r#"{"op":"remote_environment","action":"runner_policy_recheck",
+                "environment":"env_01010101010101010101010101010101",
+                "probe":{"pty_refused":true,"forward_refused":true,
+                         "agent_forward_refused":true,"setenv_canary_delivered":false}}"#,
+        );
+        assert_eq!(recheck.kind(), "remote_environment.runner_policy_recheck");
+        let lift = req(r#"{"op":"runner_local","action":"policy_recheck","request_id":"r-1"}"#);
+        assert_eq!(lift.kind(), "runner_local.policy_recheck");
+        let verdict = |role, state, request: &Request| {
+            check(
+                Some(&record(role, state)),
+                SessionFrame::Request(request),
+                &NoConsents,
+            )
+        };
+        assert!(matches!(
+            verdict(Role::Owner, ClientState::Active, &recheck),
+            Verdict::Dispatch {
+                role: Role::Owner,
+                ..
+            }
+        ));
+        for role in [Role::Requester, Role::Viewer] {
+            assert_eq!(
+                verdict(role, ClientState::Active, &recheck),
+                Verdict::Refuse(Refusal::RoleInsufficient),
+                "{role:?}"
+            );
+        }
+        assert_eq!(
+            verdict(Role::Owner, ClientState::Pending, &recheck),
+            Verdict::Refuse(Refusal::InvitationPending)
+        );
+        for role in [Role::Owner, Role::Requester, Role::Viewer] {
+            assert_eq!(
+                verdict(role, ClientState::Active, &lift),
+                Verdict::Refuse(Refusal::LocalOwnerRequired),
+                "{role:?}"
+            );
         }
     }
 

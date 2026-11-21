@@ -6,8 +6,10 @@
 //! approved addresses) it sets:
 //!
 //! * `presets::Minimal` (the crypto provider only);
-//! * the IP transports: none (relay-only), loopback (`127.0.0.1:0` required, `[::1]:0` where
-//!   the host has it), one interface address, or the wildcard pair;
+//! * the IP transports: none (relay-only), loopback (`127.0.0.1` required, `[::1]` where
+//!   the host has it), one interface address, or the wildcard pair; a dialer on an ephemeral
+//!   port, a serving endpoint on the policy's port (⟨rev6.3⟩ named, or the one the runtime
+//!   recorded at the first bind; `0` before that);
 //! * the relay map: disabled, or exactly the policy's relays. The peer relay hints are the
 //!   same set (never taken from anywhere else);
 //! * address lookup and publishing: cleared (only `n0-public` would allow them, and the
@@ -89,7 +91,13 @@ pub fn plan_endpoint(policy: &ExposurePolicy, role: Role<'_>) -> Result<Endpoint
     } else {
         b.relay_mode(RelayMode::custom(relays.iter().cloned()))
     };
-    b = bind_transports(b, effective.bind())?;
+    // ⟨rev6.3⟩ A serving endpoint binds the policy's port (the runtime fills in the recorded
+    // one); a dialer always binds an ephemeral port.
+    let port = match role {
+        Role::Serve => effective.port().unwrap_or(0),
+        Role::Dial { .. } => 0,
+    };
+    b = bind_transports(b, effective.bind(), port)?;
     b = if relays.is_empty() {
         b.net_report_config(NetReportConfig::minimal())
             .dns_resolver(DnsResolver::builder().disable_fallback().build())
@@ -143,21 +151,23 @@ fn parse_relays(relays: &[String]) -> Result<Vec<RelayUrl>, PolicyError> {
         .collect()
 }
 
-fn bind_transports(b: Builder, plan: BindPlan) -> Result<Builder, PolicyError> {
+fn bind_transports(b: Builder, plan: BindPlan, port: u16) -> Result<Builder, PolicyError> {
     let unavailable = |_| PolicyError::unavailable("bind address not accepted");
     let optional = BindOpts::default().set_is_required(false);
     Ok(match plan {
         BindPlan::None => b,
         BindPlan::Loopback => b
-            .bind_addr(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .bind_addr(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
             .map_err(unavailable)?
-            .bind_addr_with_opts(SocketAddr::from((Ipv6Addr::LOCALHOST, 0)), optional)
+            .bind_addr_with_opts(SocketAddr::from((Ipv6Addr::LOCALHOST, port)), optional)
             .map_err(unavailable)?,
-        BindPlan::Interface(ip) => b.bind_addr(SocketAddr::new(ip, 0)).map_err(unavailable)?,
+        BindPlan::Interface(ip) => b
+            .bind_addr(SocketAddr::new(ip, port))
+            .map_err(unavailable)?,
         BindPlan::Wildcard => b
-            .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+            .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))
             .map_err(unavailable)?
-            .bind_addr_with_opts(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)), optional)
+            .bind_addr_with_opts(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)), optional)
             .map_err(unavailable)?,
     })
 }
@@ -308,6 +318,7 @@ mod tests {
                 relays: vec!["https://relay.example.test/".into()],
             },
             direct_fallback: false,
+            port: None,
         };
         let outside_hint = RouteAddresses {
             direct: vec![],
@@ -341,6 +352,7 @@ mod tests {
             bind: BindScope::Loopback,
             infrastructure: InfrastructureProfile::N0Public,
             direct_fallback: false,
+            port: None,
         };
         assert_eq!(
             reason_of(plan_endpoint(&n0, Role::Serve)),

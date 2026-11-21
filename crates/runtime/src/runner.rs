@@ -15,12 +15,36 @@
 //!   (`dependency_provenance_unknown`, `controller_dependency`);
 //! * [`lifetime`]: a verified `systemd --user` unit where linger is on, else `session_scope`.
 //!
-//! **Wiring** (the integrator's): a runner runtime builds one [`RunnerRuntime`] over its store,
-//! clock and the signer's vault, and the dispatcher hands every paired `Request::Runner` that
-//! passed `heimdall_remote::roles::check` to [`RunnerRuntime::handle`] with the session's caller
-//! and a connection serial (in place of `Operations::revision_6_request`). `deliver_effect` and
-//! `authority_report` stay U4's (`driver_unavailable` here).
+//! **Wiring** (⟨M06 W3⟩): a runner runtime builds one [`RunnerRuntime`] over its store, clock
+//! and the signer's vault (`crate::service`), and the dispatcher hands every paired
+//! `Request::Runner` that passed `heimdall_remote::roles::check` to [`RunnerRuntime::handle`]
+//! with the session's caller and its connection serial (`crate::paired::PairedRunner::
+//! runner_request`). ⟨M06 U4⟩ `deliver_effect` and `authority_report` go through the runner's
+//! own narrowing machinery and are served by [`effects`] ([`RunnerRuntime::serve_sync`]); the
+//! synchronous [`RunnerRuntime::handle`] still refuses them (`driver_unavailable`), so a
+//! caller that has no operations to apply them with applies nothing.
+//!
+//! **The per-session issuance gate** (⟨M06 W3; ADR-0012 §7.4 ⟨2026-11-21⟩, ADR-0006 §18.7
+//! item 11⟩). The runner is the authority on resynchronization: `prepare_remote_grant` and
+//! `install_certificate` are refused (`CAPABILITY_UNAVAILABLE`, reason `resync_pending`,
+//! effect none) from any session that has not been served this runner's authority report
+//! since its last delivered effect, whatever the controller's own barrier does. The gate is
+//! keyed by the paired client and the connection's serial, so it is per session: a new
+//! session starts gated. A delivered effect gates the session again until it reads a fresh
+//! report (§7.4's order: effects, then the report). The gate only ever refuses: every
+//! issuance check that follows it is unchanged.
+//!
+//! **Runner-local decisions** (⟨M06 W3; ADR-0006 §18.7 item 7⟩, [`runner_local`]): the
+//! runner's own `issuer_trust` and time-source designation, the `meta` keys
+//! `runner_issuer_trust:<fp>` and `runner_time_source` (§18.6 reading (b): authority-bearing,
+//! compared by uninstall recovery). The widening forms need an attended local owner; the
+//! narrowing forms a local owner. The caller checks who asks (the dispatcher, or the CLI's
+//! direct write under the instance lock after its typed confirmation).
 
+#[path = "runner_adapter.rs"]
+pub mod adapter;
+#[path = "runner_effects.rs"]
+pub mod effects;
 #[path = "runner_issuance.rs"]
 pub mod issuance;
 #[path = "runner_launch.rs"]
@@ -37,13 +61,17 @@ use heimdall_app::readiness_runner::runner_bound;
 use heimdall_app::{OpError, OpResult};
 use heimdall_contract::Timestamp;
 use heimdall_contract::code::Code;
+use heimdall_contract::envelope::{EffectStatus, reason};
 use heimdall_contract::ids::GrantId;
+use heimdall_contract::ids::{CaFingerprint, ClientId};
 use heimdall_contract::managed::DestinationClock;
-use heimdall_contract::remote::{RunnerLifetime, RunnerRequest};
+use heimdall_contract::remote::{Role, RunnerLifetime, RunnerLocalRequest, RunnerRequest};
 use heimdall_credential::vault::KeyVault;
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::time::Clock;
 use heimdall_store::Store;
+use heimdall_store::ext_m06::ClientState;
+use heimdall_store::ext_runner::TrustedIssuer;
 
 use self::issuance::RunnerIssuance;
 use self::time::{RunnerTime, RunnerTimePolicy, TimeSession};
@@ -54,7 +82,22 @@ pub struct RunnerRuntime {
     clock: Arc<dyn Clock>,
     issuance: RunnerIssuance,
     lifetime: RunnerLifetime,
+    /// The sessions served the authority report since their last delivered effect (module
+    /// docs, "The per-session issuance gate").
+    resynced: std::sync::Mutex<std::collections::BTreeSet<(u64, ClientId)>>,
+    /// ⟨M06 W3 grant-path⟩ Called when an install completed a grant's certificates
+    /// ([`Self::on_issued`]).
+    issued: std::sync::Mutex<Option<IssuedHook>>,
 }
+
+/// What a runner runtime calls when the controller's issuer has installed a certificate for
+/// every pair of a grant: the operations waiting on that grant are driven on
+/// (`heimdall_app::Operations::runner_grant_issued`).
+pub type IssuedHook = Arc<dyn Fn(&GrantId) + Send + Sync>;
+
+/// The most sessions the issuance gate remembers; past it the oldest connection is forgotten
+/// (it is then gated again: fail closed).
+const RESYNCED_SESSIONS: usize = 256;
 
 impl std::fmt::Debug for RunnerRuntime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -88,7 +131,73 @@ impl RunnerRuntime {
             store,
             clock,
             lifetime,
+            resynced: std::sync::Mutex::default(),
+            issued: std::sync::Mutex::default(),
         }
+    }
+
+    /// The runner's store.
+    #[must_use]
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
+    }
+
+    /// The runner's wall clock now.
+    #[must_use]
+    pub fn wall(&self) -> Timestamp {
+        self.clock.wall()
+    }
+
+    /// ⟨M06 W3 grant-path⟩ Call `hook` whenever an install completes a grant's
+    /// certificates (ADR-0012 §4 item 2: "the controller's host issues, and the runner
+    /// installs"; the grant's waiting `ensure` then proceeds).
+    pub fn on_issued(&self, hook: IssuedHook) {
+        *self
+            .issued
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hook);
+    }
+
+    fn resynced(&self) -> std::sync::MutexGuard<'_, std::collections::BTreeSet<(u64, ClientId)>> {
+        self.resynced
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The session `(controller, connection)` was served this runner's authority report: its
+    /// issuance gate opens (module docs). Called by [`Self::serve_sync`] after the report is
+    /// answered.
+    pub fn note_report_served(&self, controller: &ClientId, connection: u64) {
+        let mut open = self.resynced();
+        open.insert((connection, controller.clone()));
+        while open.len() > RESYNCED_SESSIONS {
+            open.pop_first();
+        }
+    }
+
+    /// The session `(controller, connection)` delivered an effect: it is gated again until
+    /// it reads a fresh report.
+    pub fn note_effect_delivered(&self, controller: &ClientId, connection: u64) {
+        self.resynced().remove(&(connection, controller.clone()));
+    }
+
+    /// Whether the session `(controller, connection)` may prepare and install now.
+    #[must_use]
+    pub fn session_resynced(&self, controller: &ClientId, connection: u64) -> bool {
+        self.resynced().contains(&(connection, controller.clone()))
+    }
+
+    fn issuance_gate(&self, controller: &ClientId, connection: u64) -> Result<(), OpError> {
+        if self.session_resynced(controller, connection) {
+            return Ok(());
+        }
+        Err(OpError::new(
+            Code::CapabilityUnavailable,
+            "issuance on this runner waits for this session's resynchronization: deliver \
+             pending effects and read the authority report first",
+        )
+        .with_reason(reason::RESYNC_PENDING)
+        .with_effect(EffectStatus::None))
     }
 
     /// Issuance.
@@ -136,18 +245,35 @@ impl RunnerRuntime {
             RunnerRequest::PrepareRemoteGrant {
                 grant,
                 grant_generation,
-            } => ok(self
-                .issuance
-                .prepare(&controller, grant, *grant_generation)
-                .map_err(|e| e.to_error())?),
+            } => {
+                self.issuance_gate(&controller, connection)?;
+                ok(self
+                    .issuance
+                    .prepare(&controller, grant, *grant_generation)
+                    .map_err(|e| e.to_error())?)
+            }
             RunnerRequest::InstallCertificate {
                 grant,
                 grant_generation,
                 certificate,
-            } => ok(self
-                .issuance
-                .install(&controller, grant, *grant_generation, certificate)
-                .map_err(|e| e.to_error())?),
+            } => {
+                self.issuance_gate(&controller, connection)?;
+                let installed = self
+                    .issuance
+                    .install(&controller, grant, *grant_generation, certificate)
+                    .map_err(|e| e.to_error())?;
+                if installed.complete {
+                    let hook = self
+                        .issued
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .clone();
+                    if let Some(hook) = hook {
+                        hook(grant);
+                    }
+                }
+                ok(installed)
+            }
             RunnerRequest::TimeChallenge => {
                 let time = self.time();
                 let data = self
@@ -220,4 +346,121 @@ impl RunnerRuntime {
             lifetime: self.lifetime,
         }))
     }
+}
+
+/// ⟨M06 W3; ADR-0006 §18.7 item 7⟩ Apply one runner-local decision (module docs,
+/// "Runner-local decisions") to this runner's store, at `now`. `attended`: the asking session
+/// is an attended local owner (the CLI's direct path passes `true` only after its typed
+/// confirmation on a terminal). Who asks is the caller's check; this function refuses only a
+/// widening form without attendance, a store that is not a runner's, and invalid input.
+///
+/// * `trust_issuer`: `controller` must be an **active owner** client; the CA key must be one
+///   OpenSSH public key line, whose fingerprint the runner computes. Adds (or replaces) the
+///   `issuer_trust` entry of that CA.
+/// * `designate_time_source`: `client` must be an active owner (`runner_time`).
+/// * `distrust_issuer`, `clear_time_source`: remove the entry; `removed`/`cleared` say whether
+///   one existed (idempotent).
+///
+/// # Errors
+///
+/// `INTERACTION_REQUIRED` for an unattended widening form; `CAPABILITY_UNAVAILABLE` with
+/// `driver_unavailable` on a store that is not a runner's, or `role_insufficient` for a
+/// controller or client that is not an active owner; `USAGE_ERROR` for a CA key that is not
+/// one public key line; `STATE_UNAVAILABLE`.
+pub fn runner_local(
+    store: &Store,
+    now: Timestamp,
+    attended: bool,
+    request: &RunnerLocalRequest,
+) -> OpResult<serde_json::Value> {
+    if request.is_widening() && !attended {
+        return Err(OpError::new(
+            Code::InteractionRequired,
+            "this runner-local decision needs the owner attending at this runner's terminal",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    let not_owner = |what: &str| {
+        OpError::new(
+            Code::CapabilityUnavailable,
+            format!("the {what} is not an active owner client of this runner"),
+        )
+        .with_reason(reason::ROLE_INSUFFICIENT)
+        .with_effect(EffectStatus::None)
+    };
+    let active_owner =
+        |tx: &mut heimdall_store::Txn<'_>, c: &ClientId| -> heimdall_store::Result<bool> {
+            Ok(tx
+                .remote_client(c)?
+                .is_some_and(|r| r.state == ClientState::Active && r.role == Role::Owner))
+        };
+    store.transaction(|tx| {
+        if !crate::paired::is_runner(tx)? {
+            return Ok(Err(OpError::driver_unavailable(
+                "this installation is not a remote runner",
+            )
+            .with_effect(EffectStatus::None)));
+        }
+        let data = match request {
+            RunnerLocalRequest::TrustIssuer {
+                controller,
+                ca_public_key,
+                ..
+            } => {
+                let line = ca_public_key.trim();
+                let Some(fp) = heimdall_issuer::remote::public_key_fingerprint(line)
+                    .and_then(|f| CaFingerprint::parse(&f).ok())
+                else {
+                    return Ok(Err(OpError::new(
+                        Code::UsageError,
+                        "the CA key is not one OpenSSH public key line",
+                    )
+                    .with_effect(EffectStatus::None)));
+                };
+                if !active_owner(tx, controller)? {
+                    return Ok(Err(not_owner("controller")));
+                }
+                let replaced = tx
+                    .trusted_remote_issuer(&fp)?
+                    .is_some_and(|e| &e.controller != controller || e.ca_public_key != line);
+                tx.trust_remote_issuer(&TrustedIssuer {
+                    ca_fingerprint: fp.clone(),
+                    ca_public_key: line.to_owned(),
+                    controller: controller.clone(),
+                    trusted_at: now,
+                })?;
+                serde_json::json!({
+                    "ca_fingerprint": fp,
+                    "controller": controller,
+                    "trusted": true,
+                    "replaced": replaced,
+                })
+            }
+            RunnerLocalRequest::DesignateTimeSource { client, .. } => {
+                if let Err(e) = time::designate_time_source(tx, client, now) {
+                    return Ok(Err(match e {
+                        time::TimeRefusal::NotActiveOwner => not_owner("client"),
+                        other => other.to_error(),
+                    }));
+                }
+                serde_json::json!({ "client": client, "designated_at": now })
+            }
+            RunnerLocalRequest::DistrustIssuer { ca_fingerprint } => {
+                let removed = tx.untrust_remote_issuer(ca_fingerprint)?;
+                serde_json::json!({ "ca_fingerprint": ca_fingerprint, "removed": removed })
+            }
+            RunnerLocalRequest::ClearTimeSource => {
+                let cleared = tx.clear_time_source()?;
+                serde_json::json!({ "cleared": cleared })
+            }
+            _ => {
+                return Ok(Err(OpError::new(
+                    Code::UsageError,
+                    "this runner-local request is not supported by this build",
+                )
+                .with_effect(EffectStatus::None)));
+            }
+        };
+        Ok(Ok(heimdall_app::error::Completed::ok(Code::Ok, data)))
+    })?
 }

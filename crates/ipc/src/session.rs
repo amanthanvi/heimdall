@@ -593,6 +593,22 @@ fn response(seq: u64, code: Code, message: &str) -> ServerMessage {
     }
 }
 
+/// ⟨rev 6.3; ADR-0006 §18.7 items 9 and 15⟩ The answer to a paired session's attended-only
+/// frame: `INTERACTION_REQUIRED` with reason `local_owner_required`, effect `none`.
+fn local_owner_required(seq: u64) -> ServerMessage {
+    let mut env = error_envelope(
+        Code::InteractionRequired,
+        EffectStatus::None,
+        "this request is decided by the owner at the runner, never by a paired session",
+    );
+    env.data.error.reason =
+        Some(heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED.to_owned());
+    ServerMessage::Response {
+        in_reply_to: seq,
+        envelope: to_value_envelope(env),
+    }
+}
+
 fn goodbye(code: Code, message: &str) -> ServerMessage {
     ServerMessage::Goodbye {
         code,
@@ -887,6 +903,8 @@ where
         // holds for the session's whole lifetime (ADR-0012 §3.6).
         let mut dispatcher = dispatcher;
         let offered = dispatcher.offered_capabilities();
+        // A session that negotiates with a `remote_client` is bound to it (else refused).
+        let paired_session = hello.remote_client.is_some();
         let paired = match &hello.remote_client {
             None => Ok(None),
             Some(_) => hello_precheck(&hello, &offered)
@@ -1111,6 +1129,12 @@ where
                             {
                                 // ⟨M06-W0-R10⟩ Never dispatched either.
                                 Some(response(seq, Code::SchemaUnsupported, UNNEGOTIATED_SELECTOR))
+                            } else if paired_session && request.requires_attended_session() {
+                                // ⟨rev 6.3; ADR-0006 §18.7 items 9 and 15⟩ A paired session's
+                                // attended-only form (`decide`, `confirm_time`, issuer unlock)
+                                // has no remote path: never dispatched, and it names its reason
+                                // so a wrapper does not ask the user and retry.
+                                Some(local_owner_required(seq))
                             } else if request.requires_attended_session() && !session.attended {
                                 // Defence in depth: never dispatched (ADR-0006 §2.3).
                                 Some(response(seq, Code::InteractionRequired, "this request requires an attended interactive session"))
@@ -1127,7 +1151,11 @@ where
                             }
                         }
                         ClientMessage::Attend { seq } => {
-                            if session.interaction == InteractionMode::Interactive {
+                            if paired_session {
+                                // ⟨rev 6.3; ADR-0006 §18.7 item 15⟩ Never attended, whatever
+                                // its hello declared: the same reason.
+                                Some(local_owner_required(seq))
+                            } else if session.interaction == InteractionMode::Interactive {
                                 session.attended = true;
                                 Some(ServerMessage::Response {
                                     in_reply_to: seq,

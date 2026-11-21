@@ -22,6 +22,7 @@ use heimdall_contract::issuer::StoreKind;
 use super::{
     IrohKeyMaterial, IrohKeyStore, IrohStoreAvailability, IrohStoreError, IrohStoreKind, item_label,
 };
+use crate::mgmt::windows::{BlobOpenError, DirState, dir_state, open_blob};
 use crate::sys::windows as sys;
 
 /// The fixed part of the DPAPI entropy (the environment ID, then the fixed-length endpoint
@@ -105,16 +106,25 @@ impl WindowsDpapiIroh {
         e
     }
 
+    /// ⟨M06-W2-R04⟩ The store directory itself, never what a reparse point names (as
+    /// the K_mgmt store: `crate::mgmt::windows::dir_state`).
     fn ensure_dir(&self) -> Result<(), IrohStoreError> {
-        if self.dir.is_dir() {
-            return Ok(());
+        match dir_state(&self.dir) {
+            DirState::Plain => return Ok(()),
+            DirState::Refused => return Err(IrohStoreError::Failed),
+            DirState::Absent => {}
         }
         if let Some(parent) = self.dir.parent() {
             std::fs::create_dir_all(parent).map_err(|_| IrohStoreError::Failed)?;
         }
         match sys::create_owner_only_dir(&self.dir) {
             Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && self.dir.is_dir() => Ok(()),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::AlreadyExists
+                    && dir_state(&self.dir) == DirState::Plain =>
+            {
+                Ok(())
+            }
             Err(_) => Err(IrohStoreError::Failed),
         }
     }
@@ -177,12 +187,15 @@ impl IrohKeyStore for WindowsDpapiIroh {
     }
 
     fn load(&self, endpoint: &IrohEndpointId) -> Result<IrohKeyMaterial, IrohStoreError> {
-        let file = match std::fs::File::open(self.blob_path(endpoint)) {
+        // ⟨M06-W2-R04⟩ The directory and the blob themselves, never through a link.
+        if dir_state(&self.dir) == DirState::Refused {
+            return Err(IrohStoreError::Failed);
+        }
+        let file = match open_blob(&self.blob_path(endpoint)) {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(IrohStoreError::NotFound);
-            }
-            Err(_) => return Err(IrohStoreError::Failed),
+            Err(BlobOpenError::NotFound) => return Err(IrohStoreError::NotFound),
+            Err(BlobOpenError::NotRegular) => return Err(IrohStoreError::Corrupt),
+            Err(BlobOpenError::Failed) => return Err(IrohStoreError::Failed),
         };
         let mut sealed = Vec::new();
         file.take(BLOB_MAX_BYTES + 1)

@@ -148,7 +148,7 @@ async fn crash_between_materialize_and_confirmation_leaves_no_endpoint_file_or_k
                 tokio::spawn(async move {
                     let _ = ensure_on(&ops, "crash-mc", &pairs()).await;
                 });
-                hold.reached.notified().await;
+                hold.wait_reached().await;
                 let op = open_operation(&w);
                 let binding = w.minted_binding(&op);
                 let grant = w.grant_of(&op);
@@ -647,7 +647,7 @@ async fn coalesced_follower_gets_its_own_materialized_binding_and_both_sign() {
     let scope = vec![pr.clone()];
     let s1 = scope.clone();
     let leader = tokio::spawn(async move { ensure_on(&ops, "lead", &s1).await });
-    hold.reached.notified().await;
+    hold.wait_reached().await;
     let ops = p.ops.clone();
     let s2 = scope.clone();
     let follower = tokio::spawn(async move { ensure_on(&ops, "follow", &s2).await });

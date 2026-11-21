@@ -31,6 +31,7 @@ use std::time::Duration;
 
 use heimdall_contract::Code;
 use heimdall_contract::envelope::reason;
+use heimdall_contract::ids::IrohEndpointId;
 use tokio::io::AsyncReadExt as _;
 
 use super::{BootstrapPlan, BootstrapRunner, ManagementHop};
@@ -228,6 +229,39 @@ pub fn preflight_args(
 /// `USAGE_ERROR` for a program or home outside the closed character set, or a key that is
 /// not one plain Ed25519 key.
 pub fn remote_init_command(plan: &BootstrapPlan) -> Result<String, OpError> {
+    remote_init_command_with(plan, None)
+}
+
+/// ⟨M06 W3; ADR-0006 §18.7 item 7⟩ [`remote_init_command`] with the controller's CA public key
+/// (`issuer_ca`, the active issuer's key when this controller has one): it appends
+/// ` --issuer-ca '<type> <base64>'`, so the runner trusts that CA for the owner client being
+/// enrolled and designates that client its time source, both confirmed in the same TTY
+/// confirmation as the enrollment. `None` (no issuer) omits both. Validated tokens only: the
+/// CA key must be one plain Ed25519 key.
+///
+/// # Errors
+/// As [`remote_init_command`], and `USAGE_ERROR` for a CA key that is not one plain Ed25519
+/// key.
+pub fn remote_init_command_with(
+    plan: &BootstrapPlan,
+    issuer_ca: Option<&str>,
+) -> Result<String, OpError> {
+    remote_init_command_for(plan, issuer_ca, None)
+}
+
+/// ⟨ADR-0006 §18.7 item 8⟩ [`remote_init_command_with`] with this device's Iroh endpoint ID
+/// (`iroh_endpoint`, present when its verified store holds K_iroh): it appends
+/// ` --iroh-endpoint <64 lowercase hex>`, so the runner admits the owner client over Iroh
+/// and records the endpoint, confirmed in the same TTY confirmation. The ID is a validated
+/// token (the contract type admits only 64 lowercase hex characters). `None` omits it.
+///
+/// # Errors
+/// As [`remote_init_command_with`].
+pub fn remote_init_command_for(
+    plan: &BootstrapPlan,
+    issuer_ca: Option<&str>,
+    iroh_endpoint: Option<&IrohEndpointId>,
+) -> Result<String, OpError> {
     if !remote_path_ok(&plan.runner_program) {
         return Err(usage(
             "the runner program must be an absolute path of letters, digits and ._/+@-",
@@ -266,6 +300,23 @@ pub fn remote_init_command(plan: &BootstrapPlan) -> Result<String, OpError> {
     command.push_str(&format!(
         " --owner-client {client} --owner-key '{kind} {blob}'"
     ));
+    if let Some(ca) = issuer_ca {
+        let (kind, blob) = pin_parts(ca)
+            .filter(|(k, _)| *k == "ssh-ed25519")
+            .ok_or_else(|| usage("the controller's CA key is not one Ed25519 public key"))?;
+        command.push_str(&format!(" --issuer-ca '{kind} {blob}'"));
+    }
+    if let Some(endpoint) = iroh_endpoint {
+        // Checked again here: the token goes into a remote shell command.
+        let id = endpoint.as_str();
+        if id.len() != IrohEndpointId::HEX_CHARS
+            || !id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err(usage("the Iroh endpoint ID cannot be passed"));
+        }
+        command.push_str(" --iroh-endpoint ");
+        command.push_str(id);
+    }
     Ok(command)
 }
 
@@ -280,6 +331,37 @@ pub fn bootstrap_args(
     config: Option<&Path>,
     extra_options: &[String],
 ) -> Result<Vec<OsString>, OpError> {
+    bootstrap_args_with(plan, pin_file, config, extra_options, None)
+}
+
+/// ⟨M06 W3⟩ [`bootstrap_args`] whose remote command carries the controller's CA key
+/// ([`remote_init_command_with`]).
+///
+/// # Errors
+/// As [`bootstrap_args`] and [`remote_init_command_with`].
+pub fn bootstrap_args_with(
+    plan: &BootstrapPlan,
+    pin_file: &Path,
+    config: Option<&Path>,
+    extra_options: &[String],
+    issuer_ca: Option<&str>,
+) -> Result<Vec<OsString>, OpError> {
+    bootstrap_args_for(plan, pin_file, config, extra_options, issuer_ca, None)
+}
+
+/// ⟨ADR-0006 §18.7 item 8⟩ [`bootstrap_args_with`] whose remote command also carries this
+/// device's Iroh endpoint ID ([`remote_init_command_for`]).
+///
+/// # Errors
+/// As [`bootstrap_args_with`].
+pub fn bootstrap_args_for(
+    plan: &BootstrapPlan,
+    pin_file: &Path,
+    config: Option<&Path>,
+    extra_options: &[String],
+    issuer_ca: Option<&str>,
+    iroh_endpoint: Option<&IrohEndpointId>,
+) -> Result<Vec<OsString>, OpError> {
     let destination = plan.access.destination.as_str();
     let mut args = Vec::new();
     config_args(&mut args, config);
@@ -291,7 +373,7 @@ pub fn bootstrap_args(
     args.push(plan.access.route.runner.account.as_str().into());
     args.push("--".into());
     args.push(plan.access.alias.as_str().into());
-    args.push(remote_init_command(plan)?.into());
+    args.push(remote_init_command_for(plan, issuer_ca, iroh_endpoint)?.into());
     Ok(args)
 }
 
@@ -336,6 +418,14 @@ pub struct BootstrapSsh {
     pub config: Option<PathBuf>,
     /// Extra `-o` options: tests only (the fixture isolation options).
     pub extra_options: Vec<String>,
+    /// ⟨M06 W3⟩ The controller's CA public key line (its active issuer's), passed to the
+    /// runner's `remote init` ([`remote_init_command_with`]); `None` when this controller has
+    /// no issuer.
+    pub issuer_ca: Option<String>,
+    /// ⟨ADR-0006 §18.7 item 8⟩ This device's Iroh endpoint ID, when its verified store holds
+    /// K_iroh: passed to the runner's `remote init` ([`remote_init_command_for`]), which
+    /// admits the owner client over Iroh with it. `None`: no Iroh key, nothing is passed.
+    pub iroh_endpoint: Option<IrohEndpointId>,
 }
 
 impl BootstrapSsh {
@@ -430,8 +520,14 @@ impl BootstrapRunner for BootstrapSsh {
         let pin_file = self.write_pin_file(plan)?;
         let result = async {
             self.preflight(plan, &pin_file).await?;
-            let args =
-                bootstrap_args(plan, &pin_file, self.config.as_deref(), &self.extra_options)?;
+            let args = bootstrap_args_for(
+                plan,
+                &pin_file,
+                self.config.as_deref(),
+                &self.extra_options,
+                self.issuer_ca.as_deref(),
+                self.iroh_endpoint.as_ref(),
+            )?;
             // The interactive session shares the user's terminal: not a `no_window!` child.
             let status = tokio::process::Command::new(&self.ssh_client)
                 .args(&args)
@@ -536,6 +632,302 @@ pub fn spawn_management(ssh_client: &Path, args: &[OsString]) -> Result<Manageme
         stdout,
         stderr: kept,
     })
+}
+
+// --- the confirming probes (ADR-0012 §3.2; ADR-0006 §18.7 items 16–17) ---------------------
+
+/// The bridge's closing message when sshd allocated a terminal for its session (its own
+/// check at start, item 17). The PTY probe looks for it on standard output.
+pub const SESSION_REFUSED_PTY: &str = "management session refused: sshd allocated a terminal";
+/// The bridge's closing message when sshd forwarded an agent into its session (item 17).
+pub const SESSION_REFUSED_AGENT: &str = "management session refused: sshd forwarded an agent";
+/// The bridge's closing message when the probe's `SetEnv` variable reached it.
+pub const SESSION_REFUSED_SETENV: &str =
+    "management session refused: sshd delivered a client variable";
+/// The variable the `SetEnv` probe offers. A verified policy accepts only `LANG` and `LC_*`,
+/// so it never arrives there. Its value is fixed and means nothing.
+pub const SETENV_PROBE_NAME: &str = "HEIMDALL_SETENV_PROBE";
+
+/// How long one confirming probe may take.
+pub const PROBE_BOUND: Duration = Duration::from_secs(30);
+
+/// The OpenSSH client's statement that the server refused its PTY request.
+const PTY_REQUEST_FAILED: &str = "PTY allocation request failed";
+
+/// Where the `-W` probe asks the runner to connect: loopback's port 1, so a runner that
+/// (wrongly) permits the forward reaches nothing.
+const FORWARD_PROBE_TARGET: &str = "127.0.0.1:1";
+
+/// One of the four confirming probes, each its own `ssh` run with the enrolled key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeKind {
+    /// Ask for a PTY (`-tt`).
+    Pty,
+    /// Ask for a `-W` forward.
+    Forward,
+    /// Offer agent forwarding, with a disposable agent that holds nothing.
+    AgentForward,
+    /// Offer a `SetEnv` variable ([`SETENV_PROBE_NAME`]).
+    SetEnv,
+}
+
+/// What one probe showed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeVerdict {
+    /// The runner refused it: the session is restricted in this respect.
+    Refused,
+    /// The runner granted it.
+    Granted,
+    /// Neither was shown (the run failed, timed out, or said nothing recognizable).
+    Inconclusive,
+}
+
+/// What one probe's `ssh` run produced.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProbeRun {
+    /// The exit status, when the child exited by itself.
+    pub exit: Option<i32>,
+    /// Its standard output, up to [`STDERR_MAX`].
+    pub stdout: Vec<u8>,
+    /// Its standard error, up to [`STDERR_MAX`].
+    pub stderr: Vec<u8>,
+}
+
+/// A probe's arguments: the management session's ([`management_args`]: the same isolated
+/// `-F` configuration and alias, so the same key, pins and route), with the one request
+/// under test given on the command line, where it wins over the configuration.
+/// `disposable_agent` is the socket of an agent that holds nothing, used by
+/// [`ProbeKind::AgentForward`] only: K_mgmt's own agent is never offered for forwarding.
+/// `None` when that socket's path cannot be written as an option value.
+#[must_use]
+pub fn probe_args(
+    config: &Path,
+    alias: &str,
+    kind: ProbeKind,
+    disposable_agent: &Path,
+) -> Option<Vec<OsString>> {
+    let mut args: Vec<OsString> = vec![
+        "-F".into(),
+        config.as_os_str().to_owned(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        "ConnectTimeout=15".into(),
+    ];
+    match kind {
+        ProbeKind::Pty => args.push("-tt".into()),
+        ProbeKind::Forward => {
+            args.push("-W".into());
+            args.push(FORWARD_PROBE_TARGET.into());
+        }
+        ProbeKind::AgentForward => {
+            let socket = disposable_agent.to_str()?;
+            if !disposable_agent.is_absolute()
+                || socket.bytes().any(|b| b == b'"' || b.is_ascii_control())
+            {
+                return None;
+            }
+            args.push("-T".into());
+            args.push("-o".into());
+            // An explicit socket, never `yes`: with `IdentityAgent` set, `yes` would offer
+            // the agent that holds K_mgmt.
+            args.push(format!("ForwardAgent=\"{socket}\"").into());
+        }
+        ProbeKind::SetEnv => {
+            args.push("-T".into());
+            args.push("-o".into());
+            args.push(format!("SetEnv={SETENV_PROBE_NAME}=1").into());
+        }
+    }
+    args.push("--".into());
+    args.push(alias.into());
+    Some(args)
+}
+
+fn contains(haystack: &[u8], needle: &str) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|w| w == needle.as_bytes())
+}
+
+/// Read a probe's run. Only positive evidence counts, either way:
+/// * a session probe (PTY, agent, `SetEnv`) was **granted** when the bridge's own refusal
+///   for exactly that is on standard output, and **refused** when the bridge ran and ended
+///   normally (exit 0: it saw no terminal, no agent and no probe variable);
+/// * the PTY was also **refused** when the client itself says the request failed (observed
+///   with OpenSSH 10: a refused `-tt` request ends the run with status 255 and that line);
+/// * the forward was **refused** when the client reports the channel administratively
+///   prohibited, and **granted** when the runner tried the connection or opened it.
+///
+/// Anything else is inconclusive.
+#[must_use]
+pub fn classify_probe(kind: ProbeKind, run: &ProbeRun) -> ProbeVerdict {
+    let own = match kind {
+        ProbeKind::Pty => SESSION_REFUSED_PTY,
+        ProbeKind::AgentForward => SESSION_REFUSED_AGENT,
+        ProbeKind::SetEnv => SESSION_REFUSED_SETENV,
+        ProbeKind::Forward => {
+            return if contains(&run.stderr, "administratively prohibited") {
+                ProbeVerdict::Refused
+            } else if run.exit == Some(0) || contains(&run.stderr, "connect failed") {
+                ProbeVerdict::Granted
+            } else {
+                ProbeVerdict::Inconclusive
+            };
+        }
+    };
+    if contains(&run.stdout, own) {
+        ProbeVerdict::Granted
+    } else if run.exit == Some(0)
+        || (kind == ProbeKind::Pty && contains(&run.stderr, PTY_REQUEST_FAILED))
+    {
+        ProbeVerdict::Refused
+    } else {
+        ProbeVerdict::Inconclusive
+    }
+}
+
+/// The observation four verdicts make (`Join.probe`): `None` when any is inconclusive, so
+/// a failed run is never reported as a grant or a refusal.
+#[must_use]
+pub fn observation(
+    pty: ProbeVerdict,
+    forward: ProbeVerdict,
+    agent: ProbeVerdict,
+    setenv: ProbeVerdict,
+) -> Option<heimdall_contract::remote::ProbeObservation> {
+    let refused = |v: ProbeVerdict| match v {
+        ProbeVerdict::Refused => Some(true),
+        ProbeVerdict::Granted => Some(false),
+        ProbeVerdict::Inconclusive => None,
+    };
+    Some(heimdall_contract::remote::ProbeObservation {
+        pty_refused: refused(pty)?,
+        forward_refused: refused(forward)?,
+        agent_forward_refused: refused(agent)?,
+        setenv_canary_delivered: !refused(setenv)?,
+    })
+}
+
+async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(mut from: R) -> Vec<u8> {
+    let mut kept = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match from.read(&mut chunk).await {
+            Ok(0) | Err(_) => return kept,
+            Ok(n) => {
+                let room = STDERR_MAX.saturating_sub(kept.len());
+                kept.extend_from_slice(&chunk[..n.min(room)]);
+            }
+        }
+    }
+}
+
+/// Run one probe: a non-interactive `ssh` child (`no_window!`) with the same environment
+/// removals as a management session, no standard input, bounded by [`PROBE_BOUND`]. A
+/// child that cannot be started or does not end in time is an empty run (inconclusive).
+pub async fn run_probe(ssh_client: &Path, args: &[OsString]) -> ProbeRun {
+    let mut command = crate::no_window!(tokio::process::Command::new(ssh_client));
+    command
+        .args(args)
+        .env_remove("SSH_AUTH_SOCK")
+        .env_remove("SSH_AGENT_PID")
+        .env_remove("SSH_ASKPASS")
+        .env_remove("SSH_ASKPASS_REQUIRE")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let Ok(mut child) = command.spawn() else {
+        return ProbeRun::default();
+    };
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        return ProbeRun::default();
+    };
+    let run = async {
+        let (stdout, stderr, status) =
+            tokio::join!(read_bounded(stdout), read_bounded(stderr), child.wait());
+        ProbeRun {
+            exit: status.ok().and_then(|s| s.code()),
+            stdout,
+            stderr,
+        }
+    };
+    tokio::time::timeout(PROBE_BOUND, run)
+        .await
+        .unwrap_or_default()
+}
+
+/// A disposable agent for the agent-forwarding probe: a socket that accepts a connection
+/// and closes it. It holds no key and answers nothing; it exists so the client has an
+/// agent to offer. Stops when dropped.
+#[cfg(unix)]
+#[derive(Debug)]
+pub struct DisposableAgent {
+    socket: PathBuf,
+    task: tokio::task::JoinHandle<()>,
+}
+
+#[cfg(unix)]
+impl DisposableAgent {
+    /// Listen at `socket` (inside the session's own owner-only directory).
+    ///
+    /// # Errors
+    /// The socket could not be bound.
+    pub fn start(socket: &Path) -> std::io::Result<Self> {
+        let listener = tokio::net::UnixListener::bind(socket)?;
+        let task = tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                drop(stream);
+            }
+        });
+        Ok(Self {
+            socket: socket.to_path_buf(),
+            task,
+        })
+    }
+
+    /// The socket's path.
+    #[must_use]
+    pub fn socket(&self) -> &Path {
+        &self.socket
+    }
+}
+
+#[cfg(unix)]
+impl Drop for DisposableAgent {
+    fn drop(&mut self) {
+        self.task.abort();
+        let _ = std::fs::remove_file(&self.socket);
+    }
+}
+
+/// Run the four confirming probes through the management session's configuration
+/// ([`probe_args`]), one after another, and report what they observed. `None` when any
+/// was inconclusive (nothing is guessed).
+#[cfg(unix)]
+pub async fn run_probes(
+    ssh_client: &Path,
+    config: &Path,
+    alias: &str,
+    disposable_agent: &DisposableAgent,
+) -> Option<heimdall_contract::remote::ProbeObservation> {
+    let mut verdicts = [ProbeVerdict::Inconclusive; 4];
+    let kinds = [
+        ProbeKind::Pty,
+        ProbeKind::Forward,
+        ProbeKind::AgentForward,
+        ProbeKind::SetEnv,
+    ];
+    for (verdict, kind) in verdicts.iter_mut().zip(kinds) {
+        let args = probe_args(config, alias, kind, disposable_agent.socket())?;
+        *verdict = classify_probe(kind, &run_probe(ssh_client, &args).await);
+        if *verdict == ProbeVerdict::Inconclusive {
+            return None;
+        }
+    }
+    let [pty, forward, agent, setenv] = verdicts;
+    observation(pty, forward, agent, setenv)
 }
 
 #[cfg(test)]
@@ -674,6 +1066,40 @@ mod tests {
         let mut p = plan();
         p.owner_key.openssh_line = "ssh-rsa AAAA".into();
         assert!(remote_init_command(&p).is_err());
+        // ⟨M06 W3⟩ The controller's CA key: appended as one validated token pair; omitted
+        // without an issuer; anything but one plain Ed25519 key refused.
+        let with_ca =
+            remote_init_command_with(&plan(), Some(&format!("{ED} ca@controller"))).unwrap();
+        assert!(with_ca.ends_with(&format!(" --owner-key '{ED}' --issuer-ca '{ED}'")));
+        assert_eq!(
+            remote_init_command_with(&plan(), None).unwrap(),
+            remote_init_command(&plan()).unwrap()
+        );
+        // ⟨§18.7 item 8⟩ This device's endpoint ID: one validated token, last; omitted
+        // without K_iroh.
+        let endpoint = IrohEndpointId::parse(&"ab".repeat(32)).unwrap();
+        let with_iroh = remote_init_command_for(&plan(), None, Some(&endpoint)).unwrap();
+        assert!(
+            with_iroh.ends_with(&format!(
+                " --owner-key '{ED}' --iroh-endpoint {}",
+                "ab".repeat(32)
+            )),
+            "{with_iroh}"
+        );
+        assert_eq!(
+            remote_init_command_for(&plan(), None, None).unwrap(),
+            remote_init_command(&plan()).unwrap()
+        );
+        for bad in [
+            "ssh-rsa AAAA",
+            "ssh-ed25519 AA'A",
+            "ssh-ed25519 AAAA; rm -rf /",
+        ] {
+            assert!(
+                remote_init_command_with(&plan(), Some(bad)).is_err(),
+                "{bad}"
+            );
+        }
         for bad in [
             "ssh-dss AAAA",
             "ssh-ed25519-cert-v01@openssh.com AAAA",
@@ -712,5 +1138,149 @@ mod tests {
                 "hm-env-env_aa"
             ]
         );
+    }
+
+    /// ⟨ADR-0006 §18.7 item 16; ADR-0012 §3.2⟩ The four probes' arguments and how a run is
+    /// read. Each probe is the management session's own configuration and alias plus the one
+    /// request under test; the agent offered is an explicit disposable socket, never `yes`
+    /// (which would offer K_mgmt's agent). Only positive evidence counts: the bridge's own
+    /// refusal is a grant, a normal end a refusal, and a failed run is neither.
+    #[test]
+    fn the_confirming_probes_ask_one_thing_each_and_guess_nothing() {
+        let config = Path::new("/s/mgmt.conf");
+        let agent = Path::new("/s/probe-agent.sock");
+        let args = |kind| strings(&probe_args(config, "hm-env-env_aa", kind, agent).unwrap());
+        let head = [
+            "-F",
+            "/s/mgmt.conf",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=15",
+        ];
+        let tail = ["--", "hm-env-env_aa"];
+        let middle = |kind| {
+            let all = args(kind);
+            assert_eq!(all[..head.len()], head, "{kind:?}");
+            assert_eq!(all[all.len() - 2..], tail, "{kind:?}");
+            all[head.len()..all.len() - 2].to_vec()
+        };
+        assert_eq!(middle(ProbeKind::Pty), ["-tt"]);
+        assert_eq!(middle(ProbeKind::Forward), ["-W", "127.0.0.1:1"]);
+        assert_eq!(
+            middle(ProbeKind::AgentForward),
+            ["-T", "-o", "ForwardAgent=\"/s/probe-agent.sock\""]
+        );
+        assert_eq!(
+            middle(ProbeKind::SetEnv),
+            ["-T", "-o", "SetEnv=HEIMDALL_SETENV_PROBE=1"]
+        );
+        for bad in ["relative.sock", "/s/a\"b.sock", "/s/a\nb.sock"] {
+            assert!(
+                probe_args(config, "x", ProbeKind::AgentForward, Path::new(bad)).is_none(),
+                "{bad:?}"
+            );
+        }
+
+        let run = |exit, stdout: &str, stderr: &str| ProbeRun {
+            exit,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        };
+        use ProbeVerdict::{Granted, Inconclusive, Refused};
+        for (kind, own, other) in [
+            (ProbeKind::Pty, SESSION_REFUSED_PTY, SESSION_REFUSED_AGENT),
+            (
+                ProbeKind::AgentForward,
+                SESSION_REFUSED_AGENT,
+                SESSION_REFUSED_SETENV,
+            ),
+            (
+                ProbeKind::SetEnv,
+                SESSION_REFUSED_SETENV,
+                SESSION_REFUSED_PTY,
+            ),
+        ] {
+            // The bridge ran and ended normally: it saw nothing it refuses.
+            assert_eq!(classify_probe(kind, &run(Some(0), "", "")), Refused);
+            // The client's own statement counts for the PTY probe only.
+            let said = "PTY allocation request failed on channel 0\r\n";
+            assert_eq!(
+                classify_probe(kind, &run(Some(255), "", said)),
+                if kind == ProbeKind::Pty {
+                    Refused
+                } else {
+                    Inconclusive
+                }
+            );
+            // The bridge's own refusal, framed (and through a terminal, with noise around).
+            let framed = format!("\0\0\0\x60{{\"type\":\"goodbye\",\"message\":\"{own}\"}}\r\n");
+            assert_eq!(
+                classify_probe(kind, &run(Some(69), &framed, "")),
+                Granted,
+                "{kind:?}"
+            );
+            // Another refusal, a failed connection, a timeout: nothing is shown.
+            let theirs = format!("{{\"message\":\"{other}\"}}");
+            assert_eq!(
+                classify_probe(kind, &run(Some(69), &theirs, "")),
+                Inconclusive
+            );
+            assert_eq!(
+                classify_probe(kind, &run(Some(255), "", "Connection refused")),
+                Inconclusive
+            );
+            assert_eq!(classify_probe(kind, &ProbeRun::default()), Inconclusive);
+        }
+        assert_eq!(
+            classify_probe(
+                ProbeKind::Forward,
+                &run(
+                    Some(255),
+                    "",
+                    "channel 0: open failed: administratively prohibited: open failed\r\n\
+                     stdio forwarding failed\r\n"
+                )
+            ),
+            Refused
+        );
+        assert_eq!(
+            classify_probe(
+                ProbeKind::Forward,
+                &run(
+                    Some(255),
+                    "",
+                    "channel 0: open failed: connect failed: Connection refused\r\n"
+                )
+            ),
+            Granted
+        );
+        assert_eq!(
+            classify_probe(ProbeKind::Forward, &run(Some(0), "", "")),
+            Granted
+        );
+        assert_eq!(
+            classify_probe(
+                ProbeKind::Forward,
+                &run(
+                    Some(255),
+                    "",
+                    "ssh: connect to host 127.0.0.1 port 1: Connection refused"
+                )
+            ),
+            Inconclusive
+        );
+
+        let observed = observation(Refused, Refused, Refused, Refused).unwrap();
+        assert!(observed.pty_refused && observed.forward_refused);
+        assert!(observed.agent_forward_refused && !observed.setenv_canary_delivered);
+        let observed = observation(Granted, Refused, Granted, Granted).unwrap();
+        assert!(!observed.pty_refused && observed.forward_refused);
+        assert!(!observed.agent_forward_refused && observed.setenv_canary_delivered);
+        for i in 0..4 {
+            let mut v = [Refused; 4];
+            v[i] = Inconclusive;
+            assert_eq!(observation(v[0], v[1], v[2], v[3]), None);
+        }
     }
 }

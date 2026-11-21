@@ -117,6 +117,20 @@ pub trait BindingEndpoints: Send + Sync {
     /// The newest endpoint of `binding`, if it exists.
     fn binding_endpoint(&self, binding: &BindingId) -> Option<EndpointRef>;
 
+    /// ⟨M06 W3; ADR-0012 §4.1, §4.6⟩ On a remote runner: K_env.pub of the runner grant
+    /// `grant` and its installed certificates, when `binding` is a binding of that grant and
+    /// the runner's own signer holds the grant's key (it was prepared and installed over the
+    /// paired channel, never by these effects). `None` everywhere else, which is the default:
+    /// the binding is then materialized from this process's own signer table, as before.
+    fn runner_grant_content(
+        &self,
+        binding: &BindingId,
+        grant: &GrantId,
+    ) -> Option<(String, Vec<MaterializedCertificate>)> {
+        let _ = (binding, grant);
+        None
+    }
+
     /// Create `binding`'s endpoint at `generation` (`EndpointRegistry::create_binding`),
     /// or return the one already running at exactly that generation (idempotent). It
     /// lists and signs for the grant the binding is attached to in the signer table,
@@ -672,6 +686,100 @@ impl ManagedEffectsImpl {
         self.write_slot_locked(&env, binding, pair, generation, self.slot_store.as_ref())
     }
 
+    /// ⟨M06 W3; ADR-0012 §4.1, §4.6⟩ Materialize `binding` of the **runner grant** `grant`
+    /// (`BindingEndpoints::runner_grant_content` answered for it): the binding's endpoint is
+    /// created by the endpoints source, which serves a runner grant's binding from the
+    /// runner's own signer table only (it lists that grant's installed certificates and
+    /// nothing else, never a controller's socket); then the binding's files are written from
+    /// K_env.pub and those certificates. Nothing is attached in this process's own table:
+    /// the key is not there. The native placement only, and no environment slot: a runner
+    /// grant's key is offered on its binding endpoint, never on the environment endpoint.
+    fn materialize_runner_grant(
+        &self,
+        binding: &BindingId,
+        spec: &MaterializeSpec,
+        grant: &GrantId,
+        public_key: &str,
+        certificates: &[MaterializedCertificate],
+    ) -> Result<MaterializedFiles, AdapterError> {
+        if certificates.is_empty() {
+            return Err(AdapterError::Protocol("not_installed".to_owned()));
+        }
+        let dests: Vec<DestinationId> = certificates
+            .iter()
+            .map(|c| c.pair.destination.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if dests.len() != certificates.len() {
+            return Err(AdapterError::Protocol(
+                "one_certificate_per_pair".to_owned(),
+            ));
+        }
+        if !matches!(self.scopes.placement(grant)?, EndpointPlacement::Native) {
+            return Err(AdapterError::Unavailable(
+                BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+            ));
+        }
+        let created = if self.endpoints.binding_endpoint(binding).is_none() {
+            Some(self.endpoints.create_binding_endpoint_at(
+                binding,
+                spec.generation,
+                &EndpointPlacement::Native,
+            )?)
+        } else {
+            None
+        };
+        let undo = || {
+            if created.is_some() {
+                let _ = self
+                    .endpoints
+                    .remove_binding_endpoint(binding, spec.generation);
+            }
+        };
+        let files = match self.files_for(binding, &dests) {
+            Ok(f) => f,
+            Err(e) => {
+                undo();
+                return Err(e);
+            }
+        };
+        let certs: Vec<(DestinationId, String)> = certificates
+            .iter()
+            .map(|c| (c.pair.destination.clone(), c.certificate.clone()))
+            .collect();
+        let written = match files::write_binding_files(
+            &files,
+            binding,
+            spec.generation,
+            public_key,
+            &certs,
+        ) {
+            Ok(w) => w,
+            Err(e) => {
+                undo();
+                return Err(adapter_from_files(&e));
+            }
+        };
+        {
+            let mut s = self.lock();
+            s.bindings.insert(binding.clone(), files.clone());
+            s.materialized.insert(
+                binding.clone(),
+                MaterializedBinding {
+                    grant: grant.clone(),
+                    generation: spec.generation,
+                },
+            );
+        }
+        Ok(MaterializedFiles {
+            directory: files.directory,
+            files: written,
+            generation: spec.generation,
+            endpoint: created,
+        })
+    }
+
     /// The slot write, with the slot's lock held: re-validate the store's holder and
     /// generation, then write the fenced files, then list the key at `generation`.
     fn write_slot_locked(
@@ -901,6 +1009,21 @@ impl ManagedEffects for ManagedEffectsImpl {
             MaterializeSource::InstalledKeyOf { grant } => {
                 if attached.as_ref().is_some_and(|a| a != grant) {
                     return Err(AdapterError::Protocol(BINDING_GRANT_MISMATCH.to_owned()));
+                }
+                // ⟨M06 W3⟩ A runner grant's key lives in the runner's own signer, not in
+                // this table: its binding is materialized from there, and only there.
+                if attached.is_none()
+                    && self.table.public_key(grant).is_none()
+                    && let Some((public_key, certificates)) =
+                        self.endpoints.runner_grant_content(binding, grant)
+                {
+                    return self.materialize_runner_grant(
+                        binding,
+                        spec,
+                        grant,
+                        &public_key,
+                        &certificates,
+                    );
                 }
                 let (public_key, certificates) = self.installed_content(grant)?;
                 (grant.clone(), public_key, certificates)

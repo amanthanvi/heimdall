@@ -592,6 +592,16 @@ container rows `deferred_with_decision` to M04's exit. They are closed by M04-3 
 pair; A28 container row: the endpoint lists only the binding's identity and a control-protocol hello fails) and M04-5
 (A28 forwarding row); `docs/architecture/m04-exit-draft.md` §3 has the mapping by record and row.
 
+## M06 environments and transport (in progress; no rows until the M06 exit)
+
+### M06 limitations and residuals
+
+- **Management and transport keys in encrypted local backups** (ADR-0012 §3.4, ruling of 2026-11-21; the same class
+  of limit as K_ca in ADR-0005 §5.2). K_mgmt and K_iroh are never synchronized, but they can be present in encrypted
+  local backups: Time Machine for the macOS login keychain until the data-protection keychain item (D3) is available,
+  and account backups for Secret Service collections and DPAPI blobs. Recovery on another device is `heimdall device
+  retire` and revocation of the old client on each runner, never a restore.
+
 ## Mechanism observations (not product support)
 
 These rows record OpenSSH and platform mechanism behavior observed on fixtures during the gate experiments. They inform

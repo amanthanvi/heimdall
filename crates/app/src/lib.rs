@@ -44,6 +44,14 @@ pub mod readiness_runner;
 pub mod reconcile;
 // ⟨M06 U2⟩ The controller's management of remote runner environments (ADR-0012 §3, §5.2).
 pub mod remote_env;
+// ⟨M06 U4b⟩ The second controller: enrolment, narrowing from either owner, issuer standing
+// (ADR-0012 §8).
+pub mod remote_env_second;
+// ⟨M06 U4⟩ The controller's view of its runners, its effect outbox and resynchronization, and
+// the issuer's reconciliation barrier (ADR-0012 §7).
+pub mod remote_status;
+pub mod remote_status_barrier;
+pub mod remote_status_driver;
 // ⟨M06 U5a⟩ The route helper's core (`route connect`, direct and jump legs), failover and the
 // `ssh -G` pin verification (ADR-0012 §5.2–§5.5).
 pub mod routes;
