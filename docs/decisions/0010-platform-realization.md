@@ -114,6 +114,10 @@ probe IDs P-…), **[I]** inference to be proved by the M04 tests named in the p
 - `ssh.exe` rereads certificate files on every run, so a re-issue needs no WSL action (P-A05 [O]);
 - the interop child runs at Medium integrity (P-A06 [O]). That no UAC prompt appears needs an operator
   (B5).
+- ⟨M04 I-28⟩ A Mode A binding is a native endpoint binding for the claim table (ADR-0008 D12 item 2).
+  **Limitation (M04-CL-R03):** its claim-table values are judged against the runtime's verified
+  client. When `[clients].ssh` names another client than System32's in-box `ssh.exe`, which the Mode A
+  Git item uses, the values reflect the configured client, not the one Mode A runs.
 
 **Non-claims:** every process of the same Windows user, in any distribution, can run `ssh.exe` against
 the same endpoints [S16].

@@ -23,8 +23,8 @@
 //!   stopped distribution, and an unavailable helper is reported with nothing written.
 
 use super::container::{
-    container_rows, decide, decisions_pending, ensure_in, inspect_environments,
-    operations_recorded, permit_ensures,
+    claim_reasons, container_rows, decide, decisions_pending, ensure_in, inspect_environments,
+    m03_reader, no_claim_evidence, operations_recorded, permit_ensures, reasons_naming,
 };
 use super::*;
 use crate::wsl_bridge::{BridgeApi, BridgeFactory};
@@ -1321,4 +1321,28 @@ async fn wsl_mode_b_a_replacement_with_another_run_base_realizes_nothing_rendere
         }
     }
     p.shutdown.cancel();
+}
+
+/// ⟨M04 I-28⟩ A Mode B binding's result carries one `endpoint_kind_not_covered` reason per
+/// claim-table field naming `wsl_mode_b` (the grant's recorded terms, from its environment)
+/// and no claim-table entry. (The report on a qualifying Windows host is
+/// `integration_managed_adapter`'s
+/// `wsl_mode_b_binding_reads_every_claim_field_unknown_on_a_qualifying_windows_host`.)
+#[tokio::test]
+async fn wsl_mode_b_binding_result_names_its_endpoint_kind_for_the_claim_table() {
+    let w = Live::new();
+    let (p, _host, _factory) = process(&w, true).await;
+    let (id, _) = approved(&p).await;
+    permit_ensures(&w, &id);
+    let a = ensure_in(&p, &id, "w-a", "r-a")
+        .await
+        .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message));
+    assert_eq!(a.environment_id, id);
+    assert_eq!(
+        claim_reasons(&a),
+        reasons_naming(heimdall_contract::managed::BindingEndpointKind::WslModeB)
+    );
+    assert!(no_claim_evidence(&a));
+    // ⟨M04-CL-R04⟩ A reader of the M03 contract decodes the Mode B result's evidence.
+    m03_reader::decodes(&a.evidence, "a Mode B result");
 }

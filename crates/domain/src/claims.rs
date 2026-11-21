@@ -20,8 +20,19 @@
 //! product-store claim (F03).
 //!
 //! **The M03 baseline table was empty**; the M03 claim update adds the A07 and A23 fields
-//! ([`CLAIMS`]). Keep each entry as one `Claim { … }` struct literal with every field
+//! ([`CLAIMS`]). ⟨I-28⟩ M04's claim update adds no entry: no M04 record runs a claimed
+//! field's tests on a new platform, OS release, client or build, and M04's WSL rows are `wsl`
+//! hosts. Keep each entry as one `Claim { … }` struct literal with every field
 //! written out, string literals only, so the validator can read it without a Rust parser.
+//!
+//! ⟨M04 I-28⟩ **Native endpoints only.** Every entry's record ran bindings with a native
+//! endpoint: the host's own verified client against the runtime's per-binding endpoint.
+//! [`endpoint_covered`] is the gate the report applies beside [`applies`]: a WSL Mode B,
+//! container or unclassified binding reads every claim-table field `unknown`, whatever the
+//! host. ⟨M04-CL-R01⟩ A current result built from a stored one for a binding outside the
+//! runtime's own environment loses them too ([`withhold_claimed_values`]).
+
+pub use heimdall_contract::managed::BindingEndpointKind;
 
 /// The build profile of the run that produced a claim's evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -818,6 +829,41 @@ pub fn applies(claim: &Claim, host: &HostFacts) -> bool {
             .as_deref()
             .is_some_and(|v| client_in_range(v, &claim.client_versions))
         && signer_pinned(&host.signer_build, &claim.signer_builds)
+}
+
+/// ⟨M04 I-28⟩ Whether the claim table's entries can hold for a binding whose endpoint is of
+/// `kind`: only [`BindingEndpointKind::Native`]. Every entry's record ran native endpoint
+/// bindings; none covers a WSL Mode B binding (the distribution's OpenSSH through the bridge)
+/// or a container binding (the container's client through the mounted endpoint), so for those
+/// every claim-table field reads `unknown` (`not_verified` for `lock_continuity`) on every
+/// host. An entry for another kind would need its own platform row, its own evidence and a
+/// [`Claim`] field naming the kind. The host's checks ([`applies`]) are unchanged.
+#[must_use]
+pub fn endpoint_covered(kind: BindingEndpointKind) -> bool {
+    kind == BindingEndpointKind::Native
+}
+
+/// ⟨M04-CL-R01⟩ `data`, a current ensure result built from a stored one, with every value only
+/// a claim-table entry produces withheld: the enforcement values ([`without_claimed_values`]),
+/// `lock_continuity: verified` (then `not_verified`), `revocation.remote:
+/// bounded_by_credential_expiry` (then `unknown`), and every `claim_table` evidence entry for a
+/// value (an entry with a `withheld_reason` is a reason, and is kept). The stored record is not
+/// touched: a result replayed for a binding outside the runtime's own environment (a WSL Mode B,
+/// container or unclassified one) never presents a claim the gate would refuse it now, whenever
+/// it was stored (M03-F1's "history is history", applied to the replay).
+pub fn withhold_claimed_values(data: &mut heimdall_contract::request::EnsureData) {
+    use heimdall_contract::managed::{EvidenceSource, LockContinuityReport, RemoteRevocation};
+    data.enforcement = without_claimed_values(&data.enforcement);
+    if data.lock_continuity == Some(LockContinuityReport::Verified) {
+        data.lock_continuity = Some(LockContinuityReport::NotVerified);
+    }
+    if let Some(r) = data.revocation.as_mut()
+        && r.remote == RemoteRevocation::BoundedByCredentialExpiry
+    {
+        r.remote = RemoteRevocation::Unknown;
+    }
+    data.evidence
+        .retain(|e| e.source != EvidenceSource::ClaimTable || e.withheld_reason.is_some());
 }
 
 /// ⟨M03-F1⟩ The entries of `table` that apply on `host` ([`applies`]).

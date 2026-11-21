@@ -1,0 +1,26 @@
+{
+ "name": "M04-CL-R01, observe (the orchestrator's ruling after 6a7d91cc): `observe` of a container ensure operation whose stored result predates ruling I-28 (seeded with claim-table values and evidence) shows the result with every claim-table value withheld, as the ensure answer does; the stored record unchanged",
+ "file": "crates/app/src/operations.rs (observe: `self.observed_view(&op)`)",
+ "change_reverted": "observe's `Completed::ok(Code::Ok, self.observed_view(&op))` replaced by `Completed::ok(Code::Ok, operation_view(&op))`, the stored result shown as stored, as at 6a7d91cc",
+ "command": "cargo test -p heimdall-runtime --lib -- managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims ... FAILED",
+   "thread 'managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims' (87377595) panicked at crates/runtime/src/managed_store/live_tests/container.rs:990:5:",
+   "assertion `left == right` failed",
+   "  left: Enforcement { destination_scope: Unknown, new_authentication_expiry: CredentialAndSigner, workload_isolation: SharedOsUser, existing_connections: StrictDisconnect, revocation: BoundedByCredentialExpiry, identity_selection: Some(Unknown), new_signing_expiry: Some(Signer), owned_multiplexing: Some(Disabled), remote_processes: Some(NotTerminated), unmanaged_connections: Some(NotControlled), issuer_isolation: Some(SameUserProcess), ordinary_aliases: None, owner_functions: None }",
+   " right: Enforcement { destination_scope: Unknown, new_authentication_expiry: Unknown, workload_isolation: SharedOsUser, existing_connections: Unknown, revocation: Unknown, identity_selection: Some(Unknown), new_signing_expiry: Some(Unknown), owned_multiplexing: Some(Disabled), remote_processes: Some(NotTerminated), unmanaged_connections: Some(NotControlled), issuer_isolation: Some(SameUserProcess), ordinary_aliases: None, owner_functions: None }",
+   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 109 filtered out; finished in 0.08s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 109 filtered out; finished in 0.09s"
+  ]
+ },
+ "restored_sha256_prefix": "a4edbd1c25565971 (operations.rs before the proof and after restoring)"
+}

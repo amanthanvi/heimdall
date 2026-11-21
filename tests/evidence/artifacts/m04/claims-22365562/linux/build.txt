@@ -1,0 +1,27 @@
+   Compiling heimdall-app v0.1.0-m01 (<checkout>/crates/app)
+   Compiling heimdall-credential v0.1.0-m01 (<checkout>/crates/credential)
+   Compiling heimdall-localenv v0.1.0-m01 (<checkout>/crates/localenv)
+   Compiling heimdall-issuer v0.1.0-m01 (<checkout>/crates/issuer)
+   Compiling heimdall-adapters v0.1.0-m01 (<checkout>/crates/adapters)
+   Compiling heimdall-enroll v0.1.0-m01 (<checkout>/crates/enroll)
+   Compiling heimdall-wsl v0.1.0-m01 (<checkout>/crates/wsl)
+   Compiling heimdall-launch v0.1.0-m01 (<checkout>/crates/launch)
+   Compiling heimdall-testkit v0.1.0-m01 (<checkout>/crates/testkit)
+   Compiling heimdall-runtime v0.1.0-m01 (<checkout>/crates/runtime)
+   Compiling heimdall-ipc v0.1.0-m01 (<checkout>/crates/ipc)
+   Compiling heimdall-sshconf v0.1.0-m01 (<checkout>/crates/sshconf)
+   Compiling heimdall-registry v0.1.0-m01 (<checkout>/crates/registry)
+   Compiling heimdall-contract v0.1.0-m01 (<checkout>/crates/contract)
+   Compiling heimdall-domain v0.1.0-m01 (<checkout>/crates/domain)
+   Compiling heimdall v0.1.0-m01 (<checkout>/crates/heimdall)
+    Finished `native-test` profile [unoptimized] target(s) in 22.27s
+e2e_managed_m03 sha256: 13f8cef794283a1451c20538b35862aa257debb639514bca88637761fc4e0699
+heimdall_adapters-unit sha256: ae4cd62f1860d47bae649a6ae5c5c7c172a0485f387aba8fedbe76d97f759f80
+heimdall_app-unit sha256: 48017da82fe1963fbf23afb288014b68568e8231f576619f861b0233024cf9dc
+heimdall_domain-unit sha256: 27181a1dcfb2d871f253069c02b9b82aa3f59d7006e78dbbec2e8aede0feb58d
+heimdall_localenv-unit sha256: e1ecd3fa3e5198e3b519c216b39a5f0389e5dd24e237ef6a1047c33a7b87bde7
+heimdall_runtime-unit sha256: 6cfbd56ced61ff3160b35c05aa9ec140b4ee51c7bf829bfedae63455d3c1dba6
+integration_managed_adapter sha256: f38839b4245e10ab52cb21a931e7dbcd1f1da9d32f83c64cdb629e7cb5a181e7
+heimdall (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: 90d80de0f40d2cfad65400ea37b3670696a71addefbd7a47bdace5448b96345f
+hm-fixture-hook (HM_FIXTURE_HOOK) sha256: 3b3ab339dc6d3adcf8e79ace7d343132fc931ce872d9a56b4a545de3ae73792c
+toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13); zig 0.17.1; target x86_64-unknown-linux-gnu (glibc floor 2.31)

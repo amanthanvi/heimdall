@@ -4804,7 +4804,11 @@ mod round2 {
                 pairs,
             },
             &snapshot,
-            Some(&GrantTerms::default()),
+            Some(&GrantTerms {
+                lock_behavior: heimdall_contract::managed::LockBehavior::default(),
+                policy: heimdall_contract::managed::ConnectionPolicy::default(),
+                endpoint: heimdall_contract::managed::BindingEndpointKind::Native,
+            }),
             None,
             heimdall_adapters::managed::report::current_platform(),
             &ssh_only().into_iter().collect(),

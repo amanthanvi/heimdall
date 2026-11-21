@@ -2659,6 +2659,16 @@ plan §1.2).
 2. **Per-field rule:** a value whose test has not passed **for this platform and these versions** is
    `unknown` (or `not_verified` for `lock_continuity`). An unmet or unknown minimum is
    `CAPABILITY_UNAVAILABLE` (R-AU-08).
+   * ⟨M04 I-28⟩ **And for this endpoint kind:** every claim-table entry's record ran bindings with a
+     native endpoint, so a WSL Mode B, container or unclassified binding (ADR-0010 §3, §4) reads every
+     claim-table field `unknown`, with one `evidence` entry per field: `source: claim_table`, no
+     record, `withheld_reason: endpoint_kind_not_covered` and its `endpoint_kind` (optional fields an
+     M03 reader ignores; M04-CL-R04). Native needs the grant's environment to be the runtime's own;
+     anything else is never native (`unknown` when unclassified; M04-CL-R02). A current response built
+     from a stored result of a binding outside the runtime's own environment (a replay, `observe`,
+     `cancel`'s operation view) withholds them too, the stored record unchanged (M04-CL-R01;
+     `heimdall_domain::claims::withhold_claimed_values`). A Mode
+     A consumer uses a native Windows binding (ADR-0010 §2 item 1).
 
 3. **Three kinds of value:**
    * **Runtime evidence**, produced by the product itself and recorded with the enrollment. The

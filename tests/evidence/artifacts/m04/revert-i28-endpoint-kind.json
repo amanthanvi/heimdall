@@ -1,0 +1,31 @@
+{
+ "name": "M04 claims update (ruling I-28): the claim table's entries hold only for bindings with a native endpoint, so a WSL Mode B or container binding reads every claim-table field unknown on a host that otherwise qualifies (the Windows entries' release with the in-box 9.5p2; the Linux entries' kernel with 9.6p1)",
+ "file": "crates/adapters/src/managed/report.rs (claim: the heimdall_domain::claims::endpoint_covered check)",
+ "change_reverted": "the `if !endpoint_covered(endpoint) { return None; }` check in report::claim removed (replaced by `let _ = endpoint;`), so the entries applied whatever the endpoint kind, as before I-28",
+ "command": "cargo test -p heimdall-adapters --test integration_managed_adapter -- wsl_mode_b_binding_reads_every_claim_field_unknown_on_a_qualifying_windows_host container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host",
+ "reverted": {
+  "label": "reverted",
+  "exit": 101,
+  "lines": [
+   "test container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host ... FAILED",
+   "test wsl_mode_b_binding_reads_every_claim_field_unknown_on_a_qualifying_windows_host ... FAILED",
+   "thread 'container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host' (86205353) panicked at crates/adapters/../../tests/integration/managed_adapter.rs:2327:13:",
+   "assertion `left == right` failed: the real table, ConnectionPolicy { existing: Strict, multiplexing: Disabled }",
+   "  left: Signer",
+   " right: Unknown",
+   "thread 'wsl_mode_b_binding_reads_every_claim_field_unknown_on_a_qualifying_windows_host' (86205354) panicked at crates/adapters/../../tests/integration/managed_adapter.rs:2327:13:",
+   "assertion `left == right` failed: the real table, ConnectionPolicy { existing: Strict, multiplexing: Disabled }",
+   "  left: Signer",
+   " right: Unknown",
+   "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.41s"
+  ]
+ },
+ "restored": {
+  "label": "restored",
+  "exit": 0,
+  "lines": [
+   "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.39s"
+  ]
+ },
+ "restored_sha256_prefix": "d96353376839cedc (report.rs before the proof and after restoring; rustfmt then moved one import and wrapped two test calls, with no change to the code under proof: the file committed at 212f290a is f703913d552eb01f; the M04-CL round then moved the reason entries to `source: claim_table` with `withheld_reason`, leaving this check unchanged)"
+}

@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running ..\..\tests\integration\managed_adapter.rs (target\debug\deps\integration_managed_adapter-d657875c2a477c74.exe)
+
+running 1 test
+m03 observation: real_claim_table windows x86_64 os_release=10.0.26300.9974 client=9.5p2 applicable=5 [enforcement.revocation=bounded_by_credential_expiry existing_connections=strict_disconnect new_authentication_expiry=credential_and_signer new_signing_expiry=signer revocation.remote=bounded_by_credential_expiry]
+test real_claim_table_on_this_host_recorded ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.04s
+

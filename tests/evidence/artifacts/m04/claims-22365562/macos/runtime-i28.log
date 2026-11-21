@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_runtime-5ed7652b48fe875b)
+
+running 4 tests
+test managed_store::tests::claim_endpoint_is_native_only_for_the_runtimes_own_environment ... ok
+test managed_store::live_tests::wsl_mode_b::wsl_mode_b_binding_result_names_its_endpoint_kind_for_the_claim_table ... ok
+test managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims ... ok
+test managed_store::live_tests::container::a15_container_binding_result_names_its_endpoint_kind_for_the_claim_table ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 106 filtered out; finished in 0.18s
+

@@ -1,0 +1,28 @@
+free_kb=764583000
+$ cargo test --locked -p heimdall-domain --lib claims::
+exit 0: domain
+free_kb=764580944
+$ cargo test --locked -p heimdall-localenv --lib -- sys::tests:: local_query::tests::
+exit 0: localenv
+free_kb=764552900
+$ cargo test --locked -p heimdall-adapters --lib managed::report::
+exit 0: adapters-lib
+free_kb=764524112
+$ cargo test --locked -p heimdall-adapters --test integration_managed_adapter
+exit 0: managed-adapter
+free_kb=763491280
+$ cargo test --locked -p heimdall-app --lib ensure_data_carries_managed_facts_only_from_this_process_outcome
+exit 0: app-r01
+free_kb=763373532
+$ cargo test --locked -p heimdall --test e2e_managed_m03 -- fresh_bind_after_reissue_never_carries_the_stored_claim_values client_replaced_while_the_driver_waits_claims_nothing
+exit 0: e2e-r01
+free_kb=763111652
+$ cargo test --locked -p heimdall-runtime --lib managed_store::tests::replaced_client_withholds_the_claims_until_verified_again
+exit 0: runtime-r03
+free_kb=763111880
+$ cargo test --locked -p heimdall-runtime --lib -- managed_store::live_tests::container::a15_container_binding_result_names_its_endpoint_kind_for_the_claim_table managed_store::live_tests::wsl_mode_b::wsl_mode_b_binding_result_names_its_endpoint_kind_for_the_claim_table managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims managed_store::tests::claim_endpoint_is_native_only_for_the_runtimes_own_environment
+exit 0: runtime-i28
+free_kb=763112028
+$ cargo test --locked -p heimdall-adapters --test integration_managed_adapter real_claim_table_on_this_host_recorded -- --exact --nocapture
+exit 0: observation
+free_kb=763111900

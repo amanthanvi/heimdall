@@ -83,6 +83,31 @@
       "description": "Remote account name on a destination.",
       "type": "string"
     },
+    "BindingEndpointKind": {
+      "description": "⟨M04 I-28⟩ How a managed binding's clients reach its signer (ADR-0008 D12 item 2;\nADR-0010 §3–§4). The claim table's entries hold only for `native`, the kind their records\nran. There is no default: the runtime classifies every grant explicitly (M04-CL-R02).",
+      "oneOf": [
+        {
+          "description": "The runtime's own per-binding endpoint on this host, used by the host's own client.\nA WSL Mode A consumer is one: its binding, endpoint and client (the in-box\n`ssh.exe`) are the native Windows environment's (ADR-0010 §2 item 1).",
+          "type": "string",
+          "const": "native"
+        },
+        {
+          "description": "A WSL Mode B binding: the distribution's OpenSSH, through the bridge endpoint inside the\ndistribution (ADR-0010 §3).",
+          "type": "string",
+          "const": "wsl_mode_b"
+        },
+        {
+          "description": "A container binding: the container's client, through the environment's mounted\nendpoint (ADR-0010 §4).",
+          "type": "string",
+          "const": "container"
+        },
+        {
+          "description": "⟨M04-CL-R02⟩ Not classified: the grant's environment is not the runtime's own and has\nno managed-environment row, or a realization this build does not know. Never native.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
     "BindingId": {
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
@@ -1036,6 +1061,17 @@
             "null"
           ]
         },
+        "endpoint_kind": {
+          "description": "⟨M04 I-28⟩ The binding's endpoint kind, with `withheld_reason`. Omitted otherwise, so\nevery M03 entry is unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BindingEndpointKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "field": {
           "description": "The reported field (`destination_scope`, `lock_continuity`, …).",
           "type": "string"
@@ -1092,6 +1128,17 @@
         "source": {
           "description": "Source.",
           "$ref": "#/$defs/EvidenceSource"
+        },
+        "withheld_reason": {
+          "description": "⟨M04 I-28⟩ Present on a `claim_table` entry that is not evidence for a value but the\nreason the field reads `unknown` (`not_verified` for `lock_continuity`); such an entry\nhas no `record`. Omitted otherwise. An optional field, so a reader of the M03 contract\nignores it and still reads a known `source` (M04-CL-R04).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WithheldReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1109,7 +1156,7 @@
           "const": "runtime_verification"
         },
         {
-          "description": "A claim-table entry (ADR-0008 D12).",
+          "description": "A claim-table entry (ADR-0008 D12). ⟨M04 I-28⟩ With a `withheld_reason`, not evidence\nfor a value but the reason the claim table gives none ([`EvidenceEntry::withheld_reason`]).",
           "type": "string",
           "const": "claim_table"
         }
@@ -2428,6 +2475,16 @@
       "required": [
         "code",
         "message"
+      ]
+    },
+    "WithheldReason": {
+      "description": "⟨M04 I-28⟩ Why the claim table gives a field no value for this binding: the field reads\n`unknown` (`not_verified` for `lock_continuity`).",
+      "oneOf": [
+        {
+          "description": "The claim table's entries cover bindings with a native endpoint only, and this binding's\nendpoint is of the kind in [`EvidenceEntry::endpoint_kind`].",
+          "type": "string",
+          "const": "endpoint_kind_not_covered"
+        }
       ]
     },
     "WorkloadIsolation": {

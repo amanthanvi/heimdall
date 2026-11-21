@@ -69,11 +69,12 @@ use heimdall_contract::ids::{
 };
 use heimdall_contract::issuer::{CaState, IssuerState, IssuerStatus, StoreKind};
 use heimdall_contract::managed::{
-    ClockMeasurement, ConnectionKind, ConnectionPolicy, DestinationClock, EvidenceSource,
-    ExistingConnectionsMode, IdentitySelectionEnforcement, IssuerIsolation, LockBehavior,
-    LockContinuityReport, MultiplexingMode, NewSigningExpiry, OwnedConnectionReportState,
-    OwnedMultiplexing, PreferredMechanism, ReadinessCondition, RemoteProcesses, RemoteRevocation,
-    ResidualStatus, RevokeNote, UnmanagedConnections,
+    BindingEndpointKind, ClockMeasurement, ConnectionKind, ConnectionPolicy, DestinationClock,
+    EvidenceSource, ExistingConnectionsMode, IdentitySelectionEnforcement, IssuerIsolation,
+    LockBehavior, LockContinuityReport, MultiplexingMode, NewSigningExpiry,
+    OwnedConnectionReportState, OwnedMultiplexing, PreferredMechanism, ReadinessCondition,
+    RemoteProcesses, RemoteRevocation, ResidualStatus, RevokeNote, UnmanagedConnections,
+    WithheldReason,
 };
 use heimdall_contract::provider::{CredentialAvailability, EndpointKind, EndpointRef};
 use heimdall_contract::request::{
@@ -120,6 +121,16 @@ use proptest::prelude::*;
 // =================================================================================
 
 const HOUR: Duration = Duration::from_secs(3600);
+
+/// ⟨M04-CL-R02⟩ The terms a native grant gets: the default lock behaviour and policy, and an
+/// explicit native endpoint (`GrantTerms` has no default).
+fn native_terms() -> GrantTerms {
+    GrantTerms {
+        lock_behavior: LockBehavior::default(),
+        policy: ConnectionPolicy::default(),
+        endpoint: BindingEndpointKind::Native,
+    }
+}
 
 fn t0() -> Timestamp {
     "2026-11-02T09:00:00Z".parse().unwrap()
@@ -1139,7 +1150,7 @@ impl World {
             .lock()
             .unwrap()
             .entry(gid.clone())
-            .or_default();
+            .or_insert_with(native_terms);
         // 1. key
         let key = self.effects.generate_key(gid, token).await.unwrap();
         self.ops.signing_gates().retain(gid, ancestors);
@@ -1543,7 +1554,11 @@ async fn activation_issues_one_certificate_per_pair_covering_grant() {
 /// The golden of §5 item 7 (ADR-0005 §7.2), computed with an **empty** claim table.
 #[tokio::test]
 async fn report_for_local_managed_binding_with_empty_claim_table() {
-    let golden = include_str!("../../schemas/examples/ensure-data.managed.json");
+    // The golden's text with LF line endings: a Windows checkout with `core.autocrlf` (the
+    // repository has no `.gitattributes`) has CRLF, and the fragments below span lines.
+    let golden =
+        include_str!("../../schemas/examples/ensure-data.managed.json").replace("\r\n", "\n");
+    let golden = golden.as_str();
     let w = World::new().await;
     let data = w.ensure("golden", &[h1()]).await;
     let mut g = w.grant(&data.grant_id);
@@ -1583,6 +1598,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
         arch: "x86_64",
     };
     let ctx = ReportContext {
+        endpoint: BindingEndpointKind::Native,
         host: fixture_host(windows),
         lock_behavior: LockBehavior::Continue,
         policy: ConnectionPolicy::default(),
@@ -1833,7 +1849,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
             pairs: &pp,
         },
         &snap,
-        Some(&GrantTerms::default()),
+        Some(&native_terms()),
         Some(&layout),
         windows,
         &heimdall_adapters::managed::managed_capabilities(),
@@ -1974,6 +1990,7 @@ async fn report_with_fixture_claim_table_reports_verified_with_record() {
         multiplexing: MultiplexingMode::OwnedMasters,
     };
     let ctx = ReportContext {
+        endpoint: BindingEndpointKind::Native,
         host: fixture_host(platform),
         lock_behavior: LockBehavior::Continue,
         policy: masters,
@@ -2087,6 +2104,7 @@ async fn report_with_the_real_claim_table_reports_verified_with_record() {
         signer_build: SIGNER_BUILD.to_owned(),
     };
     let context = |host: &HostFacts, policy: ConnectionPolicy| ReportContext {
+        endpoint: BindingEndpointKind::Native,
         host: host.clone(),
         lock_behavior: LockBehavior::Continue,
         policy,
@@ -2248,6 +2266,202 @@ async fn report_with_the_real_claim_table_reports_verified_with_record() {
             }
         }
     }
+    w.finish(&[data.grant_id]).await;
+}
+
+/// ⟨M04 I-28⟩ On `host`, which qualifies for the entries of the real table and of the
+/// fixture table on its platform, a native binding gets them, and a binding whose endpoint is
+/// `kind` reads every claim-table field `unknown` (`not_verified` for `lock_continuity`): no
+/// claim-table entry for a value, and one reason entry per field (`source: claim_table`,
+/// `withheld_reason: endpoint_kind_not_covered`, no record) naming `kind`. The
+/// values it loses are exactly the claim-gated ones (`without_claimed_values`).
+fn assert_claim_values_withheld_from(
+    kind: BindingEndpointKind,
+    host: &HostFacts,
+    g: &heimdall_domain::grant::GrantSnapshot,
+    prepared: &heimdall_app::ports::ManagedPrepared,
+    now: Timestamp,
+) {
+    let context = |endpoint: BindingEndpointKind, policy: ConnectionPolicy| ReportContext {
+        host: host.clone(),
+        endpoint,
+        lock_behavior: LockBehavior::Continue,
+        policy,
+        issuer_ready: true,
+        reissue_pending: false,
+        now,
+        selection: SelectionClass::Undetermined,
+    };
+    let strict = ConnectionPolicy {
+        existing: ExistingConnectionsMode::Strict,
+        multiplexing: MultiplexingMode::Disabled,
+    };
+    let masters = ConnectionPolicy {
+        existing: ExistingConnectionsMode::Graceful,
+        multiplexing: MultiplexingMode::OwnedMasters,
+    };
+    let windows = host.platform.os == "windows";
+    for (table_name, table) in [
+        ("the real table", CLAIMS.to_vec()),
+        ("the fixture table", fixture_claims(host.platform)),
+    ] {
+        for policy in [strict, masters] {
+            let what = format!("{table_name}, {policy:?}");
+            let native = report::compute(
+                g,
+                prepared,
+                &table,
+                &context(BindingEndpointKind::Native, policy),
+                &[],
+            );
+            let e = &native.enforcement;
+            assert_eq!(e.new_signing_expiry(), NewSigningExpiry::Signer, "{what}");
+            assert_eq!(
+                e.new_authentication_expiry,
+                NewAuthenticationExpiry::CredentialAndSigner,
+                "{what}"
+            );
+            assert_eq!(
+                e.revocation,
+                RevocationStatus::BoundedByCredentialExpiry,
+                "{what}"
+            );
+            assert_eq!(
+                native.revocation.remote,
+                RemoteRevocation::BoundedByCredentialExpiry,
+                "{what}"
+            );
+            assert!(
+                native
+                    .evidence
+                    .iter()
+                    .all(|x| x.withheld_reason.is_none() && x.endpoint_kind.is_none()),
+                "{what}"
+            );
+
+            let o = report::compute(g, prepared, &table, &context(kind, policy), &[]);
+            let e = &o.enforcement;
+            assert_eq!(
+                o.lock_continuity,
+                LockContinuityReport::NotVerified,
+                "{what}"
+            );
+            assert!(!o.lock_claim_verified, "{what}");
+            assert_eq!(e.new_signing_expiry(), NewSigningExpiry::Unknown, "{what}");
+            assert_eq!(
+                e.new_authentication_expiry,
+                NewAuthenticationExpiry::Unknown,
+                "{what}"
+            );
+            assert_eq!(
+                e.existing_connections,
+                ExistingConnectionsPolicy::Unknown,
+                "{what}"
+            );
+            let multiplexing = match policy.multiplexing {
+                MultiplexingMode::Disabled => OwnedMultiplexing::Disabled,
+                _ if windows => OwnedMultiplexing::Unavailable,
+                _ => OwnedMultiplexing::Unknown,
+            };
+            assert_eq!(e.owned_multiplexing(), multiplexing, "{what}");
+            assert_eq!(e.revocation, RevocationStatus::Unknown, "{what}");
+            assert_eq!(o.revocation.remote, RemoteRevocation::Unknown, "{what}");
+            assert_eq!(
+                heimdall_domain::claims::without_claimed_values(&native.enforcement),
+                o.enforcement,
+                "{what}"
+            );
+            // No claim-table entry for a value; one reason per field, naming `kind`.
+            assert!(
+                o.evidence
+                    .iter()
+                    .all(|x| x.source != EvidenceSource::ClaimTable || x.withheld_reason.is_some()),
+                "{what}"
+            );
+            let reasons: Vec<&str> = o
+                .evidence
+                .iter()
+                .filter(|x| x.withheld_reason.is_some())
+                .map(|x| {
+                    assert_eq!(x.source, EvidenceSource::ClaimTable, "{what}");
+                    assert_eq!(
+                        x.withheld_reason,
+                        Some(WithheldReason::EndpointKindNotCovered),
+                        "{what}"
+                    );
+                    assert_eq!(x.endpoint_kind, Some(kind), "{what}");
+                    assert_eq!(x.record, None, "{what}");
+                    x.field.as_str()
+                })
+                .collect();
+            assert_eq!(reasons, report::CLAIM_TABLE_FIELDS, "{what}");
+        }
+    }
+}
+
+/// Host facts at the floor and the lowest client of the real table's entries for `platform`.
+fn real_entry_host(platform: Platform) -> HostFacts {
+    let entry = CLAIMS
+        .iter()
+        .find(|c| c.platform == platform)
+        .expect("the real table has entries for this platform");
+    HostFacts {
+        platform,
+        os_release: Some(entry.os_floor.to_owned()),
+        client_version: Some(entry.client_versions.min.to_owned()),
+        signer_build: SIGNER_BUILD.to_owned(),
+    }
+}
+
+/// ⟨M04 I-28⟩ A WSL Mode B binding is served by the Windows runtime, so its host facts
+/// qualify for the Windows entries (the entries' OS release and the in-box client), but its
+/// client is the distribution's OpenSSH, through the bridge, which no record ran: it gets none
+/// of their values, while a native binding on the same host gets them.
+#[tokio::test]
+async fn wsl_mode_b_binding_reads_every_claim_field_unknown_on_a_qualifying_windows_host() {
+    let w = World::new().await;
+    let data = w.ensure("mode-b-claims", &[h1()]).await;
+    let d = w
+        .drive(&data, "tok-mode-b-claims", Stage::Materialize)
+        .await;
+    let g = w.grant(&data.grant_id);
+    let host = real_entry_host(Platform {
+        os: "windows",
+        arch: "x86_64",
+    });
+    assert_claim_values_withheld_from(
+        BindingEndpointKind::WslModeB,
+        &host,
+        &g,
+        d.prepared.as_ref().unwrap(),
+        w.wall(),
+    );
+    w.finish(&[data.grant_id]).await;
+}
+
+/// ⟨M04 I-28⟩ A container binding on a Linux host that qualifies for the Linux entries (the
+/// entries' kernel release and client): its client is inside the container, through the
+/// mounted endpoint, which no record ran, so it gets none of their values, while a native
+/// binding on the same host gets them.
+#[tokio::test]
+async fn container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host() {
+    let w = World::new().await;
+    let data = w.ensure("container-claims", &[h1()]).await;
+    let d = w
+        .drive(&data, "tok-container-claims", Stage::Materialize)
+        .await;
+    let g = w.grant(&data.grant_id);
+    let host = real_entry_host(Platform {
+        os: "linux",
+        arch: "x86_64",
+    });
+    assert_claim_values_withheld_from(
+        BindingEndpointKind::Container,
+        &host,
+        &g,
+        d.prepared.as_ref().unwrap(),
+        w.wall(),
+    );
     w.finish(&[data.grant_id]).await;
 }
 
@@ -2695,6 +2909,7 @@ async fn unattended_minimum_requires_claim_continue_and_no_interaction() {
     let platform = current_platform();
     let reason_with = |claims: &[Claim], lock: LockBehavior| {
         let ctx = ReportContext {
+            endpoint: BindingEndpointKind::Native,
             host: fixture_host(platform),
             lock_behavior: lock,
             policy: ConnectionPolicy::default(),
@@ -2719,6 +2934,7 @@ async fn unattended_minimum_requires_claim_continue_and_no_interaction() {
             &req,
             &r,
             &GrantTerms {
+                endpoint: BindingEndpointKind::Native,
                 lock_behavior: lock,
                 policy: ConnectionPolicy::default(),
             },
@@ -5213,6 +5429,7 @@ async fn coverage_never_exceeds_the_shortest_certificate() {
         materialized: None,
     };
     let ctx = ReportContext {
+        endpoint: BindingEndpointKind::Native,
         host: fixture_host(current_platform()),
         lock_behavior: LockBehavior::Continue,
         policy: ConnectionPolicy::default(),
@@ -5242,7 +5459,7 @@ async fn coverage_never_exceeds_the_shortest_certificate() {
     let refusal = prepare::check_minimums(
         &req,
         &r,
-        &GrantTerms::default(),
+        &native_terms(),
         &heimdall_adapters::managed::managed_capabilities(),
     )
     .unwrap_err();
@@ -5343,6 +5560,7 @@ async fn revoke_on_lock_grant_without_terms_never_reports_verified() {
     w.sources.terms.lock().unwrap().insert(
         gid.clone(),
         GrantTerms {
+            endpoint: BindingEndpointKind::Native,
             lock_behavior: LockBehavior::RevokeOnLock,
             policy: ConnectionPolicy::default(),
         },
@@ -5356,7 +5574,7 @@ async fn revoke_on_lock_grant_without_terms_never_reports_verified() {
         .terms
         .lock()
         .unwrap()
-        .insert(gid.clone(), GrantTerms::default());
+        .insert(gid.clone(), native_terms());
     w.prepare_from(&g, &[h1()], &unattended).await.unwrap();
     w.finish(&[gid]).await;
 }

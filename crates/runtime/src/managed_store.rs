@@ -46,7 +46,7 @@ use heimdall_app::ports::ManagedEffects;
 use heimdall_contract::GrantState;
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{BindingId, CaFingerprint, EnvironmentId, GrantId};
-use heimdall_contract::managed::{ConnectionKind, LockBehavior};
+use heimdall_contract::managed::{BindingEndpointKind, ConnectionKind, LockBehavior};
 use heimdall_credential::endpoints::EndpointPlacement;
 use heimdall_credential::table::{InstallRefusal, InstallView};
 use heimdall_domain::catalog::DestinationDefinition;
@@ -197,9 +197,12 @@ impl StoreSources {
                 floor,
             );
             let policy = effective_policy_in(tx, grant, None)?;
+            // ⟨M04 I-28⟩ The claim gate's endpoint kind, classified fail closed (M04-CL-R02).
+            let endpoint = claim_endpoint_of(tx, &self.environment, &g)?;
             Ok(Some(GrantTerms {
                 lock_behavior,
                 policy,
+                endpoint,
             }))
         })();
         if let Ok(Some(t)) = read {
@@ -309,6 +312,32 @@ impl ManagedSourceRead for StoreSources {
         })
         .unwrap_or_default()
     }
+}
+
+/// ⟨M04 I-28; M04-CL-R02⟩ The claim gate's endpoint kind of grant `g`, classified fail
+/// closed: `native` only when its environment is the runtime's own (`own`); `container` or
+/// `wsl_mode_b` by its managed-environment row's realization; `unknown` for anything else (no
+/// row, or a realization this build does not know), which no claim covers. Unlike the
+/// endpoint's placement ([`GrantScopes::placement`]), nothing falls back to native.
+fn claim_endpoint_of(
+    tx: &mut heimdall_store::Txn<'_>,
+    own: &EnvironmentId,
+    g: &heimdall_domain::grant::GrantSnapshot,
+) -> heimdall_store::Result<BindingEndpointKind> {
+    if g.environment == *own {
+        return Ok(BindingEndpointKind::Native);
+    }
+    Ok(match tx.managed_environment(&g.environment)? {
+        Some(ManagedEnvironment {
+            realization: EnvironmentRealization::Container { .. },
+            ..
+        }) => BindingEndpointKind::Container,
+        Some(ManagedEnvironment {
+            realization: EnvironmentRealization::Wsl { .. },
+            ..
+        }) => BindingEndpointKind::WslModeB,
+        _ => BindingEndpointKind::Unknown,
+    })
 }
 
 impl GrantScopes for StoreSources {
@@ -1210,6 +1239,33 @@ mod tests {
         let unknown = GrantId::from_random_bytes([9; 16]);
         assert_eq!(w.sources.pairs(&unknown), None);
         assert_eq!(w.sources.terms(&unknown), None);
+    }
+
+    /// ⟨M04 I-28; M04-CL-R02⟩ The claim gate's endpoint kind fails closed: `native` only for
+    /// the runtime's own environment (recorded in the grant's terms); a grant of another
+    /// environment with no managed-environment row is `unknown`, never native.
+    #[test]
+    fn claim_endpoint_is_native_only_for_the_runtimes_own_environment() {
+        let w = world();
+        let own = grant(4, GrantState::Preparing);
+        insert(&w, &own, None);
+        assert_eq!(w.sources.pairs(&own.id), Some(vec![h1()]));
+        assert_eq!(
+            w.sources.terms(&own.id).unwrap().endpoint,
+            BindingEndpointKind::Native
+        );
+        let foreign = GrantSnapshot {
+            environment: EnvironmentId::from_random_bytes([8; 16]),
+            ..grant(5, GrantState::Preparing)
+        };
+        let kind = w
+            .store
+            .transaction(|tx| {
+                assert_eq!(tx.managed_environment(&foreign.environment)?, None);
+                claim_endpoint_of(tx, &env(), &foreign)
+            })
+            .unwrap();
+        assert_eq!(kind, BindingEndpointKind::Unknown);
     }
 
     /// U6-Q1/Q2: the pairs come from the grant's **stored** scope only.
