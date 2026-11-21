@@ -1,0 +1,11 @@
+    Finished `native-test` profile [unoptimized] target(s) in 0.24s
+e2e_managed_m03 sha256: a81066c3f050a1c0175e7d63f0635bcb6866b67c9a59923ff488dc114a8b9f83
+heimdall_adapters-unit sha256: 2d1103169f9a703e591f318679ad7ccaa30c62d374519650dbee1a3bac5ffcb9
+heimdall_app-unit sha256: 384ac47b4808dabd4ae786dd4afdc7b926dceb0d1fa44f369fd7faf2ee55b9ff
+heimdall_domain-unit sha256: 51d6f72f5826dde64e1e974326d432702bd8a1fcb25dc9cd49db91e0dc13d870
+heimdall_localenv-unit sha256: 55934fe4f64273da0af1cb83f181cac57c7462132052519ee6c4080a7b0492fc
+heimdall_runtime-unit sha256: 9ee414658970d9a5ae26ea9dd37bc25e2e6892c10792085a299fae8ce3b8979c
+integration_managed_adapter sha256: c63e7bf84cfb6b8f4516b14d9b7a52eaba49f9159a72a2771a5c88775ae5eb06
+heimdall (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: 4f3f4f031e0f999cf465006f613e5778a1097f55d49096502afeaaee8ba8413d
+hm-fixture-hook (HM_FIXTURE_HOOK) sha256: 1bfc780c440f966aedbdfec3106d9fa8bdeffd8780ad9bafd9499d44ae5b3510
+toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13); zig 0.17.1; target x86_64-unknown-linux-gnu (glibc floor 2.31)

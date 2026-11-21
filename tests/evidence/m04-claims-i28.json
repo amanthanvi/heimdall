@@ -1,0 +1,181 @@
+{
+ "case_id": "m04-claims-i28",
+ "status": "verified",
+ "requirement_ids": [
+  "R-AU-04",
+  "R-AU-05",
+  "R-AU-08",
+  "R-EN-03",
+  "R-EN-06"
+ ],
+ "build_commit": "223655625650ed7950aef6d873a35d0cf7463d31 (m04/claims: ruling I-28, no new claim entries and the claim table's values for native endpoint bindings only; the Codex review's M04-CL-R01, R02 and R04 fixed at 6a7d91cc, R03 a recorded limitation, R05 the follow-up M04-F4; `observe` and `cancel` withhold at 22365562, the orchestrator's ruling)",
+ "artifact_digest": "sha256:0d3f5a38535d2a45bb17c19467ac48a332557659b8290def406b8eb9911141e6 (sha256 of tests/evidence/artifacts/m04/claims-22365562/digests.txt, which lists the sha256 of every artifact file, the superseded 212f290a runs included; per-binary sha256 values for Linux are in linux/build.txt)",
+ "environment": {
+  "macos": "macOS 27.2.1 arm64, the build host; OpenSSH_10.5p1 selected; debug test builds in the checkout",
+  "linux": "Linux 6.8.0-147-generic x86_64 (the devbox, headless), glibc 2.39, 4 CPUs, OpenSSH_9.6p1 Ubuntu-3ubuntu13.20; the seven claim-reading test binaries cross-built on the macOS host with zig (native-test profile) and run natively by tests/native/m04/run-linux.sh with HM_ONLY (host.txt)",
+  "windows": "Windows 11 x64 10.0.26300.9974, native x86_64-pc-windows-msvc build and run in a scratch checkout (core.autocrlf=false) on the PC by the orchestrator's agent; C:\\Windows\\System32\\OpenSSH first on PATH (the in-box OpenSSH_for_Windows_9.5p2); no fixtures (no sshd, no WSL)"
+ },
+ "provider_versions": [
+  "OpenSSH_10.5p1 (macOS)",
+  "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20 (Linux)",
+  "OpenSSH_for_Windows_9.5p2 (Windows in-box)"
+ ],
+ "started_at": "2026-11-20T23:33:39-05:00",
+ "commands_or_harness": [
+  "macOS: macos/run.sh (nine cargo test commands: M03-F1's eight with --locked, plus the I-28 and M04-CL runtime tests; exit codes in macos/*.exit and macos/commands.txt)",
+  "Linux: HM_ONLY=\"heimdall_domain-unit heimdall_localenv-unit heimdall_adapters-unit integration_managed_adapter heimdall_app-unit e2e_managed_m03 heimdall_runtime-unit\" tests/native/m04/run-linux.sh <artifact-dir> <linuxhost> (one batch; linux/commands.txt)",
+  "Windows: the seven cargo test commands in windows/exitcodes.txt order, after $env:Path = \"C:\\Windows\\System32\\OpenSSH;\" + $env:Path"
+ ],
+ "observed_result": {
+  "rows": [
+   {
+    "platform": "macos-arm64 (build host)",
+    "status": "verified",
+    "commands": {
+     "cargo test --locked -p heimdall-domain --lib claims::": {
+      "exit": 0,
+      "passed": 7,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-localenv --lib -- sys::tests:: local_query::tests::": {
+      "exit": 0,
+      "passed": 15,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-adapters --lib managed::report::": {
+      "exit": 0,
+      "passed": 2,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-adapters --test integration_managed_adapter": {
+      "exit": 0,
+      "passed": 54,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-app --lib ensure_data_carries_managed_facts_only_from_this_process_outcome": {
+      "exit": 0,
+      "passed": 1,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall --test e2e_managed_m03 -- fresh_bind_after_reissue_never_carries_the_stored_claim_values client_replaced_while_the_driver_waits_claims_nothing": {
+      "exit": 0,
+      "passed": 2,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-runtime --lib managed_store::tests::replaced_client_withholds_the_claims_until_verified_again": {
+      "exit": 0,
+      "passed": 1,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-runtime --lib -- managed_store::live_tests::container::a15_container_binding_result_names_its_endpoint_kind_for_the_claim_table managed_store::live_tests::wsl_mode_b::wsl_mode_b_binding_result_names_its_endpoint_kind_for_the_claim_table managed_store::live_tests::container::a15_container_replay_of_a_pre_i28_result_withholds_its_claims managed_store::tests::claim_endpoint_is_native_only_for_the_runtimes_own_environment": {
+      "exit": 0,
+      "passed": 4,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-adapters --test integration_managed_adapter real_claim_table_on_this_host_recorded -- --exact --nocapture": {
+      "exit": 0,
+      "passed": 1,
+      "failed": 0
+     }
+    }
+   },
+   {
+    "platform": "linux-x86_64 (the devbox)",
+    "status": "verified",
+    "binaries": 7,
+    "binaries_nonzero": [],
+    "totals": {
+     "passed": 497,
+     "failed": 0
+    },
+    "harness": {
+     "ssh <linuxhost> uname -m": 0,
+     "cargo test --target x86_64-unknown-linux-gnu --profile native-test --workspace --no-run --locked (zig cc linker/CC shims at the stable shim directory)": 0,
+     "run plan from case-index.json build_host_paths": 0,
+     "ssh <linuxhost> mkdir (exclusive) ~/hm-m04-<random> and its tmp": 0,
+     "stage the repository files the tests read (HM_REPO_ROOT: 853 files)": 0,
+     "tar stream of 7 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir": 0,
+     "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 0,
+     "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+     "canary-prefix scan over saved output (count = 0)": 0,
+     "leak scan: saved files still naming the host, user or a home (0)": 0,
+     "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+    }
+   },
+   {
+    "platform": "windows-x86_64 (native msvc)",
+    "status": "verified",
+    "commands": {
+     "cargo test --locked -p heimdall-domain --lib claims::": {
+      "exit": 0,
+      "passed": 7,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-localenv --lib -- sys::tests:: local_query::tests::": {
+      "exit": 0,
+      "passed": 8,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-adapters --lib managed::report::": {
+      "exit": 0,
+      "passed": 2,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-adapters --test integration_managed_adapter": {
+      "exit": 0,
+      "passed": 52,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-app --lib ensure_data_carries_managed_facts_only_from_this_process_outcome": {
+      "exit": 0,
+      "passed": 1,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall --test e2e_managed_m03 -- fresh_bind_after_reissue_never_carries_the_stored_claim_values client_replaced_while_the_driver_waits_claims_nothing": {
+      "exit": 0,
+      "passed": 2,
+      "failed": 0
+     },
+     "cargo test --locked -p heimdall-adapters --test integration_managed_adapter real_claim_table_on_this_host_recorded -- --exact --nocapture": {
+      "exit": 0,
+      "passed": 1,
+      "failed": 0
+     }
+    }
+   }
+  ],
+  "observations": {
+   "macos": "m03 observation: real_claim_table macos aarch64 os_release=27.2.1 client=10.5p1 applicable=7 [enforcement.revocation=bounded_by_credential_expiry existing_connections=graceful_dedicated_connections existing_connections=strict_disconnect new_authentication_expiry=credential_and_signer new_signing_expiry=signer owned_multiplexing=closed_at_deadline revocation.remote=bounded_by_credential_expiry]",
+   "linux": "m03 observation: real_claim_table linux x86_64 os_release=6.8.0-147-generic client=9.6p1 applicable=7 [enforcement.revocation=bounded_by_credential_expiry existing_connections=graceful_dedicated_connections existing_connections=strict_disconnect new_authentication_expiry=credential_and_signer new_signing_expiry=signer owned_multiplexing=closed_at_deadline revocation.remote=bounded_by_credential_expiry]",
+   "windows": "m03 observation: real_claim_table windows x86_64 os_release=10.0.26300.9974 client=9.5p2 applicable=5 [enforcement.revocation=bounded_by_credential_expiry existing_connections=strict_disconnect new_authentication_expiry=credential_and_signer new_signing_expiry=signer revocation.remote=bounded_by_credential_expiry]"
+  },
+  "summary": "At the M04 claims candidate the tests that read the claim table pass on macOS, Linux and Windows. M04 adds no claim entry (ruling I-28). A WSL Mode B or container binding reads every claim-table field unknown on a host that otherwise qualifies, while a native binding there keeps the entries (wsl_mode_b_binding_reads_every_claim_field_unknown_on_a_qualifying_windows_host, container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host), with reasons an M03 reader decodes; on Unix the runtime records each grant's endpoint kind fail closed (claim_endpoint_is_native_only_for_the_runtimes_own_environment), results name it (a15_container_ and wsl_mode_b_binding_result_names_its_endpoint_kind_for_the_claim_table), and a result stored before I-28 is replayed and observed with its claims withheld, the record unchanged (a15_container_replay_of_a_pre_i28_result_withholds_its_claims). The observations: 7 entries apply on macOS 27.2.1 with 10.5p1 and on Linux 6.8.0-147-generic with 9.6p1, 5 on Windows 10.0.26300.9974 with 9.5p2."
+ },
+ "evidence_paths": [
+  "tests/evidence/artifacts/m04/claims-22365562/macos",
+  "tests/evidence/artifacts/m04/claims-22365562/linux",
+  "tests/evidence/artifacts/m04/claims-22365562/windows",
+  "tests/evidence/artifacts/m04/claims-22365562/superseded-212f290a",
+  "tests/evidence/artifacts/m04/claims-22365562/digests.txt",
+  "tests/evidence/artifacts/m04/revert-i28-endpoint-kind.json",
+  "tests/evidence/artifacts/m04/revert-cl-r01-replay.json",
+  "tests/evidence/artifacts/m04/revert-cl-r01-observe.json",
+  "tests/evidence/artifacts/review-m04/claims.md",
+  "crates/domain/src/claims.rs",
+  "crates/adapters/src/managed/report.rs",
+  "crates/runtime/src/managed_store.rs",
+  "crates/app/src/operations.rs",
+  "tests/integration/managed_adapter.rs",
+  "docs/architecture/m04-exit-draft.md"
+ ],
+ "limitations": [
+  "Targeted reruns (ADR-0009 section 2 item 2): nine commands on macOS, seven test binaries on Linux, seven commands on Windows; check.sh ran on macOS at this commit (3476 passed, 0 failed, 199 ignored).",
+  "The runtime live tests (the endpoint-kind wiring, the fail-closed classification, the replay and observe regression) are Unix-only; Windows runs the report tests, which judge Windows and Linux host facts on every platform. integration_managed_adapter has two Unix-only tests (52 passed on Windows, 54 on macOS).",
+  "No WSL run: a WSL host is `wsl`, which no entry names, and M04's claims update adds no entry; the Mode B and container cases are covered by the report tests and the Unix live tests over the fake bridge and the engine-free container fixture.",
+  "Superseded runs at 212f290a are kept in superseded-212f290a: macOS and Linux passed; Windows failed report_for_local_managed_binding_with_empty_claim_table on a CRLF checkout of the golden (fixed at 6a7d91cc: the test matches the golden's text with LF endings). A Linux run at 6a7d91cc (passed, 497 tests) was deleted by an integrator error before it was committed; the Linux row was run again at this commit, so all three rows are at 22365562.",
+  "Mode A is native for the claim table (ADR-0010 section 2); its values are judged against the runtime's verified client, which may be a configured [clients].ssh rather than the in-box ssh.exe Mode A runs (M04-CL-R03, a recorded limitation).",
+  "Debug test-configured builds: no entry is a custody claim; lock_continuity stays not_verified (follow-up M04-F4 before any such entry).",
+  "The Windows logs are redacted: the scratch checkout reads <scratch> and the Windows home <home>. The Windows run's commit is as reported by the orchestrator's agent. Its command lines are those sent to that agent (with --locked); the logs carry the output, not the command lines."
+ ],
+ "blocked_on": null
+}

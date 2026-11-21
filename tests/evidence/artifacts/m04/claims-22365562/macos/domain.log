@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_domain-f619a07fddec9507)
+
+running 7 tests
+test claims::tests::table_holds_no_custody_claim ... ok
+test claims::tests::adr_residual_recognition_rule ... ok
+test claims::tests::every_entry_bound_is_well_formed ... ok
+test claims::tests::version_keys_parse_strictly_per_platform ... ok
+test claims::tests::real_table_applies_only_within_its_ranges ... ok
+test claims::tests::residuals_are_never_claims ... ok
+test claims::tests::every_adr_named_residual_is_listed ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 105 filtered out; finished in 12.12s
+

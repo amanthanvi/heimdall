@@ -1,0 +1,60 @@
+   Compiling heimdall-adapters v0.1.0-m01 (<scratch>\crates\adapters)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.42s
+     Running ..\..\tests\integration\managed_adapter.rs (target\debug\deps\integration_managed_adapter-d657875c2a477c74.exe)
+
+running 52 tests
+test aggregate_clock_is_the_weakest_now ... ok
+test binding_files_for_endpoint_agrees_with_connect_cmd ... ok
+test container_binding_reads_every_claim_field_unknown_on_a_qualifying_linux_host ... ok
+test activation_issues_one_certificate_per_pair_covering_grant ... ok
+test clearing_one_pair_keeps_the_other_pairs_listing ... ok
+test child_gets_own_key_endpoint_and_subset_certificates_bounded_by_parent ... ok
+test coverage_never_exceeds_the_shortest_certificate ... ok
+test evidence_invalidated_at_the_comparison_before_any_pass ... ok
+test early_removal_preview_names_grants_under_removed_ca ... ok
+test dropped_prepare_installs_nothing_after_drop ... ok
+test expired_grant_never_reissued ... ok
+test managed_dir_windows_refuses_inherited_dacl_and_junction ... ok
+test issuer_unavailable_no_fallback_to_existing_identity ... ok
+test expiry_clears_slot_and_binding_files ... ok
+test managed_revoke_records_bounded_obligations_and_reaches_revoked ... ok
+test managed_revoke_with_stale_measurement_is_nominally_expired ... ok
+test mixed_mechanisms_refused ... ok
+test no_leftover_vault_slots_after_every_test ... ok
+test offline_until_beyond_bound_capability_unavailable ... ok
+test crash_at_each_prepare_step_recovers_per_table ... ok
+test pair_evidence_is_for_the_prepared_certificates_ca ... ok
+test real_claim_table_on_this_host_recorded ... ok
+test pair_not_enrolled_refused ... ok
+test preference_stays_managed_while_another_verified_ca_remains ... ok
+test projection_pending_refused_only_for_managed_only_minimums ... ok
+test reissue_never_from_process_files ... ok
+test reissue_refused_for_revoke_on_lock ... ok
+test reissue_after_process_restart_same_boot_restores_usability ... ok
+test reissue_waits_on_time_uncertain_until_confirmed ... ok
+test release_destroys_key_without_tombstone ... ok
+test removal_degrades_only_grants_under_removed_ca ... ok
+test report_for_local_managed_binding_with_empty_claim_table ... ok
+test renew_never_extends_deadline_or_pairs ... ok
+test report_with_fixture_claim_table_reports_verified_with_record ... ok
+test report_with_the_real_claim_table_reports_verified_with_record ... ok
+test residual_counts_reserved_and_published_excludes_voided ... ok
+test revoke_destroys_keys_under_exclusive_gate ... ok
+test revoke_cascades_to_children_destroying_their_keys ... ok
+test revoke_result_lists_owned_connections_and_ordinary_note ... ok
+test revoke_on_lock_grant_without_terms_never_reports_verified ... ok
+test slot_and_binding_files_are_generation_bound ... ok
+test revoke_with_unreachable_destination_reports_bounded_remote_effect ... ok
+test slow_server_clock_residual_bounded_by_measurement ... ok
+test stale_approval_cannot_reactivate_after_revoke ... ok
+test rotation_keeps_ensure_working_per_account ... ok
+test slot_claim_and_clear_are_serialized ... ok
+test stale_clear_never_unlists_the_current_binding ... ok
+test timed_out_immediate_revoke_keeps_intent_and_retries ... ok
+test unattended_minimum_requires_claim_continue_and_no_interaction ... ok
+test stale_generation_write_never_rolls_back_the_slot ... ok
+test unmeasured_residual_reported_nominally_expired_never_cleared ... ok
+test wsl_mode_b_binding_reads_every_claim_field_unknown_on_a_qualifying_windows_host ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.28s
+
