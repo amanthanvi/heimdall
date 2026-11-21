@@ -9173,7 +9173,7 @@ impl Operations {
             }
         }
         let mut done = render_settled::<EnsureData>(&st.op)?;
-        self.withhold_claims_outside_own_environment(&mut done);
+        self.withhold_claims_outside_own_environment(&mut done.data);
         Ok(Completed {
             next: Some(NextAction {
                 action: "use_binding".to_owned(),
@@ -9184,17 +9184,55 @@ impl Operations {
         })
     }
 
-    /// ⟨M04-CL-R01⟩ The current response built from a stored ensure or bind result (a first
-    /// answer and every replay alike): for a binding whose environment is not the runtime's own
-    /// (a WSL Mode B, container or unclassified one) every claim-table value is withheld
-    /// (`heimdall_domain::claims::withhold_claimed_values`), so a result stored before ruling
-    /// I-28 never presents a claim the gate refuses that binding now. Native needs the stored
-    /// result's `environment_id`, the binding's environment fixed at its commit, to equal the
-    /// runtime's own (M04-CL-R02). The stored record and its idempotency are not touched.
-    fn withhold_claims_outside_own_environment(&self, done: &mut Completed<EnsureData>) {
-        if done.data.environment_id != self.inner.config.environment {
-            heimdall_domain::claims::withhold_claimed_values(&mut done.data);
+    /// ⟨M04-CL-R01⟩ A current response built from a stored ensure, bind or delegate result (a
+    /// first answer, every replay and `observe` alike): for a binding whose environment is not
+    /// the runtime's own (a WSL Mode B, container or unclassified one) every claim-table value
+    /// is withheld (`heimdall_domain::claims::withhold_claimed_values`), so a result stored
+    /// before ruling I-28 never presents a claim the gate refuses that binding now. Native needs
+    /// the stored result's `environment_id`, the binding's environment fixed at its commit, to
+    /// equal the runtime's own (M04-CL-R02). The stored record and its idempotency are not
+    /// touched.
+    fn withhold_claims_outside_own_environment(&self, data: &mut EnsureData) {
+        if data.environment_id != self.inner.config.environment {
+            heimdall_domain::claims::withhold_claimed_values(data);
         }
+    }
+
+    /// `observe`'s view of `op` ([`operation_view`]). ⟨M04-CL-R01; the orchestrator's ruling on
+    /// `observe`⟩ A succeeded ensure, bind or delegate result is shown as a current response
+    /// shows it ([`Self::withhold_claims_outside_own_environment`]); one that does not read as
+    /// a result, of a binding outside the runtime's own environment, is shown as `null`
+    /// (nothing that could read as a claim). The stored record is not touched.
+    fn observed_view(&self, op: &OperationRecord) -> serde_json::Value {
+        let mut view = operation_view(op);
+        let renders_a_binding = matches!(
+            op.kind,
+            OperationKind::Ensure | OperationKind::Bind | OperationKind::Delegate
+        );
+        let Some(stored) = op.result.as_ref() else {
+            return view;
+        };
+        if !renders_a_binding || op.state != OperationState::Succeeded {
+            return view;
+        }
+        let own = &self.inner.config.environment;
+        match serde_json::from_value::<EnsureData>(stored.clone()) {
+            Ok(mut data) if data.environment_id != *own => {
+                self.withhold_claims_outside_own_environment(&mut data);
+                view["result"] = serde_json::to_value(&data).unwrap_or(serde_json::Value::Null);
+            }
+            Ok(_) => {}
+            Err(_) => {
+                let named_own = stored
+                    .get("environment_id")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(own.as_str());
+                if !named_own {
+                    view["result"] = serde_json::Value::Null;
+                }
+            }
+        }
+        view
     }
 
     /// An operation waiting for an owner decision: the current `decision_ref`, a
@@ -10290,7 +10328,7 @@ impl Operations {
         let st = self.load_work(&id).await?;
         let mut done = render_settled::<EnsureData>(&st.op)?;
         // ⟨M04-CL-R01⟩ As for `ensure`.
-        self.withhold_claims_outside_own_environment(&mut done);
+        self.withhold_claims_outside_own_environment(&mut done.data);
         if let Some(holder) = launch_holder {
             self.claim_replayed_launch(&done.data.binding_id, holder, &id)
                 .await?;
@@ -10742,7 +10780,7 @@ impl Operations {
                         })?;
                     let waiting = deadline.is_some_and(|d| tokio::time::Instant::now() < d);
                     if op.state.is_quiescent() || !waiting {
-                        let mut done = Completed::ok(Code::Ok, operation_view(&op));
+                        let mut done = Completed::ok(Code::Ok, self.observed_view(&op));
                         done.state = op.state;
                         done.operation_id = Some(op.id.clone());
                         if !op.state.is_quiescent() {
@@ -11009,7 +11047,8 @@ impl Operations {
                 "operation_id": op.id,
                 "state": op.state,
                 "may_have_external_effect": may_have || op.state.is_unresolved(),
-                "operation": operation_view(&op),
+                // ⟨M04-CL-R01⟩ As `observe` shows a stored binding result.
+                "operation": self.observed_view(&op),
             }),
         );
         done.operation_id = Some(op.id.clone());

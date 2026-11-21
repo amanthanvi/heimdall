@@ -907,7 +907,8 @@ async fn a15_container_binding_result_names_its_endpoint_kind_for_the_claim_tabl
 /// ⟨M04-CL-R01⟩ A container ensure result stored before ruling I-28, seeded here with what a
 /// qualifying host's report gave it then (claim-table values and their evidence), is answered
 /// to the same request with every claim-table value withheld: the same operation and binding,
-/// still a success with `use_binding`, and the stored record (history) unchanged.
+/// still a success with `use_binding`. `observe` of the operation shows it withheld the same
+/// way, and the stored record (history) is unchanged.
 #[tokio::test]
 async fn a15_container_replay_of_a_pre_i28_result_withholds_its_claims() {
     use heimdall_contract::managed::{LockContinuityReport, NewSigningExpiry, RemoteRevocation};
@@ -972,7 +973,25 @@ async fn a15_container_replay_of_a_pre_i28_result_withholds_its_claims() {
         Some(RemoteRevocation::Unknown)
     );
     assert!(no_claim_evidence(d), "{:?}", d.evidence);
-    // The stored record is history: unchanged by the answer.
+    // `observe` shows the stored result as the answer does (the orchestrator's ruling).
+    let observed = p
+        .ops
+        .observe(
+            &caller(),
+            heimdall_contract::request::ObserveRequest::Operation {
+                operation_id: op.clone(),
+                wait_ms: None,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("observe: {} {}", e.code, e.message))
+        .data;
+    let shown: EnsureData = serde_json::from_value(observed["result"].clone()).unwrap();
+    assert_eq!(shown.enforcement, d.enforcement);
+    assert_eq!(shown.lock_continuity, d.lock_continuity);
+    assert_eq!(shown.revocation, d.revocation);
+    assert!(no_claim_evidence(&shown), "{:?}", shown.evidence);
+    // The stored record is history: unchanged by the answer and by `observe`.
     let stored = w
         .store
         .transaction(|tx| tx.operation(&op))

@@ -146,8 +146,9 @@ the matrix (the M03 claims precedent):
   are `wsl` hosts. The update fixes an over-claim instead: the claim table's entries hold only for
   bindings with a native endpoint, the kind their records ran, so a WSL Mode B, container or
   unclassified binding reads every claim-table field `unknown`, with a reason entry naming its kind
-  (`withheld_reason: endpoint_kind_not_covered`), and a replayed result stored before the update
-  withholds them too (ADR-0008 D12 item 2; the Codex review's M04-CL-R01, R02 and R04 fixed).
+  (`withheld_reason: endpoint_kind_not_covered`), and a result stored before the update withholds them
+  too when replayed or shown by `observe` (ADR-0008 D12 item 2; the Codex review's M04-CL-R01, R02 and
+  R04 fixed).
 - **Limitation (M04-CL-R03):** a Mode A binding is native for the claim table, and its values are judged
   against the runtime's verified client: when `[clients].ssh` names another client than System32's
   in-box `ssh.exe`, which the Mode A Git item uses, they reflect the configured client (ADR-0010 §2).
