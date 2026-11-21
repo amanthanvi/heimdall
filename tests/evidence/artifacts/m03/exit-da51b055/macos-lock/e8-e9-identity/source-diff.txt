@@ -1,0 +1,277 @@
+git diff --stat 7b75c4c12e925bf4049f67d10ce58ff3b63559e7 2b79aac1b6bea72f886cef2331c9e3b5d0a123e8 (E8..E9)
+ crates/app/src/lib.rs                              | 30 ++++++++
+ crates/enroll/src/verify.rs                        |  2 +-
+ crates/issuer/src/client.rs                        |  2 +-
+ crates/localenv/src/local_query.rs                 |  2 +-
+ crates/runtime/src/connections.rs                  |  2 +-
+ crates/runtime/src/service.rs                      |  2 +-
+ crates/testkit/src/win.rs                          | 60 ++++++++++++++++
+ .../0008-managed-credential-integration.md         | 48 +++++++++++++
+ tests/e2e/exit_m03.rs                              | 80 ++++++++++++++++++++++
+ tests/native/m03/case-index.json                   |  9 +++
+ tests/native/m03/required-inventory.json           | 13 +++-
+ 11 files changed, 244 insertions(+), 6 deletions(-)
+
+The Rust hunks (git diff 7b75c4c1 2b79aac1 -- '*.rs'):
+diff --git a/crates/app/src/lib.rs b/crates/app/src/lib.rs
+index 20024d51..8652d0b6 100644
+--- a/crates/app/src/lib.rs
++++ b/crates/app/src/lib.rs
+@@ -43,3 +43,33 @@ pub use context::{Attendance, Caller};
+ pub use error::{OpError, OpResult};
+ pub use operations::{Operations, OperationsConfig, SetupAdmission};
+ pub use timegate::{SafeNow, TimeGate};
++
++/// ⟨M03 E9⟩ ADR-0008 §17.43 (ruling I-24): a non-interactive child, one whose standard
++/// streams are all redirected or null, never gets a console window. `no_window!(command)`
++/// is `command` (a `std::process::Command` or a `tokio::process::Command`), on Windows with
++/// `CREATE_NO_WINDOW` set: a console program started by a parent with no console (the
++/// runtime runs `DETACHED_PROCESS`) otherwise gets a new console, which Windows hands off to
++/// the default terminal (a window or tab on the user's desktop), and the child's start waits
++/// on that hand-off. Elsewhere it is `command` itself. Never for a launch that shares the
++/// user's terminal (`connect`, `run`, an interactive enrollment step).
++#[cfg(windows)]
++#[macro_export]
++macro_rules! no_window {
++    ($command:expr) => {{
++        #[allow(unused_imports)]
++        use ::std::os::windows::process::CommandExt as _;
++        let mut command = $command;
++        // CREATE_NO_WINDOW.
++        command.creation_flags(0x0800_0000);
++        command
++    }};
++}
++
++/// ⟨M03 E9⟩ [`no_window!`] elsewhere: the command itself.
++#[cfg(not(windows))]
++#[macro_export]
++macro_rules! no_window {
++    ($command:expr) => {
++        $command
++    };
++}
+diff --git a/crates/enroll/src/verify.rs b/crates/enroll/src/verify.rs
+index ea43ce49..47c49d4e 100644
+--- a/crates/enroll/src/verify.rs
++++ b/crates/enroll/src/verify.rs
+@@ -492,7 +492,7 @@ async fn attempt(
+         );
+     }
+     let before = session.signatures(fingerprint);
+-    let mut cmd = tokio::process::Command::new(client);
++    let mut cmd = heimdall_app::no_window!(tokio::process::Command::new(client));
+     cmd.arg("-F")
+         .arg(config)
+         .args(["-v", "-T", VERIFY_HOST, MEASURE_COMMAND])
+diff --git a/crates/issuer/src/client.rs b/crates/issuer/src/client.rs
+index 97dcf136..46f21421 100644
+--- a/crates/issuer/src/client.rs
++++ b/crates/issuer/src/client.rs
+@@ -667,7 +667,7 @@ impl Inner {
+         end_child(self.verifier(), slot.take(), Vec::new()).await;
+         self.set_state(IssuerState::Starting, None);
+         let c = &self.config.command;
+-        let mut cmd = Command::new(&c.program);
++        let mut cmd = heimdall_app::no_window!(Command::new(&c.program));
+         cmd.args(&c.args)
+             .envs(c.env.iter().map(|(k, v)| (k, v)))
+             .stdin(Stdio::piped())
+diff --git a/crates/localenv/src/local_query.rs b/crates/localenv/src/local_query.rs
+index de3efa22..2ac154b3 100644
+--- a/crates/localenv/src/local_query.rs
++++ b/crates/localenv/src/local_query.rs
+@@ -187,7 +187,7 @@ fn collect(rx: &mpsc::Receiver<Vec<u8>>, until: Instant) -> Vec<u8> {
+ 
+ /// Run `spec` contained and bounded (module documentation).
+ pub(crate) fn run_contained(spec: &Spec<'_>) -> Result<Finished, RunError> {
+-    let mut cmd = Command::new(spec.program);
++    let mut cmd = heimdall_app::no_window!(Command::new(spec.program));
+     cmd.args(&spec.args)
+         .stdin(Stdio::null())
+         .stdout(Stdio::piped())
+diff --git a/crates/runtime/src/connections.rs b/crates/runtime/src/connections.rs
+index fe498604..39da1e78 100644
+--- a/crates/runtime/src/connections.rs
++++ b/crates/runtime/src/connections.rs
+@@ -1122,7 +1122,7 @@ impl ConnectionSupervisor {
+                 cmd.env(k, v);
+             }
+         }
+-        cmd
++        heimdall_app::no_window!(cmd)
+     }
+ 
+     /// The PID of the master answering `ssh -O check` at `path`, bounded by
+diff --git a/crates/runtime/src/service.rs b/crates/runtime/src/service.rs
+index b7371126..186afa33 100644
+--- a/crates/runtime/src/service.rs
++++ b/crates/runtime/src/service.rs
+@@ -2920,7 +2920,7 @@ impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
+             .client
+             .as_ref()
+             .ok_or_else(|| fail("no verified client"))?;
+-        let mut child = std::process::Command::new(client)
++        let mut child = heimdall_app::no_window!(std::process::Command::new(client))
+             .args(heimdall_app::enrollment::effective_config_args(step))
+             .stdin(std::process::Stdio::null())
+             .stdout(std::process::Stdio::piped())
+diff --git a/crates/testkit/src/win.rs b/crates/testkit/src/win.rs
+index c8704099..1ebae6e6 100644
+--- a/crates/testkit/src/win.rs
++++ b/crates/testkit/src/win.rs
+@@ -348,6 +348,66 @@ fn wide_to_string(text: *const u16, max: usize) -> io::Result<String> {
+     String::from_utf16(units).map_err(|_| io::Error::other("not UTF-16"))
+ }
+ 
++/// ⟨M03 E9⟩ ADR-0008 §17.43 (ruling I-24): the processes whose parent is `parent`, as
++/// `(PID, image file name)` from a Toolhelp snapshot (a PID the system reused for a process
++/// whose parent was another `parent` before is listed too; callers check what they need).
++///
++/// # Errors
++/// The snapshot cannot be taken.
++pub fn child_processes(parent: u32) -> io::Result<Vec<(u32, String)>> {
++    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
++    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
++        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
++        TH32CS_SNAPPROCESS,
++    };
++    // SAFETY: a snapshot of every process; the handle is closed below.
++    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
++    if snap == INVALID_HANDLE_VALUE {
++        return Err(io::Error::last_os_error());
++    }
++    let mut out = Vec::new();
++    // SAFETY: an all-zero PROCESSENTRY32W is valid; dwSize is set before the first call.
++    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
++    entry.dwSize = u32::try_from(std::mem::size_of::<PROCESSENTRY32W>()).unwrap_or(0);
++    // SAFETY: `snap` is a valid snapshot handle and `entry` a correctly sized buffer.
++    let mut more = unsafe { Process32FirstW(snap, &mut entry) } != 0;
++    while more {
++        if entry.th32ParentProcessID == parent {
++            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(0);
++            out.push((
++                entry.th32ProcessID,
++                String::from_utf16_lossy(&entry.szExeFile[..len]),
++            ));
++        }
++        // SAFETY: as above.
++        more = unsafe { Process32NextW(snap, &mut entry) } != 0;
++    }
++    // SAFETY: `snap` is this function's own handle.
++    unsafe { CloseHandle(snap) };
++    Ok(out)
++}
++
++/// ⟨M03 E9⟩ Whether process `pid` has a console **window**, as `GetConsoleWindow` reads it
++/// once attached to that process's console (`AttachConsole`): `None` when it has no console
++/// at all (or is gone). A console created with `CREATE_NO_WINDOW` has none; a new console
++/// that Windows handed off to the default terminal (conhost or Windows Terminal) has one.
++/// The calling process's own console is freed first and again at the end, so call this only
++/// in a helper process of its own.
++#[must_use]
++pub fn attached_console_window(pid: u32) -> Option<bool> {
++    use windows_sys::Win32::System::Console::{AttachConsole, FreeConsole, GetConsoleWindow};
++    // SAFETY: plain console calls on this (helper) process's own console attachment.
++    unsafe {
++        FreeConsole();
++        if AttachConsole(pid) == 0 {
++            return None;
++        }
++        let window = !GetConsoleWindow().is_null();
++        FreeConsole();
++        Some(window)
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/tests/e2e/exit_m03.rs b/tests/e2e/exit_m03.rs
+index f73dcf15..4b26419b 100644
+--- a/tests/e2e/exit_m03.rs
++++ b/tests/e2e/exit_m03.rs
+@@ -1147,3 +1147,83 @@ fn real_issuer_signs_verification_certificates_enroll_verify_passes() {
+         c.serial
+     );
+ }
++
++/// ⟨M03 E9⟩ The helper process of [`windows_runtime_children_have_no_console_window`]: with
++/// `HM_CONSOLE_PROBE=<pid>|<file>` it attaches to that process's console and writes `none` (no
++/// console), `window` or `no-window` to the file; a no-op in the suite itself.
++#[cfg(windows)]
++#[test]
++fn console_probe_entry() {
++    let Some(spec) = std::env::var_os("HM_CONSOLE_PROBE") else {
++        return;
++    };
++    let spec = spec.to_string_lossy().into_owned();
++    let (pid, file) = spec.split_once('|').expect("<pid>|<file>");
++    let state = match heimdall_testkit::win::attached_console_window(pid.parse().unwrap()) {
++        None => "none",
++        Some(true) => "window",
++        Some(false) => "no-window",
++    };
++    std::fs::write(file, state).unwrap();
++}
++
++/// ⟨M03 E9⟩ Ruling I-24, ADR-0008 §17.43: the runtime runs `DETACHED_PROCESS` (no console),
++/// so a console child it starts without `CREATE_NO_WINDOW` gets a new console, which Windows
++/// hands off to the default terminal (a window or a Windows Terminal tab on the desktop, and a
++/// start that waits on it). Every child the world's runtime has running once it serves, its
++/// issuer child at least, has no console window: a helper process attaches to each child's
++/// console (`AttachConsole`) and reads `GetConsoleWindow`.
++#[cfg(windows)]
++#[test]
++fn windows_runtime_children_have_no_console_window() {
++    let (w, ca) = World::start(WorldOptions {
++        pairs: 1,
++        ..WorldOptions::default()
++    });
++    drop(ca);
++    let status = w.cli(&["--json", "service", "status"]);
++    let runtime = u32::try_from(
++        status.json()["data"]["pid"]
++            .as_u64()
++            .expect("the runtime's pid"),
++    )
++    .unwrap();
++    let children: Vec<(u32, String)> = heimdall_testkit::win::child_processes(runtime)
++        .unwrap()
++        .into_iter()
++        .filter(|(_, image)| {
++            !image.eq_ignore_ascii_case("conhost.exe")
++                && !image.eq_ignore_ascii_case("OpenConsole.exe")
++        })
++        .collect();
++    assert!(
++        children
++            .iter()
++            .any(|(_, image)| image.eq_ignore_ascii_case("heimdall.exe")),
++        "the issuer child runs under the runtime: {children:?}"
++    );
++    let dir = w.subdir("console-probe");
++    let mut seen = Vec::new();
++    for (pid, image) in &children {
++        let file = dir.join(format!("{pid}.txt"));
++        let probe = std::process::Command::new(std::env::current_exe().unwrap())
++            .args(["--exact", "console_probe_entry", "--test-threads=1"])
++            .env("HM_CONSOLE_PROBE", format!("{pid}|{}", file.display()))
++            .stdin(std::process::Stdio::null())
++            .stdout(std::process::Stdio::null())
++            .stderr(std::process::Stdio::null())
++            .status()
++            .unwrap();
++        assert!(probe.success(), "the console probe of {image} ran");
++        let state = std::fs::read_to_string(&file).unwrap();
++        assert_ne!(
++            state, "window",
++            "{image} (a child of the console-less runtime) has a console window"
++        );
++        seen.push(format!("{image}={state}"));
++    }
++    println!(
++        "m03 observation: windows_runtime_children_console {}",
++        seen.join(" ")
++    );
++}

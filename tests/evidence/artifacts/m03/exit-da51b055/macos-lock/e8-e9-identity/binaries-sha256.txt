@@ -1,0 +1,11 @@
+sha256 of the lock run's binaries built with lock-macos.sh's commands (debug profile) in one scratch worktree path
+e8 heimdall 9205b7f737d50125f2169b460d5cfa8668bb62ad73f5b384c6c9b9989286c17d
+e8 e2e_exit_m03 eb3977ca81e57894f1c4674cab75d1b21a43b1bd4253714ecf4982f10dc1780e
+e8 integration_session_lock 559e6516b60138f5ef64d020d9f48a898708926c2d68ef3bbd36db22eb5abcd1
+e9 heimdall fabc3c4af9798aced03f82a00d3bfe2b53e8a2bb5b8fd0f8b1b98071b8f31dc3
+e9 e2e_exit_m03 887a805e6658a4ad538a7d123c58abcab11b317df43c2ba688573dedc5890461
+e9 integration_session_lock d27c6103c774c410e4119a14182362fc186721ca6e46b33dffd8e2b3db240bd7
+e9b heimdall 5507a0080217543395c334565e4d827c56545487a57763e8abaf264eedc56696
+e9b e2e_exit_m03 988cfd55ffc3ef377504329804a0528fdd33198bb5b8f0b0a163c3c14da7f794
+e9b integration_session_lock 9245b6550aee9343360f28540d290216e3f2a971f5b354403df00f53e64a1858
+e8 = 7b75c4c1, e9 = 2b79aac1, e9b = 2b79aac1 rebuilt after touching crates/app/src/lib.rs, tests/e2e/exit_m03.rs and tests/integration/session_lock.rs (control)

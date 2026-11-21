@@ -7,13 +7,13 @@
     "R-CR-06"
   ],
   "build_commit": "2b79aac1b6bea72f886cef2331c9e3b5d0a123e8 (E9; crates/ and tests/ *.rs sources_sha256 f37e357d1030e0b6e826ff8c910c2c87367759c908ef44ca683b8bc15c7a4b4f, the value in required-inventory.json). The Windows harness ran at E9, the macOS lock procedure at E8, every other run at E5; from E5 to E9 the macOS and Linux release heimdall are byte-identical.",
-  "artifact_digest": "sha256:aedaabada819264f366eae9e10a9b4c0d20747c2e25b1185fb3bbcfdc7438907 (sha256 of tests/evidence/artifacts/m03/exit-da51b055/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in linux/build.txt and windows/build.txt)",
+  "artifact_digest": "sha256:43a244a2c8733ec8733dd0187961391f04cb1726626392c84a977a739459d32e (sha256 of tests/evidence/artifacts/m03/exit-da51b055/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in linux/build.txt and windows/build.txt)",
   "environment": {
     "macos": "macOS 27.2.1 (26B131) arm64, OpenSSH_10.5p1 client and server, Apple Git 2.54.0, APFS; Docker 29.9.3 with the M00-T03 fixtures (OpenSSH_10.0p2, Debian 13)",
     "linux": "Linux 6.8.0-147 x86_64 (the devbox, headless), glibc 2.39, 4 CPUs, OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0, ext4; ptrace_scope 1",
     "windows": "Windows 11 x64 (10.0.26300.9974), Medium integrity, native x86_64-pc-windows-msvc (rustc 1.99.1, MSVC 18.11.2), in-box OpenSSH_for_Windows_9.5p2, Git for Windows 2.55.0.windows.3; the fixture sshds (OpenSSH 9.6p1, non-root) in WSL scratch on 127.0.0.1; run-windows-local.ps1 in local mode by an agent on the PC, at BelowNormal priority with 4 test threads and 4 jobs; heimdall.exe sha256 782520ae30266b2e54ee02c30f4b9fbe8c1e8237d5f884124b16287df41b7705; at E9 the run needed no readiness retry and left no heimdall.exe or ssh.exe behind",
     "wsl-distro": "WSL 3.0.5.0 on the same PC: a disposable distribution from the pinned Ubuntu 24.04.5 image (sha256 matches the pin), created and unregistered by name; OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0; root sshds on 127.0.0.1 (StrictModes yes) for the M03 scenario; the Linux heimdall 6e20ec76f50fb8665c29b8625e7583501102615b8477845f870859b7c3fd061c, verified against HM_PREBUILT_SHA256 before use; local mode inside the controller distribution",
-    "macos-lock": "macOS 27.2.1 (26B131) arm64, the build host: the lock procedure (tests/native/m03/lock-macos.sh) on a debug build with the scratch test store and the platform session-lock source; observed values in macos-lock/lock.txt; grant R's policy window, and so its certificate's validity, 600 s, and N's window 600 s (E5, ruling I-12), so R's residual passes and N expires inside a 20-30 minute lock. The run is E8's (7b75c4c1, started from the release worktree by the orchestrator once the session read unlocked and the console had been idle >= 960 s); E8..E9 changes cfg(windows) code and Windows tests only, so it binds to E9. Pending: the run has not completed",
+    "macos-lock": "macOS 27.2.1 (26B131) arm64, the build host: the lock procedure (tests/native/m03/lock-macos.sh) on a debug build with the scratch test store and the platform session-lock source; observed values in macos-lock/lock.txt; grant R's policy window, and so its certificate's validity, 600 s, and N's window 600 s (E5, ruling I-12), so R's residual passes and N expires inside a 20-30 minute lock. The run is E8's (7b75c4c1, started from the release worktree by the orchestrator once the session read unlocked and the console had been idle >= 960 s); E8..E9 changes cfg(windows) code and Windows tests only, so it binds to E9 (the binary comparison is in macos-lock/e8-e9-identity/). The run started 2026-11-20T14:45Z (console idle 1014 s, then 1019 s at the lock) and exited 0 at 2026-11-21T01:23:02Z: the lock (pmset displaysleepnow) was verified through the product's query within 30 s, the driver's locked steps finished 125 s after the lock, and the owner's unlock was observed about 38266 s (10.6 h) after it",
     "host_facts": {
       "macos": {
         "inherited-ssh-auth-sock": "set (unset for the run)",
@@ -104,6 +104,22 @@
         "sshd-accepted-logins": "6",
         "rename-exchange": "supported (renameat2 RENAME_EXCHANGE)",
         "birth-time": "recorded (statx STATX_BTIME)"
+      },
+      "macos-lock": {
+        "build-profile": "debug (test configuration; mechanism evidence only, F03)",
+        "store-kind": "scratch_test (the test store; the login-keychain product row is B3)",
+        "lock-driver-sha256": "46444c717252b64a0c3771adb7c8ad6bcc2b6fbdebdcbd66ab240c1b7d37cb95",
+        "lock-driver-protocol": "one process (e2e_exit_m03 --ignored --test-threads=16 lock::), handshake files",
+        "build-commit": "7b75c4c12e925bf4049f67d10ce58ff3b63559e7",
+        "lock-rule": "ADR-0004 §2: locked by the harness only after >= 900 s console idle; the owner unlocks",
+        "os": "macOS 27.2.1 (26B131) arm64",
+        "keychain-list-before": "89a3a221ca8d65588822245e",
+        "idle-seconds-before-prepare": "1014",
+        "lock-state-before": "unlocked",
+        "idle-seconds-before-lock": "1019",
+        "lock-method": "pmset displaysleepnow (locks only where a password is asked at once after display sleep)",
+        "lock-observation": "1s unlocked",
+        "keychain-list-after": "89a3a221ca8d65588822245e"
       }
     }
   },
