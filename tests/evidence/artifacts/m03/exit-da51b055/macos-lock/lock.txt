@@ -1,0 +1,28 @@
+build-profile=debug (test configuration; mechanism evidence only, F03)
+store-kind=scratch_test (the test store; the login-keychain product row is B3)
+lock-driver-sha256=46444c717252b64a0c3771adb7c8ad6bcc2b6fbdebdcbd66ab240c1b7d37cb95
+heimdall-sha256=159333c5dca829581a1f5e36f7832f87046fab4203c9ad153d0ff872aebdd975
+lock-driver-protocol=one process (e2e_exit_m03 --ignored --test-threads=16 lock::), handshake files
+build-commit=7b75c4c12e925bf4049f67d10ce58ff3b63559e7
+build-tree-changes=(git diff sha256 e3b0c44298fc1c14)
+lock-rule=ADR-0004 §2: locked by the harness only after >= 900 s console idle; the owner unlocks
+os=macOS 27.2.1 (26B131) arm64
+screen-lock-delay=immediate
+owner-ssh-before=42:a993f1dae5d85cf409dfca15
+keychain-list-before=89a3a221ca8d65588822245e
+idle-seconds-before-prepare=1014
+lock-state-before=unlocked
+idle-seconds-before-lock=1019
+lock-method=pmset displaysleepnow (locks only where a password is asked at once after display sleep)
+lock-observation=1s unlocked
+lock-observation=3s locked
+lock-observation=126s locked
+lock-observation=38266s unlocked
+post-unlock-expectations=C=usable R=terminal N=expired
+attribution-logins=12 accepted=9
+attribution-misattributed=0
+attribution-r-accepted-after-revocation=0
+attribution-locked-logins-outside-window=0
+store-kind-recorded-by-product=linux_secret_service (the CA record's label; the issuer child reads the scratch test store)
+owner-ssh-after=42:a993f1dae5d85cf409dfca15
+keychain-list-after=89a3a221ca8d65588822245e

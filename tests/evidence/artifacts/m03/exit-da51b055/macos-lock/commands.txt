@@ -1,0 +1,23 @@
+exit 0: cargo build -p heimdall --bin heimdall --locked; cargo test -p heimdall --test e2e_exit_m03 -p heimdall-runtime --test integration_session_lock --no-run --locked (debug profile)
+exit 0: idle check: console idle 1014s >= 900s
+exit 0: heimdall internal session-lock-state before the lock read unlocked (platform source)
+exit 0: the lock driver prepared (ready)
+exit 0: idle check before the lock: console idle 1019s >= 900s
+exit 0: pmset displaysleepnow
+exit 0: lock verified through the product's query within 30 s
+exit 0: integration_session_lock macos_lock_signal_observed across the lock (P1)
+exit 0: the lock driver finished its locked steps (locked-done, 125s after the lock)
+exit 0: unlock observed
+exit 0: attribution by certificate key ID over logins.tsv (disjoint pairs; nothing of R accepted after its revocation)
+exit 0: the lock driver ended by itself (exit 0)
+exit 0: driver test lock::a03_lock_prepare: ok
+exit 0: driver test lock::a03_fresh_logins_while_locked_continue: ok
+exit 0: driver test lock::a03_new_grant_while_locked_under_standing_policy: ok
+exit 0: driver test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails: ok
+exit 0: driver test lock::a03_vault_stand_in_locked_agent_does_not_matter: ok
+exit 0: driver test lock::a03_post_unlock_follows_remaining_deadline: ok
+exit 0: driver test lock::a03_lock_cleanup: ok
+exit 0: the home .ssh directory and the keychain search list unchanged by the run (digests)
+exit 0: canary-prefix scan over saved output (count = 0)
+exit 0: leak scan: saved files still naming the host, the user or the home (0)
+exit 0: remove exactly the run's scratch directory, then check it is absent

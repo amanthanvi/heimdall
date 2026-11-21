@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M04 (and M03-F1 after the M05 merge). M05 (quiet, concurrent trusted work) exited 2026-11-20 at build 85e67bfe (macOS and the devbox at 84d7c44e, the WSL row's binaries at 84d7c44e under the 5aa752c0 harness; docs/architecture/m05-exit.md), every platform row verified and each record blocked only on named owner inputs (B2, B7, B9, B12); the merge of m05/w4 is the orchestrator's. M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row blocked on the owner's unlock and the claim update deferred to M03-F1 (ruling I-25; M03-F1 `verified` at `80304f12`, merging after M05's final candidate `fb3c3f38`). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
+**Current milestone:** M04 (and M03-F1 after the M05 merge). M05 (quiet, concurrent trusted work) exited 2026-11-20 at build 85e67bfe (macOS and the devbox at 84d7c44e, the WSL row's binaries at 84d7c44e under the 5aa752c0 harness; docs/architecture/m05-exit.md), every platform row verified and each record blocked only on named owner inputs (B2, B7, B9, B12); the merge of m05/w4 is the orchestrator's. M03 (managed credentials) exited 2026-11-20 at E9 2b79aac1 (docs/architecture/m03-exit.md), with the A03/P1 macOS lock row then blocked on the owner's unlock (verified since, by the E8 lock run of 2026-11-20/21) and the claim update deferred to M03-F1 (ruling I-25; M03-F1 `verified` at `80304f12`, merging after M05's final candidate `fb3c3f38`). M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md); M02 exited at e4f43f84 (docs/architecture/m02-exit.md).
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -1117,9 +1117,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     (2026-11-20: the console-window test reads `window` without `CREATE_NO_WINDOW`), so the test guards the fix.
   - **M03 exit, 2026-11-20, at E9 `2b79aac1`** (`docs/architecture/m03-exit.md`; `m03/wave6` merged into main by the
     orchestrator).
-  - **The A03/P1 macOS lock row is `blocked`** on a physical input: the owner unlocking within the 12 h bound, from an
-    unlocked console idle 15 minutes. The orchestrator's watcher is armed (at E8, binding to E9); four attempts, none
-    evidence. M03 may exit with it `blocked` (the M01 precedent); it is updated when the run happens.
+  - **The A03/P1 macOS lock row is `verified`** (mechanism evidence: debug build, test store). It was `blocked` on the
+    owner's unlock; the orchestrator's watcher ran it at E8 (2026-11-20T14:45Z to 2026-11-21T01:23:02Z, exit 0: the
+    lock verified within 30 s, the 7 lock steps and the P1 signal test passed, the unlock observed after 10.6 h). It
+    binds to E9: the lock run's binaries built at E8 and E9 are identical in every section, symbol and LC_UUID
+    (`tests/evidence/artifacts/m03/exit-da51b055/macos-lock/e8-e9-identity/`). P1 is `verified`; A03 stays `blocked`
+    only on B1, B2, B3, B4 and B11.
   - **M03-F1 (`verified` at `80304f12` on `m03/f1-claims`; record `tests/evidence/m03-f1-claims.json`; merges into
     main after M05's final candidate, `fb3c3f38`):** the claim update deferred by ruling I-25. Claim-table entries now apply only
     within their platform, OS release floor (exact tested release; native Linux of the same flavour; WSL is its own

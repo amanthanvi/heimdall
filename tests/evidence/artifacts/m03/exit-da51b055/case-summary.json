@@ -157,26 +157,79 @@
         },
         {
           "platform": "macos-arm64 lock procedure (debug build, test store: mechanism evidence only)",
-          "status": "blocked",
-          "passed": 0,
+          "status": "verified",
+          "passed": 8,
           "failed": [],
           "ignored": [],
-          "not_run_on_this_platform": [
-            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
-            "e2e_exit_m03::lock::a03_lock_cleanup",
-            "e2e_exit_m03::lock::a03_lock_prepare",
-            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
-            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
-            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
-            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter",
-            "integration_session_lock::macos_lock_signal_observed"
-          ],
+          "not_run_on_this_platform": [],
           "platform_neutral_run_elsewhere": [],
-          "exit_codes": null,
-          "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
-          "logs": [],
+          "exit_codes": {
+            "cargo build -p heimdall --bin heimdall --locked; cargo test -p heimdall --test e2e_exit_m03 -p heimdall-runtime --test integration_session_lock --no-run --locked (debug profile)": 0,
+            "idle check: console idle 1014s >= 900s": 0,
+            "heimdall internal session-lock-state before the lock read unlocked (platform source)": 0,
+            "the lock driver prepared (ready)": 0,
+            "idle check before the lock: console idle 1019s >= 900s": 0,
+            "pmset displaysleepnow": 0,
+            "lock verified through the product's query within 30 s": 0,
+            "integration_session_lock macos_lock_signal_observed across the lock (P1)": 0,
+            "the lock driver finished its locked steps (locked-done, 125s after the lock)": 0,
+            "unlock observed": 0,
+            "attribution by certificate key ID over logins.tsv (disjoint pairs; nothing of R accepted after its revocation)": 0,
+            "the lock driver ended by itself (exit 0)": 0,
+            "driver test lock::a03_lock_prepare: ok": 0,
+            "driver test lock::a03_fresh_logins_while_locked_continue: ok": 0,
+            "driver test lock::a03_new_grant_while_locked_under_standing_policy: ok": 0,
+            "driver test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails: ok": 0,
+            "driver test lock::a03_vault_stand_in_locked_agent_does_not_matter: ok": 0,
+            "driver test lock::a03_post_unlock_follows_remaining_deadline: ok": 0,
+            "driver test lock::a03_lock_cleanup: ok": 0,
+            "the home .ssh directory and the keychain search list unchanged by the run (digests)": 0,
+            "canary-prefix scan over saved output (count = 0)": 0,
+            "leak scan: saved files still naming the host, the user or the home (0)": 0,
+            "remove exactly the run's scratch directory, then check it is absent": 0
+          },
+          "artifact_digest": "sha256:81ad79b01e55b30bb804d9f641fe3e07b02bc4b40616954fc81e1ab61d8575a5 (sha256 of the macos-lock/ lines of digests.txt)",
+          "logs": [
+            "macos-lock/tests.txt"
+          ],
           "excluded_on_this_platform": 0,
-          "blocked_on": "blocked: the owner must unlock the Mac within the lock procedure's 12 h bound, and the run starts only from an unlocked console that has been idle for 15 minutes (ADR-0004 \u00a72). The watcher is armed (at E8, binding to E9). Four attempts so far, none evidence: the E5 run was killed with the session that started it; the E7 run was blocked (no unlock within 12 h); the first E8 attempt was refused before starting because the screen was already locked. The row is updated when the run happens"
+          "build_profile": "debug (test configuration; mechanism evidence only, F03)",
+          "store_kind": "scratch_test (the test store; the login-keychain product row is B3)",
+          "observations": {
+            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue": [
+              "m03 observation: a03 macos locked_login 1 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 2 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 3 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_prepare": [
+              "m03 observation: a03 macos world three hosts with disjoint pairs (exit-1..3 on hosts 1..3), debug test configuration, session-lock source platform",
+              "m03 observation: a03 macos issuer store scratch_test (HEIMDALL_TEST_SECRET_STORE=scratch; the CA record's label reads linux_secret_service); mechanism evidence only (F03)",
+              "m03 observation: a03 macos policies exit-pol-1 continue (window 57600 s), exit-pol-2 revoke_on_lock (`access lock-behavior`, narrowing; window 600 s, R's certificate validity), exit-pol-3 continue (window 600 s; the standing policy for N)",
+              "m03 observation: a03 macos stand_in disposable ssh-agent with one disposable key, locked with ssh-add -x (scratch askpass): lists 0 identities, refuses an add",
+              "m03 observation: a03 macos grant C grant_0c844311ce2ff08c50257d69798f07e7 host 1 continue, 57599 s left at the baseline; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos grant R grant_bcdfad5d89c6366da8a70fde86873a51 host 2 revoke_on_lock; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_bcdfad5d89c6366da8a70fde86873a51:11670886758317065432",
+              "m03 observation: a03 macos credential_prompt_processes_at_baseline 1 (names: SecurityAgent, coreautha)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails": [
+              "m03 observation: a03 macos lock_revokes R revoked cause session_locked at -2 s from the harness's verified-lock flag (state revoking: local denial applied, its certificates' residual pending for 473 s more (ADR-0008 D7)); fresh login to host 2 refused; host 2 accepted none of R's key IDs since its baseline"
+            ],
+            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy": [
+              "m03 observation: a03 macos ensure_under_lock profile exit-3 ACCESS_READY grant grant_44263ba71e82f890f53f6a3331043579 (one certificate signed under lock, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_44263ba71e82f890f53f6a3331043579:5610893282536373970)",
+              "m03 observation: a03 macos grant N grant_6445f14c535733eeeaca3e6f625487aa host 3 created under lock by run's ensure, 600 s left; locked_login 1 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N) (a grant of its own; the explicit ensure's grant has no binding)",
+              "m03 observation: a03 macos locked_login 2 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N)"
+            ],
+            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline": [
+              "m03 observation: a03 macos post_unlock R ended, not reactivated (state revoked; its certificates' residual ended 37670 s ago; tombstone cause session_locked unchanged); fresh login refused",
+              "m03 observation: a03 macos post_unlock C usable (deadline not passed): host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos post_unlock N expired (deadline passed): state expired, fresh login refused"
+            ],
+            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter": [
+              "m03 observation: a03 macos stand_in_locked lists 0 before and after; managed login host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 (grant C); stand-in contacts during the login unobservable (a real ssh-agent); new credential prompt processes 0 (names: SecurityAgent, coreautha)"
+            ],
+            "integration_session_lock::macos_lock_signal_observed": [
+              "m03 observation: {\"epoch\":1,\"events\":11,\"events_off_thread\":0,\"initial_state\":\"Unlocked\",\"latency_from_trigger_ms\":null,\"locked_entries\":1,\"observed\":true,\"observed_at_unix_ms\":1795185915240,\"observed_state\":\"Locked\",\"os\":\"macos\",\"row\":\"macos_lock_signal_observed\",\"signal\":\"MacosScreenLock\",\"unknown_entries\":0,\"waited_ms\":2800}"
+            ]
+          }
         },
         {
           "platform": "windows-11-x86_64 lock procedure (release profile, product DPAPI store)",
@@ -2263,29 +2316,82 @@
       "rows": [
         {
           "platform": "macos-arm64 lock procedure (debug build, test store: mechanism evidence only)",
-          "status": "blocked",
-          "passed": 0,
+          "status": "verified",
+          "passed": 8,
           "failed": [],
           "ignored": [],
-          "not_run_on_this_platform": [
-            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
-            "e2e_exit_m03::lock::a03_lock_cleanup",
-            "e2e_exit_m03::lock::a03_lock_prepare",
-            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
-            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
-            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
-            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter",
-            "integration_session_lock::macos_lock_signal_observed"
-          ],
+          "not_run_on_this_platform": [],
           "platform_neutral_run_elsewhere": [],
-          "exit_codes": null,
-          "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
-          "logs": [],
+          "exit_codes": {
+            "cargo build -p heimdall --bin heimdall --locked; cargo test -p heimdall --test e2e_exit_m03 -p heimdall-runtime --test integration_session_lock --no-run --locked (debug profile)": 0,
+            "idle check: console idle 1014s >= 900s": 0,
+            "heimdall internal session-lock-state before the lock read unlocked (platform source)": 0,
+            "the lock driver prepared (ready)": 0,
+            "idle check before the lock: console idle 1019s >= 900s": 0,
+            "pmset displaysleepnow": 0,
+            "lock verified through the product's query within 30 s": 0,
+            "integration_session_lock macos_lock_signal_observed across the lock (P1)": 0,
+            "the lock driver finished its locked steps (locked-done, 125s after the lock)": 0,
+            "unlock observed": 0,
+            "attribution by certificate key ID over logins.tsv (disjoint pairs; nothing of R accepted after its revocation)": 0,
+            "the lock driver ended by itself (exit 0)": 0,
+            "driver test lock::a03_lock_prepare: ok": 0,
+            "driver test lock::a03_fresh_logins_while_locked_continue: ok": 0,
+            "driver test lock::a03_new_grant_while_locked_under_standing_policy: ok": 0,
+            "driver test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails: ok": 0,
+            "driver test lock::a03_vault_stand_in_locked_agent_does_not_matter: ok": 0,
+            "driver test lock::a03_post_unlock_follows_remaining_deadline: ok": 0,
+            "driver test lock::a03_lock_cleanup: ok": 0,
+            "the home .ssh directory and the keychain search list unchanged by the run (digests)": 0,
+            "canary-prefix scan over saved output (count = 0)": 0,
+            "leak scan: saved files still naming the host, the user or the home (0)": 0,
+            "remove exactly the run's scratch directory, then check it is absent": 0
+          },
+          "artifact_digest": "sha256:81ad79b01e55b30bb804d9f641fe3e07b02bc4b40616954fc81e1ab61d8575a5 (sha256 of the macos-lock/ lines of digests.txt)",
+          "logs": [
+            "macos-lock/tests.txt"
+          ],
           "excluded_on_this_platform": 0,
-          "blocked_on": "blocked: the owner must unlock the Mac within the lock procedure's 12 h bound, and the run starts only from an unlocked console that has been idle for 15 minutes (ADR-0004 \u00a72). The watcher is armed (at E8, binding to E9). Four attempts so far, none evidence: the E5 run was killed with the session that started it; the E7 run was blocked (no unlock within 12 h); the first E8 attempt was refused before starting because the screen was already locked. The row is updated when the run happens"
+          "build_profile": "debug (test configuration; mechanism evidence only, F03)",
+          "store_kind": "scratch_test (the test store; the login-keychain product row is B3)",
+          "observations": {
+            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue": [
+              "m03 observation: a03 macos locked_login 1 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 2 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 3 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_prepare": [
+              "m03 observation: a03 macos world three hosts with disjoint pairs (exit-1..3 on hosts 1..3), debug test configuration, session-lock source platform",
+              "m03 observation: a03 macos issuer store scratch_test (HEIMDALL_TEST_SECRET_STORE=scratch; the CA record's label reads linux_secret_service); mechanism evidence only (F03)",
+              "m03 observation: a03 macos policies exit-pol-1 continue (window 57600 s), exit-pol-2 revoke_on_lock (`access lock-behavior`, narrowing; window 600 s, R's certificate validity), exit-pol-3 continue (window 600 s; the standing policy for N)",
+              "m03 observation: a03 macos stand_in disposable ssh-agent with one disposable key, locked with ssh-add -x (scratch askpass): lists 0 identities, refuses an add",
+              "m03 observation: a03 macos grant C grant_0c844311ce2ff08c50257d69798f07e7 host 1 continue, 57599 s left at the baseline; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos grant R grant_bcdfad5d89c6366da8a70fde86873a51 host 2 revoke_on_lock; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_bcdfad5d89c6366da8a70fde86873a51:11670886758317065432",
+              "m03 observation: a03 macos credential_prompt_processes_at_baseline 1 (names: SecurityAgent, coreautha)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails": [
+              "m03 observation: a03 macos lock_revokes R revoked cause session_locked at -2 s from the harness's verified-lock flag (state revoking: local denial applied, its certificates' residual pending for 473 s more (ADR-0008 D7)); fresh login to host 2 refused; host 2 accepted none of R's key IDs since its baseline"
+            ],
+            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy": [
+              "m03 observation: a03 macos ensure_under_lock profile exit-3 ACCESS_READY grant grant_44263ba71e82f890f53f6a3331043579 (one certificate signed under lock, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_44263ba71e82f890f53f6a3331043579:5610893282536373970)",
+              "m03 observation: a03 macos grant N grant_6445f14c535733eeeaca3e6f625487aa host 3 created under lock by run's ensure, 600 s left; locked_login 1 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N) (a grant of its own; the explicit ensure's grant has no binding)",
+              "m03 observation: a03 macos locked_login 2 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N)"
+            ],
+            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline": [
+              "m03 observation: a03 macos post_unlock R ended, not reactivated (state revoked; its certificates' residual ended 37670 s ago; tombstone cause session_locked unchanged); fresh login refused",
+              "m03 observation: a03 macos post_unlock C usable (deadline not passed): host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos post_unlock N expired (deadline passed): state expired, fresh login refused"
+            ],
+            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter": [
+              "m03 observation: a03 macos stand_in_locked lists 0 before and after; managed login host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 (grant C); stand-in contacts during the login unobservable (a real ssh-agent); new credential prompt processes 0 (names: SecurityAgent, coreautha)"
+            ],
+            "integration_session_lock::macos_lock_signal_observed": [
+              "m03 observation: {\"epoch\":1,\"events\":11,\"events_off_thread\":0,\"initial_state\":\"Unlocked\",\"latency_from_trigger_ms\":null,\"locked_entries\":1,\"observed\":true,\"observed_at_unix_ms\":1795185915240,\"observed_state\":\"Locked\",\"os\":\"macos\",\"row\":\"macos_lock_signal_observed\",\"signal\":\"MacosScreenLock\",\"unknown_entries\":0,\"waited_ms\":2800}"
+            ]
+          }
         }
       ],
-      "status": "blocked"
+      "status": "verified"
     },
     "PW1": {
       "tests": 7,
@@ -2480,26 +2586,79 @@
         },
         {
           "platform": "macos-arm64 lock procedure (debug build, test store: mechanism evidence only)",
-          "status": "blocked",
-          "passed": 0,
+          "status": "verified",
+          "passed": 8,
           "failed": [],
           "ignored": [],
-          "not_run_on_this_platform": [
-            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
-            "e2e_exit_m03::lock::a03_lock_cleanup",
-            "e2e_exit_m03::lock::a03_lock_prepare",
-            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
-            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
-            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
-            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter",
-            "integration_session_lock::macos_lock_signal_observed"
-          ],
+          "not_run_on_this_platform": [],
           "platform_neutral_run_elsewhere": [],
-          "exit_codes": null,
-          "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
-          "logs": [],
+          "exit_codes": {
+            "cargo build -p heimdall --bin heimdall --locked; cargo test -p heimdall --test e2e_exit_m03 -p heimdall-runtime --test integration_session_lock --no-run --locked (debug profile)": 0,
+            "idle check: console idle 1014s >= 900s": 0,
+            "heimdall internal session-lock-state before the lock read unlocked (platform source)": 0,
+            "the lock driver prepared (ready)": 0,
+            "idle check before the lock: console idle 1019s >= 900s": 0,
+            "pmset displaysleepnow": 0,
+            "lock verified through the product's query within 30 s": 0,
+            "integration_session_lock macos_lock_signal_observed across the lock (P1)": 0,
+            "the lock driver finished its locked steps (locked-done, 125s after the lock)": 0,
+            "unlock observed": 0,
+            "attribution by certificate key ID over logins.tsv (disjoint pairs; nothing of R accepted after its revocation)": 0,
+            "the lock driver ended by itself (exit 0)": 0,
+            "driver test lock::a03_lock_prepare: ok": 0,
+            "driver test lock::a03_fresh_logins_while_locked_continue: ok": 0,
+            "driver test lock::a03_new_grant_while_locked_under_standing_policy: ok": 0,
+            "driver test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails: ok": 0,
+            "driver test lock::a03_vault_stand_in_locked_agent_does_not_matter: ok": 0,
+            "driver test lock::a03_post_unlock_follows_remaining_deadline: ok": 0,
+            "driver test lock::a03_lock_cleanup: ok": 0,
+            "the home .ssh directory and the keychain search list unchanged by the run (digests)": 0,
+            "canary-prefix scan over saved output (count = 0)": 0,
+            "leak scan: saved files still naming the host, the user or the home (0)": 0,
+            "remove exactly the run's scratch directory, then check it is absent": 0
+          },
+          "artifact_digest": "sha256:81ad79b01e55b30bb804d9f641fe3e07b02bc4b40616954fc81e1ab61d8575a5 (sha256 of the macos-lock/ lines of digests.txt)",
+          "logs": [
+            "macos-lock/tests.txt"
+          ],
           "excluded_on_this_platform": 0,
-          "blocked_on": "blocked: the owner must unlock the Mac within the lock procedure's 12 h bound, and the run starts only from an unlocked console that has been idle for 15 minutes (ADR-0004 \u00a72). The watcher is armed (at E8, binding to E9). Four attempts so far, none evidence: the E5 run was killed with the session that started it; the E7 run was blocked (no unlock within 12 h); the first E8 attempt was refused before starting because the screen was already locked. The row is updated when the run happens"
+          "build_profile": "debug (test configuration; mechanism evidence only, F03)",
+          "store_kind": "scratch_test (the test store; the login-keychain product row is B3)",
+          "observations": {
+            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue": [
+              "m03 observation: a03 macos locked_login 1 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 2 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 3 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_prepare": [
+              "m03 observation: a03 macos world three hosts with disjoint pairs (exit-1..3 on hosts 1..3), debug test configuration, session-lock source platform",
+              "m03 observation: a03 macos issuer store scratch_test (HEIMDALL_TEST_SECRET_STORE=scratch; the CA record's label reads linux_secret_service); mechanism evidence only (F03)",
+              "m03 observation: a03 macos policies exit-pol-1 continue (window 57600 s), exit-pol-2 revoke_on_lock (`access lock-behavior`, narrowing; window 600 s, R's certificate validity), exit-pol-3 continue (window 600 s; the standing policy for N)",
+              "m03 observation: a03 macos stand_in disposable ssh-agent with one disposable key, locked with ssh-add -x (scratch askpass): lists 0 identities, refuses an add",
+              "m03 observation: a03 macos grant C grant_0c844311ce2ff08c50257d69798f07e7 host 1 continue, 57599 s left at the baseline; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos grant R grant_bcdfad5d89c6366da8a70fde86873a51 host 2 revoke_on_lock; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_bcdfad5d89c6366da8a70fde86873a51:11670886758317065432",
+              "m03 observation: a03 macos credential_prompt_processes_at_baseline 1 (names: SecurityAgent, coreautha)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails": [
+              "m03 observation: a03 macos lock_revokes R revoked cause session_locked at -2 s from the harness's verified-lock flag (state revoking: local denial applied, its certificates' residual pending for 473 s more (ADR-0008 D7)); fresh login to host 2 refused; host 2 accepted none of R's key IDs since its baseline"
+            ],
+            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy": [
+              "m03 observation: a03 macos ensure_under_lock profile exit-3 ACCESS_READY grant grant_44263ba71e82f890f53f6a3331043579 (one certificate signed under lock, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_44263ba71e82f890f53f6a3331043579:5610893282536373970)",
+              "m03 observation: a03 macos grant N grant_6445f14c535733eeeaca3e6f625487aa host 3 created under lock by run's ensure, 600 s left; locked_login 1 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N) (a grant of its own; the explicit ensure's grant has no binding)",
+              "m03 observation: a03 macos locked_login 2 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N)"
+            ],
+            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline": [
+              "m03 observation: a03 macos post_unlock R ended, not reactivated (state revoked; its certificates' residual ended 37670 s ago; tombstone cause session_locked unchanged); fresh login refused",
+              "m03 observation: a03 macos post_unlock C usable (deadline not passed): host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos post_unlock N expired (deadline passed): state expired, fresh login refused"
+            ],
+            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter": [
+              "m03 observation: a03 macos stand_in_locked lists 0 before and after; managed login host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 (grant C); stand-in contacts during the login unobservable (a real ssh-agent); new credential prompt processes 0 (names: SecurityAgent, coreautha)"
+            ],
+            "integration_session_lock::macos_lock_signal_observed": [
+              "m03 observation: {\"epoch\":1,\"events\":11,\"events_off_thread\":0,\"initial_state\":\"Unlocked\",\"latency_from_trigger_ms\":null,\"locked_entries\":1,\"observed\":true,\"observed_at_unix_ms\":1795185915240,\"observed_state\":\"Locked\",\"os\":\"macos\",\"row\":\"macos_lock_signal_observed\",\"signal\":\"MacosScreenLock\",\"unknown_entries\":0,\"waited_ms\":2800}"
+            ]
+          }
         },
         {
           "platform": "windows-11-x86_64 lock procedure (release profile, product DPAPI store)",
@@ -4496,26 +4655,79 @@
         },
         {
           "platform": "macos-arm64 lock procedure (debug build, test store: mechanism evidence only)",
-          "status": "blocked",
-          "passed": 0,
+          "status": "verified",
+          "passed": 8,
           "failed": [],
           "ignored": [],
-          "not_run_on_this_platform": [
-            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue",
-            "e2e_exit_m03::lock::a03_lock_cleanup",
-            "e2e_exit_m03::lock::a03_lock_prepare",
-            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails",
-            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy",
-            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline",
-            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter",
-            "integration_session_lock::macos_lock_signal_observed"
-          ],
+          "not_run_on_this_platform": [],
           "platform_neutral_run_elsewhere": [],
-          "exit_codes": null,
-          "artifact_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of the macos-lock/ lines of digests.txt)",
-          "logs": [],
+          "exit_codes": {
+            "cargo build -p heimdall --bin heimdall --locked; cargo test -p heimdall --test e2e_exit_m03 -p heimdall-runtime --test integration_session_lock --no-run --locked (debug profile)": 0,
+            "idle check: console idle 1014s >= 900s": 0,
+            "heimdall internal session-lock-state before the lock read unlocked (platform source)": 0,
+            "the lock driver prepared (ready)": 0,
+            "idle check before the lock: console idle 1019s >= 900s": 0,
+            "pmset displaysleepnow": 0,
+            "lock verified through the product's query within 30 s": 0,
+            "integration_session_lock macos_lock_signal_observed across the lock (P1)": 0,
+            "the lock driver finished its locked steps (locked-done, 125s after the lock)": 0,
+            "unlock observed": 0,
+            "attribution by certificate key ID over logins.tsv (disjoint pairs; nothing of R accepted after its revocation)": 0,
+            "the lock driver ended by itself (exit 0)": 0,
+            "driver test lock::a03_lock_prepare: ok": 0,
+            "driver test lock::a03_fresh_logins_while_locked_continue: ok": 0,
+            "driver test lock::a03_new_grant_while_locked_under_standing_policy: ok": 0,
+            "driver test lock::a03_lock_revokes_ends_grant_and_fresh_login_fails: ok": 0,
+            "driver test lock::a03_vault_stand_in_locked_agent_does_not_matter: ok": 0,
+            "driver test lock::a03_post_unlock_follows_remaining_deadline: ok": 0,
+            "driver test lock::a03_lock_cleanup: ok": 0,
+            "the home .ssh directory and the keychain search list unchanged by the run (digests)": 0,
+            "canary-prefix scan over saved output (count = 0)": 0,
+            "leak scan: saved files still naming the host, the user or the home (0)": 0,
+            "remove exactly the run's scratch directory, then check it is absent": 0
+          },
+          "artifact_digest": "sha256:81ad79b01e55b30bb804d9f641fe3e07b02bc4b40616954fc81e1ab61d8575a5 (sha256 of the macos-lock/ lines of digests.txt)",
+          "logs": [
+            "macos-lock/tests.txt"
+          ],
           "excluded_on_this_platform": 0,
-          "blocked_on": "blocked: the owner must unlock the Mac within the lock procedure's 12 h bound, and the run starts only from an unlocked console that has been idle for 15 minutes (ADR-0004 \u00a72). The watcher is armed (at E8, binding to E9). Four attempts so far, none evidence: the E5 run was killed with the session that started it; the E7 run was blocked (no unlock within 12 h); the first E8 attempt was refused before starting because the screen was already locked. The row is updated when the run happens"
+          "build_profile": "debug (test configuration; mechanism evidence only, F03)",
+          "store_kind": "scratch_test (the test store; the login-keychain product row is B3)",
+          "observations": {
+            "e2e_exit_m03::lock::a03_fresh_logins_while_locked_continue": [
+              "m03 observation: a03 macos locked_login 1 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 2 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)",
+              "m03 observation: a03 macos locked_login 3 host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 serial 14843588775776610009 (grant C)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_prepare": [
+              "m03 observation: a03 macos world three hosts with disjoint pairs (exit-1..3 on hosts 1..3), debug test configuration, session-lock source platform",
+              "m03 observation: a03 macos issuer store scratch_test (HEIMDALL_TEST_SECRET_STORE=scratch; the CA record's label reads linux_secret_service); mechanism evidence only (F03)",
+              "m03 observation: a03 macos policies exit-pol-1 continue (window 57600 s), exit-pol-2 revoke_on_lock (`access lock-behavior`, narrowing; window 600 s, R's certificate validity), exit-pol-3 continue (window 600 s; the standing policy for N)",
+              "m03 observation: a03 macos stand_in disposable ssh-agent with one disposable key, locked with ssh-add -x (scratch askpass): lists 0 identities, refuses an add",
+              "m03 observation: a03 macos grant C grant_0c844311ce2ff08c50257d69798f07e7 host 1 continue, 57599 s left at the baseline; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos grant R grant_bcdfad5d89c6366da8a70fde86873a51 host 2 revoke_on_lock; baseline login accepted, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_bcdfad5d89c6366da8a70fde86873a51:11670886758317065432",
+              "m03 observation: a03 macos credential_prompt_processes_at_baseline 1 (names: SecurityAgent, coreautha)"
+            ],
+            "e2e_exit_m03::lock::a03_lock_revokes_ends_grant_and_fresh_login_fails": [
+              "m03 observation: a03 macos lock_revokes R revoked cause session_locked at -2 s from the harness's verified-lock flag (state revoking: local denial applied, its certificates' residual pending for 473 s more (ADR-0008 D7)); fresh login to host 2 refused; host 2 accepted none of R's key IDs since its baseline"
+            ],
+            "e2e_exit_m03::lock::a03_new_grant_while_locked_under_standing_policy": [
+              "m03 observation: a03 macos ensure_under_lock profile exit-3 ACCESS_READY grant grant_44263ba71e82f890f53f6a3331043579 (one certificate signed under lock, key ID heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_44263ba71e82f890f53f6a3331043579:5610893282536373970)",
+              "m03 observation: a03 macos grant N grant_6445f14c535733eeeaca3e6f625487aa host 3 created under lock by run's ensure, 600 s left; locked_login 1 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N) (a grant of its own; the explicit ensure's grant has no binding)",
+              "m03 observation: a03 macos locked_login 2 host 3 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_6445f14c535733eeeaca3e6f625487aa:12374374195705158671 (grant N)"
+            ],
+            "e2e_exit_m03::lock::a03_post_unlock_follows_remaining_deadline": [
+              "m03 observation: a03 macos post_unlock R ended, not reactivated (state revoked; its certificates' residual ended 37670 s ago; tombstone cause session_locked unchanged); fresh login refused",
+              "m03 observation: a03 macos post_unlock C usable (deadline not passed): host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009",
+              "m03 observation: a03 macos post_unlock N expired (deadline passed): state expired, fresh login refused"
+            ],
+            "e2e_exit_m03::lock::a03_vault_stand_in_locked_agent_does_not_matter": [
+              "m03 observation: a03 macos stand_in_locked lists 0 before and after; managed login host 1 accepted key_id heimdall:env_2243475a63cee80db2a97cd51bf5a777:grant_0c844311ce2ff08c50257d69798f07e7:14843588775776610009 (grant C); stand-in contacts during the login unobservable (a real ssh-agent); new credential prompt processes 0 (names: SecurityAgent, coreautha)"
+            ],
+            "integration_session_lock::macos_lock_signal_observed": [
+              "m03 observation: {\"epoch\":1,\"events\":11,\"events_off_thread\":0,\"initial_state\":\"Unlocked\",\"latency_from_trigger_ms\":null,\"locked_entries\":1,\"observed\":true,\"observed_at_unix_ms\":1795185915240,\"observed_state\":\"Locked\",\"os\":\"macos\",\"row\":\"macos_lock_signal_observed\",\"signal\":\"MacosScreenLock\",\"unknown_entries\":0,\"waited_ms\":2800}"
+            ]
+          }
         },
         {
           "platform": "windows-11-x86_64 lock procedure (release profile, product DPAPI store)",
