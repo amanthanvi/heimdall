@@ -239,7 +239,15 @@ No new B-IDs (m05-plan §7):
 
 ## 6. Deferred and handed on
 
-- **M04's exit (Q9):** A16's WSL and container pairs; A28's forwarding and container rows.
+- **M04's exit (Q9):** A16's WSL and container pairs; A28's forwarding and container rows. ⟨M04 exit,
+  2026-11-20⟩ Closed by M04's records at build `50dbc86b` (Mode B at `06784973`), every row named here
+  `verified`: A16's WSL pair by `m04-a13-wsl-mode-b.json`'s windows-modeb row; A16's container pair and A28's
+  container row by `m04-a15-containers-bastion.json`'s wsl-containers row (the endpoint lists only the binding's
+  identity; a control-protocol hello on `agent.sock` fails); A28's forwarding row by that record's route rows
+  (`a15_forwarded_endpoint_bounded_to_binding`, `a15_user_dash_a_refused_without_capability`,
+  `a15_non_jump_pair_cannot_open_forwarding`). M05's records keep the rows `deferred_with_decision`: the shared
+  evidence generator has no cross-record row, so the mapping is recorded here, in
+  `docs/architecture/m04-exit-draft.md` §3 and in the matrix's M04 section (the M03 claims precedent).
 - **A later per-destination ADR:** identities through `session-bind@openssh.com`, so managed aliases can
   drop `IdentitiesOnly` and the first ordinary `ssh` logs in without the hook (I-13 option 3).
 - **M07:** the exported host-key hint at first connect (I-12); PowerShell context integration (Q6).

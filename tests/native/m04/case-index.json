@@ -1,0 +1,788 @@
+{
+  "description": "M04-U7 case index (m04-plan §3, §4; u7-plan §2): every M04 exit case and claim mapped to its Cargo test targets and tests, per platform, in the M02 format (tests/native/m02/case-index.json description; read by tests/native/m04/m04-evidence.py, which is m02-evidence.py with the M04 constants). Patterns resolve into required-inventory.json from the build host's sources, never from run logs. Owner-input rows are blocked_rows naming m03-plan §7's B-IDs (M04 adds none). M04 specifics: the Windows-hosted WSL runs (tests/native/m04/run-mode-b-windows.ps1) are scenario platforms (windows-modeb, wsl-containers, wsl-login, windows-lock) whose scenario_targets are the runner's own `### <plan name>` tests.txt sections and whose steps are the cargo test names printed under them (cargo's `Running` line follows the test output there, so a section is not a cargo target); the Windows-only and Linux-only tests of e2e_platform_m04 (windows::native::* and container::a31_*), which tests/e2e/platform_m04.rs includes with #[path] so that platform-tests.py's source scan cannot name them, are carried by platform_required (exact names that must pass on that platform) and not by the inventory.",
+  "build_host": "macos",
+  "observation_targets": [
+    "e2e_platform_m04",
+    "e2e_route_m04"
+  ],
+  "platforms": {
+    "macos": {
+      "runs": "cargo"
+    },
+    "linux": {
+      "runs": "cargo"
+    },
+    "windows": {
+      "runs": "cargo"
+    },
+    "windows-modeb": {
+      "runs": "scenario"
+    },
+    "windows-lock": {
+      "runs": "scenario"
+    },
+    "wsl-containers": {
+      "runs": "scenario"
+    },
+    "wsl-login": {
+      "runs": "scenario"
+    }
+  },
+  "build_host_paths": {
+    "heimdall_testkit-unit::repo::tests::unset_or_empty_is_the_compile_time_root": {
+      "neutral": true,
+      "reason": "asserts that the compile-time repository root (the build host's checkout) holds Cargo.toml and schemas/, which exists only where the binary was built; the HM_REPO_ROOT resolution it covers is platform-neutral and its sibling tests run everywhere"
+    }
+  },
+  "platform_only": {
+    "integration_login_entry_m04::macos::": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "macOS LaunchAgent round trip (#[cfg(target_os = \"macos\")]): a plist in a scratch directory bootstrapped into the real gui/<uid> domain under a unique label and always booted out (m04-plan §0's one allowed exception); the Linux and Windows mechanisms are the linux:: and windows:: modules"
+    },
+    "integration_login_entry_m04::linux::": {
+      "platforms": [
+        "linux"
+      ],
+      "rationale": "Linux systemd user unit round trip (#[cfg(target_os = \"linux\")]): a scratch unit directory, file only; the real systemctl row is service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login (scenario a08-login-entry in a disposable systemd distribution)"
+    },
+    "integration_login_entry_m04::windows::": {
+      "platforms": [
+        "windows"
+      ],
+      "rationale": "Windows Run value round trip (#[cfg(windows)]): an injected scratch key under HKCU\\Software\\HeimdallTest\\<unique>, never the real Run key"
+    },
+    "e2e_route_m04::a15_*": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "single-hop ProxyJump and agent-forwarding cases need a forwarding sshd and Unix sockets (#[cfg(unix)]): a harness sshd on the Windows PC (the WSL server) cannot honour AllowTcpForwarding, so the Windows rows are not run there (a harness limitation, never counted as passes); route_rules_through_the_real_binary needs no sshd and runs everywhere (tests/e2e/route_m04.rs header)"
+    },
+    "heimdall_wsl-unit::channel_tests::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "the helper channel's tests drive the real helper loop (helper::serve) over a UnixStream pair (#[cfg(all(test, unix))]); the helper runs inside the Linux distribution, and the Windows side of the channel is the windows_tests module (scenario wsl-helper-session)"
+    },
+    "heimdall_wsl-unit::helper::lock::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "the helper's single-holder lock uses Unix file semantics (#[cfg(unix)]); the helper runs inside the Linux distribution"
+    },
+    "heimdall_wsl-unit::helper::tests::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "the helper's owner-only directory rule is Unix file mode semantics (#[cfg(unix)]); the helper runs inside the Linux distribution"
+    },
+    "heimdall_runtime-unit::managed_store::live_tests::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "live tests of the managed store with real Unix-socket endpoints in a scratch directory (#[cfg(all(test, unix))]); the Windows realization of the same flows is the native Windows run (windows::native::*) and the Mode B scenarios"
+    },
+    "heimdall_credential-unit::endpoints::container::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "the container endpoint is a Unix socket admitted by the SO_PEERCRED uid rule (#[cfg(unix)] module); a container environment's engine runs in Linux"
+    }
+  },
+  "exit_claims": {
+    "M04 exit cases (plan §5 M04; m04-plan §3)": {
+      "groups": [
+        "A12",
+        "A13",
+        "A14",
+        "A15",
+        "A03-mode-b",
+        "A08-login",
+        "A27",
+        "A31",
+        "honest-limits"
+      ]
+    }
+  },
+  "child_entries": {
+    "e2e_platform_m04::windows::native::handle_probe_child": "child entry point (not #[ignore]d: a no-op unless the probe variables are set; re-executed with --exact by the handle-inheritance cases; never required)"
+  },
+  "scenario_targets": {
+    "a13-mode-b": {
+      "platforms": [
+        "windows-modeb"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario mode-b (plan command a13-mode-b: every a13 row but the unregister row)",
+      "steps": {
+        "windows::native::mode_b::a13_lists_only_binding_identities_and_refuses_unlisted_key": "the distribution lists only its binding identities; an unlisted key is refused",
+        "windows::native::mode_b::a13_git_over_linux_ssh_through_bridge": "git clone and push from the distribution through the bridge endpoint over Linux ssh (A27)",
+        "windows::native::mode_b::a13_control_hello_on_bridge_socket_fails": "a control-protocol hello on the bridge socket fails",
+        "windows::native::mode_b::a13_other_distribution_sees_no_endpoint": "another distribution sees no endpoint",
+        "windows::native::mode_b::a13_two_enabled_distributions_get_disjoint_endpoints": "two enabled distributions get disjoint endpoints",
+        "windows::native::mode_b::a13_other_linux_user_refused": "another Linux user in the distribution is refused (the `wsl.exe -u` residual is recorded as an observation)",
+        "windows::native::mode_b::a13_terminate_then_user_restart_recreates_endpoint_without_background_start": "terminate the distribution: no background start; the owner's ensure brings the endpoint back",
+        "windows::native::mode_b::a13_deleted_socket_recreated": "a deleted endpoint socket is recreated",
+        "windows::native::mode_b::a13_binding_end_refuses_then_withdraws_endpoint": "a binding's end refuses logins, then withdraws its endpoint",
+        "windows::native::mode_b::a13_runtime_stop_helper_exits_and_removes_endpoints": "runtime stop: the helper exits and removes the endpoints",
+        "windows::native::mode_b::a13_binding_reaches_its_deadline_and_withdraws": "a binding reaches its deadline and withdraws (short --until)",
+        "windows::native::mode_b::a13_binary_scp_sftp_through_bridge": "binary scp and sftp transfers through the bridge are byte-identical (A27)"
+      }
+    },
+    "a13-unregister": {
+      "platforms": [
+        "windows-modeb"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario mode-b (plan command a13-unregister, run last with HM_WSL_TEST_ALLOW_UNREGISTER=1)",
+      "steps": {
+        "windows::native::mode_b::a13_unregistered_distribution_releases_bindings": "an unregistered distribution releases its bindings (destroys the second disposable distribution)"
+      }
+    },
+    "a12-mode-a": {
+      "platforms": [
+        "windows-modeb"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario mode-b (plan command a12-mode-a)",
+      "steps": {
+        "windows::native::a12_enable_disable_leaves_distribution_git_config_identical": "enable then disable Mode A leaves the distribution's Git configuration byte-identical (A31)",
+        "windows::native::a12_interop_child_medium_integrity": "the interop child of a WSL session runs at Medium integrity (no UAC)"
+      }
+    },
+    "a12-flow": {
+      "platforms": [
+        "windows-modeb"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario mode-b (plan command a12-flow)",
+      "steps": {
+        "windows::native::mode_b::a12_git_and_ssh_through_windows_ssh_from_wsl": "Git and SSH from WSL through the Windows ssh.exe: paths with spaces and Unicode, a failing remote command's status, Ctrl-C, a rotated certificate re-read"
+      }
+    },
+    "wsl-helper-session": {
+      "platforms": [
+        "windows-modeb"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario mode-b (plan command wsl-helper-session: heimdall-wsl --lib --ignored)",
+      "steps": {
+        "windows_tests::windows_helper_session_over_wsl_exe_in_a_disposable_distribution": "the helper channel's session over wsl.exe in a disposable distribution"
+      }
+    },
+    "a31-uninstall": {
+      "platforms": [
+        "windows-modeb"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario mode-b (plan command a31-uninstall)",
+      "steps": {
+        "windows::native::mode_b::a31_uninstall_with_a_live_mode_b_binding": "uninstall with a live Mode B binding: endpoints withdrawn, distributions disabled, nothing started"
+      }
+    },
+    "a15-podman": {
+      "platforms": [
+        "wsl-containers"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario containers (Podman rootless, installed inside the disposable distribution only)",
+      "steps": {
+        "container::a15_container_mounted_flow": "the container recipe's mounted flow through the real binary and a real Podman rootless engine, with the UID rule's positive and negative rows",
+        "container::a31_uninstall_with_a_live_container_binding": "uninstall with a live container binding (engine-free)"
+      }
+    },
+    "a15-docker": {
+      "platforms": [
+        "wsl-containers"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario containers (Docker Engine rootful, installed inside the disposable distribution only)",
+      "steps": {
+        "container::a15_container_mounted_flow": "the container recipe's mounted flow through the real binary and a real Docker Engine (rootful), with the UID rule's positive and negative rows",
+        "container::a31_uninstall_with_a_live_container_binding": "uninstall with a live container binding (engine-free)"
+      }
+    },
+    "a08-login-entry": {
+      "platforms": [
+        "wsl-login"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario systemd-login (a disposable distribution with systemd=true inside it only)",
+      "steps": {
+        "service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login": "the systemd user unit: enable, the runtime starts at the next login, disable"
+      }
+    },
+    "a03-mode-b-lock": {
+      "platforms": [
+        "windows-lock"
+      ],
+      "source": "tests/native/m04/run-mode-b-windows.ps1 -Scenario lock (the lock driver; ADR-0004 §2 lock rule)",
+      "steps": {
+        "windows::native::mode_b::a03_mode_b_fresh_logins_while_windows_locked": "Mode B fresh logins continue while the Windows desktop is locked"
+      }
+    }
+  },
+  "groups": {
+    "A12": {
+      "title": "A12: WSL Mode A: Git and SSH from a WSL distribution through the Windows ssh.exe (interop child at Medium integrity, no recurring UAC), enable and disable leave the distribution's Git configuration identical (R-EN-02)",
+      "requirement_ids": [
+        "R-EN-02"
+      ],
+      "tests": {
+        "a12-mode-a": [
+          "windows::native::a12_enable_disable_leaves_distribution_git_config_identical",
+          "windows::native::a12_interop_child_medium_integrity"
+        ],
+        "a12-flow": [
+          "windows::native::mode_b::a12_git_and_ssh_through_windows_ssh_from_wsl"
+        ],
+        "wsl-helper-session": [
+          "windows_tests::windows_helper_session_over_wsl_exe_in_a_disposable_distribution"
+        ],
+        "integration_wsl_helper_channel": [
+          "a_second_helper_for_the_same_account_answers_busy",
+          "d02_lost_reply_then_reconcile_over_real_helper_channel",
+          "driver::*"
+        ],
+        "heimdall_wsl-unit": [
+          "helper::*",
+          "channel_tests::a_host_without_wsl_answers_wsl_unavailable",
+          "channel_tests::a_stopped_distribution_is_never_started_in_the_background",
+          "channel_tests::helper_hello_mismatch_ends_session",
+          "channel_tests::helper_unavailable_when_no_linux_path_resolves",
+          "channel_tests::helper_withdraw_of_old_generation_keeps_replacement",
+          "discover::*",
+          "proto::*",
+          "spawn::*"
+        ],
+        "e2e_platform_m04": [
+          "wsl_cli::*"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows 11 human observation: no UAC prompt during Mode A use from WSL",
+          "status": "blocked",
+          "blocked_on": "B5: an operator at the Windows console (m03-plan §7)"
+        },
+        {
+          "platform": "windows 11 ordinary ssh.exe without -F from WSL (the A12 flow row uses the scratch configuration with -F)",
+          "status": "blocked",
+          "blocked_on": "B2: the disposable second Windows account (one elevation consent; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows-modeb"
+      ],
+      "platform_required": {
+        "windows-modeb": {
+          "a12-mode-a": [
+            "windows::native::a12_enable_disable_leaves_distribution_git_config_identical",
+            "windows::native::a12_interop_child_medium_integrity"
+          ],
+          "a12-flow": [
+            "windows::native::mode_b::a12_git_and_ssh_through_windows_ssh_from_wsl"
+          ],
+          "wsl-helper-session": [
+            "windows_tests::windows_helper_session_over_wsl_exe_in_a_disposable_distribution"
+          ]
+        }
+      },
+      "limitation": "The A12 flow row's ssh.exe reads the test world's scratch configuration through -F (Windows paths only, ADR-0010 §2 item 3); scp.exe and sftp.exe with Linux local paths are reported unsupported (ADR-0010 §2). The macOS and Linux rows are mechanism evidence (the helper channel against a stand-in helper process); the native rows are the Windows Mode B harness's, run in disposable hm-m04-<hex> distributions only."
+    },
+    "A13": {
+      "title": "A13: WSL Mode B: native Linux SSH and Git through the per-binding bridge endpoint; an unauthorized key, another distribution, another Linux user, a deleted socket, a terminate, a binding's end and its deadline, runtime stop and an unregistered distribution (R-EN-03)",
+      "requirement_ids": [
+        "R-EN-03"
+      ],
+      "tests": {
+        "a13-mode-b": [
+          "windows::native::mode_b::a13_binary_scp_sftp_through_bridge",
+          "windows::native::mode_b::a13_binding_end_refuses_then_withdraws_endpoint",
+          "windows::native::mode_b::a13_binding_reaches_its_deadline_and_withdraws",
+          "windows::native::mode_b::a13_control_hello_on_bridge_socket_fails",
+          "windows::native::mode_b::a13_deleted_socket_recreated",
+          "windows::native::mode_b::a13_git_over_linux_ssh_through_bridge",
+          "windows::native::mode_b::a13_lists_only_binding_identities_and_refuses_unlisted_key",
+          "windows::native::mode_b::a13_other_distribution_sees_no_endpoint",
+          "windows::native::mode_b::a13_other_linux_user_refused",
+          "windows::native::mode_b::a13_runtime_stop_helper_exits_and_removes_endpoints",
+          "windows::native::mode_b::a13_terminate_then_user_restart_recreates_endpoint_without_background_start",
+          "windows::native::mode_b::a13_two_enabled_distributions_get_disjoint_endpoints"
+        ],
+        "a13-unregister": [
+          "windows::native::mode_b::a13_unregistered_distribution_releases_bindings"
+        ],
+        "heimdall_runtime-unit": [
+          "managed_store::live_tests::wsl_mode_b::*"
+        ],
+        "heimdall_wsl-unit": [
+          "channel_tests::helper_answers_mode_b_requests_and_ends_on_a_protocol_error",
+          "channel_tests::mode_b_*"
+        ],
+        "integration_wsl_helper_channel": [
+          "bridge_relay::*"
+        ],
+        "e2e_platform_m04": [
+          "wsl_mode_b::*"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows 11 another Windows user inspecting the bridge endpoint",
+          "status": "blocked",
+          "blocked_on": "B2: the disposable second Windows account (one elevation consent; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows-modeb"
+      ],
+      "platform_required": {
+        "windows-modeb": {
+          "a13-mode-b": [
+            "windows::native::mode_b::a13_binary_scp_sftp_through_bridge",
+            "windows::native::mode_b::a13_binding_end_refuses_then_withdraws_endpoint",
+            "windows::native::mode_b::a13_binding_reaches_its_deadline_and_withdraws",
+            "windows::native::mode_b::a13_control_hello_on_bridge_socket_fails",
+            "windows::native::mode_b::a13_deleted_socket_recreated",
+            "windows::native::mode_b::a13_git_over_linux_ssh_through_bridge",
+            "windows::native::mode_b::a13_lists_only_binding_identities_and_refuses_unlisted_key",
+            "windows::native::mode_b::a13_other_distribution_sees_no_endpoint",
+            "windows::native::mode_b::a13_other_linux_user_refused",
+            "windows::native::mode_b::a13_runtime_stop_helper_exits_and_removes_endpoints",
+            "windows::native::mode_b::a13_terminate_then_user_restart_recreates_endpoint_without_background_start",
+            "windows::native::mode_b::a13_two_enabled_distributions_get_disjoint_endpoints"
+          ],
+          "a13-unregister": [
+            "windows::native::mode_b::a13_unregistered_distribution_releases_bindings"
+          ]
+        }
+      },
+      "limitation": "The `wsl.exe -u` residual: a Linux user who can use interop can become the endpoint's owner (ADR-0010 §3 non-claims; the a13_other_linux_user_refused row records it as an observation). Mode B needs `ssh -F` or GIT_SSH_COMMAND inside the distribution: there is no ~/.ssh/config projection (I-11). The macOS and Linux rows are mechanism evidence (the real bridge and helper started directly, as the distribution's stand-in)."
+    },
+    "A14": {
+      "title": "A14: native Windows endpoint: ordinary and scoped access over the named pipe, its permissions and conflicts, handles inherited only as listed, no global agent takeover, the login entry (R-EN-01, R-SS-03)",
+      "requirement_ids": [
+        "R-EN-01",
+        "R-SS-03"
+      ],
+      "tests": {
+        "integration_login_entry_m04": [
+          "windows::*"
+        ],
+        "heimdall_ipc-unit": [
+          "windows::tests::*",
+          "endpoint::tests::windows_pipe_names*"
+        ],
+        "integration_runtime": [
+          "windows_fresh_state_dir*",
+          "windows_state_dir_not_owner_only*"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows 11 another OS user inspecting the pipe",
+          "status": "blocked",
+          "blocked_on": "B2: the disposable second Windows account (one elevation consent; m03-plan §7)"
+        },
+        {
+          "platform": "a clean Windows host with a real system ssh-agent",
+          "status": "blocked",
+          "blocked_on": "B4: a disposable Windows host whose system ssh-agent may hold test keys (m03-plan §7)"
+        },
+        {
+          "platform": "windows 11 human observation: no UAC prompt",
+          "status": "blocked",
+          "blocked_on": "B5: an operator at the Windows console (m03-plan §7)"
+        },
+        {
+          "platform": "windows 11 1Password coexistence",
+          "status": "blocked",
+          "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_platform_m04": [
+            "windows::native::runtime_child_inherits_only_listed_handles",
+            "windows::native::cli_started_runtime_keeps_no_handle_of_its_caller",
+            "windows::native::issuer_child_answers_its_hello_on_every_start",
+            "windows::native::a14_no_global_agent_takeover_inventory_identical",
+            "windows::native::inherited_state_dir_then_setup_rollback_and_uninstall",
+            "windows::native::a14_git_bundled_client_reported_not_claimed"
+          ],
+          "integration_login_entry_m04": [
+            "windows::login_entry_install_remove_round_trip"
+          ]
+        }
+      },
+      "limitation": "The Windows PC is not a clean install (its own ssh-agent, Git for Windows and tools are present); recorded as such. The platform-neutral M01/M03 pipe ACL and conflict tests (heimdall_ipc-unit windows::tests::*) run again at the M04 build."
+    },
+    "A15": {
+      "title": "A15: containers, bastions and forwarding: a container environment's mounted endpoint through a real engine (Podman rootless, Docker rootful), single-hop ProxyJump without unnecessary forwarding, then explicit agent forwarding bounded to the binding (R-EN-06, R-SS-06)",
+      "requirement_ids": [
+        "R-EN-06",
+        "R-SS-06"
+      ],
+      "tests": {
+        "a15-podman": [
+          "container::a15_container_mounted_flow",
+          "container::a31_uninstall_with_a_live_container_binding"
+        ],
+        "a15-docker": [
+          "container::a15_container_mounted_flow",
+          "container::a31_uninstall_with_a_live_container_binding"
+        ],
+        "e2e_route_m04": [
+          "a15_*",
+          "route_rules_through_the_real_binary"
+        ],
+        "heimdall_runtime-unit": [
+          "managed_store::live_tests::container::*"
+        ],
+        "heimdall_credential-unit": [
+          "endpoints::container::*"
+        ],
+        "heimdall-unit": [
+          "container_cmd::*"
+        ],
+        "heimdall_localenv-unit": [
+          "container::*"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "native Linux product container host row (ADR-0010 §9 item 5)",
+          "status": "blocked",
+          "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+        },
+        {
+          "platform": "devbox containers and the devbox cross-user check",
+          "status": "blocked",
+          "blocked_on": "B8: owner authorization for Docker or a disposable local user on the Linux devbox (m03-plan §7)"
+        },
+        {
+          "platform": "linux arm64 rows",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (m03-plan §7)"
+        },
+        {
+          "platform": "macOS agent-forwarding row (a15_forwarded_endpoint_bounded_to_binding returns early on a host whose sshd places forwarded-agent sockets under ~/.ssh/agent)",
+          "status": "blocked",
+          "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "wsl-containers",
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "platform_required": {
+        "wsl-containers": {
+          "a15-podman": [
+            "container::a15_container_mounted_flow",
+            "container::a31_uninstall_with_a_live_container_binding"
+          ],
+          "a15-docker": [
+            "container::a15_container_mounted_flow",
+            "container::a31_uninstall_with_a_live_container_binding"
+          ]
+        },
+        "linux": {
+          "e2e_route_m04": [
+            "a15_binary_roundtrip_through_jump",
+            "a15_forwarded_endpoint_bounded_to_binding",
+            "a15_non_jump_pair_cannot_open_forwarding",
+            "a15_proxyjump_substituted_host_keys_fail_before_authentication",
+            "a15_proxyjump_through_existing_access_bastion",
+            "a15_proxyjump_through_managed_bastion",
+            "a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key",
+            "a15_user_dash_a_refused_without_capability",
+            "route_rules_through_the_real_binary"
+          ],
+          "e2e_platform_m04": [
+            "container::a31_uninstall_with_a_live_container_binding"
+          ]
+        },
+        "macos": {
+          "e2e_route_m04": [
+            "a15_binary_roundtrip_through_jump",
+            "a15_non_jump_pair_cannot_open_forwarding",
+            "a15_proxyjump_substituted_host_keys_fail_before_authentication",
+            "a15_proxyjump_through_existing_access_bastion",
+            "a15_proxyjump_through_managed_bastion",
+            "a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key",
+            "a15_user_dash_a_refused_without_capability"
+          ]
+        },
+        "windows": {
+          "e2e_route_m04": [
+            "route_rules_through_the_real_binary"
+          ]
+        }
+      },
+      "limitation": "Docker Desktop, devcontainers and WSL-nested containers stay `not-tested` by decision. Routed enrollment evidence lapses at fresh_until (lifted by M06-T03). Existing-access jump has no approved key (I-12). The Windows route rows (a15_* but route_rules_through_the_real_binary) are not run on the PC: the harness sshd has no forwarding settings; that is a limitation of the harness, not an owner input. On macOS a15_forwarded_endpoint_bounded_to_binding passes by returning early when the host's sshd (OpenSSH 10.1 or later) places forwarded-agent sockets under the account's ~/.ssh/agent (it prints `blocked (B3 ...)`): that pass is not forwarding evidence and the macOS platform_required list leaves it out; the Linux row (devbox sshd 9.6p1) runs it. The container engine rows run in one disposable WSL distribution with Podman and Docker Engine installed inside it only."
+    },
+    "A03-mode-b": {
+      "title": "A03 (Mode B): fresh Mode B logins succeed while the Windows desktop is locked (R-UX-03 applicability); mechanism evidence on the debug build",
+      "requirement_ids": [
+        "R-UX-03"
+      ],
+      "tests": {
+        "a03-mode-b-lock": [
+          "windows::native::mode_b::a03_mode_b_fresh_logins_while_windows_locked"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "linux desktop lock (logind lock signal, Mode B or container logins while the desktop is locked)",
+          "status": "blocked",
+          "blocked_on": "B11: a Linux desktop host (Ubuntu 24.04 or Debian 13 with GNOME, gnome-keyring and systemd-logind) plus a disposable account (m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "windows-lock"
+      ],
+      "platform_required": {
+        "windows-lock": {
+          "a03-mode-b-lock": [
+            "windows::native::mode_b::a03_mode_b_fresh_logins_while_windows_locked"
+          ]
+        }
+      },
+      "note": "The native A03 rows are M03's (tests/evidence/m03-a03-lock-continuity.json, the release-profile DPAPI row); this row is mechanism evidence on the debug build with the disposable distributions and harness sshd of the Mode B harness (ADR-0004 §2 lock rule: the harness locks only after the console has been idle)."
+    },
+    "A08-login": {
+      "title": "A08 (applicable): the login entry: login mode yields to a running instance, uninstall removes only the owned entry, and each platform's entry starts the runtime at the next login (restart, logout and reboot, time)",
+      "requirement_ids": [],
+      "tests": {
+        "a08-login-entry": [
+          "service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login"
+        ],
+        "e2e_platform_m04": [
+          "service_login::login_mode_yields_to_running_instance",
+          "service_login::uninstall_removes_only_the_owned_login_entry",
+          "service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry"
+        ],
+        "integration_login_entry_m04": [
+          "*::login_entry_install_remove_round_trip"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "logout, reboot and sleep cycles; a reboot with a wrong clock",
+          "status": "blocked",
+          "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+        },
+        {
+          "platform": "macOS LaunchAgent at a real next login of a disposable account",
+          "status": "blocked",
+          "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it; m03-plan §7)"
+        },
+        {
+          "platform": "Windows Run value at a real login of a disposable account",
+          "status": "blocked",
+          "blocked_on": "B2: the disposable second Windows account (one elevation consent; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-login"
+      ],
+      "platform_required": {
+        "macos": {
+          "e2e_platform_m04": [
+            "service_login::login_mode_yields_to_running_instance",
+            "service_login::uninstall_removes_only_the_owned_login_entry",
+            "service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry"
+          ],
+          "integration_login_entry_m04": [
+            "macos::login_entry_install_remove_round_trip"
+          ]
+        },
+        "linux": {
+          "e2e_platform_m04": [
+            "service_login::login_mode_yields_to_running_instance",
+            "service_login::uninstall_removes_only_the_owned_login_entry",
+            "service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry"
+          ],
+          "integration_login_entry_m04": [
+            "linux::login_entry_install_remove_round_trip"
+          ]
+        },
+        "windows": {
+          "e2e_platform_m04": [
+            "service_login::login_mode_yields_to_running_instance",
+            "service_login::uninstall_removes_only_the_owned_login_entry",
+            "service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry"
+          ],
+          "integration_login_entry_m04": [
+            "windows::login_entry_install_remove_round_trip"
+          ]
+        },
+        "wsl-login": {
+          "a08-login-entry": [
+            "service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login"
+          ]
+        }
+      },
+      "limitation": "The WSL row's binary is the test-configured build with the dev home guard's opt-in inside the disposable account (ruling I-15). The platform rows write to scratch roots (an injected HKCU key, a scratch plist under a unique launchctl label that is always booted out, a scratch unit directory): never the account's real Run key, LaunchAgents or units. Clock-sync trust stays gated off (D06)."
+    },
+    "A27": {
+      "title": "A27 (applicable): byte integrity through the M04 routes: Git, binary scp and sftp through the Mode B bridge, a binary round trip through a ProxyJump bastion",
+      "requirement_ids": [],
+      "tests": {
+        "a13-mode-b": [
+          "windows::native::mode_b::a13_git_over_linux_ssh_through_bridge",
+          "windows::native::mode_b::a13_binary_scp_sftp_through_bridge"
+        ],
+        "e2e_route_m04": [
+          "a15_binary_roundtrip_through_jump"
+        ]
+      },
+      "blocked_rows": [],
+      "declared_platforms": [
+        "windows-modeb",
+        "linux",
+        "macos"
+      ],
+      "platform_required": {
+        "windows-modeb": {
+          "a13-mode-b": [
+            "windows::native::mode_b::a13_git_over_linux_ssh_through_bridge",
+            "windows::native::mode_b::a13_binary_scp_sftp_through_bridge"
+          ]
+        },
+        "linux": {
+          "e2e_route_m04": [
+            "a15_binary_roundtrip_through_jump"
+          ]
+        },
+        "macos": {
+          "e2e_route_m04": [
+            "a15_binary_roundtrip_through_jump"
+          ]
+        }
+      },
+      "note": "The ConPTY rows are M03's."
+    },
+    "A31": {
+      "title": "A31 (applicable): setup and uninstall of every M04 integration, unelevated: the login entry, Mode A and Mode B, container bindings (R-EN-01)",
+      "requirement_ids": [
+        "R-EN-01"
+      ],
+      "tests": {
+        "a12-mode-a": [
+          "windows::native::a12_enable_disable_leaves_distribution_git_config_identical"
+        ],
+        "a31-uninstall": [
+          "windows::native::mode_b::a31_uninstall_with_a_live_mode_b_binding"
+        ],
+        "a08-login-entry": [
+          "service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login"
+        ],
+        "a15-podman": [
+          "container::a31_uninstall_with_a_live_container_binding"
+        ],
+        "a15-docker": [
+          "container::a31_uninstall_with_a_live_container_binding"
+        ],
+        "e2e_platform_m04": [
+          "service_login::uninstall_removes_only_the_owned_login_entry"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "a real-account login after logout (with disposable accounts: B2 on Windows, B3 on macOS)",
+          "status": "blocked",
+          "blocked_on": "B12: an operator for logout, reboot and sleep cycles on macOS and Windows (and on B11's host; m03-plan §7)"
+        }
+      ],
+      "declared_platforms": [
+        "windows",
+        "windows-modeb",
+        "wsl-containers",
+        "linux",
+        "wsl-login"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_platform_m04": [
+            "windows::native::inherited_state_dir_then_setup_rollback_and_uninstall",
+            "service_login::uninstall_removes_only_the_owned_login_entry"
+          ]
+        },
+        "windows-modeb": {
+          "a12-mode-a": [
+            "windows::native::a12_enable_disable_leaves_distribution_git_config_identical"
+          ],
+          "a31-uninstall": [
+            "windows::native::mode_b::a31_uninstall_with_a_live_mode_b_binding"
+          ]
+        },
+        "wsl-containers": {
+          "a15-podman": [
+            "container::a31_uninstall_with_a_live_container_binding"
+          ],
+          "a15-docker": [
+            "container::a31_uninstall_with_a_live_container_binding"
+          ]
+        },
+        "linux": {
+          "e2e_platform_m04": [
+            "container::a31_uninstall_with_a_live_container_binding"
+          ]
+        },
+        "wsl-login": {
+          "a08-login-entry": [
+            "service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login"
+          ]
+        }
+      },
+      "note": "Packaging, update and rollback are M08's. The wsl-login row covers enable and disable of the systemd user unit; the Windows row is the unelevated full-harness uninstall of the product and its login entry."
+    },
+    "honest-limits": {
+      "title": "plan §5 M04 exit: unsupported clients, architectures and Docker Desktop are separately labelled; the tests below prove the limits M04 states (refusals of an unsafe run base, a lost helper relaunch rule, routed enrollment and existing-access jump limits, the sandboxed-profile state directory)",
+      "requirement_ids": [],
+      "tests": {
+        "heimdall_wsl-unit": [
+          "channel_tests::mode_b_refusal_names_both_when_xdg_runtime_dir_and_the_home_base_are_unsafe",
+          "channel_tests::mode_b_refuses_a_run_base_reached_through_a_replaceable_link",
+          "channel_tests::mode_b_refuses_a_run_dir_too_long_for_a_socket_path"
+        ],
+        "heimdall_runtime-unit": [
+          "managed_store::live_tests::wsl_mode_b::wsl_mode_b_lost_helper_relaunches_only_after_two_running_listings"
+        ],
+        "e2e_route_m04": [
+          "a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key",
+          "a15_proxyjump_through_existing_access_bastion"
+        ],
+        "integration_runtime": [
+          "windows_state_dir_not_owner_only*"
+        ]
+      },
+      "blocked_rows": [],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_platform_m04": [
+            "windows::native::inherited_state_dir_then_setup_rollback_and_uninstall"
+          ]
+        }
+      },
+      "note": "Known limits carried into the exit draft (u7-plan §4): Mode B plain `ssh <alias>` needs `ssh -F` or GIT_SSH_COMMAND (no ~/.ssh/config projection, I-11); routed enrollment evidence lapses at fresh_until unless verified while reached directly (lifted by M06-T03); the existing-access jump has no approved key until M06-T03 (I-12); a background relaunch racing a stop can still be started once (R03 ruling); Mode B refuses a base with a group-writable ancestor or a non-root symlink (set XDG_RUNTIME_DIR); a sandboxed Windows profile makes a pre-M04 state directory state_dir_unsafe (platform fact); Docker Desktop, devcontainers and WSL-nested containers are `not-tested` by decision; other §10 and §11 residuals (spawn-lock window, a forwarded-agent row that needs sshd < 10.1 or a scratch account (B3), no per-pair route status (M07-T03), login-entry console flash, Mode B leftovers across a restart, re-issue at a higher generation fails closed, the helper does not enforce the deadline, Bridge::drop up to 2 s, the bridge supervisor holding the store after a managed runtime's drop on Windows) are recorded in the exit draft, not asserted by a test."
+    }
+  }
+}

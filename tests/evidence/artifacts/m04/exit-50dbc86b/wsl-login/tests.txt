@@ -1,0 +1,15 @@
+### a08-login-entry
+
+running 1 test
+test service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login ... ok
+
+successes:
+
+successes:
+    service_login::wsl_login::linux_login_entry_starts_runtime_at_next_login
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 13.70s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running ..\..\tests\e2e\platform_m04.rs (target\debug\deps\e2e_platform_m04-b4d04243b06385b3.exe)
+### a08-login-entry exit=0

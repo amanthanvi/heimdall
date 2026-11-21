@@ -1,0 +1,63 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running ../../tests/e2e/platform_m04.rs (target/debug/deps/e2e_platform_m04-ec021eccf9b1d9e1)
+
+running 8 tests
+test wsl_cli::wsl_commands_refuse_without_wsl_before_any_runtime_or_home ... ok
+test service_login::uninstall_removes_only_the_owned_login_entry ... ok
+test wsl_mode_b::git_ssh_command_carries_a_config_path_with_spaces_as_one_argument ... ok
+test service_login::login_mode_yields_to_running_instance ... ok
+test service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry ... ok
+test runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall ... ok
+test runtime_guard_kills_a_recorded_runtime_service_stop_cannot_reach ... ok
+test wsl_mode_b::mode_b_end_to_end_through_the_real_bridge_and_helper ... ok
+
+successes:
+
+---- runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall stdout ----
+runtime guard: a recorded runtime its image is not this suite's heimdall (named "sleep", expected "heimdall"): left alone
+
+
+successes:
+    runtime_guard_kills_a_recorded_runtime_service_stop_cannot_reach
+    runtime_guard_never_kills_a_recorded_process_that_is_not_heimdall
+    service_login::login_mode_yields_to_running_instance
+    service_login::service_autostart_commands_report_refuse_and_touch_only_their_own_entry
+    service_login::uninstall_removes_only_the_owned_login_entry
+    wsl_cli::wsl_commands_refuse_without_wsl_before_any_runtime_or_home
+    wsl_mode_b::git_ssh_command_carries_a_config_path_with_spaces_as_one_argument
+    wsl_mode_b::mode_b_end_to_end_through_the_real_bridge_and_helper
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.20s
+
+     Running ../../tests/e2e/route_m04.rs (target/debug/deps/e2e_route_m04-be44ad62e2902205)
+
+running 9 tests
+test a15_forwarded_endpoint_bounded_to_binding ... ok
+test route_rules_through_the_real_binary ... ok
+test a15_user_dash_a_refused_without_capability ... ok
+test a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key ... ok
+test a15_binary_roundtrip_through_jump ... ok
+test a15_proxyjump_through_existing_access_bastion ... ok
+test a15_proxyjump_through_managed_bastion ... ok
+test a15_proxyjump_substituted_host_keys_fail_before_authentication ... ok
+test a15_non_jump_pair_cannot_open_forwarding ... ok
+
+successes:
+
+---- a15_forwarded_endpoint_bounded_to_binding stdout ----
+blocked (B3, no scratch account): this host's sshd places forwarded-agent sockets under the account's ~/.ssh/agent; run on a host whose sshd uses <tmp> (the devbox) or a scratch account (HM_ROUTE_FORWARDING_SCRATCH_ACCOUNT=1)
+
+
+successes:
+    a15_binary_roundtrip_through_jump
+    a15_forwarded_endpoint_bounded_to_binding
+    a15_non_jump_pair_cannot_open_forwarding
+    a15_proxyjump_substituted_host_keys_fail_before_authentication
+    a15_proxyjump_through_existing_access_bastion
+    a15_proxyjump_through_managed_bastion
+    a15_routed_enrollment_never_verified_around_the_jump_and_held_on_a_changed_final_key
+    a15_user_dash_a_refused_without_capability
+    route_rules_through_the_real_binary
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.08s
+

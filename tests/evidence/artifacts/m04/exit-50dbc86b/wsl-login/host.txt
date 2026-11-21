@@ -1,0 +1,10 @@
+run-root-sddl=O:S-1-<redacted>G:S-1-<redacted>D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;S-1-<redacted>)
+os=Microsoft Windows [Version 10.0.26300.9974]
+integrity=Medium Mandatory Level
+wsl-version=WSL version: 3.0.5.0
+prebuilt-heimdall-sha256=cbf82081684ed4b57e1a12331005595a3cc6a7d606b33ecaae98ecba14ed29cc (equals HM_PREBUILT_SHA256)
+build-commit=50dbc86b29df42b052071eae040bc074d148e81e
+toolchain=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+systemd=running
+seconds-before-tests=232
+heimdalltest-parent=absent

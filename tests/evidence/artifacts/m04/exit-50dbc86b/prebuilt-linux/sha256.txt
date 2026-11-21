@@ -1,0 +1,4 @@
+# The Linux x86-64 binaries the PC runs used (cross-built on the build host at 50dbc86b29df42b052071eae040bc074d148e81e with tests/native/m03/run-wsl-distro.sh HM_BUILD_ONLY=1; e2e_platform_m04 is target/x86_64-unknown-linux-gnu/native-test/deps/e2e_platform_m04-<hash>).
+cbf82081684ed4b57e1a12331005595a3cc6a7d606b33ecaae98ecba14ed29cc  heimdall
+b9a0330ade05049f801dfc50b853bf77ee3950877946efba2537e49010ebbad2  e2e_platform_m04
+a2bd888b7a76589f7650251472db175560c14cf5a61948f0fcd96e93866e24c1  hm-fixture-hook

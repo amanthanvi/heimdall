@@ -1,0 +1,270 @@
+{
+  "$comment": "Configuration of the M04 native runs (m04-plan §3) for m04-evidence.py (tests/native/m02/m02-evidence.py with the M04 constants). TEMPLATE: no native run has happened yet. The native-run unit sets build_commit, started_at, artifacts_root (one directory per build, e.g. tests/evidence/artifacts/m04/exit-<commit>), environment, artifact digests and commands, regenerates tests/native/m04/required-inventory.json at that commit (with fresh --scan reports for the Linux and Windows builds, which add the platform-only tests the build host cannot list), and only then runs --write. Every logs, commands_logs and facts path below is relative to artifacts_root; a missing file stops the generator before anything is written. The bundles of the Windows runs are imported with tests/native/m02/import-windows-bundle.py into <artifacts_root>/<platform>/ (windows, windows-modeb, windows-lock, wsl-containers, wsl-login), which points the platform at its files. macos/observations.txt is the macOS harness's observation pass over the case index's observation_targets. The scenario platforms' targets are the runner's `### <plan name>` sections (case-index.json scenario_targets).",
+  "case_index": "tests/native/m04/case-index.json",
+  "required_inventory": "tests/native/m04/required-inventory.json",
+  "summary_out": "tests/evidence/artifacts/m04/exit-PENDING/case-summary.json",
+  "artifacts_root": "tests/evidence/artifacts/m04/exit-PENDING",
+  "build_commit": null,
+  "artifact_digest": null,
+  "started_at": null,
+  "environment": {},
+  "commands": [
+    "tests/native/m04/refresh-inventory.sh (regenerates tests/native/m04/required-inventory.json at the exit commit, with the Linux and Windows scans)",
+    "tests/native/m04/run-macos.sh <artifacts_root> (writes macos/: check.sh, the observation pass; no Docker phase)",
+    "tests/native/m04/run-linux.sh <artifacts_root>/linux <linuxhost> (the devbox; HM_ONLY batches the targets when space is tight)",
+    "on the PC, by a T3 agent at Medium integrity: pwsh -NoProfile -File tests/native/m04/run-windows-local.ps1 -Commit <exit commit> -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <report> --label <artifacts_root name> --commit <exit commit> --artifacts-root tests/evidence/artifacts/m04 --config <artifacts_root>/runs.json (platform windows)",
+    "on the PC: pwsh -NoProfile -File tests/native/m04/run-mode-b-windows.ps1 -Scenario mode-b -Commit <exit commit> -ScratchRoot <scratch root> -PrebuiltHeimdall <linux heimdall> -PrebuiltSha256 <its sha256> -Rootfs <pinned image> -AllowApt (two disposable hm-m04-<hex> distributions; the default plan: a13-mode-b, a12-mode-a, a12-flow, wsl-helper-session, a31-uninstall, a13-unregister), imported with import-windows-bundle.py --format heimdall-m04-mode-b-windows-bundle/1 --platform-dir windows-modeb",
+    "on the PC: pwsh -NoProfile -File tests/native/m04/run-mode-b-windows.ps1 -Scenario containers -Commit <exit commit> -ScratchRoot <scratch root> -PrebuiltHeimdall <linux heimdall> -PrebuiltSha256 <its sha256> -PrebuiltLinuxTest <linux e2e_platform_m04> -PrebuiltLinuxTestSha256 <its sha256> -PrebuiltLinuxHook <linux hm-fixture-hook> -PrebuiltLinuxHookSha256 <its sha256> -Rootfs <pinned image> -AllowApt (one disposable distribution, Podman rootless and Docker Engine rootful installed inside it only), imported with import-windows-bundle.py --format heimdall-m04-mode-b-windows-bundle/1 --platform-dir wsl-containers",
+    "on the PC: pwsh -NoProfile -File tests/native/m04/run-mode-b-windows.ps1 -Scenario systemd-login -Commit <exit commit> -ScratchRoot <scratch root> -PrebuiltHeimdall <linux heimdall> -PrebuiltSha256 <its sha256> -Rootfs <pinned image> -AllowApt (one disposable distribution with systemd=true inside it only), imported with import-windows-bundle.py --format heimdall-m04-mode-b-windows-bundle/1 --platform-dir wsl-login",
+    "on the PC, with the owner present (ADR-0004 §2 lock rule: the harness locks only after 900 s of console idle): pwsh -NoProfile -File tests/native/m04/run-mode-b-windows.ps1 -Scenario lock -Commit <exit commit> -ScratchRoot <scratch root> -PrebuiltHeimdall <linux heimdall> -PrebuiltSha256 <its sha256> -Rootfs <pinned image> -AllowApt (two disposable distributions; the driver e2e_platform_m04 windows::native::mode_b::a03_mode_b_fresh_logins_while_windows_locked), imported with import-windows-bundle.py --format heimdall-m04-mode-b-windows-bundle/1 --platform-dir windows-lock",
+    "python3 -I tests/native/m04/m04-evidence.py --config <artifacts_root>/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "evidence_paths": [
+    "tests/native/m04/case-index.json",
+    "tests/native/m04/runs.json",
+    "tests/native/m04/required-inventory.json",
+    "tests/native/m04/m04-evidence.py",
+    "tests/native/m04/refresh-inventory.sh",
+    "tests/native/m04/run-linux.sh",
+    "tests/native/m04/run-macos.sh",
+    "tests/native/m04/run-windows-local.ps1",
+    "tests/native/m04/run-mode-b-windows.ps1",
+    "tests/native/m04/container-engines.sh",
+    "tests/native/m04/selftest.sh",
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows-local.ps1",
+    "tests/native/m02/import-windows-bundle.py",
+    "tests/native/m02/target-root.sh",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/selftest.sh",
+    "tests/native/m02/m02-evidence.py"
+  ],
+  "common_limitations": [
+    "Status discipline (m04-plan §3, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units. The lowest-row rule applies: a blocked owner-input row (m03-plan §7, B1-B13; M04 adds none) keeps its record blocked, and no claim is widened to cover it.",
+    "Debug test builds on the test store are mechanism evidence: they carry no custody claim (ADR-0008 D12 item 3, F03). The M04 native rows exercise the debug build's own mechanisms (endpoints, handles, bridges, login entries); the release DPAPI rows are M03's.",
+    "Linux and Windows binaries are cross-built on the macOS host with zig and run natively on the hosts (the devbox for Linux; the Windows PC builds and runs natively with the msvc toolchain, the Windows-hosted WSL rows with the Linux binaries cross-built on the build host). Tests that read the repository at its compile-time path run on the build host only (case-index.json build_host_paths).",
+    "The WSL rows (windows-modeb, wsl-containers, wsl-login, windows-lock) run in disposable hm-m04-<hex> distributions that the runner creates and unregisters by exact name, never `wsl --shutdown`, never another distribution; the container engines (Podman, Docker Engine) are installed inside the container distribution only and only their recorded containers and images are removed. Docker Desktop is not used and stays not-tested by decision, as do devcontainers and WSL-nested containers.",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd (in WSL scratch on the PC), disposable ssh-agents with a scratch HOME, scratch configuration and registry keys under HKCU\\Software\\HeimdallTest, scratch launchctl labels that are booted out, disposable WSL distributions; the owners' keys, agents, keychains, ~/.ssh and Git configuration are never test material (AGENTS.md boundaries).",
+    "The Windows PC is not a clean install, and a sandboxed profile makes a pre-M04 state directory state_dir_unsafe (platform fact)."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64 (build host)",
+      "logs": [
+        "macos/check.txt",
+        "macos/observations.txt"
+      ],
+      "commands_logs": [
+        "macos/commands.txt"
+      ],
+      "facts": [
+        "macos/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "linux": {
+      "label": "linux-x86_64 (devbox, headless)",
+      "logs": [
+        "linux/tests.txt"
+      ],
+      "commands_logs": [
+        "linux/commands.txt"
+      ],
+      "facts": [
+        "linux/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows": {
+      "label": "windows-11-x86_64 (native msvc, local mode)",
+      "logs": [
+        "windows/tests.txt"
+      ],
+      "commands_logs": [
+        "windows/commands.txt"
+      ],
+      "facts": [
+        "windows/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows-modeb": {
+      "label": "windows-11-x86_64 (native msvc, M04 Mode B, two disposable distributions)",
+      "logs": [
+        "windows-modeb/tests.txt"
+      ],
+      "commands_logs": [
+        "windows-modeb/commands.txt"
+      ],
+      "facts": [
+        "windows-modeb/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows-lock": {
+      "label": "windows-11-x86_64 (native msvc, M04 Mode B lock procedure; debug build, test store: mechanism evidence only)",
+      "logs": [
+        "windows-lock/tests.txt"
+      ],
+      "commands_logs": [
+        "windows-lock/commands.txt"
+      ],
+      "facts": [
+        "windows-lock/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "wsl-containers": {
+      "label": "windows-11-x86_64 (M04 containers, one disposable distribution with Podman and Docker Engine)",
+      "logs": [
+        "wsl-containers/tests.txt"
+      ],
+      "commands_logs": [
+        "wsl-containers/commands.txt"
+      ],
+      "facts": [
+        "wsl-containers/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "wsl-login": {
+      "label": "windows-11-x86_64 (native msvc, M04 login entry, one disposable systemd distribution)",
+      "logs": [
+        "wsl-login/tests.txt"
+      ],
+      "commands_logs": [
+        "wsl-login/commands.txt"
+      ],
+      "facts": [
+        "wsl-login/host.txt"
+      ],
+      "artifact_digest": null
+    }
+  },
+  "extra_rows": {},
+  "records": {
+    "A12": {
+      "case_id": "A12",
+      "path": "tests/evidence/m04-a12-wsl-mode-a.json",
+      "requirement_ids": [
+        "R-EN-02"
+      ],
+      "summary": "WSL Mode A: Git and SSH from a WSL distribution through the Windows ssh.exe (the interop child at Medium integrity, no recurring UAC), enable and disable leave the distribution's Git configuration identical, the helper channel over wsl.exe; macOS and Linux rows are the helper channel's mechanism tests.",
+      "limitations": [
+        "The A12 flow row's ssh.exe reads the test world's scratch configuration through -F (Windows paths only, ADR-0010 §2 item 3); scp.exe and sftp.exe with Linux local paths are reported unsupported (ADR-0010 §2). The macOS and Linux rows are mechanism evidence (the helper channel against a stand-in helper process); the native rows are the Windows Mode B harness's, run in disposable hm-m04-<hex> distributions only.",
+        "Blocked: the 'no UAC prompt' human observation (B5) and ordinary ssh.exe without -F (B2)."
+      ]
+    },
+    "A13": {
+      "case_id": "A13",
+      "path": "tests/evidence/m04-a13-wsl-mode-b.json",
+      "requirement_ids": [
+        "R-EN-03"
+      ],
+      "summary": "WSL Mode B: native Linux SSH and Git through the per-binding bridge endpoint in two disposable distributions: only the binding's identities, an unauthorized key and another Linux user refused, another distribution sees nothing, a terminate is no background start, a deleted socket is recreated, a binding's end and deadline withdraw the endpoint, runtime stop and unregister release it; macOS and Linux rows are mechanism evidence.",
+      "limitations": [
+        "The `wsl.exe -u` residual: a Linux user who can use interop can become the endpoint's owner (ADR-0010 §3 non-claims; the a13_other_linux_user_refused row records it as an observation). Mode B needs `ssh -F` or GIT_SSH_COMMAND inside the distribution: there is no ~/.ssh/config projection (I-11). The macOS and Linux rows are mechanism evidence (the real bridge and helper started directly, as the distribution's stand-in).",
+        "Blocked: another Windows user inspecting the bridge endpoint (B2)."
+      ]
+    },
+    "A14": {
+      "case_id": "A14",
+      "path": "tests/evidence/m04-a14-windows-native.json",
+      "requirement_ids": [
+        "R-EN-01",
+        "R-SS-03"
+      ],
+      "summary": "Native Windows endpoint: handles inherited only as listed, the CLI-started runtime keeps no handle of its caller, the issuer child answers its hello on every start, no global agent takeover (inventory identical), the state directory, rollback and uninstall, the bundled Git client reported and not claimed, the login entry, the named-pipe ACL and conflict tests.",
+      "limitations": [
+        "The Windows PC is not a clean install (its own ssh-agent, Git for Windows and tools are present); recorded as such. The platform-neutral M01/M03 pipe ACL and conflict tests (heimdall_ipc-unit windows::tests::*) run again at the M04 build.",
+        "Blocked: another OS user inspecting the pipe (B2), a clean host with a real ssh-agent (B4), the UAC observation (B5), 1Password coexistence (B1)."
+      ]
+    },
+    "A15": {
+      "case_id": "A15",
+      "path": "tests/evidence/m04-a15-containers-bastion.json",
+      "requirement_ids": [
+        "R-EN-06",
+        "R-SS-06"
+      ],
+      "summary": "Containers, bastions and forwarding: a container environment's mounted endpoint through a real Podman (rootless) and a real Docker Engine (rootful) in a disposable WSL distribution with the UID rule's positive and negative rows; single-hop ProxyJump through a managed and an existing-access bastion without unnecessary forwarding; explicit agent forwarding bounded to the binding (Linux).",
+      "limitations": [
+        "Docker Desktop, devcontainers and WSL-nested containers stay `not-tested` by decision. Routed enrollment evidence lapses at fresh_until (lifted by M06-T03). Existing-access jump has no approved key (I-12). The Windows route rows (a15_* but route_rules_through_the_real_binary) are not run on the PC: the harness sshd has no forwarding settings; that is a limitation of the harness, not an owner input. On macOS a15_forwarded_endpoint_bounded_to_binding passes by returning early when the host's sshd (OpenSSH 10.1 or later) places forwarded-agent sockets under the account's ~/.ssh/agent (it prints `blocked (B3 ...)`): that pass is not forwarding evidence and the macOS platform_required list leaves it out; the Linux row (devbox sshd 9.6p1) runs it. The container engine rows run in one disposable WSL distribution with Podman and Docker Engine installed inside it only.",
+        "Blocked: the native Linux product container host row (B11), devbox containers and the devbox cross-user check (B8), arm64 (B9), the macOS forwarding row (B3)."
+      ]
+    },
+    "A03-mode-b": {
+      "case_id": "A03-mode-b",
+      "path": "tests/evidence/m04-a03-mode-b-lock.json",
+      "requirement_ids": [
+        "R-UX-03"
+      ],
+      "summary": "A03 (Mode B): fresh Mode B logins continue while the Windows desktop is locked; mechanism evidence on the debug build with the Mode B harness's disposable distributions.",
+      "limitations": [
+        "The native A03 rows are M03's (tests/evidence/m03-a03-lock-continuity.json, the release-profile DPAPI row); this row is mechanism evidence on the debug build with the disposable distributions and harness sshd of the Mode B harness (ADR-0004 §2 lock rule: the harness locks only after the console has been idle).",
+        "Blocked: the Linux desktop lock row (B11)."
+      ]
+    },
+    "A08-login": {
+      "case_id": "A08-login",
+      "path": "tests/evidence/m04-a08-login-entry.json",
+      "requirement_ids": [],
+      "summary": "A08 (applicable): login mode yields to a running instance, uninstall removes only the owned login entry, each platform's login entry round trip in scratch roots, and the systemd user unit starts the runtime at the next login in a disposable systemd distribution.",
+      "limitations": [
+        "The WSL row's binary is the test-configured build with the dev home guard's opt-in inside the disposable account (ruling I-15). The platform rows write to scratch roots (an injected HKCU key, a scratch plist under a unique launchctl label that is always booted out, a scratch unit directory): never the account's real Run key, LaunchAgents or units. Clock-sync trust stays gated off (D06).",
+        "Blocked: logout, reboot and sleep cycles and a reboot with a wrong clock (B12), the macOS LaunchAgent at a real next login (B3), the Windows Run value at a real login (B2)."
+      ]
+    },
+    "A27": {
+      "case_id": "A27",
+      "path": "tests/evidence/m04-a27-byte-integrity.json",
+      "requirement_ids": [],
+      "summary": "A27 (applicable): byte integrity through the M04 routes: Git, binary scp and sftp through the Mode B bridge; a binary round trip through a ProxyJump bastion.",
+      "limitations": [
+        "The ConPTY rows are M03's."
+      ]
+    },
+    "A31": {
+      "case_id": "A31",
+      "path": "tests/evidence/m04-a31-setup-uninstall.json",
+      "requirement_ids": [
+        "R-EN-01"
+      ],
+      "summary": "A31 (applicable): setup and uninstall of every M04 integration, unelevated: the Windows state directory, rollback and uninstall; Mode A enable and disable; uninstall with a live Mode B binding and with a live container binding; the login entry and the systemd user unit.",
+      "limitations": [
+        "Packaging, update and rollback are M08's. The wsl-login row covers enable and disable of the systemd user unit; the Windows row is the unelevated full-harness uninstall of the product and its login entry.",
+        "Blocked: a real-account login after logout (B12, with B2 and B3 for disposable accounts)."
+      ]
+    },
+    "honest-limits": {
+      "case_id": "m04-exit-honest-limits",
+      "path": "tests/evidence/m04-honest-limits.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M04 exit: unsupported clients, architectures and Docker Desktop are separately labelled; the tests that prove a stated limit and the exit draft's known limits.",
+      "limitations": [
+        "Known limits carried into the exit draft (u7-plan §4): Mode B plain `ssh <alias>` needs `ssh -F` or GIT_SSH_COMMAND (no ~/.ssh/config projection, I-11); routed enrollment evidence lapses at fresh_until unless verified while reached directly (lifted by M06-T03); the existing-access jump has no approved key until M06-T03 (I-12); a background relaunch racing a stop can still be started once (R03 ruling); Mode B refuses a base with a group-writable ancestor or a non-root symlink (set XDG_RUNTIME_DIR); a sandboxed Windows profile makes a pre-M04 state directory state_dir_unsafe (platform fact); Docker Desktop, devcontainers and WSL-nested containers are `not-tested` by decision; other §10 and §11 residuals (spawn-lock window, a forwarded-agent row that needs sshd < 10.1 or a scratch account (B3), no per-pair route status (M07-T03), login-entry console flash, Mode B leftovers across a restart, re-issue at a higher generation fails closed, the helper does not enforce the deadline, Bridge::drop up to 2 s, the bridge supervisor holding the store after a managed runtime's drop on Windows) are recorded in the exit draft, not asserted by a test."
+      ]
+    },
+    "M04 exit cases (plan §5 M04; m04-plan §3)": {
+      "case_id": "m04-exit-claims",
+      "path": "tests/evidence/m04-exit-claims.json",
+      "requirement_ids": [
+        "R-EN-01",
+        "R-EN-02",
+        "R-EN-03",
+        "R-EN-06",
+        "R-SS-03",
+        "R-SS-06",
+        "R-UX-03"
+      ],
+      "summary": "m04-plan §3: every M04 exit case and claim per platform, all rows from one build; blocked while any owner-input row (B1-B13) is blocked (the lowest-row rule).",
+      "limitations": []
+    }
+  }
+}
