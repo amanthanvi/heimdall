@@ -44,6 +44,13 @@ Before planning, reviewing, testing or recording a wave, read
   keys, agents, keychains or password manager as test material or test
   targets. Fixture keys are generated per run and never committed (public
   fixture keys excepted, when stated).
+- Every `heimdall` you run by hand gets `HEIMDALL_HOME` and `HOME` set to scratch.
+  OpenSSH, and so Heimdall's static pass, reads `~/.ssh` and `/etc/ssh` from the
+  account database, not from `$HOME`. So a TUI, `doctor`, `setup` or `service run`
+  process also needs `HEIMDALL_TEST_SSH_HOME` set to a scratch home (debug builds
+  only). Without it, the process reads the owner's real SSH configuration. Release
+  builds have no redirect: run their TUI, `doctor`, `setup` or runtime only in a
+  disposable account, container or VM.
 - The owner's SSH config, keys and agent may be used to reach the owner's own
   machines (the Windows PC, devbox, vps1-edge) for authorized work, such as
   copying files or running tests in a scratch directory. Never print, copy or
