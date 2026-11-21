@@ -224,6 +224,7 @@ impl Fixture {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             policy: Some(StandingPolicy {
                 id: PolicyId::parse("homelab-auto").unwrap(),
@@ -472,6 +473,7 @@ prop_compose! {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: if owner { ClientRole::Owner } else { ClientRole::LimitedConsumer },
+                remote_client: None,
             },
             policy,
             generation,

@@ -105,8 +105,27 @@ crates, registered with `contract` and `domain` only; their tracks add the rest.
   workspace discovery over an `FsView`, `match_workspace` and the portable bundle
   (ADR-0011 §2.2–§2.4). Pure: `contract` and `domain` only; `app` calls it directly.
 
-`app` depends on none of `credential`, `issuer`, `enroll`, `adapters`, `localenv`, `runtime`
-or `wsl`, and `ipc` depends only on `contract`: the signing permit crosses into `ipc`
+**M06 crates** (wave 0; m06-plan U0, ADR-0012 §13). Two skeleton crates that fail closed
+(`availability()` returns unavailable with reason `driver_unavailable`); their units add the rest.
+
+```text
+   remote          ──► contract, domain (store, app, ipc allowed by the graph rule)
+   transport-iroh  ──► contract   (+ iroh, netdev only under the cargo feature `iroh`)
+   runtime         ──► … + remote, transport-iroh   (the runtime wires both; planned)
+```
+
+* `crates/remote` (`heimdall-remote`, M06): roles, invitations, the verified sshd policy for
+  limited roles, the serve-side bridge, and outbox/resync (ADR-0012 §3, §7). The graph rule
+  allows `contract`, `domain`, `store`, `app` and `ipc` and refuses every other workspace
+  crate; `app` never imports it.
+* `crates/transport-iroh` (`heimdall-transport-iroh`, M06): the `/pigeons/0` connect and serve
+  legs and the exposure policy (ADR-0012 §1–§2). The default build has no iroh; feature `iroh`
+  embeds iroh `=1.4.2` with the vendored, patched netdev (`third_party/netdev-0.47.0`).
+  `contract` only; `app` never imports it. `check.sh` steps `iroh-check` and `audit` cover the
+  feature build.
+
+`app` depends on none of `credential`, `issuer`, `enroll`, `adapters`, `localenv`, `runtime`,
+`wsl`, `remote` or `transport-iroh`, and `ipc` depends only on `contract`: the signing permit crosses into `ipc`
 as the opaque `ipc::signing::PermitGuard` (a boxed `ReleaseCheck`). Ports carry what
 flows upward: `TargetEvaluator` (localenv → app), `ManagedEffects` (adapters → app),
 `IssuerPort` (issuer → app), `VerificationRunner` (enroll → app), `SignatureAuthority`
@@ -158,6 +177,8 @@ M02 adapters are both known callers; no plugin framework exists.
 | `heimdall-enroll` (M03) | Enrollment I/O: the CLI-side `SshStepRunner` (client-executed remote steps) and the runtime-side `Verifier` (`VerificationRunner`, the independent fresh login) (ADR-0008 D5 §6.3, §6.5; U5) | Deciding anything the pure `heimdall-registry` decides; contacting the signer of a managed binding during maintenance | registry, app (ports), domain, contract | `remote`, `verify` |
 | `heimdall-wsl` (M04) | WSL distribution discovery, the `heimdall-wsl/1` helper channel and Mode A/B (ADR-0010 §2–§3) | Being imported by `app` (it implements `app` ports; the runtime wires it) | contract, domain, app (ports), localenv (U3a; credential and ipc planned with the later units) | `proto`, `discover`, `helper`, `client`, `spawn`, `host`; `DistributionHost` is implemented by `WslHost` |
 | `heimdall-project` (M05, skeleton) | The pure manifest parser, access digest, discovery over an `FsView`, `match_workspace` and the portable bundle (ADR-0011 §2.2–§2.4) | Any I/O of its own, any workspace crate but `contract` and `domain` | domain, contract | none yet |
+| `heimdall-remote` (M06, skeleton) | Roles and permissions, invitations, the verified sshd policy for limited roles, the serve-side bridge, outbox and resync (ADR-0012 §3, §7); today only a fail-closed `availability()` | Being imported by `app` (the runtime wires it); any workspace crate but contract, domain, store, app, ipc | contract, domain | `roles`, `invitations`, `sshd_policy`, `bridge`, `sync` (empty) |
+| `heimdall-transport-iroh` (M06, skeleton) | The `/pigeons/0` ALPN, the connect and serve legs and the exposure policy (ADR-0012 §1–§2); feature `iroh` embeds iroh `=1.4.2` and compile-checks an unbound endpoint builder | Being imported by `app`; any workspace crate but `contract`; binding a socket in the skeleton | contract; iroh and netdev under feature `iroh` | `ALPN`, `availability`; `endpoint` (feature `iroh`) |
 
 ## 3. Process model (spec §13.1, §13.2, P01)
 
@@ -568,12 +589,19 @@ lesson); `cargo-deny`/`cargo auditable`/OSV scanning are M08 obligations
   reports `running 0 tests` fails the run (review F09). Each step prints its real
   exit code. ⟨M03⟩ Three more steps (m03-plan U0, U0b row 16): `crate-graph`
   (`crate_graph.py`: no production cycle, no `app → {credential, issuer, enroll,
-  adapters, localenv, runtime, wsl}` edge, `ipc` only on `contract`, `registry` and
-  `project` only on `contract` and `domain`; with its mutant-fixture self-tests), `claims-table`
+  adapters, localenv, runtime, wsl, remote, transport-iroh}` edge, `ipc` only on `contract`,
+  `registry` and `project` only on `contract` and `domain`, `transport-iroh` only on `contract`,
+  `remote` only on `contract`, `domain`, `store`, `app` and `ipc`; with its mutant-fixture
+  self-tests), `claims-table`
   (`claims_table.py`: every claim-table entry backed by a `verified` record at an
   ancestor commit, custody claims only from release builds on product stores; with
   its self-tests) and `release-gate` (`release-gate.sh`: a release binary exits 2 for
   every `HEIMDALL_TEST_*` variable, M01–M03, on each command that reads it).
+  ⟨M06⟩ Two more steps after `crate-graph` (m06-plan U0): `iroh-check` (`cargo check --locked
+  -p heimdall-transport-iroh --features iroh`, so the iroh build and the vendored netdev patch
+  keep compiling) and `audit` (`cargo audit --file Cargo.lock` with cargo-audit 0.22.1; the
+  lockfile includes the optional iroh tree; a vulnerability fails it, warnings do not; needs
+  the network for the advisory database; a missing tool exits 3 unless `HM_SKIP_AUDIT=1`).
 * **Test-target convention (review F09).** Every planned suite is a real Cargo
   `[[test]]` target whose source lives under the repository `tests/{model,
   contracts,integration,adversarial,e2e}/` tree (plan §7.1 layout), declared with

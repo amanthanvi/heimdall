@@ -74,11 +74,11 @@ pub fn caller_for(session: &SessionInfo, now: heimdall_contract::Timestamp) -> C
         PrincipalInfo::OsUserUnix { uid } => PrincipalRef::UnixUser { uid: *uid },
         PrincipalInfo::OsUserWindows { sid } => PrincipalRef::WindowsUser { sid: sid.clone() },
     };
+    // ⟨rev6⟩ ADR-0006 §18: no paired client. Only a runner runtime sets one, from its
+    // bridge's hello (ADR-0012 §3.6); this runtime refuses such a hello (wave 0), and no
+    // request field ever sets it.
     Caller {
-        context: CallerContext {
-            principal,
-            role: ClientRole::Owner,
-        },
+        context: CallerContext::local(principal, ClientRole::Owner),
         attendance: if session.attended {
             Attendance::Attended { since: now }
         } else {
@@ -459,6 +459,15 @@ impl OperationsDispatcher {
                 }
                 render(ops.environment_request(&caller, r).await)
             }
+            // ⟨M06⟩ ADR-0006 revision 6 (§18): every revision-6 form answers
+            // `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) from the application before
+            // any record is written, whatever the role (wave 0; a session never gets here,
+            // their capabilities are not offered).
+            Request::RemoteEnvironment(_)
+            | Request::Device(_)
+            | Request::Route(_)
+            | Request::Transport(_)
+            | Request::Runner(_) => render(ops.revision_6_request(&caller, &request).await),
             // A request kind this build does not know is never executed.
             _ => error_value(OpError::new(
                 Code::UsageError,
@@ -778,6 +787,7 @@ mod tests {
         Caller::unattended(CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         })
     }
 
@@ -878,6 +888,7 @@ mod tests {
             context: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             attendance: Attendance::Attended { since: t0() },
             interaction: heimdall_contract::request::InteractionMode::Interactive,
@@ -1012,6 +1023,88 @@ mod tests {
         assert!(!holder.operations.uninstall_fence_held());
     }
 
+    /// ⟨rev6⟩ ADR-0006 §18 (the revision-5 precedent, §17.7 "The landing"): every
+    /// revision-6 request form reached in process, from the owner and from a limited caller,
+    /// answers `CAPABILITY_UNAVAILABLE` with reason `driver_unavailable` and effect `none`,
+    /// and nothing is written: no operation, no decision record, no event, no generation
+    /// change.
+    #[tokio::test]
+    async fn w0_revision_6_requests_fail_closed_before_any_record() {
+        let env = EnvironmentId::from_random_bytes([6; 16]);
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        store
+            .transaction(|tx| tx.init_self_environment(&env))
+            .unwrap();
+        let clock = VirtualClock::at(t0());
+        let ops = Operations::start(OperationsConfig {
+            store: store.clone(),
+            clock: clock.clone(),
+            time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+            time_policy: TimePolicy::default(),
+            environment: env.clone(),
+            adapters: Vec::new(),
+            stage_hook: Arc::new(heimdall_app::ensure::NoStageHook),
+            limits: Limits::default(),
+            default_window: std::time::Duration::from_secs(3600),
+            projection: None,
+        })
+        .await
+        .unwrap();
+        let relay = EventRelay::spawn(&ops, CancellationToken::new());
+        let d = OperationsDispatcher::new(ops, relay, clock);
+        let records = || {
+            store
+                .transaction(|tx| {
+                    Ok((
+                        tx.snapshot_boundary(&env)?,
+                        tx.pending_decisions()?.len(),
+                        tx.open_operations()?.len(),
+                        tx.unresolved_operations()?.len(),
+                    ))
+                })
+                .unwrap()
+        };
+        let before = records();
+        let golden: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(heimdall_testkit::repo::repo_path(
+                "tests/contracts/golden/rev6-requests.golden.json",
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let limited = Caller::unattended(CallerContext::local(
+            PrincipalRef::UnixUser { uid: 501 },
+            ClientRole::LimitedConsumer,
+        ));
+        let rows = golden["requests"].as_array().unwrap();
+        assert_eq!(rows.len(), 24);
+        for row in rows {
+            let request: Request = serde_json::from_value(row["json"].clone()).unwrap();
+            assert!(request.is_revision_6());
+            for caller in [owner(), limited.clone()] {
+                let env = d.handle_as(&caller, request.clone()).await;
+                assert_eq!(
+                    env.code,
+                    Code::CapabilityUnavailable,
+                    "{}: {env:?}",
+                    row["what"]
+                );
+                assert_eq!(
+                    env.data["error"]["reason"],
+                    heimdall_contract::envelope::reason::DRIVER_UNAVAILABLE,
+                    "{}",
+                    row["what"]
+                );
+                assert_eq!(
+                    env.data["error"]["effect_status"], "none",
+                    "{}",
+                    row["what"]
+                );
+            }
+        }
+        assert_eq!(records(), before, "a revision-6 request wrote a record");
+    }
+
     /// Only the owner may take or lift the fence.
     #[tokio::test]
     async fn uninstall_fence_needs_the_owner() {
@@ -1019,6 +1112,7 @@ mod tests {
         let consumer = Caller::unattended(CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::LimitedConsumer,
+            remote_client: None,
         });
         let refused = d
             .handle_as(&consumer, fence(UninstallFenceRequest::Acquire))

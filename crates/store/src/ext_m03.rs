@@ -254,7 +254,51 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
         "slot_references",
         RecoveryClass::Discarded("shared-slot references; local, end with the runtime"),
     ),
+    // ⟨M06⟩ Wave 0 (migration 0009; ADR-0006 §18): no store API writes these tables yet, so
+    // they are always empty and nothing of them can change between an uninstall's
+    // confirmation and its purge. Each unit that adds a writer reclassifies its table
+    // before the writer lands; the transport key references, the role table, invitations,
+    // the effect outbox and acknowledgements, the policy revisions and the two pin tables
+    // are expected to become `Rows` (DONE question W0C-Q3).
+    ("remote_clients", RecoveryClass::Discarded(M06_UNWRITTEN)),
+    (
+        "remote_invitations",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    (
+        "remote_effect_outbox",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    (
+        "remote_effect_acks",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    (
+        "remote_policy_revisions",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    (
+        "remote_environment_pins",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    (
+        "remote_grant_issuers",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    (
+        "destination_routes",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    ("route_consents", RecoveryClass::Discarded(M06_UNWRITTEN)),
+    (
+        "remote_authority_generation",
+        RecoveryClass::Discarded(M06_UNWRITTEN),
+    ),
+    ("transport_keys", RecoveryClass::Discarded(M06_UNWRITTEN)),
 ];
+
+/// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).
+const M06_UNWRITTEN: &str = "M06 wave 0: created by migration 0009 with no writer; the unit that adds its writer (m06-plan U1-U5) classifies it first (fail closed: `Rows` for a record the purge must not lose)";
 
 /// ⟨ADR-0008 §17.32 item 1 (audit A4)⟩ Every `meta` key the store writes, by exact key
 /// or by prefix (ending in `:`), classified for the recovery snapshot: `None` when its

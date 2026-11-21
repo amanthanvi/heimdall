@@ -647,11 +647,12 @@ impl EventPublisher {
     }
 }
 
-/// Whether `caller` may see an operation created by `owner` (same principal, or
-/// the owner role).
+/// Whether `caller` may see an operation created by `owner` (the same caller, or the
+/// owner role). ⟨rev6⟩ The same caller is the same principal **and** the same paired
+/// client (ADR-0012 §3.7, §9 item 2): a client sees its own operations.
 #[must_use]
 pub fn visible_to(owner: &CallerContext, caller: &CallerContext) -> bool {
-    owner.principal == caller.principal || caller.is_owner()
+    owner.same_caller(caller) || caller.is_owner()
 }
 
 /// The snapshot document consistent with a boundary: open and unresolved
@@ -753,10 +754,7 @@ mod tests {
     use heimdall_domain::principal::{ClientRole, PrincipalRef};
 
     fn ctx(uid: u32) -> CallerContext {
-        CallerContext {
-            principal: PrincipalRef::UnixUser { uid },
-            role: ClientRole::Owner,
-        }
+        CallerContext::local(PrincipalRef::UnixUser { uid }, ClientRole::Owner)
     }
 
     #[test]
@@ -791,5 +789,41 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, cursor::reader_tag(&limited));
         assert_eq!(a, cursor::reader_tag(&ctx(501)));
+    }
+
+    /// ⟨rev6⟩ ADR-0012 §3.7, §9 item 2: cursors and visibility include the paired client.
+    /// Without one, the reader tag is the revision-5 tag (the hash of the two-field caller
+    /// document, so every issued cursor still resolves); two clients of one account, and
+    /// the account's own limited caller, get different tags and do not see each other's
+    /// operations, while the owner role sees all.
+    #[test]
+    fn remote_client_scopes_cursors_and_visibility() {
+        let local = ctx(501);
+        let before = heimdall_contract::canonical::request_hash(
+            "event-cursor-reader",
+            &serde_json::json!({"principal": {"kind": "unix_user", "uid": 501}, "role": "owner"}),
+        )
+        .unwrap();
+        assert_eq!(cursor::reader_tag(&local), before.0[..8]);
+        let client = |n: u8| CallerContext {
+            role: ClientRole::LimitedConsumer,
+            remote_client: Some(heimdall_contract::ids::ClientId::from_random_bytes([n; 16])),
+            ..local.clone()
+        };
+        let mut limited = local.clone();
+        limited.role = ClientRole::LimitedConsumer;
+        assert_ne!(
+            cursor::reader_tag(&client(1)),
+            cursor::reader_tag(&client(2))
+        );
+        assert_ne!(cursor::reader_tag(&client(1)), cursor::reader_tag(&limited));
+        assert!(visible_to(&client(1), &client(1)));
+        assert!(!visible_to(&client(1), &client(2)));
+        assert!(!visible_to(&client(1), &limited));
+        assert!(!visible_to(&limited, &client(1)));
+        assert!(
+            visible_to(&client(1), &local),
+            "the owner role sees every operation"
+        );
     }
 }

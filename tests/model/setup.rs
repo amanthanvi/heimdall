@@ -100,6 +100,7 @@ fn owner_ctx() -> CallerContext {
     CallerContext {
         principal: owner_principal(),
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 
@@ -169,6 +170,7 @@ fn limited() -> Caller {
     Caller::unattended(CallerContext {
         principal: owner_principal(),
         role: ClientRole::LimitedConsumer,
+        remote_client: None,
     })
 }
 

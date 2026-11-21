@@ -262,6 +262,18 @@ const REQUIRED_TABLES: &[&str] = &[
     "decision_cooldowns",
     "work_stops",
     "slot_references",
+    // schema version 9 (M06 remote runners, routes, transport; ADR-0012 §9 item 11)
+    "remote_clients",
+    "remote_invitations",
+    "remote_effect_outbox",
+    "remote_effect_acks",
+    "remote_policy_revisions",
+    "remote_environment_pins",
+    "remote_grant_issuers",
+    "destination_routes",
+    "route_consents",
+    "remote_authority_generation",
+    "transport_keys",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -1893,6 +1905,7 @@ mod tests {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             kind: OperationKind::Ensure,
             request_id: heimdall_contract::ids::RequestId::parse(&format!("req-{n}")).unwrap(),
@@ -2052,7 +2065,8 @@ mod tests {
         // grant origin column; 0005: the M02 tables, which add tables only).
         // M03 wave 0 (S): 0006 (the M03 tables) adds tables only as well.
         // ⟨M04/M05 wave 0⟩ 0007 and 0008 add tables, and 0008 one nullable column.
-        assert_eq!(migrations::SCHEMA_VERSION, 8);
+        // ⟨M06 wave 0⟩ 0009 adds tables only.
+        assert_eq!(migrations::SCHEMA_VERSION, 9);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -2480,6 +2494,7 @@ mod tests {
             owner: CallerContext {
                 principal: PrincipalRef::UnixUser { uid },
                 role: ClientRole::LimitedConsumer,
+                remote_client: None,
             },
             profile: heimdall_contract::ids::ProfileId::parse("ops").unwrap(),
             profile_revision: 9,
@@ -2626,6 +2641,7 @@ mod tests {
         let owner = CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         };
         s.transaction(|tx| {
             for g in &grants_before {
@@ -2656,6 +2672,7 @@ mod tests {
                 caller: CallerContext {
                     principal: PrincipalRef::UnixUser { uid: 777 },
                     role: ClientRole::LimitedConsumer,
+                    remote_client: None,
                 },
                 mechanism: "fake_agent".into(),
                 covered: None,

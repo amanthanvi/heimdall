@@ -1,5 +1,5 @@
 {
-  "source": "m02-plan U0 Tests (journaled_operation_kinds_match_their_request_kind) and section 5 items 2-4, extended by m03-plan U0 Tests and section 5 items 2, 3, 4a, 11 and 12, and by ADR-0006 revision 5 (m04-plan section 5 item 2: the environment requests; m05-plan section 4 item 4: catalog apply_import, journaled under catalog), transcribed; shared by the contract half (tests/contracts/m02.rs, Request::kind and Request::admission) and the domain half (OperationKind::as_str and its serde form)",
+  "source": "m02-plan U0 Tests (journaled_operation_kinds_match_their_request_kind) and section 5 items 2-4, extended by m03-plan U0 Tests and section 5 items 2, 3, 4a, 11 and 12, and by ADR-0006 revision 5 (m04-plan section 5 item 2: the environment requests; m05-plan section 4 item 4: catalog apply_import, journaled under catalog) and by ADR-0006 revision 6 (M06 wave 0, section 18.1: the revision-6 forms, none journaled; the lookups read-only), transcribed; shared by the contract half (tests/contracts/m02.rs, Request::kind and Request::admission) and the domain half (OperationKind::as_str and its serde form)",
   "journaled": {
     "Ensure": "ensure",
     "Delegate": "delegate",
@@ -20,9 +20,17 @@
                   "uninstall_fence.acquire", "uninstall_fence.release",
                   "uninstall_fence.retry_remote_revocations",
                   "environment.wsl_enable", "environment.wsl_disable",
-                  "environment.container_add", "environment.container_remove"],
+                  "environment.container_add", "environment.container_remove",
+                  "remote_environment.add", "remote_environment.invite",
+                  "remote_environment.join", "remote_environment.revoke_client",
+                  "remote_environment.remove", "remote_environment.update",
+                  "device.retire", "route.add", "route.remove", "route.prefer",
+                  "transport.enable", "transport.disable", "transport.adopt_roost",
+                  "runner.prepare_remote_grant", "runner.install_certificate",
+                  "runner.time_challenge", "runner.time_response", "runner.deliver_effect"],
   "read_only": ["inspect", "observe", "shutdown", "setup.preview",
-                "issuer.status", "issuer.bundle", "enrollment.preview"],
+                "issuer.status", "issuer.bundle", "enrollment.preview",
+                "remote_environment.status", "route.resolve_binding", "runner.authority_report"],
   "declared_never_constructed": {
     "Cancel": "cancel",
     "Release": "release",

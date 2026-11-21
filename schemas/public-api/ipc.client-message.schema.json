@@ -204,6 +204,68 @@
         "request_id"
       ]
     },
+    "BindScope": {
+      "description": "Where an endpoint binds (ADR-0012 §2.1). Anything but `loopback` or `none` needs a\nrecorded consent.",
+      "oneOf": [
+        {
+          "description": "No bind (relay-only).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Loopback only (the default).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "loopback"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "One non-loopback interface address (a widening).",
+          "type": "object",
+          "properties": {
+            "address": {
+              "description": "The address.",
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "interface"
+            }
+          },
+          "required": [
+            "kind",
+            "address"
+          ]
+        },
+        {
+          "description": "A wildcard bind (a widening).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "wildcard"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
     "BindingId": {
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
@@ -583,6 +645,17 @@
           "maximum": 65535,
           "minimum": 0
         },
+        "remote_client": {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §9 item 1): the paired client a runner's bridge\ndeclares for this session. Omitted when absent, so every earlier hello is\nbyte-identical. A runtime that does not offer `remote-control/1` refuses a hello\ncarrying it with `SCHEMA_UNSUPPORTED` (wave 0: every runtime). It is never read\nfrom a request field.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClientId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "required": {
           "description": "Capabilities the client requires; a missing one is rejected explicitly\n(spec §11.2 \"required capability must be rejected explicitly\"). Must be a\nsubset of the negotiated set (`capabilities ∩ server offer`), ADR-0006 §2.3.",
           "type": "array",
@@ -602,6 +675,10 @@
         "schema_version",
         "client"
       ]
+    },
+    "ClientId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.6, §3.7): a paired management client, minted by the\nrunner at invitation (`cl_<32 hex>`). It names the enrollment line\n(`heimdall-mgmt:<cid>`) and the bridge's argv; it is never a credential and never a\nrequest field that sets a caller (ADR-0006 §18).",
+      "type": "string"
     },
     "ConfirmTimeRequest": {
       "description": "Attended owner confirmation of the current wall time to resolve\n`TIME_UNCERTAIN` after a reboot or sync loss (ADR-0005 §3.6). Never moves a\ndeadline; never rebuilds a budget. Attended sessions only.",
@@ -1016,9 +1093,111 @@
         "definition"
       ]
     },
+    "DeviceRequest": {
+      "description": "`Request::Device`, tagged by `action` (ADR-0012 §3.4: `device retire`). Capability\n`remote-control/1`.",
+      "oneOf": [
+        {
+          "description": "Retire this controller device: revoke its client on every runner where it is\nenrolled, then destroy K_mgmt. Needs an attended local decision (ADR-0012 §3.10\nitem 4). Kind `device.retire`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "retire"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      ]
+    },
     "DistributionGuid": {
       "description": "A WSL distribution's registration GUID under `HKCU\\...\\Lxss` (ADR-0010 §3 item 1): the\nidentity of a distribution, kept across renames; a re-registered distribution is a new\nGUID. Wire form: 36 lowercase hex-and-hyphen characters, `8-4-4-4-12`, no braces\n(validated on decode; the CLI normalizes case and strips braces before sending).",
       "type": "string"
+    },
+    "EffectId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.2): a narrowing effect, minted by its producing\ncontroller. Keyed with the authenticated producer, the typed target and its\ngeneration.",
+      "type": "string"
+    },
+    "EffectTarget": {
+      "description": "A typed narrowing effect's target (ADR-0012 §7.2). With the authenticated producing\ncontroller (the session's client, never a field) and the effect ID, it keys the\neffect; each target carries its own generation.",
+      "oneOf": [
+        {
+          "description": "Applied as a durable grant tombstone (ADR-0005 §6.1 \"Revocation\"), acknowledged\nwith its enforcement state.",
+          "type": "object",
+          "properties": {
+            "grant": {
+              "description": "The grant.",
+              "$ref": "#/$defs/GrantId"
+            },
+            "grant_generation": {
+              "description": "The grant's generation.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "grant_revoke"
+            }
+          },
+          "required": [
+            "kind",
+            "grant",
+            "grant_generation"
+          ]
+        },
+        {
+          "description": "Applied as a durable policy revision: running grants continue, new activations\nare refused (§6.1 \"Pause\"). Not a tombstone.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy_pause"
+            },
+            "policy": {
+              "description": "The policy.",
+              "$ref": "#/$defs/PolicyId"
+            },
+            "revision": {
+              "description": "The revision this pause produces.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "policy",
+            "revision"
+          ]
+        },
+        {
+          "description": "Applied as a durable policy revision that also ends every affected grant like\nexpiry and refuses new grants until cleared (§6.1 \"Cutoff\"). Wave 0 reads a\ndelivered cutoff as taking effect when applied (no scheduled instant).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "policy_cutoff"
+            },
+            "revision": {
+              "description": "The revision this cutoff produces.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "scope": {
+              "description": "The policies it applies to.",
+              "$ref": "#/$defs/PolicyTarget"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "revision"
+          ]
+        }
+      ]
     },
     "EndpointKind": {
       "description": "The transport of an agent endpoint.",
@@ -1694,6 +1873,31 @@
           "description": "⟨M05⟩ Revision 5 (m05-plan §4 item 8): a background activation was activated,\nblocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not\nemitted by joint wave 0.",
           "type": "string",
           "const": "activation"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §9 item 8): `environment.connectivity_changed` (payload\n[`crate::remote::EnvironmentEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "environment"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `client.enrolled`, `client.revoked` (payload\n[`crate::remote::ClientEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "client"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `device.retired` (payload [`crate::remote::DeviceEventPayload`]).\nDeclared, not emitted by wave 0.",
+          "type": "string",
+          "const": "device"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `remote_effect.pending`, `remote_effect.acknowledged` (payload\n[`crate::remote::RemoteEffectEventPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "remote_effect"
+        },
+        {
+          "description": "⟨M06⟩ Revision 6: `route.health` for every attempt, `route.failed_over` its subtype\n(payload [`crate::route::RouteHealthPayload`]). Declared, not emitted by wave 0.",
+          "type": "string",
+          "const": "route"
         }
       ]
     },
@@ -1710,6 +1914,28 @@
           "type": "string",
           "const": "strict"
         }
+      ]
+    },
+    "ExposurePolicy": {
+      "description": "One endpoint's effective exposure policy (ADR-0012 §2.1): the bind, relay map, peer\nrelay hints, direct addresses, lookup and ancillary targets are built from it alone,\nand anything outside it is refused. The default is the minimal policy.",
+      "type": "object",
+      "properties": {
+        "bind": {
+          "description": "Where the endpoint binds.",
+          "$ref": "#/$defs/BindScope"
+        },
+        "direct_fallback": {
+          "description": "Direct fallback to learned or public addresses (reveals public IPs; a widening).",
+          "type": "boolean"
+        },
+        "infrastructure": {
+          "description": "Relay and lookup infrastructure.",
+          "$ref": "#/$defs/InfrastructureProfile"
+        }
+      },
+      "required": [
+        "bind",
+        "infrastructure"
       ]
     },
     "ForeignRemovalTarget": {
@@ -1871,6 +2097,58 @@
         "public_key"
       ]
     },
+    "InfrastructureProfile": {
+      "description": "Relay and lookup infrastructure (ADR-0012 §2.2). A route never falls back to a profile\nit does not name.",
+      "oneOf": [
+        {
+          "description": "Direct only (the default).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "The user's relay URLs, each consented.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "custom"
+            },
+            "relays": {
+              "description": "Relay URLs.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "relays"
+          ]
+        },
+        {
+          "description": "n0's relays plus lookup: off by default and outside V1 unless its capture row runs.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "n0_public"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
     "InspectRequest": {
       "description": "`inspect` request (read-only; never contacts agents, network, or executable\nconfiguration; spec §10.2).",
       "type": "object",
@@ -2005,6 +2283,14 @@
           "const": "non_interactive"
         }
       ]
+    },
+    "InvitationId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.9): an invitation, minted by the runner with its\npending record. Consumed once by `join`'s compare-and-set.",
+      "type": "string"
+    },
+    "IrohEndpointId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §1, §5.1): an Iroh endpoint ID, the endpoint's public key\nas 64 lowercase hex characters. Reachability identity only: it grants nothing (spec\n§8.6) and is distinct from every SSH and management key (ADR-0012 §0).",
+      "type": "string"
     },
     "IssuerRequest": {
       "description": "`Request::Issuer`, tagged `action` (capability `issuer/1`).",
@@ -2165,6 +2451,10 @@
           ]
         }
       ]
+    },
+    "KeyFingerprint": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.9 item 1, §5.1, §9 items 5 and 9): an SSH public key's\nfingerprint, `SHA256:` followed by exactly 43 characters of unpadded standard base64,\nas `ssh-keygen -l` prints it (the same form as [`CaFingerprint`]). Used for pinned\nhost keys and for an invitation's receiving key. Validated on parse and on decode;\ncompared exactly.",
+      "type": "string"
     },
     "LaunchBinding": {
       "description": "`bind(launch)` (m02-plan §5 item 5). Wire form:\n`{\"form\":\"launch\",\"executable\":…,\"holder\":{…}}`.",
@@ -3251,6 +3541,192 @@
         "binding_id"
       ]
     },
+    "RemoteEnvironmentRequest": {
+      "description": "`Request::RemoteEnvironment`, tagged by `action` (ADR-0012 §3, §6.4, §9 item 6:\n`env add|invite|join|revoke-client|remove|update|status`). Capability\n`remote-control/1`. A form that can widen authority or exposure (`invite`) carries a\n`request_id`, so a replay after the runner-local decision returns the recorded\nterminal result (ADR-0012 §3.10 T-RA3).",
+      "oneOf": [
+        {
+          "description": "Bootstrap a runner over the owner's existing, independently host-verified SSH\naccess to the runner account (ADR-0012 §3.3): install or verify the binary, run\n`heimdall remote init`, enroll this controller's K_mgmt as `owner` (confirmed in\nthe bootstrap's interactive ssh session with a TTY). Also the repair path for a\nlost host pin or K_mgmt. Kind `remote_environment.add`.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "description": "The runner account.",
+              "$ref": "#/$defs/AccountName"
+            },
+            "action": {
+              "type": "string",
+              "const": "add"
+            },
+            "destination": {
+              "description": "The catalog destination whose pinned host key and existing access reach the\nrunner account (never `ssh-keyscan`).",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "label": {
+              "description": "The owner's label (1 to [`MAX_REMOTE_LABEL_BYTES`] bytes).",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "account"
+          ]
+        },
+        {
+          "description": "Create an invitation on the runner (ADR-0012 §3.9): a widening action, confirmed\nrunner-locally. The runner mints the invitation and client IDs. Kind\n`remote_environment.invite`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "invite"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            },
+            "key_fingerprint": {
+              "description": "The receiving key's fingerprint, which the owner confirmed against the new\ndevice's display (§3.9 item 1).",
+              "$ref": "#/$defs/KeyFingerprint"
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            },
+            "role": {
+              "description": "The role the invited client will hold.",
+              "$ref": "#/$defs/Role"
+            }
+          },
+          "required": [
+            "action",
+            "environment",
+            "role",
+            "key_fingerprint",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Consume an invitation: `pending → active` only if the invitation, the client (from\nthe bridge's argv), the line's key fingerprint, the role and the generation all\nmatch and the invitation is live (§3.9 items 4–5). Kind `remote_environment.join`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "join"
+            },
+            "environment": {
+              "description": "The runner environment, from the public bundle the user confirmed.",
+              "$ref": "#/$defs/EnvironmentId"
+            },
+            "generation": {
+              "description": "The invitation's generation.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "invitation": {
+              "description": "The invitation.",
+              "$ref": "#/$defs/InvitationId"
+            },
+            "role": {
+              "description": "The role the invitation was created for.",
+              "$ref": "#/$defs/Role"
+            }
+          },
+          "required": [
+            "action",
+            "environment",
+            "invitation",
+            "role",
+            "generation"
+          ]
+        },
+        {
+          "description": "Revoke one client on the runner (ADR-0012 §3.11): tombstone, close Iroh admission,\nthen remove the line. Narrowing; no decision. Kind\n`remote_environment.revoke_client`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "revoke_client"
+            },
+            "client": {
+              "description": "The client.",
+              "$ref": "#/$defs/ClientId"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            }
+          },
+          "required": [
+            "action",
+            "environment",
+            "client"
+          ]
+        },
+        {
+          "description": "Remove the runner environment from this controller. Kind\n`remote_environment.remove`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            }
+          },
+          "required": [
+            "action",
+            "environment"
+          ]
+        },
+        {
+          "description": "Explicit runner binary update: a checksum-verified copy, drain, restart; the\nenvironment ID and the role table are preserved (ADR-0012 §6.4). Kind\n`remote_environment.update`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "update"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            }
+          },
+          "required": [
+            "action",
+            "environment"
+          ]
+        },
+        {
+          "description": "The controller's view of one or every remote environment (ADR-0012 §7.1).\nRead-only. Kind `remote_environment.status`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "status"
+            },
+            "environment": {
+              "description": "One environment; every remote environment when absent.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EnvironmentId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      ]
+    },
     "RemovalTarget": {
       "description": "What an `enrollment.remove` removes, tagged `kind`.",
       "oneOf": [
@@ -3591,6 +4067,76 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §3, §9 item 6): the controller's management of remote\nrunner environments ([`crate::remote::RemoteEnvironmentRequest`]; needs\n`remote-control/1`, declared and not offered).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "remote_environment"
+            }
+          },
+          "$ref": "#/$defs/RemoteEnvironmentRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §3.4): retire this controller device\n([`crate::remote::DeviceRequest`]; needs `remote-control/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "device"
+            }
+          },
+          "$ref": "#/$defs/DeviceRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §5): a destination's approved routes and the route\nhelper's binding lookup ([`crate::route::RouteRequest`]; needs `routes/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "route"
+            }
+          },
+          "$ref": "#/$defs/RouteRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §2): the Iroh transport and roost adoption\n([`crate::route::TransportRequest`]; needs `transport-iroh/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "transport"
+            }
+          },
+          "$ref": "#/$defs/TransportRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "⟨M06⟩ Revision 6 (ADR-0012 §4, §7): the runner-internal requests\n([`crate::remote::RunnerRequest`]; needs `runner/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "runner"
+            }
+          },
+          "$ref": "#/$defs/RunnerRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -3700,6 +4246,359 @@
           "required": [
             "kind",
             "work_id"
+          ]
+        }
+      ]
+    },
+    "Role": {
+      "description": "A paired client's role on a runner (ADR-0012 §3.8). The local same-user caller is\nalways `owner` (ADR-0006 §2.1); `requester` and `viewer` are defined here and unused\nuntil the role table lands (m06-plan U1).",
+      "oneOf": [
+        {
+          "description": "Every permission.",
+          "type": "string",
+          "const": "owner"
+        },
+        {
+          "description": "`view` and `request`.",
+          "type": "string",
+          "const": "requester"
+        },
+        {
+          "description": "`view` only.",
+          "type": "string",
+          "const": "viewer"
+        }
+      ]
+    },
+    "RouteId": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §5.1): one approved route of a destination. Reachability\ndata only; a route grants nothing and never changes host identity.",
+      "type": "string"
+    },
+    "RouteRequest": {
+      "description": "`Request::Route`, tagged by `action` (ADR-0012 §5, §9 item 6: `route add|remove|prefer`\nand the helper's `ResolveRouteBinding`). Capability `routes/1`.",
+      "oneOf": [
+        {
+          "description": "Approve a new route for a destination. New or expanded exposure is a widening\naction confirmed by an attended session local to the endpoint that widens\n(ADR-0012 §2.1, §3.10). Kind `route.add`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "add"
+            },
+            "destination": {
+              "description": "The destination.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "exposure": {
+              "description": "Its exposure policy (Iroh routes); the minimal policy when absent.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ExposurePolicy"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            },
+            "route": {
+              "description": "The route.",
+              "$ref": "#/$defs/RouteSpec"
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "route",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Remove a route (narrowing). Kind `route.remove`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove"
+            },
+            "destination": {
+              "description": "The destination.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "route": {
+              "description": "The route.",
+              "$ref": "#/$defs/RouteId"
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "route"
+          ]
+        },
+        {
+          "description": "Make a route the most preferred. A pure preference change needs the routes'\nexisting recorded consents and no new decision (ADR-0012 §2.1). Kind\n`route.prefer`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "prefer"
+            },
+            "destination": {
+              "description": "The destination.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            },
+            "route": {
+              "description": "The route.",
+              "$ref": "#/$defs/RouteId"
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "route",
+            "request_id"
+          ]
+        },
+        {
+          "description": "The route helper's lookup (ADR-0012 §5.4, `ResolveRouteBinding`): the one binding\n(and its grant) served at `endpoint` for the caller's context; zero or several is\n`route_binding_ambiguous`. Read-only. Kind `route.resolve_binding`.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "description": "The account.",
+              "$ref": "#/$defs/AccountName"
+            },
+            "action": {
+              "type": "string",
+              "const": "resolve_binding"
+            },
+            "destination": {
+              "description": "The destination.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "endpoint": {
+              "description": "The binding endpoint the alias renders (`IdentityAgent` and `--endpoint`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "account",
+            "endpoint"
+          ]
+        }
+      ]
+    },
+    "RouteSpec": {
+      "description": "An approved route's reachability data (ADR-0012 §5.1).",
+      "oneOf": [
+        {
+          "description": "A direct TCP route.",
+          "type": "object",
+          "properties": {
+            "host": {
+              "description": "Host name or address.",
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "direct"
+            },
+            "port": {
+              "description": "Port; ssh's default when absent.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "host"
+          ]
+        },
+        {
+          "description": "A single-hop jump through another catalog destination (ADR-0010 §5's semantics;\nmulti-hop chains stay `route_chain_unsupported`).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "jump"
+            },
+            "via": {
+              "description": "The jump destination.",
+              "$ref": "#/$defs/DestinationId"
+            }
+          },
+          "required": [
+            "kind",
+            "via"
+          ]
+        },
+        {
+          "description": "An Iroh route to an endpoint ID under the route's exposure policy.",
+          "type": "object",
+          "properties": {
+            "endpoint": {
+              "description": "The serving endpoint.",
+              "$ref": "#/$defs/IrohEndpointId"
+            },
+            "external_roost": {
+              "description": "The endpoint is an adopted stock Pigeons roost: external infrastructure with\nno allowlist, publishing to n0, on its own relay set (ADR-0012 §2.8).",
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "iroh"
+            }
+          },
+          "required": [
+            "kind",
+            "endpoint"
+          ]
+        }
+      ]
+    },
+    "RunnerRequest": {
+      "description": "`Request::Runner`, tagged by `action` (ADR-0012 §4, §7, §9 item 6): the requests a\ncontroller sends a runner over the management channel. Capability `runner/1`. None\ncarries a caller identity; the producing controller of an effect is the session's\nauthenticated client. The serve child's lease and suspend messages are internal to\nits supervision channel and are not here (§2.3).",
+      "oneOf": [
+        {
+          "description": "Ask the runner to generate K_env for a grant it admitted and return K_env.pub\nbound to the grant and its generation (ADR-0012 §4.2 step 2). Kind\n`runner.prepare_remote_grant`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "prepare_remote_grant"
+            },
+            "grant": {
+              "description": "The grant.",
+              "$ref": "#/$defs/GrantId"
+            },
+            "grant_generation": {
+              "description": "The grant's generation.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "action",
+            "grant",
+            "grant_generation"
+          ]
+        },
+        {
+          "description": "Install the issuer's certificate for that key (§4.2 step 4): the runner checks its\nkey, issuer (`issuer_trust`), principals, generation, scope and `valid_before`.\nKind `runner.install_certificate`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "install_certificate"
+            },
+            "certificate": {
+              "description": "The OpenSSH certificate, one line of public text (at most\n[`MAX_CERTIFICATE_BYTES`]).",
+              "type": "string"
+            },
+            "grant": {
+              "description": "The grant.",
+              "$ref": "#/$defs/GrantId"
+            },
+            "grant_generation": {
+              "description": "The grant's generation.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "action",
+            "grant",
+            "grant_generation",
+            "certificate"
+          ]
+        },
+        {
+          "description": "Ask the runner for a fresh time-challenge nonce (ADR-0012 §4.4). Kind\n`runner.time_challenge`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "time_challenge"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "Answer it as the runner's designated time source: fresh, nonce-bound, counted only\nwithin the RTT bound; it may move an anchor earlier only (§4.4). Kind\n`runner.time_response`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "time_response"
+            },
+            "controller_time": {
+              "description": "The controller's clock reading (T_c).",
+              "type": "string",
+              "format": "date-time"
+            },
+            "nonce": {
+              "description": "The runner's nonce, echoed.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "nonce",
+            "controller_time"
+          ]
+        },
+        {
+          "description": "Deliver a typed narrowing effect (ADR-0012 §7.2): acknowledged only after the\ndurable record it names exists. Kind `runner.deliver_effect`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "deliver_effect"
+            },
+            "effect": {
+              "description": "The effect ID the producing controller minted.",
+              "$ref": "#/$defs/EffectId"
+            },
+            "target": {
+              "description": "The typed target.",
+              "$ref": "#/$defs/EffectTarget"
+            }
+          },
+          "required": [
+            "action",
+            "effect",
+            "target"
+          ]
+        },
+        {
+          "description": "The runner's authority report: tombstones, policy revisions with their\ngenerations, installed certificates (§7.4 step 3), read by the issuer's\nreconciliation barrier. Read-only. Kind `runner.authority_report`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "authority_report"
+            }
+          },
+          "required": [
+            "action"
           ]
         }
       ]
@@ -3826,6 +4725,96 @@
           "description": "The Linux Secret Service.",
           "type": "string",
           "const": "linux_secret_service"
+        }
+      ]
+    },
+    "TransportRequest": {
+      "description": "`Request::Transport`, tagged by `action` (ADR-0012 §2, §9 item 6: `transport\nenable|disable` and `roost adopt`). Capability `transport-iroh/1`.",
+      "oneOf": [
+        {
+          "description": "Generate K_iroh in a verified platform store and, with `serve`, start the\nsupervised serve child (ADR-0012 §2.3, §2.4). Exposure beyond the minimal policy is\na widening action. Kind `transport.enable`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "enable"
+            },
+            "exposure": {
+              "description": "The endpoint's exposure policy; the minimal policy when absent.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ExposurePolicy"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            },
+            "serve": {
+              "description": "Also serve this host's sshd to enrolled clients.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "action",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Stop serve, destroy K_iroh and remove every route that names it, with their\nprojections and allowlist entries (ADR-0012 §2.5). Kind `transport.disable`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "disable"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "Adopt an existing stock Pigeons roost as a destination's Iroh route (ADR-0012\n§2.8): a widening action bound to the roost's endpoint ID and disclosed exposure.\nKind `transport.adopt_roost`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "adopt_roost"
+            },
+            "destination": {
+              "description": "The destination.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "endpoint": {
+              "description": "The roost's endpoint.",
+              "$ref": "#/$defs/IrohEndpointId"
+            },
+            "exposure": {
+              "description": "The dialer's exposure policy for it; the minimal policy when absent.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ExposurePolicy"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "request_id": {
+              "description": "Idempotency key (ADR-0006 §7).",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "endpoint",
+            "request_id"
+          ]
         }
       ]
     },

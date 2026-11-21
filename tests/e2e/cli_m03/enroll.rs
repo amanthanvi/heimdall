@@ -738,6 +738,7 @@ pub(super) mod world {
                     context: CallerContext {
                         principal: PrincipalRef::UnixUser { uid },
                         role: ClientRole::Owner,
+                        remote_client: None,
                     },
                     attendance: heimdall_app::Attendance::Attended {
                         since: Timestamp::now(),
@@ -1102,6 +1103,7 @@ pub(super) mod world {
                         uid: std::fs::metadata(&self.home.root).unwrap().uid(),
                     },
                     role: ClientRole::Owner,
+                    remote_client: None,
                 },
                 kind: OperationKind::EnrollmentApply,
                 request_id: RequestId::parse(&format!(

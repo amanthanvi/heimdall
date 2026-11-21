@@ -55,6 +55,21 @@ pub enum EventType {
     /// blocked or not covered (payload [`crate::trust::ActivationEventPayload`]). Not
     /// emitted by joint wave 0.
     Activation,
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §9 item 8): `environment.connectivity_changed` (payload
+    /// [`crate::remote::EnvironmentEventPayload`]). Declared, not emitted by wave 0.
+    Environment,
+    /// ⟨M06⟩ Revision 6: `client.enrolled`, `client.revoked` (payload
+    /// [`crate::remote::ClientEventPayload`]). Declared, not emitted by wave 0.
+    Client,
+    /// ⟨M06⟩ Revision 6: `device.retired` (payload [`crate::remote::DeviceEventPayload`]).
+    /// Declared, not emitted by wave 0.
+    Device,
+    /// ⟨M06⟩ Revision 6: `remote_effect.pending`, `remote_effect.acknowledged` (payload
+    /// [`crate::remote::RemoteEffectEventPayload`]). Declared, not emitted by wave 0.
+    RemoteEffect,
+    /// ⟨M06⟩ Revision 6: `route.health` for every attempt, `route.failed_over` its subtype
+    /// (payload [`crate::route::RouteHealthPayload`]). Declared, not emitted by wave 0.
+    Route,
 }
 
 /// One event (spec §11.5 field list).

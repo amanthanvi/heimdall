@@ -72,6 +72,7 @@ fn reader(uid: u32) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 

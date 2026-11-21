@@ -7688,6 +7688,7 @@ impl StoreSink {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             kind: OperationKind::SetupApply,
             request_id: RequestId::parse("setup-scratch").unwrap(),

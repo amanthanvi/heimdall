@@ -28,6 +28,9 @@ mod m03_cmd;
 // ⟨M05⟩ U9a (ADR-0011 §2–§7): `project`, `access allow|stop|default-profile` and the
 // targets of `access pause|resume|cutoff`.
 mod m05_cmd;
+// ⟨M06⟩ Wave 0 (ADR-0006 §18): `env`, `device`, `route`, `transport`, `roost`, refused until
+// their units land.
+mod m06_cmd;
 mod output;
 mod portable_cmd;
 mod prompt;

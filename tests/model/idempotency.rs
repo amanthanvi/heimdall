@@ -82,6 +82,7 @@ fn owner(uid: u32) -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role: ClientRole::Owner,
+        remote_client: None,
     })
 }
 

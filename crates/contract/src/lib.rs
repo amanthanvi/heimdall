@@ -15,6 +15,9 @@
 //! ⟨M04, M05⟩ ADR-0006 revision 5 (joint wave 0; §17) adds the managed environments,
 //! their realizations and routes (`environment`), the trusted-work vocabulary (`trust`)
 //! and the manifest and portable-bundle formats (`project`).
+//! ⟨M06⟩ ADR-0006 revision 6 (§18; ADR-0012 §9) adds roles, remote environment management,
+//! the runner-internal requests and typed effects (`remote`), and approved routes, exposure
+//! policies, the transport requests and route health (`route`).
 //!
 //! It owns no semantics: state *transitions*, authority resolution and hashing
 //! *inputs* live in `heimdall-domain`. Nothing here performs I/O. Dependencies are
@@ -40,7 +43,9 @@ pub mod issuer;
 pub mod managed;
 pub mod project;
 pub mod provider;
+pub mod remote;
 pub mod request;
+pub mod route;
 pub mod run_record;
 pub mod schema;
 pub mod setup;

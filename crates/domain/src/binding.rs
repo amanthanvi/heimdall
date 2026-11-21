@@ -70,10 +70,11 @@ pub enum ReleaseOutcome {
     NotOwner,
 }
 
-/// Pure ownership rule shared by release/bind/delegate.
+/// Pure ownership rule shared by release/bind/delegate: the same caller (principal and
+/// ⟨rev6⟩ paired client, ADR-0012 §3.7) or the owner role.
 #[must_use]
 pub fn may_act_on(binding: &BindingRecord, caller: &CallerContext) -> bool {
-    binding.owner.principal == caller.principal || caller.is_owner()
+    binding.owner.same_caller(caller) || caller.is_owner()
 }
 
 #[cfg(test)]
@@ -84,14 +85,14 @@ mod tests {
 
     #[test]
     fn foreign_limited_caller_may_not_act() {
-        let owner = CallerContext {
-            principal: PrincipalRef::UnixUser { uid: 501 },
-            role: ClientRole::LimitedConsumer,
-        };
-        let other = CallerContext {
-            principal: PrincipalRef::UnixUser { uid: 502 },
-            role: ClientRole::LimitedConsumer,
-        };
+        let owner = CallerContext::local(
+            PrincipalRef::UnixUser { uid: 501 },
+            ClientRole::LimitedConsumer,
+        );
+        let other = CallerContext::local(
+            PrincipalRef::UnixUser { uid: 502 },
+            ClientRole::LimitedConsumer,
+        );
         let b = BindingRecord {
             id: BindingId::from_random_bytes([1; 16]),
             environment: EnvironmentId::from_random_bytes([2; 16]),
@@ -109,10 +110,18 @@ mod tests {
         };
         assert!(may_act_on(&b, &owner));
         assert!(!may_act_on(&b, &other));
-        let admin = CallerContext {
-            principal: PrincipalRef::UnixUser { uid: 502 },
-            role: ClientRole::Owner,
-        };
+        let admin = CallerContext::local(PrincipalRef::UnixUser { uid: 502 }, ClientRole::Owner);
         assert!(may_act_on(&b, &admin));
+        // ⟨rev6⟩ ADR-0012 §3.7: another paired client of the same runner account is another
+        // caller, and so is the account's own local caller.
+        let client = |n: u8| CallerContext {
+            remote_client: Some(heimdall_contract::ids::ClientId::from_random_bytes([n; 16])),
+            ..owner.clone()
+        };
+        let mut paired = b.clone();
+        paired.owner = client(1);
+        assert!(may_act_on(&paired, &client(1)));
+        assert!(!may_act_on(&paired, &client(2)));
+        assert!(!may_act_on(&paired, &owner));
     }
 }

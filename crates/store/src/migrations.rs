@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -70,6 +70,12 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 8,
         name: "trusted_work",
         sql: include_str!("../migrations/0008_trusted_work.sql"),
+    },
+    // ⟨M06⟩ Wave 0 (ADR-0012 §9 item 11; ADR-0006 §18): tables only, no store API yet.
+    Migration {
+        version: 9,
+        name: "remote",
+        sql: include_str!("../migrations/0009_remote.sql"),
     },
 ];
 
@@ -206,6 +212,79 @@ mod tests {
             )
             .unwrap();
         assert_eq!(b_exists, 0, "half-applied step must not survive");
+    }
+
+    /// ⟨M06⟩ ADR-0006 §18 (ADR-0012 §9 item 11): `0009_remote` applies on a database at
+    /// the previous version (8) and adds exactly its tables, leaving every earlier table
+    /// as it was; a failure inside the step leaves the database at 8 with none of them
+    /// (the step runs as one transaction, as [`failing_step_rolls_back_whole_step_and_version`]
+    /// proves for any step). Forward-only: no down step exists.
+    #[test]
+    fn remote_step_applies_on_the_previous_version_and_rolls_back_whole() {
+        const REMOTE: [&str; 11] = [
+            "destination_routes",
+            "remote_authority_generation",
+            "remote_clients",
+            "remote_effect_acks",
+            "remote_effect_outbox",
+            "remote_environment_pins",
+            "remote_grant_issuers",
+            "remote_invitations",
+            "remote_policy_revisions",
+            "route_consents",
+            "transport_keys",
+        ];
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..8];
+        assert_eq!(MIGRATIONS[8].version, 9);
+        assert_eq!(MIGRATIONS[8].name, "remote");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 8);
+        let before = tables(&c);
+        assert!(REMOTE.iter().all(|t| !before.iter().any(|b| b == t)));
+        c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w0-probe', 'kept')")
+            .unwrap();
+        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 9);
+        let after = tables(&c);
+        let added: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
+        assert_eq!(added, REMOTE.iter().collect::<Vec<_>>());
+        let kept: String = c
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'm06-w0-probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, "kept");
+        // The step is one transaction: broken after its first statement, nothing of it
+        // survives and the version stays 8.
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 9,
+                name: "remote_broken",
+                sql: concat!(
+                    include_str!("../migrations/0009_remote.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 8);
+        assert_eq!(tables(&c), before);
     }
 
     #[test]

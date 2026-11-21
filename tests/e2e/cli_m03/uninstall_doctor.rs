@@ -1337,6 +1337,7 @@ fn failed_verify(tx: &mut heimdall_store::Txn<'_>, id: &OperationId, reason: &st
         caller: CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         },
         kind: OperationKind::EnrollmentVerify,
         request_id: RequestId::parse(&format!("fixture_{}", id.as_str())).unwrap(),
@@ -2009,6 +2010,7 @@ mod raw {
                 capabilities: caps,
                 required: [capability::OPERATIONS_V1.to_owned()].into_iter().collect(),
                 interaction: InteractionMode::Interactive,
+                remote_client: None,
             }));
             assert!(
                 matches!(raw.recv(), ServerMessage::Hello(_)),

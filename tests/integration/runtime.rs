@@ -1159,6 +1159,7 @@ mod u8b {
         Caller::unattended(CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         })
     }
 
@@ -3164,6 +3165,7 @@ mod u8b {
                 context: CallerContext {
                     principal: PrincipalRef::UnixUser { uid: 501 },
                     role: ClientRole::LimitedConsumer,
+                    remote_client: None,
                 },
                 attendance,
                 interaction: InteractionMode::Interactive,

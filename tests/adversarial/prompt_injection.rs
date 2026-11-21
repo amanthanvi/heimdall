@@ -124,6 +124,7 @@ fn owner_ctx() -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 

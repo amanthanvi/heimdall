@@ -320,6 +320,7 @@ pub async fn produce(dir: &Path) -> Produced {
     let caller = Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     });
     let done = ops
         .ensure(

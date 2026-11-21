@@ -201,6 +201,7 @@ impl Operations {
         let caller = Caller::unattended(CallerContext {
             principal: supervisor_principal(),
             role: ClientRole::Owner,
+            remote_client: None,
         });
         for id in due {
             let request_id = RequestId::parse(&format!(

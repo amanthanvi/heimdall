@@ -87,6 +87,72 @@ pub mod capability {
     /// ⟨M04, M05⟩ The two revision-5 capabilities, declared and **not offered** by joint
     /// wave 0.
     pub const REVISION_5_DECLARED: [&str; 2] = [ENVIRONMENTS_V1, TRUSTED_WORK_V1];
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §6.3, §9 item 4): paired management clients and the
+    /// controller's environment management (`Request::RemoteEnvironment`,
+    /// `Request::Device`); a hello carrying `remote_client` needs a runtime that offers it.
+    /// **Declared, not offered** in wave 0.
+    pub const REMOTE_CONTROL_V1: &str = "remote-control/1";
+    /// ⟨M06⟩ Revision 6: the runner-internal requests (`Request::Runner`). **Declared, not
+    /// offered** in wave 0.
+    pub const RUNNER_V1: &str = "runner/1";
+    /// ⟨M06⟩ Revision 6: destinations with several approved routes (`Request::Route`,
+    /// the helper's `resolve_binding`). **Declared, not offered** in wave 0.
+    pub const ROUTES_V1: &str = "routes/1";
+    /// ⟨M06⟩ Revision 6: the Iroh transport (`Request::Transport`, roost adoption).
+    /// **Declared, not offered** in wave 0.
+    pub const TRANSPORT_IROH_V1: &str = "transport-iroh/1";
+    /// ⟨M06⟩ The four revision-6 capabilities, declared and **not offered** by wave 0
+    /// (`heimdall_ipc::session` and `inspect capabilities` list none of them).
+    pub const REVISION_6_DECLARED: [&str; 4] =
+        [REMOTE_CONTROL_V1, RUNNER_V1, ROUTES_V1, TRANSPORT_IROH_V1];
+
+    /// ⟨M06⟩ Every capability name this contract defines, in declaration order: the
+    /// owner role's set ([`for_role`]).
+    pub const ALL: [&str; 16] = [
+        OPERATIONS_V1,
+        EVENTS_V1,
+        OWNER_POLICY_V1,
+        SCHEMA_DISCOVERY_V1,
+        SERVICE_CONTROL_V1,
+        SETUP_V1,
+        ISSUER_V1,
+        ENROLLMENT_V1,
+        MANAGED_CREDENTIALS_V1,
+        CONNECTIONS_V1,
+        ENVIRONMENTS_V1,
+        TRUSTED_WORK_V1,
+        REMOTE_CONTROL_V1,
+        RUNNER_V1,
+        ROUTES_V1,
+        TRANSPORT_IROH_V1,
+    ];
+
+    /// ⟨M06⟩ The `requester` role's capabilities (ADR-0012 §3.8: `view` and `request`):
+    /// the primitives, events, schema discovery and managed-credential results.
+    pub const REQUESTER: [&str; 4] = [
+        OPERATIONS_V1,
+        EVENTS_V1,
+        SCHEMA_DISCOVERY_V1,
+        MANAGED_CREDENTIALS_V1,
+    ];
+
+    /// ⟨M06⟩ The `viewer` role's capabilities (ADR-0012 §3.8: `view`): the primitives
+    /// (whose effectful forms the role check refuses), events and schema discovery.
+    pub const VIEWER: [&str; 3] = [OPERATIONS_V1, EVENTS_V1, SCHEMA_DISCOVERY_V1];
+
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §6.2, §9 item 4): the capabilities a role may negotiate,
+    /// the `role` term of `required ⊆ offer ∩ server ∩ role`. `owner` holds every
+    /// capability; `requester` and `viewer` are defined here and unused until the role
+    /// table lands (m06-plan U1). A capability a role lacks never authorizes anything
+    /// anyway: every request is still checked against the caller's role (ADR-0006 §2.4).
+    #[must_use]
+    pub fn for_role(role: crate::remote::Role) -> &'static [&'static str] {
+        match role {
+            crate::remote::Role::Owner => &ALL,
+            crate::remote::Role::Requester => &REQUESTER,
+            crate::remote::Role::Viewer => &VIEWER,
+        }
+    }
 }
 
 /// Identifies the peer software; informational only, never authority (spec §4.2).
@@ -136,6 +202,13 @@ pub struct ClientHello {
     /// (ADR-0006 §3.1). Defaults to non-interactive when omitted.
     #[serde(default)]
     pub interaction: crate::request::InteractionMode,
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §3.6, §9 item 1): the paired client a runner's bridge
+    /// declares for this session. Omitted when absent, so every earlier hello is
+    /// byte-identical. A runtime that does not offer `remote-control/1` refuses a hello
+    /// carrying it with `SCHEMA_UNSUPPORTED` (wave 0: every runtime). It is never read
+    /// from a request field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_client: Option<crate::ids::ClientId>,
 }
 
 /// First server frame on success.
@@ -153,6 +226,12 @@ pub struct ServerHello {
     pub principal: PrincipalInfo,
     /// Environment ID of this runtime.
     pub environment_id: crate::ids::EnvironmentId,
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §6.2, §9 item 4): the role the session was negotiated
+    /// for, when the runtime reports one (a paired client's session). Omitted when absent:
+    /// the local same-user session is the owner (ADR-0006 §2.1) and its hello is
+    /// byte-identical to revision 5's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<crate::remote::Role>,
 }
 
 /// Client to server frames.
@@ -277,6 +356,7 @@ mod tests {
             capabilities: [capability::OPERATIONS_V1.to_owned()].into_iter().collect(),
             required: BTreeSet::new(),
             interaction: crate::request::InteractionMode::NonInteractive,
+            remote_client: None,
         });
         let json = serde_json::to_string(&hello).unwrap();
         let back: ClientMessage = serde_json::from_str(&json).unwrap();

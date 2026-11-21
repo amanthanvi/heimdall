@@ -1360,6 +1360,22 @@ pub enum Request {
     /// environment ([`EnvironmentRequest`]; owner role, needs `environments/1`, not
     /// offered until M04 wires it).
     Environment(EnvironmentRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §3, §9 item 6): the controller's management of remote
+    /// runner environments ([`crate::remote::RemoteEnvironmentRequest`]; needs
+    /// `remote-control/1`, declared and not offered).
+    RemoteEnvironment(crate::remote::RemoteEnvironmentRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §3.4): retire this controller device
+    /// ([`crate::remote::DeviceRequest`]; needs `remote-control/1`).
+    Device(crate::remote::DeviceRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §5): a destination's approved routes and the route
+    /// helper's binding lookup ([`crate::route::RouteRequest`]; needs `routes/1`).
+    Route(crate::route::RouteRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §2): the Iroh transport and roost adoption
+    /// ([`crate::route::TransportRequest`]; needs `transport-iroh/1`).
+    Transport(crate::route::TransportRequest),
+    /// ⟨M06⟩ Revision 6 (ADR-0012 §4, §7): the runner-internal requests
+    /// ([`crate::remote::RunnerRequest`]; needs `runner/1`).
+    Runner(crate::remote::RunnerRequest),
 }
 
 /// How the application admits a request (m02-plan U0 "journaled kinds"; ADR-0006
@@ -1401,6 +1417,11 @@ impl Request {
             Request::Connections(r) => r.kind(),
             Request::UninstallFence(r) => r.kind(),
             Request::Environment(r) => r.kind(),
+            Request::RemoteEnvironment(r) => r.kind(),
+            Request::Device(r) => r.kind(),
+            Request::Route(r) => r.kind(),
+            Request::Transport(r) => r.kind(),
+            Request::Runner(r) => r.kind(),
         }
     }
 
@@ -1469,6 +1490,42 @@ impl Request {
                 | EnvironmentRequest::ContainerAdd { .. }
                 | EnvironmentRequest::ContainerRemove { .. },
             ) => Admission::Synchronous,
+            // ⟨M06⟩ Revision 6 (ADR-0006 §18): no operation row. The effectful forms are
+            // decision-recorded, compare-and-set or narrowing, settled synchronously (the
+            // revision-5 environment pattern); the lookups are read-only.
+            Request::RemoteEnvironment(crate::remote::RemoteEnvironmentRequest::Status {
+                ..
+            })
+            | Request::Route(crate::route::RouteRequest::ResolveBinding { .. })
+            | Request::Runner(crate::remote::RunnerRequest::AuthorityReport) => {
+                Admission::ReadOnly
+            }
+            Request::RemoteEnvironment(
+                crate::remote::RemoteEnvironmentRequest::Add { .. }
+                | crate::remote::RemoteEnvironmentRequest::Invite { .. }
+                | crate::remote::RemoteEnvironmentRequest::Join { .. }
+                | crate::remote::RemoteEnvironmentRequest::RevokeClient { .. }
+                | crate::remote::RemoteEnvironmentRequest::Remove { .. }
+                | crate::remote::RemoteEnvironmentRequest::Update { .. },
+            )
+            | Request::Device(crate::remote::DeviceRequest::Retire)
+            | Request::Route(
+                crate::route::RouteRequest::Add { .. }
+                | crate::route::RouteRequest::Remove { .. }
+                | crate::route::RouteRequest::Prefer { .. },
+            )
+            | Request::Transport(
+                crate::route::TransportRequest::Enable { .. }
+                | crate::route::TransportRequest::Disable
+                | crate::route::TransportRequest::AdoptRoost { .. },
+            )
+            | Request::Runner(
+                crate::remote::RunnerRequest::PrepareRemoteGrant { .. }
+                | crate::remote::RunnerRequest::InstallCertificate { .. }
+                | crate::remote::RunnerRequest::TimeChallenge
+                | crate::remote::RunnerRequest::TimeResponse { .. }
+                | crate::remote::RunnerRequest::DeliverEffect { .. },
+            ) => Admission::Synchronous,
         }
     }
 
@@ -1506,6 +1563,14 @@ impl Request {
             Request::Enrollment(_) => Some(crate::ipc::capability::ENROLLMENT_V1),
             Request::Connections(_) => Some(crate::ipc::capability::CONNECTIONS_V1),
             Request::Environment(_) => Some(crate::ipc::capability::ENVIRONMENTS_V1),
+            // ⟨M06⟩ Revision 6 (ADR-0006 §18): each form names its capability, none offered
+            // in wave 0, so a session gets `SCHEMA_UNSUPPORTED` before dispatch.
+            Request::RemoteEnvironment(_) | Request::Device(_) => {
+                Some(crate::ipc::capability::REMOTE_CONTROL_V1)
+            }
+            Request::Route(_) => Some(crate::ipc::capability::ROUTES_V1),
+            Request::Transport(_) => Some(crate::ipc::capability::TRANSPORT_IROH_V1),
+            Request::Runner(_) => Some(crate::ipc::capability::RUNNER_V1),
             // ⟨M05⟩ Revision 5: the trusted-work forms need `trusted-work/1`, so a runtime
             // that does not offer it refuses them explicitly (`SCHEMA_UNSUPPORTED`)
             // instead of ignoring a field it does not know (ADR-0006 §9, §17 item 2).
@@ -1563,6 +1628,21 @@ impl Request {
             Request::Policy(action) => action.is_widening(),
             _ => false,
         }
+    }
+
+    /// ⟨M06⟩ Whether the request is one of revision 6's forms (ADR-0006 §18): every one
+    /// answers `CAPABILITY_UNAVAILABLE` / `driver_unavailable` in process before any record
+    /// is written, in wave 0.
+    #[must_use]
+    pub fn is_revision_6(&self) -> bool {
+        matches!(
+            self,
+            Request::RemoteEnvironment(_)
+                | Request::Device(_)
+                | Request::Route(_)
+                | Request::Transport(_)
+                | Request::Runner(_)
+        )
     }
 
     /// Whether the request can have external effects. `Shutdown` is a runtime

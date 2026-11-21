@@ -5079,6 +5079,7 @@ mod tests {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             kind: heimdall_domain::operation::OperationKind::EnrollmentApply,
             request_id: heimdall_contract::ids::RequestId::parse(&format!("p8-seed-{n}"))

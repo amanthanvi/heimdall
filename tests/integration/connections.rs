@@ -933,6 +933,7 @@ mod unix {
             let caller = CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 501 },
                 role: ClientRole::Owner,
+                remote_client: None,
             };
             let b = BindingRecord {
                 id: BindingId::from_random_bytes([n; 16]),

@@ -90,6 +90,7 @@ fn caller(uid: u32) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role: ClientRole::Owner,
+        remote_client: None,
     }
 }
 
@@ -259,6 +260,7 @@ fn limited(uid: u32) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role: ClientRole::LimitedConsumer,
+        remote_client: None,
     }
 }
 
@@ -1043,13 +1045,16 @@ fn before_commit_failure_leaves_no_row() {
         .unwrap();
     assert_eq!((o, i), (None, None));
     // Opening a fresh store visits the migration points of every step (0001,
-    // 0002, 0003, 0004, 0005, 0006, 0007, 0008) first; then the failed transaction (before
-    // transaction, before commit) and the verifying one.
+    // 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009) first; then the failed transaction
+    // (before transaction, before commit) and the verifying one.
     assert_eq!(
         faults.visited(),
         vec![
             // M03 wave 0 (S): migration 0006 adds one step.
             // ⟨M04, M05⟩ Joint wave 0: migrations 0007 and 0008 add two.
+            // ⟨M06⟩ Wave 0: migration 0009 adds one.
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
@@ -1339,7 +1344,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
-    assert_eq!(SCHEMA_VERSION, 8); // M04/M05 wave 0
+    assert_eq!(SCHEMA_VERSION, 9); // M06 wave 0 (0009 adds tables only); M04/M05 wave 0 made it 8
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -4226,7 +4231,7 @@ mod m02 {
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
         assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 8); // M04/M05 wave 0
+        assert_eq!(SCHEMA_VERSION, 9); // M06 wave 0 (0009 adds tables only); M04/M05 wave 0 made it 8
         let mut backup = db.as_os_str().to_owned();
         backup.push(".v4.backup");
         assert!(PathBuf::from(backup).exists(), "v4 file backed up first");

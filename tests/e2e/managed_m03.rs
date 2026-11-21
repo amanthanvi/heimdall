@@ -100,6 +100,7 @@ fn owner() -> Caller {
     Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     })
 }
 
@@ -108,6 +109,7 @@ fn attended() -> Caller {
         context: CallerContext {
             principal: PrincipalRef::UnixUser { uid: 501 },
             role: ClientRole::Owner,
+            remote_client: None,
         },
         attendance: heimdall_app::Attendance::Attended { since: t0() },
         interaction: InteractionMode::Interactive,

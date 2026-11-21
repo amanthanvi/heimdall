@@ -111,6 +111,7 @@ fn ctx(role: ClientRole) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role,
+        remote_client: None,
     }
 }
 
@@ -953,6 +954,7 @@ impl RawClient {
             capabilities,
             required,
             interaction: InteractionMode::NonInteractive,
+            remote_client: None,
         });
         stream
             .write_all(&encode_frame(&hello, CONTROL_LIMIT).unwrap())

@@ -3065,6 +3065,7 @@ mod a11 {
             CallerContext {
                 principal: self.principal.clone(),
                 role: ClientRole::Owner,
+                remote_client: None,
             }
         }
 

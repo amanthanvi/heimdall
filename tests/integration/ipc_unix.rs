@@ -403,6 +403,7 @@ fn client_hello(schema: &str, name: &str) -> ClientHello {
         capabilities: server_capabilities(),
         required: BTreeSet::new(),
         interaction: InteractionMode::NonInteractive,
+        remote_client: None,
     }
 }
 

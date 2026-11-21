@@ -88,6 +88,7 @@ fn ctx(role: ClientRole) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role,
+        remote_client: None,
     }
 }
 

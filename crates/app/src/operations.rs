@@ -288,9 +288,12 @@ mod trust_m05;
 pub mod wsl_m04;
 // ⟨M04⟩ U1: the login entry's setup item and its `inspect capabilities` field.
 mod login_entry_m04;
+// ⟨M06⟩ Wave 0 (ADR-0006 §18): the fail-closed landing of the revision-6 request forms.
+mod remote_m06;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use login_entry_m04::login_resource_id;
+pub use remote_m06::revision_6_refusal;
 // ⟨M05⟩ U6: the handover the runtime's slot cleanup commits (ADR-0011 §5.2).
 pub use slots_m05::{SlotHandover, slot_files_removed_or_hand_over_in};
 pub use uninstall_fence_m03::{
@@ -11172,7 +11175,7 @@ impl Operations {
                 for r in tx.grant_references(&gid)? {
                     if tx
                         .binding(&r.binding)?
-                        .is_some_and(|b| b.grant == gid && b.owner.principal == ctx.principal)
+                        .is_some_and(|b| b.grant == gid && b.owner.same_caller(&ctx))
                     {
                         return Ok(true);
                     }
@@ -14818,6 +14821,7 @@ mod tests {
                     caller: CallerContext {
                         principal: heimdall_domain::principal::PrincipalRef::UnixUser { uid: 1 },
                         role: heimdall_domain::principal::ClientRole::Owner,
+                        remote_client: None,
                     },
                     kind: OperationKind::Ensure,
                     request_id: heimdall_contract::ids::RequestId::parse("r1319-u").unwrap(),
@@ -15200,6 +15204,7 @@ mod tests {
             owner: CallerContext {
                 principal: heimdall_domain::principal::PrincipalRef::UnixUser { uid: 1 },
                 role: heimdall_domain::principal::ClientRole::Owner,
+                remote_client: None,
             },
             profile: heimdall_contract::ids::ProfileId::parse("dev").unwrap(),
             profile_revision: 1,

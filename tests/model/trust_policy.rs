@@ -83,6 +83,7 @@ fn owner(attended: bool) -> Caller {
     let context = CallerContext {
         principal: PrincipalRef::UnixUser { uid: 501 },
         role: ClientRole::Owner,
+        remote_client: None,
     };
     if attended {
         Caller {
@@ -709,6 +710,7 @@ async fn an_approved_create_resumes_the_covered_waiter_without_a_second_decision
     let limited = Caller::unattended(CallerContext {
         principal: PrincipalRef::UnixUser { uid: 502 },
         role: ClientRole::LimitedConsumer,
+        remote_client: None,
     });
     let none = w
         .ops

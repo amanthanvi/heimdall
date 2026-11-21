@@ -175,6 +175,16 @@ fn one_of_every_request() -> Vec<Request> {
         request(json!({"op": "uninstall_fence", "action": "release"})),
         request(json!({"op": "uninstall_fence", "action": "retry_remote_revocations"})),
     ]);
+    // ⟨rev6⟩ ADR-0006 §18: one request of every revision-6 form (the golden of
+    // `contracts::rev6`).
+    let rev6 = load("tests/contracts/golden/rev6-requests.golden.json");
+    out.extend(
+        rev6["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| request(row["json"].clone())),
+    );
     out
 }
 
@@ -330,6 +340,16 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
             "environment" => {
                 assert_eq!(r.required_capability(), Some(capability::ENVIRONMENTS_V1));
             }
+            // ⟨rev6⟩ ADR-0006 §18: each revision-6 form names its capability
+            // (`contracts::rev6`).
+            "remote_environment" | "device" => {
+                assert_eq!(r.required_capability(), Some(capability::REMOTE_CONTROL_V1));
+            }
+            "route" => assert_eq!(r.required_capability(), Some(capability::ROUTES_V1)),
+            "transport" => {
+                assert_eq!(r.required_capability(), Some(capability::TRANSPORT_IROH_V1));
+            }
+            "runner" => assert_eq!(r.required_capability(), Some(capability::RUNNER_V1)),
             _ => assert_eq!(r.required_capability(), None, "{op}"),
         }
     }

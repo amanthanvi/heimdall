@@ -1,0 +1,325 @@
+{
+ "source": "ADR-0006 revision 6 (M06 wave 0; section 18): one request of every form ADR-0012 section 9 item 6 names (env add, invite, join, revoke-client, remove, update and status; device retire; route add, remove and prefer; transport enable and disable; roost adopt; the runner-internal prepare_remote_grant, install_certificate, TimeChallenge/TimeResponse, deliver_effect with each typed target of ADR-0012 section 7.2, authority_report and ResolveRouteBinding), with the operation kind, the admission and the capability each names (transcribed from section 18.1, never from the code). There is no RemoteDecide and no serve-child lease or suspend message. Synthetic values only: documentation addresses (192.0.2.0/24), a placeholder certificate and fingerprint.",
+ "requests": [
+  {
+   "what": "env add",
+   "json": {
+    "op": "remote_environment",
+    "action": "add",
+    "destination": "lab-runner",
+    "account": "runner",
+    "label": "lab"
+   },
+   "kind": "remote_environment.add",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env invite",
+   "json": {
+    "op": "remote_environment",
+    "action": "invite",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "role": "requester",
+    "key_fingerprint": "SHA256:uXq3mT1n0rWbG5cVxZ2yA7kL9pQeJ4sHdF8oN6iRtC0",
+    "request_id": "req-m06-0001"
+   },
+   "kind": "remote_environment.invite",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env join",
+   "json": {
+    "op": "remote_environment",
+    "action": "join",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "invitation": "inv_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    "role": "requester",
+    "generation": 4
+   },
+   "kind": "remote_environment.join",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env revoke-client",
+   "json": {
+    "op": "remote_environment",
+    "action": "revoke_client",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "client": "cl_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+   },
+   "kind": "remote_environment.revoke_client",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env remove",
+   "json": {
+    "op": "remote_environment",
+    "action": "remove",
+    "environment": "env_0123456789abcdef0123456789abcdef"
+   },
+   "kind": "remote_environment.remove",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env update",
+   "json": {
+    "op": "remote_environment",
+    "action": "update",
+    "environment": "env_0123456789abcdef0123456789abcdef"
+   },
+   "kind": "remote_environment.update",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env status",
+   "json": {
+    "op": "remote_environment",
+    "action": "status"
+   },
+   "kind": "remote_environment.status",
+   "admission": "read_only",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "device retire",
+   "json": {
+    "op": "device",
+    "action": "retire"
+   },
+   "kind": "device.retire",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "route add (direct)",
+   "json": {
+    "op": "route",
+    "action": "add",
+    "destination": "lab-runner",
+    "route": {
+     "kind": "direct",
+     "host": "192.0.2.10",
+     "port": 2222
+    },
+    "request_id": "req-m06-0002"
+   },
+   "kind": "route.add",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "route add (iroh, custom relays)",
+   "json": {
+    "op": "route",
+    "action": "add",
+    "destination": "lab-runner",
+    "route": {
+     "kind": "iroh",
+     "endpoint": "58ff2b14ee18ef79cb690dd8ce9a9e8e8d8ce8fde772c88070ceaa99c6447058"
+    },
+    "exposure": {
+     "bind": {
+      "kind": "none"
+     },
+     "infrastructure": {
+      "kind": "custom",
+      "relays": [
+       "https://192.0.2.20:8443/"
+      ]
+     }
+    },
+    "request_id": "req-m06-0003"
+   },
+   "kind": "route.add",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "route remove",
+   "json": {
+    "op": "route",
+    "action": "remove",
+    "destination": "lab-runner",
+    "route": "route_c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+   },
+   "kind": "route.remove",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "route prefer",
+   "json": {
+    "op": "route",
+    "action": "prefer",
+    "destination": "lab-runner",
+    "route": "route_c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+    "request_id": "req-m06-0004"
+   },
+   "kind": "route.prefer",
+   "admission": "synchronous",
+   "capability": "routes/1"
+  },
+  {
+   "what": "ResolveRouteBinding",
+   "json": {
+    "op": "route",
+    "action": "resolve_binding",
+    "destination": "lab-runner",
+    "account": "deploy",
+    "endpoint": "/run/user/1000/heimdall/binding_00112233445566778899aabbccddeeff/agent.sock"
+   },
+   "kind": "route.resolve_binding",
+   "admission": "read_only",
+   "capability": "routes/1"
+  },
+  {
+   "what": "transport enable",
+   "json": {
+    "op": "transport",
+    "action": "enable",
+    "serve": true,
+    "request_id": "req-m06-0005"
+   },
+   "kind": "transport.enable",
+   "admission": "synchronous",
+   "capability": "transport-iroh/1"
+  },
+  {
+   "what": "transport disable",
+   "json": {
+    "op": "transport",
+    "action": "disable"
+   },
+   "kind": "transport.disable",
+   "admission": "synchronous",
+   "capability": "transport-iroh/1"
+  },
+  {
+   "what": "roost adopt",
+   "json": {
+    "op": "transport",
+    "action": "adopt_roost",
+    "destination": "lab-runner",
+    "endpoint": "58ff2b14ee18ef79cb690dd8ce9a9e8e8d8ce8fde772c88070ceaa99c6447058",
+    "request_id": "req-m06-0006"
+   },
+   "kind": "transport.adopt_roost",
+   "admission": "synchronous",
+   "capability": "transport-iroh/1"
+  },
+  {
+   "what": "prepare_remote_grant",
+   "json": {
+    "op": "runner",
+    "action": "prepare_remote_grant",
+    "grant": "grant_00112233445566778899aabbccddeeff",
+    "grant_generation": 2
+   },
+   "kind": "runner.prepare_remote_grant",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "install_certificate",
+   "json": {
+    "op": "runner",
+    "action": "install_certificate",
+    "grant": "grant_00112233445566778899aabbccddeeff",
+    "grant_generation": 2,
+    "certificate": "ssh-ed25519-cert-v01@openssh.com AAAAIHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29t fixture-not-a-real-certificate"
+   },
+   "kind": "runner.install_certificate",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "TimeChallenge",
+   "json": {
+    "op": "runner",
+    "action": "time_challenge"
+   },
+   "kind": "runner.time_challenge",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "TimeResponse",
+   "json": {
+    "op": "runner",
+    "action": "time_response",
+    "nonce": "n-0001",
+    "controller_time": "2026-11-20T12:00:00Z"
+   },
+   "kind": "runner.time_response",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "deliver_effect grant_revoke",
+   "json": {
+    "op": "runner",
+    "action": "deliver_effect",
+    "effect": "eff_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "target": {
+     "kind": "grant_revoke",
+     "grant": "grant_00112233445566778899aabbccddeeff",
+     "grant_generation": 2
+    }
+   },
+   "kind": "runner.deliver_effect",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "deliver_effect policy_pause",
+   "json": {
+    "op": "runner",
+    "action": "deliver_effect",
+    "effect": "eff_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "target": {
+     "kind": "policy_pause",
+     "policy": "personal-default",
+     "revision": 7
+    }
+   },
+   "kind": "runner.deliver_effect",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "deliver_effect policy_cutoff",
+   "json": {
+    "op": "runner",
+    "action": "deliver_effect",
+    "effect": "eff_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "target": {
+     "kind": "policy_cutoff",
+     "scope": {
+      "kind": "profile",
+      "profile": "lab"
+     },
+     "revision": 8
+    }
+   },
+   "kind": "runner.deliver_effect",
+   "admission": "synchronous",
+   "capability": "runner/1"
+  },
+  {
+   "what": "authority_report",
+   "json": {
+    "op": "runner",
+    "action": "authority_report"
+   },
+   "kind": "runner.authority_report",
+   "admission": "read_only",
+   "capability": "runner/1"
+  }
+ ]
+}

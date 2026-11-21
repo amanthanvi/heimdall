@@ -1,0 +1,18 @@
+[package]
+name = "heimdall-remote"
+description = "Heimdall remote access (M06; ADR-0012 §3, §7): roles, invitations, verified sshd policy, the serve-side bridge, and outbox/resync. Skeleton; fails closed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges (m06-plan U0; tools/validation/crate_graph.py): contract and domain only
+# for now. The graph rule allows contract, domain, store, app and ipc, and refuses every
+# other workspace crate (never the runtime or the transport): the runtime wires this crate.
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }

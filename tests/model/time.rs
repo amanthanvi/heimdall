@@ -735,6 +735,7 @@ fn duration_retry_after_restart_hashes_equal_and_keeps_original_instant() {
             caller: CallerContext {
                 principal: PrincipalRef::UnixUser { uid: 1000 },
                 role: ClientRole::Owner,
+                remote_client: None,
             },
             kind: OperationKind::Ensure,
             request_id: RequestId::parse("req-7").unwrap(),

@@ -79,7 +79,9 @@ use std::time::Duration;
 
 use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
-use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction};
+use heimdall_contract::envelope::{
+    EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction, reason,
+};
 use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, MAX_CURSOR_LEN, Snapshot};
 use heimdall_contract::ids::{EnvironmentId, EventId};
 use heimdall_contract::ipc::{
@@ -87,6 +89,7 @@ use heimdall_contract::ipc::{
     MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, MAX_SUBSCRIPTIONS_PER_CONNECTION, PeerInfo,
     PrincipalInfo, ServerHello, ServerMessage, capability,
 };
+use heimdall_contract::remote::Role;
 use heimdall_contract::request::{InteractionMode, Request};
 use heimdall_contract::{Code, PROTOCOL_VERSION, SchemaVersion};
 use tokio::sync::broadcast;
@@ -139,13 +142,40 @@ pub fn server_capabilities() -> BTreeSet<String> {
 /// The negotiated set is the server offer ∩ the client's `capabilities`; every
 /// `required` capability must be in it (ADR-0006 §2.3 rev2, review F10), else
 /// `SCHEMA_UNSUPPORTED`. Rejection messages never quote client-supplied strings.
+///
+/// This is the local same-user session: the owner (ADR-0006 §2.1), whose role is not
+/// reported, so the server hello is byte-identical to revision 5's
+/// ([`negotiate_for_role`] with no role).
 pub fn negotiate(
     hello: &ClientHello,
     principal: PrincipalInfo,
     environment: EnvironmentId,
     server: PeerInfo,
 ) -> Result<ServerHello, Box<Envelope<ErrorData>>> {
-    let reject = |code: Code, message: &str| {
+    negotiate_for_role(hello, principal, None, environment, server)
+}
+
+/// ⟨rev6⟩ Negotiate a hello for a caller in `role` (ADR-0012 §6.2, §9 item 4; ADR-0006
+/// §18): `required ⊆ offer ∩ server ∩ role`.
+///
+/// * A protocol or schema-major mismatch, a `required` capability outside `offer ∩
+///   server`, and a hello naming a `remote_client` to a runtime that does not offer
+///   `remote-control/1` (wave 0: every runtime) are `SCHEMA_UNSUPPORTED`.
+/// * A `required` capability the role lacks is `CAPABILITY_UNAVAILABLE` with reason
+///   `role_insufficient`.
+/// * Optional capabilities are in effect only inside the intersection with the role's
+///   set ([`capability::for_role`]).
+///
+/// `role: None` is the local same-user caller: the owner, not reported in the server hello.
+/// `Some` is reported (`ServerHello.role`). A role never comes from the hello itself.
+pub fn negotiate_for_role(
+    hello: &ClientHello,
+    principal: PrincipalInfo,
+    role: Option<Role>,
+    environment: EnvironmentId,
+    server: PeerInfo,
+) -> Result<ServerHello, Box<Envelope<ErrorData>>> {
+    let reject = |code: Code, message: &str, reason: Option<&str>| {
         Box::new(Envelope::failed(
             None,
             ErrorDetail {
@@ -155,7 +185,7 @@ pub fn negotiate(
                 resource: None,
                 next: NextAction::for_code(code),
                 message: message.to_owned(),
-                reason: None,
+                reason: reason.map(str::to_owned),
                 entries: Vec::new(),
             },
         ))
@@ -165,15 +195,26 @@ pub fn negotiate(
         return Err(reject(
             Code::SchemaUnsupported,
             "unsupported IPC protocol version",
+            None,
         ));
     }
     if !hello.schema_version.is_supported() {
         return Err(reject(
             Code::SchemaUnsupported,
             "unsupported schema major version",
+            None,
         ));
     }
     let offered = server_capabilities();
+    // ⟨rev6⟩ A paired client is declared only by a runner's bridge, to a runtime that
+    // serves paired clients (ADR-0012 §3.6). Any other runtime refuses the hello.
+    if hello.remote_client.is_some() && !offered.contains(capability::REMOTE_CONTROL_V1) {
+        return Err(reject(
+            Code::SchemaUnsupported,
+            "this runtime does not accept a paired client",
+            None,
+        ));
+    }
     let capabilities: BTreeSet<String> =
         offered.intersection(&hello.capabilities).cloned().collect();
     if !hello.required.is_subset(&capabilities) {
@@ -182,8 +223,23 @@ pub fn negotiate(
         } else {
             "a required capability is not available"
         };
-        return Err(reject(Code::SchemaUnsupported, message));
+        return Err(reject(Code::SchemaUnsupported, message, None));
     }
+    let allowed: BTreeSet<&str> = capability::for_role(role.unwrap_or(Role::Owner))
+        .iter()
+        .copied()
+        .collect();
+    if !hello.required.iter().all(|c| allowed.contains(c.as_str())) {
+        return Err(reject(
+            Code::CapabilityUnavailable,
+            "a required capability is not available to this role",
+            Some(reason::ROLE_INSUFFICIENT),
+        ));
+    }
+    let capabilities = capabilities
+        .into_iter()
+        .filter(|c| allowed.contains(c.as_str()))
+        .collect();
     Ok(ServerHello {
         protocol: PROTOCOL_VERSION,
         schema_version: SchemaVersion::current(),
@@ -191,6 +247,7 @@ pub fn negotiate(
         capabilities,
         principal,
         environment_id: environment,
+        role,
     })
 }
 
@@ -1247,6 +1304,7 @@ where
             capabilities,
             required: required.clone(),
             interaction,
+            remote_client: None,
         });
         write_frame(&mut wire, &hello, MAX_HELLO_FRAME_BYTES).await?;
         let reply = tokio::time::timeout(Duration::from_millis(HELLO_TIMEOUT_MS), wire.next())
@@ -1464,6 +1522,7 @@ mod tests {
             capabilities: server_capabilities(),
             required: required.iter().map(|s| (*s).to_owned()).collect(),
             interaction: InteractionMode::NonInteractive,
+            remote_client: None,
         }
     }
 
@@ -1538,6 +1597,122 @@ mod tests {
             negotiate(&empty, p, env(), srv()).unwrap_err().code,
             Code::SchemaUnsupported
         );
+    }
+
+    /// ⟨rev6⟩ ADR-0006 §18 (ADR-0012 §6.3, §9 item 4): the four revision-6 capabilities
+    /// are declared and **not offered**: a hello that requires one is `SCHEMA_UNSUPPORTED`,
+    /// and one that merely offers them negotiates without them.
+    #[test]
+    fn the_revision_6_capabilities_are_declared_not_offered() {
+        let offered = server_capabilities();
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        for c in capability::REVISION_6_DECLARED {
+            assert!(!offered.contains(c), "{c} offered");
+            let err = negotiate(&hello(PROTOCOL_VERSION, "1", &[c]), p.clone(), env(), srv())
+                .unwrap_err();
+            assert_eq!(err.code, Code::SchemaUnsupported, "{c}");
+            assert_eq!(err.data.error.reason, None, "{c}");
+        }
+        let mut h = hello(PROTOCOL_VERSION, "1", &[]);
+        h.capabilities
+            .extend(capability::REVISION_6_DECLARED.map(str::to_owned));
+        let ok = negotiate(&h, p, env(), srv()).unwrap();
+        assert!(
+            ok.capabilities.is_disjoint(
+                &capability::REVISION_6_DECLARED
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect()
+            )
+        );
+    }
+
+    /// ⟨rev6⟩ `required ⊆ offer ∩ server ∩ role` with both refusal codes (ADR-0012 §6.2):
+    /// outside the server's offer is `SCHEMA_UNSUPPORTED` whatever the role; inside it but
+    /// outside the role's set is `CAPABILITY_UNAVAILABLE` / `role_insufficient`; optional
+    /// capabilities the role lacks are dropped from the negotiated set. The local caller
+    /// (no role) is the owner, negotiates everything offered and is not reported; an
+    /// explicit role is reported.
+    #[test]
+    fn negotiation_intersects_the_role_with_both_refusal_codes() {
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        let all = hello(PROTOCOL_VERSION, "1", &[]);
+        let local = negotiate(&all, p.clone(), env(), srv()).unwrap();
+        assert_eq!(local.capabilities, server_capabilities());
+        assert_eq!(local.role, None);
+        let text = serde_json::to_string(&ServerMessage::Hello(local.clone())).unwrap();
+        assert!(
+            !text.contains("\"role\""),
+            "the local hello is unchanged: {text}"
+        );
+        let owner = negotiate_for_role(&all, p.clone(), Some(Role::Owner), env(), srv()).unwrap();
+        assert_eq!(owner.capabilities, local.capabilities);
+        assert_eq!(owner.role, Some(Role::Owner));
+
+        // Server lacks it: SCHEMA_UNSUPPORTED, for every role.
+        for role in [None, Some(Role::Owner), Some(Role::Viewer)] {
+            let h = hello(PROTOCOL_VERSION, "1", &[capability::RUNNER_V1]);
+            let err = negotiate_for_role(&h, p.clone(), role, env(), srv()).unwrap_err();
+            assert_eq!(err.code, Code::SchemaUnsupported, "{role:?}");
+        }
+        // Server offers it, the role lacks it: role_insufficient.
+        for (role, required) in [
+            (Role::Viewer, capability::OWNER_POLICY_V1),
+            (Role::Viewer, capability::MANAGED_CREDENTIALS_V1),
+            (Role::Requester, capability::SERVICE_CONTROL_V1),
+            (Role::Requester, capability::ISSUER_V1),
+        ] {
+            let h = hello(PROTOCOL_VERSION, "1", &[required]);
+            let err = negotiate_for_role(&h, p.clone(), Some(role), env(), srv()).unwrap_err();
+            assert_eq!(err.code, Code::CapabilityUnavailable, "{role:?} {required}");
+            assert_eq!(
+                err.data.error.reason.as_deref(),
+                Some(reason::ROLE_INSUFFICIENT),
+                "{role:?} {required}"
+            );
+            assert_eq!(err.data.error.effect_status, EffectStatus::None);
+        }
+        // Optional capabilities outside the role are dropped.
+        let viewer = negotiate_for_role(&all, p.clone(), Some(Role::Viewer), env(), srv()).unwrap();
+        let want: BTreeSet<String> = capability::VIEWER.map(str::to_owned).into_iter().collect();
+        assert_eq!(viewer.capabilities, want);
+        let requester = negotiate_for_role(
+            &hello(PROTOCOL_VERSION, "1", &[capability::MANAGED_CREDENTIALS_V1]),
+            p,
+            Some(Role::Requester),
+            env(),
+            srv(),
+        )
+        .unwrap();
+        assert!(!requester.capabilities.contains(capability::OWNER_POLICY_V1));
+        assert_eq!(requester.role, Some(Role::Requester));
+    }
+
+    /// ⟨rev6⟩ m06-plan U0: `remote_client` is refused outside a runner runtime. A hello
+    /// that names a paired client gets `SCHEMA_UNSUPPORTED` from a runtime that does not
+    /// offer `remote-control/1`, which in wave 0 is every runtime, whatever else the hello
+    /// says and whatever role the caller has; the same hello without it negotiates.
+    #[test]
+    fn a_hello_naming_a_remote_client_is_refused_without_remote_control() {
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        let mut h = hello(PROTOCOL_VERSION, "1", &[]);
+        h.capabilities
+            .insert(capability::REMOTE_CONTROL_V1.to_owned());
+        h.remote_client = Some(heimdall_contract::ids::ClientId::from_random_bytes([3; 16]));
+        for role in [None, Some(Role::Owner), Some(Role::Viewer)] {
+            let err = negotiate_for_role(&h, p.clone(), role, env(), srv()).unwrap_err();
+            assert_eq!(err.code, Code::SchemaUnsupported, "{role:?}");
+            assert_eq!(err.data.error.effect_status, EffectStatus::None);
+            assert!(
+                !err.data.error.message.contains("cl_"),
+                "no client text echoed"
+            );
+        }
+        h.remote_client = None;
+        assert!(negotiate(&h, p, env(), srv()).is_ok());
+        // The hello field is omitted when absent: the wire form is unchanged.
+        let text = serde_json::to_string(&ClientMessage::Hello(h)).unwrap();
+        assert!(!text.contains("remote_client"), "{text}");
     }
 
     #[test]

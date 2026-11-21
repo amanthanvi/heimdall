@@ -89,6 +89,7 @@ fn ctx(uid: u32, role: ClientRole) -> CallerContext {
     CallerContext {
         principal: PrincipalRef::UnixUser { uid },
         role,
+        remote_client: None,
     }
 }
 
@@ -15411,6 +15412,7 @@ mod wave0_fail_closed {
                 capabilities,
                 required: BTreeSet::new(),
                 interaction: InteractionMode::NonInteractive,
+                remote_client: None,
             });
             stream
                 .write_all(&encode_frame(&hello, CONTROL_LIMIT).unwrap())
