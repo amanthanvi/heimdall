@@ -1,0 +1,16 @@
+run-root-sddl=O:S-1-<redacted>G:S-1-<redacted>D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;S-1-<redacted>)
+os=Microsoft Windows [Version 10.0.26300.9974]
+integrity=Medium Mandatory Level
+wsl-version=WSL version: 3.0.5.0
+prebuilt-heimdall-sha256=cbf82081684ed4b57e1a12331005595a3cc6a7d606b33ecaae98ecba14ed29cc (equals HM_PREBUILT_SHA256)
+build-commit=50dbc86b29df42b052071eae040bc074d148e81e
+prebuilt-e2e_platform_m04-sha256=b9a0330ade05049f801dfc50b853bf77ee3950877946efba2537e49010ebbad2 (equals -PrebuiltLinuxTestSha256)
+prebuilt-hm-fixture-hook-sha256=a2bd888b7a76589f7650251472db175560c14cf5a61948f0fcd96e93866e24c1 (equals -PrebuiltLinuxHookSha256)
+podman-version=podman version 4.9.3
+docker-version=Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2
+subid=present
+docker-group=added
+image-podman=824f97a910107a88e920bc6f36c39c0a5466345f8f4c479afb86e7e52ee5b97f
+image-docker=9f13a56ccb4489f3c18855beac0aab1d726942a4b2e653e65c371792a9a2cb67
+seconds-before-tests=96
+heimdalltest-parent=absent

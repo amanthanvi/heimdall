@@ -1,0 +1,53 @@
+### hm-m04-41b534c6-1 prepare
+os=Ubuntu 24.04.5 LTS
+pid1=init(hm-m04-41b
+missing-tools= sshd sftp-server
+apt-install-exit=0
+missing-tools-after-install= none
+user=created (non-root, disposable home)
+heimdall-installed=yes
+listeners-loopback=0
+listeners-other=3
+
+### hm-m04-41b534c6-1 container-engines.sh install
+missing-before= podman docker dockerd newuidmap
+apt-install-exit=0
+installed=yes
+podman-version=podman version 4.9.3
+docker-version=Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2
+subid=present
+docker-group=added
+
+### hm-m04-41b534c6-1 dockerd-start
+dockerd=started
+dockerd-pid=569
+
+### hm-m04-41b534c6-1 container-engines.sh snapshot podman
+snapshot-podman-containers=0
+snapshot-podman-images=0
+
+### hm-m04-41b534c6-1 container-engines.sh image podman
+image-podman-base=e50d940e9d2c4d81e5b3506b2ed87bfc7e91267b36ff016eb4b4cb21c39a3331
+image-podman=824f97a910107a88e920bc6f36c39c0a5466345f8f4c479afb86e7e52ee5b97f
+
+### hm-m04-41b534c6-1 container-engines.sh snapshot docker
+snapshot-docker-containers=0
+snapshot-docker-images=0
+
+### hm-m04-41b534c6-1 container-engines.sh image docker
+image-docker-base=bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
+image-docker=9f13a56ccb4489f3c18855beac0aab1d726942a4b2e653e65c371792a9a2cb67
+
+### container-engines.sh cleanup podman
+removed-image=824f97a910107a88e920bc6f36c39c0a5466345f8f4c479afb86e7e52ee5b97f
+removed-image=e50d940e9d2c4d81e5b3506b2ed87bfc7e91267b36ff016eb4b4cb21c39a3331
+cleanup-podman=ok
+
+### container-engines.sh cleanup docker
+removed-image=9f13a56ccb4489f3c18855beac0aab1d726942a4b2e653e65c371792a9a2cb67
+removed-image=bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
+cleanup-docker=ok
+
+### dockerd-stop
+dockerd=stopped
+
