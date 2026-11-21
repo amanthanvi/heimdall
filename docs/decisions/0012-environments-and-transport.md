@@ -506,7 +506,7 @@ This text replaces nothing else in ADR-0010 §5.
    - ⟨r3⟩ **Pre-identification lines:** lines the server sends before its identification are buffered and forwarded unchanged once it arrives (RFC 4253 §4.2). The buffer is bounded at 8 KiB and 32 lines; past that the attempt fails.
    - ⟨r3⟩ **A bounded wait:** a 10 s default, configurable per route. A peer that waits for the client to identify first times out at that bound.
      - **That timeout is an establishment failure,** so the next approved route may be tried.
-     - **A route whose server needs client-first identification is incompatible with the helper.** It is reported as such, and stays reachable through a single-route native rendering.
+     - **On a direct or jump leg, a route whose server needs client-first identification is incompatible with the helper** (on an Iroh leg, item 5 applies). It is reported as such, and stays reachable through a single-route native rendering.
 2. **The forwarding boundary** is the first byte forwarded in either direction.
    - **Failover is allowed only before it:** a connect refusal or timeout; a jump leg exiting before identification; an Iroh connection refused or closed before identification.
    - **After it, every failure is terminal for the attempt.** That includes a late Iroh refusal and a downstream failure.
@@ -518,6 +518,13 @@ This text replaces nothing else in ADR-0010 §5.
    - **What it records:** each tried route, its failure class (`refused`, `timeout`, `identification_timeout`, `admission_refused`, `terminal_after_forwarding`), and the route finally used, or none.
    - **Where it can be read:** through `inspect` and the `route.health` event.
    - **What it is not:** the helper's exit codes stay internal.
+
+5. ⟨Amendment, 2026-11-21; M06-W1-R04, Gemini W1 review (`tests/evidence/artifacts/review-m06/w1.md`); orchestrator ruling⟩ **The client's identification line on an Iroh leg.** A QUIC stream is invisible to the serving side until the dialer writes, so holding every client byte until the server's identification would deadlock against `/pigeons/0` serving (which accepts the stream before connecting its target). On an Iroh leg the helper therefore forwards exactly one thing before the server's identification: the client's own SSH identification line. A preamble is not used, because a stock Pigeons roost would forward it to sshd and break raw `/pigeons/0` interop (§1.2).
+   - **Bounded and validated before anything is forwarded:** the first line from the client must start with `SSH-2.0-`, end in CRLF, and be at most 255 bytes including the CRLF (RFC 4253 §4.2). Anything else, no CRLF within 255 bytes, or no line before `identification_timeout` fails closed, and nothing is forwarded.
+   - **Nothing past the line** goes out until the server's `SSH-` arrives; the hold-and-replay rule of items 1–2 covers it.
+   - **Replay on failover:** the line is stateless; on failover the next approved route receives the same bytes exactly once, and the pre-`SSH-` replay guarantee holds.
+   - **Admission order is unchanged:** the serving side checks the allowlist and the authority generation before any target connect; the identification line never bypasses either check.
+   - The line's contents are not logged.
 
 ### 5.6 No session migration
 
@@ -658,6 +665,7 @@ The contract owner applies these at M06 wave 0 (m06-plan U0). Each item names th
 - A revoked runner credential remains usable at destinations within the reported residuals while the runner is unreachable.
 - No support label on a Windows path that has no evidence.
 - Headless persistent Iroh endpoints are unavailable in V1 (§2.7 not adopted).
+- ⟨2026-11-21, §5.5 item 5⟩ A client that sends nothing until it sees the server's banner fails on an Iroh route with `identification_timeout`. OpenSSH, Win32-OpenSSH included, sends its identification first, so the product's own path is unaffected.
 
 ## 11. Rejected
 

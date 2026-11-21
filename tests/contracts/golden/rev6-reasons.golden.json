@@ -38,6 +38,10 @@
    "code": "CAPABILITY_UNAVAILABLE"
   },
   {
+   "reason": "mgmt_key_store_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
    "reason": "transport_key_store_unavailable",
    "code": "CAPABILITY_UNAVAILABLE"
   },

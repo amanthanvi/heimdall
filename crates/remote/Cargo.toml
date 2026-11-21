@@ -1,6 +1,6 @@
 [package]
 name = "heimdall-remote"
-description = "Heimdall remote access (M06; ADR-0012 §3, §7): roles, invitations, verified sshd policy, the management line, runner-local widening, the serve-side bridge, and outbox/resync. Not wired into request dispatch yet; the runtime wires it."
+description = "Heimdall remote access (M06; ADR-0012 §3, §7): roles, invitations, verified sshd policy, the management line, runner-local widening, the serve-side bridge, and outbox/resync. A runner runtime wires it into its dispatcher (heimdall-runtime paired sessions)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

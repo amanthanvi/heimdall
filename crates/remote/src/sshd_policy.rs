@@ -6,7 +6,9 @@
 //! account ([`check_effective_policy`]); a documented drop-in is checked by the same
 //! invocation. Its output is untrusted text, checked by the pure [`verify`]:
 //! * `authorizedkeyscommand none` and `authorizedprincipalscommand none`;
-//! * `authorizedkeysfile` naming only files Heimdall checks: every entry is expanded
+//! * `authorizedkeysfile` read back unambiguously (`sshd -T` drops quoting, so only one
+//!   entry, or sshd's own default pair, is accepted; anything else is unverifiable) and
+//!   naming only files Heimdall checks: every entry is expanded
 //!   (`%%`, `%h`, `%u`; any other token is refused), resolved against the account's home
 //!   and must be a normalized absolute path, and the list must include
 //!   `<home>/.ssh/authorized_keys`, the file Heimdall writes. The verified list is every
@@ -318,6 +320,34 @@ fn methods_allow_publickey_alone(v: &str) -> bool {
     v == "any" || v.split_ascii_whitespace().any(|list| list == "publickey")
 }
 
+/// sshd's compiled-in `AuthorizedKeysFile`, the one multi-file value the verifier accepts.
+pub const DEFAULT_KEYS_FILES: [&str; 2] = [".ssh/authorized_keys", ".ssh/authorized_keys2"];
+
+/// ⟨M06 W1 review⟩ Whether an `authorizedkeysfile` value reads back unambiguously.
+/// `sshd -T` prints the file list joined by single spaces **without its quoting**, so
+/// `AuthorizedKeysFile a ".ssh/b c"` prints as `a .ssh/b c`: a list of several entries
+/// cannot be told apart from fewer entries with whitespace inside a path. One entry is
+/// unambiguous; of the multi-entry values only sshd's own default pair
+/// ([`DEFAULT_KEYS_FILES`]) is accepted (its one other reading, a single quoted path equal
+/// to that text, is checked for by the runner, [`default_pair_unambiguous`]); any other list,
+/// or a value with whitespace other than single spaces, is unverifiable.
+fn keys_files_round_trip(value: &str, entries: &[&str]) -> bool {
+    match entries {
+        [_] => !value.contains(char::is_whitespace),
+        [a, b] => [*a, *b] == DEFAULT_KEYS_FILES && value == DEFAULT_KEYS_FILES.join(" "),
+        _ => false,
+    }
+}
+
+/// ⟨M06 W1 review⟩ For a verified policy naming sshd's default pair: whether its one other
+/// reading, a single path equal to the pair's text with a space in it, names nothing on disk
+/// (`exists` probes a path). A path there makes the configuration ambiguous.
+#[must_use]
+pub fn default_pair_unambiguous(home: &str, exists: impl Fn(&Path) -> bool) -> bool {
+    let joined = format!("{home}/{}", DEFAULT_KEYS_FILES.join(" "));
+    !exists(Path::new(&joined))
+}
+
 fn expand_keys_file(entry: &str, account: &Account<'_>) -> Result<String, PolicyRefusal> {
     let mut out = String::new();
     let mut chars = entry.chars();
@@ -464,6 +494,12 @@ fn verify_inner(
         return Err(refuse(
             PolicyField::AuthorizedKeysFile,
             "no authorized keys file is consulted",
+        ));
+    }
+    if !keys_files_round_trip(files_value, &entries) {
+        return Err(refuse(
+            PolicyField::AuthorizedKeysFile,
+            "the authorized keys files cannot be read back unambiguously",
         ));
     }
     let mut files: Vec<String> = Vec::with_capacity(entries.len());
@@ -840,7 +876,7 @@ pub async fn check_effective_policy(check: &SshdCheck<'_>) -> Result<PolicyVerdi
     let cleaned = scratch.destroy();
     let (text, banner) = outcome?;
     cleaned?;
-    Ok(verify(
+    let verdict = verify(
         &text,
         &banner,
         &Account {
@@ -848,7 +884,18 @@ pub async fn check_effective_policy(check: &SshdCheck<'_>) -> Result<PolicyVerdi
             home: check.home,
             login_shell: check.login_shell,
         },
-    ))
+    );
+    // The default pair's other reading must name nothing (see `keys_files_round_trip`).
+    if let PolicyVerdict::Verified(v) = &verdict
+        && v.authorized_keys_files.len() == 2
+        && !default_pair_unambiguous(check.home, |p| std::fs::symlink_metadata(p).is_ok())
+    {
+        return Ok(PolicyVerdict::Refused(refuse(
+            PolicyField::AuthorizedKeysFile,
+            "the authorized keys files cannot be read back unambiguously",
+        )));
+    }
+    Ok(verdict)
 }
 
 /// The account's login shell from the system's account database (`getent passwd`, Linux
@@ -1073,7 +1120,11 @@ permituserenvironment no
             ("acceptenv LC_*", "acceptenv LC_ALL LC_CTYPE"),
             (
                 "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2",
-                "authorizedkeysfile %h/.ssh/authorized_keys /home/%u/.ssh/extra_keys",
+                "authorizedkeysfile %h/.ssh/authorized_keys",
+            ),
+            (
+                "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2",
+                "authorizedkeysfile /home/%u/.ssh/authorized_keys",
             ),
         ] {
             assert!(
@@ -1159,14 +1210,29 @@ permituserenvironment no
         }
     }
 
-    /// The real `sshd -T` (skipped where `/usr/sbin/sshd` is absent): against scratch
-    /// configurations only (`-f`), so neither `~/.ssh` nor the system configuration is
-    /// read; `-T` never listens. A clean configuration verifies (on an sshd new enough), a
-    /// client-settable environment and an account `ForceCommand` in a `Match User` block are
-    /// refused by name, and the scratch host key directory is gone after every run.
+    /// ⟨M06 W2⟩ The real `sshd -T`, hermetic: every run is `sshd -T -f <scratch sshd_config>
+    /// -h <scratch host key> -C user=hmfixture,…` ([`check_effective_policy`]), so neither the
+    /// host's `/etc/ssh/sshd_config` (nor any drop-in of it) nor `~/.ssh` is read, and `-T`
+    /// never listens. Skipped, with the reason printed, where `/usr/sbin/sshd` is absent.
+    ///
+    /// The fixture policies:
+    /// * **restricted**: the account's effective policy passes (or, on an sshd older than
+    ///   [`MIN_VERSION`], is refused by version only), also when the restriction comes from
+    ///   a `Match User` block over a permissive global setting (the documented drop-in form):
+    ///   `-C` evaluates the Match context;
+    /// * **unrestricted or unsafe**: each refused field by name (authorized keys and
+    ///   principals commands, a keys file list without the file Heimdall writes, an account
+    ///   `ForceCommand`, user environment files, a client-settable environment, a second
+    ///   authentication method, public key authentication off);
+    /// * **unverifiable**: an sshd error (an unknown directive, a missing configuration file)
+    ///   completes no check, so the management policy is `owner_only`.
+    ///
+    /// The scratch host key directory is gone after every run. No host-observation case is
+    /// kept: every property the verifier depends on is fixed by these fixtures, and a run
+    /// against the host's own configuration would prove nothing deterministic about it.
     #[tokio::test]
     #[allow(clippy::print_stderr)] // the skip reason is printed, as the plan requires
-    async fn real_sshd_t_with_scratch_configurations() {
+    async fn real_sshd_t_against_fixture_policies_is_hermetic() {
         let sshd = Path::new(DEFAULT_SSHD);
         if !sshd.exists() {
             eprintln!("skipped: {DEFAULT_SSHD} is absent on this host");
@@ -1181,22 +1247,131 @@ permituserenvironment no
                     AuthorizedKeysCommand none\nAuthorizedPrincipalsCommand none\n\
                     PermitUserEnvironment no\nAcceptEnv LANG LC_*\n\
                     AuthenticationMethods any\nPubkeyAuthentication yes\n";
-        let cases = [
-            ("clean", base.to_owned(), None),
+        let swap = |from: &str, to: &str| {
+            assert!(base.contains(from), "{from}");
+            base.replace(from, to)
+        };
+        let in_match = |lines: &str| format!("{base}Match User hmfixture\n{lines}");
+        enum Want {
+            Verified,
+            Refused(PolicyField),
+            Unverifiable,
+        }
+        let cases: Vec<(&str, Option<String>, Want)> = vec![
+            ("restricted", Some(base.to_owned()), Want::Verified),
             (
-                "acceptenv",
-                base.replace("AcceptEnv LANG LC_*", "AcceptEnv *"),
-                Some(PolicyField::AcceptEnv),
+                "restricted by a Match block",
+                Some(format!(
+                    "{}Match User hmfixture\n    AuthorizedKeysCommand none\n",
+                    swap(
+                        "AuthorizedKeysCommand none",
+                        "AuthorizedKeysCommand /usr/bin/false\nAuthorizedKeysCommandUser nobody",
+                    )
+                )),
+                Want::Verified,
             ),
             (
-                "forcecommand",
-                format!("{base}Match User hmfixture\n    ForceCommand /usr/bin/false\n"),
-                Some(PolicyField::ForceCommand),
+                "an authorized keys command",
+                Some(swap(
+                    "AuthorizedKeysCommand none",
+                    "AuthorizedKeysCommand /usr/bin/false\nAuthorizedKeysCommandUser nobody",
+                )),
+                Want::Refused(PolicyField::AuthorizedKeysCommand),
             ),
+            (
+                "an authorized principals command",
+                Some(swap(
+                    "AuthorizedPrincipalsCommand none",
+                    "AuthorizedPrincipalsCommand /usr/bin/false\n\
+                     AuthorizedPrincipalsCommandUser nobody",
+                )),
+                Want::Refused(PolicyField::AuthorizedPrincipalsCommand),
+            ),
+            (
+                "keys files without the one Heimdall writes",
+                Some(swap(
+                    "AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2",
+                    "AuthorizedKeysFile .ssh/authorized_keys2",
+                )),
+                Want::Refused(PolicyField::AuthorizedKeysFile),
+            ),
+            (
+                "an account ForceCommand",
+                Some(in_match("    ForceCommand /usr/bin/false\n")),
+                Want::Refused(PolicyField::ForceCommand),
+            ),
+            (
+                "user environment files",
+                Some(swap(
+                    "PermitUserEnvironment no",
+                    "PermitUserEnvironment yes",
+                )),
+                Want::Refused(PolicyField::PermitUserEnvironment),
+            ),
+            (
+                "a client-settable environment",
+                Some(swap("AcceptEnv LANG LC_*", "AcceptEnv *")),
+                Want::Refused(PolicyField::AcceptEnv),
+            ),
+            (
+                "an account AcceptEnv in a Match block",
+                Some(in_match("    AcceptEnv HM_FIXTURE_*\n")),
+                Want::Refused(PolicyField::AcceptEnv),
+            ),
+            (
+                "a second authentication method",
+                Some(swap(
+                    "AuthenticationMethods any",
+                    "AuthenticationMethods publickey,password",
+                )),
+                Want::Refused(PolicyField::AuthenticationMethods),
+            ),
+            (
+                "public key authentication off",
+                Some(swap("PubkeyAuthentication yes", "PubkeyAuthentication no")),
+                Want::Refused(PolicyField::PubkeyAuthentication),
+            ),
+            // ⟨M06 W1 review⟩ sshd -T drops this quoting: unverifiable, never restricted.
+            (
+                "a keys file path with a space",
+                Some(swap(
+                    "AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2",
+                    "AuthorizedKeysFile .ssh/authorized_keys \".ssh/alternate keys\"",
+                )),
+                Want::Refused(PolicyField::AuthorizedKeysFile),
+            ),
+            (
+                "one quoted keys file with a space",
+                Some(swap(
+                    "AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2",
+                    "AuthorizedKeysFile \".ssh/authorized keys\"",
+                )),
+                Want::Refused(PolicyField::AuthorizedKeysFile),
+            ),
+            (
+                // sshd keeps this value's raw text, quotes included (observed on 10.5p1);
+                // only exactly `none` verifies.
+                "a keys command with a quoted argument",
+                Some(swap(
+                    "AuthorizedKeysCommand none",
+                    "AuthorizedKeysCommand /usr/bin/false \"%u x\"\nAuthorizedKeysCommandUser nobody",
+                )),
+                Want::Refused(PolicyField::AuthorizedKeysCommand),
+            ),
+            (
+                "an unknown directive",
+                Some(format!("{base}HmFixtureNoSuchDirective yes\n")),
+                Want::Unverifiable,
+            ),
+            ("a missing configuration file", None, Want::Unverifiable),
         ];
         for (name, text, want) in cases {
-            let config = scratch.path().join(format!("{name}.conf"));
-            std::fs::write(&config, text).unwrap();
+            let config = scratch
+                .path()
+                .join(format!("{}.conf", name.replace(' ', "-")));
+            if let Some(text) = &text {
+                std::fs::write(&config, text).unwrap();
+            }
             let check = SshdCheck {
                 sshd,
                 config: Some(&config),
@@ -1212,21 +1387,79 @@ permituserenvironment no
                 0,
                 "{name}: the scratch host key directory was destroyed"
             );
-            let verdict = match result {
-                Ok(v) => v,
-                Err(e) => panic!("{name}: the run did not complete: {e}"),
-            };
-            match (want, &verdict) {
-                (None, PolicyVerdict::Verified(v)) => {
+            match (want, &result) {
+                (Want::Verified, Ok(PolicyVerdict::Verified(v))) => {
                     assert_eq!(v.authorized_keys_files.len(), 2, "{name}");
+                    assert_eq!(
+                        management_policy_of(&result),
+                        ManagementPolicy::Verified,
+                        "{name}"
+                    );
                 }
-                (None, PolicyVerdict::Refused(r)) if r.field == PolicyField::Version => {
+                (Want::Verified, Ok(PolicyVerdict::Refused(r)))
+                    if r.field == PolicyField::Version =>
+                {
                     eprintln!("{name}: this sshd predates {MIN_VERSION:?}; refused by version");
                 }
-                (Some(f), PolicyVerdict::Refused(r)) => assert_eq!(r.field, f, "{name}"),
-                _ => panic!("{name}: unexpected verdict {verdict:?}"),
+                (Want::Refused(f), Ok(PolicyVerdict::Refused(r))) => {
+                    assert_eq!(r.field, f, "{name}");
+                    assert_eq!(
+                        management_policy_of(&result),
+                        ManagementPolicy::OwnerOnly,
+                        "{name}"
+                    );
+                }
+                (Want::Unverifiable, Err(RunError::Failed { .. })) => {
+                    assert_eq!(
+                        management_policy_of(&result),
+                        ManagementPolicy::OwnerOnly,
+                        "{name}"
+                    );
+                }
+                _ => panic!("{name}: unexpected result {result:?}"),
             }
         }
+    }
+
+    /// ⟨M06 W1 review⟩ `sshd -T` drops the quoting of `AuthorizedKeysFile`: a list it cannot
+    /// read back unambiguously is unverifiable (owner-only), never verified. The reviewer's
+    /// probe printed `AuthorizedKeysFile .ssh/authorized_keys ".ssh/alternate keys"` as
+    /// `.ssh/authorized_keys .ssh/alternate keys`.
+    #[test]
+    fn keys_file_lists_that_cannot_round_trip_are_unverifiable() {
+        let a = account();
+        let default = "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2";
+        for value in [
+            "authorizedkeysfile .ssh/authorized_keys .ssh/alternate keys",
+            "authorizedkeysfile .ssh/authorized keys",
+            "authorizedkeysfile .ssh/authorized_keys  .ssh/authorized_keys2",
+            "authorizedkeysfile .ssh/authorized_keys\t.ssh/authorized_keys2",
+            "authorizedkeysfile .ssh/authorized_keys2 .ssh/authorized_keys",
+            "authorizedkeysfile %h/.ssh/authorized_keys /home/%u/.ssh/extra_keys",
+            "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2 .ssh/third",
+            "authorizedkeysfile \".ssh/authorized_keys\"",
+        ] {
+            let text = DEVBOX.replace(default, &value.replace("\\t", "\t"));
+            assert_eq!(
+                refused(&text, BANNER, &a),
+                PolicyField::AuthorizedKeysFile,
+                "{value}"
+            );
+        }
+        for value in [default, "authorizedkeysfile .ssh/authorized_keys"] {
+            assert!(
+                matches!(
+                    verify(&DEVBOX.replace(default, value), BANNER, &a),
+                    PolicyVerdict::Verified(_)
+                ),
+                "{value}"
+            );
+        }
+        // The default pair's other reading (one quoted path with a space) names nothing.
+        assert!(default_pair_unambiguous("/home/runner", |_| false));
+        assert!(!default_pair_unambiguous("/home/runner", |p| {
+            p == Path::new("/home/runner/.ssh/authorized_keys .ssh/authorized_keys2")
+        }));
     }
 
     #[test]

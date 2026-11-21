@@ -28,11 +28,14 @@
 //!   re-execution (T-RA3, ADR-0006 §7.3). The same key with a different request is
 //!   `REQUEST_CONFLICT`.
 //!
-//! **Persistence.** The domain's `DecisionKind` has no variant for a revision-6 widening
-//! request (invite, route add or prefer, transport enable, roost adoption), and this unit
-//! may not change the domain, so the records sit behind the [`WideningRecords`] port with
-//! an in-memory implementation ([`crate::testing::MemoryWidening`]). Its store-backed
-//! implementation over the `decisions` table lands with that variant (DONE question).
+//! **Persistence.** ⟨M06 W2⟩ The records are ADR-0006 §3.1 decision records
+//! ([`StoreWidening`]): a `decisions` row of kind `DecisionKind::RemoteWidening` (the client,
+//! the request kind and ID, the exact request and, for an invite, the bound key and role),
+//! with its side row in `remote_widening` (migration 0010: the caller-namespaced key, the
+//! request's canonical hash and the recorded terminal result). Because the record is a
+//! decision, the runner's own CLI and TUI list it (`inspect decisions`) and an attended
+//! `decision approve` local to the runner decides it through [`decide`]. The in-memory
+//! implementation ([`crate::testing::MemoryWidening`]) stays for this crate's model tests.
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::canonical::{RequestHash, request_hash};
@@ -112,6 +115,9 @@ pub struct WideningRecord {
     pub request_hash: RequestHash,
     /// ⟨M06-W0-R07⟩ For an invite: the exact key and role the decision enrolls.
     pub invite: Option<InviteBinding>,
+    /// ⟨M06 W2, U56-Q6⟩ For an exposure widening: the exact exposure delta the request
+    /// applies, computed when the record was created (the store's `ExposureDelta` document).
+    pub exposure: Option<serde_json::Value>,
     /// The authority generation it was issued under.
     pub generation: AuthorityGeneration,
     /// When it was created.
@@ -191,6 +197,171 @@ pub trait WideningRecords: Send + Sync {
         id: &DecisionId,
         result: Envelope<serde_json::Value>,
     ) -> Result<WideningRecord, LedgerError>;
+}
+
+/// ⟨M06 W2⟩ The durable [`WideningRecords`] (module docs, "Persistence"): ADR-0006 §3.1
+/// decision records in the runner's state store.
+#[derive(Clone)]
+pub struct StoreWidening {
+    store: std::sync::Arc<heimdall_store::Store>,
+}
+
+impl std::fmt::Debug for StoreWidening {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoreWidening").finish_non_exhaustive()
+    }
+}
+
+impl StoreWidening {
+    /// Over `store`.
+    #[must_use]
+    pub fn new(store: std::sync::Arc<heimdall_store::Store>) -> Self {
+        Self { store }
+    }
+
+    fn read(
+        &self,
+        f: impl FnOnce(
+            &mut heimdall_store::Txn<'_>,
+        ) -> heimdall_store::Result<
+            Option<(
+                heimdall_domain::decision::DecisionRecord,
+                heimdall_store::ext_m06::RemoteWideningRow,
+            )>,
+        >,
+    ) -> Result<Option<WideningRecord>, LedgerError> {
+        self.store
+            .transaction(f)
+            .map_err(|_| LedgerError::Store)?
+            .map(|(d, row)| to_record(d, row))
+            .transpose()
+    }
+}
+
+/// A lost compare-and-set is [`LedgerError::Moved`]; anything else a store failure (a
+/// missing record is checked first, [`LedgerError::Missing`]).
+fn ledger_err(e: heimdall_store::StoreError) -> LedgerError {
+    match e {
+        heimdall_store::StoreError::GenerationConflict(_) => LedgerError::Moved,
+        _ => LedgerError::Store,
+    }
+}
+
+/// A stored record as the port's [`WideningRecord`]; a record that does not decode is a
+/// store failure (fail closed).
+fn to_record(
+    d: heimdall_domain::decision::DecisionRecord,
+    row: heimdall_store::ext_m06::RemoteWideningRow,
+) -> Result<WideningRecord, LedgerError> {
+    let heimdall_domain::decision::DecisionKind::RemoteWidening(w) = d.kind else {
+        return Err(LedgerError::Store);
+    };
+    let request_hash = RequestHash::from_hex(&row.request_hash).map_err(|_| LedgerError::Store)?;
+    let result = row
+        .result
+        .map(serde_json::from_value::<Envelope<serde_json::Value>>)
+        .transpose()
+        .map_err(|_| LedgerError::Store)?;
+    let w = *w;
+    Ok(WideningRecord {
+        decision: d.id,
+        key: WideningKey {
+            client: w.client,
+            kind: w.request_kind,
+            request_id: w.request_id,
+        },
+        request: w.request,
+        request_hash,
+        invite: w.invite.map(|b| InviteBinding {
+            role: b.role,
+            public_key: b.public_key,
+            key_fingerprint: b.key_fingerprint,
+        }),
+        exposure: w.exposure,
+        generation: d.generation,
+        created_at: d.created_at,
+        expires_at: d.expires_at,
+        state: d.state,
+        decided_at: d.decided_at,
+        result,
+    })
+}
+
+fn envelope_value(e: &Envelope<serde_json::Value>) -> Result<serde_json::Value, LedgerError> {
+    serde_json::to_value(e).map_err(|_| LedgerError::Store)
+}
+
+impl WideningRecords for StoreWidening {
+    fn by_key(&self, key: &WideningKey) -> Result<Option<WideningRecord>, LedgerError> {
+        self.read(|tx| tx.remote_widening_by_key(&key.client, &key.kind, &key.request_id))
+    }
+
+    fn by_decision(&self, id: &DecisionId) -> Result<Option<WideningRecord>, LedgerError> {
+        self.read(|tx| tx.remote_widening(id))
+    }
+
+    fn insert(&self, record: WideningRecord) -> Result<(), LedgerError> {
+        use heimdall_domain::decision::{
+            DecisionKind, DecisionRecord, RemoteInviteBinding, RemoteWidening,
+        };
+        let hash = record.request_hash.to_hex();
+        let decision = DecisionRecord {
+            id: record.decision,
+            kind: DecisionKind::RemoteWidening(Box::new(RemoteWidening {
+                client: record.key.client,
+                request_kind: record.key.kind,
+                request_id: record.key.request_id,
+                request: record.request,
+                invite: record.invite.map(|b| RemoteInviteBinding {
+                    role: b.role,
+                    public_key: b.public_key,
+                    key_fingerprint: b.key_fingerprint,
+                }),
+                exposure: record.exposure,
+            })),
+            generation: record.generation,
+            created_at: record.created_at,
+            expires_at: record.expires_at,
+            state: record.state,
+            decided_at: record.decided_at,
+        };
+        self.store
+            .transaction(|tx| tx.insert_remote_widening(&decision, &hash))
+            .map_err(|e| match e {
+                heimdall_store::StoreError::GenerationConflict(_) => LedgerError::Exists,
+                _ => LedgerError::Store,
+            })
+    }
+
+    fn settle(
+        &self,
+        id: &DecisionId,
+        state: DecisionState,
+        at: Timestamp,
+        result: Option<Envelope<serde_json::Value>>,
+    ) -> Result<WideningRecord, LedgerError> {
+        let value = result.as_ref().map(envelope_value).transpose()?;
+        self.by_decision(id)?.ok_or(LedgerError::Missing)?;
+        let (d, row) = self
+            .store
+            .transaction(|tx| tx.settle_remote_widening(id, state, at, value.as_ref()))
+            .map_err(ledger_err)?;
+        to_record(d, row)
+    }
+
+    fn record_result(
+        &self,
+        id: &DecisionId,
+        result: Envelope<serde_json::Value>,
+    ) -> Result<WideningRecord, LedgerError> {
+        let value = envelope_value(&result)?;
+        self.by_decision(id)?.ok_or(LedgerError::Missing)?;
+        let (d, row) = self
+            .store
+            .transaction(|tx| tx.record_remote_widening_result(id, &value))
+            .map_err(ledger_err)?;
+        to_record(d, row)
+    }
 }
 
 /// The request ID of a revision-6 widening form, `None` for any other request.
@@ -287,6 +458,26 @@ pub fn submit(
     generation: AuthorityGeneration,
     now: Timestamp,
 ) -> Result<(Submitted, Envelope<serde_json::Value>), Refusal> {
+    submit_bound(records, client, request, None, generation, now)
+}
+
+/// ⟨M06 W2, U56-Q6⟩ [`submit`] for a request whose record is also bound to the exact
+/// exposure delta it applies (`exposure`, computed by the caller from the runner's recorded
+/// endpoint): approval executes only while the delta is still exactly this one
+/// ([`WideningRecord::exposure`]). A replay of the same request returns the recorded answer
+/// whatever the delta is now.
+///
+/// # Errors
+///
+/// As [`submit`].
+pub fn submit_bound(
+    records: &dyn WideningRecords,
+    client: &ClientId,
+    request: &Request,
+    exposure: Option<serde_json::Value>,
+    generation: AuthorityGeneration,
+    now: Timestamp,
+) -> Result<(Submitted, Envelope<serde_json::Value>), Refusal> {
     let request_id = request_id_of(request).ok_or(Refusal::NotAvailableRemotely)?;
     let invite = invite_binding(request)?;
     let key = WideningKey {
@@ -311,6 +502,7 @@ pub fn submit(
         request: request.clone(),
         request_hash: hash,
         invite,
+        exposure,
         generation,
         created_at: now,
         expires_at: now.checked_add(span).map_err(|_| Refusal::State)?,
@@ -332,26 +524,43 @@ pub struct DecidingSession<'a> {
     pub attended: bool,
 }
 
-/// Decide a runner-local record (module docs): only on an attended session local to the
-/// runner; consume-once and generation-checked; approval claims the record, runs `execute`
-/// exactly once on the claimed record (its exact request and, for an invite, its bound key
-/// and role), and records its result; denial records the owner's refusal. Returns the
-/// terminal result.
+/// ⟨M06 W2, U56-Q6⟩ Whether a record is still bound to exactly the request it was decided
+/// for: the request's canonical hash equals the one recorded at submission, its kind and
+/// request ID are the key's, and, for an invite, the key and role recomputed from the
+/// request are the recorded binding. Checked before a record is claimed and again by the
+/// executor: a mismatch executes nothing.
 ///
 /// # Errors
 ///
-/// `INTERACTION_REQUIRED` from a paired or unattended session; `DECISION_STALE` for a
-/// record that is not pending, has lapsed, or was issued under another generation (a stale
-/// one is marked so); `STATE_UNAVAILABLE`.
-pub fn decide(
+/// [`Refusal::BindingMismatch`]; `STATE_UNAVAILABLE` when the request does not serialize.
+pub fn verify_binding(record: &WideningRecord) -> Result<(), Refusal> {
+    let same = hash_of(&record.request)? == record.request_hash
+        && record.request.kind() == record.key.kind
+        && request_id_of(&record.request) == Some(&record.key.request_id)
+        && invite_binding(&record.request)? == record.invite;
+    if same {
+        Ok(())
+    } else {
+        Err(Refusal::BindingMismatch)
+    }
+}
+
+/// What the shared precheck of [`decide`] and [`decide_async`] left to do.
+enum Step {
+    /// Denied and recorded: the answer.
+    Denied(Box<Envelope<serde_json::Value>>),
+    /// Claimed (`pending → approved`): run it once, then record its result.
+    Claimed(Box<WideningRecord>),
+}
+
+fn claim(
     records: &dyn WideningRecords,
     session: DecidingSession<'_>,
     decision: &DecisionId,
     verdict: Verdict,
     current: AuthorityGeneration,
     now: Timestamp,
-    execute: impl FnOnce(&WideningRecord) -> Envelope<serde_json::Value>,
-) -> Result<Envelope<serde_json::Value>, Refusal> {
+) -> Result<Step, Refusal> {
     if session.remote_client.is_some() || !session.attended {
         return Err(Refusal::InteractionRequired);
     }
@@ -380,6 +589,10 @@ pub fn decide(
         );
         return Err(Refusal::DecisionStale);
     }
+    let moved = |e: LedgerError| match e {
+        LedgerError::Moved => Refusal::DecisionStale,
+        _ => Refusal::State,
+    };
     match verdict {
         Verdict::Deny => {
             let denied = heimdall_app::OpError::new(
@@ -391,25 +604,195 @@ pub fn decide(
             .map(|d| serde_json::to_value(d).unwrap_or_default());
             records
                 .settle(decision, DecisionState::Denied, now, Some(denied.clone()))
-                .map_err(|e| match e {
-                    LedgerError::Moved => Refusal::DecisionStale,
-                    _ => Refusal::State,
-                })?;
-            Ok(denied)
+                .map_err(moved)?;
+            Ok(Step::Denied(Box::new(denied)))
         }
         Verdict::Approve => {
+            // A record no longer bound to its exact request is never claimed: nothing runs,
+            // and it stays pending until it lapses.
+            verify_binding(&rec)?;
             // Claim first: whoever wins this compare-and-set is the only one that runs.
             let claimed = records
                 .settle(decision, DecisionState::Approved, now, None)
-                .map_err(|e| match e {
-                    LedgerError::Moved => Refusal::DecisionStale,
-                    _ => Refusal::State,
-                })?;
+                .map_err(moved)?;
+            Ok(Step::Claimed(Box::new(claimed)))
+        }
+    }
+}
+
+/// Decide a runner-local record (module docs): only on an attended session local to the
+/// runner; consume-once and generation-checked; approval checks the record's binding
+/// ([`verify_binding`]), claims it, runs `execute` exactly once on the claimed record (its
+/// exact request and, for an invite, its bound key and role), and records its result;
+/// denial records the owner's refusal. Returns the terminal result.
+///
+/// # Errors
+///
+/// `INTERACTION_REQUIRED` from a paired or unattended session; `DECISION_STALE` for a
+/// record that is not pending, has lapsed, or was issued under another generation (a stale
+/// one is marked so); `decision_binding_mismatch` for a record no longer bound to its exact
+/// request (not claimed); `STATE_UNAVAILABLE`.
+pub fn decide(
+    records: &dyn WideningRecords,
+    session: DecidingSession<'_>,
+    decision: &DecisionId,
+    verdict: Verdict,
+    current: AuthorityGeneration,
+    now: Timestamp,
+    execute: impl FnOnce(&WideningRecord) -> Envelope<serde_json::Value>,
+) -> Result<Envelope<serde_json::Value>, Refusal> {
+    match claim(records, session, decision, verdict, current, now)? {
+        Step::Denied(answer) => Ok(*answer),
+        Step::Claimed(claimed) => {
             let result = execute(&claimed);
             records
                 .record_result(decision, result.clone())
                 .map_err(store_err)?;
             Ok(result)
         }
+    }
+}
+
+/// [`decide`] with an asynchronous executor (the runtime's transport executor).
+///
+/// # Errors
+///
+/// As [`decide`].
+pub async fn decide_async(
+    records: &dyn WideningRecords,
+    session: DecidingSession<'_>,
+    decision: &DecisionId,
+    verdict: Verdict,
+    current: AuthorityGeneration,
+    now: Timestamp,
+    execute: impl AsyncFnOnce(&WideningRecord) -> Envelope<serde_json::Value>,
+) -> Result<Envelope<serde_json::Value>, Refusal> {
+    match claim(records, session, decision, verdict, current, now)? {
+        Step::Denied(answer) => Ok(*answer),
+        Step::Claimed(claimed) => {
+            let result = execute(&claimed).await;
+            records
+                .record_result(decision, result.clone())
+                .map_err(store_err)?;
+            Ok(result)
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::testing::MemoryWidening;
+
+    fn key_text(n: u8) -> (String, KeyFingerprint) {
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&11u32.to_be_bytes());
+        blob.extend_from_slice(b"ssh-ed25519");
+        blob.extend_from_slice(&32u32.to_be_bytes());
+        blob.extend_from_slice(&[n; 32]);
+        let text = format!(
+            "ssh-ed25519 {}",
+            <base64ct::Base64 as base64ct::Encoding>::encode_string(&blob)
+        );
+        let fp = crate::line::PublicKeyText::parse(&text)
+            .unwrap()
+            .fingerprint();
+        (text, fp)
+    }
+
+    fn invite(n: u8, request_id: &str) -> Request {
+        let (public_key, fp) = key_text(n);
+        serde_json::from_value(serde_json::json!({
+            "op": "remote_environment", "action": "invite",
+            "environment": heimdall_contract::ids::EnvironmentId::from_random_bytes([7; 16]),
+            "role": "owner", "key_fingerprint": fp, "public_key": public_key,
+            "request_id": request_id,
+        }))
+        .unwrap()
+    }
+
+    /// ⟨M06 W2, U56-Q6⟩ Approval runs only a record still bound to exactly its decided
+    /// request: a record whose request no longer hashes to the recorded hash, or whose
+    /// invite binding names another key, is refused `decision_binding_mismatch` before it is
+    /// claimed (the executor never runs and the record stays pending); an intact record runs
+    /// once.
+    #[tokio::test]
+    async fn approval_executes_only_the_exact_decided_request() {
+        let records = MemoryWidening::new();
+        let client = ClientId::from_random_bytes([1; 16]);
+        let now: Timestamp = "2026-11-21T09:00:00Z".parse().unwrap();
+        let generation = AuthorityGeneration(3);
+        let local = DecidingSession {
+            remote_client: None,
+            attended: true,
+        };
+        let mut ids = Vec::new();
+        for (n, id) in [(1u8, "a"), (2, "b"), (3, "c")] {
+            let (Submitted::Created(d), _) =
+                submit(&records, &client, &invite(n, id), generation, now).unwrap()
+            else {
+                panic!("not created");
+            };
+            ids.push(d);
+        }
+        // Tamper: (a) the request no longer matches its hash; (b) the binding names another
+        // key while the request (and so its hash) is intact.
+        let mut all = records.all();
+        let tampered_request = all.iter_mut().find(|r| r.decision == ids[0]).unwrap();
+        tampered_request.request = invite(9, "a");
+        let tampered_binding = records.all().into_iter().find(|r| r.decision == ids[1]);
+        let mut tampered_binding = tampered_binding.unwrap();
+        tampered_binding.invite = invite_binding(&invite(8, "b")).unwrap();
+        let replaced = MemoryWidening::new();
+        for r in [
+            tampered_request.clone(),
+            tampered_binding,
+            records
+                .all()
+                .into_iter()
+                .find(|r| r.decision == ids[2])
+                .unwrap(),
+        ] {
+            replaced.insert(r).unwrap();
+        }
+        for id in &ids[..2] {
+            let mut ran = false;
+            let out = decide_async(
+                &replaced,
+                local,
+                id,
+                Verdict::Approve,
+                generation,
+                now,
+                async |_: &WideningRecord| {
+                    ran = true;
+                    pending_envelope(id)
+                },
+            )
+            .await;
+            assert_eq!(out, Err(Refusal::BindingMismatch));
+            assert!(!ran, "nothing executed");
+            assert_eq!(
+                replaced.by_decision(id).unwrap().unwrap().state,
+                DecisionState::Pending
+            );
+        }
+        let mut runs = 0;
+        let out = decide(
+            &replaced,
+            local,
+            &ids[2],
+            Verdict::Approve,
+            generation,
+            now,
+            |claimed| {
+                runs += 1;
+                assert_eq!(claimed.invite, invite_binding(&invite(3, "c")).unwrap());
+                pending_envelope(&ids[2])
+            },
+        );
+        assert!(out.is_ok());
+        assert_eq!(runs, 1);
     }
 }

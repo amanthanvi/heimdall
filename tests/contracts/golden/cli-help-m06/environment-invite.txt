@@ -1,0 +1,36 @@
+Invite another device's management key to a runner. You confirm its fingerprint here; the runner holds the invitation until it is confirmed there
+
+Usage: heimdall environment invite [OPTIONS] --role <ROLE> --public-key <KEY> <ENVIRONMENT>
+
+Arguments:
+  <ENVIRONMENT>
+          The runner environment
+
+Options:
+      --json
+          Machine output: one JSON envelope on stdout (NDJSON for event streams)
+
+      --role <ROLE>
+          The role to offer
+
+          Possible values:
+          - owner:     Every permission
+          - requester: View and request
+          - viewer:    View only
+
+      --non-interactive
+          Never open a browser, dialog, or terminal prompt (spec §11.3). Owner decisions then exit 3 with `next.decision_ref` and nothing is sent
+
+      --public-key <KEY>
+          The invited device's management key (the line its `environment join --show-key` printed)
+
+      --home <DIR>
+          Override the Heimdall home directory (fixtures and tests)
+          
+          [env: HEIMDALL_HOME=]
+
+      --request-id <ID>
+          Reuse the request ID the pending answer named, after confirming at the runner
+
+  -h, --help
+          Print help (see a summary with '-h')

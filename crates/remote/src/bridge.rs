@@ -512,6 +512,7 @@ mod tests {
             principal: PrincipalInfo::OsUserUnix { uid: 1000 },
             environment_id: EnvironmentId::from_random_bytes([5; 16]),
             role: Some(Role::Owner),
+            remote_client: None,
         });
         end.write_all(&encode_frame(&reply, MAX_HELLO_FRAME_BYTES).unwrap())
             .await

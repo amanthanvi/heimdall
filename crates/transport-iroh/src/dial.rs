@@ -161,6 +161,105 @@ impl PigeonsStream {
     }
 }
 
+impl PigeonsStream {
+    /// Splits the stream into its two directions and the connection (ADR-0012 §5.5: the
+    /// route helper reads and writes independently and asks the connection, once a
+    /// direction ends, why the serving side closed it).
+    #[must_use]
+    pub fn into_parts(self) -> (PigeonsReader, PigeonsWriter, PigeonsConnection) {
+        let Self {
+            endpoint,
+            conn,
+            send,
+            recv,
+        } = self;
+        (
+            PigeonsReader(recv),
+            PigeonsWriter(send),
+            PigeonsConnection { endpoint, conn },
+        )
+    }
+}
+
+/// The receiving direction of a split [`PigeonsStream`].
+#[derive(Debug)]
+pub struct PigeonsReader(RecvStream);
+
+/// The sending direction of a split [`PigeonsStream`]; shutting it down finishes the
+/// stream.
+#[derive(Debug)]
+pub struct PigeonsWriter(SendStream);
+
+/// The connection and endpoint of a split [`PigeonsStream`]. Close it with
+/// [`PigeonsConnection::close`] (bounded).
+#[derive(Debug)]
+pub struct PigeonsConnection {
+    endpoint: Endpoint,
+    conn: Connection,
+}
+
+impl PigeonsConnection {
+    /// Why the serving side closed the connection, once it has.
+    #[must_use]
+    pub fn peer_close(&self) -> Option<PeerClose> {
+        self.conn.close_reason().map(|e| peer_close_of(&e))
+    }
+
+    /// The serving endpoint's ID (authenticated by the handshake).
+    #[must_use]
+    pub fn remote_id(&self) -> Option<IrohEndpointId> {
+        contract_id(&self.conn.remote_id())
+    }
+
+    /// Every socket the dialer's endpoint bound.
+    #[must_use]
+    pub fn bound_sockets(&self) -> Vec<SocketAddr> {
+        self.endpoint.bound_sockets()
+    }
+
+    /// Waits at most `bound` for the serving side to close the connection, then reports
+    /// why (`None`: still open).
+    pub async fn closed_within(&self, bound: Duration) -> Option<PeerClose> {
+        let _ = bounded(bound, self.conn.closed()).await;
+        self.peer_close()
+    }
+
+    /// Closes the connection and the endpoint (within [`CLOSE_BOUND`]). Returns whether the
+    /// endpoint close completed within its bound.
+    pub async fn close(self) -> bool {
+        self.conn.close(VarInt::from_u32(CLOSE_DONE), b"done");
+        close_bounded(&self.endpoint).await
+    }
+}
+
+impl AsyncRead for PigeonsReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        AsyncRead::poll_read(Pin::new(&mut self.get_mut().0), cx, buf)
+    }
+}
+
+impl AsyncWrite for PigeonsWriter {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        AsyncWrite::poll_write(Pin::new(&mut self.get_mut().0), cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncWrite::poll_flush(Pin::new(&mut self.get_mut().0), cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncWrite::poll_shutdown(Pin::new(&mut self.get_mut().0), cx)
+    }
+}
+
 impl AsyncRead for PigeonsStream {
     fn poll_read(
         self: Pin<&mut Self>,

@@ -5593,6 +5593,9 @@ fn ensure_data(
         // unchanged.
         context: None,
         uncovered: Vec::new(),
+        // ⟨M06⟩ Revision 6.2: a runner binding's per-component residuals
+        // (`crate::readiness::attach_runner_readiness`); absent for every local binding.
+        residuals: None,
     }
 }
 
@@ -5815,9 +5818,9 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
         // ⟨M05⟩ Revision 5: none is created in joint wave 0; were one stored, its
         // recorded content is shown verbatim.
         | DecisionKind::TrustWorkspace { .. }
-        | DecisionKind::ReconcileWorkspace { .. } => {
-            serde_json::to_value(&d.kind).unwrap_or_default()
-        }
+        | DecisionKind::ReconcileWorkspace { .. }
+        // ⟨M06 W2⟩ A runner-local widening record: the exact request it runs, verbatim.
+        | DecisionKind::RemoteWidening(_) => serde_json::to_value(&d.kind).unwrap_or_default(),
     };
     serde_json::json!({
         "decision_id": d.id,
@@ -12132,6 +12135,12 @@ impl Operations {
                     DecisionKind::ConfirmTime { .. } => {
                         return Ok(Err(stale(&DecisionRefusal::NotPending(d.state))));
                     }
+                    // ⟨M06 W2⟩ Decided only through the runner runtime's runner-local path
+                    // (`remote_m06::remote_widening_not_here`); nothing written here.
+                    DecisionKind::RemoteWidening(_) => {
+                        return Ok(Err(remote_m06::remote_widening_not_here()
+                            .with_resource("decision", Some(did.to_string()))));
+                    }
                     // ⟨M02⟩ U0b row 1, phase 2: the waiting operation must be
                     // `awaiting_approval`, and the record must describe its stored
                     // local intent exactly (kind, plan digest or identity and
@@ -12424,7 +12433,9 @@ impl Operations {
                         }
                     }
                     (
-                        DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
+                        DecisionKind::WidenPolicy { .. }
+                        | DecisionKind::ConfirmTime { .. }
+                        | DecisionKind::RemoteWidening(_),
                         _,
                     ) => {}
                     // ⟨M04⟩ U5: approval inserts the managed row and the environment's

@@ -49,6 +49,10 @@ pub mod ext_m05;
 pub mod ext_m06;
 // ⟨M06 U5a⟩ A destination's ordered approved routes (ADR-0012 §5.1, §9 item 9).
 pub mod ext_routes;
+// ⟨M06 U56⟩ The Iroh transport's key references and exposure consents (ADR-0012 §2).
+pub mod ext_transport;
+// ⟨M06 U3⟩ The runner's grant-to-issuer pins, issuer_trust and time source (ADR-0012 §4).
+pub mod ext_runner;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
@@ -278,6 +282,8 @@ const REQUIRED_TABLES: &[&str] = &[
     "route_consents",
     "remote_authority_generation",
     "transport_keys",
+    // schema version 10 (M06 wave 2: the runner-local widening records; ADR-0012 §3.10)
+    "remote_widening",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -2069,8 +2075,8 @@ mod tests {
         // grant origin column; 0005: the M02 tables, which add tables only).
         // M03 wave 0 (S): 0006 (the M03 tables) adds tables only as well.
         // ⟨M04/M05 wave 0⟩ 0007 and 0008 add tables, and 0008 one nullable column.
-        // ⟨M06 wave 0⟩ 0009 adds tables only.
-        assert_eq!(migrations::SCHEMA_VERSION, 9);
+        // ⟨M06 wave 0⟩ 0009 adds tables only. ⟨M06 wave 2⟩ 0010 adds one table.
+        assert_eq!(migrations::SCHEMA_VERSION, 10);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"

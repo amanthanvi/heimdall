@@ -243,6 +243,35 @@ pub async fn connect_as(
     Ok(Client { inner })
 }
 
+/// ⟨M06 W2⟩ A raw connection to the control endpoint of the runtime serving `home` (an
+/// absolute Heimdall home named by `remote serve`'s argv, never the environment), with no
+/// hello sent: the bridge originates the only hello (ADR-0012 §3.6). Never starts a runtime:
+/// a runner's runtime is its user service (or the operator's), and one started from an sshd
+/// session would inherit that session's environment.
+///
+/// # Errors
+/// `USAGE_ERROR` when the directories cannot be resolved; `SERVICE_UNAVAILABLE` when no
+/// runtime serves the home.
+pub async fn control_stream_for_home(
+    home: &std::path::Path,
+) -> Result<Stream, Box<Envelope<ErrorData>>> {
+    let home = home.as_os_str().to_owned();
+    let paths = Paths::resolve(&|name| {
+        if name == HOME_ENV {
+            Some(home.clone())
+        } else {
+            None
+        }
+    })
+    .map_err(|e| {
+        Box::new(error(
+            Code::UsageError,
+            &format!("cannot resolve the Heimdall directories: {e}"),
+        ))
+    })?;
+    open_stream(&paths).await
+}
+
 #[cfg(unix)]
 async fn open_stream(paths: &Paths) -> Result<Stream, Box<Envelope<ErrorData>>> {
     let endpoints = heimdall_ipc::EndpointPaths::for_runtime(&paths.runtime_dir, "");

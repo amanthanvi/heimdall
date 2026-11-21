@@ -4,10 +4,16 @@
 //!
 //! * **Caller.** Built from the session only: the principal the transport
 //!   authenticated (Unix peer credentials, Windows client SID), the role `Owner`
-//!   (a peer that passed the same-user check is the owner; paired
-//!   `LimitedConsumer` clients are G07 and never arrive on this endpoint), the
-//!   hello's interaction mode, and attendance as the session recorded it. Nothing
-//!   is read from request content (A29: no client-supplied "attended" value).
+//!   (a peer that passed the same-user check is the owner), the hello's interaction
+//!   mode, and attendance as the session recorded it. Nothing is read from request
+//!   content (A29: no client-supplied "attended" value). ⟨M06 W2⟩ On a **runner**
+//!   ([`OperationsDispatcher::with_runner`], `crate::paired`), a session whose hello
+//!   names a paired client is bound at the hello to the client the role table resolves
+//!   ([`Dispatcher::bind_paired`]); its caller is `{principal, role, remote_client}` with
+//!   the table's role, every frame is checked against the client's row before dispatch,
+//!   its live events are scoped ([`Dispatcher::live_visibility`]) and it ends when the
+//!   client is revoked ([`Dispatcher::session_end`]). Any other runtime refuses such a
+//!   hello.
 //! * **Attended-only requests** (`decide`, `confirm_time`) are refused by the
 //!   session before dispatch on unattended sessions; this dispatcher refuses them
 //!   again, and the application checks a third time (defence in depth).
@@ -59,7 +65,15 @@ use heimdall_contract::request::Request;
 use heimdall_contract::{Code, SchemaVersion};
 use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
 use heimdall_domain::time::Clock;
-use heimdall_ipc::session::{Dispatcher, LiveEvent, SessionInfo, SubscriptionStart};
+use heimdall_ipc::session::{
+    Dispatcher, LiveEvent, LiveVisibility, PairedBinding, SessionEndFuture, SessionInfo,
+    SubscriptionStart, server_capabilities,
+};
+use std::collections::BTreeSet;
+
+use heimdall_contract::ipc::{ClientHello, capability};
+
+use crate::paired::{PairedRunner, PairedSession};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
@@ -70,13 +84,10 @@ use crate::supervisor::ManagedConnections;
 /// fields).
 #[must_use]
 pub fn caller_for(session: &SessionInfo, now: heimdall_contract::Timestamp) -> Caller {
-    let principal = match &session.principal {
-        PrincipalInfo::OsUserUnix { uid } => PrincipalRef::UnixUser { uid: *uid },
-        PrincipalInfo::OsUserWindows { sid } => PrincipalRef::WindowsUser { sid: sid.clone() },
-    };
-    // ⟨rev6⟩ ADR-0006 §18: no paired client. Only a runner runtime sets one, from its
-    // bridge's hello (ADR-0012 §3.6); this runtime refuses such a hello (wave 0), and no
-    // request field ever sets it.
+    let principal = principal_ref(&session.principal);
+    // ⟨rev6⟩ ADR-0006 §18: no paired client. ⟨M06 W2⟩ Only a runner runtime's paired
+    // session has one, from its bridge's hello resolved by the role table
+    // (`crate::paired::PairedRunner::caller`); no request field ever sets it.
     Caller {
         context: CallerContext::local(principal, ClientRole::Owner),
         attendance: if session.attended {
@@ -85,6 +96,15 @@ pub fn caller_for(session: &SessionInfo, now: heimdall_contract::Timestamp) -> C
             Attendance::Unattended
         },
         interaction: session.interaction,
+    }
+}
+
+/// The domain principal of the transport's authenticated peer.
+#[must_use]
+pub fn principal_ref(principal: &PrincipalInfo) -> PrincipalRef {
+    match principal {
+        PrincipalInfo::OsUserUnix { uid } => PrincipalRef::UnixUser { uid: *uid },
+        PrincipalInfo::OsUserWindows { sid } => PrincipalRef::WindowsUser { sid: sid.clone() },
     }
 }
 
@@ -217,6 +237,13 @@ pub struct OperationsDispatcher {
     /// ⟨ADR-0008 §17.27 item 2⟩ This dispatcher's connection identity, for the
     /// uninstall fence ([`ConnectionScope`]).
     scope: ConnectionScope,
+    /// ⟨M06 W2⟩ The runner's paired-session service (`None`: this runtime is not a runner,
+    /// and a hello naming a paired client is refused, wave 0's answer).
+    runner: Option<Arc<PairedRunner>>,
+    /// ⟨M06 W2⟩ This connection's paired client, bound once at the hello
+    /// ([`Dispatcher::bind_paired`]) for the session's lifetime. A clone keeps it, so a
+    /// bound dispatcher never becomes the local owner.
+    paired: Option<PairedSession>,
 }
 
 /// ⟨ADR-0008 §17.27 item 2⟩ One connection's identity for the uninstall fence. A
@@ -271,6 +298,26 @@ impl OperationsDispatcher {
             stop: None,
             connections: None,
             binding_endpoints: None,
+            runner: None,
+            paired: None,
+        }
+    }
+
+    /// ⟨M06 W2⟩ Serve paired sessions as a runner (`crate::paired`): offer
+    /// `remote-control/1`, resolve a hello's client in the role table, check every paired
+    /// frame, scope its live events, and decide runner-local widening records locally.
+    #[must_use]
+    pub fn with_runner(mut self, runner: Arc<PairedRunner>) -> Self {
+        self.runner = Some(runner);
+        self
+    }
+
+    /// The caller of `session` on this connection: the paired client's when bound
+    /// ([`PairedRunner::caller`]), else the local owner ([`caller_for`]).
+    fn caller(&self, session: &SessionInfo) -> Caller {
+        match (&self.paired, &self.runner) {
+            (Some(p), Some(r)) => r.caller(&session.principal, p),
+            _ => caller_for(session, self.clock.wall()),
         }
     }
 
@@ -333,7 +380,60 @@ impl OperationsDispatcher {
         session: &SessionInfo,
         request: Request,
     ) -> Envelope<serde_json::Value> {
+        // ⟨M06 W2⟩ A paired session: every frame is checked against the client's row first
+        // (`crate::paired`); only a request that passes reaches the application, as the
+        // client's caller.
+        if let Some(paired) = &self.paired {
+            let Some(runner) = &self.runner else {
+                return error_value(
+                    OpError::new(
+                        Code::SchemaUnsupported,
+                        "this runtime does not accept a paired client",
+                    )
+                    .with_effect(EffectStatus::None),
+                );
+            };
+            return match runner.frame(&session.principal, paired, request).await {
+                crate::paired::Frame::Answer(env) => env,
+                crate::paired::Frame::Route(caller, request) => {
+                    // ⟨M06 W2⟩ Reads that list events or decisions (event pages, snapshots,
+                    // `inspect decisions`) reach a paired caller without decision handles.
+                    let reads = matches!(request, Request::Observe(_) | Request::Inspect(_));
+                    let mut env = self.handle_as(&caller, request).await;
+                    if reads {
+                        crate::paired::redact_value(&mut env.data);
+                    }
+                    env
+                }
+            };
+        }
         let caller = caller_for(session, self.clock.wall());
+        // ⟨M06 W2; ADR-0012 §3.10 item 2⟩ On a runner, `Decide` on a runner-local widening
+        // record is decided here, locally (attended only); any other decision goes to the
+        // application.
+        if let (Some(runner), Request::Decide(d)) = (&self.runner, &request) {
+            // An approval runs the recorded request: it is admitted past the uninstall fence
+            // as the application's own approvals are (ADR-0008 §17.31 item 2), unless this
+            // connection holds the fence.
+            let admission = if d.verdict == heimdall_contract::request::Verdict::Approve
+                && self
+                    .operations
+                    .uninstall_fence_lease(self.scope.id)
+                    .is_none()
+            {
+                match self.operations.uninstall_fence_admit() {
+                    Ok(a) => Some(a),
+                    Err(e) => return error_value(e.with_effect(EffectStatus::None)),
+                }
+            } else {
+                None
+            };
+            let decided = runner.decide_local(caller.is_attended(), d).await;
+            drop(admission);
+            if let Some(env) = decided {
+                return env;
+            }
+        }
         self.handle_as(&caller, request).await
     }
 
@@ -386,6 +486,21 @@ impl OperationsDispatcher {
     /// Route one request that passed the session checks and the uninstall fence.
     async fn route(&self, caller: Caller, request: Request) -> Envelope<serde_json::Value> {
         let ops = &self.operations;
+        // ⟨M06 W2⟩ On a runner, an owner's client revocation (narrowing, ADR-0012 §3.11) is
+        // served by the runner (a paired owner's arrives through `PairedRunner::frame`).
+        if let (
+            Some(runner),
+            Request::RemoteEnvironment(
+                heimdall_contract::remote::RemoteEnvironmentRequest::RevokeClient {
+                    environment,
+                    client,
+                },
+            ),
+        ) = (&self.runner, &request)
+            && caller.context.is_owner()
+        {
+            return runner.revoke_client(environment, client).await;
+        }
         match request {
             Request::Inspect(r) => render(ops.inspect(&caller, r).await),
             Request::Ensure(r) => render(ops.ensure(&caller, r).await),
@@ -574,23 +689,47 @@ impl OperationsDispatcher {
         filter: EventFilter,
         from: Option<Cursor>,
     ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
-        let caller = caller_for(session, self.clock.wall());
+        // ⟨M06 W2⟩ A paired session's subscription: the client's row is rechecked first.
+        if let (Some(p), Some(r)) = (&self.paired, &self.runner)
+            && let Err(refusal) = r.subscribe_check(p)
+        {
+            return Err(Box::new(refusal.envelope()));
+        }
+        let caller = self.caller(session);
+        let paired = self.paired.is_some();
         // Created before the boundary is read: nothing committed after it is missed.
-        let live = self.relay.subscribe();
+        // ⟨M06 W2⟩ A paired session's live events come with every decision handle stripped.
+        let live = if paired {
+            self.relay.subscribe_paired()
+        } else {
+            self.relay.subscribe()
+        };
         match self
             .operations
             .events()
             .subscribe(&caller.context, filter, from, false)
             .await
         {
-            Ok(start) => Ok(SubscriptionStart {
-                cursor: start.cursor,
-                boundary_seq: start.boundary_seq,
-                snapshot: start.snapshot,
-                backlog: start.backlog,
-                live,
-                cursor_for: start.cursor_for,
-            }),
+            Ok(mut start) => {
+                // ⟨M06 W2⟩ And so do its resumed backlog and its snapshot.
+                if paired {
+                    start
+                        .backlog
+                        .iter_mut()
+                        .for_each(crate::paired::redact_event);
+                    if let Some(snapshot) = &mut start.snapshot {
+                        crate::paired::redact_value(&mut snapshot.data);
+                    }
+                }
+                Ok(SubscriptionStart {
+                    cursor: start.cursor,
+                    boundary_seq: start.boundary_seq,
+                    snapshot: start.snapshot,
+                    backlog: start.backlog,
+                    live,
+                    cursor_for: start.cursor_for,
+                })
+            }
             Err(SubscribeRefusal::ResyncRequired) => Err(Box::new(
                 OpError::new(
                     Code::ResyncRequired,
@@ -643,6 +782,74 @@ impl Dispatcher for OperationsDispatcher {
         Box::pin(self.start_subscription(session, filter, from))
     }
 
+    /// ⟨M06-W0-R03; M06 W2, blocking⟩ A paired session's live events reach it only within
+    /// its client scope and the environment views its role permits, while its client is not
+    /// revoked ([`PairedRunner::live_visibility`]); the local owner keeps every event.
+    fn live_visibility(&self, session: &SessionInfo) -> Option<LiveVisibility> {
+        match (&self.paired, &self.runner) {
+            (None, _) => None,
+            (Some(p), Some(r)) => {
+                let caller = r.caller(&session.principal, p);
+                Some(r.live_visibility(&caller.context, &p.client))
+            }
+            // Unreachable by construction (a binding needs the runner); fail closed.
+            (Some(_), None) => Some(Arc::new(|_: &heimdall_contract::event::Event| false)),
+        }
+    }
+
+    /// ⟨M06 W2⟩ A runner also offers `remote-control/1` (ADR-0012 §6.3); every other
+    /// runtime keeps this build's offer.
+    fn offered_capabilities(&self) -> BTreeSet<String> {
+        let mut offer = server_capabilities();
+        if self.runner.is_some() {
+            offer.insert(capability::REMOTE_CONTROL_V1.to_owned());
+        }
+        offer
+    }
+
+    /// ⟨M06 W2; ADR-0006 §18.5 reading 1⟩ Resolve the hello's paired client in the runner's
+    /// role table ([`PairedRunner::bind`]) and bind this connection to it.
+    fn bind_paired(
+        &mut self,
+        hello: &ClientHello,
+    ) -> Result<PairedBinding, Box<Envelope<ErrorData>>> {
+        let Some(runner) = &self.runner else {
+            return Err(Box::new(
+                OpError::new(
+                    Code::SchemaUnsupported,
+                    "this runtime does not accept a paired client",
+                )
+                .with_effect(EffectStatus::None)
+                .into_envelope(),
+            ));
+        };
+        match runner.bind(hello) {
+            Ok(Some(session)) => {
+                let binding = PairedBinding {
+                    role: session.role,
+                    pending: session.pending,
+                };
+                self.paired = Some(session);
+                Ok(binding)
+            }
+            Ok(None) => Err(Box::new(
+                OpError::new(Code::SchemaUnsupported, "the hello names no paired client")
+                    .with_effect(EffectStatus::None)
+                    .into_envelope(),
+            )),
+            Err(refusal) => Err(Box::new(refusal.envelope())),
+        }
+    }
+
+    /// ⟨M06 W2⟩ A paired session ends when its client is revoked
+    /// ([`PairedRunner::session_end`]).
+    fn session_end(&self) -> Option<SessionEndFuture> {
+        match (&self.paired, &self.runner) {
+            (Some(p), Some(r)) => Some(r.session_end(p)),
+            _ => None,
+        }
+    }
+
     fn replied(&self, _session: &SessionInfo, request_kind: &'static str, code: &Code) {
         if request_kind == "shutdown"
             && *code == Code::Ok
@@ -668,6 +875,9 @@ impl Dispatcher for OperationsDispatcher {
 #[derive(Clone)]
 pub struct EventRelay {
     tx: broadcast::Sender<Arc<LiveEvent>>,
+    /// ⟨M06 W2⟩ The same events with every decision handle stripped
+    /// (`crate::paired::redact_event`), for paired sessions' subscriptions.
+    paired: broadcast::Sender<Arc<LiveEvent>>,
 }
 
 impl std::fmt::Debug for EventRelay {
@@ -685,9 +895,11 @@ impl EventRelay {
     #[must_use]
     pub fn spawn(operations: &Operations, shutdown: CancellationToken) -> Self {
         let (tx, _) = broadcast::channel(EVENT_BUFFER_PER_SUBSCRIPTION);
+        let (paired, _) = broadcast::channel(EVENT_BUFFER_PER_SUBSCRIPTION);
         let mut from_app = operations.events().live_receiver();
         let environment = operations.environment().clone();
         let out = tx.clone();
+        let out_paired = paired.clone();
         tokio::spawn(async move {
             loop {
                 let next = tokio::select! {
@@ -697,6 +909,11 @@ impl EventRelay {
                 };
                 match next {
                     Ok(ev) => {
+                        if out_paired.receiver_count() > 0 {
+                            let mut event = ev.event.clone();
+                            crate::paired::redact_event(&mut event);
+                            let _ = out_paired.send(Arc::new(LiveEvent { seq: ev.seq, event }));
+                        }
                         let _ = out.send(Arc::new(LiveEvent {
                             seq: ev.seq,
                             event: ev.event.clone(),
@@ -707,19 +924,27 @@ impl EventRelay {
                         let filler = Arc::new(filler_event(&environment));
                         for _ in 0..=EVENT_BUFFER_PER_SUBSCRIPTION {
                             let _ = out.send(filler.clone());
+                            let _ = out_paired.send(filler.clone());
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         });
-        Self { tx }
+        Self { tx, paired }
     }
 
     /// A receiver for one subscription.
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<LiveEvent>> {
         self.tx.subscribe()
+    }
+
+    /// ⟨M06 W2⟩ A receiver for one paired session's subscription: the same events, in the
+    /// same order and with the same lag behaviour, with every decision handle stripped.
+    #[must_use]
+    pub fn subscribe_paired(&self) -> broadcast::Receiver<Arc<LiveEvent>> {
+        self.paired.subscribe()
     }
 }
 

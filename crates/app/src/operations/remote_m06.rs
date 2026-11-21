@@ -28,6 +28,20 @@ pub fn revision_6_refusal(request: &Request) -> Option<OpError> {
     })
 }
 
+/// ⟨M06 W2⟩ The application's answer to `Decide` on a runner-local widening record
+/// (`DecisionKind::RemoteWidening`, ADR-0012 §3.10): such a record is decided only through
+/// the runner runtime's runner-local path, which runs the exact recorded request once and
+/// records its terminal result. Reaching the application's decide path, it is refused
+/// `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) with nothing written: the record stays
+/// pending, not consumed.
+#[must_use]
+pub fn remote_widening_not_here() -> OpError {
+    OpError::driver_unavailable(
+        "this decision is a runner-local widening record; it is decided by the runner runtime",
+    )
+    .with_effect(EffectStatus::None)
+}
+
 impl Operations {
     /// ⟨M06⟩ A revision-6 request reached in process (module docs): refused
     /// `driver_unavailable` before any record is written. Any other request is a caller

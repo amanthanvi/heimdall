@@ -232,6 +232,12 @@ pub struct ServerHello {
     /// byte-identical to revision 5's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<crate::remote::Role>,
+    /// ⟨M06, rev6.2⟩ The paired client the session is bound to, as the runner resolved it in
+    /// its role table (the bridge's argv client; ADR-0012 §3.6), reported back so the
+    /// controller can check it against its own record. Omitted when absent: the local
+    /// same-user session names no client, and its hello stays byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_client: Option<crate::ids::ClientId>,
 }
 
 /// Client to server frames.

@@ -2472,3 +2472,24 @@ orchestrator's rulings, applied in M06 wave 1. Readings 3, 4, 6, 8, 10–13, 15 
 | 16 | Key-fingerprint uniqueness is scoped per runner and role table; policy-revision identity is producer-scoped `(scope_key, producer, revision)` with a runner-side order (`runner_seq`) and composing narrowing effects — migration 0009 amended in place before any writer (unmerged, unreleased); recovery and purge cases before writers, transport writers included (ruling 3: `placeholder_discarded_tables_have_no_writer`) | M06-W0-R05 | 0009, U4, store |
 | 17 | The local owner keeps its global bypass. A paired caller, owner role included, gets client-scoped ownership (principal and client) plus only its role-permitted environment views and the named cross-controller narrowing powers (ADR-0012 §7.2, §8); no blanket bypass for observe, cancel or binding ownership; visibility on every delivery path (event pages, resumed and live subscriptions) | M06-W0-R03 | app, domain, ipc (W1) |
 
+### 18.6 Revision 6.2 (M06 wave 2)
+
+Additive changes the wave-2 units (the paired runtime, U2, U3, U56) needed; the integrator
+records them as contract owner, pending the orchestrator's approval with the W2 review. Schema
+major stays `"1"`; every earlier document, stored record and golden is byte-identical.
+
+| Item | What landed | Where | Source |
+|---|---|---|---|
+| 1 | A runner runtime (its own environment of kind `remote_runner`, written by `heimdall remote init` → `runtime::paired::init_runner`) **offers** `remote-control/1` and the role-intersected subset; every other runtime keeps W0's refusal. A hello's `remote_client` is accepted only when the runner's role table resolves it (`remote::resolve_session`), and the session takes the table's role (§18.5 reading 1) | `runtime::paired`, `ipc::session` | ADR-0012 §3.6 |
+| 2 | `ServerHello.remote_client` (omitted when none): a runner reports the paired client of the session | `contract::ipc` | U2 (W2) |
+| 3 | `client.revoked` events are emitted: revoking a client closes each of its subscriptions with that terminal event, then the session | `runtime::paired` | §9 item 2, ADR-0012 §3.7 |
+| 4 | Decision and resource events reach a paired owner as read-only owner-role environment views with every decision handle stripped (no decision or resource ID usable for approval: live events, resumed backlogs, snapshots, event pages, `inspect decisions`); requester and viewer receive none (their view sets name none) | `app::events`, `runtime::paired` | orchestrator ruling of 2026-11-21 |
+| 5 | `DecisionKind::RemoteWidening` (domain) with migration `0010_remote_widening.sql` (schema 10; recovery class `Rows`, with recovery cases): runner-local widening records are durable decision records; approval and execution re-check the exact request (hash, kind, request ID, invite key and role, transport exposure delta) | `domain`, `store`, `app::operations` | ADR-0012 §3.10; M06-W0-R07/R08 |
+| 6 | Reason `mgmt_key_store_unavailable` (`CAPABILITY_UNAVAILABLE`): a missing, not locked, K_mgmt store | `contract::envelope` (`reason::M06`) | U2 (W2), ADR-0012 §3.4 |
+| 7 | `EnsureData.residuals` (optional, omitted when absent): the per-component residuals of ADR-0012 §7.3 with `latest_possible_credential_expiry` and `destination_clock_error: measured{bound} \| unmeasured` | `contract::request` / readiness types | §18.5 reading 14 (U3) |
+
+**Readings applied in wave 2 (pending the orchestrator's confirmation):**
+- The refresh dependency of a runner's managed binding is the existing contract value `controller` (ADR-0012 §4.5 calls it `controller_issuer`; the value already means the controller's issuer).
+- `issuer_trust` and the time-source designation persist as `meta` keys (classified for the recovery snapshot) until a unit needs a table.
+- The runner's authorized_keys writer (`runtime::paired_lines`) re-implements ADR-0005 §3.3's steps (append-only add, compare-then-rename rewrite and remove, symlink and hard-link refusal, re-read after every write) because the registry helpers fit only enrollment lines; it reads every `AuthorizedKeysFile` and writes only the account's own `authorized_keys`.
+

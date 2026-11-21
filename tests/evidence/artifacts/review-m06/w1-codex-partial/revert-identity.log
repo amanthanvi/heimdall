@@ -1,0 +1,33 @@
+   Compiling heimdall-remote v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/remote)
+warning: unused variable: `line_fingerprint`
+   --> crates/remote/src/invitations.rs:297:5
+    |
+297 |     line_fingerprint: Option<&KeyFingerprint>,
+    |     ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_line_fingerprint`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `heimdall-remote` (lib) generated 1 warning (run `cargo fix --lib -p heimdall-remote` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.79s
+     Running ../../tests/model/remote_roles.rs (target/debug/deps/model_remote_roles-1baf03586b952af5)
+
+running 1 test
+test retried_join_checks_identity_before_the_recorded_result ... FAILED
+
+failures:
+
+---- retried_join_checks_identity_before_the_recorded_result stdout ----
+
+thread 'retried_join_checks_identity_before_the_recorded_result' (91080042) panicked at crates/remote/../../tests/model/remote_roles.rs:802:5:
+assertion `left == right` failed
+  left: Ok(Joined { join: JoinRecord { environment: EnvironmentId("env_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"), invitation: InvitationId("inv_f582858e735d503db6e2f141894f3234"), client: ClientId("cl_4113f00a8cf3a3fa7b2b059b804397a8"), role: Owner, generation: 0, joined_at: 2026-11-20T10:00:00Z }, replayed: true, line_written: true })
+ right: Err(InvitationExpired)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    retried_join_checks_identity_before_the_recorded_result
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p heimdall-remote --test model_remote_roles`

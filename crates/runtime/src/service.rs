@@ -399,6 +399,11 @@ pub struct ServiceOptions {
     /// Windows; elsewhere none, so `wsl enable --mode-b` answers `driver_unavailable`). A
     /// test injects its own, with [`Self::wsl_host`].
     pub wsl_bridge: Option<Arc<dyn crate::wsl_bridge::BridgeFactory>>,
+    /// ⟨M06 W2⟩ The ports of a runner's paired sessions (`crate::paired::RunnerOptions`:
+    /// the authorized_keys writer, the forced command's paths, the verified sshd policy).
+    /// Used only when this installation is a remote runner (`crate::paired::is_runner`,
+    /// read at start); default: none, `owner_only`.
+    pub runner: crate::paired::RunnerOptions,
 }
 
 /// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
@@ -527,6 +532,7 @@ impl ServiceOptions {
             wsl_host: None,
             wsl_helper: None,
             wsl_bridge: None,
+            runner: crate::paired::RunnerOptions::default(),
         }
     }
 }
@@ -621,6 +627,8 @@ pub struct Service {
     /// ⟨M02⟩ U5: the projection cleaner the supervisor's cleanup executor uses.
     cleaner: Option<Arc<dyn ResourceCleaner>>,
     operations: Operations,
+    /// ⟨M06 W2⟩ The paired-session service when this installation is a remote runner.
+    runner: Option<Arc<crate::paired::PairedRunner>>,
     shutdown: CancellationToken,
     _background: StopOnDrop,
     _lock: InstanceLock,
@@ -773,6 +781,17 @@ impl Service {
             c
         };
         let wire = |c: ProjectionConfig| wire_runtime_projection(store.clone(), with_pairs(c)).ok();
+        // ⟨M06 W2⟩ A runner given its forced command but no management-line writer writes the
+        // account's own authorized_keys files (`crate::paired_lines`), under the same account
+        // home the projection uses: production, the account database's; a test runtime, the
+        // scratch home its test configuration isolated, or none (no writer: fail closed).
+        let runner_user_dir = (options.runner.lines.is_none() && options.runner.command.is_some())
+            .then(|| match &options.projection {
+                ProjectionWiring::Account => SshPaths::resolve().ok().map(|p| p.user_dir),
+                ProjectionWiring::Config(c) => Some(c.paths.user_dir.clone()),
+                ProjectionWiring::Disabled => None,
+            })
+            .flatten();
         let wired = match options.projection {
             ProjectionWiring::Disabled => None,
             ProjectionWiring::Account => account_projection(&paths).and_then(wire),
@@ -861,6 +880,32 @@ impl Service {
         }
         let background = StopOnDrop(shutdown.child_token());
         let relay = EventRelay::spawn(&operations, background.0.clone());
+        // ⟨M06 W2⟩ A remote runner (its own environment record says so, the runner-init
+        // marker) serves paired sessions; any other runtime refuses them.
+        let runner = {
+            let s = store.clone();
+            let is_runner = blocking(move || s.transaction(crate::paired::is_runner)).await??;
+            let mut runner_options = options.runner.clone();
+            if let Some(dir) = &runner_user_dir {
+                let files: Arc<dyn heimdall_remote::line::ManagementLines> =
+                    Arc::new(crate::paired_lines::AuthorizedKeysFiles::sshd_default(dir));
+                runner_options.lines = Some(files);
+            }
+            is_runner.then(|| {
+                Arc::new(crate::paired::PairedRunner::new(
+                    store.clone(),
+                    operations.clone(),
+                    options.clock.clone(),
+                    runner_options,
+                ))
+            })
+        };
+        // ⟨M06 W2⟩ The management lines follow the role table (persist-then-rewrite's
+        // reconciler, ADR-0012 §3.9 item 6): a bootstrap owner enrolled while no runtime ran,
+        // or a rewrite a crash interrupted, is written now.
+        if let Some(r) = &runner {
+            r.reconcile_lines().await;
+        }
 
         // ⟨M03⟩ wave 4, m03-plan U10's start order after recovery: the session-lock
         // source, the connection supervisor (its restart pass first: the owned masters
@@ -958,6 +1003,7 @@ impl Service {
             drain_timeout: options.drain_timeout,
             cleaner,
             operations,
+            runner,
             shutdown,
             _background: background,
             _lock: lock,
@@ -984,6 +1030,7 @@ impl Service {
             drain_timeout,
             cleaner,
             operations,
+            runner,
             shutdown,
             _background,
             _lock,
@@ -993,6 +1040,9 @@ impl Service {
         // take the graceful drain below (ADR-0006 §13.6 item 8).
         let mut dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
             .with_service_control(shutdown.clone());
+        if let Some(r) = runner {
+            dispatcher = dispatcher.with_runner(r);
+        }
         if let Some(m) = &managed {
             let endpoints: Arc<dyn crate::connections::BindingEndpoints> = m.teardown.late.clone();
             dispatcher = dispatcher

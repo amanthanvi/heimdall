@@ -26,14 +26,24 @@ pub mod launcher;
 // ⟨M03⟩ wave 4 (U10): the managed adapter's store-backed sources (ADR-0008 §17.20 "For
 // U10": `ManagedSourceRead`, `GrantScopes`, `SlotStore`, the production `InstallView`).
 pub mod managed_store;
+// ⟨M06⟩ W2 (ADR-0012 §3.6–§3.11): the runner runtime's paired sessions.
+pub mod paired;
+// ⟨M06⟩ W2: the runner's production authorized_keys writer (ADR-0012 §3.5).
+pub mod paired_lines;
 pub mod paths;
 pub mod platform;
+// ⟨M06 U3⟩ (ADR-0012 §4): the runner runtime's issuance, time source, readiness, clean
+// launch and lifetime.
+pub mod runner;
 pub mod service;
 // ⟨M05⟩ U6 (ADR-0011 §5): managed-slot handover.
 pub mod slot_handover;
 // ⟨M03⟩ U9: the session-lock sources (ADR-0008 D9 item 3; m03-plan U9).
 pub mod session_lock;
 pub mod supervisor;
+// ⟨M06 U56⟩ (ADR-0012 §2.3-§2.4, §5.5): the Iroh serve child's supervision and admission
+// authority, the K_iroh adapters and the route helper's Iroh leg.
+pub mod supervise_transport;
 pub mod telemetry;
 // ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3, §3.2–§3.3): workspace observation.
 pub mod workspace_observe;

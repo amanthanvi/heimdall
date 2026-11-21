@@ -38,13 +38,20 @@ pub mod operations;
 // ⟨M05⟩ Joint wave 0: policy resolution by context (ADR-0011 §10 item 1).
 pub mod policy_context;
 pub mod ports;
+// ⟨M06 U3⟩ A runner binding's readiness, residuals and its own view of a grant (ADR-0012 §4).
+pub mod readiness;
+pub mod readiness_runner;
 pub mod reconcile;
+// ⟨M06 U2⟩ The controller's management of remote runner environments (ADR-0012 §3, §5.2).
+pub mod remote_env;
 // ⟨M06 U5a⟩ The route helper's core (`route connect`, direct and jump legs), failover and the
 // `ssh -G` pin verification (ADR-0012 §5.2–§5.5).
 pub mod routes;
 pub mod setup;
 pub mod singleflight;
 pub mod timegate;
+// ⟨M06 U56⟩ `transport enable|disable|adopt_roost` over ports (ADR-0012 §2.1–§2.5, §2.8).
+pub mod transport;
 
 pub use context::{Attendance, Caller};
 pub use error::{OpError, OpResult};

@@ -1,5 +1,8 @@
 //! ⟨M06 U5a⟩ The route helper's core: `heimdall route connect` for the direct and jump legs
-//! (ADR-0012 §5.3–§5.5; ADR-0010 §5 items 1–4; m06-plan U5a). The Iroh leg is U56's.
+//! (ADR-0012 §5.3–§5.5; ADR-0010 §5 items 1–4; m06-plan U5a). ⟨M06 U56⟩ The Iroh leg is a
+//! port ([`legs::IrohLegDialer`], implemented by the runtime over `heimdall-transport-iroh`,
+//! which this crate never imports) behind [`legs::RouteLegDialer`]; an Iroh leg sends the
+//! client's identification line first ([`failover`], item 5).
 //!
 //! **Typed inputs** ([`HelperArgs`]): exactly `--destination <id> --account <a> --endpoint
 //! <path>`, the three values the helper alias renders (the endpoint is the alias's own
@@ -53,7 +56,7 @@ use heimdall_contract::environment::JumpAccess;
 use heimdall_contract::ids::{
     AccountName, BindingId, DestinationId, GrantId, IrohEndpointId, RouteId,
 };
-use heimdall_contract::route::{RouteHealthPayload, RouteSpec};
+use heimdall_contract::route::{ExposurePolicy, RouteHealthPayload, RouteSpec};
 use heimdall_domain::catalog::{
     ApprovedRoute, DestinationDefinition, RouteCatalogView, RouteRefusal,
 };
@@ -247,10 +250,18 @@ pub enum LegPlan {
         /// before any route is dialed.
         hop: Option<Box<JumpHop>>,
     },
-    /// An Iroh route: U56's leg. This build has none, so it is never connected.
+    /// ⟨M06 U56⟩ An Iroh route, dialed through an [`legs::IrohLegDialer`] under the route's
+    /// own exposure policy and recorded addresses only (ADR-0012 §2.1). Without a dialer
+    /// (no driver or no verified key store) it is refused and failed over.
     Iroh {
         /// The serving endpoint.
         endpoint: IrohEndpointId,
+        /// The route record's direct addresses (`ip:port`).
+        direct_addresses: Vec<String>,
+        /// The route's effective exposure policy (the minimal policy when absent).
+        exposure: ExposurePolicy,
+        /// An adopted stock roost (ADR-0012 §2.8).
+        external_roost: bool,
     },
 }
 
@@ -347,8 +358,15 @@ pub fn plan_routes(
                     }
                 }
             }
-            RouteSpec::Iroh { endpoint, .. } => LegPlan::Iroh {
+            RouteSpec::Iroh {
+                endpoint,
+                direct_addresses,
+                external_roost,
+            } => LegPlan::Iroh {
                 endpoint: endpoint.clone(),
+                direct_addresses: direct_addresses.clone(),
+                exposure: route.exposure.clone().unwrap_or_default(),
+                external_roost: *external_roost,
             },
             // A route kind this build does not know is never connected.
             _ => {

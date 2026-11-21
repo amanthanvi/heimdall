@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 9;
+pub const SCHEMA_VERSION: u32 = 10;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -76,6 +76,12 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 9,
         name: "remote",
         sql: include_str!("../migrations/0009_remote.sql"),
+    },
+    // ⟨M06⟩ Wave 2 (ADR-0012 §3.10): the runner-local widening records' side table.
+    Migration {
+        version: 10,
+        name: "remote_widening",
+        sql: include_str!("../migrations/0010_remote_widening.sql"),
     },
 ];
 
@@ -255,7 +261,7 @@ mod tests {
         assert!(REMOTE.iter().all(|t| !before.iter().any(|b| b == t)));
         c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w0-probe', 'kept')")
             .unwrap();
-        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 9);
+        assert_eq!(apply_steps(&mut c, &NoFaults, &MIGRATIONS[..9]).unwrap(), 9);
         let after = tables(&c);
         let added: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
         assert_eq!(added, REMOTE.iter().collect::<Vec<_>>());
@@ -284,6 +290,61 @@ mod tests {
         let mut c = Connection::open_in_memory().unwrap();
         assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
         assert_eq!(user_version(&c).unwrap(), 8);
+        assert_eq!(tables(&c), before);
+    }
+
+    /// ⟨M06⟩ Wave 2 (ADR-0012 §3.10): `0010_remote_widening` applies on a database at
+    /// version 9 and adds exactly its table, keeping every row; a failure inside the step
+    /// leaves version 9 and no `remote_widening`.
+    #[test]
+    fn remote_widening_step_applies_on_version_9_and_rolls_back_whole() {
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..9];
+        assert_eq!(MIGRATIONS[9].version, 10);
+        assert_eq!(MIGRATIONS[9].name, "remote_widening");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 9);
+        let before = tables(&c);
+        c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w2-probe', 'kept')")
+            .unwrap();
+        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 10);
+        let after = tables(&c);
+        let added: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
+        assert_eq!(added, vec!["remote_widening"]);
+        let kept: String = c
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'm06-w2-probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, "kept");
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 10,
+                name: "remote_widening_broken",
+                sql: concat!(
+                    include_str!("../migrations/0010_remote_widening.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 9);
         assert_eq!(tables(&c), before);
     }
 

@@ -703,13 +703,24 @@ pub fn environment_view_permitted(event_type: EventType, reader: &CallerContext)
     ) || reader.is_owner()
 }
 
+/// ⟨M06 W2; the orchestrator's ruling on M06-W0-R03, 2026-11-21⟩ The event types that are
+/// owner-role environment views whatever they concern: decision and resource events reach a
+/// caller without global access only when its role's view set names them, which the limited
+/// roles' does not ([`environment_view_permitted`]), even for an event about the caller's
+/// own operation. A paired owner receives them read-only, within its client scope.
+#[must_use]
+pub fn owner_role_view(event_type: EventType) -> bool {
+    matches!(event_type, EventType::Decision | EventType::ResourceChanged)
+}
+
 /// ⟨M06-W0-R03⟩ Whether `reader` may see `event`, on every delivery path (event pages,
 /// subscription backlogs, live events): the local owner sees everything; anyone else sees
 /// an event about an operation only if it may see that operation, an event about a grant
 /// only if it holds (or held) a binding on it, an event about a binding only if it owns it,
 /// and an environment-level event only as its role permits
-/// ([`environment_view_permitted`]). An event naming an object that no longer exists, or
-/// a malformed reference, is hidden.
+/// ([`environment_view_permitted`]); ⟨M06 W2⟩ an owner-role view ([`owner_role_view`]) only
+/// with the owner role. An event naming an object that no longer exists, or a malformed
+/// reference, is hidden.
 pub fn event_visible_in(
     tx: &mut Txn<'_>,
     event: &Event,
@@ -717,6 +728,9 @@ pub fn event_visible_in(
 ) -> heimdall_store::Result<bool> {
     if reader.has_global_access() {
         return Ok(true);
+    }
+    if owner_role_view(event.event_type) && !environment_view_permitted(event.event_type, reader) {
+        return Ok(false);
     }
     let op_owner = |tx: &mut Txn<'_>, id: &OperationId| -> heimdall_store::Result<bool> {
         Ok(tx
@@ -842,6 +856,8 @@ pub fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'s
         K::ReconcileWorkspace { .. } => "reconcile_workspace",
         K::RemoveEnrollment { .. } => "remove_enrollment",
         K::ApproveTargetChange { .. } => "approve_target_change",
+        // ⟨M06 W2⟩ A paired client's widening request, decided runner-locally.
+        K::RemoteWidening(_) => "remote_widening",
     }
 }
 

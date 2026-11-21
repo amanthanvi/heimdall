@@ -34,10 +34,20 @@ heimdall-issuer = { workspace = true }
 heimdall-enroll = { workspace = true }
 # M04 (ADR-0010 §2–§3; joint wave 0): `wsl enable|disable|status` and the hidden `internal wsl-helper`.
 heimdall-wsl = { workspace = true }
+# ⟨M06 U2⟩ `environment` and `device` (m06-plan U2): K_mgmt custody, its per-session agent and
+# signer (`heimdall_credential::mgmt`), and the controller ports' async traits. Both already
+# in the production graph (heimdall-runtime depends on them); no package enters the lock.
+heimdall-credential = { workspace = true }
+async-trait = { workspace = true }
+# ⟨M06 W2 wiring⟩ `remote init`'s management line (`heimdall_remote::line`). Already in the
+# production graph (heimdall-runtime depends on it); no package enters the lock.
+heimdall-remote = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+# ⟨M06 W2 wiring⟩ `io-std`: `remote serve` bridges its standard streams asynchronously (a
+# feature of the pinned crate; no package enters the lock).
+tokio = { workspace = true, features = ["io-std"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 # ⟨M02⟩ U10 `tui` (m02-plan U10): Ratatui with its crossterm backend, workspace-pinned
@@ -229,3 +239,18 @@ path = "../../tests/adversarial/prompt_injection/cli.rs"
 name = "integration_route_m06"
 path = "../../tests/integration/route_m06.rs"
 harness = false
+
+# ⟨M06 U2⟩ The M06 command surface through the real binary: the help goldens
+# (`tests/contracts/golden/cli-help-m06/`), K_mgmt's `--show-key` with the fixture store and
+# its locked refusal, and the fail-closed answers while the controller's records have no store
+# API (m06-plan U2).
+[[test]]
+name = "e2e_environment_cli_m06"
+path = "../../tests/e2e/environment_cli_m06.rs"
+
+# ⟨M06 W2 wiring⟩ A controller's management session to a real runner: `remote init` on a
+# pseudo-terminal, `service run --runner`, a fixture sshd whose line runs the real `remote
+# serve`, and the controller's isolated configuration, K_mgmt agent and IPC client.
+[[test]]
+name = "e2e_environment_runner_m06"
+path = "../../tests/e2e/environment_runner_m06.rs"

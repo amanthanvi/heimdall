@@ -2,8 +2,11 @@
 //!
 //! **State.** M06 U1 landed the library: roles and the per-request check, the verified sshd
 //! policy, the management line and its port, invitations, runner-local widening and the
-//! bridge. Nothing dispatches to it yet: the runtime wires it in W2, and until then the
-//! public entry point [`availability`] still fails closed (`driver_unavailable`).
+//! bridge. ⟨W2⟩ A **runner** runtime wires it into its dispatcher
+//! (`heimdall_runtime::paired`): hello resolution, the per-frame check, the pending-session
+//! path, the durable runner-local widening records ([`widening::StoreWidening`]) and
+//! revocation. [`availability`] is this crate's own probe for callers outside a runner's
+//! dispatcher and stays fail-closed (`driver_unavailable`).
 //!
 //! * [`roles`]: the role and permission model (`owner`, `requester`, `viewer`), the total
 //!   per-frame check (revocation rechecked per request, the pending-client rule, no

@@ -297,6 +297,7 @@
   - **unit:** a remote or unattended request for a new relay set, a broader bind, direct fallback, public infrastructure or roost adoption stays pending (`exposure_unconsented` if executed without a decision);
   - **adapter:** with no verified store, `transport_key_store_unavailable` and a doctor finding;
   - **interop:** the product client against a stock roost, inside the container network only.
+- **Iroh legs (ADR-0012 §5.5 item 5, 2026-11-21):** the helper forwards only the client's validated SSH identification line (`SSH-2.0-`, CRLF, ≤ 255 bytes) before the server's identification, replays it on failover, and fails closed otherwise; serving still checks allowlist and generation before any target connect. Tests: the server-first end-to-end test with its revert proof, and one replay test (route 1 dies after the line, before `SSH-`; route 2 receives the same bytes exactly once and the session completes).
 - **The `n0-public` capture row** (the ruling on Q6; the only authorized public-relay run):
   - **Where and how long:** one container, at most 5 minutes.
   - **What runs:** ephemeral K_iroh keys on both ends, an allowlist, and an **echo target**. **No sshd, and nothing that serves the host.**
@@ -324,10 +325,11 @@
 W0  U0 contract rev 6 + migration + skeletons + vendored netdev + audit gate
 W1  U1 roles/bridge/invitations/runner-local widening │ U5a routes (no Iroh) │ U6a iroh transport
 W2  U2 controller env mgmt (U1) │ U3 runner runtime (U1) │ U56 route+transport integration (U5a, U6a)
-W3  U4 disconnected/revocation/resync (U2, U3) │ U4b second controller + T06 set (U2, U4; owner: the U4 implementer)
+W3  U4 disconnected/revocation/resync (U2, U3) │ U4b second controller + T06 set (U2, U4; owner: the U4 implementer) │ W2 carry-over wiring (below)
 W4  U7 combined exit suite, native runs, records
 ```
 
+- **W2 carry-over into W3** (recorded at the W2 candidate; each fails closed until done): the runner dispatch and service wiring of `RunnerRuntime::handle`, the runner's binding endpoint for its working keys, and the runner-local commands for `issuer_trust` and time-source designation (without them nothing issues); the CLI for `route` and `transport` (still "planned for M06" stubs; `transport adopt-roost` included) and the hidden `transport serve` entry with `service run` supervision; the source of paired clients' Iroh endpoint IDs for the serve allowlist and a rotation form (pending the orchestrator's ruling); a stable serve port across restarts; controller-record request forms so `environment add/join/remove` and `device retire` work while a runtime runs (W2 refuses them with `SERVICE_UNAVAILABLE` then).
 - **Ownership:** W1's units own disjoint crates. The shared files are the integrator's (rule 1).
 - **The Iroh/route split:** U5a and U6a have no dependency on each other. Their integration is U56 in W2. This fixes the W1 cycle the review found.
 - **Review:** each wave gets one review and one re-check. The plan §6.7 security review covers:

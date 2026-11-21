@@ -35,6 +35,20 @@ heimdall-wsl = { workspace = true }
 # ⟨M05⟩ U4 (ADR-0011 §2.2–§2.3): the workspace observer implements the project crate's
 # `FsView` and the app's `WorkspaceProbe` (`workspace_observe.rs`).
 heimdall-project = { workspace = true }
+# ⟨M06⟩ W2 (ADR-0012 §3, §13; m06-plan U1): the runner runtime wires remote access (the
+# role table, the per-frame check, invitations, runner-local widening) into its dispatcher
+# (`paired.rs`). The crate graph allows the edge (remote never depends on the runtime); no
+# third-party package enters the lock.
+heimdall-remote = { workspace = true }
+# ⟨M06 U56⟩ (ADR-0012 §1-§2, §13; m06-plan U56): the runtime supervises the Iroh serve child
+# and holds the admission authority (`supervise_transport.rs`), and gives the route helper its
+# Iroh leg. The crate graph allows the edge (the transport depends on the contract only; app
+# never imports it). Without feature `iroh` the transport is compiled without iroh and every
+# Iroh path fails closed (`driver_unavailable`). No package enters the lock.
+heimdall-transport-iroh = { workspace = true }
+# ⟨M06 U56⟩ The supervisor implements heimdall-app's async ports (`ServeControl`,
+# `IrohLegDialer`); already in the lock through heimdall-app.
+async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -65,6 +79,12 @@ zbus = { workspace = true }            # logind LockedHint + Lock/Unlock
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = { workspace = true }
 core-foundation-sys = { workspace = true }
+
+# ⟨M06 U56⟩ Embeds iroh in the transport (ADR-0012 §1 item 1): the serve child and the route
+# helper's Iroh leg. The release builds' feature selection is the integrator's (heimdall).
+[features]
+default = []
+iroh = ["heimdall-transport-iroh/iroh"]
 
 [dev-dependencies]
 # M03 wave 0 (A2-Q1): virtual time (`tokio::time::pause`) for the deterministic signing-gate and
@@ -200,3 +220,48 @@ path = "../../tests/e2e/m05_context.rs"
 [[test]]
 name = "adversarial_prompt_injection"
 path = "../../tests/adversarial/prompt_injection.rs"
+
+# ⟨M06⟩ W2 (ADR-0012 §3.6–§3.11; m06-plan U1's W2 items): the runner runtime serving paired
+# sessions through the real dispatcher and IPC session: runner mode and acceptance, the
+# per-frame checks and revocation, the pending-session path (M06-W0-R06) and runner-local
+# widening (T-RA1–T-RA4), with in-memory authorized_keys files and fixture public keys.
+[[test]]
+name = "integration_remote_runtime_m06"
+path = "../../tests/integration/remote_runtime_m06.rs"
+
+# ⟨M06⟩ W1 follow-up (M06-W0-R03; ADR-0006 §18.2 item 17): paired callers are client-scoped
+# on every path (observe, cancel, bindings, snapshot, event pages, resumed and live
+# subscriptions), with the local owner and the named narrowing power as controls. ⟨W2⟩ Moved
+# here from heimdall-app: its live-event case runs through this crate's dispatcher override
+# and the IPC session (the blocking W2 item).
+[[test]]
+name = "integration_paired_scope_m06"
+path = "../../tests/integration/paired_scope_m06.rs"
+
+# ⟨M06 U56⟩ (ADR-0012 §2.3-§2.4, §5.5; m06-plan U56): the serve child's supervision and the
+# admission authority against real child processes of this test binary on loopback (no relays,
+# no internet, no non-loopback bind): revocation applied only after the child closed the live
+# connection, the unacknowledged suspend's exact-PID stop, the runtime killed mid-revocation
+# (orphan exits, closure replayed before admission), unreadable authority, no verified store,
+# and the route helper's Iroh leg. Fixture key stores only (mechanism evidence).
+[[test]]
+name = "integration_transport_supervise_m06"
+path = "../../tests/integration/transport_supervise_m06.rs"
+harness = false
+required-features = ["iroh"]
+
+# ⟨M06 U3⟩ (ADR-0012 §4; m06-plan U3): the runner runtime over a disposable runner store and
+# per-run CAs: issuance pinned to its issuer with ADR-0005 §3.5 step 4's install checks, the
+# designated time source on a virtual clock (non-designated, replayed, RTT-exceeded and
+# cross-boot answers refused; never extends; never confirm_time; TIME_UNCERTAIN without a
+# sample), readiness with the earliest bound and the residuals, and the A24 provenance row
+# (scratch Unix sockets, `/usr/bin/env` with a cleared environment).
+[[test]]
+name = "integration_runner_runtime_m06"
+path = "../../tests/integration/runner_runtime_m06.rs"
+
+# ⟨M06 U3⟩ Issue and revoke linearization for runner delivery: every order of publish, the
+# controller's revoke, the runner's tombstone, a runner narrowing and delivery.
+[[test]]
+name = "model_runner_delivery"
+path = "../../tests/model/runner_delivery.rs"

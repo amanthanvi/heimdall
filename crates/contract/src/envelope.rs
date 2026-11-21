@@ -741,6 +741,11 @@ pub mod reason {
     pub const MANAGEMENT_SSHD_UNSUPPORTED: &str = "management_sshd_unsupported";
     /// ⟨M06⟩ K_mgmt's store is locked: management connections are unavailable (§3.4).
     pub const MGMT_KEY_STORE_LOCKED: &str = "mgmt_key_store_locked";
+    /// ⟨M06, rev6.2⟩ No verified persistent store holds (or can hold) K_mgmt on this device:
+    /// absent, unsupported (desktop controllers only), corrupt, or its access list does not
+    /// trust this executable. Unlocking cannot help (contrast [`MGMT_KEY_STORE_LOCKED`]);
+    /// management connections are unavailable and the runners' work continues (§3.4).
+    pub const MGMT_KEY_STORE_UNAVAILABLE: &str = "mgmt_key_store_unavailable";
     /// ⟨M06⟩ No verified platform store for K_iroh: no persistent Iroh endpoint (§2.4).
     pub const TRANSPORT_KEY_STORE_UNAVAILABLE: &str = "transport_key_store_unavailable";
     /// ⟨M06⟩ Runner work would depend on an inherited controller socket (§4.5).
@@ -785,6 +790,7 @@ pub mod reason {
         (MANAGEMENT_SSHD_UNVERIFIED, Code::CapabilityUnavailable),
         (MANAGEMENT_SSHD_UNSUPPORTED, Code::CapabilityUnavailable),
         (MGMT_KEY_STORE_LOCKED, Code::CapabilityUnavailable),
+        (MGMT_KEY_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
         (TRANSPORT_KEY_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
         (CONTROLLER_DEPENDENCY, Code::CapabilityUnavailable),
         (DEPENDENCY_PROVENANCE_UNKNOWN, Code::CapabilityUnavailable),

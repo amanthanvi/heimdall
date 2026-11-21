@@ -1,0 +1,2 @@
+/tmp/hm-tools/m06-w1-review-out/sshd-probe/config: line 11: Bad configuration option: UnrecognizedHeimdallFixtureDirective
+/tmp/hm-tools/m06-w1-review-out/sshd-probe/config line 11: Directive 'UnrecognizedHeimdallFixtureDirective' is not allowed within a Match block

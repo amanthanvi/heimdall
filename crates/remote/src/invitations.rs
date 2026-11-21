@@ -29,6 +29,19 @@
 //! which fails closed. Consumed, expired and revoked records stay refused whatever the
 //! line says, because every session is checked against the database ([`crate::roles`]).
 //! Ordinary connections of an active client consume nothing.
+//!
+//! **Line writes are serialized and re-read the row** (⟨M06 W1 review⟩): every line write
+//! takes the runner's [`LineSerial`], re-reads the client's row and invitation **under it**,
+//! and writes only what that row asks for. A revocation commits its tombstone first and then
+//! removes the line under the same lock, so an in-flight reconcile either finished before the
+//! removal (which then removes its line) or re-reads the tombstone (and writes nothing): a
+//! revoked client never ends with a line.
+//!
+//! **Join re-checks time at its commit point** (⟨M06 W1 review⟩): the caller's checked sample
+//! may be older than the commit (the line read can block), so inside the transaction the
+//! join re-reads the boot anchor from [`Invitations::clock`] and advances the checked wall
+//! clock by the continuous time elapsed since the sample ([`at_commit`]); both bounds are
+//! evaluated on that reading, and an invitation that expired meanwhile never commits.
 
 use std::time::Duration;
 
@@ -36,7 +49,7 @@ use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{ClientId, EnvironmentId, InvitationId, KeyFingerprint};
 use heimdall_contract::remote::{ManagementPolicy, RemoteEnvironmentRequest, Role};
 use heimdall_contract::request::Request;
-use heimdall_domain::time::{BootId, TimeAnchor};
+use heimdall_domain::time::{BootId, Clock, TimeAnchor};
 use heimdall_store::Store;
 use heimdall_store::ext_m06::{
     AppliedLine, ClientState, InvitationState, JoinRecord, RemoteClientRecord,
@@ -275,6 +288,32 @@ impl JoinRequest {
     }
 }
 
+/// The activation probe's fields (`RemoteEnvironmentRequest::ActivationProbe`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeRequest {
+    /// The runner environment the probing device names.
+    pub environment: EnvironmentId,
+    /// The pending record's nonce, echoed.
+    pub nonce: String,
+}
+
+impl ProbeRequest {
+    /// The probe fields of a request, when it is an activation probe.
+    #[must_use]
+    pub fn from_request(request: &Request) -> Option<Self> {
+        match request {
+            Request::RemoteEnvironment(RemoteEnvironmentRequest::ActivationProbe {
+                environment,
+                nonce,
+            }) => Some(Self {
+                environment: environment.clone(),
+                nonce: nonce.clone(),
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// What [`decide_join`] decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JoinDecision {
@@ -406,6 +445,49 @@ fn state_err(_: heimdall_store::StoreError) -> Refusal {
     Refusal::State
 }
 
+/// The runner's line-write lock (module docs, "Line writes are serialized"): one per runner
+/// (per store), shared by every [`Invitations`] over it.
+#[derive(Debug, Default)]
+pub struct LineSerial(std::sync::Mutex<()>);
+
+impl LineSerial {
+    fn hold(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// The time reading at a join's commit point (module docs, "Join re-checks time"): the
+/// sample's checked wall clock advanced by the continuous time elapsed since the sample, in
+/// the sample's boot. Uncertain when the sample was, when the boot changed (liveness then
+/// sees another boot) or when the continuous clock went backwards.
+#[must_use]
+pub fn at_commit(sample: &TimeReading, now: &TimeAnchor) -> TimeReading {
+    let fresh = BootReading {
+        boot_id: now.boot_id.clone(),
+        continuous: now.continuous,
+    };
+    let (Some(wall), Some(boot)) = (sample.checked_wall, sample.boot.as_ref()) else {
+        return TimeReading::uncertain(Some(fresh));
+    };
+    if boot.boot_id != now.boot_id {
+        return TimeReading::uncertain(Some(fresh));
+    }
+    let advanced = now
+        .continuous
+        .checked_sub(boot.continuous)
+        .and_then(|d| jiff::SignedDuration::try_from(d).ok())
+        .and_then(|d| wall.checked_add(d).ok());
+    match advanced {
+        Some(w) => TimeReading {
+            checked_wall: Some(w),
+            boot: Some(fresh),
+        },
+        None => TimeReading::uncertain(Some(fresh)),
+    }
+}
+
 /// The invitation service over the store and the line port (module docs).
 #[derive(Clone, Copy)]
 pub struct Invitations<'a> {
@@ -417,6 +499,10 @@ pub struct Invitations<'a> {
     pub environment: &'a EnvironmentId,
     /// The forced command's paths.
     pub command: &'a ServeCommand,
+    /// The clock a join re-reads at its commit point ([`at_commit`]).
+    pub clock: &'a dyn Clock,
+    /// The runner's line-write lock.
+    pub serial: &'a LineSerial,
 }
 
 impl std::fmt::Debug for Invitations<'_> {
@@ -477,12 +563,18 @@ impl Invitations<'_> {
     }
 
     /// Reconcile one client's line and record the result: `None` when the port failed
-    /// (the reconciler retries), else whether a write happened.
-    fn sync_line(
-        &self,
-        client: &RemoteClientRecord,
-        now: &TimeReading,
-    ) -> Result<Option<bool>, Refusal> {
+    /// (the reconciler retries), else whether a write happened. Under the [`LineSerial`],
+    /// the client's row is re-read and only what it asks for is written (module docs); an
+    /// unknown client gets no line.
+    fn sync_line(&self, id: &ClientId, now: &TimeReading) -> Result<Option<bool>, Refusal> {
+        let _held = self.serial.hold();
+        // The reading under the lock, as at a commit: a record created at its commit
+        // (after `now` was sampled) is judged against time no earlier than its creation.
+        let now = &at_commit(now, &self.clock.observe());
+        let Some(client) = self.reread(id)? else {
+            return Ok(reconcile_line(self.lines, id, &DesiredLine::Absent).ok());
+        };
+        let client = &client;
         let desired = self.desired_line(client, now)?;
         let Ok(changed) = reconcile_line(self.lines, &client.client, &desired) else {
             return Ok(None);
@@ -503,10 +595,11 @@ impl Invitations<'_> {
                 })
             }
         };
-        // Bookkeeping only: a failure here costs one more idempotent pass.
-        let _ = self
-            .store
-            .transaction(|tx| tx.set_remote_client_line(&client.client, applied.clone()));
+        // Bookkeeping only, and only while the row is still in the state this write was
+        // computed from (⟨Gemini R01⟩); a failure here costs one more idempotent pass.
+        let _ = self.store.transaction(|tx| {
+            tx.set_remote_client_line_if(&client.client, client.state, applied.clone())
+        });
         Ok(Some(changed))
     }
 
@@ -549,18 +642,21 @@ impl Invitations<'_> {
                     return Ok(Err(Refusal::KeyAlreadyAuthorized));
                 }
                 let generation = tx.authority_generation()?.0;
-                let (client, invitation) = match pending_records(new, ids, now, generation, policy)
-                {
-                    Ok(pair) => pair,
-                    Err(r) => return Ok(Err(r)),
-                };
+                // ⟨Gemini R01⟩ The commit point's reading: the record's created_wall, boot
+                // anchor and deadline are those of the commit, not of the (older) sample.
+                let commit_time = at_commit(now, &self.clock.observe());
+                let (client, invitation) =
+                    match pending_records(new, ids, &commit_time, generation, policy) {
+                        Ok(pair) => pair,
+                        Err(r) => return Ok(Err(r)),
+                    };
                 let at = client.created_at;
                 tx.insert_remote_invitation(&client, &invitation, at)?;
                 Ok(Ok((client, invitation)))
             })
             .map_err(state_err)??;
         let (client, invitation) = made;
-        let line_written = self.sync_line(&client, now)?.is_some();
+        let line_written = self.sync_line(&client.client, now)?.is_some();
         let client = self.reread(&client.client)?.unwrap_or(client);
         Ok(Invited {
             client,
@@ -627,6 +723,8 @@ impl Invitations<'_> {
             .transaction(|tx| {
                 let inv = tx.remote_invitation(&request.invitation)?;
                 let client = tx.remote_client(session)?;
+                // The commit point's reading, not the (possibly stale) sample.
+                let at = at_commit(now, &self.clock.observe());
                 let d = decide_join(
                     inv.as_ref(),
                     client.as_ref(),
@@ -634,7 +732,7 @@ impl Invitations<'_> {
                     on_line.as_ref(),
                     request,
                     self.environment,
-                    now,
+                    &at,
                 );
                 if let JoinDecision::Activate(j) = &d {
                     tx.activate_remote_client(j)?;
@@ -647,8 +745,7 @@ impl Invitations<'_> {
             JoinDecision::Replay(j) => (j, true),
             JoinDecision::Refuse(r) => return Err(r),
         };
-        let client = self.reread(session)?.ok_or(Refusal::State)?;
-        let line_written = self.sync_line(&client, now)?.is_some();
+        let line_written = self.sync_line(session, now)?.is_some();
         Ok(Joined {
             join,
             replayed,
@@ -656,34 +753,60 @@ impl Invitations<'_> {
         })
     }
 
-    /// The activation probe's echo for the session's client (pending or active; the
-    /// per-frame check has already refused anything else).
+    /// The activation probe (ADR-0012 §3.2; ⟨Gemini R03⟩ the wire form
+    /// `remote_environment.activation_probe`): echoes the session's client and the pending
+    /// record's nonce, only for a probe naming **this** runner and **that** nonce, and, for a
+    /// pending client, only while its invitation is pending and live at `now` (the shared
+    /// gate's reading). An active client's probe (its invitation consumed) still echoes.
     ///
     /// # Errors
     ///
+    /// `decision_binding_mismatch` for another environment or nonce; `invitation_expired`
+    /// for a pending client whose invitation is not live (or a client tombstoned by expiry);
     /// `client_revoked` for an unknown or revoked client or one without an invitation.
-    pub fn probe(&self, session: &ClientId) -> Result<ProbeEcho, Refusal> {
+    pub fn probe(
+        &self,
+        session: &ClientId,
+        request: &ProbeRequest,
+        now: &TimeReading,
+    ) -> Result<ProbeEcho, Refusal> {
+        if &request.environment != self.environment {
+            return Err(Refusal::BindingMismatch);
+        }
         let found = self
             .store
             .transaction(|tx| {
                 let Some(c) = tx.remote_client(session)? else {
-                    return Ok(None);
+                    return Ok(Err(Refusal::ClientRevoked));
                 };
                 if c.state == ClientState::Revoked {
-                    return Ok(None);
+                    return Ok(Err(match c.revocation {
+                        Some(RevocationCause::InvitationExpired) => Refusal::InvitationExpired,
+                        _ => Refusal::ClientRevoked,
+                    }));
                 }
                 let Some(inv) = c.invitation.as_ref() else {
-                    return Ok(None);
+                    return Ok(Err(Refusal::ClientRevoked));
                 };
-                Ok(tx.remote_invitation(inv)?.map(|i| i.probe_nonce))
+                let Some(inv) = tx.remote_invitation(inv)? else {
+                    return Ok(Err(Refusal::ClientRevoked));
+                };
+                if c.state == ClientState::Pending
+                    && (inv.state != InvitationState::Pending
+                        || liveness(&inv, now) != Liveness::Live)
+                {
+                    return Ok(Err(Refusal::InvitationExpired));
+                }
+                Ok(Ok(inv.probe_nonce))
             })
-            .map_err(state_err)?;
-        found
-            .map(|nonce| ProbeEcho {
-                client: session.clone(),
-                nonce,
-            })
-            .ok_or(Refusal::ClientRevoked)
+            .map_err(state_err)??;
+        if request.nonce != found {
+            return Err(Refusal::BindingMismatch);
+        }
+        Ok(ProbeEcho {
+            client: session.clone(),
+            nonce: found,
+        })
     }
 
     /// Revoke a client (§3.11): commit the tombstone first, then remove the line. The
@@ -706,7 +829,7 @@ impl Invitations<'_> {
             .map_err(state_err)?
             .ok_or(Refusal::ClientRevoked)?;
         let line_removed = self
-            .sync_line(&tomb, &TimeReading::uncertain(None))?
+            .sync_line(client, &TimeReading::uncertain(None))?
             .is_some();
         let client = self.reread(client)?.unwrap_or(tomb);
         Ok(Revoked {
@@ -753,7 +876,7 @@ impl Invitations<'_> {
                 })
                 .map_err(state_err)?;
             if let Some(t) = tomb {
-                let _ = self.sync_line(&t, now)?;
+                let _ = self.sync_line(&t.client, now)?;
                 out.push(t.client);
             }
         }
@@ -772,7 +895,7 @@ impl Invitations<'_> {
             .map_err(state_err)?;
         let mut report = ReconcileReport::default();
         for c in clients {
-            match self.sync_line(&c, now)? {
+            match self.sync_line(&c.client, now)? {
                 Some(changed) => report.changed += usize::from(changed),
                 None => report.failed += 1,
             }

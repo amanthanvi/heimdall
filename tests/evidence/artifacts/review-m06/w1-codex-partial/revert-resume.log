@@ -1,0 +1,25 @@
+   Compiling heimdall-app v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/app)
+   Compiling heimdall-credential v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/credential)
+   Compiling heimdall-issuer v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/issuer)
+   Compiling heimdall-testkit v0.1.0-m01 (/private/tmp/hm-tools/m06-w1-review-out/source/crates/testkit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.97s
+     Running ../../tests/integration/paired_scope_m06.rs (target/debug/deps/integration_paired_scope_m06-3a589c0e2ae79219)
+
+running 1 test
+test a_paired_owner_is_scoped_to_its_own_client_on_every_path ... FAILED
+
+failures:
+
+---- a_paired_owner_is_scoped_to_its_own_client_on_every_path stdout ----
+
+thread 'a_paired_owner_is_scoped_to_its_own_client_on_every_path' (91073271) panicked at crates/app/../../tests/integration/paired_scope_m06.rs:407:5:
+assertion failed: !concerns(&a_sub.backlog, &op, &binding, &grant)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_paired_owner_is_scoped_to_its_own_client_on_every_path
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p heimdall-app --test integration_paired_scope_m06`

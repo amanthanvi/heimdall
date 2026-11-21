@@ -52,6 +52,8 @@ pub mod gitedit;
 pub mod include;
 pub mod lex;
 pub mod limits;
+// ⟨M06 U2⟩ The isolated management configuration (ADR-0012 §3.1, §5.2).
+pub mod mgmt;
 pub mod parse;
 pub mod relevant;
 pub mod render;

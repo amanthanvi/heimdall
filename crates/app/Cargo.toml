@@ -57,10 +57,3 @@ path = "../../tests/model/signing_gates.rs"
 [[test]]
 name = "model_lock_behavior"
 path = "../../tests/model/lock_behavior.rs"
-
-# ⟨M06⟩ W1 follow-up (M06-W0-R03; ADR-0006 §18.2 item 17): paired callers are
-# client-scoped on every path (observe, cancel, bindings, snapshot, event pages, resumed and
-# live subscriptions), with the local owner and the named narrowing power as controls.
-[[test]]
-name = "integration_paired_scope_m06"
-path = "../../tests/integration/paired_scope_m06.rs"

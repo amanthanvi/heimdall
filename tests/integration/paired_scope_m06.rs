@@ -1,5 +1,9 @@
 //! ⟨M06⟩ W1 follow-up, M06-W0-R03 (ADR-0006 §18.2 item 17, the orchestrator's ruling):
 //! paired callers are client-scoped, through the real `Operations` over an in-memory store.
+//! ⟨M06 W2, blocking⟩ Live events too, through the runner runtime's dispatcher and the real
+//! IPC session: the runtime overrides the dispatcher's live-event visibility hook
+//! (`a_paired_caller_receives_live_events_only_within_its_scope`; hosted by
+//! `heimdall-runtime` since W2, which owns the override).
 //!
 //! Three callers on **one** OS principal: the local owner (no paired client), a paired owner
 //! (client A) and a paired requester (client B). B's work is invisible to A on every path:
@@ -19,11 +23,13 @@ use heimdall_app::ports::{
     AdapterDescriptor, CredentialAdapter, InteractionRequirement, LockContinuity, PrepareOutcome,
 };
 use heimdall_app::{Caller, Operations, OperationsConfig};
-use heimdall_contract::event::{Cursor, Event, EventFilter};
+use heimdall_contract::event::{Cursor, Event, EventFilter, EventType};
 use heimdall_contract::ids::{
-    AccountName, BindingId, ClientId, DestinationId, DeviceId, EnvironmentId, GrantId, OperationId,
-    PolicyId, ProfileId, RequestId, WorkId,
+    AccountName, BindingId, ClientId, DecisionId, DestinationId, DeviceId, EnvironmentId, GrantId,
+    InvitationId, KeyFingerprint, OperationId, PolicyId, ProfileId, RequestId, WorkId,
 };
+use heimdall_contract::ipc::{ClientHello, PeerInfo, PrincipalInfo, capability};
+use heimdall_contract::remote::Role;
 use heimdall_contract::request::{
     BindForm, BindRequest, CancelRequest, EnsureRequest, InteractionMode, ObserveRequest,
     RefreshDependency, ReleaseRequest, RequiredCapabilities, RevokeRequest, WaitMode,
@@ -37,8 +43,14 @@ use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
 use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::scope::{AccessPair, Capability, Scope};
 use heimdall_domain::time::{SyncStatus, TimePolicy};
+use heimdall_ipc::session::{
+    ConnectionLimits, ControlClient, ControlConnection, SubscribeOutcome, server_capabilities,
+};
+use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
+use heimdall_runtime::paired::{PairedRunner, RunnerOptions};
 use heimdall_store::{NoFaults, Store};
 use heimdall_testkit::{FakeCredentialAdapter, FakeStep, ScriptedTimeSync, VirtualClock};
+use tokio_util::sync::CancellationToken;
 
 const HOUR: Duration = Duration::from_secs(3600);
 
@@ -151,6 +163,7 @@ fn seed(store: &Store) {
 struct World {
     store: Arc<Store>,
     ops: Operations,
+    clock: Arc<VirtualClock>,
 }
 
 impl World {
@@ -170,9 +183,10 @@ impl World {
             remote_credential_effect: false,
         };
         let fake = FakeCredentialAdapter::new(descriptor, [FakeStep::Prepare(outcome())]);
+        let clock = VirtualClock::at(t0());
         let ops = Operations::start(OperationsConfig {
             store: store.clone(),
-            clock: VirtualClock::at(t0()),
+            clock: clock.clone(),
             time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
             time_policy: TimePolicy::default(),
             environment: env_id(),
@@ -184,7 +198,7 @@ impl World {
         })
         .await
         .unwrap();
-        Self { store, ops }
+        Self { store, ops, clock }
     }
 
     /// `observe events` with no cursor: the snapshot, and its cursor.
@@ -428,6 +442,48 @@ async fn a_paired_owner_is_scoped_to_its_own_client_on_every_path() {
         assert!((a_sub.visible)(policy_like));
     }
 
+    // ⟨M06 W2; the ruling on M06-W0-R03⟩ Decision and resource events are owner-role views:
+    // a requester never receives one, even about its own operation or binding, while an
+    // event of its own work of another type still reaches it; the local owner sees all.
+    let about =
+        |event_type, operation: Option<OperationId>, resource: Option<(&str, &str)>| Event {
+            schema_version: heimdall_contract::SchemaVersion::current(),
+            event_id: heimdall_contract::ids::EventId::from_random_bytes([0x3c; 16]),
+            event_type,
+            environment_id: env_id(),
+            operation_id: operation,
+            resource: resource.map(|(kind, id)| heimdall_contract::envelope::ResourceRef {
+                kind: kind.into(),
+                id: Some(id.into()),
+            }),
+            timestamp: t0(),
+            cursor: Cursor(String::new()),
+            payload: serde_json::json!({}),
+        };
+    let visible = |e: &Event, who: &CallerContext| {
+        w.store
+            .transaction(|tx| heimdall_app::events::event_visible_in(tx, e, who))
+            .unwrap()
+    };
+    for e in [
+        about(EventType::Decision, Some(op.clone()), None),
+        about(
+            EventType::ResourceChanged,
+            None,
+            Some(("binding", binding.as_str())),
+        ),
+    ] {
+        assert!(!visible(&e, &b), "{e:?}");
+        assert!(!visible(&e, &a), "{e:?}");
+        assert!(visible(&e, &local), "{e:?}");
+    }
+    let own = about(
+        EventType::GrantStateChanged,
+        None,
+        Some(("grant", grant.as_str())),
+    );
+    assert!(visible(&own, &b) && !visible(&own, &a));
+
     // Positive control: the named cross-controller narrowing power. The paired owner
     // revokes B's grant (ADR-0012 §7.2, §8), and B's binding then reflects it.
     let revoked = w
@@ -469,4 +525,542 @@ async fn a_paired_owner_is_scoped_to_its_own_client_on_every_path() {
         )
         .await;
     assert!(released.is_ok(), "{released:?}");
+}
+
+// --- ⟨M06 W2, blocking (M06-W0-R03)⟩ live events through the runner runtime -------------------
+
+/// Seed a paired client's active row in the runner's role table (a pending invitation
+/// consumed by its join), as `heimdall_remote`'s invitation service leaves it.
+fn seed_client(store: &Store, ctx: &CallerContext, role: Role, n: u8) {
+    use heimdall_store::ext_m06::{
+        AppliedLine, ClientState, InvitationState, JoinRecord, RemoteClientRecord,
+        RemoteInvitationRecord,
+    };
+    let client = ctx.remote_client.clone().unwrap();
+    let invitation = InvitationId::from_random_bytes([n; 16]);
+    let fp = KeyFingerprint::parse(&format!(
+        "SHA256:{}",
+        char::from(b'A' + n % 26).to_string().repeat(43)
+    ))
+    .unwrap();
+    let rec = RemoteClientRecord {
+        client: client.clone(),
+        role,
+        key_fingerprint: fp.clone(),
+        public_key: "ssh-ed25519 AAAA".into(),
+        state: ClientState::Pending,
+        invitation: Some(invitation.clone()),
+        revoked_generation: None,
+        revocation: None,
+        created_at: t0(),
+        updated_at: t0(),
+        line: AppliedLine::Absent,
+    };
+    let generation = store.transaction(|tx| tx.authority_generation()).unwrap().0;
+    let inv = RemoteInvitationRecord {
+        invitation: invitation.clone(),
+        client: client.clone(),
+        role,
+        key_fingerprint: fp,
+        generation,
+        created_wall: t0(),
+        created_boot_id: heimdall_domain::time::BootId("boot".into()),
+        created_elapsed: Duration::from_secs(1),
+        expires_wall: t0()
+            .checked_add(jiff::SignedDuration::from_mins(15))
+            .unwrap(),
+        elapsed_bound: Duration::from_secs(900),
+        probe_nonce: "00".into(),
+        state: InvitationState::Pending,
+        consumed_at: None,
+        join: None,
+    };
+    store
+        .transaction(|tx| {
+            tx.insert_remote_invitation(&rec, &inv, t0())?;
+            tx.activate_remote_client(&JoinRecord {
+                environment: env_id(),
+                invitation,
+                client,
+                role,
+                generation,
+                joined_at: t0(),
+            })
+            .map(drop)
+        })
+        .unwrap();
+}
+
+/// A hello as the runner's bridge originates it (`remote_client` from its argv), or the
+/// local caller's (none).
+fn hello(client: Option<&CallerContext>) -> ClientHello {
+    let mut capabilities = server_capabilities();
+    capabilities.insert(capability::REMOTE_CONTROL_V1.to_owned());
+    ClientHello {
+        protocol: heimdall_contract::PROTOCOL_VERSION,
+        schema_version: heimdall_contract::SchemaVersion::current(),
+        client: PeerInfo {
+            name: "fixture".into(),
+            version: "0".into(),
+        },
+        capabilities,
+        required: BTreeSet::new(),
+        interaction: InteractionMode::NonInteractive,
+        remote_client: client.and_then(|c| c.remote_client.clone()),
+    }
+}
+
+/// ⟨M06 W2⟩ An event a paired caller received carries no handle of `decision`: no
+/// `decision_id`, no decision resource ID, and the ID nowhere in it.
+fn assert_no_decision_handle(e: &Event, decision: &str) {
+    assert!(e.payload.get("decision_id").is_none(), "{e:?}");
+    if let Some(r) = &e.resource {
+        assert!(r.kind != "decision" || r.id.is_none(), "{e:?}");
+    }
+    assert!(
+        !serde_json::to_string(e).unwrap().contains(decision),
+        "{e:?}"
+    );
+}
+
+/// Read one subscriber's live events until it has seen `markers` policy changes (the
+/// environment-level events every role sees).
+async fn until_markers(
+    c: &mut ControlClient<tokio::io::DuplexStream>,
+    markers: usize,
+) -> Vec<Event> {
+    let mut seen = Vec::new();
+    let mut found = 0;
+    while found < markers {
+        let (_, e) = tokio::time::timeout(Duration::from_secs(10), c.next_event())
+            .await
+            .expect("the marker arrives")
+            .unwrap();
+        if e.event_type == EventType::PolicyChanged {
+            found += 1;
+        }
+        seen.push(e);
+    }
+    seen
+}
+
+/// ⟨M06 W2, blocking (M06-W0-R03)⟩ Live events reach a paired caller only within its client
+/// scope and the environment views its role permits, through the runner runtime's
+/// dispatcher (its `Dispatcher::live_visibility` override) and the real IPC session; the
+/// local owner keeps every event. A paired owner receives decision events as read-only
+/// owner-role views carrying no decision handle (⟨W2 fixes⟩ stripped on every paired path:
+/// live, event pages, snapshot, resumed backlog, `inspect decisions`), and its `Decide` is
+/// refused before dispatch; a requester's view set names no decision event. Revert proofs:
+/// with the visibility override disabled (returning `None`), the paired owner receives B's
+/// events and this test fails; with the redaction disabled it receives the decision handle
+/// and this test fails (`target/m06-w2/runtime/revert-*.log`).
+#[tokio::test]
+async fn a_paired_caller_receives_live_events_only_within_its_scope() {
+    let w = World::new().await;
+    assert_eq!(
+        heimdall_runtime::paired::init_runner(&w.store).unwrap(),
+        env_id()
+    );
+    let a = paired_owner();
+    let b = paired_requester();
+    seed_client(&w.store, &a, Role::Owner, 1);
+    seed_client(&w.store, &b, Role::Requester, 2);
+    let stop = CancellationToken::new();
+    let relay = EventRelay::spawn(&w.ops, stop.clone());
+    let runner = Arc::new(PairedRunner::new(
+        w.store.clone(),
+        w.ops.clone(),
+        w.clock.clone(),
+        RunnerOptions::default(),
+    ));
+    let dispatcher =
+        OperationsDispatcher::new(w.ops.clone(), relay, w.clock.clone()).with_runner(runner);
+    let connect = |who: Option<&CallerContext>| {
+        let (client_end, server_end) = tokio::io::duplex(1 << 20);
+        let conn = ControlConnection::new(server_end, ConnectionLimits::default())
+            .with_server_identity(
+                env_id(),
+                PeerInfo {
+                    name: "runner".into(),
+                    version: "0".into(),
+                },
+            );
+        let d = dispatcher.clone();
+        let s = stop.clone();
+        tokio::spawn(async move {
+            let _ = conn
+                .serve(PrincipalInfo::OsUserUnix { uid: 501 }, d, s)
+                .await;
+        });
+        ControlClient::handshake_hello(client_end, hello(who))
+    };
+    let mut a_session = connect(Some(&a)).await.unwrap();
+    let mut b_session = connect(Some(&b)).await.unwrap();
+    let mut local = connect(None).await.unwrap();
+    assert_eq!(a_session.server().role, Some(Role::Owner));
+    assert_eq!(b_session.server().role, Some(Role::Requester));
+    let mut boundaries = Vec::new();
+    for c in [&mut a_session, &mut b_session, &mut local] {
+        let SubscribeOutcome::Subscribed { cursor, .. } =
+            c.subscribe(EventFilter::default(), None).await.unwrap()
+        else {
+            panic!("subscribe refused");
+        };
+        boundaries.push(cursor);
+    }
+    let a_boundary = boundaries[0].clone();
+
+    // B's work, over its own paired session.
+    let ensured = b_session
+        .request(
+            serde_json::from_value(serde_json::json!({
+                "op": "ensure", "profile": "dev", "work_id": "work-b", "request_id": "req-b",
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ensured.code, Code::AccessReady, "{ensured:?}");
+    let op: OperationId = serde_json::from_value(serde_json::json!(ensured.operation_id)).unwrap();
+    let binding: BindingId = serde_json::from_value(ensured.data["binding_id"].clone()).unwrap();
+    let grant: GrantId = serde_json::from_value(ensured.data["grant_id"].clone()).unwrap();
+    // The local owner: a pause (marker), a widening resume that creates a decision record
+    // (unattended: nothing executes), then a narrowing cutoff (the last marker).
+    let pause = local
+        .request(
+            serde_json::from_str(r#"{"op":"policy","action":"pause","policy_id":"pol"}"#).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(pause.code, Code::Ok, "{pause:?}");
+    let resume = local
+        .request(
+            serde_json::from_str(r#"{"op":"policy","action":"resume","policy_id":"pol"}"#).unwrap(),
+        )
+        .await
+        .unwrap();
+    let decision = resume
+        .next
+        .and_then(|n| n.decision_ref)
+        .expect("a decision record");
+    let cutoff = local
+        .request(
+            serde_json::from_value(serde_json::json!({
+                "op": "policy", "action": "cutoff", "policy_id": "pol",
+                "at": "2026-10-02T11:00:00Z",
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cutoff.code, Code::Ok, "{cutoff:?}");
+
+    let a_events = until_markers(&mut a_session, 2).await;
+    let b_events = until_markers(&mut b_session, 2).await;
+    let local_events = until_markers(&mut local, 2).await;
+    // Client scope: B's work reaches B and the local owner, never the paired owner.
+    assert!(
+        concerns(&b_events, &op, &binding, &grant),
+        "B sees its own work"
+    );
+    assert!(
+        concerns(&local_events, &op, &binding, &grant),
+        "the local owner sees all"
+    );
+    assert!(
+        !concerns(&a_events, &op, &binding, &grant),
+        "the paired owner received B's work: {a_events:#?}"
+    );
+    // Role views: the decision event reaches the paired owner read-only, never the requester.
+    // ⟨M06 W2; the orchestrator's ruling⟩ It carries no decision handle: no `decision_id`, no
+    // decision resource ID, on every paired path (live here; pages, snapshot, resumed
+    // backlog and `inspect decisions` below). The local owner keeps the reference.
+    let a_decisions: Vec<&Event> = a_events
+        .iter()
+        .filter(|e| e.event_type == EventType::Decision)
+        .collect();
+    assert!(!a_decisions.is_empty(), "the owner-role view");
+    for e in &a_decisions {
+        assert_no_decision_handle(e, &decision);
+    }
+    assert!(
+        local_events
+            .iter()
+            .any(|e| e.event_type == EventType::Decision
+                && e.payload["decision_id"] == decision
+                && e.resource.as_ref().and_then(|r| r.id.as_deref()) == Some(decision.as_str()))
+    );
+    assert!(!b_events.iter().any(|e| e.event_type == EventType::Decision));
+    // An event page from the paired owner's boundary.
+    let page = a_session
+        .request(
+            serde_json::from_value(serde_json::json!({
+                "op": "observe", "kind": "events", "cursor": a_boundary, "limit": 500,
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.code, Code::Ok, "{page:?}");
+    let paged: Vec<Event> = serde_json::from_value(page.data["events"].clone()).unwrap();
+    assert!(paged.iter().any(|e| e.event_type == EventType::Decision));
+    paged
+        .iter()
+        .for_each(|e| assert_no_decision_handle(e, &decision));
+    // The snapshot (no cursor) lists the pending decision without its handle.
+    let snap = a_session
+        .request(
+            serde_json::from_value(serde_json::json!({"op": "observe", "kind": "events"})).unwrap(),
+        )
+        .await
+        .unwrap();
+    let pending = &snap.data["snapshot"]["data"]["pending_decisions"];
+    assert!(!pending.as_array().unwrap().is_empty(), "{snap:?}");
+    assert!(!snap.data.to_string().contains(&decision), "{snap:?}");
+    // A subscription resumed from the boundary: its backlog.
+    let SubscribeOutcome::Subscribed { .. } = a_session
+        .subscribe(EventFilter::default(), Some(a_boundary.clone()))
+        .await
+        .unwrap()
+    else {
+        panic!("resume refused");
+    };
+    let resumed = until_markers(&mut a_session, 2).await;
+    assert!(resumed.iter().any(|e| e.event_type == EventType::Decision));
+    resumed
+        .iter()
+        .for_each(|e| assert_no_decision_handle(e, &decision));
+    // `inspect decisions` lists it without its handle; the local owner's names it.
+    let inspect = serde_json::json!({"op": "inspect", "subject": "decisions"});
+    let listed = a_session
+        .request(serde_json::from_value(inspect.clone()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(listed.code, Code::Ok, "{listed:?}");
+    assert!(!listed.data.to_string().contains(&decision), "{listed:?}");
+    let local_listed = local
+        .request(serde_json::from_value(inspect).unwrap())
+        .await
+        .unwrap();
+    assert!(local_listed.data.to_string().contains(&decision));
+    // The reference is not usable for approval from the paired session.
+    let decide = a_session
+        .request(
+            serde_json::from_value(serde_json::json!({
+                "op": "decide", "decision_id": decision, "verdict": "approve",
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(decide.code, Code::InteractionRequired);
+    let still = w
+        .store
+        .transaction(|tx| tx.decision(&DecisionId::parse(&decision).unwrap()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        still.state,
+        heimdall_domain::decision::DecisionState::Pending
+    );
+    stop.cancel();
+}
+
+/// ⟨M06 W1 review⟩ The snapshot's **open** operations are client-scoped too: another paired
+/// owner's operation that stays open (awaiting approval: `h3` is in the profile but not in
+/// the standing policy) is listed for its own client and the local owner, never for the
+/// paired owner A. (The W1 case's operation settles at once, so it never reached this list.)
+#[tokio::test]
+async fn a_paired_owner_does_not_see_another_clients_open_operations() {
+    let w = World::new().await;
+    let pair = |d: &str| AccessPair {
+        destination: DestinationId::parse(d).unwrap(),
+        account: AccountName::parse("deploy").unwrap(),
+    };
+    w.store
+        .transaction(|tx| {
+            tx.upsert_profile(&ProfileDefinition {
+                id: ProfileId::parse("dev").unwrap(),
+                revision: 2,
+                scope: Scope {
+                    pairs: [pair("h1"), pair("h3")].into_iter().collect(),
+                    capabilities: [Capability::SshAuthentication].into_iter().collect(),
+                },
+                label: None,
+            })
+        })
+        .unwrap();
+    let a = paired_owner();
+    let c = paired(0xc4, ClientRole::Owner);
+    let local = local_owner();
+    let refused = w
+        .ops
+        .ensure(
+            &Caller::unattended(c.clone()),
+            EnsureRequest {
+                profile: Some(ProfileId::parse("dev").unwrap()),
+                profile_revision: None,
+                scope: ["h1", "h3"]
+                    .into_iter()
+                    .map(|d| heimdall_contract::request::AccessPairRef {
+                        destination: DestinationId::parse(d).unwrap(),
+                        account: AccountName::parse("deploy").unwrap(),
+                    })
+                    .collect(),
+                environment: None,
+                work_id: WorkId::parse("work-c").unwrap(),
+                until: None,
+                required_capabilities: RequiredCapabilities::default(),
+                request_id: RequestId::parse("req-c").unwrap(),
+                interaction: InteractionMode::NonInteractive,
+                wait: WaitMode::default(),
+                connection: None,
+                context: None,
+                covered_only: false,
+            },
+        )
+        .await
+        .unwrap_err();
+    let op = refused.operation_id.clone().expect("an open operation");
+    let state = w
+        .store
+        .transaction(|tx| tx.operation(&op))
+        .unwrap()
+        .unwrap()
+        .state;
+    assert_eq!(state, heimdall_contract::OperationState::AwaitingApproval);
+    let (a_snap, _) = w.snapshot(&a).await;
+    let (c_snap, _) = w.snapshot(&c).await;
+    let (local_snap, _) = w.snapshot(&local).await;
+    assert!(snapshot_ops(&c_snap).contains(&op.to_string()), "{c_snap}");
+    assert!(snapshot_ops(&local_snap).contains(&op.to_string()));
+    assert!(
+        !snapshot_ops(&a_snap).contains(&op.to_string()),
+        "another client's open operation reached the paired owner: {a_snap}"
+    );
+}
+
+/// ⟨Gemini W1 R06⟩ Client B's **unresolved** operation (outcome unknown) is listed in B's and
+/// the local owner's snapshot, never in paired owner A's; and A may neither `stop` B's work
+/// (`stop_m05::may_stop`) nor `delegate` from B's binding, while B and the local owner may
+/// (positive controls: B delegates, the local owner stops).
+#[tokio::test]
+async fn a_paired_owner_cannot_reach_another_clients_unresolved_work_stop_or_delegate() {
+    let w = World::new().await;
+    let a = paired_owner();
+    let b = paired_requester();
+    let local = local_owner();
+    let ensured = w
+        .ops
+        .ensure(
+            &Caller::unattended(b.clone()),
+            EnsureRequest {
+                profile: Some(ProfileId::parse("dev").unwrap()),
+                profile_revision: None,
+                scope: BTreeSet::new(),
+                environment: None,
+                work_id: WorkId::parse("work-b").unwrap(),
+                until: None,
+                required_capabilities: RequiredCapabilities::default(),
+                request_id: RequestId::parse("req-b").unwrap(),
+                interaction: InteractionMode::NonInteractive,
+                wait: WaitMode::default(),
+                connection: None,
+                context: None,
+                covered_only: false,
+            },
+        )
+        .await
+        .unwrap();
+    let binding = ensured.data.binding_id.clone();
+    let settled = ensured.operation_id.clone().unwrap();
+
+    // B's unresolved operation: B's own record, as an outcome-unknown copy under a new key.
+    let unresolved = OperationId::from_random_bytes([0x5e; 16]);
+    w.store
+        .transaction(|tx| {
+            let mut op = tx.operation(&settled)?.unwrap();
+            op.id = unresolved.clone();
+            op.state = heimdall_contract::OperationState::OutcomeUnknown;
+            op.key.request_id = RequestId::parse("req-b-unresolved").unwrap();
+            let idem = heimdall_domain::idempotency::IdempotencyRecord {
+                key: op.key.clone(),
+                request_hash: op.request_hash,
+                operation_id: op.id.clone(),
+                created_at: op.created_at,
+                expires_at: None,
+            };
+            tx.insert_operation(&op, &idem)
+        })
+        .unwrap();
+    let (a_snap, _) = w.snapshot(&a).await;
+    let (b_snap, _) = w.snapshot(&b).await;
+    let (local_snap, _) = w.snapshot(&local).await;
+    assert!(
+        snapshot_ops(&b_snap).contains(&unresolved.to_string()),
+        "{b_snap}"
+    );
+    assert!(snapshot_ops(&local_snap).contains(&unresolved.to_string()));
+    assert!(
+        !snapshot_ops(&a_snap).contains(&unresolved.to_string()),
+        "another client's unresolved operation reached the paired owner: {a_snap}"
+    );
+
+    // delegate: refused to A as unknown; B's own delegation is admitted.
+    let delegate = |who: &CallerContext, rid: &str, work: &str| {
+        let caller = Caller::unattended(who.clone());
+        let req = heimdall_contract::request::DelegateRequest {
+            parent_binding_id: binding.clone(),
+            scope: BTreeSet::new(),
+            until: None,
+            work_id: WorkId::parse(work).unwrap(),
+            request_id: RequestId::parse(rid).unwrap(),
+            required_capabilities: RequiredCapabilities::default(),
+        };
+        let ops = &w.ops;
+        async move { ops.delegate(&caller, req).await }
+    };
+    assert_eq!(
+        delegate(&a, "req-a-delegate", "work-a-child")
+            .await
+            .unwrap_err()
+            .code,
+        Code::NotFound
+    );
+    let own = delegate(&b, "req-b-delegate", "work-b-child").await;
+    assert!(
+        own.as_ref()
+            .map_or_else(|e| e.code != Code::NotFound, |_| true),
+        "B's own delegation is not refused as unknown: {own:?}"
+    );
+
+    // stop: refused to A as unknown, the work keeps its binding; the local owner stops it.
+    let stop = |who: &CallerContext, rid: &str| {
+        let caller = Caller::unattended(who.clone());
+        let req = RevokeRequest {
+            grant_id: None,
+            request_id: RequestId::parse(rid).unwrap(),
+            target: Some(heimdall_contract::trust::RevokeTarget::Work {
+                environment: None,
+                work_id: WorkId::parse("work-b").unwrap(),
+            }),
+        };
+        let ops = &w.ops;
+        async move { ops.revoke(&caller, req).await }
+    };
+    assert_eq!(
+        stop(&a, "req-a-stop").await.unwrap_err().code,
+        Code::NotFound
+    );
+    let still = w
+        .store
+        .transaction(|tx| tx.binding(&binding))
+        .unwrap()
+        .unwrap();
+    assert_eq!(still.state, heimdall_domain::binding::BindingState::Active);
+    let stopped = stop(&local, "req-local-stop").await;
+    assert!(
+        stopped.is_ok(),
+        "the local owner stops any work: {stopped:?}"
+    );
 }

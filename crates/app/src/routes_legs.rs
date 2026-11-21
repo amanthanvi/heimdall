@@ -1,5 +1,6 @@
 //! ⟨M06 U5a⟩ The direct and jump legs of the route helper (ADR-0012 §5.4, §5.5; ADR-0010 §5
-//! items 1–4). The Iroh leg is U56's: this dialer refuses it.
+//! items 1–4). [`TokioLegDialer`] refuses the Iroh leg; ⟨M06 U56⟩ [`RouteLegDialer`] adds it
+//! through an [`IrohLegDialer`] port (the runtime's, over `heimdall-transport-iroh`).
 //!
 //! * **Direct:** a TCP connect to the route's `host:port`, bounded by the connect timeout.
 //! * **Jump:** `ssh -F none <the jump's catalog pin and access> -W <final host>:<port> <jump
@@ -17,6 +18,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use heimdall_contract::ids::IrohEndpointId;
+use heimdall_contract::route::ExposurePolicy;
 use heimdall_registry::routes::{JumpHop, jump_leg_args, jump_leg_failure_is_terminal};
 use tokio::io::AsyncReadExt as _;
 
@@ -180,6 +183,7 @@ impl JumpEnding {
         let r = LegEnd {
             success: !kill_first && status.is_some_and(|s| s.success()),
             terminal: jump_leg_failure_is_terminal(&text),
+            admission_refused: false,
         };
         self.result = Some(r);
         r
@@ -194,5 +198,92 @@ impl LegEnding for JumpEnding {
 
     async fn abort(&mut self) -> LegEnd {
         self.finish(true).await
+    }
+}
+
+// --- ⟨M06 U56⟩ the Iroh leg ----------------------------------------------------------------
+
+/// One Iroh leg to dial: the approved route's endpoint, recorded addresses and exposure
+/// policy (ADR-0012 §2.1: every address, relay and hint comes from these alone).
+#[derive(Debug, Clone, Copy)]
+pub struct IrohLegTarget<'a> {
+    /// The serving endpoint.
+    pub endpoint: &'a IrohEndpointId,
+    /// The route record's direct addresses (`ip:port`).
+    pub direct_addresses: &'a [String],
+    /// The route's effective exposure policy.
+    pub exposure: &'a ExposurePolicy,
+    /// An adopted stock roost (ADR-0012 §2.8).
+    pub external_roost: bool,
+}
+
+/// Dials an Iroh leg (`/pigeons/0`). Implemented by the runtime over
+/// `heimdall-transport-iroh` with this host's K_iroh; `heimdall-app` never imports the
+/// transport. Every failure before a stream exists is a [`DialFailure`] that is failed over
+/// (refused: a policy refusal, no verified key store, no bind; timeout; an admission refusal
+/// seen while dialing). The returned [`Leg`]'s ending reports a later admission refusal
+/// ([`LegEnd::admission_refused`]).
+#[async_trait]
+pub trait IrohLegDialer: Send + Sync {
+    /// Dial `target` within `connect_timeout`.
+    async fn dial_iroh(
+        &self,
+        target: IrohLegTarget<'_>,
+        connect_timeout: Duration,
+    ) -> Result<Leg, DialFailure>;
+}
+
+/// The helper's dialer: the direct and jump legs through `base` (normally
+/// [`TokioLegDialer`]), the Iroh leg through `iroh`. Without an Iroh dialer (no driver in
+/// the build, no verified key store) an Iroh route is refused and failed over; direct and
+/// jump routes are unaffected (ADR-0012 §2.4 item 3).
+#[derive(Clone)]
+pub struct RouteLegDialer<D> {
+    /// The direct and jump legs.
+    pub base: D,
+    /// The Iroh leg.
+    pub iroh: Option<Arc<dyn IrohLegDialer>>,
+}
+
+impl<D: std::fmt::Debug> std::fmt::Debug for RouteLegDialer<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RouteLegDialer")
+            .field("base", &self.base)
+            .field("iroh", &self.iroh.is_some())
+            .finish()
+    }
+}
+
+#[async_trait]
+impl<D: LegDialer> LegDialer for RouteLegDialer<D> {
+    async fn dial(
+        &self,
+        route: &PlannedRoute,
+        connect_timeout: Duration,
+    ) -> Result<Leg, DialFailure> {
+        match (&route.leg, &self.iroh) {
+            (
+                LegPlan::Iroh {
+                    endpoint,
+                    direct_addresses,
+                    exposure,
+                    external_roost,
+                },
+                Some(iroh),
+            ) => {
+                iroh.dial_iroh(
+                    IrohLegTarget {
+                        endpoint,
+                        direct_addresses,
+                        exposure,
+                        external_roost: *external_roost,
+                    },
+                    connect_timeout,
+                )
+                .await
+            }
+            (LegPlan::Iroh { .. }, None) => Err(DialFailure::Refused),
+            _ => self.base.dial(route, connect_timeout).await,
+        }
     }
 }

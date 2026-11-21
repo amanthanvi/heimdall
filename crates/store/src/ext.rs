@@ -451,7 +451,10 @@ impl Txn<'_> {
         )
     }
 
-    fn write_decision(&mut self, record: &DecisionRecord) -> Result<()> {
+    /// Write a decision's state, `decided_at` and document, compare-and-set on `Pending`
+    /// (⟨M06 W2⟩ `pub(crate)`: the runner-local widening records settle through it,
+    /// `crate::ext_m06`).
+    pub(crate) fn write_decision(&mut self, record: &DecisionRecord) -> Result<()> {
         let n = self.tx.execute(
             "UPDATE decisions SET state = ?2, decided_at = ?3, record_json = ?4
              WHERE id = ?1 AND state = ?5",

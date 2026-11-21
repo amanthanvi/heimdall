@@ -29,10 +29,13 @@
 //! The shell hook (`activate --hook`) never attends, prompts or decides (ADR-0011 §10
 //! item 3).
 //!
-//! **⟨M06⟩ M06 commands (m06-plan U0; ADR-0006 §18).** `env`, `device`, `route`,
-//! `transport` and `roost` are registered and answered by `m06_cmd` with the "not
-//! available in this build (planned for M06)" usage envelope, before any runtime contact,
-//! until their units land.
+//! **⟨M06⟩ M06 commands (m06-plan U0, U2; ADR-0006 §18; the G08 naming ruling).**
+//! `environment` (op `remote_environment`; no `env` alias) and `device` are answered by
+//! `m06_cmd` through the controller operations (`heimdall_app::remote_env`); `route
+//! add|remove|prefer` and `transport enable|disable|adopt-roost` are registered and answered
+//! with the "not available in this build (planned for M06)" usage envelope, before any
+//! runtime contact, until U56 lands. `route connect` (the `ProxyCommand` helper rendered
+//! configuration names) is hidden and frozen. There is no top-level `roost`.
 //!
 //! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
 //! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007
@@ -183,15 +186,22 @@ pub enum Command {
     Import(ImportArgs),
     /// Remote runner environments: add, invite, join, revoke-client, remove, update,
     /// status (M06; ADR-0012 §3, §7).
-    Env(PlannedArgs),
+    #[command(subcommand)]
+    Environment(m06_cmd::EnvironmentCommand),
     /// This controller device: retire (M06; ADR-0012 §3.4).
-    Device(PlannedArgs),
+    #[command(subcommand)]
+    Device(m06_cmd::DeviceCommand),
     /// A destination's approved routes: add, remove, prefer (M06; ADR-0012 §5).
-    Route(PlannedArgs),
-    /// The Iroh transport: enable, disable (M06; ADR-0012 §1, §2).
-    Transport(PlannedArgs),
-    /// Adopt an existing Pigeons roost as a route (M06; ADR-0012 §2.8).
-    Roost(PlannedArgs),
+    #[command(subcommand)]
+    Route(m06_cmd::RouteCommand),
+    /// The Iroh transport: enable, disable, adopt-roost (M06; ADR-0012 §1, §2, §2.8).
+    #[command(subcommand)]
+    Transport(m06_cmd::TransportCommand),
+    /// The runner's side of a paired environment: `init` (the bootstrap's runner-local
+    /// enrollment) and `serve` (the forced command's bridge). Hidden and frozen: the
+    /// bootstrap session and rendered management lines name them (M06; ADR-0012 §3.3, §3.6).
+    #[command(subcommand, hide = true)]
+    Remote(m06_cmd::RemoteCommand),
     /// Read-only inspection of runtime state. Never starts the runtime.
     Inspect {
         /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions
@@ -1241,6 +1251,11 @@ pub enum ServiceCommand {
         /// §6).
         #[arg(long)]
         login: bool,
+        /// ⟨M06⟩ Serve as a remote runner with the forced command's paths (this executable
+        /// and the explicit home): `ServiceOptions::runner`. Hidden: started by the runner's
+        /// own wiring (ADR-0012 §3.2, §4).
+        #[arg(long, hide = true)]
+        runner: bool,
     },
     /// Report whether a runtime is serving (exit 5 when none is).
     Status,
@@ -1354,8 +1369,8 @@ pub struct ProjectTrustArgs {
     pub profile: Option<String>,
 }
 
-/// ⟨M06⟩ The arguments of a command registered in wave 0 and not built yet (`m06_cmd`):
-/// accepted and ignored, the command is refused before anything else happens.
+/// ⟨M06⟩ The arguments of a registered M06 subcommand not built yet (`m06_cmd`): accepted
+/// and ignored, the command is refused before anything else happens.
 #[derive(Debug, Args)]
 pub struct PlannedArgs {
     /// The command's arguments (defined by the unit that builds it).
@@ -1577,8 +1592,12 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Service(ServiceCommand::Autostart(c))) => {
             return service_cmd::autostart(&ctx, c);
         }
-        Some(Command::Service(ServiceCommand::Run { detach, login })) => {
-            return service_cmd::run(&ctx, detach, login);
+        Some(Command::Service(ServiceCommand::Run {
+            detach,
+            login,
+            runner,
+        })) => {
+            return service_cmd::run(&ctx, detach, login, runner);
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
         Some(Command::Service(ServiceCommand::Stop)) => return service_cmd::stop(&ctx),
@@ -1626,14 +1645,13 @@ pub fn dispatch(cli: Cli) -> ExitCode {
             | AccessCommand::Resume { .. }
             | AccessCommand::Cutoff { .. }),
         )) if m05_cmd::is_targeted(&command) => return m05_cmd::targeted(&ctx, command),
-        // ⟨M06⟩ Wave 0 (ADR-0006 §18): registered, refused before any runtime contact.
-        Some(
-            Command::Env(a)
-            | Command::Device(a)
-            | Command::Route(a)
-            | Command::Transport(a)
-            | Command::Roost(a),
-        ) => return m06_cmd::refuse(&ctx, &a),
+        // ⟨M06⟩ U2 (ADR-0012 §3): the controller's environment management; `route` and
+        // `transport` stay refused before any runtime contact until U56 lands.
+        Some(Command::Environment(c)) => return m06_cmd::environment(&ctx, c),
+        Some(Command::Device(c)) => return m06_cmd::device(&ctx, c),
+        Some(Command::Route(c)) => return m06_cmd::route(&ctx, c),
+        Some(Command::Transport(c)) => return m06_cmd::transport(&ctx, c),
+        Some(Command::Remote(c)) => return m06_cmd::remote(&ctx, c),
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),

@@ -83,6 +83,27 @@
       "description": "Remote account name on a destination.",
       "type": "string"
     },
+    "AuthenticationResidual": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.3, §9 item 10): the new-authentication residual of a\nrevocation. Its bound comes from the counted issuance history (reserved and published\ncertificates count until their `valid_before`) plus the destination clock's error;\nwhere that error is unmeasured the residual reads \"until `valid_before` plus an\nunmeasured destination-clock error\", never a bare deadline.",
+      "type": "object",
+      "properties": {
+        "destination_clock_error": {
+          "description": "The destination clock's error: `{\"measured\": {…}}` (its bound is\n`behind_upper_ms`) or `\"unmeasured\"`.",
+          "$ref": "#/$defs/DestinationClock"
+        },
+        "latest_possible_credential_expiry": {
+          "description": "The latest instant a counted certificate stays valid; absent: `unknown` (no counted\nhistory for the grant).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "destination_clock_error"
+      ]
+    },
     "BindingEndpointKind": {
       "description": "⟨M04 I-28⟩ How a managed binding's clients reach its signer (ADR-0008 D12 item 2;\nADR-0010 §3–§4). The claim table's entries hold only for `native`, the kind their records\nran. There is no default: the runtime classifies every grant explicitly (M04-CL-R02).",
       "oneOf": [
@@ -277,6 +298,26 @@
         {
           "type": "string",
           "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "ComponentResidual": {
+      "description": "⟨M06⟩ Revision 6: one session component's residual after a revocation (ADR-0012 §7.3).",
+      "oneOf": [
+        {
+          "description": "Closed on the applied revoke.",
+          "type": "string",
+          "const": "closed"
+        },
+        {
+          "description": "Not ended by the revoke (detached remote processes).",
+          "type": "string",
+          "const": "not_ended"
+        },
+        {
+          "description": "Not determined (other live sessions until the G09 table applies, or no history).",
+          "type": "string",
+          "const": "unknown"
         }
       ]
     },
@@ -962,6 +1003,17 @@
         "refresh_dependency": {
           "description": "What ongoing readiness depends on.",
           "$ref": "#/$defs/RefreshDependency"
+        },
+        "residuals": {
+          "description": "⟨M06⟩ Revision 6.2 (ADR-0012 §7.3, §9 item 10; ADR-0006 §18.2 reading 14, §18.5):\na revocation's residuals, per component, beside the readiness fields above. The\nauthentication residual always names its destination-clock error (`unmeasured` when\nnone is measured), never a bare deadline. Omitted when absent, so every M01–M06 W1\nresult is unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RevocationResiduals"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "revocation": {
           "description": "⟨M03⟩ Revocation semantics.",
@@ -2368,6 +2420,67 @@
           "const": "unknown"
         }
       ]
+    },
+    "RevocationResiduals": {
+      "description": "⟨M06⟩ Revision 6 (ADR-0012 §7.3, §9 item 10): a revocation's residuals, reported per\ncomponent (no new cap, ADR-0012 §12 Q9). Every field is omitted when absent.",
+      "type": "object",
+      "properties": {
+        "detached_remote_processes": {
+          "description": "Detached remote processes (not ended).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentResidual"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "new_authentication": {
+          "description": "New authentication at destinations.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthenticationResidual"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "other_live_sessions": {
+          "description": "Other live sessions (per the G09 table).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentResidual"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owned_admissions": {
+          "description": "Owned admissions (closed).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentResidual"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owned_dedicated_sessions": {
+          "description": "Owned dedicated sessions (closed at once on an applied revoke).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentResidual"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
     "RevocationSemantics": {
       "description": "`EnsureData.revocation` (§5 item 7).",

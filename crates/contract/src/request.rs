@@ -579,6 +579,13 @@ pub struct EnsureData {
     /// ⟨M05⟩ Revision 5: the requested pairs a `covered_only` request did not activate.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uncovered: Vec<AccessPairRef>,
+    /// ⟨M06⟩ Revision 6.2 (ADR-0012 §7.3, §9 item 10; ADR-0006 §18.2 reading 14, §18.5):
+    /// a revocation's residuals, per component, beside the readiness fields above. The
+    /// authentication residual always names its destination-clock error (`unmeasured` when
+    /// none is measured), never a bare deadline. Omitted when absent, so every M01–M06 W1
+    /// result is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub residuals: Option<crate::managed::RevocationResiduals>,
 }
 
 impl EnsureData {

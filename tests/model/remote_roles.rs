@@ -42,7 +42,7 @@ use heimdall_domain::time::{
 };
 use heimdall_remote::Refusal;
 use heimdall_remote::invitations::{
-    BootReading, Invitations, Invited, JoinRequest, NewInvitation, TimeReading,
+    BootReading, Invitations, Invited, JoinRequest, NewInvitation, ProbeRequest, TimeReading,
 };
 use heimdall_remote::line::{KeysFile, PublicKeyText, ServeCommand, expiry_time, marked_lines};
 use heimdall_remote::roles::{ConsentLookup, NoConsents, SessionFrame, Verdict, check};
@@ -156,6 +156,37 @@ impl Gate {
     }
 }
 
+/// The clock the invitation service reads at a join's commit point: a shared reading that
+/// `World::svc` refreshes from the world's clock, and that a test may move while a call is
+/// paused.
+#[derive(Debug)]
+struct LiveClock(std::sync::Mutex<TimeAnchor>);
+
+impl LiveClock {
+    fn set(&self, a: TimeAnchor) {
+        *self.0.lock().unwrap() = a;
+    }
+
+    fn get(&self) -> TimeAnchor {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl heimdall_domain::time::Clock for LiveClock {
+    fn wall(&self) -> Timestamp {
+        self.get().wall
+    }
+    fn continuous(&self) -> Duration {
+        self.get().continuous
+    }
+    fn boot_id(&self) -> BootId {
+        self.get().boot_id
+    }
+    fn observe(&self) -> TimeAnchor {
+        self.get()
+    }
+}
+
 struct World {
     faults: Arc<FailNextCommit>,
     store: Store,
@@ -164,6 +195,8 @@ struct World {
     cmd: ServeCommand,
     clock: Clock,
     gate: Gate,
+    live: LiveClock,
+    serial: heimdall_remote::invitations::LineSerial,
 }
 
 impl World {
@@ -182,15 +215,24 @@ impl World {
                 boot: 1,
             },
             gate: Gate::new(),
+            live: LiveClock(std::sync::Mutex::new(TimeAnchor {
+                boot_id: BootId("boot-1".into()),
+                continuous: Duration::from_secs(5000),
+                wall: ts(T0),
+            })),
+            serial: heimdall_remote::invitations::LineSerial::default(),
         }
     }
 
     fn svc(&self) -> Invitations<'_> {
+        self.live.set(self.clock.anchor());
         Invitations {
             store: &self.store,
             lines: &self.lines,
             environment: &self.env,
             command: &self.cmd,
+            clock: &self.live,
+            serial: &self.serial,
         }
     }
 
@@ -252,6 +294,32 @@ impl World {
 
 fn inspect() -> Request {
     serde_json::from_str(r#"{"op":"inspect","subject":"capabilities"}"#).unwrap()
+}
+
+/// ⟨Gemini R03⟩ An activation probe as it arrives on the wire.
+fn wire_probe(environment: &EnvironmentId, nonce: &str) -> Request {
+    serde_json::from_value(serde_json::json!({
+        "op": "remote_environment",
+        "action": "activation_probe",
+        "environment": environment,
+        "nonce": nonce,
+    }))
+    .unwrap()
+}
+
+/// ⟨Gemini R03⟩ The rev-6.1 golden's activation probe.
+fn golden_probe() -> Request {
+    let golden: serde_json::Value = serde_json::from_str(include_str!(
+        "../../tests/contracts/golden/rev6-requests.golden.json"
+    ))
+    .unwrap();
+    let form = golden["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "remote_environment.activation_probe")
+        .unwrap();
+    serde_json::from_value(form["json"].clone()).unwrap()
 }
 
 // --- the proptest -------------------------------------------------------------------------
@@ -566,7 +634,11 @@ fn focused_fault_delayed_join_past_expiry() {
     let rec = w.client(&late.client.client);
     assert_eq!(rec.state, ClientState::Revoked);
     assert_eq!(
-        check(Some(&rec), SessionFrame::ActivationProbe, &NoConsents),
+        check(
+            Some(&rec),
+            SessionFrame::Request(&wire_probe(&w.env, &late.invitation.probe_nonce)),
+            &NoConsents
+        ),
         Verdict::Refuse(Refusal::InvitationExpired)
     );
     assert!(w.lines_for(&late.client.client).is_empty());
@@ -680,7 +752,11 @@ fn focused_fault_crash_between_commit_and_line_rewrite() {
             check(Some(&rec), SessionFrame::Request(&inspect()), &NoConsents),
             Verdict::Dispatch { .. }
         ));
-        w.svc().probe(&c).unwrap();
+        let probe = ProbeRequest {
+            environment: w.env.clone(),
+            nonce: inv.invitation.probe_nonce.clone(),
+        };
+        w.svc().probe(&c, &probe, &now).unwrap();
     }
     assert_eq!(w.generations(), before);
 
@@ -726,13 +802,39 @@ fn pending_key_reaches_only_probe_and_join() {
             Verdict::Refuse(Refusal::InvitationPending)
         );
     }
+    // ⟨Gemini R03⟩ The wire probe (deserialized) reaches the probe, which checks this
+    // runner's environment, the pending record's nonce and liveness.
+    let probe = wire_probe(&w.env, &inv.invitation.probe_nonce);
     assert_eq!(
-        check(Some(&rec), SessionFrame::ActivationProbe, &NoConsents),
+        check(Some(&rec), SessionFrame::Request(&probe), &NoConsents),
         Verdict::Probe
     );
-    let echo = w.svc().probe(&c).unwrap();
+    let now = w.read();
+    let fields = ProbeRequest::from_request(&probe).unwrap();
+    let echo = w.svc().probe(&c, &fields, &now).unwrap();
     assert_eq!(echo.client, c);
     assert_eq!(echo.nonce, inv.invitation.probe_nonce);
+    let golden = ProbeRequest::from_request(&golden_probe()).unwrap();
+    assert_eq!(
+        w.svc().probe(&c, &golden, &now),
+        Err(Refusal::BindingMismatch),
+        "the golden names another environment"
+    );
+    let other_runner = ProbeRequest::from_request(&wire_probe(
+        &EnvironmentId::from_random_bytes([0x0d; 16]),
+        &inv.invitation.probe_nonce,
+    ))
+    .unwrap();
+    assert_eq!(
+        w.svc().probe(&c, &other_runner, &now),
+        Err(Refusal::BindingMismatch),
+        "the right nonce for another runner"
+    );
+    let wrong_nonce = ProbeRequest::from_request(&wire_probe(&w.env, "not-the-nonce")).unwrap();
+    assert_eq!(
+        w.svc().probe(&c, &wrong_nonce, &now),
+        Err(Refusal::BindingMismatch)
+    );
     let join = Request::RemoteEnvironment(RemoteEnvironmentRequest::Join {
         environment: w.env.clone(),
         invitation: inv.invitation.invitation.clone(),
@@ -1491,5 +1593,487 @@ fn key_uniqueness_is_per_runner_and_role_table() {
         runner1
             .invite(Role::Owner, 42, ManagementPolicy::OwnerOnly)
             .is_ok()
+    );
+}
+
+// --- W1 review probes, inverted (M06 W1 review; the reviewer's probes against 82158dee) ------
+
+/// The reviewer's port: pauses once, inside the first `put` (or the first `read_all`), until
+/// the test releases it. One-shot, so code that writes again never deadlocks the test.
+struct ReviewerLines<'a> {
+    inner: &'a MemoryLines,
+    entered: &'a std::sync::Barrier,
+    release: &'a std::sync::Barrier,
+    pause_read: bool,
+    paused: std::sync::atomic::AtomicBool,
+    /// Matching calls to let through before the pause.
+    skip: AtomicUsize,
+}
+
+impl<'a> ReviewerLines<'a> {
+    /// Pause on the `nth` (1-based) `read_all` (`pause_read`) or `put`.
+    fn nth(
+        inner: &'a MemoryLines,
+        entered: &'a std::sync::Barrier,
+        release: &'a std::sync::Barrier,
+        pause_read: bool,
+        nth: usize,
+    ) -> Self {
+        Self {
+            inner,
+            entered,
+            release,
+            pause_read,
+            paused: std::sync::atomic::AtomicBool::new(false),
+            skip: AtomicUsize::new(nth - 1),
+        }
+    }
+
+    fn pause(&self) {
+        if self
+            .skip
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return;
+        }
+        if !self.paused.swap(true, Ordering::SeqCst) {
+            self.entered.wait();
+            self.release.wait();
+        }
+    }
+}
+
+impl heimdall_remote::line::ManagementLines for ReviewerLines<'_> {
+    fn read_all(&self) -> Result<Vec<KeysFile>, heimdall_remote::line::LineIoError> {
+        if self.pause_read {
+            self.pause();
+        }
+        self.inner.read_all()
+    }
+    fn put(&self, c: &ClientId, line: &str) -> Result<(), heimdall_remote::line::LineIoError> {
+        if !self.pause_read {
+            self.pause();
+        }
+        self.inner.put(c, line)
+    }
+    fn remove(&self, c: &ClientId) -> Result<(), heimdall_remote::line::LineIoError> {
+        self.inner.remove(c)
+    }
+}
+
+/// Two joins of one invitation racing: exactly one commits, the other returns the recorded
+/// result (the reviewer's `reviewer_concurrent_join_commits_once`, kept: no other test races
+/// two joins).
+#[test]
+fn concurrent_join_commits_once() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 1, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let now = w.read();
+    let req = w.join_req(&inv);
+    let gate = std::sync::Barrier::new(2);
+    let join = || {
+        gate.wait();
+        w.svc().join(&inv.client.client, &req, &now).unwrap()
+    };
+    let (a, b) = std::thread::scope(|s| {
+        let a = s.spawn(join);
+        let b = join();
+        (a.join().unwrap(), b)
+    });
+    assert_ne!(a.replayed, b.replayed);
+    assert_eq!(a.join, b.join);
+}
+
+/// ⟨BLOCKING, inverted `reviewer_reconcile_can_write_active_line_after_revocation`⟩ A join
+/// commits while its line write fails; the reconciler starts and pauses inside `put` with the
+/// active line; a revocation commits its tombstone meanwhile. The revocation's removal waits
+/// for the reconcile and wins: the client ends revoked with no line.
+#[test]
+fn revocation_wins_over_an_in_flight_reconcile() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 2, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let now = w.read();
+    let cid = &inv.client.client;
+    w.lines.set_fail_writes(true);
+    w.svc().join(cid, &w.join_req(&inv), &now).unwrap();
+    w.lines.set_fail_writes(false);
+    let entered = std::sync::Barrier::new(2);
+    let release = std::sync::Barrier::new(2);
+    let port = ReviewerLines {
+        inner: &w.lines,
+        entered: &entered,
+        release: &release,
+        pause_read: false,
+        paused: std::sync::atomic::AtomicBool::new(false),
+        skip: AtomicUsize::new(0),
+    };
+    let service = Invitations {
+        lines: &port,
+        ..w.svc()
+    };
+    let wall = w.clock.wall;
+    let world = &w;
+    std::thread::scope(|s| {
+        let reconcile = s.spawn(|| service.reconcile(&now).unwrap());
+        entered.wait();
+        let revoke = s.spawn(move || world.svc().revoke(cid, wall));
+        // The tombstone commits while the reconcile is still inside `put`.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while world.client(cid).state != ClientState::Revoked {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the tombstone never committed"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        release.wait();
+        reconcile.join().unwrap();
+        assert!(revoke.join().unwrap().unwrap().line_removed);
+    });
+    assert_eq!(w.client(cid).state, ClientState::Revoked);
+    assert!(
+        w.lines_for(cid).is_empty(),
+        "a revoked client kept a line: {:?}",
+        w.lines_for(cid)
+    );
+}
+
+/// ⟨BLOCKING, inverted `reviewer_join_uses_time_sample_captured_before_blocking_io`⟩ An
+/// invitation one second from expiry; the join's checked sample is taken, then the join
+/// blocks reading the key files while the invitation expires. Liveness is re-checked at the
+/// commit point: the join is refused and the client stays pending.
+#[test]
+fn join_rechecks_liveness_at_its_commit_point() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 3, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let cid = &inv.client.client;
+    w.advance(899);
+    let early = w.read();
+    let mut clock = w.clock.clone();
+    let entered = std::sync::Barrier::new(2);
+    let release = std::sync::Barrier::new(2);
+    let port = ReviewerLines {
+        inner: &w.lines,
+        entered: &entered,
+        release: &release,
+        pause_read: true,
+        paused: std::sync::atomic::AtomicBool::new(false),
+        skip: AtomicUsize::new(0),
+    };
+    let service = Invitations {
+        lines: &port,
+        ..w.svc()
+    };
+    let req = w.join_req(&inv);
+    std::thread::scope(|s| {
+        let join = s.spawn(|| service.join(cid, &req, &early));
+        entered.wait();
+        clock.wall = plus(clock.wall, 1);
+        clock.continuous += Duration::from_secs(1);
+        w.live.set(clock.anchor());
+        assert_eq!(
+            heimdall_remote::invitations::liveness(
+                &inv.invitation,
+                &TimeReading::safe(&clock.anchor())
+            ),
+            heimdall_remote::invitations::Liveness::Expired
+        );
+        release.wait();
+        assert_eq!(
+            join.join().unwrap().map(|j| j.join),
+            Err(Refusal::InvitationExpired)
+        );
+    });
+    assert_eq!(w.client(cid).state, ClientState::Pending);
+    // Also a reboot while the join blocks: the anchor is lost at the commit point.
+    let mut rebooted = w.clock.clone();
+    rebooted.boot += 1;
+    rebooted.continuous = Duration::from_secs(1);
+    let inv2 = w
+        .invite(Role::Owner, 4, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let sample = w.read();
+    let svc = w.svc();
+    w.live.set(rebooted.anchor());
+    assert_eq!(
+        svc.join(&inv2.client.client, &w.join_req(&inv2), &sample)
+            .map(|j| j.join),
+        Err(Refusal::InvitationExpired)
+    );
+}
+
+// --- Gemini W1 review (M06-W1-R01, R03) --------------------------------------------------------
+
+/// Wait (bounded) until `cid`'s row is a tombstone: the revoking or expiring thread committed
+/// it and queued on the line lock.
+fn until_tombstoned(w: &World, cid: &ClientId) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while w.client(cid).state != ClientState::Revoked {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the tombstone never committed"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// ⟨Gemini R01 probe⟩ A revocation committed while a join's line write is in flight (paused in
+/// the join's post-commit read, after its re-read under the line lock): the join's active line
+/// is removed by the revocation, the bookkeeping never marks the tombstone with a line.
+#[test]
+fn revocation_wins_over_a_join_line_write() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 11, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let cid = inv.client.client.clone();
+    let now = w.read();
+    let (entered, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+    // Read 1: the join's line fingerprint; read 2: its line write.
+    let port = ReviewerLines::nth(&w.lines, &entered, &release, true, 2);
+    let service = Invitations {
+        lines: &port,
+        ..w.svc()
+    };
+    let req = w.join_req(&inv);
+    let (wall, world) = (w.clock.wall, &w);
+    std::thread::scope(|s| {
+        let join = s.spawn(|| service.join(&cid, &req, &now));
+        entered.wait();
+        let revoke = s.spawn(|| world.svc().revoke(&cid, wall));
+        until_tombstoned(world, &cid);
+        release.wait();
+        assert!(!join.join().unwrap().unwrap().replayed);
+        assert!(revoke.join().unwrap().unwrap().line_removed);
+    });
+    let row = w.client(&cid);
+    assert_eq!(row.state, ClientState::Revoked);
+    assert_eq!(row.line, heimdall_store::ext_m06::AppliedLine::Absent);
+    assert!(w.lines_for(&cid).is_empty(), "{:?}", w.lines_for(&cid));
+}
+
+/// ⟨Gemini R01⟩ The same for an invitation: its pending line write is in flight when the
+/// client is revoked; the revocation's removal wins.
+#[test]
+fn revocation_wins_over_an_invite_line_write() {
+    let mut w = World::new();
+    let (text, fp) = key(12);
+    let now = w.read();
+    let (entered, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+    let port = ReviewerLines::nth(&w.lines, &entered, &release, false, 1);
+    let service = Invitations {
+        lines: &port,
+        ..w.svc()
+    };
+    let (wall, world) = (w.clock.wall, &w);
+    std::thread::scope(|s| {
+        let invite = s.spawn(|| {
+            service.invite(
+                &NewInvitation {
+                    role: Role::Owner,
+                    public_key: &text,
+                    key_fingerprint: &fp,
+                    lifetime: FIFTEEN_MIN,
+                },
+                ManagementPolicy::OwnerOnly,
+                &now,
+            )
+        });
+        entered.wait();
+        let cid = world
+            .store
+            .transaction(|tx| tx.remote_clients())
+            .unwrap()
+            .pop()
+            .unwrap()
+            .client;
+        let c2 = cid.clone();
+        let revoke = s.spawn(move || world.svc().revoke(&c2, wall));
+        until_tombstoned(world, &cid);
+        release.wait();
+        let invited = invite.join().unwrap().unwrap();
+        assert!(revoke.join().unwrap().unwrap().line_removed);
+        let row = world.client(&invited.client.client);
+        assert_eq!(row.state, ClientState::Revoked);
+        assert_eq!(row.line, heimdall_store::ext_m06::AppliedLine::Absent);
+        assert!(world.lines_for(&invited.client.client).is_empty());
+    });
+}
+
+/// ⟨Gemini R01⟩ `expire_due` against an in-flight reconcile: the reconcile (on a reading
+/// taken while the invitation was live) is writing the pending line when the invitation
+/// expires and the sweep tombstones it; the sweep's removal wins.
+#[test]
+fn expiry_wins_over_an_in_flight_reconcile() {
+    let mut w = World::new();
+    w.lines.set_fail_writes(true);
+    let inv = w
+        .invite(Role::Owner, 13, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    w.lines.set_fail_writes(false);
+    assert!(!inv.line_written);
+    let cid = inv.client.client.clone();
+    // The reconcile runs while the invitation is live (the shared clock, too)...
+    let live = w.read();
+    let (entered, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+    let port = ReviewerLines::nth(&w.lines, &entered, &release, false, 1);
+    let service = Invitations {
+        lines: &port,
+        ..w.svc()
+    };
+    // ...and the sweep after the deadline, over the same shared clock and lock.
+    let sweeper = Invitations {
+        lines: &w.lines,
+        ..service
+    };
+    let mut expired = w.clock.clone();
+    expired.wall = plus(
+        expired.wall,
+        i64::try_from(FIFTEEN_MIN.as_secs()).unwrap() + 1,
+    );
+    expired.continuous += FIFTEEN_MIN + Duration::from_secs(1);
+    let later = TimeReading::safe(&expired.anchor());
+    let world = &w;
+    std::thread::scope(|s| {
+        let reconcile = s.spawn(|| service.reconcile(&live).unwrap());
+        entered.wait();
+        world.live.set(expired.anchor());
+        let sweep = s.spawn(|| sweeper.expire_due(&later).unwrap());
+        until_tombstoned(world, &cid);
+        release.wait();
+        reconcile.join().unwrap();
+        assert_eq!(sweep.join().unwrap(), vec![cid.clone()]);
+    });
+    let row = w.client(&cid);
+    assert_eq!(row.state, ClientState::Revoked);
+    assert_eq!(
+        row.revocation,
+        Some(heimdall_store::ext_m06::RevocationCause::InvitationExpired)
+    );
+    assert!(w.lines_for(&cid).is_empty(), "{:?}", w.lines_for(&cid));
+}
+
+/// ⟨Gemini R01⟩ `invite` samples time at its committing transaction: while it blocks reading
+/// the key files, two minutes pass; the record's creation time, boot anchor and deadline are
+/// the commit's. A reboot during the read refuses the invitation and writes nothing.
+#[test]
+fn invite_samples_time_at_its_commit() {
+    let mut w = World::new();
+    let (text, fp) = key(14);
+    let sample = w.read();
+    let mut later = w.clock.clone();
+    later.wall = plus(later.wall, 120);
+    later.continuous += Duration::from_secs(120);
+    let (entered, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+    let port = ReviewerLines::nth(&w.lines, &entered, &release, true, 1);
+    let service = Invitations {
+        lines: &port,
+        ..w.svc()
+    };
+    let new = NewInvitation {
+        role: Role::Owner,
+        public_key: &text,
+        key_fingerprint: &fp,
+        lifetime: FIFTEEN_MIN,
+    };
+    let invited = std::thread::scope(|s| {
+        let invite = s.spawn(|| service.invite(&new, ManagementPolicy::OwnerOnly, &sample));
+        entered.wait();
+        w.live.set(later.anchor());
+        release.wait();
+        invite.join().unwrap().unwrap()
+    });
+    assert_eq!(invited.invitation.created_wall, later.wall);
+    assert_eq!(invited.invitation.created_elapsed, later.continuous);
+    assert_eq!(
+        invited.invitation.expires_wall,
+        plus(later.wall, i64::try_from(FIFTEEN_MIN.as_secs()).unwrap())
+    );
+    // Its pending line was written (judged at the commit's time, not the older sample's).
+    assert!(invited.line_written);
+    let lines = w.lines_for(&invited.client.client);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("expiry-time="));
+    // A reboot between the sample and the commit.
+    let (text2, fp2) = key(15);
+    let sample = w.read();
+    let mut rebooted = w.clock.clone();
+    rebooted.boot += 1;
+    rebooted.continuous = Duration::from_secs(1);
+    let before = w.store.transaction(|tx| tx.remote_clients()).unwrap().len();
+    let svc = w.svc();
+    w.live.set(rebooted.anchor());
+    assert_eq!(
+        svc.invite(
+            &NewInvitation {
+                role: Role::Owner,
+                public_key: &text2,
+                key_fingerprint: &fp2,
+                lifetime: FIFTEEN_MIN,
+            },
+            ManagementPolicy::OwnerOnly,
+            &sample,
+        )
+        .map(|_| ()),
+        Err(Refusal::TimeUncertain)
+    );
+    assert_eq!(
+        w.store.transaction(|tx| tx.remote_clients()).unwrap().len(),
+        before,
+        "nothing was written"
+    );
+}
+
+/// ⟨Gemini R03⟩ The wire probe of a pending client needs a live invitation: past its expiry,
+/// on uncertain time, or once swept, the probe is refused `invitation_expired`; an active
+/// client's probe still echoes.
+#[test]
+fn the_wire_probe_needs_a_live_pending_invitation() {
+    let mut w = World::new();
+    let inv = w
+        .invite(Role::Owner, 16, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let cid = inv.client.client.clone();
+    let probe =
+        ProbeRequest::from_request(&wire_probe(&w.env, &inv.invitation.probe_nonce)).unwrap();
+    let uncertain = TimeReading::uncertain(None);
+    assert_eq!(
+        w.svc().probe(&cid, &probe, &uncertain),
+        Err(Refusal::InvitationExpired)
+    );
+    w.advance(FIFTEEN_MIN.as_secs());
+    let now = w.read();
+    assert_eq!(
+        w.svc().probe(&cid, &probe, &now),
+        Err(Refusal::InvitationExpired)
+    );
+    w.svc().expire_due(&now).unwrap();
+    assert_eq!(
+        w.svc().probe(&cid, &probe, &now),
+        Err(Refusal::InvitationExpired)
+    );
+    // An active client's probe echoes (its invitation is consumed).
+    let other = w
+        .invite(Role::Owner, 17, ManagementPolicy::OwnerOnly)
+        .unwrap();
+    let now = w.read();
+    w.svc()
+        .join(&other.client.client, &w.join_req(&other), &now)
+        .unwrap();
+    let probe =
+        ProbeRequest::from_request(&wire_probe(&w.env, &other.invitation.probe_nonce)).unwrap();
+    assert_eq!(
+        w.svc()
+            .probe(&other.client.client, &probe, &now)
+            .unwrap()
+            .nonce,
+        other.invitation.probe_nonce
     );
 }

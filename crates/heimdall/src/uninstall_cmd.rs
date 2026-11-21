@@ -443,6 +443,13 @@ const DECISION_RECOVERY: &[(&str, Option<&str>)] = &[
         "reconcile_workspace",
         Some("a local workspace trust decision"),
     ),
+    // ⟨M06 W2⟩ A pending runner-local widening record grants nothing; its key and any
+    // recorded result are compared in `remote_widening` (rows), and an approved invite's
+    // effect in `remote_clients` and `remote_invitations`.
+    (
+        "remote_widening",
+        Some("a pending runner-local request that grants nothing; compared in `remote_widening`"),
+    ),
 ];
 
 /// The name of a decision's kind in [`DECISION_RECOVERY`]. No wildcard: a new kind
@@ -465,6 +472,7 @@ fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'stati
         D::ApproveTargetChange { .. } => "approve_target_change",
         D::TrustWorkspace { .. } => "trust_workspace",
         D::ReconcileWorkspace { .. } => "reconcile_workspace",
+        D::RemoteWidening(_) => "remote_widening",
     }
 }
 
@@ -5255,6 +5263,99 @@ mod tests {
         }
     }
 
+    /// ⟨M06 W2⟩ A pending runner-local widening record (a paired client's `transport
+    /// disable`-shaped request stands in: the kind's content is opaque to the snapshot).
+    fn widening_decision() -> heimdall_domain::decision::DecisionRecord {
+        use heimdall_domain::decision::{
+            DecisionKind, DecisionRecord, DecisionState, RemoteWidening,
+        };
+        let request: heimdall_contract::request::Request =
+            serde_json::from_str(r#"{"op":"transport","action":"disable"}"#)
+                .unwrap_or_else(|e| panic!("{e}"));
+        DecisionRecord {
+            id: heimdall_contract::ids::DecisionId::from_random_bytes([0x5a; 16]),
+            kind: DecisionKind::RemoteWidening(Box::new(RemoteWidening {
+                client: client_id(),
+                request_kind: "transport.disable".to_owned(),
+                request_id: heimdall_contract::ids::RequestId::parse("req-w2")
+                    .unwrap_or_else(|e| panic!("{e}")),
+                request,
+                invite: None,
+                exposure: None,
+            })),
+            generation: heimdall_domain::policy::AuthorityGeneration(0),
+            created_at: t0(),
+            expires_at: t0()
+                .checked_add(Duration::from_secs(900))
+                .unwrap_or_else(|_| panic!("time")),
+            state: DecisionState::Pending,
+            decided_at: None,
+        }
+    }
+
+    fn seed_widening(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.insert_remote_widening(&widening_decision(), &"ab".repeat(32))
+    }
+
+    /// ⟨M06 U3⟩ A runner grant's pin to its issuer (`remote_grant_issuers`).
+    fn grant_pin(ca: char) -> heimdall_store::ext_runner::RemoteGrantIssuer {
+        heimdall_store::ext_runner::RemoteGrantIssuer {
+            grant: heimdall_contract::ids::GrantId::from_random_bytes([0x3a; 16]),
+            issuer_client: client_id(),
+            ca_fingerprint: heimdall_contract::ids::CaFingerprint::parse(&format!(
+                "SHA256:{}",
+                ca.to_string().repeat(43)
+            ))
+            .unwrap_or_else(|e| panic!("{e}")),
+            grant_generation: 1,
+            pinned_at: t0(),
+        }
+    }
+
+    fn seed_grant_pin(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.pin_remote_grant_issuer(&grant_pin('A')).map(drop)
+    }
+
+    fn seed_time_source(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.designate_time_source(&heimdall_store::ext_runner::TimeSourceDesignation {
+            client: client_id(),
+            designated_at: t0(),
+        })
+    }
+
+    fn seed_issuer_trust(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.trust_remote_issuer(&heimdall_store::ext_runner::TrustedIssuer {
+            ca_fingerprint: grant_pin('A').ca_fingerprint,
+            ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".to_owned(),
+            controller: client_id(),
+            trusted_at: t0(),
+        })
+    }
+
+    /// ⟨M06 U2⟩ A controller pin for `remote_environment_pins` (the controller's record of
+    /// a runner; its document is opaque to the store).
+    fn seed_pin_with(
+        fingerprint: char,
+        json: &str,
+    ) -> impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> + 'static {
+        let json = json.to_owned();
+        move |tx| {
+            tx.put_remote_environment_pin(
+                &env7(),
+                &route_destination(),
+                &heimdall_contract::ids::AccountName::parse("runner")
+                    .unwrap_or_else(|e| panic!("{e}")),
+                &heimdall_contract::ids::KeyFingerprint::parse(&format!(
+                    "SHA256:{}",
+                    fingerprint.to_string().repeat(43)
+                ))
+                .unwrap_or_else(|e| panic!("{e}")),
+                &json,
+                t0(),
+            )
+        }
+    }
+
     fn route_destination() -> heimdall_contract::ids::DestinationId {
         heimdall_contract::ids::DestinationId::parse("dst-lab1").unwrap_or_else(|e| panic!("{e}"))
     }
@@ -5270,6 +5371,51 @@ mod tests {
             exposure: None,
             consents: Vec::new(),
             identification_timeout_ms: Some(2_000),
+        }
+    }
+
+    /// ⟨M06 U56⟩ An Iroh endpoint ID for the transport cases.
+    fn transport_endpoint(c: char) -> heimdall_contract::ids::IrohEndpointId {
+        heimdall_contract::ids::IrohEndpointId::parse(&c.to_string().repeat(64))
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// ⟨M06 U56⟩ An active K_iroh reference in a test store kind (a reference, no key).
+    fn transport_key(c: char) -> heimdall_store::ext_transport::TransportKeyRecord {
+        heimdall_store::ext_transport::TransportKeyRecord {
+            endpoint: transport_endpoint(c),
+            store_kind: "fixture_test".to_owned(),
+            store_ref: format!("heimdall-iroh/{}", transport_endpoint(c).as_str()),
+            state: heimdall_store::ext_transport::TransportKeyState::Active,
+            created_at: t0(),
+            destroyed_at: None,
+        }
+    }
+
+    fn seed_transport_key(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        tx.insert_transport_key(&transport_key('a'))
+    }
+
+    /// ⟨M06 U56⟩ The serving endpoint's own exposure consent (no route).
+    fn route_consent(n: u8) -> heimdall_store::ext_transport::RouteConsentRecord {
+        use heimdall_contract::route::{BindScope, ExposurePolicy};
+        heimdall_store::ext_transport::RouteConsentRecord {
+            consent: heimdall_contract::ids::ConsentId::from_random_bytes([n; 16]),
+            route: None,
+            decision: heimdall_contract::ids::DecisionId::from_random_bytes([n; 16]),
+            delta: heimdall_store::ext_transport::ExposureDelta {
+                endpoint: Some(transport_endpoint('a')),
+                serve_before: false,
+                serve_after: true,
+                bind_before: BindScope::Loopback,
+                bind_after: BindScope::Loopback,
+                relays_added: Vec::new(),
+                direct_fallback_added: false,
+                public_infrastructure_added: false,
+                external_roost: None,
+                after: ExposurePolicy::default(),
+            },
+            recorded_at: t0(),
         }
     }
 
@@ -5471,6 +5617,22 @@ mod tests {
                 case("remove a pending remote revocation", seed_remote, |tx| {
                     tx.clear_remote_revocation(&remote_revocation().root)
                 }),
+                // ⟨M06 U3⟩ The runner's designated time source and its issuer_trust.
+                case("designate a time source", nothing, seed_time_source),
+                case("designate another time source", seed_time_source, |tx| {
+                    tx.designate_time_source(&heimdall_store::ext_runner::TimeSourceDesignation {
+                        client: heimdall_contract::ids::ClientId::from_random_bytes([0x3c; 16]),
+                        designated_at: t0(),
+                    })
+                }),
+                case("clear the time source", seed_time_source, |tx| {
+                    tx.clear_time_source().map(drop)
+                }),
+                case("trust an issuer", nothing, seed_issuer_trust),
+                case("untrust it", seed_issuer_trust, |tx| {
+                    tx.untrust_remote_issuer(&grant_pin('A').ca_fingerprint)
+                        .map(drop)
+                }),
             ],
             "resources" => vec![
                 case(
@@ -5536,6 +5698,36 @@ mod tests {
                     },
                 ),
             ],
+            "remote_widening" => vec![
+                case("insert a pending widening record", nothing, seed_widening),
+                case("settle it with its terminal result", seed_widening, |tx| {
+                    tx.settle_remote_widening(
+                        &widening_decision().id,
+                        heimdall_domain::decision::DecisionState::Denied,
+                        t0(),
+                        Some(&serde_json::json!({"code": "CAPABILITY_UNAVAILABLE"})),
+                    )
+                    .map(drop)
+                }),
+            ],
+            // ⟨M06 U2⟩ The controller's pinned runners: insert, re-pin (a repair), forget.
+            "remote_environment_pins" => vec![
+                case(
+                    "record a runner",
+                    nothing,
+                    seed_pin_with('A', r#"{"pinned":1}"#),
+                ),
+                case(
+                    "re-pin it (a repair through verified access)",
+                    seed_pin_with('A', r#"{"pinned":1}"#),
+                    seed_pin_with('B', r#"{"pinned":2}"#),
+                ),
+                case(
+                    "forget it (environment remove)",
+                    seed_pin_with('A', r#"{"pinned":1}"#),
+                    |tx| tx.remove_remote_environment_pin(&env7()).map(drop),
+                ),
+            ],
             "remote_authority_generation" => vec![
                 case(
                     "the first invitation sets the generation",
@@ -5572,6 +5764,71 @@ mod tests {
                     |tx| tx.remove_destination_routes(&route_destination()).map(drop),
                 ),
             ],
+            // ⟨M06 U56⟩ The K_iroh references (never the key) and the exposure consents.
+            "transport_keys" => vec![
+                case(
+                    "record an active K_iroh reference",
+                    nothing,
+                    seed_transport_key,
+                ),
+                case(
+                    "withdraw it (rotation or removal; the row stays, destroyed)",
+                    seed_transport_key,
+                    |tx| {
+                        tx.destroy_transport_key(&transport_endpoint('a'), t0())
+                            .map(drop)
+                    },
+                ),
+                case(
+                    "rotate it (the old one withdrawn, a new one active)",
+                    seed_transport_key,
+                    |tx| tx.rotate_transport_key(&transport_key('b'), t0()).map(drop),
+                ),
+                case(
+                    "delete a withdrawn reference (its item is gone)",
+                    |tx| {
+                        seed_transport_key(tx)?;
+                        tx.destroy_transport_key(&transport_endpoint('a'), t0())
+                            .map(drop)
+                    },
+                    |tx| tx.remove_transport_key(&transport_endpoint('a')).map(drop),
+                ),
+            ],
+            "route_consents" => vec![
+                case("record an exposure consent", nothing, |tx| {
+                    tx.insert_route_consent(&route_consent(1))
+                }),
+                case(
+                    "replace it (remove, then record another)",
+                    |tx| tx.insert_route_consent(&route_consent(1)),
+                    |tx| {
+                        tx.remove_route_consents(None, t0())?;
+                        tx.insert_route_consent(&route_consent(2))
+                    },
+                ),
+                case(
+                    "remove it (exposure narrowing)",
+                    |tx| tx.insert_route_consent(&route_consent(1)),
+                    |tx| tx.remove_route_consents(None, t0()).map(drop),
+                ),
+            ],
+            // ⟨M06 U3⟩ A runner grant's pin to its issuing controller and CA: a first install
+            // pins it, another issuer is refused (never re-pinned), the grant's purge forgets it.
+            "remote_grant_issuers" => vec![
+                case("pin a grant to its issuer", nothing, seed_grant_pin),
+                case(
+                    "re-pin it after its record was forgotten (another CA)",
+                    seed_grant_pin,
+                    |tx| {
+                        tx.forget_remote_grant_issuer(&grant_pin('A').grant)?;
+                        tx.pin_remote_grant_issuer(&grant_pin('B')).map(drop)
+                    },
+                ),
+                case("forget it with its grant", seed_grant_pin, |tx| {
+                    tx.forget_remote_grant_issuer(&grant_pin('A').grant)
+                        .map(drop)
+                }),
+            ],
             other => panic!(
                 "`{other}` is classified Rows or Part but has no case here: add its insert, modify and delete cases"
             ),
@@ -5604,8 +5861,8 @@ mod tests {
             })
             .collect();
         // ⟨M05⟩ Revision 5 adds `TrustWorkspace` and `ReconcileWorkspace`; ⟨M04 U5⟩
-        // `AddEnvironment`.
-        assert_eq!(variants.len(), 14, "{variants:?}");
+        // `AddEnvironment`; ⟨M06 W2⟩ `RemoteWidening`.
+        assert_eq!(variants.len(), 15, "{variants:?}");
         let snake = |v: &str| {
             let mut out = String::new();
             for (i, c) in v.chars().enumerate() {
@@ -5654,6 +5911,8 @@ mod tests {
             include_str!("../../store/src/ext_m03.rs"),
             // ⟨M05⟩ The trusted-work accessors' meta keys (decision bases, preferences).
             include_str!("../../store/src/ext_m05.rs"),
+            // ⟨M06 U3⟩ The runner's time source and issuer_trust.
+            include_str!("../../store/src/ext_runner.rs"),
         ];
         let mut keys = Vec::new();
         for src in sources {

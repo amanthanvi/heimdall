@@ -99,7 +99,11 @@ fn rev6_reason_golden() {
         .collect();
     assert_eq!(got.len(), reason::M06.len(), "duplicate rows in code");
     assert_eq!(got, want, "M06 reasons and codes");
-    assert_eq!(got.len(), 23);
+    assert_eq!(
+        got.len(),
+        24,
+        "revision 6.2 added mgmt_key_store_unavailable"
+    );
     for (r, c) in &got {
         assert_eq!(c, "CAPABILITY_UNAVAILABLE", "{r}");
         assert!(

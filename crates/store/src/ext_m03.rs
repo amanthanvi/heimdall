@@ -277,23 +277,28 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
         "remote_policy_revisions",
         RecoveryClass::Discarded(M06_UNWRITTEN),
     ),
-    (
-        "remote_environment_pins",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
-    (
-        "remote_grant_issuers",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
+    // ⟨M06 W2⟩ Written by `crate::ext_m06` (U2): the controller's pinned runner identities
+    // (environment ID, host keys, this device's client) are authority-bearing: rows compare.
+    ("remote_environment_pins", RecoveryClass::Rows),
+    // ⟨M06 U3⟩ Written by `crate::ext_runner`: a grant's pin to its issuing controller and CA.
+    ("remote_grant_issuers", RecoveryClass::Rows),
     // ⟨M06 W1⟩ Written by `Txn::put_destination_routes` (U5a): the approved routes and their
     // exposure policies decide what a route may contact, so they compare rows (ruling of
     // 2026-11-21; the conservative reading).
     ("destination_routes", RecoveryClass::Rows),
-    ("route_consents", RecoveryClass::Discarded(M06_UNWRITTEN)),
+    // ⟨M06 U56⟩ Written by `crate::ext_transport`: a recorded exposure consent is what a
+    // runner-local decision widened, so the rows compare (ruling of 2026-11-21).
+    ("route_consents", RecoveryClass::Rows),
     // ⟨M06 W1⟩ Written by `crate::ext_m06` (U1); the serve lease's generation (ruling of
     // 2026-11-21, W0C-Q4).
     ("remote_authority_generation", RecoveryClass::Rows),
-    ("transport_keys", RecoveryClass::Discarded(M06_UNWRITTEN)),
+    // ⟨M06 U56⟩ Written by `crate::ext_transport`: the K_iroh references (never the key)
+    // name the endpoint that serves and dials, so the rows compare (ruling of 2026-11-21).
+    ("transport_keys", RecoveryClass::Rows),
+    // ⟨M06 W2⟩ Migration 0010, written by `crate::ext_m06` (the runner-local widening
+    // records' key and recorded terminal result, ADR-0012 §3.10): what a runner-local
+    // decision executed is authority, so the rows compare (ruling of 2026-11-21).
+    ("remote_widening", RecoveryClass::Rows),
 ];
 
 /// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).
@@ -369,6 +374,9 @@ pub const META_RECOVERY: &[(&str, Option<&str>)] = &[
         "m05.default_profile:",
         Some("a local catalog preference (the default profile)"),
     ),
+    // ⟨M06 U3⟩ `crate::ext_runner`: runner-local widenings (ADR-0012 §3.10), so they compare.
+    ("runner_time_source", None),
+    ("runner_issuer_trust:", None),
 ];
 
 /// ⟨ADR-0008 §17.32 item 1⟩ One row of a [`RecoveryClass::Rows`] table
@@ -2655,6 +2663,8 @@ mod tests {
         ("ext_m05.rs", include_str!("ext_m05.rs")),
         ("ext_m06.rs", include_str!("ext_m06.rs")),
         ("ext_routes.rs", include_str!("ext_routes.rs")),
+        ("ext_transport.rs", include_str!("ext_transport.rs")),
+        ("ext_runner.rs", include_str!("ext_runner.rs")),
         ("lib.rs", include_str!("lib.rs")),
         ("migrations.rs", include_str!("migrations.rs")),
     ];

@@ -23,11 +23,10 @@ Commands:
   shell        Shell integration (M05; ADR-0011 §3.2)
   export       Export your portable intent: profiles and destinations, never authority (M05; ADR-0011 §2.4)
   import       Import portable intent from an exported bundle; it grants no access (M05; ADR-0011 §2.4)
-  env          Remote runner environments: add, invite, join, revoke-client, remove, update, status (M06; ADR-0012 §3, §7)
+  environment  Remote runner environments: add, invite, join, revoke-client, remove, update, status (M06; ADR-0012 §3, §7)
   device       This controller device: retire (M06; ADR-0012 §3.4)
   route        A destination's approved routes: add, remove, prefer (M06; ADR-0012 §5)
-  transport    The Iroh transport: enable, disable (M06; ADR-0012 §1, §2)
-  roost        Adopt an existing Pigeons roost as a route (M06; ADR-0012 §2.8)
+  transport    The Iroh transport: enable, disable, adopt-roost (M06; ADR-0012 §1, §2, §2.8)
   inspect      Read-only inspection of runtime state. Never starts the runtime
   access       Access primitives
   operation    Operation observation and control

@@ -301,6 +301,8 @@ pub fn classify(request: &Request, consents: &dyn ConsentLookup) -> RequestClass
             RemoteEnvironmentRequest::RevokeClient { .. } => class(P::Enroll, Narrow),
             // Routed to the invitation service before classification ([`check`]).
             RemoteEnvironmentRequest::Join { .. } => class(P::View, Act),
+            // ⟨Gemini R03⟩ Also routed there first; read-only (an echo).
+            RemoteEnvironmentRequest::ActivationProbe { .. } => class(P::View, Read),
             RemoteEnvironmentRequest::Remove { .. } => class(P::Service, Narrow),
             RemoteEnvironmentRequest::Add { .. } | RemoteEnvironmentRequest::Update { .. } => {
                 class(P::Service, Act)
@@ -367,8 +369,6 @@ pub enum SessionFrame<'a> {
     Unsubscribe,
     /// An attendance claim.
     Attend,
-    /// The activation probe (ADR-0012 §3.2).
-    ActivationProbe,
 }
 
 /// What to do with a frame.
@@ -480,8 +480,15 @@ pub fn check(
             RemoteEnvironmentRequest::Join { .. }
         ))
     );
+    // ⟨Gemini R03⟩ The wire activation probe (`remote_environment.activation_probe`).
+    let is_probe = matches!(
+        frame,
+        SessionFrame::Request(Request::RemoteEnvironment(
+            RemoteEnvironmentRequest::ActivationProbe { .. }
+        ))
+    );
     match frame {
-        SessionFrame::ActivationProbe => return Verdict::Probe,
+        _ if is_probe => return Verdict::Probe,
         _ if is_join => return Verdict::Join,
         _ if record.state == ClientState::Pending => {
             return Verdict::Refuse(Refusal::InvitationPending);
@@ -616,6 +623,60 @@ mod tests {
         }
     }
 
+    /// ⟨Gemini R03⟩ The wire activation probe, deserialized from the rev-6.1 golden.
+    pub(crate) fn wire_probe() -> Request {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/contracts/golden/rev6-requests.golden.json"
+        ))
+        .unwrap();
+        let form = golden
+            .as_array()
+            .or_else(|| golden["requests"].as_array())
+            .unwrap()
+            .iter()
+            .find(|f| f["kind"] == "remote_environment.activation_probe")
+            .expect("the golden lists the activation probe");
+        serde_json::from_value(form["json"].clone()).unwrap()
+    }
+
+    /// ⟨Gemini R03⟩ The wire probe reaches `Probe` for a pending and an active client, is
+    /// classified a read needing `view`, and gives a tombstoned client nothing.
+    #[test]
+    fn the_wire_activation_probe_reaches_the_probe() {
+        let probe = wire_probe();
+        assert_eq!(probe.kind(), "remote_environment.activation_probe");
+        for state in [ClientState::Pending, ClientState::Active] {
+            for role in [Role::Owner, Role::Requester, Role::Viewer] {
+                assert_eq!(
+                    check(
+                        Some(&record(role, state)),
+                        SessionFrame::Request(&probe),
+                        &NoConsents
+                    ),
+                    Verdict::Probe,
+                    "{role:?} {state:?}"
+                );
+            }
+        }
+        assert_eq!(
+            classify(&probe, &NoConsents),
+            RequestClass {
+                permission: Permission::View,
+                effect: Effect::Read,
+            }
+        );
+        let mut tomb = record(Role::Owner, ClientState::Revoked);
+        tomb.revocation = Some(RevocationCause::Revoked);
+        assert_eq!(
+            check(Some(&tomb), SessionFrame::Request(&probe), &NoConsents),
+            Verdict::Refuse(Refusal::ClientRevoked)
+        );
+        assert_eq!(
+            check(None, SessionFrame::Request(&probe), &NoConsents),
+            Verdict::Refuse(Refusal::ClientRevoked)
+        );
+    }
+
     /// A pending client: only the probe and join; everything else `invitation_pending`.
     #[test]
     fn pending_client_reaches_only_probe_and_join() {
@@ -629,7 +690,11 @@ mod tests {
             Verdict::Join
         );
         assert_eq!(
-            check(Some(&pending), SessionFrame::ActivationProbe, &NoConsents),
+            check(
+                Some(&pending),
+                SessionFrame::Request(&wire_probe()),
+                &NoConsents
+            ),
             Verdict::Probe
         );
         for frame in [
@@ -665,7 +730,7 @@ mod tests {
         r.state = ClientState::Revoked;
         r.revocation = Some(RevocationCause::Revoked);
         assert_eq!(
-            check(Some(&r), SessionFrame::ActivationProbe, &NoConsents),
+            check(Some(&r), SessionFrame::Request(&wire_probe()), &NoConsents),
             Verdict::Refuse(Refusal::ClientRevoked)
         );
         assert_eq!(subscription_verdict(Some(&r)), SubscriptionVerdict::Close);

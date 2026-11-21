@@ -1474,6 +1474,7 @@ dependencies = [
  "heimdall-issuer",
  "heimdall-launch",
  "heimdall-localenv",
+ "heimdall-remote",
  "heimdall-runtime",
  "heimdall-sshconf",
  "heimdall-store",
@@ -1552,6 +1553,7 @@ name = "heimdall-credential"
 version = "0.1.0-m01"
 dependencies = [
  "async-trait",
+ "core-foundation",
  "getrandom 0.4.3",
  "heimdall-app",
  "heimdall-contract",
@@ -1562,6 +1564,8 @@ dependencies = [
  "heimdall-testkit",
  "libc",
  "proptest",
+ "secret-service",
+ "security-framework",
  "serde",
  "sha2 0.10.9",
  "ssh-agent-lib",
@@ -1753,6 +1757,7 @@ dependencies = [
 name = "heimdall-runtime"
 version = "0.1.0-m01"
 dependencies = [
+ "async-trait",
  "core-foundation",
  "core-foundation-sys",
  "etcetera",
@@ -1766,9 +1771,11 @@ dependencies = [
  "heimdall-issuer",
  "heimdall-localenv",
  "heimdall-project",
+ "heimdall-remote",
  "heimdall-sshconf",
  "heimdall-store",
  "heimdall-testkit",
+ "heimdall-transport-iroh",
  "heimdall-wsl",
  "jiff",
  "libc",
