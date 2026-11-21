@@ -72,6 +72,39 @@ pub enum EventType {
     Route,
 }
 
+impl EventType {
+    /// ⟨M06-W0-R10⟩ The capability a session must have negotiated to **select** this event
+    /// type in a subscription or an `observe` filter, when it needs one: each revision-6
+    /// family needs the capability that produces it (`remote-control/1` for the remote
+    /// environment, client, device and effect families; `routes/1` for route health).
+    /// Selecting one without it is refused `SCHEMA_UNSUPPORTED` at the boundary, as a
+    /// request needing an unnegotiated capability is. Exhaustive, so a new type must state
+    /// its capability.
+    #[must_use]
+    pub fn required_capability(self) -> Option<&'static str> {
+        use crate::ipc::capability;
+        match self {
+            EventType::Environment
+            | EventType::Client
+            | EventType::Device
+            | EventType::RemoteEffect => Some(capability::REMOTE_CONTROL_V1),
+            EventType::Route => Some(capability::ROUTES_V1),
+            EventType::OperationStateChanged
+            | EventType::GrantStateChanged
+            | EventType::PolicyChanged
+            | EventType::ResourceChanged
+            | EventType::CredentialLifecycle
+            | EventType::Decision
+            | EventType::ResyncRequired
+            | EventType::RuntimeLifecycle
+            | EventType::Enrollment
+            | EventType::Connection
+            | EventType::SessionLock
+            | EventType::Activation => None,
+        }
+    }
+}
+
 /// One event (spec §11.5 field list).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Event {
@@ -118,4 +151,45 @@ pub struct EventFilter {
     /// Restrict to event types.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub types: Vec<EventType>,
+}
+
+impl EventFilter {
+    /// ⟨M06-W0-R10⟩ The capabilities the selected event types need
+    /// ([`EventType::required_capability`]); empty for a filter selecting none of the
+    /// revision-6 families (or no type at all).
+    pub fn required_capabilities(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.types.iter().filter_map(|t| t.required_capability())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::ipc::capability;
+
+    /// ⟨M06-W0-R10⟩ The revision-6 families name the capability that produces them; every
+    /// earlier type needs none.
+    #[test]
+    fn revision_6_event_types_need_their_capability() {
+        for (t, cap) in [
+            (EventType::Route, capability::ROUTES_V1),
+            (EventType::Environment, capability::REMOTE_CONTROL_V1),
+            (EventType::Client, capability::REMOTE_CONTROL_V1),
+            (EventType::Device, capability::REMOTE_CONTROL_V1),
+            (EventType::RemoteEffect, capability::REMOTE_CONTROL_V1),
+        ] {
+            assert_eq!(t.required_capability(), Some(cap), "{t:?}");
+        }
+        assert_eq!(EventType::OperationStateChanged.required_capability(), None);
+        assert_eq!(EventType::Activation.required_capability(), None);
+        let f: EventFilter =
+            serde_json::from_str(r#"{"types":["operation_state_changed","route","client"]}"#)
+                .unwrap();
+        assert_eq!(
+            f.required_capabilities().collect::<Vec<_>>(),
+            vec![capability::ROUTES_V1, capability::REMOTE_CONTROL_V1]
+        );
+        assert_eq!(EventFilter::default().required_capabilities().count(), 0);
+    }
 }

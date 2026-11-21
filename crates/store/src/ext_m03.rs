@@ -260,11 +260,11 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
     // before the writer lands; the transport key references, the role table, invitations,
     // the effect outbox and acknowledgements, the policy revisions and the two pin tables
     // are expected to become `Rows` (DONE question W0C-Q3).
-    ("remote_clients", RecoveryClass::Discarded(M06_UNWRITTEN)),
-    (
-        "remote_invitations",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
+    // ⟨M06 W1⟩ Written by `crate::ext_m06` (U1): the role table and its tombstones, and the
+    // invitations, are authority (orchestrator ruling of 2026-11-21: every authority-bearing
+    // table compares rows).
+    ("remote_clients", RecoveryClass::Rows),
+    ("remote_invitations", RecoveryClass::Rows),
     (
         "remote_effect_outbox",
         RecoveryClass::Discarded(M06_UNWRITTEN),
@@ -285,15 +285,14 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
         "remote_grant_issuers",
         RecoveryClass::Discarded(M06_UNWRITTEN),
     ),
-    (
-        "destination_routes",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
+    // ⟨M06 W1⟩ Written by `Txn::put_destination_routes` (U5a): the approved routes and their
+    // exposure policies decide what a route may contact, so they compare rows (ruling of
+    // 2026-11-21; the conservative reading).
+    ("destination_routes", RecoveryClass::Rows),
     ("route_consents", RecoveryClass::Discarded(M06_UNWRITTEN)),
-    (
-        "remote_authority_generation",
-        RecoveryClass::Discarded(M06_UNWRITTEN),
-    ),
+    // ⟨M06 W1⟩ Written by `crate::ext_m06` (U1); the serve lease's generation (ruling of
+    // 2026-11-21, W0C-Q4).
+    ("remote_authority_generation", RecoveryClass::Rows),
     ("transport_keys", RecoveryClass::Discarded(M06_UNWRITTEN)),
 ];
 
@@ -2640,6 +2639,81 @@ fn bundle_digest_key(sha256: &str) -> Result<String> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// ⟨M06 W1; orchestrator ruling of 2026-11-21⟩ A table may stay `Discarded` under the
+    /// "no writer yet" placeholder ([`M06_UNWRITTEN`]) only while nothing in this crate writes
+    /// it: the unit that adds a writer reclassifies the table in the same commit. Scans this
+    /// crate's sources for SQL writes (`INSERT … INTO`, `UPDATE`, `DELETE FROM`) naming each such
+    /// table. The sources are embedded at compile time (no repository read at run time, so the
+    /// test also runs where only the binary is shipped); `every_source_is_embedded` keeps the
+    /// list complete.
+    const SOURCES: &[(&str, &str)] = &[
+        ("codec.rs", include_str!("codec.rs")),
+        ("ext.rs", include_str!("ext.rs")),
+        ("ext_m03.rs", include_str!("ext_m03.rs")),
+        ("ext_m04.rs", include_str!("ext_m04.rs")),
+        ("ext_m05.rs", include_str!("ext_m05.rs")),
+        ("ext_m06.rs", include_str!("ext_m06.rs")),
+        ("ext_routes.rs", include_str!("ext_routes.rs")),
+        ("lib.rs", include_str!("lib.rs")),
+        ("migrations.rs", include_str!("migrations.rs")),
+    ];
+
+    /// Every `mod` of `lib.rs` names an embedded source, so a new module cannot hide a writer
+    /// from `placeholder_discarded_tables_have_no_writer`.
+    #[test]
+    fn every_source_is_embedded() {
+        let lib = SOURCES.iter().find(|(n, _)| *n == "lib.rs").unwrap().1;
+        for line in lib.lines() {
+            let t = line.trim();
+            let decl = t
+                .strip_prefix("pub mod ")
+                .or_else(|| t.strip_prefix("mod "));
+            if let Some(rest) = decl
+                && let Some(name) = rest.strip_suffix(';')
+            {
+                let file = format!("{name}.rs");
+                assert!(
+                    SOURCES.iter().any(|(n, _)| *n == file),
+                    "module {name} is not embedded in SOURCES"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn placeholder_discarded_tables_have_no_writer() {
+        let mut sources = String::new();
+        for (_, text) in SOURCES {
+            sources.push_str(&text.to_ascii_lowercase());
+            sources.push('\n');
+        }
+        let squeezed = sources.split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut offenders = Vec::new();
+        for (table, class) in TABLE_RECOVERY {
+            if *class != RecoveryClass::Discarded(M06_UNWRITTEN) {
+                continue;
+            }
+            let written = [
+                format!("insert into {table} "),
+                format!("insert or replace into {table} "),
+                format!("insert or ignore into {table} "),
+                format!("update {table} "),
+                format!("delete from {table} "),
+                format!("delete from {table}\""),
+            ]
+            .iter()
+            .any(|needle| squeezed.contains(needle.as_str()));
+            if written {
+                offenders.push(*table);
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "tables written but still Discarded(M06_UNWRITTEN): {offenders:?}; reclassify them \
+             in TABLE_RECOVERY in the same commit as the writer"
+        );
+    }
 
     /// The `enrollments` states the migration's partial UNIQUE index covers: the
     /// enrollment path (orchestrator ruling on S1, plus `manual_pending`).

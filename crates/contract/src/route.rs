@@ -42,6 +42,11 @@ pub enum RouteSpec {
     Iroh {
         /// The serving endpoint.
         endpoint: IrohEndpointId,
+        /// ⟨rev6.1⟩ The serving endpoint's direct addresses (`ip:port`) recorded with the
+        /// route. Direct paths go only to these unless the exposure policy consents to
+        /// direct fallback (ADR-0012 §2.1).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        direct_addresses: Vec<String>,
         /// The endpoint is an adopted stock Pigeons roost: external infrastructure with
         /// no allowlist, publishing to n0, on its own relay set (ADR-0012 §2.8).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -187,8 +192,10 @@ pub enum RouteRequest {
         destination: DestinationId,
         /// The route.
         route: RouteId,
-        /// Idempotency key (ADR-0006 §7).
-        request_id: RequestId,
+        /// ⟨rev6.1; M06-W0-R08⟩ Optional idempotency key (ADR-0006 §7): a preference among
+        /// already-consented routes needs no decision, so no terminal replay is owed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<RequestId>,
     },
     /// The route helper's lookup (ADR-0012 §5.4, `ResolveRouteBinding`): the one binding
     /// (and its grant) served at `endpoint` for the caller's context; zero or several is
@@ -284,6 +291,9 @@ pub enum RouteFailureClass {
     /// A failure after the first forwarded byte: terminal for the attempt, never failed
     /// over.
     TerminalAfterForwarding,
+    /// ⟨rev6.1⟩ The jump leg failed SSH host-key verification or authentication at the jump
+    /// host before identification: terminal, never failed over (ADR-0012 §5.5 item 3).
+    AuthenticationOrTrust,
 }
 
 /// One tried route of an attempt.

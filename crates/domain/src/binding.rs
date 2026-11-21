@@ -71,10 +71,12 @@ pub enum ReleaseOutcome {
 }
 
 /// Pure ownership rule shared by release/bind/delegate: the same caller (principal and
-/// ⟨rev6⟩ paired client, ADR-0012 §3.7) or the owner role.
+/// ⟨rev6⟩ paired client, ADR-0012 §3.7) or ⟨M06-W0-R03⟩ the **local** owner's global
+/// access. A paired owner acts only on its own client's bindings
+/// ([`CallerContext::may_access`]).
 #[must_use]
 pub fn may_act_on(binding: &BindingRecord, caller: &CallerContext) -> bool {
-    binding.owner.same_caller(caller) || caller.is_owner()
+    caller.may_access(&binding.owner)
 }
 
 #[cfg(test)]
@@ -123,5 +125,16 @@ mod tests {
         assert!(may_act_on(&paired, &client(1)));
         assert!(!may_act_on(&paired, &client(2)));
         assert!(!may_act_on(&paired, &owner));
+        // ⟨M06-W0-R03⟩ A paired owner has no role bypass: not another client's binding,
+        // not the local caller's; the local owner keeps its global access.
+        let paired_owner = CallerContext {
+            role: ClientRole::Owner,
+            ..client(3)
+        };
+        assert!(!may_act_on(&paired, &paired_owner));
+        assert!(!may_act_on(&b, &paired_owner));
+        let local_owner =
+            CallerContext::local(PrincipalRef::UnixUser { uid: 501 }, ClientRole::Owner);
+        assert!(may_act_on(&paired, &local_owner));
     }
 }

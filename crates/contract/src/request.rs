@@ -1504,6 +1504,7 @@ impl Request {
                 crate::remote::RemoteEnvironmentRequest::Add { .. }
                 | crate::remote::RemoteEnvironmentRequest::Invite { .. }
                 | crate::remote::RemoteEnvironmentRequest::Join { .. }
+                | crate::remote::RemoteEnvironmentRequest::ActivationProbe { .. }
                 | crate::remote::RemoteEnvironmentRequest::RevokeClient { .. }
                 | crate::remote::RemoteEnvironmentRequest::Remove { .. }
                 | crate::remote::RemoteEnvironmentRequest::Update { .. },

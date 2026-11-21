@@ -39,6 +39,9 @@ pub mod operations;
 pub mod policy_context;
 pub mod ports;
 pub mod reconcile;
+// ⟨M06 U5a⟩ The route helper's core (`route connect`, direct and jump legs), failover and the
+// `ssh -G` pin verification (ADR-0012 §5.2–§5.5).
+pub mod routes;
 pub mod setup;
 pub mod singleflight;
 pub mod timegate;

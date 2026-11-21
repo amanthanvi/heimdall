@@ -22,7 +22,7 @@
                   "environment.wsl_enable", "environment.wsl_disable",
                   "environment.container_add", "environment.container_remove",
                   "remote_environment.add", "remote_environment.invite",
-                  "remote_environment.join", "remote_environment.revoke_client",
+                  "remote_environment.join", "remote_environment.activation_probe", "remote_environment.revoke_client",
                   "remote_environment.remove", "remote_environment.update",
                   "device.retire", "route.add", "route.remove", "route.prefer",
                   "transport.enable", "transport.disable", "transport.adopt_roost",

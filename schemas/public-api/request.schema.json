@@ -1327,9 +1327,14 @@
           ]
         },
         {
-          "description": "Applied as a durable policy revision that also ends every affected grant like\nexpiry and refuses new grants until cleared (§6.1 \"Cutoff\"). Wave 0 reads a\ndelivered cutoff as taking effect when applied (no scheduled instant).",
+          "description": "Applied as a durable policy revision that also ends every affected grant like\nexpiry and refuses new grants until cleared (ADR-0005 §6.1 \"Cutoff\").\n⟨rev6.1; M06-W0-R02, orchestrator ruling⟩ It carries the owner's instant `at` (as the\nlocal `policy cutoff` request does). The runner's effective cutoff is\n`min(existing, at)`: a delivered or replayed cutoff only shortens it, never delays it\n(moving a cutoff later is a widening, runner-local). An `at` at or before trusted now\napplies at the durable apply, with no signature after that commit; a future `at` is\npersisted and enforced at `at` by the supervisor wake; under uncertain time it fires\nas soon as `at` may have passed (the upper bound of now). Enforcement is m06-plan U4's.",
           "type": "object",
           "properties": {
+            "at": {
+              "description": "The owner's cutoff instant.",
+              "type": "string",
+              "format": "date-time"
+            },
             "kind": {
               "type": "string",
               "const": "policy_cutoff"
@@ -1348,6 +1353,7 @@
           "required": [
             "kind",
             "scope",
+            "at",
             "revision"
           ]
         }
@@ -3726,6 +3732,10 @@
               "description": "The receiving key's fingerprint, which the owner confirmed against the new\ndevice's display (§3.9 item 1).",
               "$ref": "#/$defs/KeyFingerprint"
             },
+            "public_key": {
+              "description": "⟨rev6.1⟩ The receiving key itself (one OpenSSH public key line; public text), so\nthe runner can write the management line. The runner refuses it unless its\nfingerprint equals `key_fingerprint`.",
+              "type": "string"
+            },
             "request_id": {
               "description": "Idempotency key (ADR-0006 §7).",
               "$ref": "#/$defs/RequestId"
@@ -3740,7 +3750,31 @@
             "environment",
             "role",
             "key_fingerprint",
+            "public_key",
             "request_id"
+          ]
+        },
+        {
+          "description": "⟨rev6.1⟩ The activation probe (ADR-0012 §3.2): the enrolled key's first session\nechoes the pending record's nonce through the bridge, which reports the client ID\nfrom its argv. One of the two forms a pending client may send (§3.9 item 3). Kind\n`remote_environment.activation_probe`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "activation_probe"
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            },
+            "nonce": {
+              "description": "The pending record's activation nonce, echoed.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "environment",
+            "nonce"
           ]
         },
         {
@@ -4147,8 +4181,15 @@
               "$ref": "#/$defs/DestinationId"
             },
             "request_id": {
-              "description": "Idempotency key (ADR-0006 §7).",
-              "$ref": "#/$defs/RequestId"
+              "description": "⟨rev6.1; M06-W0-R08⟩ Optional idempotency key (ADR-0006 §7): a preference among\nalready-consented routes needs no decision, so no terminal replay is owed.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RequestId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "route": {
               "description": "The route.",
@@ -4158,8 +4199,7 @@
           "required": [
             "action",
             "destination",
-            "route",
-            "request_id"
+            "route"
           ]
         },
         {
@@ -4245,6 +4285,13 @@
           "description": "An Iroh route to an endpoint ID under the route's exposure policy.",
           "type": "object",
           "properties": {
+            "direct_addresses": {
+              "description": "⟨rev6.1⟩ The serving endpoint's direct addresses (`ip:port`) recorded with the\nroute. Direct paths go only to these unless the exposure policy consents to\ndirect fallback (ADR-0012 §2.1).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "endpoint": {
               "description": "The serving endpoint.",
               "$ref": "#/$defs/IrohEndpointId"

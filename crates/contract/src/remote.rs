@@ -153,8 +153,22 @@ pub enum RemoteEnvironmentRequest {
         /// The receiving key's fingerprint, which the owner confirmed against the new
         /// device's display (§3.9 item 1).
         key_fingerprint: KeyFingerprint,
+        /// ⟨rev6.1⟩ The receiving key itself (one OpenSSH public key line; public text), so
+        /// the runner can write the management line. The runner refuses it unless its
+        /// fingerprint equals `key_fingerprint`.
+        public_key: String,
         /// Idempotency key (ADR-0006 §7).
         request_id: RequestId,
+    },
+    /// ⟨rev6.1⟩ The activation probe (ADR-0012 §3.2): the enrolled key's first session
+    /// echoes the pending record's nonce through the bridge, which reports the client ID
+    /// from its argv. One of the two forms a pending client may send (§3.9 item 3). Kind
+    /// `remote_environment.activation_probe`.
+    ActivationProbe {
+        /// The runner environment.
+        environment: EnvironmentId,
+        /// The pending record's activation nonce, echoed.
+        nonce: String,
     },
     /// Consume an invitation: `pending → active` only if the invitation, the client (from
     /// the bridge's argv), the line's key fingerprint, the role and the generation all
@@ -208,6 +222,9 @@ impl RemoteEnvironmentRequest {
             RemoteEnvironmentRequest::Add { .. } => "remote_environment.add",
             RemoteEnvironmentRequest::Invite { .. } => "remote_environment.invite",
             RemoteEnvironmentRequest::Join { .. } => "remote_environment.join",
+            RemoteEnvironmentRequest::ActivationProbe { .. } => {
+                "remote_environment.activation_probe"
+            }
             RemoteEnvironmentRequest::RevokeClient { .. } => "remote_environment.revoke_client",
             RemoteEnvironmentRequest::Remove { .. } => "remote_environment.remove",
             RemoteEnvironmentRequest::Update { .. } => "remote_environment.update",
@@ -268,11 +285,19 @@ pub enum EffectTarget {
         revision: u64,
     },
     /// Applied as a durable policy revision that also ends every affected grant like
-    /// expiry and refuses new grants until cleared (§6.1 "Cutoff"). Wave 0 reads a
-    /// delivered cutoff as taking effect when applied (no scheduled instant).
+    /// expiry and refuses new grants until cleared (ADR-0005 §6.1 "Cutoff").
+    /// ⟨rev6.1; M06-W0-R02, orchestrator ruling⟩ It carries the owner's instant `at` (as the
+    /// local `policy cutoff` request does). The runner's effective cutoff is
+    /// `min(existing, at)`: a delivered or replayed cutoff only shortens it, never delays it
+    /// (moving a cutoff later is a widening, runner-local). An `at` at or before trusted now
+    /// applies at the durable apply, with no signature after that commit; a future `at` is
+    /// persisted and enforced at `at` by the supervisor wake; under uncertain time it fires
+    /// as soon as `at` may have passed (the upper bound of now). Enforcement is m06-plan U4's.
     PolicyCutoff {
         /// The policies it applies to.
         scope: PolicyTarget,
+        /// The owner's cutoff instant.
+        at: Timestamp,
         /// The revision this cutoff produces.
         revision: u64,
     },
@@ -567,7 +592,7 @@ mod tests {
         .unwrap();
         assert_eq!(t.generation(), 3);
         let c: EffectTarget =
-            serde_json::from_str(r#"{"kind":"policy_cutoff","scope":{"kind":"all"},"revision":9}"#)
+            serde_json::from_str(r#"{"kind":"policy_cutoff","scope":{"kind":"all"},"at":"2026-11-21T18:00:00Z","revision":9}"#)
                 .unwrap();
         assert_eq!(c.generation(), 9);
         assert!(

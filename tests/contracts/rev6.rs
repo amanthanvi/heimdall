@@ -203,7 +203,8 @@ fn rev6_request_forms() {
         }
     }
     assert_eq!(ops_actions, from_schema, "the golden covers every form");
-    assert_eq!(from_schema.len(), 21);
+    // 21 forms at revision 6; revision 6.1 (M06 wave 1) adds `remote_environment.activation_probe`.
+    assert_eq!(from_schema.len(), 22);
     // No RemoteDecide (ADR-0012 §3.10) and no serve-child lease or suspend message (§2.3):
     // no op or action of the whole request schema names one.
     let mut every_name = BTreeSet::new();
@@ -457,7 +458,7 @@ fn rev6_additive_documents() {
             &json!({"kind": kind, "environment": "env_0123456789abcdef0123456789abcdef",
                     "producer": "cl_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
                     "effect": "eff_d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
-                    "target": {"kind": "policy_cutoff", "scope": {"kind": "all"}, "revision": 8}}),
+                    "target": {"kind": "policy_cutoff", "scope": {"kind": "all"}, "at": "2026-11-21T18:00:00Z", "revision": 8}}),
             None,
         );
     }

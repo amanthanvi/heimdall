@@ -1,5 +1,5 @@
 {
- "source": "ADR-0006 revision 6 (M06 wave 0; section 18): one request of every form ADR-0012 section 9 item 6 names (env add, invite, join, revoke-client, remove, update and status; device retire; route add, remove and prefer; transport enable and disable; roost adopt; the runner-internal prepare_remote_grant, install_certificate, TimeChallenge/TimeResponse, deliver_effect with each typed target of ADR-0012 section 7.2, authority_report and ResolveRouteBinding), with the operation kind, the admission and the capability each names (transcribed from section 18.1, never from the code). There is no RemoteDecide and no serve-child lease or suspend message. Synthetic values only: documentation addresses (192.0.2.0/24), a placeholder certificate and fingerprint.",
+ "source": "ADR-0006 revision 6 (M06 wave 0; section 18): one request of every form ADR-0012 section 9 item 6 names (env add, invite, join, activation probe (revision 6.1), revoke-client, remove, update and status; device retire; route add, remove and prefer; transport enable and disable; roost adopt; the runner-internal prepare_remote_grant, install_certificate, TimeChallenge/TimeResponse, deliver_effect with each typed target of ADR-0012 section 7.2, authority_report and ResolveRouteBinding), with the operation kind, the admission and the capability each names (transcribed from section 18.1, never from the code). There is no RemoteDecide and no serve-child lease or suspend message. Synthetic values only: documentation addresses (192.0.2.0/24), a placeholder certificate and fingerprint.",
  "requests": [
   {
    "what": "env add",
@@ -22,6 +22,7 @@
     "environment": "env_0123456789abcdef0123456789abcdef",
     "role": "requester",
     "key_fingerprint": "SHA256:uXq3mT1n0rWbG5cVxZ2yA7kL9pQeJ4sHdF8oN6iRtC0",
+    "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA heimdall-mgmt:cl_example",
     "request_id": "req-m06-0001"
    },
    "kind": "remote_environment.invite",
@@ -39,6 +40,18 @@
     "generation": 4
    },
    "kind": "remote_environment.join",
+   "admission": "synchronous",
+   "capability": "remote-control/1"
+  },
+  {
+   "what": "env activation probe",
+   "json": {
+    "op": "remote_environment",
+    "action": "activation_probe",
+    "environment": "env_0123456789abcdef0123456789abcdef",
+    "nonce": "nonce-m06-0001"
+   },
+   "kind": "remote_environment.activation_probe",
    "admission": "synchronous",
    "capability": "remote-control/1"
   },
@@ -304,6 +317,7 @@
       "kind": "profile",
       "profile": "lab"
      },
+     "at": "2026-11-21T18:00:00Z",
      "revision": 8
     }
    },

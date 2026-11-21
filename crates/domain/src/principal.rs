@@ -76,4 +76,66 @@ impl CallerContext {
     pub fn same_caller(&self, other: &CallerContext) -> bool {
         self.principal == other.principal && self.remote_client == other.remote_client
     }
+
+    /// ⟨M06-W0-R03; ADR-0006 §18.2 item 17, the orchestrator's ruling⟩ The **local** owner's
+    /// global access to every caller's objects: the owner role with no paired client. A
+    /// paired caller, owner role included, never has it.
+    #[must_use]
+    pub fn has_global_access(&self) -> bool {
+        self.is_owner() && self.remote_client.is_none()
+    }
+
+    /// ⟨M06-W0-R03⟩ Whether this caller may see or act on an object `owner` created (an
+    /// operation, a binding): the same caller (principal and paired client), or the local
+    /// owner's global access. A paired owner is scoped to its own client: no role bypass
+    /// for observe, cancel or binding ownership (ADR-0012 §3.7).
+    #[must_use]
+    pub fn may_access(&self, owner: &CallerContext) -> bool {
+        owner.same_caller(self) || self.has_global_access()
+    }
+
+    /// ⟨M06-W0-R03⟩ The named cross-caller narrowing powers (ADR-0012 §7.2, §8: either owner
+    /// may deliver a narrowing effect, and revoke a client or a grant it does not own):
+    /// any owner, local or paired. Narrowing only: it never grants access to another
+    /// caller's objects for anything else.
+    #[must_use]
+    pub fn may_narrow_across_callers(&self) -> bool {
+        self.is_owner()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// ⟨M06-W0-R03⟩ The local owner keeps its global access; a paired owner is scoped to
+    /// its own client but keeps the named narrowing powers; a limited caller has neither.
+    #[test]
+    fn paired_owner_is_client_scoped_and_local_owner_global() {
+        let p = PrincipalRef::UnixUser { uid: 501 };
+        let local = CallerContext::local(p.clone(), ClientRole::Owner);
+        let paired = |n: u8, role| CallerContext {
+            principal: p.clone(),
+            role,
+            remote_client: Some(ClientId::from_random_bytes([n; 16])),
+        };
+        let a = paired(1, ClientRole::Owner);
+        let b = paired(2, ClientRole::LimitedConsumer);
+        assert!(local.has_global_access());
+        assert!(
+            !a.has_global_access(),
+            "a paired owner has no global access"
+        );
+        assert!(local.may_access(&a) && local.may_access(&b));
+        assert!(a.may_access(&a));
+        assert!(!a.may_access(&b), "paired owner, another client's object");
+        assert!(
+            !a.may_access(&local),
+            "paired owner, the local caller's object"
+        );
+        assert!(!b.may_access(&a));
+        assert!(a.may_narrow_across_callers() && local.may_narrow_across_callers());
+        assert!(!b.may_narrow_across_callers());
+    }
 }

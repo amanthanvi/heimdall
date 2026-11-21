@@ -220,3 +220,12 @@ path = "../../tests/e2e/dev_home_guard.rs"
 [[test]]
 name = "adversarial_prompt_injection_cli"
 path = "../../tests/adversarial/prompt_injection/cli.rs"
+
+# ⟨M06 U5a⟩ The route helper's direct and jump legs, failover, the `ssh -G` pin checks and
+# M04-D03's two-hop substitution through a helper alias (ADR-0012 §5.2-§5.5; m06-plan U5a).
+# `harness = false`: the binary is also the `ProxyCommand` helper (its own runner prints
+# libtest's lines; see the file's docs).
+[[test]]
+name = "integration_route_m06"
+path = "../../tests/integration/route_m06.rs"
+harness = false

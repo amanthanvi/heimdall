@@ -1730,8 +1730,23 @@ dependencies = [
 name = "heimdall-remote"
 version = "0.1.0-m01"
 dependencies = [
+ "base64ct",
+ "getrandom 0.4.3",
+ "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
+ "heimdall-ipc",
+ "heimdall-store",
+ "jiff",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "ssh-key",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -1833,6 +1848,8 @@ dependencies = [
  "heimdall-contract",
  "iroh",
  "netdev",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]

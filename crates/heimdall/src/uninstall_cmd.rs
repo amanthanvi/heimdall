@@ -5189,6 +5189,90 @@ mod tests {
         }
     }
 
+    fn client_id() -> heimdall_contract::ids::ClientId {
+        heimdall_contract::ids::ClientId::from_random_bytes([4; 16])
+    }
+
+    fn invitation_id() -> heimdall_contract::ids::InvitationId {
+        heimdall_contract::ids::InvitationId::from_random_bytes([4; 16])
+    }
+
+    fn key_fingerprint() -> heimdall_contract::ids::KeyFingerprint {
+        heimdall_contract::ids::KeyFingerprint::parse(&format!("SHA256:{}", "A".repeat(43)))
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// ⟨M06⟩ A pending client and its invitation (synthetic: a placeholder key).
+    fn seed_invitation(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        use heimdall_store::ext_m06::{
+            AppliedLine, ClientState, InvitationState, RemoteClientRecord, RemoteInvitationRecord,
+        };
+        let role = heimdall_contract::remote::Role::Requester;
+        let client = RemoteClientRecord {
+            client: client_id(),
+            role,
+            key_fingerprint: key_fingerprint(),
+            public_key: "ssh-ed25519 AAAA".to_owned(),
+            state: ClientState::Pending,
+            invitation: Some(invitation_id()),
+            revoked_generation: None,
+            revocation: None,
+            created_at: t0(),
+            updated_at: t0(),
+            line: AppliedLine::Absent,
+        };
+        let invitation = RemoteInvitationRecord {
+            invitation: invitation_id(),
+            client: client_id(),
+            role,
+            key_fingerprint: key_fingerprint(),
+            generation: 4,
+            created_wall: t0(),
+            created_boot_id: heimdall_domain::time::BootId("boot-1".to_owned()),
+            created_elapsed: Duration::from_secs(100),
+            expires_wall: t0()
+                .checked_add(Duration::from_secs(900))
+                .unwrap_or_else(|_| panic!("time")),
+            elapsed_bound: Duration::from_secs(900),
+            probe_nonce: "00".repeat(16),
+            state: InvitationState::Pending,
+            consumed_at: None,
+            join: None,
+        };
+        tx.insert_remote_invitation(&client, &invitation, t0())
+            .map(drop)
+    }
+
+    /// ⟨M06⟩ The `join` of [`seed_invitation`]'s invitation.
+    fn join_record() -> heimdall_store::ext_m06::JoinRecord {
+        heimdall_store::ext_m06::JoinRecord {
+            environment: env7(),
+            invitation: invitation_id(),
+            client: client_id(),
+            role: heimdall_contract::remote::Role::Requester,
+            generation: 4,
+            joined_at: t0(),
+        }
+    }
+
+    fn route_destination() -> heimdall_contract::ids::DestinationId {
+        heimdall_contract::ids::DestinationId::parse("dst-lab1").unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// ⟨M06⟩ A direct route to a documentation address.
+    fn route(n: u8, host: &str) -> heimdall_contract::route::DestinationRoute {
+        heimdall_contract::route::DestinationRoute {
+            id: heimdall_contract::ids::RouteId::from_random_bytes([n; 16]),
+            route: heimdall_contract::route::RouteSpec::Direct {
+                host: format!("{host}.example.invalid"),
+                port: None,
+            },
+            exposure: None,
+            consents: Vec::new(),
+            identification_timeout_ms: Some(2_000),
+        }
+    }
+
     /// The insert, modify and delete cases of each `Rows` or `Part` table, through the
     /// database (audit A4). A delete case exists where the store can delete or settle
     /// the record; it has no delete for a CA, an enrollment, a foreign removal, a pair
@@ -5199,6 +5283,7 @@ mod tests {
         use heimdall_domain::enrollment::EnrollmentEventKind as K;
         use heimdall_domain::issuance::CaEvent;
         use heimdall_domain::resource::ResourceState as R;
+        use heimdall_store::ext_m06::{AppliedLine, RevocationCause};
         match table {
             "issuers" => vec![
                 case("insert a CA", nothing, |tx| {
@@ -5405,6 +5490,86 @@ mod tests {
                             Some(heimdall_domain::resource::ResourceGeneration(1)),
                         )
                     },
+                ),
+            ],
+            // ⟨M06 W1⟩ Migration 0009. The role table, an invitation and the admission
+            // generation are written together by the invitation, the join and the
+            // tombstone; the store has no delete for any of them (a client never leaves
+            // `revoked`), so each one's last case is the tombstone.
+            "remote_clients" => vec![
+                case("insert a pending client", nothing, seed_invitation),
+                case("activate it (a join)", seed_invitation, |tx| {
+                    tx.activate_remote_client(&join_record()).map(drop)
+                }),
+                case(
+                    "record the line written, no generation moved",
+                    seed_invitation,
+                    |tx| {
+                        tx.set_remote_client_line(&client_id(), AppliedLine::Active)
+                            .map(drop)
+                    },
+                ),
+                case(
+                    "tombstone it (no delete: the row stays, revoked)",
+                    seed_invitation,
+                    |tx| {
+                        tx.revoke_remote_client(&client_id(), RevocationCause::Revoked, t0())
+                            .map(drop)
+                    },
+                ),
+            ],
+            "remote_invitations" => vec![
+                case("insert a pending invitation", nothing, seed_invitation),
+                case("consume it (a join)", seed_invitation, |tx| {
+                    tx.activate_remote_client(&join_record()).map(drop)
+                }),
+                case(
+                    "expire it (no delete: the row stays, expired)",
+                    seed_invitation,
+                    |tx| {
+                        tx.revoke_remote_client(
+                            &client_id(),
+                            RevocationCause::InvitationExpired,
+                            t0(),
+                        )
+                        .map(drop)
+                    },
+                ),
+            ],
+            "remote_authority_generation" => vec![
+                case(
+                    "the first invitation sets the generation",
+                    nothing,
+                    seed_invitation,
+                ),
+                case(
+                    "a tombstone moves it on (it is never deleted)",
+                    seed_invitation,
+                    |tx| {
+                        tx.revoke_remote_client(&client_id(), RevocationCause::Revoked, t0())
+                            .map(drop)
+                    },
+                ),
+            ],
+            "destination_routes" => vec![
+                case("store a route list", nothing, |tx| {
+                    tx.put_destination_routes(&route_destination(), &[route(1, "a")], t0())
+                }),
+                case(
+                    "reorder and extend the list",
+                    |tx| tx.put_destination_routes(&route_destination(), &[route(1, "a")], t0()),
+                    |tx| {
+                        tx.put_destination_routes(
+                            &route_destination(),
+                            &[route(2, "b"), route(1, "a")],
+                            t0(),
+                        )
+                    },
+                ),
+                case(
+                    "remove the list (back to the one-element case)",
+                    |tx| tx.put_destination_routes(&route_destination(), &[route(1, "a")], t0()),
+                    |tx| tx.remove_destination_routes(&route_destination()).map(drop),
                 ),
             ],
             other => panic!(

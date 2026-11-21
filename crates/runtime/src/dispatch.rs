@@ -1077,7 +1077,8 @@ mod tests {
             ClientRole::LimitedConsumer,
         ));
         let rows = golden["requests"].as_array().unwrap();
-        assert_eq!(rows.len(), 24);
+        // 24 forms at revision 6; revision 6.1 (ADR-0006 §18.4) adds the activation probe.
+        assert_eq!(rows.len(), 25);
         for row in rows {
             let request: Request = serde_json::from_value(row["json"].clone()).unwrap();
             assert!(request.is_revision_6());

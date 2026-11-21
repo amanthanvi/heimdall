@@ -111,66 +111,23 @@ run_step crate-graph env PYTHONDONTWRITEBYTECODE=1 \
 # M06 (m06-plan U0; ADR-0012 sections 1 and 13): the feature-gated iroh build and the vendored
 # netdev patch (third_party/netdev-0.47.0, [patch.crates-io]) must keep compiling, so neither
 # rots between the milestones that exercise them. Compile check only: nothing is bound.
-run_step iroh-check cargo check --locked -p heimdall-transport-iroh --features iroh
-# RustSec audit of Cargo.lock, which includes the optional iroh dependency tree, so this audits
-# the iroh build (ADR-0012 section 1 item 4). A vulnerability fails the step; warnings
-# (unmaintained, unsound, yanked) are reported and are not fatal. The advisory database is
-# fetched into target/tools/advisory-db (workspace-local, like the tool), so this step needs
-# the network. Pinned tool: cargo-audit 0.22.1, preferably installed workspace-locally with
-# `cargo install --locked cargo-audit@0.22.1 --root target/tools` (prunable, never global);
-# a `cargo audit` on PATH is used otherwise. A missing (or different) cargo-audit fails with
-# exit 3 and the install command unless HM_SKIP_AUDIT=1 is set explicitly (as clippy-windows
-# does for its prerequisites).
+# ⟨M06 W1⟩ The iroh feature's own tests (loopback only, in process) and its clippy, which the
+# workspace-wide steps above do not see because the feature is off by default.
+iroh_check() {
+    cargo check --locked -p heimdall-transport-iroh --features iroh &&
+        cargo clippy --locked -p heimdall-transport-iroh --features iroh --all-targets -- -D warnings &&
+        cargo test --locked -p heimdall-transport-iroh --features iroh
+}
+run_step iroh-check iroh_check
+# RustSec audit of the whole Cargo.lock (ADR-0012 section 1 item 4; M06-W0-R01/R04 and the
+# orchestrator rulings of 2026-11-21): tools/validation/audit_gate.py runs its self-tests,
+# then cargo-audit 0.22.1 with the checked-in .cargo/audit.toml and an empty scratch
+# CARGO_HOME (no ambient configuration). Any vulnerability fails unless listed in
+# tools/validation/audit-ignore.txt; a missing or unreadable database, a tool error or an
+# invalid report fails closed; a missing tool fails (exit 3) unless HM_SKIP_AUDIT=1, which
+# prints "SKIPPED (not merge evidence)". The database fetch needs the network.
 audit_step() {
-    local audit=(cargo audit)
-    if [ -x target/tools/bin/cargo-audit ]; then
-        audit=(target/tools/bin/cargo-audit audit)
-    fi
-    if ! "${audit[@]}" --version 2>/dev/null | grep -qF "0.22.1"; then
-        echo "missing prerequisite: cargo-audit 0.22.1 (cargo install --locked cargo-audit@0.22.1 --root target/tools)"
-        if [ "${HM_SKIP_AUDIT:-0}" = 1 ]; then
-            echo "audit: SKIPPED by HM_SKIP_AUDIT=1 (prerequisite missing)"
-            return 0
-        fi
-        return 3
-    fi
-    # Scope (ADR-0012 section 1 item 4: "for builds with the iroh feature"): a vulnerability in
-    # a package of the iroh build's own tree (heimdall-transport-iroh --features iroh, normal
-    # and build edges) fails the step. A vulnerability elsewhere in Cargo.lock predates M06's
-    # gate and is listed as PRE-EXISTING (not fatal here; tracked as its own decision).
-    local json pkgs
-    json=$(mktemp "${TMPDIR:-/tmp}/hm-audit-json.XXXXXX") || return 2
-    pkgs=$(mktemp "${TMPDIR:-/tmp}/hm-audit-pkgs.XXXXXX") || { rm -f "${json}"; return 2; }
-    cargo tree --locked -p heimdall-transport-iroh --features iroh -e normal,build \
-        --prefix none --format '{p}' > "${pkgs}" || { rm -f "${json}" "${pkgs}"; return 2; }
-    "${audit[@]}" --db target/tools/advisory-db --file Cargo.lock --json > "${json}"
-    local rc=$?
-    if [ "${rc}" -gt 1 ]; then rm -f "${json}" "${pkgs}"; return "${rc}"; fi
-    PYTHONDONTWRITEBYTECODE=1 python3 -I - "${json}" "${pkgs}" <<'PY'
-import json, sys
-report = json.load(open(sys.argv[1]))
-tree = set()
-for line in open(sys.argv[2]):
-    parts = line.split()
-    if len(parts) >= 2 and parts[1].startswith("v"):
-        tree.add((parts[0], parts[1][1:]))
-print("audit: %d advisories loaded; %d lockfile packages; %d in the iroh build's tree"
-      % (report["database"]["advisory-count"], report["lockfile"]["dependency-count"], len(tree)))
-fatal = 0
-for v in report["vulnerabilities"]["list"]:
-    key = (v["package"]["name"], v["package"]["version"])
-    scope = "IROH-TREE" if key in tree else "PRE-EXISTING"
-    fatal += key in tree
-    print("audit: %s %s %s %s: %s" % (scope, v["advisory"]["id"], key[0], key[1], v["advisory"]["title"]))
-for kind, items in sorted(report.get("warnings", {}).items()):
-    for w in items:
-        adv = w.get("advisory") or {}
-        print("audit: warning %s %s %s %s" % (kind, adv.get("id", "-"), w["package"]["name"], w["package"]["version"]))
-sys.exit(1 if fatal else 0)
-PY
-    rc=$?
-    rm -f "${json}" "${pkgs}"
-    return "${rc}"
+    PYTHONDONTWRITEBYTECODE=1 python3 -I tools/validation/audit_gate.py
 }
 run_step audit audit_step
 run_step claims-table env PYTHONDONTWRITEBYTECODE=1 \

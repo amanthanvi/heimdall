@@ -45,6 +45,10 @@ pub mod ext_m03;
 // ⟨M04⟩ Joint wave 0: the managed-environment set and WSL distribution records.
 pub mod ext_m04;
 pub mod ext_m05;
+// ⟨M06⟩ U1: the runner's role table, invitations and the admission authority generation.
+pub mod ext_m06;
+// ⟨M06 U5a⟩ A destination's ordered approved routes (ADR-0012 §5.1, §9 item 9).
+pub mod ext_routes;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};

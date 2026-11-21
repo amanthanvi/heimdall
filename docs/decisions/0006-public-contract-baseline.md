@@ -2353,11 +2353,11 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
 * **The landing**: `heimdall_runtime::dispatch::tests::w0_revision_6_requests_fail_closed_before_any_record` (every form of the golden, as owner and as a limited caller: `driver_unavailable`, effect `none`, no operation, decision, event or generation change); `heimdall_app::operations::remote_m06::tests::only_revision_6_forms_are_refused`; `heimdall::m06_cmd::tests::m06_commands_refuse_as_planned_for_m06`.
 * **Store**: `heimdall_store::migrations::tests::remote_step_applies_on_the_previous_version_and_rolls_back_whole` (0009 on a version-8 database, earlier rows kept; a broken step leaves version 8 and none of its tables), with the existing `failing_step_rolls_back_whole_step_and_version`; `heimdall::uninstall_cmd::tests::recovery_snapshot_classifies_every_table` covers the new tables.
 
-### 18.2 Readings applied where the design is silent (pending the orchestrator's confirmation)
+### 18.2 Readings applied where the design is silent (ruled 2026-11-21: confirmed, or amended in §18.5)
 
-1. **A hello naming `remote_client`** is refused `SCHEMA_UNSUPPORTED` by any runtime that does
+1. ⟨amended: §18.5⟩ **A hello naming `remote_client`** is refused `SCHEMA_UNSUPPORTED` by any runtime that does
    not offer `remote-control/1`; in wave 0 that is every runtime (the integrator's reading).
-2. **Route types are contract-only.** The destination object keeps its single route and jump
+2. ⟨amended: §18.5⟩ **Route types are contract-only.** The destination object keeps its single route and jump
    fields; `DestinationRoutes` is not attached to the catalog or the domain (U5a's work; the
    integrator's reading).
 3. **The store is forward-only.** m06-plan U0's "migration up and down" is read as: 0009 applies
@@ -2366,7 +2366,7 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
 4. **`ServerHello.role`** is reported only for a role-negotiated session
    (`negotiate_for_role(.., Some(role), ..)`). The local same-user session is the owner (§2.1)
    and its hello stays byte-identical.
-5. **The role capability sets** (`capability::for_role`): owner every capability; requester the
+5. ⟨amended: §18.5⟩ **The role capability sets** (`capability::for_role`): owner every capability; requester the
    primitives, events, schema discovery and managed-credential results; viewer the
    primitives, events and schema discovery. Neither limited role gets `remote-control/1` or
    another revision-6 capability. A negotiated capability never authorizes: each request is
@@ -2376,7 +2376,7 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
    the helper runs wherever a routed alias is rendered. `roost adopt` is
    `transport.adopt_roost` under `transport-iroh/1`, because the route it creates is an Iroh
    route.
-7. **Request IDs and admission.** The forms that can widen authority or exposure carry a
+7. ⟨amended: §18.5, M06-W0-R08⟩ **Request IDs and admission.** The forms that can widen authority or exposure carry a
    required `request_id`, so a replay after the runner-local decision returns the recorded
    terminal result (ADR-0012 §3.10 T-RA3). Those forms are `invite`, `route add`,
    `route prefer`, `transport enable` and `adopt_roost`. Narrowing, compare-and-set and local
@@ -2384,7 +2384,7 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
 8. **The producer of an effect is never a request field.** `deliver_effect` carries the effect
    ID and the typed target. The producing controller is the session's authenticated client
    (ADR-0012 §7.2 "authenticated producing controller").
-9. **`policy_cutoff` carries no instant.** A delivered cutoff takes effect when applied, the
+9. ⟨superseded: §18.5, M06-W0-R02⟩ **`policy_cutoff` carries no instant.** A delivered cutoff takes effect when applied, the
    narrowest reading of "ends every affected grant like expiry" (DONE question W0C-Q2).
 10. **Time samples** are two requests: `time_challenge` asks the runner for a nonce, and
     `time_response {nonce, controller_time}` answers it (T_c). The runner cannot originate a
@@ -2398,7 +2398,7 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
 13. **A remote runner's realization** is `RealizationView::RemoteRunner {destination, account}`:
     the catalog destination and runner account that reach it. `EnvironmentView.realization` is
     required.
-14. **The residuals are not attached in wave 0.** ADR-0012 §9 item 10 puts them beside
+14. ⟨amended: §18.5, M06-W0-R09⟩ **The residuals are not attached in wave 0.** ADR-0012 §9 item 10 puts them beside
     `EnsureData`'s readiness fields. Attaching an optional field there breaks every
     `EnsureData` struct literal, and most of them are in test files outside wave 0's write
     scope. The types are complete and serialize as specified, and U3/U4 attach them (or the
@@ -2406,7 +2406,7 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
 15. **The wave-0 refusal is uniform.** Every revision-6 form answers `driver_unavailable`
     whatever the role, so it tells a limited caller nothing beyond the capability list. The
     role checks (`role_insufficient`) are U1's.
-16. **Store details.**
+16. ⟨amended: §18.5⟩ **Store details.**
     * Runner-local decisions reuse `decisions`.
     * The outbox (controller) and the acknowledgements (runner) are separate tables, both keyed
       by the four §7.2 parts.
@@ -2417,7 +2417,7 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
       decision.
     * All eleven tables are `Discarded` in the recovery snapshot while no writer exists. Each
       unit reclassifies its table before its writer lands (DONE question W0C-Q3).
-17. **Ownership and visibility** compare the same principal **and** the same client; the owner
+17. ⟨amended: §18.5, M06-W0-R03⟩ **Ownership and visibility** compare the same principal **and** the same client; the owner
     role still sees and acts on everything (ADR-0012 §3.7 "plus the environment-level views
     its role permits").
 18. **IDs.** The new prefixes are `cl_`, `inv_`, `route_`, `eff_` and `cns_`. `KeyFingerprint`
@@ -2436,3 +2436,39 @@ and no exit code changes: revision 6 adds reasons (`reason::M06`), never codes.
   its serve child (the `heimdall-transport-iroh` crate); K_mgmt and K_iroh custody.
 * The argument trees of `env`, `device`, `route`, `transport` and `roost` and their help goldens
   (U2, U5).
+
+### 18.4 Revision 6.1 (M06 wave 1)
+
+Four additive corrections the wave-1 units (U1, U5a, U6a) needed; the integrator applied them
+as contract owner. Schema major stays `"1"`; every revision-6 form keeps its capability,
+admission and fail-closed landing.
+
+| Item | What landed | Where | Raised by |
+|---|---|---|---|
+| 1 | `RemoteEnvironmentRequest::Invite.public_key` (one OpenSSH public key line, public text), required: the runner writes the management line from it and refuses it unless its fingerprint equals `key_fingerprint` (ADR-0012 §3.9 item 1) | `contract::remote` | U1 (the fingerprint alone cannot write a line) |
+| 2 | `RemoteEnvironmentRequest::ActivationProbe {environment, nonce}`, kind `remote_environment.activation_probe`, `remote-control/1`, admitted like `join`: the wire form of ADR-0012 §3.2's confirming probe and one of the two forms a pending client may send (§3.9 item 3) | `contract::remote`, `contract::request` | U1 (no wire form existed) |
+| 3 | `RouteSpec::Iroh.direct_addresses` (`ip:port` strings, omitted when empty): direct paths go only to these unless the exposure policy consents to direct fallback (ADR-0012 §2.1) | `contract::route` | U6a (Q2) |
+| 4 | `RouteFailureClass::AuthenticationOrTrust`: a jump leg that fails host-key verification or authentication at the jump host before identification; terminal, never failed over (ADR-0012 §5.5 item 3) | `contract::route`; used by `app::routes_failover` | U5a (such failures were recorded as `refused`) |
+
+Goldens: `rev6-requests.golden.json` (the invite row gains `public_key`; a probe row),
+`journaled-kinds.golden.json` (the probe kind beside `join`), `contracts::rev6` (22 forms).
+Schemas regenerated (`request`, `ipc.client-message`).
+
+### 18.5 Orchestrator rulings on the W0 review (2026-11-21)
+
+The independent review of `ce5b0dc2..a2576a51` (archived redacted at
+`tests/evidence/artifacts/review-m06/w0.md`; FIX FIRST: M06-W0-R01–R03 blocking) and the
+orchestrator's rulings, applied in M06 wave 1. Readings 3, 4, 6, 8, 10–13, 15 and 18 are
+**confirmed** as the reviewer marked them. The others are amended:
+
+| Reading | Ruling | Finding | Where it lands |
+|---|---|---|---|
+| 1 | W0's unconditional refusal stays. U1 accepts a client ID only from a runner session with a resolved bridge identity and role; a capability advertisement alone never establishes identity | — | U1 (W1), runtime acceptance W2 |
+| 2 | Explicit deferral: U5a attached the route list on the domain side (W1); attaching routes and pins to the **public** destination object (schema) is U56's, with the pin-source ruling | M06-W0-R09 | m06-plan U0, U56 |
+| 5 | Ordinary role intersection stays; a pending session gets a pending-only path (activation probe and `join`, with the invitation and identity checks ahead of any recorded result) without opening `join`'s capability to limited sessions; primitives and event delivery are gated by permission and scope | M06-W0-R06 | U1 before W2's exit (dispatch is wired in W2) |
+| 7 | Per-action replay mapping: a preference among consented routes needs no decision (`route prefer` request ID optional, idempotency only); bootstrap owner enrollment and device retirement are locally attended confirmations, separate from T-RA3; every widening request a paired client can submit carries a required `request_id` with terminal replay — always on `invite`, `route add`, `transport enable` and `transport adopt_roost` (not computed from the consent delta) | M06-W0-R08 | contract (rev 6.1: `Prefer.request_id` optional), `remote::widening` |
+| 9 | **Superseded.** A delivered cutoff carries the owner's instant `at` (`EffectTarget::PolicyCutoff.at`). The runner's effective cutoff is `min(existing, delivered)`: a delivered or replayed cutoff only shortens it; moving it later is a widening (runner-local). An `at` at or before trusted now applies at the durable apply, no signature after that commit; a future `at` is persisted and enforced at `at` by the supervisor wake (I-26 wakes for `cutoff_at`); under uncertain time it fires as soon as `at` may have passed (the upper bound of now) | M06-W0-R02 | contract (rev 6.1), enforcement U4 (tests: early, late, replay under uncertainty) |
+| 14 | Explicit deferral: U3 attaches the residuals to `EnsureData`, with the literal edit, in the same commit | M06-W0-R09 | m06-plan U0, U3 |
+| 16 | Key-fingerprint uniqueness is scoped per runner and role table; policy-revision identity is producer-scoped `(scope_key, producer, revision)` with a runner-side order (`runner_seq`) and composing narrowing effects — migration 0009 amended in place before any writer (unmerged, unreleased); recovery and purge cases before writers, transport writers included (ruling 3: `placeholder_discarded_tables_have_no_writer`) | M06-W0-R05 | 0009, U4, store |
+| 17 | The local owner keeps its global bypass. A paired caller, owner role included, gets client-scoped ownership (principal and client) plus only its role-permitted environment views and the named cross-controller narrowing powers (ADR-0012 §7.2, §8); no blanket bypass for observe, cancel or binding ownership; visibility on every delivery path (event pages, resumed and live subscriptions) | M06-W0-R03 | app, domain, ipc (W1) |
+

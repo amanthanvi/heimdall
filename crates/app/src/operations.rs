@@ -9604,6 +9604,9 @@ impl Operations {
                         }
                         for (g, ended) in listed {
                             let refs = tx.grant_references(&g.id)?;
+                            // ⟨M06-W0-R03⟩ The grant list is an environment-level view the
+                            // owner role permits (a paired owner targets its narrowing with
+                            // it); the bindings under it stay client-scoped (`may_act_on`).
                             let mut visible = ctx.is_owner();
                             for r in refs {
                                 // A delegated child's reference on its parent is not a
@@ -10786,15 +10789,16 @@ impl Operations {
                                 } else {
                                     page.head_seq.max(seq)
                                 };
-                                let events: Vec<_> = page
-                                    .events
-                                    .into_iter()
-                                    .map(|s| {
+                                // ⟨M06-W0-R03⟩ Only what this reader may see; the cursor
+                                // still moves past the rest.
+                                let mut events = Vec::with_capacity(page.events.len());
+                                for s in page.events {
+                                    if crate::events::event_visible_in(tx, &s.event, &ctx)? {
                                         let mut e = s.event;
                                         e.cursor = p2.cursor_at(&ctx, s.seq);
-                                        e
-                                    })
-                                    .collect();
+                                        events.push(e);
+                                    }
+                                }
                                 Ok(Ok(serde_json::json!({
                                     "events": events,
                                     "cursor": p2.cursor_at(&ctx, next_seq),
@@ -11161,7 +11165,8 @@ impl Operations {
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
         // Owner role, or a caller holding a binding on the grant; anyone else sees
-        // `NOT_FOUND`.
+        // `NOT_FOUND`. ⟨M06-W0-R03⟩ Revoking a grant is one of the named cross-caller
+        // narrowing powers (ADR-0012 §7.2, §8): any owner, local or paired.
         let ctx = caller.context.clone();
         let gid = revoked_grant.clone();
         let visible = self
@@ -11169,7 +11174,7 @@ impl Operations {
                 if tx.grant(&gid)?.is_none() {
                     return Ok(false);
                 }
-                if ctx.is_owner() {
+                if ctx.may_narrow_across_callers() {
                     return Ok(true);
                 }
                 for r in tx.grant_references(&gid)? {

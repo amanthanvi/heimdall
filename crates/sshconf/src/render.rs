@@ -21,6 +21,13 @@
 //! `ForwardAgent`, `StrictHostKeyChecking`, `UpdateHostKeys`, a known-hosts directive or
 //! `ProxyCommand`. `ForwardAgent` exists only as a launch option ([`forward_agent_options`]).
 //!
+//! **⟨M06 U5a⟩ The route helper** (ADR-0012 §5.3, the one ADR-0010 §5(b) exception):
+//! [`Section::Helper`] wraps a section of a destination with more than one approved route (or
+//! any Iroh route) with Heimdall's own `ProxyCommand "<abs heimdall>" route connect …`, typed
+//! inputs only, and the catalog pin (`HostKeyAlias hm-dest-<id>`, the pin file, strict
+//! checking and catalog-only trust). That one section kind is the only place P names
+//! `ProxyCommand` or a host-trust directive; [`crate::routes`] builds its lines.
+//!
 //! **Paths** are always double-quoted, and `%` is written `%%` (OpenSSH expands tokens
 //! in `Include`, `IdentityFile` and `IdentityAgent`, F7, F15). A [`RenderPath`] holds
 //! the path text itself; the `%%` escaping is applied only where an OpenSSH directive
@@ -167,7 +174,7 @@ impl HostName {
 
 /// Which constructor made a [`RenderPath`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum PathKind {
+pub(crate) enum PathKind {
     /// [`RenderPath::unix`].
     Unix,
     /// [`RenderPath::windows`].
@@ -183,7 +190,7 @@ enum PathKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RenderPath {
     text: String,
-    kind: PathKind,
+    pub(crate) kind: PathKind,
 }
 
 /// Characters no rendered path may contain, on any platform (ADR-0007 §4): `${`
@@ -343,12 +350,12 @@ impl RenderPath {
     }
 
     /// The path quoted for an OpenSSH directive: `"…"` with `%` as `%%`.
-    fn ssh_quoted(&self) -> String {
+    pub(crate) fn ssh_quoted(&self) -> String {
         format!("\"{}\"", self.text.replace('%', "%%"))
     }
 
     /// An absolute path (not `~`-relative, not a pipe), as Git needs.
-    fn is_absolute_file(&self) -> bool {
+    pub(crate) fn is_absolute_file(&self) -> bool {
         match self.kind {
             PathKind::Unix => self.text.starts_with('/'),
             PathKind::Windows => {
@@ -360,7 +367,7 @@ impl RenderPath {
     }
 
     /// Whether the path may be written into a file of `style`.
-    fn fits(&self, style: PathStyle) -> bool {
+    pub(crate) fn fits(&self, style: PathStyle) -> bool {
         match (style, self.kind) {
             (PathStyle::Unix, PathKind::Unix) => true,
             (PathStyle::Windows, PathKind::Windows | PathKind::Pipe) => true,
@@ -488,7 +495,7 @@ pub const INCLUDE_TARGET_GLOB: &str = "include_target_glob";
 
 /// `User`: the contract `AccountName` token rule (which excludes `%`), and no leading
 /// `-`.
-fn check_user(user: &str) -> Result<(), RenderError> {
+pub(crate) fn check_user(user: &str) -> Result<(), RenderError> {
     if AccountName::parse(user).is_err() || user.starts_with('-') {
         return Err(RenderError::RefusedValue("user"));
     }
@@ -513,21 +520,36 @@ pub fn render_managed(aliases: &[ManagedAlias], style: PathStyle) -> Result<Vec<
 }
 
 /// The `Host`, `HostName`, `Port` and `User` lines every section starts with.
+#[allow(clippy::too_many_arguments)]
 fn push_route(
     out: &mut String,
     alias: &AliasName,
     hostname: &HostName,
     port: Option<u16>,
     user: &str,
-    jump: Option<&AliasName>,
+    route: Option<RouteLine<'_>>,
+    endpoint: Option<&RenderPath>,
+    style: PathStyle,
 ) -> Result<(), RenderError> {
     check_user(user)?;
     if port == Some(0) {
         return Err(RenderError::RefusedValue("port"));
     }
+    let jump = match route {
+        Some(RouteLine::Jump(j)) => Some(j),
+        _ => None,
+    };
     if jump.is_some_and(|j| j.0.eq_ignore_ascii_case(alias.as_str())) {
         return Err(RenderError::RefusedValue("jump"));
     }
+    // ⟨M06 U5a⟩ The helper's lines are built before anything is written.
+    let helper = match route {
+        Some(RouteLine::Helper(h)) => {
+            let endpoint = endpoint.ok_or(RenderError::RefusedValue("identity_agent"))?;
+            Some(crate::routes::helper_lines(h, user, endpoint, style)?)
+        }
+        _ => None,
+    };
     out.push('\n');
     out.push_str("Host ");
     out.push_str(alias.as_str());
@@ -546,6 +568,9 @@ fn push_route(
         out.push_str(jump.as_str());
         out.push('\n');
     }
+    if let Some(lines) = helper {
+        out.push_str(&lines);
+    }
     Ok(())
 }
 
@@ -554,9 +579,18 @@ fn push_existing(
     out: &mut String,
     a: &ManagedAlias,
     style: PathStyle,
-    jump: Option<&AliasName>,
+    route: Option<RouteLine<'_>>,
 ) -> Result<(), RenderError> {
-    push_route(out, &a.alias, &a.hostname, a.port, &a.user, jump)?;
+    push_route(
+        out,
+        &a.alias,
+        &a.hostname,
+        a.port,
+        &a.user,
+        route,
+        a.identity_agent.as_ref(),
+        style,
+    )?;
     if let Some(agent) = &a.identity_agent {
         if !agent.fits(style) {
             return Err(RenderError::RefusedValue("identity_agent"));
@@ -575,6 +609,11 @@ fn push_existing(
     }
     if a.identities_only {
         out.push_str("    IdentitiesOnly yes\n");
+    }
+    // ⟨M06 U5a⟩ A helper alias never multiplexes (ADR-0012 §5.2): an existing-access section
+    // has no owned mux path, so it states the defaults the verification requires.
+    if matches!(route, Some(RouteLine::Helper(_))) {
+        out.push_str("    ControlMaster no\n    ControlPath none\n");
     }
     Ok(())
 }
@@ -691,6 +730,21 @@ pub enum Section {
         /// The section reached through it.
         section: Box<Section>,
     },
+    /// ⟨M06 U5a⟩ `section` reached through Heimdall's own route helper (ADR-0012 §5.3, the
+    /// one ADR-0010 §5(b) exception): a destination with more than one approved route, or any
+    /// Iroh route. After `User`: `ProxyCommand "<abs heimdall>" route connect --destination
+    /// <id> --account <User> --endpoint "<IdentityAgent>"`, then the catalog pin and the
+    /// host-trust settings ADR-0012 §5.2 requires to hold effectively
+    /// ([`crate::routes`]). The account and endpoint are the section's own `User` and
+    /// `IdentityAgent`, so the helper's inputs and the alias's identity cannot differ. The
+    /// section is an existing-access (with an `IdentityAgent`) or managed-certificate section,
+    /// never a routed or helper one.
+    Helper {
+        /// The helper's typed inputs.
+        route: crate::routes::HelperRoute,
+        /// The section reached through it.
+        section: Box<Section>,
+    },
 }
 
 impl Section {
@@ -700,9 +754,19 @@ impl Section {
         match self {
             Section::ExistingAccess(a) => &a.alias,
             Section::ManagedCertificate { alias, .. } => alias,
-            Section::Routed { section, .. } => section.alias(),
+            Section::Routed { section, .. } | Section::Helper { section, .. } => section.alias(),
         }
     }
+}
+
+/// ⟨M06 U5a⟩ What follows a section's `User` line: M04's single-hop jump, or the route
+/// helper with the section's own endpoint.
+#[derive(Clone, Copy)]
+enum RouteLine<'a> {
+    /// `ProxyJump <jump alias>`.
+    Jump(&'a AliasName),
+    /// The helper's `ProxyCommand` and the catalog pin ([`crate::routes`]).
+    Helper(&'a crate::routes::HelperRoute),
 }
 
 /// A file path for a managed section: never a pipe, and fit for `style`.
@@ -727,7 +791,7 @@ fn push_managed(
     control_path: Option<&RenderPath>,
     style: PathStyle,
     form: ManagedIdentityForm,
-    jump: Option<&AliasName>,
+    route: Option<RouteLine<'_>>,
 ) -> Result<(), RenderError> {
     if !endpoint.fits(style) {
         return Err(RenderError::RefusedValue("identity_agent"));
@@ -739,7 +803,16 @@ fn push_managed(
     {
         return Err(RenderError::RefusedValue("control_path"));
     }
-    push_route(out, alias, hostname, port, user, jump)?;
+    push_route(
+        out,
+        alias,
+        hostname,
+        port,
+        user,
+        route,
+        Some(endpoint),
+        style,
+    )?;
     out.push_str("    IdentityAgent ");
     out.push_str(&endpoint.ssh_quoted());
     out.push('\n');
@@ -797,12 +870,12 @@ pub fn render_sections(
 fn push_section(
     out: &mut String,
     s: &Section,
-    jump: Option<&AliasName>,
+    route: Option<RouteLine<'_>>,
     style: PathStyle,
     form: ManagedIdentityForm,
 ) -> Result<(), RenderError> {
     match s {
-        Section::ExistingAccess(a) => push_existing(out, a, style, jump),
+        Section::ExistingAccess(a) => push_existing(out, a, style, route),
         Section::ManagedCertificate {
             alias,
             hostname,
@@ -824,17 +897,31 @@ fn push_section(
             control_path.as_ref(),
             style,
             form,
-            jump,
+            route,
         ),
         Section::Routed {
             jump: next,
             section,
         } => {
-            // One hop: a routed section never wraps a routed one.
-            if jump.is_some() || matches!(**section, Section::Routed { .. }) {
+            // One hop: a routed section never wraps a routed (or helper) one.
+            if route.is_some()
+                || matches!(**section, Section::Routed { .. } | Section::Helper { .. })
+            {
                 return Err(RenderError::RefusedValue("jump"));
             }
-            push_section(out, section, Some(next), style, form)
+            push_section(out, section, Some(RouteLine::Jump(next)), style, form)
+        }
+        Section::Helper {
+            route: helper,
+            section,
+        } => {
+            // ⟨M06 U5a⟩ The helper wraps one plain section, never a route.
+            if route.is_some()
+                || matches!(**section, Section::Routed { .. } | Section::Helper { .. })
+            {
+                return Err(RenderError::RefusedValue("route"));
+            }
+            push_section(out, section, Some(RouteLine::Helper(helper)), style, form)
         }
     }
 }

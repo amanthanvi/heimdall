@@ -145,9 +145,14 @@
           ]
         },
         {
-          "description": "Applied as a durable policy revision that also ends every affected grant like\nexpiry and refuses new grants until cleared (§6.1 \"Cutoff\"). Wave 0 reads a\ndelivered cutoff as taking effect when applied (no scheduled instant).",
+          "description": "Applied as a durable policy revision that also ends every affected grant like\nexpiry and refuses new grants until cleared (ADR-0005 §6.1 \"Cutoff\").\n⟨rev6.1; M06-W0-R02, orchestrator ruling⟩ It carries the owner's instant `at` (as the\nlocal `policy cutoff` request does). The runner's effective cutoff is\n`min(existing, at)`: a delivered or replayed cutoff only shortens it, never delays it\n(moving a cutoff later is a widening, runner-local). An `at` at or before trusted now\napplies at the durable apply, with no signature after that commit; a future `at` is\npersisted and enforced at `at` by the supervisor wake; under uncertain time it fires\nas soon as `at` may have passed (the upper bound of now). Enforcement is m06-plan U4's.",
           "type": "object",
           "properties": {
+            "at": {
+              "description": "The owner's cutoff instant.",
+              "type": "string",
+              "format": "date-time"
+            },
             "kind": {
               "type": "string",
               "const": "policy_cutoff"
@@ -166,6 +171,7 @@
           "required": [
             "kind",
             "scope",
+            "at",
             "revision"
           ]
         }

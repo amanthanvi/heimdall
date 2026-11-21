@@ -55,6 +55,8 @@ pub mod limits;
 pub mod parse;
 pub mod relevant;
 pub mod render;
+// ⟨M06 U5a⟩ The route helper's alias and the catalog pin file (ADR-0012 §5.2, §5.3).
+pub mod routes;
 
 #[cfg(test)]
 mod tests {

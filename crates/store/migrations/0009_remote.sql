@@ -85,18 +85,23 @@ CREATE TABLE remote_effect_acks (
     PRIMARY KEY (producer, effect_id, target_kind, target_ref, target_generation)
 ) STRICT;
 
--- Policy revisions the runner received (ADR-0012 §7.2): durable pause and cutoff revisions,
--- one row per (scope, revision). `kind` is `pause` or `cutoff`; `scope_key` is the
--- canonical form of the policy or target it applies to.
+-- Policy revisions the runner received (ADR-0012 §7.2): durable pause and cutoff revisions.
+-- ⟨M06-W0-R05; amended in place before any writer (unmerged, unreleased)⟩ Identity is
+-- producer-scoped, one row per (scope, producer, revision), so two controllers' equal
+-- revision numbers for one scope never collide; `runner_seq` is the runner-side apply order,
+-- and narrowing effects compose (no pause or cutoff disappears; m06-plan U4). `kind` is
+-- `pause` or `cutoff`; `scope_key` is the canonical form of the policy or target it applies
+-- to.
 CREATE TABLE remote_policy_revisions (
     scope_key   TEXT NOT NULL,
-    revision    INTEGER NOT NULL,
-    kind        TEXT NOT NULL,
     producer    TEXT NOT NULL,
+    revision    INTEGER NOT NULL,
+    runner_seq  INTEGER NOT NULL UNIQUE,
+    kind        TEXT NOT NULL,
     effect_id   TEXT NOT NULL,
     received_at TEXT NOT NULL,
     record_json TEXT NOT NULL,
-    PRIMARY KEY (scope_key, revision)
+    PRIMARY KEY (scope_key, producer, revision)
 ) STRICT;
 
 -- The controller's pins of each remote runner environment (ADR-0012 §3.3, §7.5): its

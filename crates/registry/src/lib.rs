@@ -27,5 +27,8 @@ pub mod hm1;
 pub mod line;
 pub mod plan;
 pub mod post_image;
+// ⟨M06 U5a⟩ The helper's isolated jump leg and the `ssh -G` pin verification (ADR-0012 §5.2,
+// §5.4, §5.5).
+pub mod routes;
 pub mod script;
 pub mod step;

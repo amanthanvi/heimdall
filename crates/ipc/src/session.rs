@@ -90,7 +90,7 @@ use heimdall_contract::ipc::{
     PrincipalInfo, ServerHello, ServerMessage, capability,
 };
 use heimdall_contract::remote::Role;
-use heimdall_contract::request::{InteractionMode, Request};
+use heimdall_contract::request::{InteractionMode, ObserveRequest, Request};
 use heimdall_contract::{Code, PROTOCOL_VERSION, SchemaVersion};
 use tokio::sync::broadcast;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};
@@ -278,6 +278,11 @@ pub struct LiveEvent {
     /// The event; its `cursor` is replaced at delivery.
     pub event: Event,
 }
+
+/// ⟨M06-W0-R03⟩ Whether one subscription's reader may see a live event (the same shape as
+/// `heimdall_app::events::LiveVisibility`): supplied per subscription by
+/// [`Dispatcher::live_visibility`].
+pub type LiveVisibility = Arc<dyn Fn(&Event) -> bool + Send + Sync>;
 
 /// What a subscription starts with (ADR-0006 §8; review F08). Same shape as
 /// `heimdall_app::events::SubscriptionStart`; the runtime adapts one to the other.
@@ -540,6 +545,19 @@ fn resync_event_with(
     }
 }
 
+/// ⟨M06-W0-R10⟩ Whether a filter selects an event type whose producing capability the
+/// session did not negotiate (`EventType::required_capability`): refused
+/// `SCHEMA_UNSUPPORTED` at subscribe and `observe`, never an accepted subscription that
+/// silently filters everything out.
+fn selects_unnegotiated(filter: &EventFilter, negotiated: &BTreeSet<String>) -> bool {
+    filter
+        .required_capabilities()
+        .any(|c| !negotiated.contains(c))
+}
+
+const UNNEGOTIATED_SELECTOR: &str =
+    "an event type in the filter needs a capability the session did not negotiate";
+
 fn filter_matches(filter: &EventFilter, event: &Event) -> bool {
     if let Some(op) = &filter.operation_id
         && event.operation_id.as_ref() != Some(op)
@@ -569,6 +587,7 @@ enum Done {
         filter: EventFilter,
         from: Option<Cursor>,
         result: Result<SubscriptionStart, Box<Envelope<ErrorData>>>,
+        visible: Option<LiveVisibility>,
     },
 }
 
@@ -604,6 +623,8 @@ struct SubState {
     /// Live events at or below this sequence were covered by the snapshot/backlog.
     boundary_seq: u64,
     cursor_for: Arc<dyn Fn(u64) -> Cursor + Send + Sync>,
+    /// ⟨M06-W0-R03⟩ The reader's live-event visibility (`None`: every event).
+    visible: Option<LiveVisibility>,
     stop: CancellationToken,
 }
 
@@ -817,12 +838,12 @@ where
                                 break Err(e);
                             }
                         }
-                        Done::Subscribed { seq, filter, from, result: Ok(start) } => {
+                        Done::Subscribed { seq, filter, from, result: Ok(start), visible } => {
                             pending_subscribes -= 1;
                             let id = next_sub_id;
                             next_sub_id += 1;
                             let stop = shutdown.child_token();
-                            match start_subscription(&mut wire, &environment, seq, id, filter, from, start, stop).await {
+                            match start_subscription(&mut wire, &environment, seq, id, filter, from, start, visible, stop).await {
                                 Ok(Some((state, live))) => {
                                     sub_polls.push(next_from(id, live, state.stop.clone()));
                                     subs.insert(id, state);
@@ -844,7 +865,8 @@ where
                         Ok(live) => {
                             let mut event = live.event.clone();
                             event.cursor = (state.cursor_for)(live.seq);
-                            if filter_matches(&state.filter, &event) {
+                            let visible = state.visible.as_ref().is_none_or(|v| v(&event));
+                            if visible && filter_matches(&state.filter, &event) {
                                 // The cursor advances only once the frame is out.
                                 let before = state.last_cursor.clone();
                                 let advance_to = Some(event.cursor.clone());
@@ -930,6 +952,11 @@ where
                                 // ADR-0006 §2.4, §13.6 item 8: a request outside the
                                 // negotiated capabilities is never dispatched.
                                 Some(response(seq, Code::SchemaUnsupported, "this request needs a capability the session did not negotiate"))
+                            } else if let Request::Observe(ObserveRequest::Events { filter, .. }) = &request
+                                && selects_unnegotiated(filter, &negotiated)
+                            {
+                                // ⟨M06-W0-R10⟩ Never dispatched either.
+                                Some(response(seq, Code::SchemaUnsupported, UNNEGOTIATED_SELECTOR))
                             } else if request.requires_attended_session() && !session.attended {
                                 // Defence in depth: never dispatched (ADR-0006 §2.3).
                                 Some(response(seq, Code::InteractionRequired, "this request requires an attended interactive session"))
@@ -959,6 +986,9 @@ where
                         ClientMessage::Subscribe { seq, filter, from_cursor } => {
                             if from_cursor.as_ref().is_some_and(|c| c.0.len() > MAX_CURSOR_LEN) {
                                 Some(response(seq, Code::UsageError, "cursor exceeds the maximum length"))
+                            } else if selects_unnegotiated(&filter, &negotiated) {
+                                // ⟨M06-W0-R10⟩
+                                Some(response(seq, Code::SchemaUnsupported, UNNEGOTIATED_SELECTOR))
                             } else if subs.len() + pending_subscribes >= limits.max_subscriptions {
                                 Some(response(seq, Code::Backpressure, "too many subscriptions on this connection"))
                             } else if inflight.len() >= limits.max_inflight {
@@ -968,7 +998,8 @@ where
                                 let session = session.clone();
                                 inflight.push(Box::pin(async move {
                                     let result = dispatcher.subscribe(&session, filter.clone(), from_cursor.clone()).await;
-                                    Done::Subscribed { seq, filter, from: from_cursor, result }
+                                    let visible = dispatcher.live_visibility(&session);
+                                    Done::Subscribed { seq, filter, from: from_cursor, result, visible }
                                 }));
                                 None
                             }
@@ -1032,6 +1063,7 @@ async fn start_subscription<S>(
     filter: EventFilter,
     from: Option<Cursor>,
     start: SubscriptionStart,
+    visible: Option<LiveVisibility>,
     stop: CancellationToken,
 ) -> Result<Option<(SubState, broadcast::Receiver<Arc<LiveEvent>>)>, FrameError>
 where
@@ -1079,6 +1111,7 @@ where
             last_cursor: cursor,
             boundary_seq,
             cursor_for,
+            visible,
             stop,
         },
         live,
@@ -1176,6 +1209,18 @@ pub trait Dispatcher: Send + Sync {
         filter: EventFilter,
         from: Option<Cursor>,
     ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>>;
+
+    /// ⟨M06-W0-R03⟩ The reader-scoped visibility of live events for a subscription of
+    /// `session`, asked once when the subscription starts (the backlog and snapshot are
+    /// already scoped by [`Self::subscribe`]). `None` delivers every live event, which is
+    /// correct only for a session whose caller is the local owner (ADR-0006 §18.2 item
+    /// 17): a dispatcher that serves any other caller (a paired client, M06 W2) must
+    /// return the caller's visibility (`heimdall_app::events::EventPublisher::
+    /// live_visibility`). Default: `None`.
+    fn live_visibility(&self, session: &SessionInfo) -> Option<LiveVisibility> {
+        let _ = session;
+        None
+    }
 
     /// Called once per dispatched request, **after** its response frame was
     /// written to the peer (or the write failed), with the request's kind and the
