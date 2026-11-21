@@ -28,6 +28,19 @@
 )]
 
 fn diagnostic_tail(bytes: &[u8], root: &std::path::Path) -> String {
+    let mut names: Vec<_> = ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .collect();
+    names.sort_unstable_by_key(|name| std::cmp::Reverse(name.len()));
+    redact_diagnostic(bytes, root, names.iter().map(String::as_str))
+}
+
+fn redact_diagnostic<'a>(
+    bytes: &[u8],
+    root: &std::path::Path,
+    names: impl IntoIterator<Item = &'a str>,
+) -> String {
     let mut text = String::from_utf8_lossy(bytes).into_owned();
     heimdall_testkit::assert_no_canary(&text);
     let root = root.to_string_lossy();
@@ -36,16 +49,73 @@ fn diagnostic_tail(bytes: &[u8], root: &std::path::Path) -> String {
         root.replace('\\', "/"),
         root.replace('\\', "\\\\"),
     ] {
-        text = text.replace(&path, "<scratch>");
+        redact_value(&mut text, &path, "<scratch>");
     }
-    for name in ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"] {
-        if let Ok(value) = std::env::var(name)
-            && !value.is_empty()
-        {
-            text = text.replace(&value, "<redacted>");
+    // The shared excerpt sanitizer handles exact-case home paths. Also recognize
+    // Windows home segments in mixed case and in JSON diagnostics.
+    for marker in [r"\\users\\", r"\users\", "/users/"] {
+        for (at, _) in text.to_ascii_lowercase().rmatch_indices(marker) {
+            let start = at + marker.len();
+            let account = &text[start..];
+            let len = account
+                .find(['/', '\\', '\'', '"', '\r', '\n'])
+                .unwrap_or(account.len());
+            if len != 0 {
+                text.replace_range(start..start + len, "~");
+            }
         }
     }
+    for name in names {
+        redact_value(&mut text, name, "<redacted>");
+    }
     heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
+}
+
+fn redact_value(text: &mut String, value: &str, replacement: &str) {
+    if value.is_empty() {
+        return;
+    }
+    let mut ranges = Vec::new();
+    let mut end = 0;
+    for (start, _) in text.char_indices() {
+        if start < end {
+            continue;
+        }
+        let mut rest = text[start..].chars();
+        if value.chars().all(|expected| {
+            rest.next()
+                .is_some_and(|actual| actual.to_uppercase().eq(expected.to_uppercase()))
+        }) {
+            end = text.len() - rest.as_str().len();
+            ranges.push(start..end);
+        }
+    }
+    for range in ranges.into_iter().rev() {
+        text.replace_range(range, replacement);
+    }
+}
+
+#[test]
+fn diagnostic_redacts_mixed_case_windows_identifiers() {
+    let stderr = br#"Failed: C:\uSeRs\ExampleUser\ScRaTcH\raw
+{"path":"c:\\USerS\\EXAMPLEUSER\\sCrAtCh\\escaped"}
+Path: c:/users/exampleuser/SCRATCH/forward
+Other: c:\uSeRs\OtherFixture\file c:\\uSeRs\\OtherFixture\\file c:/uSeRs/OtherFixture/file
+Account: eXaMpLeUsEr; Machine: example-pc
+"#;
+    let redacted = redact_diagnostic(
+        stderr,
+        std::path::Path::new(r"C:\Users\ExampleUser\scratch"),
+        ["ExampleUser", "EXAMPLE-PC"],
+    );
+    assert_eq!(redacted.matches("<scratch>").count(), 3, "{redacted}");
+    assert!(
+        redacted.contains("Account: <redacted>; Machine: <redacted>"),
+        "{redacted}"
+    );
+    for value in ["exampleuser", "example-pc", "otherfixture"] {
+        assert!(!redacted.to_ascii_lowercase().contains(value), "{redacted}");
+    }
 }
 
 #[cfg(unix)]
@@ -467,6 +537,7 @@ mod pty {
                     "HEIMDALL_TEST_SSH_HOME".into(),
                     self.ssh_home.clone().into_os_string(),
                 ),
+                ("HEIMDALL_TEST_SECRET_STORE".into(), "scratch".into()),
                 // A first start writes without an attended `time confirm`.
                 ("HEIMDALL_TEST_TIME_SYNC".into(), "synchronized".into()),
                 ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
@@ -570,7 +641,8 @@ mod pty {
                 }
                 assert!(
                     Instant::now() < deadline,
-                    "timed out waiting for {what}; the last frame:\n{screen}"
+                    "timed out waiting for {what}; the last frame:\n{}",
+                    super::diagnostic_tail(screen.as_bytes(), self.root.path())
                 );
                 std::thread::sleep(Duration::from_millis(20));
             }
@@ -1391,22 +1463,155 @@ mod pty {
         assert_no_canary(&String::from_utf8_lossy(&pty.bytes()));
     }
 
+    /// A resize queued with Enter must invalidate a fully drawn confirmation.
+    #[test]
+    fn resize_then_yes_before_redraw_stops_nothing() {
+        use rustix::process::{Pid, Signal, WaitOptions, kill_process, waitpid};
+
+        const WORK: &str = "m07-resize";
+        const REFUSED: &str = "not on screen yet: nothing was sent";
+        const SHORT: Duration = Duration::from_secs(5);
+        let w = World::new(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
+        let ensure = |attempt| {
+            w.cli(&[
+                "--json",
+                "access",
+                "ensure",
+                "--profile",
+                "dev",
+                "--work-id",
+                WORK,
+                "--request-id",
+                &format!("m07-resize-{attempt}"),
+                "--pair",
+                "h1:deploy",
+                "--async",
+            ])
+        };
+        let baseline = ensure(0);
+        assert!(
+            baseline.status.success(),
+            "fixture work should be accepted: {}",
+            w.cli_diagnostics(&baseline)
+        );
+        let pty = Pty::open(40, 120);
+        let mut tui = w.started(&pty, w.destination_count());
+        let resize_and_confirm = |tui: &mut Proc| {
+            let child = tui.child.as_mut().unwrap();
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "the TUI must be running"
+            );
+            let pid = Pid::from_child(child);
+            kill_process(pid, Signal::STOP).unwrap();
+            let (_, status) =
+                rustix::io::retry_on_intr(|| waitpid(Some(pid), WaitOptions::UNTRACED))
+                    .unwrap()
+                    .unwrap();
+            if !status.stopped() {
+                tui.child.take(); // waitpid already reaped this child.
+                panic!("the PTY child exited before suspension");
+            }
+            pty.resize(5, 40);
+            pty.write(b"yes\r");
+            kill_process(pid, Signal::CONT).unwrap();
+        };
+        let wide_confirm = |s: &str, action: &str| {
+            s.lines().count() == 40
+                && s.contains(action)
+                && s.contains("Type yes to confirm [y/N]: _")
+                && !s.contains("more rows below")
+                && !s.contains("more row below")
+        };
+        for attempt in 1..=10 {
+            pty.write(b"s2\rm07-resize\r");
+            w.wait_screen("the full stop confirmation", SHORT, |s| {
+                wide_confirm(s, "Stop work m07-resize: access only it uses ends now")
+                    && s.contains("access stay.")
+            });
+            resize_and_confirm(&mut tui);
+            w.wait_screen("the resize and stop answer", SHORT, |s| {
+                s.lines().count() == 5
+                    && (s.contains(REFUSED) || s.contains("stop work m07-resize:"))
+            });
+            // Wait for the stop's reply above before probing the durable record, so
+            // an accepted stop cannot race a successful ensure.
+            let out = ensure(attempt);
+            assert!(
+                out.status.success(),
+                "work {WORK} was refused after resize attempt {attempt}: {}",
+                w.cli_diagnostics(&out)
+            );
+            assert!(
+                w.screen().contains(REFUSED),
+                "stop confirmation did not explain its refusal"
+            );
+            assert!(
+                tui.child.as_mut().unwrap().try_wait().unwrap().is_none(),
+                "the TUI must stay open"
+            );
+            pty.resize(40, 120);
+            w.wait_screen("the restored stop confirmation", SHORT, |s| {
+                wide_confirm(s, "Stop work m07-resize:") && s.contains("yes refused")
+            });
+            pty.write(b"\x1b");
+            w.wait_screen("the stop menu closed", SHORT, |s| {
+                s.contains("cancelled: nothing was sent")
+            });
+        }
+
+        pty.write(b"8");
+        w.wait_screen("Settings and its standing access rows", SHORT, |s| {
+            selected_tab(s) == Some(8) && s.contains("pol · profile dev")
+        });
+        pty.write(b"\x1b[B\r\r");
+        w.wait_screen("the full Settings pause confirmation", SHORT, |s| {
+            wide_confirm(s, "Same as: heimdall access pause pol")
+                && s.contains("Standing access pol: profile dev")
+        });
+        resize_and_confirm(&mut tui);
+        w.wait_screen("the Settings pause refusal", SHORT, |s| {
+            s.lines().count() == 5 && s.contains(REFUSED)
+        });
+        let policies = w.json(&["--json", "inspect", "policies"]);
+        assert!(
+            policies["data"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| { p["policy_id"] == "pol" && p["paused_since"].is_null() }),
+            "the fixture policy must stay active"
+        );
+        assert!(
+            tui.child.as_mut().unwrap().try_wait().unwrap().is_none(),
+            "the TUI must stay open"
+        );
+        pty.resize(40, 120);
+        w.wait_screen("the restored Settings confirmation", SHORT, |s| {
+            wide_confirm(s, "Same as: heimdall access pause pol") && s.contains("yes refused")
+        });
+        pty.write(b"\x1b");
+        w.wait_screen("the Settings prompt closed", SHORT, |s| {
+            s.contains("cancelled: nothing was sent")
+        });
+        pty.write(b"q");
+        tui.wait(SHORT);
+    }
+
     /// m07-plan U1 `tui_standalone_access_and_stop` (the TUI standalone row): an observed
-    /// alias served by the loopback fixture sshd, reached with a per-run key held by a
-    /// disposable `ssh-agent`. With no CLI command in between: the destination is opened,
+    /// alias served by the loopback fixture sshd, reached with a per-run key.
+    /// With no CLI command in between: the destination is opened,
     /// connected through the handoff (a trivial command on the fixture), and after the
     /// return the profile's access is stopped from the stop menu; the terminal is restored.
     ///
     /// The verified client is a scratch wrapper around the system `ssh` that adds only
     /// isolation and the fixture's own files: `-F` the scratch configuration, the fixture
-    /// key through `IdentityAgent` = the disposable agent with `IdentitiesOnly=yes`, no
+    /// key with `IdentitiesOnly=yes` and `IdentityAgent=none`, no
     /// certificate, scratch known hosts, no global known hosts and no multiplexing, so the
     /// owner's `~/.ssh`, agent and keys are never read.
     #[test]
     fn tui_standalone_access_and_stop() {
-        use heimdall_testkit::agent::{
-            AgentOptions, DisposableSshAgent, FixtureKey, KeyConstraints,
-        };
+        use heimdall_testkit::agent::FixtureKey;
         use heimdall_testkit::home::Scratch;
         use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
 
@@ -1414,9 +1619,6 @@ mod pty {
         const LOGIN: &str = "HM-M07-FIXTURE-LOGIN";
         let fixtures = Scratch::new().unwrap();
         let key = FixtureKey::generate().with_comment("hm-m07-fixture-key");
-        let agent = DisposableSshAgent::start(&fixtures, AgentOptions::default())
-            .unwrap_or_else(|e| panic!("blocked: the disposable ssh-agent cannot start here: {e}"));
-        agent.add_key(&key, KeyConstraints::default()).unwrap();
         let sshd = LoopbackSshd::start(
             &fixtures,
             SshdConfig {
@@ -1441,22 +1643,21 @@ mod pty {
         .unwrap();
         let known = w.root.path().join("fixture_known_hosts");
         std::fs::write(&known, format!("{}\n", sshd.host_key_line)).unwrap();
-        let public = w.root.path().join("fixture_key.pub");
-        key.write_public(&public).unwrap();
+        let identity = w.root.path().join("fixture_key");
+        key.write_private(&identity).unwrap();
         let marks = w.root.path().join("ssh-invocations");
-        let sock = agent.socket.display().to_string();
         w.write_ssh(&format!(
             "#!/bin/sh\n\
              # hm-m07 fixture client: the system ssh, isolated, reaching only the loopback fixture.\n\
              for a in \"$@\"; do case \"$a\" in -V) exec /usr/bin/ssh -V ;; esac; done\n\
              echo \"$*\" >> '{marks}'\n\
-             exec /usr/bin/ssh -F '{config}' -o IdentityFile='{public}' -o IdentitiesOnly=yes \
-             -o IdentityAgent='{sock}' -o CertificateFile=none -o UserKnownHostsFile='{known}' \
+             exec /usr/bin/ssh -F '{config}' -o IdentityFile=none -i '{identity}' -o IdentitiesOnly=yes \
+             -o IdentityAgent=none -o CertificateFile=none -o UserKnownHostsFile='{known}' \
              -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o BatchMode=yes \
              -o ControlMaster=no -o ControlPath=none -o LogLevel=ERROR \"$@\" 'echo {LOGIN}'\n",
             marks = marks.display(),
             config = config.display(),
-            public = public.display(),
+            identity = identity.display(),
             known = known.display(),
         ));
         let added = w.json(&["--json", "destination", "add", ALIAS, "--observed"]);
@@ -1484,8 +1685,9 @@ mod pty {
         let screen = w.screen();
         assert!(
             screen.contains(&format!("ssh {ALIAS} exited with status 0")),
-            "{screen}\n{}",
-            String::from_utf8_lossy(&pty.bytes())
+            "{}\n{}",
+            super::diagnostic_tail(screen.as_bytes(), w.root.path()),
+            super::diagnostic_tail(&pty.bytes(), w.root.path())
         );
         assert!(
             String::from_utf8_lossy(&pty.bytes()).contains(LOGIN),
@@ -1553,7 +1755,6 @@ mod pty {
             "{policies}"
         );
         drop(sshd);
-        drop(agent);
     }
 
     /// Whether the TUI still draws after `wait` (its screen file changes or not is not
@@ -1658,6 +1859,19 @@ mod windows_console {
         let mut env = vec![
             ("HEIMDALL_HOME".to_owned(), text(&root.join("hh"))),
             ("HOME".to_owned(), text(&root.join("home"))),
+            ("USERPROFILE".to_owned(), text(&root.join("home"))),
+            ("APPDATA".to_owned(), text(&root.join("home/appdata"))),
+            (
+                "LOCALAPPDATA".to_owned(),
+                text(&root.join("home/localappdata")),
+            ),
+            ("ProgramData".to_owned(), text(&root.join("programdata"))),
+            (
+                "ALLUSERSPROFILE".to_owned(),
+                text(&root.join("programdata")),
+            ),
+            ("TEMP".to_owned(), text(&root.join("temp"))),
+            ("TMP".to_owned(), text(&root.join("temp"))),
             (
                 "HEIMDALL_TEST_SSH_HOME".to_owned(),
                 text(&root.join("sshhome")),
@@ -1670,7 +1884,7 @@ mod windows_console {
             ("GIT_CONFIG_NOSYSTEM".to_owned(), "1".to_owned()),
             ("PATH".to_owned(), format!(r"{system}\System32")),
         ];
-        for k in ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP"] {
+        for k in ["SystemRoot", "windir", "ComSpec", "PATHEXT"] {
             if let Ok(v) = std::env::var(k) {
                 env.push((k.to_owned(), v));
             }
@@ -1733,7 +1947,14 @@ mod windows_console {
     fn windows_tui_walkthrough() {
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path();
-        for d in ["home", "hh", "sshhome/etc-ssh"] {
+        for d in [
+            "home/appdata",
+            "home/localappdata",
+            "hh",
+            "sshhome/etc-ssh",
+            "programdata",
+            "temp",
+        ] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
         let screen = root.join("screen.txt");
@@ -1741,7 +1962,7 @@ mod windows_console {
         let vars = env(root, &screen);
         let _stop = StopRuntime(vars.clone());
         let argv = vec![bin(), "tui".to_owned()];
-        let mut t = TerminalCommand::new(std::env::current_exe().unwrap())
+        let mut command = TerminalCommand::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "windows_console::console_child",
@@ -1754,7 +1975,11 @@ mod windows_console {
             .size(120, 40)
             .env(ARGV, serde_json::to_string(&argv).unwrap())
             .env(ENVS, serde_json::to_string(&vars).unwrap())
-            .env(RESIZE, resize.to_string_lossy().into_owned())
+            .env(RESIZE, resize.to_string_lossy().into_owned());
+        for (key, value) in &vars {
+            command = command.env(key, value);
+        }
+        let mut t = command
             .spawn()
             .unwrap_or_else(|e| panic!("the pseudoconsole did not start: {e}"));
         wait_frame(&mut t, &screen, "the first frame", |f| {

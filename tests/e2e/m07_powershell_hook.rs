@@ -153,6 +153,7 @@ impl Fixture {
             "account/appdata",
             "account/localappdata",
             "ssh/etc-ssh",
+            "programdata",
             "temp",
             LOCATION,
         ] {
@@ -183,7 +184,12 @@ impl Fixture {
             .env("HEIMDALL_TEST_SSH_HOME", self.root.join("ssh"))
             .env("FIXTURE_LOCATION", self.root.join(LOCATION))
             .env("PSModulePath", host.parent().unwrap().join("Modules"))
+            .env("TEMP", self.root.join("temp"))
+            .env("TMP", self.root.join("temp"))
+            .env("TMPDIR", self.root.join("temp"))
             .env("XDG_CACHE_HOME", self.root.join("account"))
+            .env("XDG_CONFIG_HOME", self.root.join("account"))
+            .env("XDG_DATA_HOME", self.root.join("account"))
             .env("POWERSHELL_TELEMETRY_OPTOUT", "1")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .current_dir(&self.root)
@@ -198,7 +204,6 @@ impl Fixture {
                 windows.clone(),
             ]);
             for name in [
-                "ProgramData",
                 "ProgramFiles",
                 "ProgramFiles(x86)",
                 "CommonProgramFiles",
@@ -216,10 +221,10 @@ impl Fixture {
                 .env("PATHEXT", ".COM;.EXE;.BAT;.CMD")
                 .args(["-ExecutionPolicy", "Bypass"])
                 .env("USERPROFILE", self.root.join("account"))
+                .env("ProgramData", self.root.join("programdata"))
+                .env("ALLUSERSPROFILE", self.root.join("programdata"))
                 .env("APPDATA", self.root.join("account/appdata"))
-                .env("LOCALAPPDATA", self.root.join("account/localappdata"))
-                .env("TEMP", self.root.join("temp"))
-                .env("TMP", self.root.join("temp"));
+                .env("LOCALAPPDATA", self.root.join("account/localappdata"));
         } else {
             path.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
         }
@@ -270,24 +275,94 @@ impl Fixture {
 }
 
 fn excerpt(bytes: &[u8], root: &Path) -> String {
+    let mut names: Vec<_> = ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .collect();
+    names.sort_unstable_by_key(|name| std::cmp::Reverse(name.len()));
+    redact_diagnostic(bytes, root, names.iter().map(String::as_str))
+}
+
+fn redact_diagnostic<'a>(
+    bytes: &[u8],
+    root: &Path,
+    names: impl IntoIterator<Item = &'a str>,
+) -> String {
     let mut text = String::from_utf8_lossy(bytes).into_owned();
-    assert_no_canary(&text);
+    heimdall_testkit::assert_no_canary(&text);
     let root = root.to_string_lossy();
     for path in [
         root.to_string(),
         root.replace('\\', "/"),
         root.replace('\\', "\\\\"),
     ] {
-        text = text.replace(&path, "<scratch>");
+        redact_value(&mut text, &path, "<scratch>");
     }
-    for name in ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"] {
-        if let Ok(value) = std::env::var(name)
-            && !value.is_empty()
-        {
-            text = text.replace(&value, "<redacted>");
+    // The shared excerpt sanitizer handles exact-case home paths. Also recognize
+    // Windows home segments in mixed case and in JSON diagnostics.
+    for marker in [r"\\users\\", r"\users\", "/users/"] {
+        for (at, _) in text.to_ascii_lowercase().rmatch_indices(marker) {
+            let start = at + marker.len();
+            let account = &text[start..];
+            let len = account
+                .find(['/', '\\', '\'', '"', '\r', '\n'])
+                .unwrap_or(account.len());
+            if len != 0 {
+                text.replace_range(start..start + len, "~");
+            }
         }
     }
+    for name in names {
+        redact_value(&mut text, name, "<redacted>");
+    }
     heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
+}
+
+fn redact_value(text: &mut String, value: &str, replacement: &str) {
+    if value.is_empty() {
+        return;
+    }
+    let mut ranges = Vec::new();
+    let mut end = 0;
+    for (start, _) in text.char_indices() {
+        if start < end {
+            continue;
+        }
+        let mut rest = text[start..].chars();
+        if value.chars().all(|expected| {
+            rest.next()
+                .is_some_and(|actual| actual.to_uppercase().eq(expected.to_uppercase()))
+        }) {
+            end = text.len() - rest.as_str().len();
+            ranges.push(start..end);
+        }
+    }
+    for range in ranges.into_iter().rev() {
+        text.replace_range(range, replacement);
+    }
+}
+
+#[test]
+fn diagnostic_redacts_mixed_case_windows_identifiers() {
+    let stderr = br#"Failed: C:\uSeRs\ExampleUser\ScRaTcH\raw
+{"path":"c:\\USerS\\EXAMPLEUSER\\sCrAtCh\\escaped"}
+Path: c:/users/exampleuser/SCRATCH/forward
+Other: c:\uSeRs\OtherFixture\file c:\\uSeRs\\OtherFixture\\file c:/uSeRs/OtherFixture/file
+Account: eXaMpLeUsEr; Machine: example-pc
+"#;
+    let redacted = redact_diagnostic(
+        stderr,
+        Path::new(r"C:\Users\ExampleUser\scratch"),
+        ["ExampleUser", "EXAMPLE-PC"],
+    );
+    assert_eq!(redacted.matches("<scratch>").count(), 3, "{redacted}");
+    assert!(
+        redacted.contains("Account: <redacted>; Machine: <redacted>"),
+        "{redacted}"
+    );
+    for value in ["exampleuser", "example-pc", "otherfixture"] {
+        assert!(!redacted.to_ascii_lowercase().contains(value), "{redacted}");
+    }
 }
 
 fn streams(root: &Path, stdout: &[u8], stderr: &[u8]) -> String {
@@ -321,6 +396,47 @@ async fn powershell_hook_writes_nothing_to_stdout() {
             .run(&host, RENDER, &["loaded", PROMPT, "rendered"])
             .await;
         assert!(!fixture.home.exists(), "the hook started no runtime");
+    })
+    .await;
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn powershell_writable_environment_is_in_scratch() {
+    for_each_host(|host| async move {
+        let fixture = Fixture::new();
+        let out = fixture
+            .output(
+                &host,
+                r#"
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+foreach ($name in 'ProgramData', 'ALLUSERSPROFILE', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA') {
+    [Environment]::GetEnvironmentVariable($name)
+}
+"#,
+            )
+            .await;
+        let paths = [
+            "programdata",
+            "programdata",
+            "temp",
+            "temp",
+            "account",
+            "account/appdata",
+            "account/localappdata",
+        ];
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut lines = stdout.lines();
+        assert!(
+            out.status.success()
+                && out.stderr.is_empty()
+                && lines.next() == Some("loaded")
+                && lines.map(|line| Path::new(line).canonicalize().ok()).eq(
+                    paths.map(|dir| Some(fixture.root.join(dir).canonicalize().unwrap()))
+                ),
+            "PowerShell did not inherit its scratch writable directories\n{}",
+            streams(&fixture.root, &out.stdout, &out.stderr)
+        );
     })
     .await;
 }

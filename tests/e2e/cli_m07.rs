@@ -278,6 +278,26 @@ fn check_output(out: &Output) {
 }
 
 fn excerpt(bytes: &[u8], root: &Path) -> String {
+    let mut names: Vec<_> = [
+        "USER",
+        "USERNAME",
+        "LOGNAME",
+        "HOSTNAME",
+        "COMPUTERNAME",
+        "HM_FIXTURE_SSHD_USER",
+    ]
+    .into_iter()
+    .filter_map(|name| std::env::var(name).ok())
+    .collect();
+    names.sort_unstable_by_key(|name| std::cmp::Reverse(name.len()));
+    redact_diagnostic(bytes, root, names.iter().map(String::as_str))
+}
+
+fn redact_diagnostic<'a>(
+    bytes: &[u8],
+    root: &Path,
+    names: impl IntoIterator<Item = &'a str>,
+) -> String {
     let mut text = String::from_utf8_lossy(bytes).into_owned();
     heimdall_testkit::assert_no_canary(&text);
     let root = root.to_string_lossy();
@@ -286,23 +306,73 @@ fn excerpt(bytes: &[u8], root: &Path) -> String {
         root.replace('\\', "/"),
         root.replace('\\', "\\\\"),
     ] {
-        text = text.replace(&path, "<scratch>");
+        redact_value(&mut text, &path, "<scratch>");
     }
-    for name in [
-        "USER",
-        "USERNAME",
-        "LOGNAME",
-        "HOSTNAME",
-        "COMPUTERNAME",
-        "HM_FIXTURE_SSHD_USER",
-    ] {
-        if let Ok(value) = std::env::var(name)
-            && !value.is_empty()
-        {
-            text = text.replace(&value, "<redacted>");
+    // The shared excerpt sanitizer handles exact-case home paths. Also recognize
+    // Windows home segments in mixed case and in JSON diagnostics.
+    for marker in [r"\\users\\", r"\users\", "/users/"] {
+        for (at, _) in text.to_ascii_lowercase().rmatch_indices(marker) {
+            let start = at + marker.len();
+            let account = &text[start..];
+            let len = account
+                .find(['/', '\\', '\'', '"', '\r', '\n'])
+                .unwrap_or(account.len());
+            if len != 0 {
+                text.replace_range(start..start + len, "~");
+            }
         }
     }
+    for name in names {
+        redact_value(&mut text, name, "<redacted>");
+    }
     heimdall_enroll::remote::redact_excerpt(text.as_bytes(), 4096)
+}
+
+fn redact_value(text: &mut String, value: &str, replacement: &str) {
+    if value.is_empty() {
+        return;
+    }
+    let mut ranges = Vec::new();
+    let mut end = 0;
+    for (start, _) in text.char_indices() {
+        if start < end {
+            continue;
+        }
+        let mut rest = text[start..].chars();
+        if value.chars().all(|expected| {
+            rest.next()
+                .is_some_and(|actual| actual.to_uppercase().eq(expected.to_uppercase()))
+        }) {
+            end = text.len() - rest.as_str().len();
+            ranges.push(start..end);
+        }
+    }
+    for range in ranges.into_iter().rev() {
+        text.replace_range(range, replacement);
+    }
+}
+
+#[test]
+fn diagnostic_redacts_mixed_case_windows_identifiers() {
+    let stderr = br#"Failed: C:\uSeRs\ExampleUser\ScRaTcH\raw
+{"path":"c:\\USerS\\EXAMPLEUSER\\sCrAtCh\\escaped"}
+Path: c:/users/exampleuser/SCRATCH/forward
+Other: c:\uSeRs\OtherFixture\file c:\\uSeRs\\OtherFixture\\file c:/uSeRs/OtherFixture/file
+Account: eXaMpLeUsEr; Machine: example-pc
+"#;
+    let redacted = redact_diagnostic(
+        stderr,
+        Path::new(r"C:\Users\ExampleUser\scratch"),
+        ["ExampleUser", "EXAMPLE-PC"],
+    );
+    assert_eq!(redacted.matches("<scratch>").count(), 3, "{redacted}");
+    assert!(
+        redacted.contains("Account: <redacted>; Machine: <redacted>"),
+        "{redacted}"
+    );
+    for value in ["exampleuser", "example-pc", "otherfixture"] {
+        assert!(!redacted.to_ascii_lowercase().contains(value), "{redacted}");
+    }
 }
 
 #[track_caller]

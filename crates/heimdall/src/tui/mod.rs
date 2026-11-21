@@ -286,6 +286,8 @@ fn event_loop(
 ) -> std::io::Result<Exit> {
     let mut reader = term::Reader::new();
     let mut dirty = true;
+    // ⟨M07⟩ The size the last frame was drawn for (review M07-W1-R01).
+    let mut drawn_size: Option<(u16, u16)> = None;
     let mut first_frame = true;
     let mut last_poll = Instant::now();
     let mut worker_gone = false;
@@ -333,6 +335,7 @@ fn event_loop(
         dirty |= app.set_now(Timestamp::now());
         if dirty {
             let frame = terminal.draw(|f| view::render(f, app))?;
+            drawn_size = Some((frame.area.width, frame.area.height));
             if let Some(path) = &test.screen {
                 dump_screen(frame.buffer, path);
             }
@@ -351,6 +354,17 @@ fn event_loop(
             term::Input::Resize => dirty = true,
             term::Input::Hangup => return Ok(Exit::Hangup),
             term::Input::Keys(keys) => {
+                // ⟨M07; review M07-W1-R01⟩ A resize reaches this loop asynchronously (the
+                // worker forwards SIGWINCH), so keys can arrive while the terminal already
+                // has another geometry than the last frame was drawn for: what that frame
+                // showed is no longer what is on the screen. Before any key of this batch
+                // acts, compare the terminal's size now with the drawn frame's; when they
+                // differ, count a frame that drew nothing, so every guarded confirmation
+                // (`model::Seen`: Settings, the stop menu) refuses its Enter and says why,
+                // and the repaint below shows the confirmation at the new size.
+                if stale_geometry(terminal, drawn_size) {
+                    app.begin_frame();
+                }
                 for key in keys {
                     let effects = app.key(key);
                     dirty = true;
@@ -362,6 +376,16 @@ fn event_loop(
                 }
             }
         }
+    }
+}
+
+/// ⟨M07; review M07-W1-R01⟩ Whether the terminal's size now differs from the size the
+/// last frame was drawn for (`None`: no frame yet). A size that cannot be read counts as
+/// changed: an unseen confirmation is refused, never assumed.
+fn stale_geometry(terminal: &Term, drawn: Option<(u16, u16)>) -> bool {
+    match (terminal.size(), drawn) {
+        (Ok(now), Some(drawn)) => (now.width, now.height) != drawn,
+        _ => true,
     }
 }
 
