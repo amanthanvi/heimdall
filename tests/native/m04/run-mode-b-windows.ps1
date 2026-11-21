@@ -796,6 +796,9 @@ function Invoke-SelfTest {
     Check 'X03 the end-of-run descendants: children and grandchildren of the harness, nothing else, names and identities only' (
         ((Get-DescendantSummary $tree 10) -join '; ') -ceq 'wsl.exe (pid 11, started t1); wslhost.exe (pid 12, started t2)' -and
         @(Get-DescendantSummary $tree 13).Count -eq 0)
+    Check 'W06 a recovered relay retry is not a failed command (facts and build.txt keep it; the step''s one line carries the outcome), and try 1''s facts never take the run''s plain fixture-sshd key' (
+        $selfText2.Contains('$retryNote = "harness sshd try $sshdTry') -and $selfText2.Contains('$tag = "fixture-sshd-try$sshdTry"') -and
+        $selfText2.Contains('Add-Fact "$tag-retry"') -and $selfText2.Contains('(try $sshdTry of at most 2;'))
     Check 'W03 .wslconfig: only [wsl2] networkingMode and localhostForwarding are read, as words' (
         (Get-WslConfigNetworking "[experimental]`r`nnetworkingMode=nat`r`n[wsl2]`r`nmemory=8GB`r`nnetworkingMode = mirrored # note`r`n;localhostForwarding=false`r`n") -ceq 'networkingMode=mirrored; localhostForwarding=unset' -and
         (Get-WslConfigNetworking '') -ceq 'networkingMode=unset; localhostForwarding=unset' -and
@@ -1384,13 +1387,22 @@ try {
                 }
             } catch { $diag['diagnosis'] = "failed ($($_.Exception.GetType().Name))" }
             $lastVerdict = if ($null -ne $reach -and $reach.Attempts.Count) { (($reach.Attempts[-1] -split ': ', 2)[1] -split ' ')[0] } else { '' }
-            $tag = if ($sshdTry -eq 1) { 'fixture-sshd' } else { "fixture-sshd-try$sshdTry" }
+            # ⟨M04 exit, Mode B at 088f6789⟩ Each try's own facts (fixture-sshd-try<N>, its diagnosis):
+            # the plain `fixture-sshd` fact is the run's outcome, written once below (a fact parser
+            # keeps a key's first value, so try 1's `unavailable` must never stand for a run that
+            # reached its sshd on try 2).
+            $tag = "fixture-sshd-try$sshdTry"
             Add-Fact $tag "unavailable: $why"
             foreach ($k in ($diag.Keys | Sort-Object)) { Add-Fact "$tag-$k" $diag[$k] }
             if (Test-RelayRetry $sshdTry $diag $lastVerdict) {
                 # Harness-only: this sshd stopped by its recorded identity, its directory removed,
-                # and one more sshd started on a new port; both tries stay on record.
-                Add-Command 1 "harness sshd try $sshdTry`: alive and listening on 127.0.0.1 inside the distribution, refused from Windows throughout (WSL's localhost relay); stopped and restarted once on a new port"
+                # and one more sshd started on a new port. The retry is part of the bounded
+                # reachability step, like its connect attempts (build.txt): it stays on record as
+                # facts and in build.txt, and the step's one command line below carries its outcome.
+                $retryNote = "harness sshd try $sshdTry`: alive and listening on 127.0.0.1 inside the distribution, refused from Windows throughout (WSL's localhost relay); stopped and restarted once on a new port"
+                Add-Fact "$tag-retry" 'restarted once on a new port (Test-RelayRetry)'
+                [void]$build.Append("### $retryNote`n")
+                Write-Host $retryNote
                 $r = Invoke-InDistro $names[1] $User ($remoteLib + "`n" + (Get-SshdStopScript) + "`n") @($sshdWslDir) 120
                 Add-Fact "$tag-stopped" (Get-SshdAtEnd $r.Output)
                 $r = Invoke-InDistro $names[1] $User $scripts['sshd-dir-remove'] @($sshdWslDir) 120
@@ -1405,13 +1417,15 @@ try {
             }
             $wslconfig = Join-Path $env:USERPROFILE '.wslconfig'
             Add-Fact 'wslconfig-networking' $(if (Test-Path -LiteralPath $wslconfig -PathType Leaf) { Get-WslConfigNetworking (Get-Content -LiteralPath $wslconfig -Raw) } else { 'no .wslconfig (NAT, localhost forwarding on)' })
-            Add-Command 1 'harness sshd in the second distribution reachable from Windows on 127.0.0.1'
+            Add-Fact 'fixture-sshd' "unavailable: $why"
+            Add-Fact 'fixture-sshd-tries' ([string]$sshdTry)
+            Add-Command 1 "harness sshd in the second distribution reachable from Windows on 127.0.0.1 (not reached; $sshdTry tr$(if ($sshdTry -eq 1) { 'y' } else { 'ies' }))"
             throw 'the harness sshd is unavailable'
         }
         break
         }
         Add-Fact 'fixture-sshd-tries' ([string]$sshdTry)
-        Add-Command 0 "harness sshd in the second distribution reachable from Windows on 127.0.0.1 (attempt $($reach.Count), $([int]$reach.Seconds) s)"
+        Add-Command 0 "harness sshd in the second distribution reachable from Windows on 127.0.0.1 (try $sshdTry of at most 2; attempt $($reach.Count), $([int]$reach.Seconds) s)"
         $strictClock = [System.Diagnostics.Stopwatch]::StartNew()
         $strictOk = $fx.ContainsKey('strictport') -and ((Wait-SshReachable { Test-SshBanner ([int]$fx['strictport']) } 30 2000 { $strictClock.Elapsed.TotalSeconds } { param($Ms) Start-Sleep -Milliseconds $Ms }).Ok)
         # ⟨M04 exit, Mode B at 50dbc86b⟩ The logs the tests read are the ones the start script
