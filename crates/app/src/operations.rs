@@ -9172,7 +9172,8 @@ impl Operations {
                 }
             }
         }
-        let done = render_settled::<EnsureData>(&st.op)?;
+        let mut done = render_settled::<EnsureData>(&st.op)?;
+        self.withhold_claims_outside_own_environment(&mut done);
         Ok(Completed {
             next: Some(NextAction {
                 action: "use_binding".to_owned(),
@@ -9181,6 +9182,19 @@ impl Operations {
             }),
             ..done
         })
+    }
+
+    /// ⟨M04-CL-R01⟩ The current response built from a stored ensure or bind result (a first
+    /// answer and every replay alike): for a binding whose environment is not the runtime's own
+    /// (a WSL Mode B, container or unclassified one) every claim-table value is withheld
+    /// (`heimdall_domain::claims::withhold_claimed_values`), so a result stored before ruling
+    /// I-28 never presents a claim the gate refuses that binding now. Native needs the stored
+    /// result's `environment_id`, the binding's environment fixed at its commit, to equal the
+    /// runtime's own (M04-CL-R02). The stored record and its idempotency are not touched.
+    fn withhold_claims_outside_own_environment(&self, done: &mut Completed<EnsureData>) {
+        if done.data.environment_id != self.inner.config.environment {
+            heimdall_domain::claims::withhold_claimed_values(&mut done.data);
+        }
     }
 
     /// An operation waiting for an owner decision: the current `decision_ref`, a
@@ -10274,7 +10288,9 @@ impl Operations {
             return Err(e);
         }
         let st = self.load_work(&id).await?;
-        let done = render_settled::<EnsureData>(&st.op)?;
+        let mut done = render_settled::<EnsureData>(&st.op)?;
+        // ⟨M04-CL-R01⟩ As for `ensure`.
+        self.withhold_claims_outside_own_environment(&mut done);
         if let Some(holder) = launch_holder {
             self.claim_replayed_launch(&done.data.binding_id, holder, &id)
                 .await?;

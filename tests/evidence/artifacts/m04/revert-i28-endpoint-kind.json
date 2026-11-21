@@ -27,5 +27,5 @@
    "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.39s"
   ]
  },
- "restored_sha256_prefix": "d96353376839cedc (report.rs before the proof and after restoring; rustfmt then moved one import and wrapped two test calls, with no change to the code under proof: the committed file is f703913d552eb01f)"
+ "restored_sha256_prefix": "d96353376839cedc (report.rs before the proof and after restoring; rustfmt then moved one import and wrapped two test calls, with no change to the code under proof: the file committed at 212f290a is f703913d552eb01f; the M04-CL round then moved the reason entries to `source: claim_table` with `withheld_reason`, leaving this check unchanged)"
 }

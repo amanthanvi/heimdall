@@ -144,6 +144,15 @@ the matrix (the M03 claims precedent):
 - The claims update (ruling I-28), a separate commit after this one: **no new claim entries.** No M04
   record runs a claimed field's tests on a new platform, OS release, client or build, and M04's WSL rows
   are `wsl` hosts. The update fixes an over-claim instead: the claim table's entries hold only for
-  bindings with a native endpoint, the kind their records ran, so a WSL Mode B or container binding reads
-  every claim-table field `unknown`, with an `endpoint_kind_not_covered` reason naming its kind
-  (ADR-0008 D12 item 2).
+  bindings with a native endpoint, the kind their records ran, so a WSL Mode B, container or
+  unclassified binding reads every claim-table field `unknown`, with a reason entry naming its kind
+  (`withheld_reason: endpoint_kind_not_covered`), and a replayed result stored before the update
+  withholds them too (ADR-0008 D12 item 2; the Codex review's M04-CL-R01, R02 and R04 fixed).
+- **Limitation (M04-CL-R03):** a Mode A binding is native for the claim table, and its values are judged
+  against the runtime's verified client: when `[clients].ssh` names another client than System32's
+  in-box `ssh.exe`, which the Mode A Git item uses, they reflect the configured client (ADR-0010 §2).
+- **Follow-up M04-F4 (due before any `lock_continuity` claim entry ships; M04-CL-R05):** a follower
+  commit that requires unattended access must check the binding's own verified lock continuity. Its
+  commit minimums omit `required.unattended` today, so with a native lock row a Mode B follower of an
+  ordinary leader could commit without a verified binding outcome. No code now: the table has no lock
+  row.

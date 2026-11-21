@@ -25,12 +25,13 @@
 //! least its floor, a client and a build within its ranges
 //! (`heimdall_domain::claims::applies`). ⟨M04 I-28⟩ They also need the binding's endpoint
 //! kind to be native ([`ReportContext::endpoint`], `heimdall_domain::claims::endpoint_covered`):
-//! a WSL Mode B or container binding reads every claim-table field `unknown`, and the report
-//! carries one `endpoint_kind_not_covered` entry per field naming the kind.
+//! a WSL Mode B, container or unclassified binding reads every claim-table field `unknown`, and
+//! the report carries one reason entry per field (`source: claim_table`, no record,
+//! `withheld_reason: endpoint_kind_not_covered` and the `endpoint_kind`).
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{AccountName, DestinationId};
-use heimdall_contract::managed::BindingEndpointKind;
+use heimdall_contract::managed::{BindingEndpointKind, WithheldReason};
 use heimdall_contract::managed::{
     ClockMeasurement, ConnectionPolicy, ConnectionPolicyReport, DestinationClock, EvidenceEntry,
     EvidenceSource, ExistingConnectionsMode, IdentitySelectionEnforcement, IssuerIsolation,
@@ -44,7 +45,6 @@ use heimdall_contract::request::{
     AccessPairRef, DestinationScopeEnforcement, Enforcement, ExistingConnectionsPolicy,
     NewAuthenticationExpiry, RefreshDependency, RevocationStatus, WorkloadIsolation,
 };
-use heimdall_credential::endpoints::EndpointPlacement;
 use heimdall_domain::claims::{Claim, HostFacts, Platform, applies, endpoint_covered};
 use heimdall_domain::enrollment::EnrollmentEvidence;
 use heimdall_domain::grant::GrantSnapshot;
@@ -96,18 +96,6 @@ pub fn claim<'a>(
     claims
         .iter()
         .find(|c| c.field == field && c.value == value && applies(c, host))
-}
-
-/// ⟨M04 I-28⟩ The claim gate's endpoint kind of a binding placed at `placement`: a native
-/// placement is `native`, a WSL Mode B one `wsl_mode_b`, a container one `container`. A new
-/// placement is a compile error here until its kind is decided.
-#[must_use]
-pub fn endpoint_kind(placement: &EndpointPlacement) -> BindingEndpointKind {
-    match placement {
-        EndpointPlacement::Native => BindingEndpointKind::Native,
-        EndpointPlacement::WslBridge { .. } => BindingEndpointKind::WslModeB,
-        EndpointPlacement::Container { .. } => BindingEndpointKind::Container,
-    }
 }
 
 // --- revoke additions (§5 item 9; F15) ------------------------------------------------
@@ -606,6 +594,7 @@ pub fn compute(
                 observed_at: e.verified_at,
                 fresh_until: Some(e.fresh_until),
                 endpoint_kind: None,
+                withheld_reason: None,
             });
         }
     }
@@ -629,15 +618,17 @@ pub fn compute(
                 observed_at: ctx.now,
                 fresh_until: None,
                 endpoint_kind: None,
+                withheld_reason: None,
             });
         }
     }
-    // ⟨M04 I-28⟩ Why every claim-table field reads `unknown` for this binding.
+    // ⟨M04 I-28⟩ Why every claim-table field reads `unknown` for this binding: a reason, in an
+    // existing `source` with optional fields an M03 reader ignores (M04-CL-R04).
     if !endpoint_covered(ctx.endpoint) {
         for field in CLAIM_TABLE_FIELDS {
             entries.push(EvidenceEntry {
                 field: field.to_owned(),
-                source: EvidenceSource::EndpointKindNotCovered,
+                source: EvidenceSource::ClaimTable,
                 pair: None,
                 record: None,
                 operation_id: None,
@@ -646,6 +637,7 @@ pub fn compute(
                 observed_at: ctx.now,
                 fresh_until: None,
                 endpoint_kind: Some(ctx.endpoint),
+                withheld_reason: Some(WithheldReason::EndpointKindNotCovered),
             });
         }
     }

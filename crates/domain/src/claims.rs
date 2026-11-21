@@ -27,8 +27,10 @@
 //!
 //! ⟨M04 I-28⟩ **Native endpoints only.** Every entry's record ran bindings with a native
 //! endpoint: the host's own verified client against the runtime's per-binding endpoint.
-//! [`endpoint_covered`] is the gate the report applies beside [`applies`]: a WSL Mode B or
-//! container binding reads every claim-table field `unknown`, whatever the host.
+//! [`endpoint_covered`] is the gate the report applies beside [`applies`]: a WSL Mode B,
+//! container or unclassified binding reads every claim-table field `unknown`, whatever the
+//! host. ⟨M04-CL-R01⟩ A current result built from a stored one for a binding outside the
+//! runtime's own environment loses them too ([`withhold_claimed_values`]).
 
 pub use heimdall_contract::managed::BindingEndpointKind;
 
@@ -839,6 +841,29 @@ pub fn applies(claim: &Claim, host: &HostFacts) -> bool {
 #[must_use]
 pub fn endpoint_covered(kind: BindingEndpointKind) -> bool {
     kind == BindingEndpointKind::Native
+}
+
+/// ⟨M04-CL-R01⟩ `data`, a current ensure result built from a stored one, with every value only
+/// a claim-table entry produces withheld: the enforcement values ([`without_claimed_values`]),
+/// `lock_continuity: verified` (then `not_verified`), `revocation.remote:
+/// bounded_by_credential_expiry` (then `unknown`), and every `claim_table` evidence entry for a
+/// value (an entry with a `withheld_reason` is a reason, and is kept). The stored record is not
+/// touched: a result replayed for a binding outside the runtime's own environment (a WSL Mode B,
+/// container or unclassified one) never presents a claim the gate would refuse it now, whenever
+/// it was stored (M03-F1's "history is history", applied to the replay).
+pub fn withhold_claimed_values(data: &mut heimdall_contract::request::EnsureData) {
+    use heimdall_contract::managed::{EvidenceSource, LockContinuityReport, RemoteRevocation};
+    data.enforcement = without_claimed_values(&data.enforcement);
+    if data.lock_continuity == Some(LockContinuityReport::Verified) {
+        data.lock_continuity = Some(LockContinuityReport::NotVerified);
+    }
+    if let Some(r) = data.revocation.as_mut()
+        && r.remote == RemoteRevocation::BoundedByCredentialExpiry
+    {
+        r.remote = RemoteRevocation::Unknown;
+    }
+    data.evidence
+        .retain(|e| e.source != EvidenceSource::ClaimTable || e.withheld_reason.is_some());
 }
 
 /// ⟨M03-F1⟩ The entries of `table` that apply on `host` ([`applies`]).

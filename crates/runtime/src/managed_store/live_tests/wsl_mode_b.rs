@@ -24,7 +24,7 @@
 
 use super::container::{
     claim_reasons, container_rows, decide, decisions_pending, ensure_in, inspect_environments,
-    operations_recorded, permit_ensures, reasons_naming,
+    m03_reader, no_claim_evidence, operations_recorded, permit_ensures, reasons_naming,
 };
 use super::*;
 use crate::wsl_bridge::{BridgeApi, BridgeFactory};
@@ -1342,9 +1342,7 @@ async fn wsl_mode_b_binding_result_names_its_endpoint_kind_for_the_claim_table()
         claim_reasons(&a),
         reasons_naming(heimdall_contract::managed::BindingEndpointKind::WslModeB)
     );
-    assert!(
-        a.evidence
-            .iter()
-            .all(|x| x.source != heimdall_contract::managed::EvidenceSource::ClaimTable)
-    );
+    assert!(no_claim_evidence(&a));
+    // ⟨M04-CL-R04⟩ A reader of the M03 contract decodes the Mode B result's evidence.
+    m03_reader::decodes(&a.evidence, "a Mode B result");
 }

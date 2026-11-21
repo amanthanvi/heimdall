@@ -74,6 +74,7 @@ use heimdall_contract::managed::{
     LockBehavior, LockContinuityReport, MultiplexingMode, NewSigningExpiry,
     OwnedConnectionReportState, OwnedMultiplexing, PreferredMechanism, ReadinessCondition,
     RemoteProcesses, RemoteRevocation, ResidualStatus, RevokeNote, UnmanagedConnections,
+    WithheldReason,
 };
 use heimdall_contract::provider::{CredentialAvailability, EndpointKind, EndpointRef};
 use heimdall_contract::request::{
@@ -120,6 +121,16 @@ use proptest::prelude::*;
 // =================================================================================
 
 const HOUR: Duration = Duration::from_secs(3600);
+
+/// ⟨M04-CL-R02⟩ The terms a native grant gets: the default lock behaviour and policy, and an
+/// explicit native endpoint (`GrantTerms` has no default).
+fn native_terms() -> GrantTerms {
+    GrantTerms {
+        lock_behavior: LockBehavior::default(),
+        policy: ConnectionPolicy::default(),
+        endpoint: BindingEndpointKind::Native,
+    }
+}
 
 fn t0() -> Timestamp {
     "2026-11-02T09:00:00Z".parse().unwrap()
@@ -1139,7 +1150,7 @@ impl World {
             .lock()
             .unwrap()
             .entry(gid.clone())
-            .or_default();
+            .or_insert_with(native_terms);
         // 1. key
         let key = self.effects.generate_key(gid, token).await.unwrap();
         self.ops.signing_gates().retain(gid, ancestors);
@@ -1543,7 +1554,11 @@ async fn activation_issues_one_certificate_per_pair_covering_grant() {
 /// The golden of §5 item 7 (ADR-0005 §7.2), computed with an **empty** claim table.
 #[tokio::test]
 async fn report_for_local_managed_binding_with_empty_claim_table() {
-    let golden = include_str!("../../schemas/examples/ensure-data.managed.json");
+    // The golden's text with LF line endings: a Windows checkout with `core.autocrlf` (the
+    // repository has no `.gitattributes`) has CRLF, and the fragments below span lines.
+    let golden =
+        include_str!("../../schemas/examples/ensure-data.managed.json").replace("\r\n", "\n");
+    let golden = golden.as_str();
     let w = World::new().await;
     let data = w.ensure("golden", &[h1()]).await;
     let mut g = w.grant(&data.grant_id);
@@ -1834,7 +1849,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
             pairs: &pp,
         },
         &snap,
-        Some(&GrantTerms::default()),
+        Some(&native_terms()),
         Some(&layout),
         windows,
         &heimdall_adapters::managed::managed_capabilities(),
@@ -2257,7 +2272,8 @@ async fn report_with_the_real_claim_table_reports_verified_with_record() {
 /// ⟨M04 I-28⟩ On `host`, which qualifies for the entries of the real table and of the
 /// fixture table on its platform, a native binding gets them, and a binding whose endpoint is
 /// `kind` reads every claim-table field `unknown` (`not_verified` for `lock_continuity`): no
-/// claim-table entry, and one `endpoint_kind_not_covered` entry per field naming `kind`. The
+/// claim-table entry for a value, and one reason entry per field (`source: claim_table`,
+/// `withheld_reason: endpoint_kind_not_covered`, no record) naming `kind`. The
 /// values it loses are exactly the claim-gated ones (`without_claimed_values`).
 fn assert_claim_values_withheld_from(
     kind: BindingEndpointKind,
@@ -2319,8 +2335,7 @@ fn assert_claim_values_withheld_from(
                 native
                     .evidence
                     .iter()
-                    .all(|x| x.source != EvidenceSource::EndpointKindNotCovered
-                        && x.endpoint_kind.is_none()),
+                    .all(|x| x.withheld_reason.is_none() && x.endpoint_kind.is_none()),
                 "{what}"
             );
 
@@ -2356,17 +2371,24 @@ fn assert_claim_values_withheld_from(
                 o.enforcement,
                 "{what}"
             );
+            // No claim-table entry for a value; one reason per field, naming `kind`.
             assert!(
                 o.evidence
                     .iter()
-                    .all(|x| x.source != EvidenceSource::ClaimTable),
+                    .all(|x| x.source != EvidenceSource::ClaimTable || x.withheld_reason.is_some()),
                 "{what}"
             );
             let reasons: Vec<&str> = o
                 .evidence
                 .iter()
-                .filter(|x| x.source == EvidenceSource::EndpointKindNotCovered)
+                .filter(|x| x.withheld_reason.is_some())
                 .map(|x| {
+                    assert_eq!(x.source, EvidenceSource::ClaimTable, "{what}");
+                    assert_eq!(
+                        x.withheld_reason,
+                        Some(WithheldReason::EndpointKindNotCovered),
+                        "{what}"
+                    );
                     assert_eq!(x.endpoint_kind, Some(kind), "{what}");
                     assert_eq!(x.record, None, "{what}");
                     x.field.as_str()
@@ -5437,7 +5459,7 @@ async fn coverage_never_exceeds_the_shortest_certificate() {
     let refusal = prepare::check_minimums(
         &req,
         &r,
-        &GrantTerms::default(),
+        &native_terms(),
         &heimdall_adapters::managed::managed_capabilities(),
     )
     .unwrap_err();
@@ -5552,7 +5574,7 @@ async fn revoke_on_lock_grant_without_terms_never_reports_verified() {
         .terms
         .lock()
         .unwrap()
-        .insert(gid.clone(), GrantTerms::default());
+        .insert(gid.clone(), native_terms());
     w.prepare_from(&g, &[h1()], &unattended).await.unwrap();
     w.finish(&[gid]).await;
 }

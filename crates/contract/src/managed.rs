@@ -320,23 +320,41 @@ pub struct RevocationSemantics {
 pub enum EvidenceSource {
     /// This pair's own runtime verification (ADR-0008 §17.1 item 13).
     RuntimeVerification,
-    /// A claim-table entry (ADR-0008 D12).
+    /// A claim-table entry (ADR-0008 D12). ⟨M04 I-28⟩ With a `withheld_reason`, not evidence
+    /// for a value but the reason the claim table gives none ([`EvidenceEntry::withheld_reason`]).
     ClaimTable,
-    /// ⟨M04 I-28⟩ Not evidence for a value but the reason the field reads `unknown`
-    /// (`not_verified` for `lock_continuity`): the claim table's entries cover bindings with a
-    /// native endpoint only, and this binding's endpoint is of the kind in
-    /// [`EvidenceEntry::endpoint_kind`].
+}
+
+/// ⟨M04 I-28⟩ Why the claim table gives a field no value for this binding: the field reads
+/// `unknown` (`not_verified` for `lock_continuity`).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WithheldReason {
+    /// The claim table's entries cover bindings with a native endpoint only, and this binding's
+    /// endpoint is of the kind in [`EvidenceEntry::endpoint_kind`].
     EndpointKindNotCovered,
 }
 
 /// ⟨M04 I-28⟩ How a managed binding's clients reach its signer (ADR-0008 D12 item 2;
 /// ADR-0010 §3–§4). The claim table's entries hold only for `native`, the kind their records
-/// ran.
+/// ran. There is no default: the runtime classifies every grant explicitly (M04-CL-R02).
 #[derive(
     Debug,
     Clone,
     Copy,
-    Default,
     PartialEq,
     Eq,
     Hash,
@@ -352,7 +370,6 @@ pub enum BindingEndpointKind {
     /// The runtime's own per-binding endpoint on this host, used by the host's own client.
     /// A WSL Mode A consumer is one: its binding, endpoint and client (the in-box
     /// `ssh.exe`) are the native Windows environment's (ADR-0010 §2 item 1).
-    #[default]
     Native,
     /// A WSL Mode B binding: the distribution's OpenSSH, through the bridge endpoint inside the
     /// distribution (ADR-0010 §3).
@@ -360,6 +377,9 @@ pub enum BindingEndpointKind {
     /// A container binding: the container's client, through the environment's mounted
     /// endpoint (ADR-0010 §4).
     Container,
+    /// ⟨M04-CL-R02⟩ Not classified: the grant's environment is not the runtime's own and has
+    /// no managed-environment row, or a realization this build does not know. Never native.
+    Unknown,
 }
 
 /// One piece of evidence behind a reported value (§5 item 7).
@@ -389,10 +409,16 @@ pub struct EvidenceEntry {
     /// Fresh until.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fresh_until: Option<Timestamp>,
-    /// ⟨M04 I-28⟩ The binding's endpoint kind, for `endpoint_kind_not_covered`. Omitted
-    /// otherwise, so every M03 entry is unchanged.
+    /// ⟨M04 I-28⟩ The binding's endpoint kind, with `withheld_reason`. Omitted otherwise, so
+    /// every M03 entry is unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint_kind: Option<BindingEndpointKind>,
+    /// ⟨M04 I-28⟩ Present on a `claim_table` entry that is not evidence for a value but the
+    /// reason the field reads `unknown` (`not_verified` for `lock_continuity`); such an entry
+    /// has no `record`. Omitted otherwise. An optional field, so a reader of the M03 contract
+    /// ignores it and still reads a known `source` (M04-CL-R04).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub withheld_reason: Option<WithheldReason>,
 }
 
 /// `EnsureData.connection_policy` (§5 item 7; ADR-0008 D8 item 6).
