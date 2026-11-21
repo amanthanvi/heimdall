@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [OK] Ready
+[OK] Ready
+Runtime: connected; listings read 06:32:05Z (0s ago)
+Static pass: 06:32:02Z (3s ago); 3 destinations, 2 profiles, 0 identities
+Workspace: no workspace here (w details · s stop · h history)
+> [ !] home_mismatch: HOME differs from the account's home: ssh reads ~/.ssh/config and expands %d from the account's ho
+  [ !] identity_selection_not_exclusive (host-000000): ssh may offer other identities than the adopted key for this alia
+  [ !] identity_selection_not_exclusive (host-000001): ssh may offer other identities than the adopted key for this alia
+  [ !] identity_selection_not_exclusive (host-000002): ssh may offer other identities than the adopted key for this alia
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter open · r retry · k keep · R refresh · 1-4 views · ? help · q quit
