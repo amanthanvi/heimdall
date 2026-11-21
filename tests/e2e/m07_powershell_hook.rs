@@ -152,7 +152,12 @@ impl Fixture {
     fn command(&self, host: &Path, body: &str) -> Command {
         let script = self.root.join("fixture.ps1");
         std::fs::write(&script, format!("{LOAD}{body}")).unwrap();
-        let bin = Path::new(env!("CARGO_BIN_EXE_heimdall"));
+        // A native run copies the binary elsewhere and names it (`HEIMDALL_E2E_BIN`).
+        let bin = std::env::var("HEIMDALL_E2E_BIN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned());
+        let bin = Path::new(&bin);
         let mut path = vec![bin.parent().unwrap().to_owned()];
         let mut cmd = Command::new(host);
         cmd.env_clear()

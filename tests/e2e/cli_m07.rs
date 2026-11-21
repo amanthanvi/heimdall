@@ -216,7 +216,13 @@ async fn seed(
 }
 
 fn cli(home: &ScratchHome, heimdall_home: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_heimdall"));
+    // A native run copies the binary elsewhere and names it (`HEIMDALL_E2E_BIN`), as the
+    // other e2e suites do.
+    let bin = std::env::var("HEIMDALL_E2E_BIN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned());
+    let mut cmd = Command::new(bin);
     cmd.env_clear()
         .env("HEIMDALL_HOME", heimdall_home)
         .env("HEIMDALL_TEST_SSH_HOME", &home.git_home)
