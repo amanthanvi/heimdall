@@ -1,0 +1,229 @@
+{
+  "case_id": "M08-probe-inventory-and-release-binary",
+  "status": "verified",
+  "requirement_ids": [
+    "R-DI-01",
+    "R-DI-05",
+    "R-SE-08"
+  ],
+  "build_commit": "de097dace3957bd29e09b1211d623bde73f22692",
+  "artifact_digest": "6b27dd1c15ddfec4b25ef093c5ad75fc71d0e70b2b606668a907ae15a208ec8e",
+  "environment": {
+    "host": "the macOS arm64 build host",
+    "os": "macOS 27.2",
+    "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "syft": "1.42.1",
+    "note": "no heimdall binary was executed"
+  },
+  "provider_versions": [],
+  "started_at": "2026-11-22T00:00:00-05:00",
+  "commands_or_harness": [
+    "cargo metadata --format-version 1 --locked --offline --filter-platform <triple>  (four triples) | python3 -I prototypes/m08-probe/inventory.py",
+    "syft scan dir:<scratch copy of Cargo.lock> -o cyclonedx-json",
+    "CARGO_BUILD_JOBS=4 cargo build --release --locked --offline -p heimdall",
+    "otool -L, codesign -dv, stat, shasum -a 256, strings -a on target/release/heimdall",
+    "REVISION 2 (2026-11-22), with exits in tests/evidence/artifacts/m08/probe/commands-r2.txt:",
+    "cargo tree --locked --offline -p heimdall --target <triple> --edges normal,build --prefix none --format '{p}'  (four triples; again with --prune heimdall-testkit; again with --edges normal): exit 0 each",
+    "syft scan dir:<scratch copy of Cargo.lock> -o cyclonedx-json: exit 0"
+  ],
+  "observed_result": {
+    "verdict": "pass",
+    "criterion": "DESIGN PROBE: each question below has an observed answer that sizes an M08 work item. Not an A31 or A33 record.",
+    "q1_dependency_and_licence_inventory": {
+      "per_target": {
+        "aarch64-apple-darwin": {
+          "third_party_linked": 224,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        },
+        "x86_64-unknown-linux-gnu": {
+          "third_party_linked": 265,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        },
+        "aarch64-unknown-linux-gnu": {
+          "third_party_linked": 264,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        },
+        "x86_64-pc-windows-msvc": {
+          "third_party_linked": 221,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        }
+      },
+      "licence_expressions_seen": "MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, Zlib, Unicode-3.0, BSL-1.0, Unlicense, Apache-2.0 WITH LLVM-exception; every crate offers at least one permissive choice (full histograms in the artifacts)",
+      "lockfile_packages": 322,
+      "syft_on_cargo_lock": "Revision 1's run kept no raw output and no exit code. Rerun in revision 2 (exit 0, commands-r2.txt): 322 components, CycloneDX 1.6, 0 with a licence; summary and a digest of the component list in syft-cargo-lock-summary.json.",
+      "superseded": "OVERSTATED (review M08-D-R04): cargo metadata resolves features for the whole workspace, dev-enabled features included, and skipping dev edges afterwards does not undo that. The macOS figure of 234 (224 + 10) includes 25 packages the selected graph does not hold (borsh, defmt, palette, time and others). The licence observation (every crate has a licence field and a permissive choice) covers a superset of the selected graph, so it still holds for it."
+    },
+    "q2_test_only_crates_in_the_release_build_graph": "Revision 2: 14 to 16 third-party crates are in the selected graph only through heimdall-testkit (per_target.only_through_testkit above): proptest, rusty-fork, tempfile, rand, rand_xorshift, chacha20, regex-syntax, bit-set, bit-vec, core_detect, fnv, quick-error, unarray, wait-timeout, plus fastrand on macOS and Windows and cpufeatures on Windows. The revision 1 list (16 to 20, with borsh, borsh-derive, proc-macro-crate, toml_edit) came from the metadata graph and is withdrawn. That the stripped binary holds no 'proptest' string is not evidence about linkage.",
+    "q3_macos_release_binary_static": {
+      "size_bytes": 13810096,
+      "dynamic_libraries": [
+        "CoreGraphics.framework",
+        "Security.framework",
+        "CoreFoundation.framework",
+        "/usr/lib/libiconv.2.dylib",
+        "/usr/lib/libSystem.B.dylib"
+      ],
+      "signature": "ad-hoc, linker-signed, no team identifier",
+      "build_host_home_path_occurrences": 297,
+      "cargo_registry_path_occurrences": 297,
+      "worktree_path_occurrences": 0,
+      "canary_marker_occurrences": 1,
+      "private_key_armor_occurrences": 0,
+      "heimdall_test_variable_name_occurrences": 4,
+      "reproducibility": "RECORDED OBSERVATION, NOT REPRODUCIBLE: the binary was deleted after inspection. The commands were otool -L, codesign -dv, stat -f %z, shasum -a 256 and strings -a piped to grep -c per pattern; their individual exit codes were not kept. release-static-macos.txt is the summary those commands produced, not raw output."
+    },
+    "q1_selected_graph_revision_2": {
+      "what": "cargo tree -p heimdall --target <triple> --edges normal,build: cargo's own package-, target- and feature-selected graph. It supersedes the cargo metadata figures below (review M08-D-R04).",
+      "per_target": {
+        "aarch64-apple-darwin": {
+          "third_party_normal_and_build_edges": 209,
+          "third_party_normal_edges_only": 200,
+          "third_party_without_testkit": 194,
+          "only_through_testkit": [
+            "bit-set v0.11.1",
+            "bit-vec v0.10.1",
+            "chacha20 v0.10.2",
+            "core_detect v1.0.0",
+            "fastrand v2.5.0",
+            "fnv v1.0.7",
+            "proptest v1.12.0",
+            "quick-error v1.2.3",
+            "rand v0.10.3",
+            "rand_xorshift v0.5.0",
+            "regex-syntax v0.8.11",
+            "rusty-fork v0.3.1",
+            "tempfile v3.27.0",
+            "unarray v0.1.4",
+            "wait-timeout v0.2.1"
+          ]
+        },
+        "x86_64-unknown-linux-gnu": {
+          "third_party_normal_and_build_edges": 255,
+          "third_party_normal_edges_only": 246,
+          "third_party_without_testkit": 241,
+          "only_through_testkit": [
+            "bit-set v0.11.1",
+            "bit-vec v0.10.1",
+            "chacha20 v0.10.2",
+            "core_detect v1.0.0",
+            "fnv v1.0.7",
+            "proptest v1.12.0",
+            "quick-error v1.2.3",
+            "rand v0.10.3",
+            "rand_xorshift v0.5.0",
+            "regex-syntax v0.8.11",
+            "rusty-fork v0.3.1",
+            "tempfile v3.27.0",
+            "unarray v0.1.4",
+            "wait-timeout v0.2.1"
+          ]
+        },
+        "aarch64-unknown-linux-gnu": {
+          "third_party_normal_and_build_edges": 254,
+          "third_party_normal_edges_only": 245,
+          "third_party_without_testkit": 240,
+          "only_through_testkit": [
+            "bit-set v0.11.1",
+            "bit-vec v0.10.1",
+            "chacha20 v0.10.2",
+            "core_detect v1.0.0",
+            "fnv v1.0.7",
+            "proptest v1.12.0",
+            "quick-error v1.2.3",
+            "rand v0.10.3",
+            "rand_xorshift v0.5.0",
+            "regex-syntax v0.8.11",
+            "rusty-fork v0.3.1",
+            "tempfile v3.27.0",
+            "unarray v0.1.4",
+            "wait-timeout v0.2.1"
+          ]
+        },
+        "x86_64-pc-windows-msvc": {
+          "third_party_normal_and_build_edges": 206,
+          "third_party_normal_edges_only": 197,
+          "third_party_without_testkit": 190,
+          "only_through_testkit": [
+            "bit-set v0.11.1",
+            "bit-vec v0.10.1",
+            "chacha20 v0.10.2",
+            "core_detect v1.0.0",
+            "cpufeatures v0.3.1",
+            "fastrand v2.5.0",
+            "fnv v1.0.7",
+            "proptest v1.12.0",
+            "quick-error v1.2.3",
+            "rand v0.10.3",
+            "rand_xorshift v0.5.0",
+            "regex-syntax v0.8.11",
+            "rusty-fork v0.3.1",
+            "tempfile v3.27.0",
+            "unarray v0.1.4",
+            "wait-timeout v0.2.1"
+          ]
+        }
+      },
+      "normal_edges_are_not_linkage": "A normal edge means the crate is compiled for the build; it includes proc macros, which run on the host. Nothing here says what the linker kept."
+    }
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m08/probe/inventory-aarch64-apple-darwin.json",
+    "tests/evidence/artifacts/m08/probe/inventory-x86_64-unknown-linux-gnu.json",
+    "tests/evidence/artifacts/m08/probe/inventory-aarch64-unknown-linux-gnu.json",
+    "tests/evidence/artifacts/m08/probe/inventory-x86_64-pc-windows-msvc.json",
+    "tests/evidence/artifacts/m08/probe/release-static-macos.txt",
+    "prototypes/m08-probe/inventory.py",
+    "tests/evidence/artifacts/m08/probe/commands-r2.txt",
+    "tests/evidence/artifacts/m08/probe/syft-cargo-lock-summary.json",
+    "tests/evidence/artifacts/m08/probe/tree-aarch64-apple-darwin.txt",
+    "tests/evidence/artifacts/m08/probe/tree-aarch64-apple-darwin-without-testkit.txt",
+    "tests/evidence/artifacts/m08/probe/tree-aarch64-apple-darwin-normal-only.txt",
+    "tests/evidence/artifacts/m08/probe/tree-x86_64-unknown-linux-gnu.txt",
+    "tests/evidence/artifacts/m08/probe/tree-x86_64-unknown-linux-gnu-without-testkit.txt",
+    "tests/evidence/artifacts/m08/probe/tree-x86_64-unknown-linux-gnu-normal-only.txt",
+    "tests/evidence/artifacts/m08/probe/tree-aarch64-unknown-linux-gnu.txt",
+    "tests/evidence/artifacts/m08/probe/tree-aarch64-unknown-linux-gnu-without-testkit.txt",
+    "tests/evidence/artifacts/m08/probe/tree-aarch64-unknown-linux-gnu-normal-only.txt",
+    "tests/evidence/artifacts/m08/probe/tree-x86_64-pc-windows-msvc.txt",
+    "tests/evidence/artifacts/m08/probe/tree-x86_64-pc-windows-msvc-without-testkit.txt",
+    "tests/evidence/artifacts/m08/probe/tree-x86_64-pc-windows-msvc-normal-only.txt"
+  ],
+  "limitations": [
+    "DESIGN PROBE (M08 design unit): observations that size M08 work items. It is not an A31, A33 or A34 record and carries no release claim.",
+    "Taken on main at de097dac, before M06 merges: M06 adds iroh (feature-gated), rustls and a vendored, patched netdev, so the counts will grow.",
+    "The single canary-marker occurrence was not traced to its source; the redactor's own marker constant is the expected one. The artifact scan in M08 must match full canary values, not the bare marker.",
+    "The release binary was inspected statically and never executed, so nothing here shows that it runs on a clean machine.",
+    "Revision 1's commands kept no exit codes, and its started_at is the date of the run, not a measured start time. Only the revision 2 commands listed in commands-r2.txt have recorded exits.",
+    "The cargo tree output is sanitized: workspace crates' paths are replaced by '(workspace)' and the '(proc-macro)' and '(*)' markers are removed.",
+    "No finding here is evidence about what the linker retained, about the absence of secrets or test code in the binary, or about clean-machine execution.",
+    "The lock-file scan (syft) is a recorded summary that was not independently checked: syft-cargo-lock-summary.json keeps the counts and a SHA-256 over the sorted 'name@version' lines of the component list, not the list itself (re-check R10)."
+  ]
+}
