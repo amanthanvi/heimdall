@@ -1842,6 +1842,12 @@ pub(crate) mod fixtures {
             items: vec![
                 EnvironmentView {
                     environment_id: EnvironmentId::parse(ENV).unwrap(),
+                    connectivity: None,
+                    last_seen_at: None,
+                    runner_lifetime: None,
+                    remote_pending: Vec::new(),
+                    pinned_host_key: None,
+                    management_policy: None,
                     kind: EnvironmentKindView::NativeSession,
                     label: None,
                     state: EnvironmentState::Active,
@@ -1849,6 +1855,12 @@ pub(crate) mod fixtures {
                 },
                 EnvironmentView {
                     environment_id: EnvironmentId::parse(WSL).unwrap(),
+                    connectivity: None,
+                    last_seen_at: None,
+                    runner_lifetime: None,
+                    remote_pending: Vec::new(),
+                    pinned_host_key: None,
+                    management_policy: None,
                     kind: EnvironmentKindView::WslDistribution,
                     label: None,
                     state: EnvironmentState::NotRunning,
@@ -1863,6 +1875,12 @@ pub(crate) mod fixtures {
                 },
                 EnvironmentView {
                     environment_id: EnvironmentId::parse(CONTAINER).unwrap(),
+                    connectivity: None,
+                    last_seen_at: None,
+                    runner_lifetime: None,
+                    remote_pending: Vec::new(),
+                    pinned_host_key: None,
+                    management_policy: None,
                     kind: EnvironmentKindView::Container,
                     label: Some("builder".to_owned()),
                     state: EnvironmentState::Removed,
