@@ -41,7 +41,7 @@ correction in U3, with its emitters, every in-tree reader and its goldens.
 | **H8, the version string** | Carried in the hello. | The wrapper's skew test compares against the build under test, not a literal. |
 | **H4, H10 reasons; `REQUEST_STALE`** | New reasons under existing codes and one new code. | D8's reason tables; the skill's "any code you do not recognize is a failure" rule already covers an older consumer. |
 | **H1, H2, H3 commands** | `support bundle`, `service stop --preview`, `state status|restore|reset`. | D3's command-tree golden and D7's primitive index: none is an agent primitive; the skill lint's allow-list must keep refusing them. |
-| H5, H6, H11, H12 | Doctor finding, residue kinds, a cargo feature, the storage layout. | No M07 consumer reads them. H12 moves the state path every M07 test launcher points at through `HEIMDALL_HOME`; no launcher names a path inside it. |
+| H5, H6, H11, H12 | Doctor finding, residue kinds, a cargo feature, the storage layout. | No M07 consumer reads them. H12 changes the layout under `HEIMDALL_HOME`. The wrapper journey and the wrapper's smoke test name the control socket inside it (`run/control.sock`) until D12's discovery replaces that; check at H12 whether that path moves. |
 
 ## 3. Questions for U0
 
