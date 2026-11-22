@@ -1,0 +1,33 @@
+# static inspection of target/release/heimdall (aarch64-apple-darwin), not executed
+commit: de097dace3957bd29e09b1211d623bde73f22692
+rustc: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+size_bytes: 13810096
+sha256: 6b27dd1c15ddfec4b25ef093c5ad75fc71d0e70b2b606668a907ae15a208ec8e
+## otool -L
+/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics (compatibility version 64.0.0, current version 2050.1.6)
+/System/Library/Frameworks/Security.framework/Versions/A/Security (compatibility version 1.0.0, current version 62460.40.78)
+/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 5027.1.8)
+/usr/lib/libiconv.2.dylib (compatibility version 7.0.0, current version 7.0.0)
+/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.40.3)
+## codesign
+Identifier=heimdall-0b9a45b941ba0e5d
+CodeDirectory v=20400 size=107192 flags=0x20002(adhoc,linker-signed) hashes=3346+0 location=embedded
+Signature=adhoc
+TeamIdentifier=not set
+## embedded strings (counts)
+home_path_occurrences: 297
+user_name_occurrences: 298
+cargo_registry_path_occurrences: 297
+worktree_path_occurrences: 0
+canary_marker_occurrences: 1
+private_key_armor_occurrences: 0
+heimdall_test_var_occurrences: 4
+proptest_occurrences: 0
+testkit_occurrences: 1
+## sample of home-path strings (user name replaced)
+)', /Users/<user>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sharded-slab-0.1.7/src/tid.rs:163:21
+/Users/<user>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/aes-0.8.4/src/soft/fixslice64.rs
+/Users/<user>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/aes-gcm-0.10.3/src/lib.rs
+/Users/<user>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anstyle-1.0.14/src/color.rs
+/Users/<user>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/base64ct-1.8.3/src/alphabet.rs
+/Users/<user>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/base64ct-1.8.3/src/decoder.rs

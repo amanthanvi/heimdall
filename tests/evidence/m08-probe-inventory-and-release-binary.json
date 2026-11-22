@@ -1,0 +1,115 @@
+{
+  "case_id": "M08-probe-inventory-and-release-binary",
+  "status": "verified",
+  "requirement_ids": [
+    "R-DI-01",
+    "R-DI-05",
+    "R-SE-08"
+  ],
+  "build_commit": "de097dace3957bd29e09b1211d623bde73f22692",
+  "artifact_digest": "6b27dd1c15ddfec4b25ef093c5ad75fc71d0e70b2b606668a907ae15a208ec8e",
+  "environment": {
+    "host": "the macOS arm64 build host",
+    "os": "macOS 27.2",
+    "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "syft": "1.42.1",
+    "note": "no heimdall binary was executed"
+  },
+  "provider_versions": [],
+  "started_at": "2026-11-22T00:00:00-05:00",
+  "commands_or_harness": [
+    "cargo metadata --format-version 1 --locked --offline --filter-platform <triple>  (four triples) | python3 -I prototypes/m08-probe/inventory.py",
+    "syft scan dir:<scratch copy of Cargo.lock> -o cyclonedx-json",
+    "CARGO_BUILD_JOBS=4 cargo build --release --locked --offline -p heimdall",
+    "otool -L, codesign -dv, stat, shasum -a 256, strings -a on target/release/heimdall"
+  ],
+  "observed_result": {
+    "verdict": "pass",
+    "criterion": "DESIGN PROBE: each question below has an observed answer that sizes an M08 work item. Not an A31 or A33 record.",
+    "q1_dependency_and_licence_inventory": {
+      "per_target": {
+        "aarch64-apple-darwin": {
+          "third_party_linked": 224,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        },
+        "x86_64-unknown-linux-gnu": {
+          "third_party_linked": 265,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        },
+        "aarch64-unknown-linux-gnu": {
+          "third_party_linked": 264,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        },
+        "x86_64-pc-windows-msvc": {
+          "third_party_linked": 221,
+          "third_party_build_only": 10,
+          "no_licence_field": 0,
+          "links_native": [
+            "defmt",
+            "libsqlite3-sys"
+          ],
+          "non_registry_sources": [],
+          "testkit_in_graph": true
+        }
+      },
+      "licence_expressions_seen": "MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, Zlib, Unicode-3.0, BSL-1.0, Unlicense, Apache-2.0 WITH LLVM-exception; every crate offers at least one permissive choice (full histograms in the artifacts)",
+      "lockfile_packages": 322,
+      "syft_on_cargo_lock": "322 components (the whole lock file: every platform, dev and test crates included), CycloneDX 1.6, 0 components with a licence"
+    },
+    "q2_test_only_crates_in_the_release_build_graph": "heimdall depends on heimdall-testkit as a normal dependency (referenced only under cfg(debug_assertions)). 16 to 20 third-party crates reach the release build graph only through it: proptest, rusty-fork, tempfile, rand, rand_xorshift, regex-syntax, bit-set, bit-vec, borsh, borsh-derive, chacha20, core_detect, fnv, quick-error, unarray, wait-timeout, and on macOS and Windows fastrand, proc-macro-crate, toml_edit (cpufeatures on Windows). The stripped macOS release binary holds 0 occurrences of 'proptest' and 1 of 'testkit'.",
+    "q3_macos_release_binary_static": {
+      "size_bytes": 13810096,
+      "dynamic_libraries": [
+        "CoreGraphics.framework",
+        "Security.framework",
+        "CoreFoundation.framework",
+        "/usr/lib/libiconv.2.dylib",
+        "/usr/lib/libSystem.B.dylib"
+      ],
+      "signature": "ad-hoc, linker-signed, no team identifier",
+      "build_host_home_path_occurrences": 297,
+      "cargo_registry_path_occurrences": 297,
+      "worktree_path_occurrences": 0,
+      "canary_marker_occurrences": 1,
+      "private_key_armor_occurrences": 0,
+      "heimdall_test_variable_name_occurrences": 4
+    }
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m08/probe/inventory-aarch64-apple-darwin.json",
+    "tests/evidence/artifacts/m08/probe/inventory-x86_64-unknown-linux-gnu.json",
+    "tests/evidence/artifacts/m08/probe/inventory-aarch64-unknown-linux-gnu.json",
+    "tests/evidence/artifacts/m08/probe/inventory-x86_64-pc-windows-msvc.json",
+    "tests/evidence/artifacts/m08/probe/release-static-macos.txt",
+    "prototypes/m08-probe/inventory.py"
+  ],
+  "limitations": [
+    "DESIGN PROBE (M08 design unit): observations that size M08 work items. It is not an A31, A33 or A34 record and carries no release claim.",
+    "Taken on main at de097dac, before M06 merges: M06 adds iroh (feature-gated), rustls and a vendored, patched netdev, so the counts will grow.",
+    "The inventory is the cargo resolve graph (normal and build edges, dev edges skipped), not what the linker kept. The Linux and Windows release binaries were not built or inspected.",
+    "The single canary-marker occurrence was not traced to its source; the redactor's own marker constant is the expected one. The artifact scan in M08 must match full canary values, not the bare marker.",
+    "The release binary was inspected statically and never executed, so nothing here shows that it runs on a clean machine.",
+    "The syft scan read a scratch copy of Cargo.lock; its raw output was not kept. started_at is the date of the run, not a measured start time."
+  ]
+}
