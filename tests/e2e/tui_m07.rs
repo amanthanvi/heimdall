@@ -18,6 +18,16 @@
 //!
 //! **The screen.** Text checks read the frame the TUI drew (`HEIMDALL_TEST_TUI_SCREEN`,
 //! debug builds); the idle check reads the raw pty transcript, since any byte counts.
+//!
+//! **Latency isolation.** The cases of this binary run in parallel, and a latency
+//! measurement taken beside them measures the machine's load, not the TUI (the W2 review
+//! saw a P95 of 119.6 ms that way, against 8 to 9 ms alone). So every test takes one
+//! process-wide guard first and holds it for its whole life, fixture cleanup included:
+//! the latency tests exclusively ([`latency_test`]), every other test shared
+//! ([`parallel_test`]). No other case of this binary runs during a measurement, and the
+//! 100 ms bar stays as it is. A new test takes [`parallel_test`] as its first statement.
+//! The PTY and ConPTY child-mode entries run in processes of their own, where the guard
+//! is another one and blocks nothing.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -26,6 +36,28 @@
     clippy::too_many_lines,
     missing_docs
 )]
+
+use std::sync::{PoisonError, RwLock, RwLockReadGuard};
+
+/// The guard of the module docs' "Latency isolation".
+static TEST_EXECUTION: RwLock<()> = RwLock::new(());
+
+/// Held by a test that measures nothing: it may run beside the others, never beside a
+/// latency measurement.
+fn parallel_test() -> RwLockReadGuard<'static, ()> {
+    // The lock carries no state. A panic in a measured case should not fail other tests.
+    TEST_EXECUTION
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Held by a test that measures key latency: no other test of this binary runs with it.
+#[cfg(any(unix, windows))]
+fn latency_test() -> std::sync::RwLockWriteGuard<'static, ()> {
+    TEST_EXECUTION
+        .write()
+        .unwrap_or_else(PoisonError::into_inner)
+}
 
 fn diagnostic_tail(bytes: &[u8], root: &std::path::Path) -> String {
     let mut names: Vec<_> = ["USER", "USERNAME", "LOGNAME", "HOSTNAME", "COMPUTERNAME"]
@@ -97,6 +129,7 @@ fn redact_value(text: &mut String, value: &str, replacement: &str) {
 
 #[test]
 fn diagnostic_redacts_mixed_case_windows_identifiers() {
+    let _guard = parallel_test();
     let stderr = br#"Failed: C:\uSeRs\ExampleUser\ScRaTcH\raw
 {"path":"c:\\USerS\\EXAMPLEUSER\\sCrAtCh\\escaped"}
 Path: c:/users/exampleuser/SCRATCH/forward
@@ -158,6 +191,7 @@ mod pty {
     #[test]
     #[ignore = "child-mode entry of the pty tests, started by them"]
     fn pty_child() {
+        let _guard = super::parallel_test();
         let (Some(slave), Some(argv)) = (std::env::var_os(SLAVE), std::env::var(ARGV).ok()) else {
             return;
         };
@@ -197,6 +231,15 @@ mod pty {
         fn open(rows: u16, cols: u16) -> Pty {
             let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
             rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC).unwrap();
+            // Non-blocking, so the drain thread can never sit in `read`: the terminal
+            // may discard its output between `poll` saying "readable" and the read (the
+            // session leader exiting flushes it), and a blocked reader would hang this
+            // test's teardown without a bound.
+            rustix::fs::fcntl_setfl(
+                &master,
+                rustix::fs::fcntl_getfl(&master).unwrap() | rustix::fs::OFlags::NONBLOCK,
+            )
+            .unwrap();
             grantpt(&master).unwrap();
             unlockpt(&master).unwrap();
             let name = ptsname(&master, Vec::new()).unwrap();
@@ -272,9 +315,25 @@ mod pty {
             held.as_ref().unwrap().try_clone().unwrap()
         }
 
+        /// Type `bytes` at the terminal. The master is non-blocking, so a full input
+        /// queue is waited out, for at most ten seconds.
         fn write(&self, bytes: &[u8]) {
-            let fd = self.master.as_ref().unwrap().try_clone().unwrap();
-            std::fs::File::from(fd).write_all(bytes).unwrap();
+            let fd = self.master.as_ref().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut rest = bytes;
+            while !rest.is_empty() {
+                match rustix::io::write(fd, rest) {
+                    Ok(n) => rest = &rest[n..],
+                    Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "the terminal took no input for ten seconds"
+                        );
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(e) => panic!("writing to the terminal failed: {e}"),
+                }
+            }
         }
 
         /// Resize the terminal (the TUI gets SIGWINCH).
@@ -919,6 +978,7 @@ mod pty {
     /// answers change nothing draws nothing, and relative times move only once a minute.
     #[test]
     fn idle_tui_writes_nothing_between_minute_ticks() {
+        let _guard = super::parallel_test();
         let w = World::new(&[]);
         w.import(0, 100);
         let n = w.destination_count();
@@ -1014,6 +1074,7 @@ mod pty {
     /// dump. P95 ≤ 100 ms is asserted on macOS only (the A20 bar); elsewhere recorded.
     #[test]
     fn a20_key_latency() {
+        let _guard = super::latency_test();
         let w = World::new(&[
             ("HEIMDALL_TEST_ADAPTER", "prepare"),
             ("HEIMDALL_TEST_SLOW_PREPARE_MS", "600000"),
@@ -1149,6 +1210,7 @@ mod pty {
         const MANAGED: usize = 4000;
         const ENROLLMENTS: usize = 1000;
         const CATALOG: &str = "4000 managed destinations, 1000 enrollment records";
+        let _guard = super::latency_test();
         let w = World::seeded(MANAGED, ENROLLMENTS);
         let n = w.destination_count();
         assert!(n >= MANAGED, "{n}");
@@ -1208,6 +1270,7 @@ mod pty {
     /// running work.
     #[test]
     fn a_stopped_runtime_is_shown_as_stale_not_ready() {
+        let _guard = super::parallel_test();
         let w = World::new(&[]);
         w.import(0, 100);
         let n = w.destination_count();
@@ -1337,6 +1400,7 @@ mod pty {
     /// and `q`, with the terminal's modes byte-identical to before.
     #[test]
     fn a20_keyboard_walkthrough() {
+        let _guard = super::parallel_test();
         let w = World::new(&[
             ("HEIMDALL_TEST_ADAPTER", "prepare"),
             ("HEIMDALL_TEST_SLOW_PREPARE_MS", "600000"),
@@ -1648,6 +1712,7 @@ mod pty {
         const WORK: &str = "m07-resize";
         const REFUSED: &str = "not on screen yet: nothing was sent";
         const SHORT: Duration = Duration::from_secs(5);
+        let _guard = super::parallel_test();
         let w = World::new(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
         let ensure = |attempt| {
             w.cli(&[
@@ -1775,6 +1840,595 @@ mod pty {
         tui.wait(SHORT);
     }
 
+    /// Review M07-W2-R01: a resize that goes away and comes back (`120x40 → 40x5 →
+    /// 120x40`: a tmux zoom toggle, a tiling window manager) before the TUI draws again
+    /// leaves the terminal at the size the last frame was drawn for, so the size
+    /// comparison of M07-W1-R01 ([`resize_then_yes_before_redraw_stops_nothing`]) sees
+    /// nothing; yet the frame on the screen was cut and has not been redrawn. Keys that
+    /// arrive then must trigger nothing.
+    ///
+    /// One case for each guarded action the review probed, each with its own scratch
+    /// runtime and TUI. Every case draws its target in full at 120x40, then [`ATTEMPTS`]
+    /// times: stops the TUI, resizes there and back, writes the keys and lets the TUI
+    /// continue ([`roundtrip_then_keys`]); nothing may have happened, the TUI is still
+    /// running, has drawn again and says why. A miss names its action and attempt and is
+    /// never retried. Then the same keys, written once the refusal's frame is on screen,
+    /// must work once: the guard does not refuse everything, and the check that found
+    /// nothing would have seen the action.
+    mod roundtrip_resize_before_redraw_triggers_nothing {
+        use super::*;
+
+        /// Attempts per action. The fix waits a bounded time for the worker thread to
+        /// count the resize, so one pass proves little: a rare miss needs many.
+        const ATTEMPTS: usize = 20;
+        const REFUSED: &str = "not on screen yet: nothing was sent";
+        const PROMPT: &str = "Type yes to confirm [y/N]: _";
+        const SHORT: Duration = Duration::from_secs(5);
+
+        /// The review's probe. Stop the TUI (SIGSTOP to the exact child this test
+        /// started, waited for), take the terminal to 40x5 and 5 ms later back to 120x40,
+        /// write `keys`, and let the TUI continue (SIGCONT, the same PID). It wakes up to
+        /// a terminal of the size its last frame was drawn for, a resize it has not
+        /// handled, and keys. Returns the length of the terminal's transcript when it
+        /// continued.
+        fn roundtrip_then_keys(pty: &Pty, tui: &mut Proc, keys: &[u8]) -> usize {
+            use rustix::process::{Pid, Signal, WaitOptions, kill_process, waitpid};
+            let child = tui.child.as_mut().unwrap();
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "the TUI must be running"
+            );
+            let pid = Pid::from_child(child);
+            kill_process(pid, Signal::STOP).unwrap();
+            let (_, status) =
+                rustix::io::retry_on_intr(|| waitpid(Some(pid), WaitOptions::UNTRACED))
+                    .unwrap()
+                    .unwrap();
+            if !status.stopped() {
+                tui.child.take(); // waitpid already reaped this child.
+                panic!("the PTY child exited before suspension");
+            }
+            pty.resize(5, 40);
+            std::thread::sleep(Duration::from_millis(5));
+            pty.resize(40, 120);
+            pty.write(keys);
+            let mark = pty.bytes().len();
+            kill_process(pid, Signal::CONT).unwrap();
+            mark
+        }
+
+        /// Type `keys` at a frame that is on the screen, until `done` holds. The guard may
+        /// refuse them once more without any fault: on a loaded machine the count of the
+        /// resizes above can reach the TUI after its repaint, and it then asks for one more
+        /// frame. A refusal written after the keys (`refused`, in the terminal's bytes) is
+        /// answered by typing them again at the frame that refusal drew; nothing else is.
+        fn typed_at_a_drawn_frame(
+            w: &World,
+            pty: &Pty,
+            keys: &[u8],
+            refused: &str,
+            what: &str,
+            done: impl Fn(&str) -> bool,
+        ) {
+            let deadline = Instant::now() + LONG;
+            let mut mark = pty.bytes().len();
+            pty.write(keys);
+            loop {
+                let screen = w.screen();
+                if done(&screen) {
+                    return;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for {what}; the last frame:\n{screen}"
+                );
+                let bytes = pty.bytes();
+                if String::from_utf8_lossy(&bytes[mark.min(bytes.len())..]).contains(refused) {
+                    // The refusal's frame is complete before the keys go in again.
+                    std::thread::sleep(Duration::from_millis(100));
+                    mark = pty.bytes().len();
+                    pty.write(keys);
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// A frame of the whole 120x40 terminal.
+        fn full_frame(screen: &str) -> bool {
+            screen.lines().count() == 40
+        }
+
+        /// A confirmation drawn in full: `action` and the prompt, nothing cut off.
+        fn full_confirmation(screen: &str, action: &str) -> bool {
+            full_frame(screen)
+                && screen.contains(action)
+                && screen.contains(PROMPT)
+                && !screen.contains("more rows below")
+                && !screen.contains("more row below")
+        }
+
+        /// What a miss reports: the action, the attempt, what happened, and the first
+        /// bytes the TUI wrote after it continued (whether it drew before the keys acted).
+        fn miss(
+            w: &World,
+            pty: &Pty,
+            mark: usize,
+            action: &str,
+            attempt: usize,
+            what: &str,
+        ) -> String {
+            let bytes = pty.bytes();
+            let written = bytes.get(mark..).unwrap_or_default();
+            format!(
+                "M07-W2-R01 MISS: {action}, attempt {attempt} of {ATTEMPTS}: {what}\n{} bytes written after the TUI continued, starting: {:?}\nthe last frame:\n{}",
+                written.len(),
+                super::super::diagnostic_tail(&written[..written.len().min(400)], w.root.path()),
+                super::super::diagnostic_tail(w.screen().as_bytes(), w.root.path())
+            )
+        }
+
+        /// After a refused attempt: the TUI is still running and wrote to the terminal
+        /// after it continued. (The frame dump that shows the refusal is of that draw.)
+        fn assert_running_and_repainted(pty: &Pty, tui: &mut Proc, mark: usize, action: &str) {
+            assert!(
+                tui.child.as_mut().unwrap().try_wait().unwrap().is_none(),
+                "{action}: the TUI must stay open"
+            );
+            let deadline = Instant::now() + SHORT;
+            while pty.bytes().len() <= mark {
+                assert!(
+                    Instant::now() < deadline,
+                    "{action}: the TUI wrote nothing after it continued"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        fn passed(action: &str) {
+            eprintln!(
+                "M07-W2-R01 roundtrip resize (stopped; 120x40 -> 40x5 -> 5 ms -> 120x40; keys; continued): {action}: {ATTEMPTS} of {ATTEMPTS} attempts triggered nothing; the same keys to a drawn frame then worked once"
+            );
+        }
+
+        /// The stop menu's confirmation: `yes` and Enter stop the work for good (a later
+        /// `access ensure` for it is refused, `work_stopped`).
+        #[test]
+        fn stop_menu_yes() {
+            const NAME: &str = "the stop menu's yes";
+            const WORK: &str = "m07-roundtrip";
+            const ACTION: &str = "Stop work m07-roundtrip: access only it uses ends now";
+            const ANSWER: &str = "stop work m07-roundtrip: ";
+            let _guard = super::super::parallel_test();
+            let w = World::new(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
+            let ensure = |attempt: usize| {
+                w.cli(&[
+                    "--json",
+                    "access",
+                    "ensure",
+                    "--profile",
+                    "dev",
+                    "--work-id",
+                    WORK,
+                    "--request-id",
+                    &format!("{WORK}-{attempt}"),
+                    "--pair",
+                    "h1:deploy",
+                    "--async",
+                ])
+            };
+            let baseline = ensure(0);
+            assert!(
+                baseline.status.success(),
+                "fixture work should be accepted: {}",
+                w.cli_diagnostics(&baseline)
+            );
+            let pty = Pty::open(40, 120);
+            let mut tui = w.started(&pty, w.destination_count());
+            let open = format!("s2\r{WORK}\r");
+            pty.write(open.as_bytes());
+            for attempt in 1..=ATTEMPTS {
+                w.wait_screen("the stop confirmation in full", LONG, |s| {
+                    full_confirmation(s, ACTION)
+                        && s.contains("access stay.")
+                        && !s.contains("yes refused")
+                        && !s.contains(REFUSED)
+                });
+                let mark = roundtrip_then_keys(&pty, &mut tui, b"yes\r");
+                // The stop's own answer, not only its sending, so that an accepted stop
+                // cannot race the ensure below.
+                w.wait_screen("the answer to yes", LONG, |s| {
+                    s.contains(REFUSED) || s.contains(ANSWER)
+                });
+                let out = ensure(attempt);
+                assert!(
+                    out.status.success(),
+                    "{}",
+                    miss(
+                        &w,
+                        &pty,
+                        mark,
+                        NAME,
+                        attempt,
+                        &format!("work {WORK} is stopped: {}", w.cli_diagnostics(&out))
+                    )
+                );
+                let screen = w.screen();
+                for shown in [ACTION, PROMPT, "yes refused: it was not on screen", REFUSED] {
+                    assert!(
+                        full_frame(&screen) && screen.contains(shown),
+                        "attempt {attempt}: {shown}:\n{screen}"
+                    );
+                }
+                assert_running_and_repainted(&pty, &mut tui, mark, NAME);
+                // The repaint after the refusal is a full one: the terminal may have
+                // dropped cells of the frame while it was small, so the confirmation's own
+                // rows are written again, not only the cells that differ (review
+                // M07-W2-R01).
+                let deadline = Instant::now() + SHORT;
+                loop {
+                    let bytes = pty.bytes();
+                    let since = String::from_utf8_lossy(&bytes[mark.min(bytes.len())..]);
+                    if since.contains("m07-roundtrip:") {
+                        break;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "attempt {attempt}: the refusal's frame did not write the action row again"
+                    );
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                if attempt < ATTEMPTS {
+                    pty.write(b"\x1b");
+                    w.wait_screen("the stop menu closed", LONG, |s| {
+                        s.contains("cancelled: nothing was sent") && !s.contains(PROMPT)
+                    });
+                    pty.write(open.as_bytes());
+                }
+            }
+            // The refusal's frame drew the confirmation again: a yes typed to it is sent.
+            typed_at_a_drawn_frame(
+                &w,
+                &pty,
+                b"yes\r",
+                "yes refused",
+                "the stop's answer",
+                |s| s.contains(ANSWER),
+            );
+            let answer = w.screen();
+            assert!(answer.contains("stop work m07-roundtrip: OK"), "{answer}");
+            let out = ensure(ATTEMPTS + 1);
+            assert!(
+                !out.status.success()
+                    && [&out.stdout, &out.stderr]
+                        .iter()
+                        .any(|b| String::from_utf8_lossy(b).contains("work_stopped")),
+                "a stop that was sent refuses the work's next ensure: {}",
+                w.cli_diagnostics(&out)
+            );
+            pty.write(b"q");
+            tui.wait(LONG);
+            passed(NAME);
+        }
+
+        /// A Settings confirmation: `yes` and Enter pause the standing access `pol`.
+        #[test]
+        fn settings_pause_yes() {
+            const NAME: &str = "the Settings Pause yes";
+            const ACTION: &str = "Same as: heimdall access pause pol";
+            const ANSWER: &str = "pause pol: ";
+            let _guard = super::super::parallel_test();
+            let w = World::new(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
+            let paused = || {
+                let policies = w.json(&["--json", "inspect", "policies"]);
+                let pol = policies["data"]["items"]
+                    .as_array()
+                    .and_then(|items| items.iter().find(|p| p["policy_id"] == "pol"))
+                    .unwrap_or_else(|| panic!("the fixture policy is listed: {policies}"));
+                !pol["paused_since"].is_null()
+            };
+            assert!(!paused(), "the fixture policy starts active");
+            let pty = Pty::open(40, 120);
+            let mut tui = w.started(&pty, w.destination_count());
+            pty.write(b"8");
+            w.wait_screen("Settings and its standing access rows", LONG, |s| {
+                selected_tab(s) == Some(8) && s.contains("pol · profile dev")
+            });
+            // Down to the standing access row; Enter opens its changes, Enter picks Pause.
+            pty.write(b"\x1b[B\r\r");
+            for attempt in 1..=ATTEMPTS {
+                w.wait_screen("the Settings pause confirmation in full", LONG, |s| {
+                    full_confirmation(s, ACTION)
+                        && s.contains("Standing access pol: profile dev")
+                        && !s.contains("yes refused")
+                        && !s.contains(REFUSED)
+                });
+                let mark = roundtrip_then_keys(&pty, &mut tui, b"yes\r");
+                w.wait_screen("the answer to yes", LONG, |s| {
+                    s.contains(REFUSED) || s.contains(ANSWER)
+                });
+                assert!(
+                    !paused(),
+                    "{}",
+                    miss(&w, &pty, mark, NAME, attempt, "the policy pol is paused")
+                );
+                let screen = w.screen();
+                for shown in [ACTION, PROMPT, "yes refused", REFUSED] {
+                    assert!(
+                        full_frame(&screen) && screen.contains(shown),
+                        "attempt {attempt}: {shown}:\n{screen}"
+                    );
+                }
+                assert_running_and_repainted(&pty, &mut tui, mark, NAME);
+                if attempt < ATTEMPTS {
+                    pty.write(b"\x1b");
+                    w.wait_screen("the Settings prompt closed", LONG, |s| {
+                        s.contains("cancelled: nothing was sent") && !s.contains(PROMPT)
+                    });
+                    pty.write(b"\r\r");
+                }
+            }
+            // The refusal's frame drew the confirmation again: a yes typed to it is sent.
+            typed_at_a_drawn_frame(
+                &w,
+                &pty,
+                b"yes\r",
+                "yes refused",
+                "the pause's answer",
+                |s| s.contains(ANSWER),
+            );
+            let answer = w.screen();
+            assert!(answer.contains("pause pol: OK"), "{answer}");
+            assert!(paused(), "a pause that was sent pauses the policy");
+            pty.write(b"q");
+            tui.wait(LONG);
+            passed(NAME);
+        }
+
+        /// An operation's detail: `x` cancels the running operation.
+        #[test]
+        fn operation_cancel_x() {
+            const NAME: &str = "the operation detail's x";
+            let _guard = super::super::parallel_test();
+            let w = World::new(&[
+                ("HEIMDALL_TEST_ADAPTER", "prepare"),
+                ("HEIMDALL_TEST_SLOW_PREPARE_MS", "600000"),
+            ]);
+            // The live slow operation: an ensure whose prepare waits 10 minutes.
+            let ensure = w.json(&[
+                "--json",
+                "access",
+                "ensure",
+                "--profile",
+                "dev",
+                "--work-id",
+                "m07-roundtrip-cancel",
+                "--request-id",
+                "m07-roundtrip-cancel-1",
+                "--pair",
+                "h1:deploy",
+                "--async",
+            ]);
+            let op = ensure["operation_id"].as_str().unwrap().to_owned();
+            let state = || {
+                let shown = w.json(&["--json", "operation", "show", &op]);
+                shown["state"].as_str().unwrap_or_default().to_owned()
+            };
+            let live = |state: &str| state == "running" || state == "queued";
+            let pty = Pty::open(40, 120);
+            let mut tui = w.started(&pty, w.destination_count());
+            w.wait_screen("the live operation", LONG, |s| s.contains("[..] working:"));
+            for _ in 0..20 {
+                if selected_row(&w.screen()).is_some_and(|r| r.contains("working")) {
+                    break;
+                }
+                let at = selected_row(&w.screen());
+                pty.write(b"\x1b[B");
+                w.wait_screen("the selection moving", LONG, |s| selected_row(s) != at);
+            }
+            let answer = format!("cancel {op}: ");
+            for attempt in 1..=ATTEMPTS {
+                assert!(
+                    selected_row(&w.screen()).unwrap().contains(&op),
+                    "{}",
+                    w.screen()
+                );
+                pty.write(b"\r");
+                w.wait_screen("the operation detail in full", LONG, |s| {
+                    full_frame(s)
+                        && s.contains(&op)
+                        && s.contains("State: running")
+                        && s.contains("x cancels it")
+                        && footer(s).contains("x cancel")
+                });
+                let mark = roundtrip_then_keys(&pty, &mut tui, b"x");
+                // The cancel's own answer, not only its sending.
+                w.wait_screen("the answer to x", LONG, |s| {
+                    footer(s) == REFUSED || s.contains(&answer)
+                });
+                let now = state();
+                assert!(
+                    live(&now),
+                    "{}",
+                    miss(
+                        &w,
+                        &pty,
+                        mark,
+                        NAME,
+                        attempt,
+                        &format!("the operation is {now}")
+                    )
+                );
+                let screen = w.screen();
+                for shown in [op.as_str(), "State: running", "x cancels it"] {
+                    assert!(
+                        full_frame(&screen) && screen.contains(shown),
+                        "attempt {attempt}: {shown}:\n{screen}"
+                    );
+                }
+                assert_eq!(footer(&screen), REFUSED, "attempt {attempt}:\n{screen}");
+                assert_running_and_repainted(&pty, &mut tui, mark, NAME);
+                if attempt < ATTEMPTS {
+                    pty.write(b"\x1b");
+                    w.wait_screen("back on the overview", LONG, |s| {
+                        selected_tab(s) == Some(1) && !s.contains("State: running")
+                    });
+                }
+            }
+            // The refusal's frame drew the detail again: an x pressed on it is sent.
+            typed_at_a_drawn_frame(&w, &pty, b"x", REFUSED, "the cancel's answer", |s| {
+                s.contains(&answer)
+            });
+            let deadline = Instant::now() + LONG;
+            loop {
+                let now = state();
+                if !live(&now) {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "x did not cancel {op}: {now}");
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            pty.write(b"\x1b");
+            w.wait_screen("back on the overview", LONG, |s| {
+                selected_tab(s) == Some(1) && s.contains("Static pass:")
+            });
+            pty.write(b"q");
+            tui.wait(LONG);
+            passed(NAME);
+        }
+
+        /// The probe menu: Enter on `network` connects to the alias's host, here a
+        /// loopback listener that counts its connections ([`BannerFixture`]).
+        #[test]
+        fn network_probe_enter() {
+            const NAME: &str = "the probe menu's Enter on network";
+            const PROBED: &str = "hm-m07-roundtrip";
+            const NOT_RUN: &str = "not on screen yet: no probe ran";
+            let _guard = super::super::parallel_test();
+            let w = World::new(&[]);
+            // An observed alias that the scratch configuration (the static pass's too)
+            // points at the loopback fixture, the only thing a probe here contacts.
+            let banner = BannerFixture::start();
+            let ssh_dir = w.ssh_home.join(".ssh");
+            std::fs::create_dir_all(&ssh_dir).unwrap();
+            std::fs::write(
+                ssh_dir.join("config"),
+                format!(
+                    "Host {PROBED}\n    HostName 127.0.0.1\n    Port {}\n",
+                    banner.port
+                ),
+            )
+            .unwrap();
+            let added = w.json(&["--json", "destination", "add", PROBED, "--observed"]);
+            assert_eq!(added["code"], "OK", "{added}");
+            let pty = Pty::open(40, 120);
+            let mut tui = w.started(&pty, w.destination_count());
+            pty.write(b"2");
+            w.wait_screen("the Destinations tab", LONG, |s| {
+                selected_tab(s) == Some(2) && selected_row(s).is_some()
+            });
+            pty.write(format!("/{PROBED}").as_bytes());
+            w.wait_screen("the fixture alias found", LONG, |s| {
+                s.contains(&format!("Search: {PROBED}_  (1 of"))
+            });
+            pty.write(b"\r");
+            w.wait_screen("the fixture alias selected", LONG, |s| {
+                s.contains(&format!("Filter: {PROBED}  (1 of"))
+                    && selected_row(s).is_some_and(|r| r.contains(PROBED))
+            });
+            let menu = format!("Explicit probes for {PROBED}; each names its level:");
+            pty.write(b"p");
+            w.wait_screen("the probe menu", LONG, |s| {
+                s.contains(&menu) && s.contains("> static ")
+            });
+            for name in ["evaluate", "agent"] {
+                pty.write(b"\x1b[B");
+                w.wait_screen(&format!("the {name} level selected"), LONG, |s| {
+                    s.contains(&format!("> {name} "))
+                });
+            }
+            let target = format!("network 127.0.0.1:{}: ", banner.port);
+            for attempt in 1..=ATTEMPTS {
+                // From `agent` down to `network`, a frame after it; the key also ends the
+                // note of the attempt before.
+                pty.write(b"\x1b[B");
+                w.wait_screen("the probe menu on network, in full", LONG, |s| {
+                    full_frame(s)
+                        && s.contains(&menu)
+                        && s.contains("> network ")
+                        && !s.contains("Enter refused")
+                        && !s.contains(NOT_RUN)
+                });
+                assert_eq!(banner.accepted(), 0, "nothing is probed before Enter");
+                let mark = roundtrip_then_keys(&pty, &mut tui, b"\r");
+                // The probe's own result, not only its start.
+                w.wait_screen("the answer to Enter", LONG, |s| {
+                    s.contains("Enter refused") || s.contains(&target)
+                });
+                let connections = banner.accepted();
+                assert_eq!(
+                    connections,
+                    0,
+                    "{}",
+                    miss(
+                        &w,
+                        &pty,
+                        mark,
+                        NAME,
+                        attempt,
+                        &format!("the loopback listener saw {connections} connection(s)")
+                    )
+                );
+                let screen = w.screen();
+                for shown in [
+                    menu.as_str(),
+                    "> network ",
+                    "Enter refused: it was not on screen",
+                    NOT_RUN,
+                ] {
+                    assert!(
+                        full_frame(&screen) && screen.contains(shown),
+                        "attempt {attempt}: {shown}:\n{screen}"
+                    );
+                }
+                assert_running_and_repainted(&pty, &mut tui, mark, NAME);
+                if attempt < ATTEMPTS {
+                    pty.write(b"\x1b[A");
+                    w.wait_screen("the agent level selected", LONG, |s| {
+                        s.contains("> agent ") && !s.contains("Enter refused")
+                    });
+                }
+            }
+            assert_eq!(
+                banner.accepted(),
+                0,
+                "no refused Enter reached the listener later either"
+            );
+            // The refusal's frame drew the menu on `network` again: Enter on it runs.
+            typed_at_a_drawn_frame(
+                &w,
+                &pty,
+                b"\r",
+                "Enter refused",
+                "the network probe's result",
+                |s| s.contains(&target),
+            );
+            let result = w.screen();
+            assert!(result.contains(&format!("{target}ok")), "{result}");
+            assert_eq!(
+                banner.accepted(),
+                1,
+                "one connection, to the loopback fixture"
+            );
+            pty.write(b"\x1b");
+            w.wait_screen("the probe's result closed", LONG, |s| {
+                !s.contains("network probe: ")
+            });
+            pty.write(b"q");
+            tui.wait(LONG);
+            passed(NAME);
+        }
+    }
+
     /// m07-plan U1 `tui_standalone_access_and_stop` (the TUI standalone row): an observed
     /// alias served by the loopback fixture sshd, reached with a per-run key.
     /// With no CLI command in between: the destination is opened,
@@ -1794,6 +2448,7 @@ mod pty {
 
         const ALIAS: &str = "hm-m07-fixture";
         const LOGIN: &str = "HM-M07-FIXTURE-LOGIN";
+        let _guard = super::parallel_test();
         let fixtures = Scratch::new().unwrap();
         let key = FixtureKey::generate().with_comment("hm-m07-fixture-key");
         let sshd = LoopbackSshd::start(
@@ -1986,6 +2641,7 @@ mod windows_console {
     #[ignore = "child-mode entry of the Windows walkthrough, started by it"]
     fn console_child() {
         use ratatui::crossterm::terminal::{SetSize, is_raw_mode_enabled};
+        let _guard = super::parallel_test();
         let (Ok(argv), Ok(envs), Ok(resize)) = (
             std::env::var(ARGV),
             std::env::var(ENVS),
@@ -2122,6 +2778,7 @@ mod windows_console {
 
     #[test]
     fn windows_tui_walkthrough() {
+        let _guard = super::latency_test();
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path();
         for d in [

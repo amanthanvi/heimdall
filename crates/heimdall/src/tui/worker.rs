@@ -86,6 +86,14 @@ pub(crate) struct Worker {
     commands: tokio::sync::mpsc::Sender<Command>,
     /// Events from the worker.
     pub events: std::sync::mpsc::Receiver<Event>,
+    /// ⟨M07; review M07-W2-R01⟩ How many terminal resizes have been seen: bumped by the
+    /// worker for every SIGWINCH (Unix) **before** it forwards [`Event::Resize`], and by
+    /// the main loop for a console resize event (Windows). The main loop records it just
+    /// before each draw; a key batch that finds another value acts on a screen that
+    /// changed since that frame, whatever size the terminal has now.
+    resizes: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// ⟨M07⟩ [`Worker::settle`]'s channel.
+    settle: tokio::sync::mpsc::Sender<std::sync::mpsc::SyncSender<()>>,
 }
 
 /// Bound of the command queue (overview §4: every queue is bounded).
@@ -96,6 +104,30 @@ impl Worker {
     pub(crate) fn send(&self, command: Command) -> bool {
         self.commands.try_send(command).is_ok()
     }
+
+    /// ⟨M07; review M07-W2-R01⟩ The resize generation now.
+    #[must_use]
+    pub(crate) fn resize_generation(&self) -> u64 {
+        self.resizes.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// ⟨M07⟩ Count a resize the main loop saw itself (the Windows console event).
+    pub(crate) fn note_resize(&self) {
+        self.resizes
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// ⟨M07; review M07-W2-R01⟩ Give the worker's runtime one bounded turn, so a SIGWINCH
+    /// already delivered to the process is counted before the main loop reads
+    /// [`Self::resize_generation`]: the signal reaches the generation through a task of
+    /// the worker's runtime, which may not have run yet when keys wake the main loop.
+    /// The settle task answers after yielding to the other tasks. `false` when the worker
+    /// did not answer within `bound` (it is gone or its thread is not scheduled): the
+    /// caller then cannot rule a resize out.
+    pub(crate) fn settle(&self, bound: std::time::Duration) -> bool {
+        let (ack, done) = std::sync::mpsc::sync_channel(1);
+        self.settle.try_send(ack).is_ok() && done.recv_timeout(bound).is_ok()
+    }
 }
 
 /// Start the worker thread.
@@ -105,16 +137,26 @@ impl Worker {
 pub(crate) fn spawn(config: WorkerConfig) -> std::io::Result<Worker> {
     let (commands, rx) = tokio::sync::mpsc::channel(COMMAND_QUEUE);
     let (tx, events) = std::sync::mpsc::channel();
+    let resizes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let (settle, settle_rx) = tokio::sync::mpsc::channel(4);
+    let counted = resizes.clone();
     std::thread::Builder::new()
         .name("heimdall-tui-ipc".into())
-        .spawn(move || run(config, rx, tx))?;
-    Ok(Worker { commands, events })
+        .spawn(move || run(config, rx, tx, counted, settle_rx))?;
+    Ok(Worker {
+        commands,
+        events,
+        resizes,
+        settle,
+    })
 }
 
 fn run(
     config: WorkerConfig,
     mut rx: tokio::sync::mpsc::Receiver<Command>,
     tx: std::sync::mpsc::Sender<Event>,
+    resizes: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    mut settle: tokio::sync::mpsc::Receiver<std::sync::mpsc::SyncSender<()>>,
 ) {
     let Ok(rt) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -127,7 +169,20 @@ fn run(
     };
     rt.block_on(async move {
         #[cfg(unix)]
-        forward_signals(&tx);
+        forward_signals(&tx, &resizes);
+        #[cfg(not(unix))]
+        let _ = &resizes;
+        // ⟨M07; review M07-W2-R01⟩ The settle task: a task of its own, so it answers while
+        // a command is being handled; it yields first, so the signal tasks that are ready
+        // run (and count their resize) before the answer.
+        tokio::spawn(async move {
+            while let Some(ack) = settle.recv().await {
+                for _ in 0..3 {
+                    tokio::task::yield_now().await;
+                }
+                let _ = ack.send(());
+            }
+        });
         let mut state = State::new(config, tx);
         while let Some(first) = rx.recv().await {
             let mut batch = vec![first];
@@ -172,7 +227,10 @@ fn coalesce(batch: Vec<Command>) -> Vec<Command> {
 }
 
 #[cfg(unix)]
-fn forward_signals(tx: &std::sync::mpsc::Sender<Event>) {
+fn forward_signals(
+    tx: &std::sync::mpsc::Sender<Event>,
+    resizes: &std::sync::Arc<std::sync::atomic::AtomicU64>,
+) {
     use tokio::signal::unix::{SignalKind, signal};
     for (kind, number) in [
         (SignalKind::hangup(), 1),
@@ -184,9 +242,12 @@ fn forward_signals(tx: &std::sync::mpsc::Sender<Event>) {
             continue;
         };
         let tx = tx.clone();
+        let resizes = resizes.clone();
         tokio::spawn(async move {
             while stream.recv().await.is_some() {
                 let event = if number == 28 {
+                    // Counted before it is forwarded (review M07-W2-R01).
+                    resizes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     Event::Resize
                 } else {
                     Event::Signal(number)

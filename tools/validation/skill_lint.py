@@ -83,6 +83,11 @@ GLOBAL_FLAGS = {"--json", "--non-interactive"}
 # discovery and human-handoff paths (read-only). A command the CLI has but this table lacks
 # (an owner-only management command, for example) is a finding. Each path lists every flag
 # the skill may use with it; anything else is a finding.
+INSPECT_SUBJECTS = {
+    "capabilities", "environments", "profiles", "destinations", "bindings", "grants",
+    "operations", "decisions", "identities", "projections", "enrollments", "connections",
+    "workspace", "policies",
+}
 ALLOWED = {
     ("inspect",): set(),
     ("access", "ensure"): {"--profile", "--work-id", "--request-id", "--pair", "--environment",
@@ -163,11 +168,13 @@ def command(snippet):
     path = []
     while rest and not rest[0].startswith(("-", "<")):
         path.append(rest.pop(0))
-    # `inspect <subject>` and `schema show <name>` take a literal operand.
-    for known in sorted(ALLOWED, key=len, reverse=True):
-        if tuple(path[:len(known)]) == known:
-            path = path[:len(known)]
-            break
+    # ⟨M07-W2-R02⟩ Only `inspect <subject>` (a fixed subject list) and `schema show <name>`
+    # take one literal operand; a trailing word after any other command stays in the
+    # path, so an invented command (`tui destination remove`) is not in the table.
+    if len(path) == 2 and path[0] == "inspect" and path[1] in INSPECT_SUBJECTS:
+        path = path[:1]
+    elif len(path) == 3 and tuple(path[:2]) == ("schema", "show"):
+        path = path[:2]
     flags = []
     for w in rest:
         if w == "--":
@@ -360,6 +367,10 @@ NEGATIVES = [
     (f"    sudo {REMOVE}\n", 1, "not at the start"),
     ("    Heimdall destination remove <alias>\n", 1, "not at the start"),
     ("Run `heimdall destination\nremove <alias>` now.\n", 1, OUTSIDE),
+    # ⟨M07-W2-R02⟩ Words after an allowed command, and an `inspect` subject not on the list.
+    ("    heimdall tui destination remove <alias>\n", 1, OUTSIDE),
+    ("    heimdall decision list approve <id>\n", 1, OUTSIDE),
+    ("    heimdall inspect secrets\n", 1, OUTSIDE),
 ]
 
 

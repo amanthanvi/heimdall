@@ -88,6 +88,10 @@ const POLL_INTERVAL: Duration = Duration::from_secs(3);
 /// How long the main loop waits for a key before it looks at the worker again.
 const INPUT_WAIT: Duration = Duration::from_millis(100);
 
+/// ⟨M07; review M07-W2-R01⟩ How long a key batch waits for the worker's runtime to count
+/// a resize already delivered ([`worker::Worker::settle`]).
+const SETTLE_BOUND: Duration = Duration::from_millis(25);
+
 /// After a connect handoff, a SIGINT is the child's Ctrl-C, never a request to quit.
 const INTERRUPT_GRACE: Duration = Duration::from_millis(500);
 
@@ -288,6 +292,11 @@ fn event_loop(
     let mut dirty = true;
     // ⟨M07⟩ The size the last frame was drawn for (review M07-W1-R01).
     let mut drawn_size: Option<(u16, u16)> = None;
+    // ⟨M07⟩ The resize generation read just before the last frame was drawn (review
+    // M07-W2-R01): a resize that went away and came back to the same size still counts.
+    let mut drawn_resizes: Option<u64> = None;
+    // ⟨M07⟩ The next frame repaints every cell (review M07-W2-R01).
+    let mut redraw_in_full = false;
     let mut first_frame = true;
     let mut last_poll = Instant::now();
     let mut worker_gone = false;
@@ -334,6 +343,19 @@ fn event_loop(
         // decision expires.
         dirty |= app.set_now(Timestamp::now());
         if dirty {
+            // ⟨M07; review M07-W2-R01⟩ After any resize the terminal may have dropped cells
+            // of the last frame even when the size is the same again, and a frame drawn as
+            // a diff would leave them missing while counting as current. So the first
+            // frame after a resize (and after a refused stale batch) is drawn in full.
+            let resizes = worker.resize_generation();
+            if redraw_in_full || drawn_resizes.is_some_and(|g| g != resizes) {
+                // A full repaint without any terminal query (`Terminal::clear` would ask
+                // for the cursor position, which the backend refuses).
+                let area = term::size()?;
+                terminal.resize(ratatui::layout::Rect::new(0, 0, area.width, area.height))?;
+                redraw_in_full = false;
+            }
+            drawn_resizes = Some(resizes);
             let frame = terminal.draw(|f| view::render(f, app))?;
             drawn_size = Some((frame.area.width, frame.area.height));
             if let Some(path) = &test.screen {
@@ -351,7 +373,10 @@ fn event_loop(
         }
         match reader.next(INPUT_WAIT)? {
             term::Input::Idle => {}
-            term::Input::Resize => dirty = true,
+            term::Input::Resize => {
+                worker.note_resize();
+                dirty = true;
+            }
             term::Input::Hangup => return Ok(Exit::Hangup),
             term::Input::Keys(keys) => {
                 // ⟨M07; review M07-W1-R01⟩ A resize reaches this loop asynchronously (the
@@ -362,8 +387,20 @@ fn event_loop(
                 // differ, count a frame that drew nothing, so every guarded confirmation
                 // (`model::Seen`: Settings, the stop menu) refuses its Enter and says why,
                 // and the repaint below shows the confirmation at the new size.
-                if stale_geometry(terminal, drawn_size) {
+                // ⟨review M07-W2-R01⟩ The size alone misses a resize that went away and came
+                // back (a tmux zoom toggle, a tiling window manager): the frame on the
+                // screen was cut and never redrawn, yet the size equals the drawn one. So
+                // the resize generation is compared too. The worker counts a SIGWINCH in a
+                // task of its runtime, which may not have run when keys wake this loop:
+                // `settle` gives it one bounded turn first. A worker that does not answer
+                // in time cannot rule a resize out, so that counts as changed too.
+                let settled = worker.settle(SETTLE_BOUND);
+                if stale_geometry(terminal, drawn_size)
+                    || drawn_resizes != Some(worker.resize_generation())
+                    || !settled
+                {
                     app.begin_frame();
+                    redraw_in_full = true;
                 }
                 for key in keys {
                     let effects = app.key(key);
