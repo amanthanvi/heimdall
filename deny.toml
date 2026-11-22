@@ -56,3 +56,15 @@ multiple-versions = "allow"
 wildcards = "deny"
 # Path dependencies inside the workspace use `workspace = true` without a version.
 allow-wildcard-paths = true
+
+# --- Recorded additions (ADR-0014 section 4.6: each is a decision with its reason) ---------
+#
+# 2026-11-22, orchestrator's instruction on the M08 W0 checkpoint: with the `iroh` feature
+# on, the TLS stack brings `webpki-roots`, the Mozilla root-certificate list as data, under
+# CDLA-Permissive-2.0 (a permissive data licence: use and redistribution allowed, notice
+# kept). It is allowed for that one crate only, not as a general licence, so any other
+# crate under it is still refused until looked at. Found by:
+#   cargo-deny --manifest-path crates/heimdall/Cargo.toml --features iroh check licenses
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]

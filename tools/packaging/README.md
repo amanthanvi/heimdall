@@ -38,6 +38,25 @@ rustup target add --toolchain 1.99.1 x86_64-unknown-linux-gnu aarch64-unknown-li
   `target/tools/bin/cargo-deny --locked --offline check licenses sources bans`. Advisories
   are M06's audit gate, not this.
 
+## Rehearsal on the merged tree (`3b158d94`: `main` at `6a087fbb` with M06 W3–W4 and M07 W0–W3)
+
+Rebuilt 2026-11-22 with `--allow-dirty`, default features (the `iroh` feature off). All
+three passed verification, with the build's compiled packages equal to cargo's selected graph:
+
+| Target | Components in the inventory | Removed as unselected |
+|---|---|---|
+| `aarch64-apple-darwin` | 229 | 25 |
+| `x86_64-unknown-linux-gnu` | 275 | 20 |
+| `aarch64-unknown-linux-gnu` | 274 | 20 |
+
+`deny-selftest.sh` passes on the merged tree, **with the `iroh` feature on as well.** With
+`iroh`, cargo's selected graph for the binary grows from 209 to 367 third-party crates on
+macOS arm64, 255 to 387 on Linux x86-64 and 206 to 366 on Windows. One licence was new:
+`webpki-roots` (the Mozilla root-certificate list) under CDLA-Permissive-2.0, recorded in
+`deny.toml` as an exception for that crate only. Sources and bans passed unchanged,
+including the vendored `third_party/netdev`. **Not done with `iroh` on:** an archive build,
+its inventory and its notices.
+
 ## What each target's archive has had (rehearsals on `bd6e0f40`, 2026-11-22)
 
 | Target | Built | Static check | Run |

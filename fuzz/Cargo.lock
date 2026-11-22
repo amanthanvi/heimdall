@@ -829,12 +829,15 @@ name = "heimdall-credential"
 version = "0.1.0-m01"
 dependencies = [
  "async-trait",
+ "core-foundation",
  "getrandom 0.4.3",
  "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
  "heimdall-ipc",
  "libc",
+ "secret-service",
+ "security-framework",
  "sha2 0.10.9",
  "ssh-agent-lib",
  "ssh-encoding",
@@ -879,15 +882,19 @@ dependencies = [
 name = "heimdall-fuzz"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "heimdall-contract",
  "heimdall-credential",
  "heimdall-ipc",
+ "heimdall-issuer",
+ "heimdall-localenv",
  "heimdall-project",
  "heimdall-registry",
  "heimdall-runtime",
  "heimdall-sshconf",
  "libfuzzer-sys",
  "serde_json",
+ "tokio-util",
 ]
 
 [[package]]
@@ -919,6 +926,7 @@ dependencies = [
  "heimdall-contract",
  "heimdall-credential",
  "heimdall-domain",
+ "heimdall-remote",
  "heimdall-store",
  "rustix",
  "secret-service",
@@ -974,14 +982,37 @@ version = "0.1.0-m01"
 dependencies = [
  "heimdall-contract",
  "heimdall-domain",
+ "libc",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "heimdall-remote"
+version = "0.1.0-m01"
+dependencies = [
+ "base64ct",
+ "getrandom 0.4.3",
+ "heimdall-app",
+ "heimdall-contract",
+ "heimdall-domain",
+ "heimdall-ipc",
+ "heimdall-store",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "ssh-key",
+ "thiserror",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
 name = "heimdall-runtime"
 version = "0.1.0-m01"
 dependencies = [
+ "async-trait",
  "core-foundation",
  "core-foundation-sys",
  "etcetera",
@@ -995,14 +1026,18 @@ dependencies = [
  "heimdall-issuer",
  "heimdall-localenv",
  "heimdall-project",
+ "heimdall-registry",
+ "heimdall-remote",
  "heimdall-sshconf",
  "heimdall-store",
+ "heimdall-transport-iroh",
  "heimdall-wsl",
  "jiff",
  "libc",
  "schemars",
  "serde",
  "serde_json",
+ "ssh-key",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -1034,6 +1069,15 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "heimdall-transport-iroh"
+version = "0.1.0-m01"
+dependencies = [
+ "heimdall-contract",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]

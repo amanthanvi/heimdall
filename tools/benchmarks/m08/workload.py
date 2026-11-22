@@ -24,6 +24,10 @@ provider agent is down (Heimdall used a credential it should not hold); resident
 above 300 MiB; more than 1024 descriptors; a panic line in a Heimdall log; three
 consecutive unexpected login failures after recovery; the output directory above its budget.
 
+Version 2 samples the account's files by kind (database, write-ahead log, shared-memory
+file, logs, backups, other), because version 1's rehearsal saw the total grow and could not
+say which file.
+
 NOT COVERED by this version (m08-plan section 6.2 names them): grants with deadlines,
 explicit stops and expiry probes; the managed lane; the runner lane; update and rollback;
 the full-volume and damaged-file faults; an idle TUI; canary planting. The record of a run
@@ -199,6 +203,7 @@ class Lane:
                 s["pid"] = None
         nbytes = nfiles = 0
         panic = False
+        sizes = {"db": 0, "wal": 0, "shm": 0, "log": 0, "backups": 0, "other": 0}
         home = os.path.expanduser("~")
         for base, dirs, names in os.walk(home):
             if base == home and "s" in dirs:
@@ -211,6 +216,12 @@ class Lane:
                     continue
                 nbytes += st.st_size
                 nfiles += 1
+                # Which file grows (ADR-0014 section 6.2 item 4): the database, its write-ahead
+                # log and shared-memory file, the logs, the backups, everything else.
+                kind = ("wal" if n.endswith(".db-wal") else "shm" if n.endswith(".db-shm")
+                        else "db" if n.endswith(".db") else "log" if n.startswith("heimdall.log")
+                        else "backups" if os.sep + "backups" in base else "other")
+                sizes[kind] += st.st_size
                 if n.startswith("heimdall.log") and st.st_size < 32 * 1024 * 1024:
                     try:
                         with open(full, "rb") as fh:
@@ -218,6 +229,7 @@ class Lane:
                     except OSError:
                         pass
         s["home_bytes"], s["home_files"], s["panic_in_log"] = nbytes, nfiles, panic
+        s["bytes"] = sizes
         return s
 
     # ---- faults

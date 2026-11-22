@@ -31,6 +31,10 @@ run() { # NAME EXPECTED_EXIT MANIFEST [GREP]
     fi
 }
 run "the real workspace passes" 0 Cargo.toml
+# The candidate's likely feature set: the binary with the `iroh` feature on (about 160 more
+# third-party crates, and the one recorded licence exception in deny.toml).
+out=$("$deny" --manifest-path crates/heimdall/Cargo.toml --offline --features iroh --config "$repo/deny.toml" check licenses sources bans 2>&1); code=$?
+if [ "$code" = 0 ]; then echo "ok   the binary with the iroh feature passes (exit 0)"; else echo "FAIL the binary with the iroh feature (exit $code)"; bad=1; fi
 run "a permissive fixture passes" 0 "$fix/permissive/Cargo.toml"
 run "a copyleft crate is refused for its licence" 1 "$fix/copyleft/Cargo.toml" "GPL-3.0"
 # cargo writes a lock file beside each fixture manifest; remove exactly those two.

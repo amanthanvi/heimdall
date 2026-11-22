@@ -1,0 +1,29 @@
+# Heimdall reference configuration (M08 U7a). Every setting, at its default.
+# Location: `config.toml` in Heimdall's configuration directory. The file is optional: with
+# no file, these are the values in force. Unknown keys are refused, except under [x].
+# Checked against schemas/configuration/config.schema.json by check.py in this directory.
+
+schema_version = 1
+
+[session]
+# The longest window new trusted work may be given. A request for longer is shortened to this.
+max_window = "12h"
+# What a desktop or vault lock does to approved managed work: "continue" (until its deadline)
+# or "revoke". "revoke" here wins over a policy that says continue.
+lock_behavior = "continue"
+# true: at a deadline, connections Heimdall owns are closed, not only refused new sessions.
+strict_disconnect = false
+
+[retention]
+# How long finished operations and their request IDs are kept. At least 24h.
+operations = "7d"
+# How long the local event log is kept.
+events = "7d"
+
+[setup]
+# How many days your approval of an identity's interaction declaration stays in force (1-90).
+declaration_validity_days = 30
+
+# [x] is a free table for your own notes or tools. Heimdall ignores it.
+# [x]
+# note = "anything"

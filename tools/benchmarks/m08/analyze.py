@@ -14,7 +14,9 @@ Checks (the section 6.2 items this harness version can see):
   2  memory, lane S: median(final) <= median(early) * 1.10 + 4 MiB; slope <= 0.1 MiB/h
      (scaled: the allowed total rise over the fitted span is 6 MiB); maximum <= 150 MiB
   3  descriptors and threads, lane S: max(final) <= max(early) + 4 and + 2
-  4  files: the account's file count at the end <= the count at D/3 + 8
+  4  files: the account's file count at the end <= the count at D/3 + 8; and, by kind, the
+     database, its write-ahead log and other files must have stopped growing by the final
+     quarter (its maximum within 5 % and 64 KiB of the third quarter's); logs <= 17 MiB
   5  retries: no two connection attempts during an sshd outage closer than 1 s, and no
      unrequested attempts beyond 12 per outage
   1  duration and gaps: every gap between samples above 3 ticks is listed
@@ -102,6 +104,24 @@ def judge(samples, events, status, lane, tick):
                     continue
                 if max(s[key] for s in final) > max(s[key] for s in early) + allow:
                     fails.append(f"{key} grew: final max {max(s[key] for s in final)} > early max {max(s[key] for s in early)} + {allow}")
+    # Item 4, by kind of file. A ceiling is a size that stops growing: the final quarter's
+    # maximum is at most 5 % (and 64 KiB) above the third quarter's maximum.
+    kinds = sorted({k for s in samples for k in (s.get("bytes") or {})})
+    for k in kinds:
+        series = [(s["t"], s["bytes"][k]) for s in samples if s.get("bytes")]
+        q3 = [v for t, v in series if D / 2 <= t < 3 * D / 4]
+        q4 = [v for t, v in series if t >= 3 * D / 4]
+        if not q3 or not q4:
+            continue
+        first, last, peak = series[0][1], series[-1][1], max(v for _, v in series)
+        rate = slope_per_hour(series) / 1024.0
+        plateau = max(q4) <= max(q3) * 1.05 + 65536
+        notes.append(f"{k}: {first} -> {last} bytes, peak {peak}, slope {rate:.1f} KiB/h, "
+                     f"{'ceiling reached' if plateau else 'STILL GROWING in the final quarter'}")
+        if k in ("db", "wal", "other") and not plateau:
+            fails.append(f"{k} is still growing in the final quarter ({max(q3)} -> {max(q4)} bytes)")
+        if k == "log" and peak > 17 * 1024 * 1024:
+            fails.append(f"logs peaked at {peak} bytes, above two 8 MiB generations")
     third = [s for s in samples if s["t"] >= D / 3]
     if third and samples[-1]["home_files"] > third[0]["home_files"] + 8:
         fails.append(f"file count grew from {third[0]['home_files']} to {samples[-1]['home_files']}")
@@ -114,9 +134,9 @@ def judge(samples, events, status, lane, tick):
     return fails, notes
 
 
-def analyze(run_dir):
+def analyze(run_dir, lanes="SL"):
     bad = 0
-    for lane in ("S", "L"):
+    for lane in lanes:
         d = os.path.join(run_dir, lane)
         try:
             samples, events = load(os.path.join(d, "samples.ndjson")), load(os.path.join(d, "events.ndjson"))
@@ -163,6 +183,13 @@ def self_test():
         if not ok:
             bad += 1
             print(f"self-test FAILED: {name}: {fails}")
+    grow = series(720, lambda i: 40000)
+    for i, x in enumerate(grow):
+        x["bytes"] = {"db": 100000 + i * 2000, "wal": 4000000 if i > 100 else i * 40000, "log": 50000 + i * 100}
+    fails, notes = judge(grow, [], done, "S", 60)
+    if not any("db is still growing" in f for f in fails) or any("wal is still growing" in f for f in fails):
+        bad += 1
+        print(f"self-test FAILED: per-kind growth: {fails}")
     gap = series(100, lambda i: 40000)
     for s in gap[50:]:
         s["t"] += 900
@@ -170,17 +197,20 @@ def self_test():
     if not any("gap of" in n for n in notes):
         bad += 1
         print("self-test FAILED: a gap is not reported")
-    print(f"analyze self-test: {len(cases) + 1} cases, {bad} failed")
+    print(f"analyze self-test: {len(cases) + 2} cases, {bad} failed")
     return 1 if bad else 0
 
 
 def main(argv):
     if argv == ["--self-test"]:
         return self_test()
+    lanes = "SL"
+    if len(argv) == 3 and argv[1] == "--lanes" and argv[2] in ("SL", "S", "L"):
+        lanes, argv = argv[2], argv[:1]
     if len(argv) != 1 or not os.path.isdir(argv[0]):
         print(__doc__)
         return 2
-    return analyze(argv[0])
+    return analyze(argv[0], lanes)
 
 
 if __name__ == "__main__":

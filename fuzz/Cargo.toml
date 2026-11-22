@@ -141,3 +141,10 @@ path = "fuzz_targets/known_hosts_match.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "runtime_instance"
+path = "fuzz_targets/runtime_instance.rs"
+test = false
+doc = false
+bench = false
