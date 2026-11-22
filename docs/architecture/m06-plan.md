@@ -327,7 +327,8 @@ W0  U0 contract rev 6 + migration + skeletons + vendored netdev + audit gate
 W1  U1 roles/bridge/invitations/runner-local widening │ U5a routes (no Iroh) │ U6a iroh transport
 W2  U2 controller env mgmt (U1) │ U3 runner runtime (U1) │ U56 route+transport integration (U5a, U6a)
 W3  U4 disconnected/revocation/resync (U2, U3) │ U4b second controller + T06 set (U2, U4; owner: the U4 implementer) │ W2 carry-over wiring (below)
-W4  grant-e2e (the four items below) first │ U7 combined exit suite, native runs, records
+W4  grant-e2e (the items below, except source (b)) + W3.1 follow-ups; carries W3 and W3.1
+W5  source (b) first │ U7 combined exit suite, native runs, records
 ```
 
 - **W2 carry-over into W3** (recorded at the W2 candidate; each fails closed until done): the runner dispatch and service wiring of `RunnerRuntime::handle`, the runner's binding endpoint for its working keys, and the runner-local commands for `issuer_trust` and time-source designation (without them nothing issues); the CLI for `route` and `transport` (still "planned for M06" stubs; `transport adopt-roost` included) and the hidden `transport serve` entry with `service run` supervision; the source of paired clients' Iroh endpoint IDs for the serve allowlist and a rotation form (ruled below, item 4); a stable serve port across restarts (item 5); controller-record request forms so `environment add/join/remove` and `device retire` work while a runtime runs (W2 refuses them with `SERVICE_UNAVAILABLE` then; item 6).
@@ -368,9 +369,22 @@ W4  grant-e2e (the four items below) first │ U7 combined exit suite, native ru
   - **Also:** U4, U4b and this carry-over list stay W3's. U7's native harness builds the `iroh`-feature targets (W2's devbox run did not build `integration_transport_supervise_m06`). Nonblocking W2 review findings fold into W3.
 - **What W3 carries, and what it does not** (orchestrator, 2026-11-21): W3 carries the W2 review fixes, the carry-over wiring, U4 and U4b, the controller's hosted sync and issuance driver, the issuer's remote reservations (ADR-0005 §3.5 amendment), forwarding of `ensure --environment <runner>`, and runner admission that waits for its issuer. **It carries no end-to-end proof of onward ssh from a runner.** Four items remain, each failing closed, and are **W4's first unit (`grant-e2e`), reviewed with W4 before its exit journeys run:**
   1. **The real-binary end-to-end journey** (a runner-side bind, onward ssh with the controller stopped). The forwarded `ensure` names, per pair, the CA fingerprint the controller will issue from. The runner resolves the pair to a managed certificate only if that CA is in its `issuer_trust` for the forwarding controller, and otherwise refuses with `issuer_untrusted`. Nothing comes from the runner's own catalog.
-  2. **Renewal inside the refresh window.** The window is the shorter of 15 minutes and half the certificate's lifetime. Two certificates per pair are allowed while they overlap; the signer prefers the newer, and the old one is removed when it expires or once the new one is confirmed in use, whichever comes first.
-  3. **Record source (b):** a standing policy held on the controller that names the runner. It needs the runner's authority report to list pending grants.
+  2. **No routine renewal** (ruling of 2026-11-21, replacing the earlier overlap ruling): remote certificates run to the grant's bound (ADR-0005), so two overlapping certificates per pair are not needed and are dropped. A re-issue happens only after a lifted cutoff, through `resume-issuance` (item 5), and replaces the certificate the cutoff removed.
+  3. **Record source (b):** a standing policy held on the controller that names the runner. **Not in the W4 candidate; W5's first unit, required before M06 exits** (ruling of 2026-11-21). Until then it fails closed: A07's unattended row stays `blocked` on it, and A24's attended journey goes through (a). Its meaning, as ruled:
+     - **Who can create one:** only a controller holding a role there that the role table allows to issue, through the normal local attended widening, as `policy create --environment <runner-env>`. The managed-set refusal is lifted for exactly that case.
+     - **It activates nothing locally:** no bindings, no default profile, no local issuance. It is only this controller's authorization to sign runner-originated pending grants for that runner.
+     - **Coverage:** every pair of the pending grant falls inside this one policy's pairs (no union, no workspace-bound policies); principals and extensions are a subset of the policy's; the deadline is no later than the policy's maximum lifetime and expiry.
+     - **Admission stays the runner's:** under its own standing policy or a runner-local decision. (b) replaces only the controller-side record.
+     - **The runner CLI** gets the hidden local-owner path to set `pair_issuers`.
   4. **The attach rule:** only the runner's local owner or the forwarding client may attach a local `ensure` to a live grant; the pairs must be a subset and the deadline no later; attaching creates a new binding on the same grant.
+  5. **The way out of the sticky issuance block** (ruling on M06-W3-R02, 2026-11-21): a controller-side, attended lift acknowledgement (`heimdall environment resume-issuance <env>`). Issuance after a delivered pause or cutoff resumes only when the runner's report shows the lift **and** the owner confirms on the controller, recorded as a controller-held row. Tests: report-only, acknowledgement-only, and both.
+  6. **`transport disable`'s help** says: to remove one client's Iroh access permanently, revoke that client (ADR-0012 §2.5).
+  - **W4 rulings of 2026-11-21 on `grant-e2e`'s questions (contract revision 6.4, ADR-0006 §18.8):**
+    - the runner's local owner, and only the local owner, may name `pair_issuers`, only for a CA already in that runner's `issuer_trust`; it creates a pending grant only;
+    - attach requires the same profile; the forwarding client may attach without naming a CA; an attached binding's endpoint lists only its own subset of pairs;
+    - source (b): every pair of the pending grant must sit inside one controller-held policy, with no union across policies; workspace-bound policies are ignored;
+    - `valid_after` is rounded up to the whole second;
+    - the three W3 defects the journey exposed (first issue refused by `valid_after` rounding, the local issuance driver running on a runner, no signing gate for a runner grant) are fixed in W4; each failed closed in W3.
   - **Also ruled for that unit:**
     - the controller resolves an omitted scope from its own copy of the profile before forwarding, and refuses if it cannot;
     - the pending answer is `ACCEPTED` with no reason, with `refresh_dependency: controller` and a `remote_pending` entry in the data;

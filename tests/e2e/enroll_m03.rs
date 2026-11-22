@@ -2893,6 +2893,7 @@ mod fx {
                         connection: None,
                         context: None,
                         covered_only: false,
+                        pair_issuers: Vec::new(),
                     },
                 )
                 .await
@@ -8240,6 +8241,7 @@ async fn managed_ensure_result_carries_d8_connection_policy_graceful_and_strict(
                     }),
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await

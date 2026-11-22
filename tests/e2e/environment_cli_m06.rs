@@ -153,11 +153,16 @@ const HELP_LINES: &[(&str, &[&str])] = &[
     ),
     ("environment-remove", &["environment", "remove"]),
     ("environment-update", &["environment", "update"]),
+    (
+        "environment-resume-issuance",
+        &["environment", "resume-issuance"],
+    ),
     ("environment-status", &["environment", "status"]),
     ("device", &["device"]),
     ("device-retire", &["device", "retire"]),
     ("route", &["route"]),
     ("transport", &["transport"]),
+    ("transport-disable", &["transport", "disable"]),
     ("remote-init", &["remote", "init"]),
 ];
 
@@ -327,6 +332,11 @@ fn environment_commands_use_the_controller_records_under_the_instance_lock() {
     ]);
     assert_eq!(add.code, 3, "{add:?}");
     assert_eq!(add.json()["code"], "INTERACTION_REQUIRED");
+    // ⟨M06 W4⟩ So is `environment resume-issuance`: the acknowledgement is attended.
+    let resume = rt.run(&["--json", "environment", "resume-issuance", "env_0123"]);
+    assert_eq!(resume.code, 3, "{resume:?}");
+    assert_eq!(resume.json()["code"], "INTERACTION_REQUIRED");
+    assert_eq!(resume.json()["data"]["error"]["effect_status"], "none");
     assert!(!rt.mgmt.exists());
     // ⟨rev6.3; ADR-0006 §18.7 item 6⟩ With the runtime running, a writing command no longer
     // refuses `SERVICE_UNAVAILABLE`: it reads the records and would write them through the

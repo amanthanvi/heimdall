@@ -34,7 +34,8 @@ use heimdall_app::remote_status::{
 use heimdall_app::remote_status_driver::{
     ControllerSync, RemoteAsk, RemoteIssueInput, RemoteIssuer, RemoteSubject,
     cutoff_all_on_runners, cutoff_of_all, deliver_runner_grant, narrow_runner_grant,
-    narrow_runner_policy, policy_on_runner, revoke_on_runner, runner_deliveries,
+    narrow_runner_policy, policy_on_runner, resume_issuance_named, revoke_on_runner,
+    runner_deliveries,
 };
 use heimdall_contract::code::Code;
 use heimdall_contract::envelope::{Envelope, reason};
@@ -584,6 +585,136 @@ async fn a_delivered_cutoff_of_every_policy_holds_whatever_the_runner_reports() 
     );
 }
 
+/// The runner's local owner, attended, decides a widening policy action at the runner (the
+/// attended `resume` or `clear_cutoff` that lifts a delivered pause or cutoff).
+async fn lift_at_the_runner(r: &Rig, action: PolicyAction) {
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    let owner = heimdall_app::Caller {
+        context: CallerContext::local(PrincipalRef::UnixUser { uid: 501 }, ClientRole::Owner),
+        attendance: heimdall_app::Attendance::Attended {
+            since: r.w.clock.wall(),
+        },
+        interaction: heimdall_contract::request::InteractionMode::Interactive,
+    };
+    let pending = r.ops.policy(&owner, action).await.unwrap_err();
+    assert_eq!(pending.code, Code::ApprovalRequired, "{}", pending.message);
+    let decision =
+        heimdall_contract::ids::DecisionId::parse(pending.next.decision_ref.as_deref().unwrap())
+            .unwrap();
+    r.ops
+        .decide(
+            &owner,
+            heimdall_contract::request::DecideRequest {
+                decision_id: decision,
+                verdict: heimdall_contract::request::Verdict::Approve,
+            },
+        )
+        .await
+        .unwrap();
+}
+
+/// One hosted pass over a fresh session: the reconnect order, then `maintain`.
+async fn hosted_pass(
+    d: &ControllerSync,
+    a: &Controller,
+    r: &Rig,
+    issuer: &FixtureIssuer<'_>,
+    connection: u64,
+) -> (
+    heimdall_store::ext_effects::AuthorityReport,
+    heimdall_app::remote_status_driver::Maintained,
+) {
+    let mut s = r.session(&a.pin.client);
+    s.connection = connection;
+    let outcome = d.on_channel(a, &mut s).await;
+    let m = d.maintain(&a.pin, &mut s, issuer, &outcome.report).await;
+    (outcome.report, m)
+}
+
+/// ⟨M06 W4; ADR-0012 §7.4 ⟨2026-11-21⟩ on M06-W3-R02; ADR-0006 §18.8 item 4⟩ The way out of
+/// the sticky block, report first. This controller delivered a pause; the runner's owner
+/// lifts it at the runner. The report alone, showing the policy active again, reopens
+/// nothing: this controller's own delivered pause still counts. Only the owner's attended
+/// acknowledgement on the controller, recorded for that effect, lets the next pass issue.
+#[tokio::test]
+async fn a_lift_the_report_shows_reopens_issuance_only_once_it_is_acknowledged() {
+    let r = rig().await;
+    r.w.trust(&r.w.ca_a, &controller_a());
+    r.w.designate(&controller_a());
+    let a = controller(&r, &controller_a(), Role::Owner);
+    record_pin(&a);
+    deliver_all(&a, &r);
+    let d = driver(&a);
+    let issuer = FixtureIssuer { ca: &r.w.ca_a };
+    let paused = a
+        .produce(&Narrowing::PausePolicy {
+            policy: policy_id(),
+        })
+        .unwrap();
+
+    // Delivered and applied: nothing is issued.
+    let (report, m) = hosted_pass(&d, &a, &r, &issuer, 41).await;
+    assert_eq!(a.pending(), 0);
+    assert!(report.policies.iter().any(|p| p.paused));
+    assert_eq!(m.failed.len(), 1);
+    assert_eq!(m.failed[0].1.code, Code::PolicyPaused);
+
+    // Lifted at the runner: the report shows it, and that alone reopens nothing.
+    lift_at_the_runner(
+        &r,
+        PolicyAction::Resume {
+            policy_id: Some(policy_id()),
+            target: None,
+        },
+    )
+    .await;
+    let (report, m) = hosted_pass(&d, &a, &r, &issuer, 42).await;
+    assert!(report.policies.iter().all(|p| !p.paused), "the lift shows");
+    assert_eq!(m.failed.len(), 1, "report only: still blocked");
+    assert_eq!(m.failed[0].1.code, Code::PolicyPaused);
+    assert!(r.w.runner.issuance().keys().installed().is_empty());
+    assert!(
+        a.store
+            .transaction(|tx| tx.issuance_entries(&r.w.grant))
+            .unwrap()
+            .is_empty(),
+        "nothing was reserved"
+    );
+
+    // The acknowledgement is attended, and names exactly the delivered effect.
+    let e = resume_issuance_named(
+        &a.store,
+        &r.w.env,
+        std::slice::from_ref(&paused.effect),
+        false,
+        a.now(),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, Code::InteractionRequired);
+    assert_eq!(
+        a.store
+            .transaction(|tx| tx.remote_lift_ack(&paused))
+            .unwrap(),
+        None
+    );
+    let named = std::slice::from_ref(&paused.effect);
+    let done = resume_issuance_named(&a.store, &r.w.env, named, true, a.now()).unwrap();
+    assert_eq!(done["acknowledged"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        done["acknowledged"][0]["effect"],
+        serde_json::json!(paused.effect)
+    );
+    // Both: the next pass issues.
+    let (_, m) = hosted_pass(&d, &a, &r, &issuer, 43).await;
+    assert!(m.failed.is_empty(), "{:?}", m.failed);
+    assert_eq!(m.issued.len(), 1);
+    assert_eq!(r.w.runner.issuance().keys().installed().len(), 2);
+    // Acknowledging again records nothing new.
+    let again = resume_issuance_named(&a.store, &r.w.env, named, true, a.now()).unwrap();
+    assert_eq!(again["acknowledged"], serde_json::json!([]));
+    assert_eq!(again["already_acknowledged"], 1);
+}
+
 /// ⟨M06-W3-R02⟩ A grant another controller revoked on the runner is tombstoned in this
 /// controller's ledger at the reconciliation even when this ledger holds no issuance entry
 /// for it (the issuer child's own check reads this ledger).
@@ -729,6 +860,139 @@ async fn a_cutoff_fired_under_uncertain_time_stays_fired_and_says_why() {
         json.get("environment").is_none(),
         "the fields sit in the environment's own entry"
     );
+}
+
+/// ⟨W3.1 re-check, low finding 1⟩ A cutoff this controller delivered that **fired early**
+/// (the runner's time was uncertain) blocks issuance outright from the controller's own
+/// record of the acknowledgement, although the owner's instant is still hours ahead: a
+/// runner whose later report shows the policy active with no cutoff gets a refusal, not a
+/// certificate bounded by that instant. Only the two-sided lift ends it.
+#[tokio::test]
+async fn a_delivered_cutoff_that_fired_blocks_outright_whatever_the_report_shows() {
+    use heimdall_app::remote_status_barrier::{BarrierRefusal, IssuancePermit, Reconciliation};
+    let r = rig().await;
+    let a = controller(&r, &controller_a(), Role::Owner);
+    record_pin(&a);
+    let d = driver(&a);
+    let at = plus(a.now(), 6 * HOUR);
+    let key = a
+        .produce(&Narrowing::Cutoff {
+            scope: PolicyTarget::Policy {
+                policy_id: policy_id(),
+            },
+            at,
+        })
+        .unwrap();
+    let certain = r.w.clock.wall();
+    r.make_time_uncertain().await;
+    let mut s = r.session(&controller_a());
+    let outcome = d.on_channel(&a, &mut s).await;
+    r.w.clock.set_wall(plus(certain, MINUTE));
+    assert!(a.now() < at, "the owner's instant is still ahead");
+    let delivered = a
+        .store
+        .transaction(|tx| tx.remote_effect_outbox(Some(&r.w.env), false))
+        .unwrap();
+    assert!(matches!(
+        delivered[0].ack.as_ref().unwrap().record,
+        AppliedRecord::PolicyRevision { fired: true, .. }
+    ));
+
+    // The runner's next report: the policy active, no cutoff, time bounded.
+    let mut report = outcome.report;
+    for p in &mut report.policies {
+        p.cutoff_at = None;
+    }
+    report.time_bounded = true;
+    d.barrier().admit(Reconciliation {
+        environment: r.w.env.clone(),
+        at: a.now(),
+        report,
+        revoked: Vec::new(),
+    });
+    let permit = || {
+        a.store
+            .transaction(|tx| {
+                d.barrier()
+                    .permit_answer(tx, &r.w.env, &r.w.grant, Some(&policy_id()), a.now())
+            })
+            .unwrap()
+    };
+    assert_eq!(
+        permit(),
+        Err(BarrierRefusal::PolicyCutoff),
+        "refused outright, not bounded by the owner's later instant"
+    );
+    // The owner's acknowledgement of the lift the report shows: the two-sided way out.
+    let named = std::slice::from_ref(&key.effect);
+    let done = resume_issuance_named(&a.store, &r.w.env, named, true, a.now()).unwrap();
+    assert_eq!(
+        done["acknowledged"][0]["effect"],
+        serde_json::json!(key.effect)
+    );
+    assert_eq!(permit(), Ok(IssuancePermit { bound: None }));
+}
+
+/// ⟨M06 W4 ruling on record source (b); ADR-0005 §3.5 condition 8 (b)⟩ A pending grant is
+/// adopted only when **one** personal policy held here holds every one of its pairs. Two
+/// policies that cover it only together adopt nothing (no union), and a workspace-bound
+/// policy is ignored whatever it holds.
+#[tokio::test]
+async fn source_b_needs_every_pair_inside_one_personal_policy() {
+    use heimdall_app::remote_status_driver::adopt_under_standing_policy;
+    use heimdall_store::ext_effects::{AuthorityReport, ReportedPendingGrant};
+    let r = rig().await;
+    let a = controller(&r, &controller_a(), Role::Owner);
+    let pending = GrantId::from_random_bytes([0x51; 16]);
+    let report = AuthorityReport {
+        environment: r.w.env.clone(),
+        authority_generation: 1,
+        tombstones: Vec::new(),
+        policy_revisions: Vec::new(),
+        policies: Vec::new(),
+        certificates: Vec::new(),
+        time_bounded: true,
+        pending_grants: vec![ReportedPendingGrant {
+            grant: pending.clone(),
+            profile: profile(),
+            pairs: BTreeSet::from([pair("h1"), pair("h2")]),
+            expires_at: plus(a.now(), HOUR),
+        }],
+    };
+    let held = |id: &str, pairs: &[&str], workspace: bool| {
+        let mut p = policy(&r.w.env, None, 1);
+        p.id = heimdall_contract::ids::PolicyId::parse(id).unwrap();
+        p.scope.pairs = pairs.iter().map(|d| pair(d)).collect();
+        if workspace {
+            p.workspace = Some(heimdall_contract::ids::WorkspaceId::from_random_bytes(
+                [0x52; 16],
+            ));
+        }
+        a.store
+            .transaction(|tx| tx.upsert_policy(&p, false))
+            .unwrap();
+    };
+    let adopt = || {
+        a.store
+            .transaction(|tx| adopt_under_standing_policy(tx, &a.pin, &report, a.now()))
+            .unwrap()
+    };
+    // h1 in one policy, h2 in another: together they cover it, and nothing is adopted.
+    held("pol-h1", &["h1"], false);
+    held("pol-h2", &["h2"], false);
+    assert!(adopt().is_empty(), "no union across policies");
+    // A workspace-bound policy holding both pairs is ignored.
+    held("pol-ws", &["h1", "h2"], true);
+    assert!(adopt().is_empty(), "a workspace-bound policy is ignored");
+    assert!(
+        a.store
+            .transaction(|tx| tx.delivered_grant(&r.w.env, &pending))
+            .unwrap()
+            .is_none()
+    );
+    // One personal policy holding both: adopted.
+    held("pol-both", &["h1", "h2"], false);
+    assert_eq!(adopt(), vec![pending]);
 }
 
 /// The owner's local `revoke`, `policy pause` and `policy cutoff` of something that lives on
@@ -1291,6 +1555,9 @@ async fn a_remotely_issued_grants_binding_lists_the_runners_k_env_identity_only(
         foreign.clone(),
         foreign_grant.clone(),
     );
+    // The runner's adapter knows a further binding by its grant and its own pairs while it
+    // is attached (its row is not committed yet).
+    let adapter = heimdall_runtime::runner::adapter::RunnerManagedAdapter::new(r.w.store.clone());
     let endpoints = RunnerBindingEndpoints::new(
         std::sync::Arc::clone(&r.w.runner),
         EndpointLayout::unix(dir.path()).unwrap(),
@@ -1307,8 +1574,9 @@ async fn a_remotely_issued_grants_binding_lists_the_runners_k_env_identity_only(
                 None
             }
         }),
-    );
-    let effects = ManagedEffectsImpl::new(
+    )
+    .with_pending(adapter.pending());
+    let effects = std::sync::Arc::new(ManagedEffectsImpl::new(
         SignerTable::new(std::sync::Arc::new(KeyVault::new())),
         std::sync::Arc::new(RunnerOnly(endpoints.clone())),
         std::sync::Arc::new(NativeScopes),
@@ -1317,7 +1585,7 @@ async fn a_remotely_issued_grants_binding_lists_the_runners_k_env_identity_only(
             data_dir: dir.path().join("state"),
             environment: r.w.env.clone(),
         },
-    );
+    ));
     let spec = |grant: &GrantId| MaterializeSpec {
         generation: 1,
         source: MaterializeSource::InstalledKeyOf {
@@ -1369,6 +1637,95 @@ async fn a_remotely_issued_grants_binding_lists_the_runners_k_env_identity_only(
     assert_eq!(listed, expected, "exactly the runner's K_env certificates");
     let ca = r.w.ca_a.public_key().to_bytes().unwrap();
     assert!(listed.iter().all(|blob| blob != &k_env.blob && blob != &ca));
+
+    // ⟨M06 W4; ADR-0012 §4 item 2 "Attach"⟩ A further binding attached to the same grant
+    // for h1 only: its endpoint lists, and its files hold, the h1 certificate and nothing
+    // of h2, while the grant's own binding still lists both.
+    struct ViaEffects(std::sync::Arc<ManagedEffectsImpl>);
+    impl heimdall_runtime::runner::adapter::RunnerMaterializer for ViaEffects {
+        fn materialize(
+            &self,
+            binding: &BindingId,
+            grant: &GrantId,
+        ) -> Result<heimdall_contract::provider::EndpointRef, heimdall_app::ports::AdapterError>
+        {
+            let made = self.0.materialize(
+                binding,
+                &MaterializeSpec {
+                    generation: 1,
+                    source: MaterializeSource::InstalledKeyOf {
+                        grant: grant.clone(),
+                    },
+                    environment_slots: false,
+                    start: DistributionStart::Forbidden,
+                },
+            )?;
+            made.endpoint
+                .ok_or(heimdall_app::ports::AdapterError::CapabilityUnavailable)
+        }
+
+        fn clear(&self, _grant: &GrantId) -> Result<(), heimdall_app::ports::AdapterError> {
+            Ok(())
+        }
+    }
+    adapter.bind(
+        std::sync::Arc::clone(&r.w.runner),
+        std::sync::Arc::new(ViaEffects(std::sync::Arc::clone(&effects))),
+    );
+    let attached = BindingId::from_random_bytes([0x84; 16]);
+    let own = BTreeSet::from([pair("h1")]);
+    let attached_endpoint = {
+        use heimdall_app::operations::RunnerGrants as _;
+        let (runner, binding, grant, own) = (
+            std::sync::Arc::clone(&r.w.runner),
+            attached.clone(),
+            r.w.grant.clone(),
+            own.clone(),
+        );
+        tokio::task::spawn_blocking(move || runner.attach(&binding, &grant, &own))
+            .await
+            .unwrap()
+            .unwrap()
+    };
+    let h1: Vec<Vec<u8>> =
+        r.w.runner
+            .issuance()
+            .keys()
+            .certificates(&r.w.grant)
+            .into_iter()
+            .filter(|(p, _)| *p == pair("h1"))
+            .map(|(_, c)| {
+                ssh_key::Certificate::from_openssh(c.certificate.trim())
+                    .unwrap()
+                    .to_bytes()
+                    .unwrap()
+            })
+            .collect();
+    assert_eq!(h1.len(), 1);
+    let subset: Vec<Vec<u8>> = list(Endpoint::UnixSocket(
+        attached_endpoint.locator.clone().into(),
+    ))
+    .await
+    .into_iter()
+    .map(|(blob, _)| blob)
+    .collect();
+    assert_eq!(subset, h1, "the attached binding lists its own pair only");
+    assert_eq!(
+        endpoints
+            .installed(&attached, &r.w.grant)
+            .unwrap()
+            .1
+            .iter()
+            .map(|c| c.pair.clone())
+            .collect::<Vec<_>>(),
+        vec![pair("h1")],
+        "and its files hold that certificate only"
+    );
+    assert_eq!(
+        list(socket.clone()).await.len(),
+        2,
+        "the grant's own binding"
+    );
 
     // The owner's revoke, delivered at the next reconnect: the endpoint lists nothing.
     a.produce(&Narrowing::RevokeGrant {
@@ -1546,7 +1903,21 @@ mod grant_path {
                 ManagementCall::Ensure(mut request) => {
                     self.ensures += 1;
                     if let Some(pairs) = &self.admits {
+                        // A runner that admits more than it was asked, under the same CA.
+                        let ca = request
+                            .pair_issuers
+                            .first()
+                            .map(|i| i.ca_fingerprint.clone());
                         request.scope.clone_from(pairs);
+                        if let Some(ca) = ca {
+                            request.pair_issuers = pairs
+                                .iter()
+                                .map(|pair| heimdall_contract::request::PairIssuer {
+                                    pair: pair.clone(),
+                                    ca_fingerprint: ca.clone(),
+                                })
+                                .collect();
+                        }
                     }
                     let caller = Rig::caller(&self.inner.client);
                     Ok(heimdall_runtime::dispatch::render(
@@ -1576,7 +1947,13 @@ mod grant_path {
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         }
+    }
+
+    /// The CA the fixture controller A issues from.
+    fn ca_of(r: &Rig) -> CaFingerprint {
+        r.w.ca_a.fingerprint().unwrap()
     }
 
     fn grant_state(r: &Rig, grant: &GrantId) -> GrantState {
@@ -1636,6 +2013,7 @@ mod grant_path {
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         };
         let ask = forwarded_ask(&base, now).unwrap();
         assert_eq!(ask.pairs, BTreeSet::from([pair("h1")]));
@@ -1678,8 +2056,10 @@ mod grant_path {
         // Only h1 of the profile's two pairs is asked for.
         let request = ensure_request(&r, "fwd-1", &["h1"]);
         let asked_at = a.now();
-        let Forwarded::Pending { grant, record } =
-            d.forward_ensure(&a.pin, &mut s, &request).await.unwrap()
+        let Forwarded::Pending { grant, record, .. } = d
+            .forward_ensure(&a.pin, &mut s, &request, &ca_of(&r))
+            .await
+            .unwrap()
         else {
             panic!("the grant waits for its issuer");
         };
@@ -1699,8 +2079,10 @@ mod grant_path {
                 .is_empty()
         );
         // The same request again reads the same grant; the record does not widen.
-        let Forwarded::Pending { grant: again, .. } =
-            d.forward_ensure(&a.pin, &mut s, &request).await.unwrap()
+        let Forwarded::Pending { grant: again, .. } = d
+            .forward_ensure(&a.pin, &mut s, &request, &ca_of(&r))
+            .await
+            .unwrap()
         else {
             panic!("still pending");
         };
@@ -1737,7 +2119,11 @@ mod grant_path {
         // The install drives the waiting `ensure` on: read it through the same request.
         let mut ready = None;
         for _ in 0..500 {
-            match d.forward_ensure(&a.pin, &mut s, &request).await.unwrap() {
+            match d
+                .forward_ensure(&a.pin, &mut s, &request, &ca_of(&r))
+                .await
+                .unwrap()
+            {
                 Forwarded::Ready { grant: g, data } => {
                     assert_eq!(g, grant);
                     ready = Some(data);
@@ -1855,8 +2241,10 @@ mod grant_path {
         d.on_session(&a.pin, &mut s).await.unwrap();
 
         let request = ensure_request(&r, "fwd-wide", &["h1"]);
-        let Forwarded::Pending { grant, record } =
-            d.forward_ensure(&a.pin, &mut s, &request).await.unwrap()
+        let Forwarded::Pending { grant, record, .. } = d
+            .forward_ensure(&a.pin, &mut s, &request, &ca_of(&r))
+            .await
+            .unwrap()
         else {
             panic!("pending");
         };
@@ -1891,6 +2279,599 @@ mod grant_path {
         assert!(materialized.made.lock().unwrap().is_empty());
     }
 
+    /// ⟨M06 W4; ADR-0005 §3.5 condition 8 (b); m06-plan §2 item 3⟩ Record source (b). A grant
+    /// the runner's own local owner asked for waits, and the runner's authority report lists
+    /// it. A standing policy held **on the controller** that names the runner environment
+    /// authorizes issuance for it within the policy's scope: the record is written from the
+    /// controller's policy (the grant's pairs, an expiry inside the policy's window), the
+    /// hosted pass signs for it, and the runner's waiting `ensure` settles. A pending grant
+    /// with a pair outside that policy is never signed, and neither is one while the policy
+    /// names another environment only.
+    #[tokio::test]
+    async fn a_standing_policy_on_the_controller_authorizes_a_runner_originated_grant() {
+        let (r, _materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let issuer = FixtureIssuer { ca: &r.w.ca_a };
+        let local = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 1000 },
+            role: ClientRole::Owner,
+            remote_client: None,
+        });
+        let pending_grant = |e: OpError| {
+            assert_eq!(e.code, Code::Accepted, "{e:?}");
+            GrantId::parse(e.resource.unwrap().id.as_deref().unwrap()).unwrap()
+        };
+        // Two runner-originated grants: h1 alone, and h1 with h2.
+        let mut narrow = ensure_request(&r, "local-h1", &["h1"]);
+        narrow.work_id = WorkId::parse("job-h1").unwrap();
+        let inside = pending_grant(r.ops.ensure(&local, narrow.clone()).await.unwrap_err());
+        let mut wide = ensure_request(&r, "local-both", &["h1", "h2"]);
+        wide.work_id = WorkId::parse("job-both").unwrap();
+        let outside = pending_grant(r.ops.ensure(&local, wide).await.unwrap_err());
+
+        // The report lists both as waiting, with what the runner admitted.
+        let mut s = managed(&r, &controller_a());
+        let outcome = d.on_session(&a.pin, &mut s).await.unwrap();
+        let listed: BTreeSet<GrantId> = outcome
+            .report
+            .pending_grants
+            .iter()
+            .map(|p| p.grant.clone())
+            .collect();
+        assert_eq!(listed, BTreeSet::from([inside.clone(), outside.clone()]));
+        let reported = outcome
+            .report
+            .pending_grants
+            .iter()
+            .find(|p| p.grant == inside)
+            .unwrap();
+        assert_eq!(reported.pairs, BTreeSet::from([pair("h1")]));
+        assert_eq!(reported.profile, profile());
+
+        // A policy here that names another environment only: nothing is adopted.
+        let elsewhere = heimdall_contract::ids::EnvironmentId::from_random_bytes([0x44; 16]);
+        let mut held = policy(&elsewhere, None, 1);
+        held.scope.pairs = BTreeSet::from([pair("h1")]);
+        held.max_window = 30 * MINUTE;
+        a.store
+            .transaction(|tx| tx.upsert_policy(&held, false))
+            .unwrap();
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.issued.is_empty() && m.failed.is_empty(), "{:?}", m.failed);
+        assert!(
+            a.store
+                .transaction(|tx| tx.delivered_grants(Some(&r.w.env)))
+                .unwrap()
+                .is_empty()
+        );
+
+        // The owner names the runner in the policy (h1 only, a 30 minute window).
+        held.environments = BTreeSet::from([r.w.env.clone()]);
+        held.revision = heimdall_domain::policy::PolicyRevision(2);
+        a.store
+            .transaction(|tx| tx.upsert_policy(&held, false))
+            .unwrap();
+        let adopted_at = a.now();
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.failed.is_empty(), "{:?}", m.failed);
+        assert_eq!(m.issued.len(), 1);
+        assert_eq!(m.issued[0].grant, inside);
+        let records = a
+            .store
+            .transaction(|tx| tx.delivered_grants(Some(&r.w.env)))
+            .unwrap();
+        assert_eq!(records.len(), 1, "only the grant inside the policy");
+        assert_eq!(records[0].grant, inside);
+        assert_eq!(records[0].pairs, BTreeSet::from([pair("h1")]));
+        assert_eq!(
+            records[0].expires_at,
+            plus(adopted_at, 30 * MINUTE),
+            "the policy's window, not the grant's hour"
+        );
+        let entries = a
+            .store
+            .transaction(|tx| tx.issuance_entries(&inside))
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].pair, pair("h1"));
+        assert!(entries[0].bounds.valid_before <= records[0].expires_at);
+        // The runner's waiting `ensure` settles; the same local request reads it.
+        let mut settled = None;
+        for _ in 0..500 {
+            match r.ops.ensure(&local, narrow.clone()).await {
+                Ok(done) => {
+                    settled = Some(done);
+                    break;
+                }
+                Err(e) => {
+                    assert_eq!(e.code, Code::Accepted, "{e:?}");
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }
+        }
+        let done = settled.expect("the runner-originated ensure settles under source (b)");
+        assert_eq!(done.data.grant_id, inside);
+        assert_eq!(
+            done.data.refresh_dependency,
+            heimdall_contract::request::RefreshDependency::Controller
+        );
+
+        // The grant with a pair outside the policy: never recorded, never signed, pending.
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.issued.is_empty() && m.failed.is_empty(), "{:?}", m.failed);
+        assert!(
+            a.store
+                .transaction(|tx| tx.issuance_entries(&outside))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(r.w.runner.issuance().keys().public_key(&outside).is_none());
+        assert_eq!(grant_state(&r, &outside), GrantState::Preparing);
+        assert_eq!(
+            r.w.runner
+                .pending_grants()
+                .iter()
+                .map(|p| p.grant.clone())
+                .collect::<Vec<_>>(),
+            vec![outside]
+        );
+    }
+
+    /// ⟨M06 W4; m06-plan §2 item 1⟩ A pair a forwarded `ensure` names a CA for is a managed
+    /// pair on the runner only when that CA is in the runner's `issuer_trust` **for the
+    /// controller that forwarded it**. A CA the runner does not trust, a CA it trusts for
+    /// another controller, a local caller that is not the owner, and the local owner naming
+    /// a CA the runner does not trust are each refused `issuer_untrusted` before anything is
+    /// admitted; the controller records nothing.
+    #[tokio::test]
+    async fn a_named_ca_makes_a_pair_managed_only_under_the_forwarders_issuer_trust() {
+        let (r, materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let mut s = managed(&r, &controller_a());
+        d.on_session(&a.pin, &mut s).await.unwrap();
+        let untrusted = |e: &OpError| {
+            assert_eq!(e.code, Code::CapabilityUnavailable, "{e:?}");
+            assert_eq!(e.reason.as_deref(), Some(reason::ISSUER_UNTRUSTED), "{e:?}");
+            assert_eq!(e.effect_status, heimdall_contract::EffectStatus::None);
+        };
+        let grants_before = r.w.runner.pending_grants().len();
+
+        // A CA this runner trusts for nobody.
+        let stranger = r.w.ca_b.fingerprint().unwrap();
+        // ⟨ADR-0006 §18.8 item 1⟩ Not even for the runner's local owner.
+        let owner = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 1000 },
+            role: ClientRole::Owner,
+            remote_client: None,
+        });
+        let mut unknown_ca = ensure_request(&r, "owner-names-stranger", &["h1"]);
+        unknown_ca.pair_issuers = vec![heimdall_contract::request::PairIssuer {
+            pair: pair("h1"),
+            ca_fingerprint: stranger.clone(),
+        }];
+        untrusted(&r.ops.ensure(&owner, unknown_ca).await.unwrap_err());
+        let e = d
+            .forward_ensure(
+                &a.pin,
+                &mut s,
+                &ensure_request(&r, "ca-stranger", &["h1"]),
+                &stranger,
+            )
+            .await
+            .unwrap_err();
+        untrusted(&e);
+        // The same CA, trusted for controller B only: still not for A's request.
+        r.w.trust(&r.w.ca_b, &controller_b());
+        let e = d
+            .forward_ensure(
+                &a.pin,
+                &mut s,
+                &ensure_request(&r, "ca-of-b", &["h1"]),
+                &stranger,
+            )
+            .await
+            .unwrap_err();
+        untrusted(&e);
+        // A's CA named by controller B's session, and by a local caller without the owner
+        // role.
+        let named = |id: &str| {
+            let mut q = ensure_request(&r, id, &["h1"]);
+            q.pair_issuers = vec![heimdall_contract::request::PairIssuer {
+                pair: pair("h1"),
+                ca_fingerprint: ca_of(&r),
+            }];
+            q
+        };
+        let e = r
+            .ops
+            .ensure(&Rig::caller(&controller_b()), named("b-names-a"))
+            .await
+            .unwrap_err();
+        untrusted(&e);
+        let local = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 1000 },
+            role: ClientRole::LimitedConsumer,
+            remote_client: None,
+        });
+        untrusted(
+            &r.ops
+                .ensure(&local, named("local-names-a"))
+                .await
+                .unwrap_err(),
+        );
+        // A CA named for a pair outside the request's scope is a usage error.
+        let mut stray = named("stray");
+        stray.scope = BTreeSet::from([pair("h2")]);
+        let e = r
+            .ops
+            .ensure(&Rig::caller(&controller_a()), stray)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::UsageError, "{e:?}");
+
+        // Nothing was admitted, recorded or realized by any of them.
+        assert_eq!(r.w.runner.pending_grants().len(), grants_before);
+        assert!(
+            a.store
+                .transaction(|tx| tx.delivered_grants(Some(&r.w.env)))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(materialized.made.lock().unwrap().is_empty());
+    }
+
+    /// ⟨M06 W4; ADR-0006 §18.8 item 1; ADR-0012 §4 item 2 "Who may name the issuing CA"⟩
+    /// The runner's local owner may name a CA already in the runner's `issuer_trust`. That
+    /// admits a pending grant and nothing else: the runner generates no key, and the
+    /// trusted controller signs nothing for it while it holds neither record (a) nor (b).
+    #[tokio::test]
+    async fn the_runners_local_owner_naming_a_trusted_ca_gets_a_pending_grant_only() {
+        let (r, materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let issuer = FixtureIssuer { ca: &r.w.ca_a };
+        let owner = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 1000 },
+            role: ClientRole::Owner,
+            remote_client: None,
+        });
+        let mut request = ensure_request(&r, "owner-names-a", &["h1"]);
+        request.pair_issuers = vec![heimdall_contract::request::PairIssuer {
+            pair: pair("h1"),
+            ca_fingerprint: ca_of(&r),
+        }];
+        let e = r.ops.ensure(&owner, request).await.unwrap_err();
+        assert_eq!(e.code, Code::Accepted, "{e:?}");
+        let grant = GrantId::parse(e.resource.unwrap().id.as_deref().unwrap()).unwrap();
+        assert_eq!(grant_state(&r, &grant), GrantState::Preparing);
+        assert_eq!(pairs_of(&r, &grant), BTreeSet::from([pair("h1")]));
+        let pending = r.w.runner.pending_grants();
+        assert!(pending.iter().any(|p| p.grant == grant), "{pending:?}");
+
+        // The trusted controller holds no record of it: its pass asks nothing and signs
+        // nothing, and the runner generated no key.
+        let mut s = managed(&r, &controller_a());
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.issued.is_empty() && m.failed.is_empty(), "{:?}", m.failed);
+        assert!(
+            a.store
+                .transaction(|tx| tx.issuance_entries(&grant))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            a.store
+                .transaction(|tx| tx.delivered_grant(&r.w.env, &grant))
+                .unwrap()
+                .is_none()
+        );
+        assert!(r.w.runner.issuance().keys().public_key(&grant).is_none());
+        assert_eq!(grant_state(&r, &grant), GrantState::Preparing);
+        assert!(materialized.made.lock().unwrap().is_empty());
+    }
+
+    /// ⟨M06 W4; m06-plan §2 "Also ruled"⟩ An `ensure` that names no pair is resolved from
+    /// **this controller's own copy** of the profile before it is forwarded, and refused,
+    /// with nothing sent, when the controller holds none. What is sent names the resolved
+    /// pairs, each with this controller's CA; the record holds exactly those pairs, whatever
+    /// the runner's own profile says.
+    #[tokio::test]
+    async fn an_omitted_scope_is_resolved_from_the_controllers_own_profile() {
+        let (r, _materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let mut s = managed(&r, &controller_a());
+        d.on_session(&a.pin, &mut s).await.unwrap();
+        let request = ensure_request(&r, "fwd-profile", &[]);
+        assert!(request.scope.is_empty());
+
+        // No copy of the profile here: refused before anything is sent.
+        let e = d
+            .forward_ensure(&a.pin, &mut s, &request, &ca_of(&r))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::UsageError, "{e:?}");
+        assert_eq!(e.effect_status, heimdall_contract::EffectStatus::None);
+        assert_eq!(s.ensures, 0, "nothing was forwarded");
+
+        // The controller's copy holds h1 only (the runner's holds h1 and h2).
+        a.store
+            .transaction(|tx| {
+                tx.upsert_profile(&heimdall_domain::profile::ProfileDefinition {
+                    id: profile(),
+                    revision: 1,
+                    scope: heimdall_domain::scope::Scope {
+                        pairs: BTreeSet::from([pair("h1")]),
+                        capabilities: [heimdall_domain::scope::Capability::SshAuthentication]
+                            .into_iter()
+                            .collect(),
+                    },
+                    label: None,
+                })
+            })
+            .unwrap();
+        let Forwarded::Pending { grant, record, .. } = d
+            .forward_ensure(&a.pin, &mut s, &request, &ca_of(&r))
+            .await
+            .unwrap()
+        else {
+            panic!("pending");
+        };
+        assert_eq!(s.ensures, 1);
+        assert_eq!(record.pairs, BTreeSet::from([pair("h1")]));
+        assert_eq!(
+            pairs_of(&r, &grant),
+            BTreeSet::from([pair("h1")]),
+            "the runner admitted the pairs this controller resolved, not its own profile's"
+        );
+    }
+
+    /// ⟨M06 W4; m06-plan §2 item 4⟩ The attach rule. A grant the controller forwarded and
+    /// issued for is live on the runner. A local `ensure` by the runner's local owner, and
+    /// one by the client that forwarded it, for a subset of its pairs and a deadline no
+    /// later, each get a **new binding on the same grant**: nothing is admitted, reserved or
+    /// issued again. A later deadline, a pair outside the grant, or another paired client
+    /// never attaches: each is its own request, which waits for its issuer like any other.
+    #[tokio::test]
+    async fn a_local_ensure_covered_by_a_live_issued_grant_attaches_to_it() {
+        let (r, materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let issuer = FixtureIssuer { ca: &r.w.ca_a };
+        let mut s = managed(&r, &controller_a());
+        d.on_session(&a.pin, &mut s).await.unwrap();
+        let request = ensure_request(&r, "fwd-attach", &["h1"]);
+        let Forwarded::Pending { grant, .. } = d
+            .forward_ensure(&a.pin, &mut s, &request, &ca_of(&r))
+            .await
+            .unwrap()
+        else {
+            panic!("pending");
+        };
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert_eq!(m.issued.len(), 1, "{:?}", m.failed);
+        for _ in 0..500 {
+            if grant_state(&r, &grant) == GrantState::Active {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(grant_state(&r, &grant), GrantState::Active);
+        let first_binding = materialized.made.lock().unwrap()[0].0.clone();
+        let reserved = |g: &GrantId| {
+            a.store
+                .transaction(|tx| tx.issuance_entries(g))
+                .unwrap()
+                .len()
+        };
+        assert_eq!(reserved(&grant), 1);
+
+        let asks = |id: &str, work: &str, pairs: &[&str], until: &str| {
+            let mut q = ensure_request(&r, id, pairs);
+            q.work_id = WorkId::parse(work).unwrap();
+            q.until = Some(DeadlineIntent::Duration(until.into()));
+            q
+        };
+        let local = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 1000 },
+            role: ClientRole::Owner,
+            remote_client: None,
+        });
+
+        // The runner's local owner: a new binding on the same grant, at once.
+        let done = r
+            .ops
+            .ensure(&local, asks("local-attach", "job-local", &["h1"], "30m"))
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(done.data.grant_id, grant);
+        assert_ne!(done.data.binding_id, first_binding);
+        assert_eq!(
+            done.data.refresh_dependency,
+            heimdall_contract::request::RefreshDependency::Controller
+        );
+        // The forwarding client, with no CA named: the same grant, another binding.
+        let forwarder = Rig::caller(&controller_a());
+        let again = r
+            .ops
+            .ensure(
+                &forwarder,
+                asks("client-attach", "job-client", &["h1"], "30m"),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(again.data.grant_id, grant);
+        assert_ne!(again.data.binding_id, done.data.binding_id);
+        let made = materialized.made.lock().unwrap().clone();
+        assert_eq!(made.len(), 3, "one binding each, all on the one grant");
+        assert!(made.iter().all(|(_, g)| *g == grant));
+        assert_eq!(made[1].0, done.data.binding_id);
+        assert_eq!(made[2].0, again.data.binding_id);
+        assert_eq!(reserved(&grant), 1, "nothing was issued again");
+        assert!(r.w.runner.issuance().keys().public_key(&grant).is_some());
+
+        // Never attached: each is its own grant, which waits for its issuer.
+        let own_grant = |e: OpError| {
+            assert_eq!(e.code, Code::Accepted, "{e:?}");
+            GrantId::parse(e.resource.unwrap().id.as_deref().unwrap()).unwrap()
+        };
+        let later = own_grant(
+            r.ops
+                .ensure(&local, asks("local-later", "job-later", &["h1"], "2h"))
+                .await
+                .unwrap_err(),
+        );
+        let wider = own_grant(
+            r.ops
+                .ensure(
+                    &local,
+                    asks("local-wider", "job-wider", &["h1", "h2"], "30m"),
+                )
+                .await
+                .unwrap_err(),
+        );
+        r.w.trust(&r.w.ca_b, &controller_b());
+        let other = own_grant(
+            r.ops
+                .ensure(
+                    &Rig::caller(&controller_b()),
+                    asks("other-client", "job-other", &["h1"], "30m"),
+                )
+                .await
+                .unwrap_err(),
+        );
+        for g in [&later, &wider, &other] {
+            assert_ne!(*g, grant);
+            assert_eq!(grant_state(&r, g), GrantState::Preparing);
+            assert_eq!(reserved(g), 0);
+        }
+        assert_eq!(materialized.made.lock().unwrap().len(), 3);
+    }
+
+    /// ⟨M06 W4; m06-plan §2 items 2 and 5; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ The way out,
+    /// acknowledgement first, and the re-issue. A cutoff this controller delivered fires at
+    /// the runner: the grant ends there and its certificate goes with K_env. The owner's
+    /// acknowledgement alone reopens nothing while the runner still holds the cutoff. Once
+    /// the runner's owner clears it there, a new `ensure` is admitted, and the next pass
+    /// issues for it: the pair has a certificate again, a new one for a new grant. There is
+    /// no other re-issue (no routine renewal).
+    #[tokio::test]
+    async fn after_a_lifted_cutoff_a_reissue_replaces_the_certificate_the_cutoff_removed() {
+        let (r, _materialized) = runner_rig().await;
+        let a = issuing_controller(&r);
+        let d = driver(&a);
+        let issuer = FixtureIssuer { ca: &r.w.ca_a };
+        let mut s = managed(&r, &controller_a());
+        d.on_session(&a.pin, &mut s).await.unwrap();
+        let Forwarded::Pending { grant: first, .. } = d
+            .forward_ensure(
+                &a.pin,
+                &mut s,
+                &ensure_request(&r, "fwd-cut-1", &["h1"]),
+                &ca_of(&r),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("pending");
+        };
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.failed.is_empty(), "{:?}", m.failed);
+        let removed = r.w.runner.issuance().keys().certificates(&first)[&pair("h1")].serial;
+
+        // The cutoff, at once: delivered at the next pass, and the grant ends at the runner.
+        let cutoff = a
+            .produce(&Narrowing::Cutoff {
+                scope: PolicyTarget::Policy {
+                    policy_id: policy_id(),
+                },
+                at: a.now(),
+            })
+            .unwrap();
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        assert!(m.issued.is_empty());
+        assert_eq!(a.pending(), 0);
+        assert!(!grant_state(&r, &first).permits_use());
+        assert!(
+            r.w.runner.issuance().keys().certificates(&first).is_empty(),
+            "the cutoff removed the certificate"
+        );
+        let permit = |grant: &GrantId| {
+            a.store
+                .transaction(|tx| {
+                    d.barrier()
+                        .permit_answer(tx, &r.w.env, grant, Some(&policy_id()), a.now())
+                })
+                .unwrap()
+        };
+
+        // The acknowledgement alone: the runner still holds the cutoff, nothing reopens.
+        let named = std::slice::from_ref(&cutoff.effect);
+        let done = resume_issuance_named(&a.store, &r.w.env, named, true, a.now()).unwrap();
+        assert_eq!(
+            done["acknowledged"][0]["effect"],
+            serde_json::json!(cutoff.effect)
+        );
+        d.on_session(&a.pin, &mut s).await.unwrap();
+        assert_eq!(
+            permit(&first),
+            Err(heimdall_app::remote_status_barrier::BarrierRefusal::PolicyCutoff),
+            "acknowledgement only: still blocked"
+        );
+        let refused = d
+            .forward_ensure(
+                &a.pin,
+                &mut s,
+                &ensure_request(&r, "fwd-cut-2", &["h1"]),
+                &ca_of(&r),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(refused.code, Code::PolicyCutoff, "{}", refused.message);
+
+        // Cleared at the runner by its owner: with the acknowledgement on record, a new
+        // `ensure` is admitted and issued for.
+        lift_at_the_runner(
+            &r,
+            PolicyAction::ClearCutoff {
+                policy_id: Some(policy_id()),
+                target: None,
+            },
+        )
+        .await;
+        d.on_session(&a.pin, &mut s).await.unwrap();
+        let Forwarded::Pending {
+            grant: second,
+            record,
+            ..
+        } = d
+            .forward_ensure(
+                &a.pin,
+                &mut s,
+                &ensure_request(&r, "fwd-cut-3", &["h1"]),
+                &ca_of(&r),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("pending");
+        };
+        assert_ne!(second, first);
+        assert!(permit(&second).is_ok(), "the lift and its acknowledgement");
+        let m = pass(&d, &a, &mut s, &issuer).await;
+        // The ended grant is never issued for again; the new one is.
+        assert!(m.failed.iter().all(|(g, _)| *g == first), "{:?}", m.failed);
+        assert_eq!(m.issued.len(), 1);
+        assert_eq!(m.issued[0].grant, second);
+        let held = r.w.runner.issuance().keys().certificates(&second);
+        assert_eq!(held.len(), 1);
+        assert_ne!(held[&pair("h1")].serial, removed);
+        assert!(held[&pair("h1")].valid_before <= record.expires_at);
+        assert!(r.w.runner.issuance().keys().certificates(&first).is_empty());
+    }
+
     /// A request beyond the runner's standing policy is the runner's to decide, at the runner:
     /// the forwarded `ensure` comes back with the runner-local decision reference, the
     /// controller records nothing, and nothing is issued.
@@ -1910,7 +2891,12 @@ mod grant_path {
         d.on_session(&a.pin, &mut s).await.unwrap();
 
         let e = d
-            .forward_ensure(&a.pin, &mut s, &ensure_request(&r, "fwd-beyond", &["h1"]))
+            .forward_ensure(
+                &a.pin,
+                &mut s,
+                &ensure_request(&r, "fwd-beyond", &["h1"]),
+                &ca_of(&r),
+            )
             .await
             .unwrap_err();
         assert!(

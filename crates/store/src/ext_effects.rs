@@ -1,7 +1,8 @@
 //! ⟨M06 U4⟩ Store methods for typed narrowing effects and resynchronization (ADR-0012 §7;
 //! ADR-0006 §18 item 11, §18.5 readings 9 and 16; m06-plan U4). Schema:
 //! `migrations/0009_remote.sql`'s `remote_effect_outbox`, `remote_effect_acks` and
-//! `remote_policy_revisions`, and one `meta` key prefix; no migration of its own.
+//! `remote_policy_revisions`, and one `meta` key prefix; ⟨W4⟩ `migrations/0012_remote_lift_acks.sql`'s
+//! `remote_lift_acks`.
 //!
 //! Conventions (as [`crate::ext_m06`]): every method runs inside the caller's [`Txn`]; reads
 //! return `Option`/`Vec`; the store reads no clock (every instant is the caller's).
@@ -23,6 +24,12 @@
 //!   controllers' equal revision numbers for one scope are two rows; nothing here replaces or
 //!   deletes a row, so no pause or cutoff disappears. A cutoff row keeps the owner's instant;
 //!   a redelivery of the same key with an earlier instant only shortens it.
+//! * ⟨M06 W4; ADR-0012 §7.4 ⟨2026-11-21⟩, M06-W3-R02⟩ **The controller's lift
+//!   acknowledgements** (`remote_lift_acks`): one row per pause or cutoff effect of the
+//!   outbox whose lift the owner confirmed on this controller
+//!   ([`Txn::acknowledge_remote_lift`]). Written only for an outbox row the runner
+//!   acknowledged; never updated; removed with the environment's outbox rows. A row alone
+//!   reopens nothing (the issuer's barrier also needs the runner's report to show the lift).
 //! * **Contact observations** (`meta`, `remote_contact:<environment>`): what the controller
 //!   last saw of a runner (connectivity, ADR-0012 §7.1). An observation, never authority.
 //!
@@ -384,6 +391,13 @@ pub struct ObservedReport {
     /// pause` or `policy cutoff` naming one of them can be sent to that runner.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub policies: Vec<PolicyId>,
+    /// ⟨M06 W4 `w4d`⟩ Those policies as the report stated them (paused, cutoff), so
+    /// `environment resume-issuance` can tell the owner whether that report showed a
+    /// delivered pause or cutoff lifted. An observation: the issuer's barrier judges on
+    /// the report of its own open session, never on this. `None` in a record written
+    /// before this field existed (not known).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standing: Option<Vec<ReportedPolicy>>,
 }
 
 /// A failed attempt to reach a runner.
@@ -463,6 +477,27 @@ pub struct AuthorityReport {
     /// §4.4). The store cannot know: the runner runtime sets it.
     #[serde(default)]
     pub time_bounded: bool,
+    /// ⟨M06 W4; ADR-0005 §3.5 condition 8 (b)⟩ The grants the runner admitted that wait
+    /// for their issuer. The store cannot know which wait (K_env lives in the runner's
+    /// memory): the runner runtime fills it. Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_grants: Vec<ReportedPendingGrant>,
+}
+
+/// ⟨M06 W4⟩ One grant of the runner's authority report that waits for its issuer: what
+/// the runner admitted, so a controller-held standing policy that names the runner can be
+/// held against it (ADR-0005 §3.5 condition 8 (b)). It only describes; the controller
+/// issues for it only when its own records authorize every pair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportedPendingGrant {
+    /// The grant.
+    pub grant: GrantId,
+    /// The profile it was admitted for.
+    pub profile: heimdall_contract::ids::ProfileId,
+    /// Its destination/account pairs.
+    pub pairs: std::collections::BTreeSet<AccessPairRef>,
+    /// Its deadline on the runner.
+    pub expires_at: Timestamp,
 }
 
 fn contact_key(environment: &EnvironmentId) -> String {
@@ -590,12 +625,97 @@ impl Txn<'_> {
     }
 
     /// ⟨M06 U4⟩ Drop every outbox row of `environment` (the controller removed the
-    /// environment); the number removed.
+    /// environment), ⟨W4⟩ and its lift acknowledgements with them; the number of outbox rows
+    /// removed.
     pub fn forget_remote_effect_outbox(&mut self, environment: &EnvironmentId) -> Result<usize> {
+        self.tx.execute(
+            "DELETE FROM remote_lift_acks WHERE environment = ?1",
+            [environment.as_str()],
+        )?;
         Ok(self.tx.execute(
             "DELETE FROM remote_effect_outbox WHERE environment = ?1",
             [environment.as_str()],
         )?)
+    }
+
+    // --- the controller's lift acknowledgements ----------------------------------------------
+
+    /// ⟨M06 W4⟩ Record that the owner confirmed, on this controller, that the delivered
+    /// pause or cutoff `key` was lifted at the runner `environment` (module docs). Written
+    /// only when the outbox holds that effect for that environment, acknowledged by the
+    /// runner, and it is a pause or a cutoff. `false`, nothing written, otherwise, or when
+    /// the row exists (the first acknowledgement is kept).
+    pub fn acknowledge_remote_lift(
+        &mut self,
+        environment: &EnvironmentId,
+        key: &EffectKey,
+        now: Timestamp,
+    ) -> Result<bool> {
+        if !matches!(
+            key.target,
+            EffectTarget::PolicyPause { .. } | EffectTarget::PolicyCutoff { .. }
+        ) {
+            return Ok(false);
+        }
+        let (kind, reference, generation) = key.columns()?;
+        let delivered: i64 = self.tx.query_row(
+            "SELECT count(*) FROM remote_effect_outbox
+             WHERE environment = ?1 AND producer = ?2 AND effect_id = ?3 AND target_kind = ?4
+               AND target_ref = ?5 AND target_generation = ?6 AND state = ?7",
+            rusqlite::params![
+                environment.as_str(),
+                key.producer.as_str(),
+                key.effect.as_str(),
+                kind,
+                reference,
+                generation,
+                codec::enum_str(&OutboxState::Acknowledged)?,
+            ],
+            |r| r.get(0),
+        )?;
+        if delivered == 0 {
+            return Ok(false);
+        }
+        let n = self.tx.execute(
+            "INSERT INTO remote_lift_acks (environment, producer, effect_id, target_kind,
+                 target_ref, target_generation, acknowledged_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(producer, effect_id, target_kind, target_ref, target_generation)
+             DO NOTHING",
+            rusqlite::params![
+                environment.as_str(),
+                key.producer.as_str(),
+                key.effect.as_str(),
+                kind,
+                reference,
+                generation,
+                codec::ts(now),
+            ],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// ⟨M06 W4⟩ When the owner acknowledged the lift of the delivered effect `key` on this
+    /// controller, if they did.
+    pub fn remote_lift_ack(&mut self, key: &EffectKey) -> Result<Option<Timestamp>> {
+        let (kind, reference, generation) = key.columns()?;
+        let at: Option<String> = self
+            .tx
+            .query_row(
+                "SELECT acknowledged_at FROM remote_lift_acks
+                 WHERE producer = ?1 AND effect_id = ?2 AND target_kind = ?3
+                   AND target_ref = ?4 AND target_generation = ?5",
+                rusqlite::params![
+                    key.producer.as_str(),
+                    key.effect.as_str(),
+                    kind,
+                    reference,
+                    generation
+                ],
+                |r| r.get(0),
+            )
+            .optional()?;
+        at.as_deref().map(codec::parse_ts).transpose()
     }
 
     // --- the runner's acknowledgements ------------------------------------------------------
@@ -809,6 +929,7 @@ impl Txn<'_> {
             policies,
             certificates: Vec::new(),
             time_bounded: false,
+            pending_grants: Vec::new(),
         }))
     }
 
@@ -867,6 +988,7 @@ impl Txn<'_> {
                 .cloned()
                 .collect(),
             policies: report.policies.iter().map(|p| p.policy.clone()).collect(),
+            standing: Some(report.policies.clone()),
         });
         self.set_meta(&contact_key(environment), &codec::doc(&c)?)
     }
@@ -1055,6 +1177,59 @@ mod tests {
             // An acknowledgement of an unknown key settles nothing.
             assert!(!tx.acknowledge_remote_effect(&tombstone_ack(&revoke_key(2, 1)), now)?);
             assert_eq!(tx.forget_remote_effect_outbox(&env())?, 2);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// ⟨M06 W4⟩ A lift acknowledgement is written only for a pause or cutoff of the outbox
+    /// that the runner acknowledged, once, and goes with the environment's outbox rows.
+    #[test]
+    fn a_lift_acknowledgement_needs_a_delivered_pause_or_cutoff() {
+        let s = store();
+        let now = t("2026-11-21T09:00:00Z");
+        let cutoff = EffectKey {
+            producer: client(1),
+            effect: effect(1),
+            target: EffectTarget::PolicyCutoff {
+                scope: PolicyTarget::All,
+                at: t("2026-11-21T10:00:00Z"),
+                revision: 1,
+            },
+        };
+        let ack = EffectAck {
+            key: cutoff.clone(),
+            applied_at: now,
+            record: AppliedRecord::PolicyRevision {
+                scope_key: "all".into(),
+                runner_seq: 1,
+                policies: Vec::new(),
+                cutoff_at: Some(t("2026-11-21T10:00:00Z")),
+                fired: false,
+            },
+        };
+        s.transaction(|tx| {
+            // Not in the outbox; then pending: nothing is written.
+            assert!(!tx.acknowledge_remote_lift(&env(), &cutoff, now)?);
+            assert!(tx.enqueue_remote_effect(&env(), &cutoff, now)?);
+            assert!(!tx.acknowledge_remote_lift(&env(), &cutoff, now)?);
+            assert!(tx.acknowledge_remote_effect(&ack, now)?);
+            // Another environment's name for the same key: nothing.
+            let other = EnvironmentId::from_random_bytes([4; 16]);
+            assert!(!tx.acknowledge_remote_lift(&other, &cutoff, now)?);
+            assert_eq!(tx.remote_lift_ack(&cutoff)?, None);
+            // Delivered: recorded once, the first instant kept.
+            assert!(tx.acknowledge_remote_lift(&env(), &cutoff, now)?);
+            assert!(!tx.acknowledge_remote_lift(&env(), &cutoff, t("2026-11-21T09:05:00Z"))?);
+            assert_eq!(tx.remote_lift_ack(&cutoff)?, Some(now));
+            // A revoke is never lifted.
+            let revoke = revoke_key(1, 2);
+            assert!(tx.enqueue_remote_effect(&env(), &revoke, now)?);
+            assert!(tx.acknowledge_remote_effect(&tombstone_ack(&revoke), now)?);
+            assert!(!tx.acknowledge_remote_lift(&env(), &revoke, now)?);
+            // Forgetting the environment forgets its acknowledgements.
+            assert_eq!(tx.forget_remote_effect_outbox(&env())?, 2);
+            assert_eq!(tx.remote_lift_ack(&cutoff)?, None);
             Ok(())
         })
         .unwrap();

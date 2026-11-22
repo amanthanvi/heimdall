@@ -2216,7 +2216,19 @@ pub struct RunnerBindingEndpoints {
     runtime: Arc<crate::runner::RunnerRuntime>,
     registry: EndpointRegistry,
     grant_of: Arc<GrantOfBinding>,
+    /// ⟨M06 W4; ADR-0012 §4 item 2 "Attach"⟩ The binding's own pairs, when known: its
+    /// endpoint and files hold the grant's certificates for those pairs only.
+    pairs_of: Arc<PairsOfBinding>,
 }
+
+/// The pairs a binding holds (its own scope), read from the runner's store or, during its
+/// activation, from what the attach named. `None`: not limited (the grant's own binding
+/// before its row exists).
+type PairsOfBinding = dyn Fn(
+        &heimdall_contract::ids::BindingId,
+    ) -> Option<std::collections::BTreeSet<heimdall_contract::request::AccessPairRef>>
+    + Send
+    + Sync;
 
 /// The grant a binding realizes, read from the runner's store.
 type GrantOfBinding = dyn Fn(&heimdall_contract::ids::BindingId) -> Option<heimdall_contract::ids::GrantId>
@@ -2257,6 +2269,7 @@ impl RunnerBindingEndpoints {
             runtime,
             registry,
             grant_of,
+            pairs_of: Arc::new(|_| None),
         }
     }
 
@@ -2271,15 +2284,23 @@ impl RunnerBindingEndpoints {
         limits: SignerLimits,
         shutdown: CancellationToken,
     ) -> Self {
+        let rows = Arc::clone(&store);
         let grant_of: Arc<GrantOfBinding> = Arc::new(move |binding| {
             store
                 .transaction(|tx| Ok(tx.binding(binding)?.map(|b| b.grant)))
                 .ok()
                 .flatten()
         });
-        Self::new(
+        let mut endpoints = Self::new(
             runtime, layout, owner, authority, limits, shutdown, grant_of,
-        )
+        );
+        // ⟨M06 W4⟩ A binding's own scope, once its row exists.
+        endpoints.pairs_of = Arc::new(move |binding| {
+            rows.transaction(|tx| Ok(tx.binding(binding)?.map(|b| b.scope.pairs)))
+                .ok()
+                .flatten()
+        });
+        endpoints
     }
 
     /// ⟨M06 W3 grant-path⟩ Also know a binding by the grant it is being materialized for
@@ -2288,8 +2309,12 @@ impl RunnerBindingEndpoints {
     #[must_use]
     pub fn with_pending(mut self, pending: crate::runner::adapter::PendingBindings) -> Self {
         let stored = Arc::clone(&self.grant_of);
+        let pending_grants = pending.clone();
         self.grant_of =
-            Arc::new(move |binding| stored(binding).or_else(|| pending.grant_of(binding)));
+            Arc::new(move |binding| stored(binding).or_else(|| pending_grants.grant_of(binding)));
+        let stored_pairs = Arc::clone(&self.pairs_of);
+        self.pairs_of =
+            Arc::new(move |binding| stored_pairs(binding).or_else(|| pending.pairs_of(binding)));
         self
     }
 
@@ -2320,9 +2345,12 @@ impl RunnerBindingEndpoints {
         }
         let keys = self.runtime.issuance().keys();
         let (_, public) = keys.public_key(grant)?;
+        // ⟨M06 W4⟩ Only the binding's own pairs, when it holds a subset of the grant's.
+        let own = (self.pairs_of)(binding);
         let certificates = keys
             .certificates(grant)
             .into_iter()
+            .filter(|(pair, _)| own.as_ref().is_none_or(|pairs| pairs.contains(pair)))
             .map(|(pair, c)| heimdall_app::ports::MaterializedCertificate {
                 pair,
                 certificate: c.certificate,
@@ -2332,7 +2360,8 @@ impl RunnerBindingEndpoints {
     }
 
     /// Create `binding`'s endpoint at `generation` when it is a runner grant's (attached to
-    /// that grant in the runner's table, so it lists that grant's certificates only), or
+    /// that grant in the runner's table, so it lists that grant's certificates only, and
+    /// ⟨M06 W4⟩ of those only the ones for the binding's own pairs), or
     /// return the one already running at that generation. `None` when the binding is not a
     /// runner grant's: nothing was created here.
     pub fn create(
@@ -2343,12 +2372,13 @@ impl RunnerBindingEndpoints {
     ) -> Option<Result<EndpointRef, heimdall_app::ports::AdapterError>> {
         use heimdall_adapters::managed::effects::BindingEndpoints as _;
         let grant = self.runner_grant(binding)?;
-        if !self
-            .runtime
-            .issuance()
-            .keys()
-            .attach_binding(binding, &grant)
-        {
+        let keys = self.runtime.issuance().keys();
+        // ⟨M06 W4⟩ Limited to the binding's own pairs when it holds a subset.
+        let attached = match (self.pairs_of)(binding) {
+            Some(pairs) => keys.attach_binding_pairs(binding, &grant, &pairs),
+            None => keys.attach_binding(binding, &grant),
+        };
+        if !attached {
             // The grant ended in between: nothing is created, here or elsewhere.
             return Some(Err(heimdall_app::ports::AdapterError::Unavailable(
                 heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),

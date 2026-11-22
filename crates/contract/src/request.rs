@@ -509,6 +509,26 @@ pub struct EnsureRequest {
     /// triggers; ADR-0011 §3.2). Omitted when false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub covered_only: bool,
+    /// ⟨rev6.4; ADR-0006 §18.8 item 1; ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ Per
+    /// destination/account pair, the fingerprint of the CA the controller will issue from.
+    /// Set by the forwarding controller, or by the runner's local owner for a CA already in
+    /// the runner's `issuer_trust` (that admits a pending grant only). A runner resolves a
+    /// named pair to `managed_certificate` only when that CA is in its `issuer_trust` for
+    /// the party that named it, and refuses `issuer_untrusted` otherwise; nothing about
+    /// such a pair comes from the runner's own catalog. Omitted when empty, so every
+    /// earlier request and its canonical hash are unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pair_issuers: Vec<PairIssuer>,
+}
+
+/// ⟨rev6.4; ADR-0006 §18.8 item 1⟩ One entry of [`EnsureRequest::pair_issuers`]: the CA a
+/// controller will issue `pair`'s certificate from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PairIssuer {
+    /// The destination/account pair.
+    pub pair: AccessPairRef,
+    /// The issuing CA's fingerprint.
+    pub ca_fingerprint: crate::ids::CaFingerprint,
 }
 
 impl EnsureRequest {
@@ -1559,7 +1579,8 @@ impl Request {
             // ⟨rev6.3⟩ The controller's own records, settled synchronously.
             | Request::ControllerRecord(
                 crate::controller_record::ControllerRecordRequest::PutEnvironment { .. }
-                | crate::controller_record::ControllerRecordRequest::RemoveEnvironment { .. },
+                | crate::controller_record::ControllerRecordRequest::RemoveEnvironment { .. }
+                | crate::controller_record::ControllerRecordRequest::ResumeIssuance { .. },
             ) => Admission::Synchronous,
         }
     }

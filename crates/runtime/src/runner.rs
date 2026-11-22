@@ -88,7 +88,23 @@ pub struct RunnerRuntime {
     /// ⟨M06 W3 grant-path⟩ Called when an install completed a grant's certificates
     /// ([`Self::on_issued`]).
     issued: std::sync::Mutex<Option<IssuedHook>>,
+    /// ⟨M06 W4⟩ Realizes a further binding on an issued grant ([`Self::set_binder`]).
+    binder: std::sync::Mutex<Option<Binder>>,
 }
+
+/// ⟨M06 W4⟩ What realizes a binding of a runner grant from the runner's signer, for the
+/// binding's own pairs (the runner's adapter binds it over the managed effects' runner
+/// materialize site).
+pub type Binder = Arc<
+    dyn Fn(
+            &heimdall_contract::ids::BindingId,
+            &GrantId,
+            &std::collections::BTreeSet<heimdall_contract::request::AccessPairRef>,
+        )
+            -> Result<heimdall_contract::provider::EndpointRef, heimdall_app::ports::AdapterError>
+        + Send
+        + Sync,
+>;
 
 /// What a runner runtime calls when the controller's issuer has installed a certificate for
 /// every pair of a grant: the operations waiting on that grant are driven on
@@ -133,6 +149,7 @@ impl RunnerRuntime {
             lifetime,
             resynced: std::sync::Mutex::default(),
             issued: std::sync::Mutex::default(),
+            binder: std::sync::Mutex::default(),
         }
     }
 
@@ -156,6 +173,23 @@ impl RunnerRuntime {
             .issued
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hook);
+    }
+
+    /// ⟨M06 W4; the attach rule⟩ Realize further bindings of an issued grant through
+    /// `binder`.
+    pub fn set_binder(&self, binder: Binder) {
+        *self
+            .binder
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(binder);
+    }
+
+    /// The binder, when one is set.
+    pub(crate) fn binder(&self) -> Option<Binder> {
+        self.binder
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     fn resynced(&self) -> std::sync::MutexGuard<'_, std::collections::BTreeSet<(u64, ClientId)>> {

@@ -474,6 +474,7 @@ fn ensure_req(request_id: &str, work: &str, pairs: &[(&str, &str)]) -> EnsureReq
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

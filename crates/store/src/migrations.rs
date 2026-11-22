@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 11;
+pub const SCHEMA_VERSION: u32 = 12;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -89,6 +89,12 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 11,
         name: "remote_client_endpoints",
         sql: include_str!("../migrations/0011_remote_client_endpoints.sql"),
+    },
+    // ⟨M06⟩ Wave 4 (ADR-0006 §18.8 item 4): the controller's lift acknowledgements.
+    Migration {
+        version: 12,
+        name: "remote_lift_acks",
+        sql: include_str!("../migrations/0012_remote_lift_acks.sql"),
     },
 ];
 
@@ -400,7 +406,10 @@ mod tests {
                  'pending', '{}')",
         )
         .unwrap();
-        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 11);
+        assert_eq!(
+            apply_steps(&mut c, &NoFaults, &MIGRATIONS[..11]).unwrap(),
+            11
+        );
         let added: Vec<String> = tables(&c)
             .into_iter()
             .filter(|t| !before.contains(t))
@@ -436,6 +445,63 @@ mod tests {
         assert_eq!(user_version(&c).unwrap(), 10);
         assert_eq!(tables(&c), before);
         assert_eq!(columns(&c), before_columns);
+    }
+
+    /// ⟨M06⟩ Wave 4 (ADR-0006 §18.8 item 4): `0012_remote_lift_acks` applies on a database
+    /// at version 11, adds exactly its table, keeping every row; a failure inside the step
+    /// leaves version 11 and no table.
+    #[test]
+    fn remote_lift_acks_step_applies_on_version_11_and_rolls_back_whole() {
+        let tables = |c: &Connection| -> Vec<String> {
+            let mut stmt = c
+                .prepare(
+                    "SELECT name FROM sqlite_schema WHERE type = 'table'
+                     AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        };
+        let previous = &MIGRATIONS[..11];
+        assert_eq!(MIGRATIONS[11].version, 12);
+        assert_eq!(MIGRATIONS[11].name, "remote_lift_acks");
+        let mut c = Connection::open_in_memory().unwrap();
+        assert_eq!(apply_steps(&mut c, &NoFaults, previous).unwrap(), 11);
+        let before = tables(&c);
+        c.execute_batch("INSERT INTO meta (key, value) VALUES ('m06-w4-probe', 'kept')")
+            .unwrap();
+        assert_eq!(apply(&mut c, &NoFaults).unwrap(), 12);
+        let added: Vec<String> = tables(&c)
+            .into_iter()
+            .filter(|t| !before.contains(t))
+            .collect();
+        assert_eq!(added, vec!["remote_lift_acks".to_owned()]);
+        let kept: String = c
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'm06-w4-probe'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, "kept");
+        let broken = [
+            previous.to_vec(),
+            vec![Migration {
+                version: 12,
+                name: "remote_lift_acks_broken",
+                sql: concat!(
+                    include_str!("../migrations/0012_remote_lift_acks.sql"),
+                    "\nTHIS IS NOT SQL;"
+                ),
+            }],
+        ]
+        .concat();
+        let mut c = Connection::open_in_memory().unwrap();
+        assert!(apply_steps(&mut c, &NoFaults, &broken).is_err());
+        assert_eq!(user_version(&c).unwrap(), 11);
+        assert_eq!(tables(&c), before);
     }
 
     #[test]

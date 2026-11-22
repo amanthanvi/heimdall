@@ -456,6 +456,9 @@ The same path repairs a lost host pin or a lost K_mgmt.
      - **A runner never issues locally.** An admitted grant waits for its issuer (refresh dependency `controller`). The runner prepares K_env, the controller's host issues, and the runner installs.
      - **The host issues only for scope a controller-held record authorizes:** an `ensure` it forwarded, or a standing policy held on the controller that names that runner. A runner-originated pending grant outside both stays pending, and readiness reports `controller_dependency`.
      - **Work on the runner** binds through the runner's binding endpoints. A local `ensure` covered by a live issued grant attaches to it.
+     - **Certificate length:** a remote certificate runs to the grant's bound (ADR-0005 rejects short renewed certificates). There is no routine renewal. A re-issue happens only after a lifted cutoff, through the controller's `resume-issuance`, and replaces the certificate the cutoff removed.
+     - **Who may name the issuing CA:** the forwarding controller, or the runner's local owner for a CA already in the runner's `issuer_trust`. The second creates a pending grant only.
+     - **Attach:** same profile; the forwarding client or the runner's local owner; an attached binding's endpoint lists only its own subset of pairs.
      - **The host's session:** one per owned runner, a 30 s pass, with exponential backoff up to about 5 minutes while a runner is unreachable, reset on success.
 3. ⟨r2⟩ **Lifetime** (the ruling on Q7; R09):
    - **Preferred:** a verified `systemd --user` unit where the owner has enabled linger. Heimdall never enables linger; setup offers it.

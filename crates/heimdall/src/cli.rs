@@ -2006,6 +2006,7 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
         connection: a.strict.then(m03_cmd::strict_connection),
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
@@ -3149,6 +3150,7 @@ mod tests {
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         }
     }
 

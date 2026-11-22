@@ -802,6 +802,7 @@ impl Operations {
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         };
         // `ensure`'s own admission checks: the managed set and a stopped work ID, before
         // any record.
@@ -815,7 +816,7 @@ impl Operations {
             })
             .await??;
         }
-        self.ensure_precheck(&req).await?;
+        self.ensure_precheck(&caller.context, &req).await?;
         let hash = compute_hash(
             OperationKind::Ensure,
             &HashInput {

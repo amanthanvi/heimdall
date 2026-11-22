@@ -79,6 +79,58 @@ impl RunnerSide for RunnerRuntime {
 }
 
 impl RunnerRuntime {
+    /// ⟨M06 W4; ADR-0005 §3.5 condition 8 (b)⟩ The grants this runner admitted that wait
+    /// for their issuer, for the authority report: the grant of every open, running
+    /// operation whose mechanism is `managed_certificate`, still `preparing`, for which
+    /// the runner's signer holds no complete set of certificates. A store failure reports
+    /// none (nothing is then issued for them: fail closed).
+    #[must_use]
+    pub fn pending_grants(&self) -> Vec<heimdall_store::ext_effects::ReportedPendingGrant> {
+        use heimdall_app::operations::{MANAGED_CERTIFICATE, RunnerGrants as _};
+        use heimdall_contract::state::OperationState;
+        let listed = self.store.transaction(|tx| {
+            let mut out = std::collections::BTreeMap::new();
+            for op in tx.open_operations()? {
+                if op.state != OperationState::Running {
+                    continue;
+                }
+                let Some(resolved) = tx.recovery_intent(&op.id)?.and_then(|i| i.resolved) else {
+                    continue;
+                };
+                let (Some(grant), Some(adapter)) = (resolved.grant, resolved.adapter) else {
+                    continue;
+                };
+                if adapter.mechanism != MANAGED_CERTIFICATE {
+                    continue;
+                }
+                let Some(g) = tx.grant(&grant)? else {
+                    continue;
+                };
+                if g.state != heimdall_contract::GrantState::Preparing {
+                    continue;
+                }
+                let Some(origin) = tx.grant_origin(&grant)? else {
+                    continue;
+                };
+                out.insert(
+                    grant.clone(),
+                    heimdall_store::ext_effects::ReportedPendingGrant {
+                        grant,
+                        profile: origin.profile,
+                        pairs: g.scope.pairs,
+                        expires_at: g.deadline.effective,
+                    },
+                );
+            }
+            Ok(out)
+        });
+        listed
+            .unwrap_or_default()
+            .into_values()
+            .filter(|p| !self.issued(&p.grant))
+            .collect()
+    }
+
     /// ⟨M06 U4⟩ Whether `request` is one of the forms [`Self::serve_sync`] serves.
     #[must_use]
     pub fn is_sync_request(request: &RunnerRequest) -> bool {
@@ -115,7 +167,9 @@ impl RunnerRuntime {
                 super::ok(sync.deliver(self, caller, effect, target).await?)
             }
             RunnerRequest::AuthorityReport => {
-                let report = sync.authority_report(self, caller).await?;
+                let mut report = sync.authority_report(self, caller).await?;
+                // ⟨M06 W4⟩ The grants that wait for their issuer (condition 8 (b)).
+                report.pending_grants = self.pending_grants();
                 if let Some(c) = &controller {
                     self.note_report_served(c, connection);
                 }

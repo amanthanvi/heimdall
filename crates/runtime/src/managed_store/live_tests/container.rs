@@ -155,6 +155,7 @@ pub(super) async fn ensure_completed_in(
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await

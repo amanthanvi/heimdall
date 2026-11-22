@@ -271,7 +271,8 @@ fn rev6_request_forms() {
         record_actions, record_schema,
         "every controller_record form"
     );
-    assert_eq!(record_schema.len(), 2);
+    // Revision 6.4 (ADR-0006 §18.8 item 4) adds `controller_record.resume_issuance`.
+    assert_eq!(record_schema.len(), 3);
     // No RemoteDecide (ADR-0012 §3.10) and no serve-child lease or suspend message (§2.3):
     // no op or action of the whole request schema names one.
     let mut every_name = BTreeSet::new();
@@ -440,6 +441,21 @@ fn rev6_additive_documents() {
         &with_role,
         Some("ipc.server-message"),
     );
+
+    // ⟨rev6.4; ADR-0006 §18.8 item 1⟩ `EnsureRequest.pair_issuers`: absent from the
+    // unchanged example, and round-tripping and validating when present.
+    let ensure = load("schemas/examples/request.ensure.json");
+    assert!(ensure.get("pair_issuers").is_none());
+    let mut named = ensure.clone();
+    named["pair_issuers"] = json!([{
+        "pair": ensure["scope"][0].clone(),
+        "ca_fingerprint": "SHA256:uXq3mT1n0rWbG5cVxZ2yA7kL9pQeJ4sHdF8oN6iRtC0",
+    }]);
+    let Request::Ensure(e) = exact::<Request>("ensure with pair_issuers", &named, Some("request"))
+    else {
+        panic!("an ensure");
+    };
+    assert_eq!(e.pair_issuers.len(), 1);
 
     // The environment view: the M04 example is unchanged; a remote runner with every
     // revision-6 field round-trips and validates.

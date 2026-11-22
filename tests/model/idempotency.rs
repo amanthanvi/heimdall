@@ -250,6 +250,7 @@ fn ensure_req(rid: &str, work: &str, h: &str, until: Option<&str>) -> EnsureRequ
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

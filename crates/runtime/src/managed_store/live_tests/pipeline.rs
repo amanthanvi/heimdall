@@ -50,6 +50,7 @@ async fn ensure_on(
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         },
     )
     .await
@@ -784,6 +785,7 @@ async fn decision_joined_follower_gets_its_own_materialized_binding_and_both_sig
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await
@@ -1000,6 +1002,7 @@ async fn decision_joined(
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await
@@ -1320,6 +1323,7 @@ async fn ensure_in(
             connection: None,
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
         },
     )
     .await

@@ -38,11 +38,30 @@
 //!   that runner whatever the report or the answer says;
 //! * a pause or a single-policy cutoff this controller delivered applies to an answer naming
 //!   that policy whatever the report says;
+//! * ⟨W3.1 re-check⟩ a delivered cutoff whose acknowledgement says it **fired** (its
+//!   instant had passed, or may have passed under uncertain time) refuses outright where it
+//!   applies, and for every policy the acknowledgement said it applied to; the owner's
+//!   later instant only bounds a cutoff that has not fired;
 //! * while **any** pause or cutoff holds for the runner (in its report's policies or
-//!   delivered revisions, or in an effect this controller delivered: the controller keeps no
-//!   record of a lift, so every delivered pause or cutoff counts until the environment is
-//!   forgotten), an answer that names no policy, or one the report does not list, is refused
+//!   delivered revisions, or in an effect this controller delivered), an answer that names
+//!   no policy, or one the report does not list, is refused
 //!   ([`BarrierRefusal::PolicyUnnamed`]).
+//!
+//! ⟨M06 W4; ADR-0012 §7.4 ⟨2026-11-21⟩; ADR-0006 §18.8 item 4⟩ **The way out is two-sided**
+//! ([`lift_shown`], `Txn::remote_lift_ack`). A pause or cutoff this controller delivered
+//! stops counting only when **both** hold, judged in the reserve's and the publish's own
+//! transaction:
+//!
+//! 1. the runner's report of this session shows the lift: every policy the runner's
+//!    acknowledgement said the effect applied to is listed, and is not paused (a pause) or
+//!    has no cutoff (a cutoff);
+//! 2. the owner's acknowledgement of that effect's lift is recorded on this controller
+//!    (`heimdall environment resume-issuance`, attended).
+//!
+//! Neither alone reopens anything. The effect's own row in the report's delivered revisions
+//! (which the runner keeps as the record after a lift) stops counting with it. Another
+//! controller's delivered revisions are not this controller's to acknowledge: they keep
+//! counting as the report states them.
 //!
 //! Which standing policy a grant really belongs to is still the runner's statement until the
 //! controller holds its own policy record (m06-plan W4, record source (b)).
@@ -71,7 +90,9 @@ use heimdall_domain::issuance::{IssuanceEntry, IssuanceRefusal, IssuanceState};
 use heimdall_domain::policy::AuthorityGeneration;
 use heimdall_domain::revocation::{RevocationCause, Tombstone};
 use heimdall_store::Txn;
-use heimdall_store::ext_effects::{AuthorityReport, PolicyRevisionKind};
+use heimdall_store::ext_effects::{
+    AppliedRecord, AuthorityReport, OutboxEffect, PolicyRevisionKind, PolicyRevisionRecord,
+};
 
 use crate::error::OpError;
 use crate::readiness::{ResidualEnd, authentication_residual, residual_end};
@@ -312,6 +333,58 @@ pub struct IssuancePermit {
     pub bound: Option<Timestamp>,
 }
 
+/// ⟨M06 W4⟩ Whether `report` shows that the delivered pause or cutoff `effect` (an
+/// acknowledged row of this controller's outbox) was lifted at the runner (module docs,
+/// "The way out is two-sided", item 1). The policies are the ones the runner's
+/// acknowledgement of the effect named; one the report no longer lists is not shown lifted,
+/// and neither is an effect that applied to no policy.
+/// `false` for a row without an acknowledgement, or one that is not a pause or a cutoff.
+#[must_use]
+pub fn lift_shown(report: &AuthorityReport, effect: &OutboxEffect) -> bool {
+    lift_shown_among(&report.policies, effect)
+}
+
+/// [`lift_shown`] over a report's standing policies alone (`policies`).
+#[must_use]
+pub fn lift_shown_among(
+    policies_reported: &[heimdall_store::ext_effects::ReportedPolicy],
+    effect: &OutboxEffect,
+) -> bool {
+    let Some(AppliedRecord::PolicyRevision { policies, .. }) =
+        effect.ack.as_ref().map(|a| &a.record)
+    else {
+        return false;
+    };
+    let pause = match &effect.key.target {
+        EffectTarget::PolicyPause { .. } => true,
+        EffectTarget::PolicyCutoff { .. } => false,
+        _ => return false,
+    };
+    // An effect the runner said applied to no policy has no lift a report could show: it
+    // keeps counting (fail closed; the acknowledgement alone never reopens issuance).
+    !policies.is_empty()
+        && policies.iter().all(|id| {
+            policies_reported.iter().any(|p| {
+                p.policy == *id
+                    && if pause {
+                        !p.paused
+                    } else {
+                        p.cutoff_at.is_none()
+                    }
+            })
+        })
+}
+
+/// Whether the report's delivered revision `row` is the durable record of the outbox
+/// effect `effect`.
+fn revision_of(row: &PolicyRevisionRecord, effect: &OutboxEffect) -> bool {
+    row.producer == effect.key.producer
+        && row.effect == effect.key.effect
+        && row.revision == effect.key.target.generation()
+        && heimdall_store::ext_effects::target_ref(&effect.key.target).as_deref()
+            == Some(row.scope_key.as_str())
+}
+
 #[derive(Debug, Clone)]
 struct Open {
     reconciliation: Reconciliation,
@@ -447,9 +520,16 @@ impl IssuerBarrier {
         // ⟨M06-W3-R02⟩ What this controller itself delivered (its outbox; every row is
         // acknowledged here, a pending one refused above). The runner's report and answer
         // cannot hide these.
+        // ⟨M06 W4⟩ An effect stops counting only when the report shows its lift and the
+        // owner's acknowledgement of it is recorded here.
         let mut held_pause = false;
         let mut held_cutoff = false;
+        let mut lifted: Vec<OutboxEffect> = Vec::new();
         for row in tx.remote_effect_outbox(Some(environment), false)? {
+            if lift_shown(report, &row) && tx.remote_lift_ack(&row.key)?.is_some() {
+                lifted.push(row);
+                continue;
+            }
             match &row.key.target {
                 EffectTarget::PolicyPause { policy: paused, .. } => {
                     held_pause = true;
@@ -459,6 +539,16 @@ impl IssuerBarrier {
                 }
                 EffectTarget::PolicyCutoff { scope, at, .. } => {
                     held_cutoff = true;
+                    // ⟨W3.1 re-check, low finding 1⟩ What the runner's acknowledgement
+                    // said: the policies the cutoff applied to, and whether it fired at
+                    // the apply (its instant had passed, or may have under uncertain
+                    // time).
+                    let (applied_to, fired) = match row.ack.as_ref().map(|a| &a.record) {
+                        Some(AppliedRecord::PolicyRevision {
+                            policies, fired, ..
+                        }) => (policies.as_slice(), *fired),
+                        _ => (&[][..], false),
+                    };
                     let applies = match scope {
                         // Every policy: all issuance for this runner.
                         PolicyTarget::All => true,
@@ -467,15 +557,27 @@ impl IssuerBarrier {
                         // (the naming rule below then holds the answer to the report).
                         _ => false,
                     };
-                    if applies && cut(*at) {
+                    // A cutoff that fired blocks outright where it applies, also where
+                    // the runner said it applied, whatever instant the owner named and
+                    // whatever the report shows now: a future instant only bounds a
+                    // cutoff that has not fired. Only the two-sided lift ends it.
+                    let fired_on =
+                        fired && (applies || policy.is_some_and(|id| applied_to.contains(id)));
+                    if fired_on || (applies && cut(*at)) {
                         return Ok(Err(BarrierRefusal::PolicyCutoff));
                     }
                 }
                 _ => {}
             }
         }
+        // The report's delivered revisions, without the records of the lifted effects.
+        let revisions: Vec<&PolicyRevisionRecord> = report
+            .policy_revisions
+            .iter()
+            .filter(|r| !lifted.iter().any(|e| revision_of(r, e)))
+            .collect();
         // A delivered cutoff of every policy applies whatever the grant's policy.
-        for row in &report.policy_revisions {
+        for row in &revisions {
             if row.kind == PolicyRevisionKind::Cutoff
                 && row.scope_key == "all"
                 && let Some(at) = row.cutoff_at
@@ -487,13 +589,11 @@ impl IssuerBarrier {
         if answered {
             // ⟨M06-W3-R02⟩ While anything holds, the answer must name a listed policy.
             held_pause |= report.policies.iter().any(|p| p.paused)
-                || report
-                    .policy_revisions
+                || revisions
                     .iter()
                     .any(|r| r.kind == PolicyRevisionKind::Pause);
             held_cutoff |= report.policies.iter().any(|p| p.cutoff_at.is_some())
-                || report
-                    .policy_revisions
+                || revisions
                     .iter()
                     .any(|r| r.kind == PolicyRevisionKind::Cutoff);
             let listed = policy.is_some_and(|id| report.policies.iter().any(|p| p.policy == *id));
@@ -516,11 +616,7 @@ impl IssuerBarrier {
             }
             // And the delivered revisions naming it, should the runner hold no such policy.
             let key = heimdall_store::ext_effects::policy_scope_key(policy);
-            for row in report
-                .policy_revisions
-                .iter()
-                .filter(|r| r.scope_key == key)
-            {
+            for row in revisions.iter().filter(|r| r.scope_key == key) {
                 match (row.kind, row.cutoff_at) {
                     (PolicyRevisionKind::Pause, _) => {
                         return Ok(Err(BarrierRefusal::PolicyPaused));

@@ -17,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::Timestamp;
-use crate::ids::{AccountName, ClientId, DestinationId, EnvironmentId, KeyFingerprint};
+use crate::ids::{AccountName, ClientId, DestinationId, EffectId, EnvironmentId, KeyFingerprint};
 use crate::remote::Role;
 
 /// One hop of a management route: where it is and the host keys pinned for it.
@@ -79,7 +79,7 @@ pub struct RemoteEnvironmentPin {
 
 /// `Request::ControllerRecord`, tagged by `action` (ADR-0006 §18.7 item 6): write the
 /// controller's own records of its runners through its runtime. Local owner only; a paired
-/// session is refused. Neither form widens anything on a runner: the runner-side effects
+/// session is refused. No form widens anything on a runner: the runner-side effects
 /// (enrollment, revocation) are the management session's, confirmed where ADR-0012 §3.10
 /// says.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -101,6 +101,23 @@ pub enum ControllerRecordRequest {
         /// The runner environment.
         environment: EnvironmentId,
     },
+    /// ⟨rev6.4; ADR-0006 §18.8 item 4; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ Record the owner's
+    /// acknowledgement that the pauses and cutoffs named in `effects`, which this controller
+    /// delivered to the runner `environment`, were lifted there (`heimdall environment
+    /// resume-issuance`). It names the specific delivered effects the owner was shown and
+    /// releases only those: a pause or cutoff delivered later is not acknowledged by it.
+    /// Attended: a local owner in an attended session, after the CLI's typed confirmation.
+    /// An empty list, or an ID that is not a pause or cutoff this controller delivered to
+    /// `environment`, is refused whole with effect `none`. Issuance for that runner resumes
+    /// only when its authority report shows each lift as well; the acknowledgement alone
+    /// reopens nothing. Kind `controller_record.resume_issuance`.
+    ResumeIssuance {
+        /// The runner environment.
+        environment: EnvironmentId,
+        /// The delivered effects the owner was shown and confirmed lifted (at least one).
+        #[schemars(length(min = 1))]
+        effects: Vec<EffectId>,
+    },
 }
 
 impl ControllerRecordRequest {
@@ -112,6 +129,7 @@ impl ControllerRecordRequest {
             ControllerRecordRequest::RemoveEnvironment { .. } => {
                 "controller_record.remove_environment"
             }
+            ControllerRecordRequest::ResumeIssuance { .. } => "controller_record.resume_issuance",
         }
     }
 }
@@ -168,5 +186,31 @@ mod tests {
         assert_eq!(remove.kind(), "controller_record.remove_environment");
         assert_eq!(remove.admission(), Admission::Synchronous);
         assert!(remove.is_revision_6());
+        // ⟨rev6.4; ADR-0006 §18.8 item 4⟩
+        let effect = EffectId::from_random_bytes([3; 16]);
+        let resume: Request = serde_json::from_str(&format!(
+            r#"{{"op":"controller_record","action":"resume_issuance","environment":"{}","effects":["{}"]}}"#,
+            EnvironmentId::from_random_bytes([1; 16]).as_str(),
+            effect.as_str()
+        ))
+        .unwrap();
+        assert_eq!(
+            resume,
+            Request::ControllerRecord(ControllerRecordRequest::ResumeIssuance {
+                environment: EnvironmentId::from_random_bytes([1; 16]),
+                effects: vec![effect],
+            })
+        );
+        // The effects are required: the environment alone is no acknowledgement.
+        assert!(
+            serde_json::from_str::<Request>(&format!(
+                r#"{{"op":"controller_record","action":"resume_issuance","environment":"{}"}}"#,
+                EnvironmentId::from_random_bytes([1; 16]).as_str()
+            ))
+            .is_err()
+        );
+        assert_eq!(resume.kind(), "controller_record.resume_issuance");
+        assert_eq!(resume.admission(), Admission::Synchronous);
+        assert!(resume.is_revision_6());
     }
 }

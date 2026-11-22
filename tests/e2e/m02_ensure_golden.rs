@@ -339,6 +339,7 @@ pub async fn produce(dir: &Path) -> Produced {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await

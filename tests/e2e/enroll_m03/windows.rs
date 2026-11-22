@@ -310,6 +310,7 @@ async fn windows_decision_joined_follower_names_the_pipe_its_materialization_cre
                         connection: None,
                         context: None,
                         covered_only: false,
+                        pair_issuers: Vec::new(),
                     },
                 )
                 .await

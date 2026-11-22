@@ -48,11 +48,27 @@
 //! this controller asked for ([`forwarded_ask`]: the destination pairs it named, the
 //! deadline it named, the base extension profile) is recorded as the delivered grant once
 //! the runner names the grant it admitted. The runner's answer supplies only the grant's ID;
-//! the pairs, the extensions and the expiry are this controller's own. An `ensure` that
-//! names no pair or no deadline is not forwarded: the controller would have nothing of its
-//! own to record. A request the runner leaves waiting for a decision at the runner
+//! the pairs, the extensions and the expiry are this controller's own. ⟨M06 W4⟩ An omitted
+//! scope is resolved from this controller's own copy of the profile ([`forwarded_scope`]);
+//! an `ensure` whose pairs cannot be resolved here, or that names no deadline, is not
+//! forwarded: the controller would have nothing of its own to record. Each forwarded pair
+//! names the CA this controller will issue from (`EnsureRequest::pair_issuers`). A request the runner leaves waiting for a decision at the runner
 //! (`APPROVAL_REQUIRED`) records nothing; repeating it with the same request ID after the
 //! decision does.
+//!
+//! ⟨M06 W4; condition 8 (b)⟩ **The record's second source**
+//! ([`adopt_under_standing_policy`]): a standing policy held on this controller that names
+//! the runner environment. The runner's authority report lists the grants that wait for
+//! their issuer; one whose every pair is inside such a policy gets its delivered record
+//! from that policy. A pending grant neither source covers is never signed.
+//!
+//! ⟨M06 W4; m06-plan §2 item 2⟩ **No routine renewal.** A remote certificate runs to the
+//! grant's bound. A pair is issued for again only when the runner's report shows no live
+//! certificate for it at the runner's current generation (a delivered pause or cutoff moved
+//! the generation and the runner dropped K_env with its certificates), and then only once
+//! the barrier lets it: after a delivered pause or cutoff, when the report shows the lift
+//! and the owner's `environment resume-issuance` acknowledgement is recorded
+//! ([`resume_issuance_named`]).
 //!
 //! **The hosted pass** ([`ControllerSync::maintain`]): for every grant delivered to a runner
 //! whose session was just resynchronized, issue for the pairs the runner's report shows no
@@ -333,13 +349,14 @@ fn forward_usage(message: &str) -> OpError {
 }
 
 /// What `request`, an `ensure` naming a runner's environment, asks for (module docs, "How
-/// that record comes to exist"), at this controller's `now`.
+/// that record comes to exist"), at this controller's `now`. `request` carries its pairs
+/// already resolved ([`forwarded_scope`]).
 ///
 /// # Errors
 ///
 /// `USAGE_ERROR`, nothing sent or written: the request names no pair, names no deadline (or
-/// one that cannot be read or has passed), or uses a form a runner does not serve through a
-/// controller (`context`, `covered_only`).
+/// one that cannot be read or has passed), names an issuing CA itself, or uses a form a
+/// runner does not serve through a controller (`context`, `covered_only`).
 pub fn forwarded_ask(
     request: &heimdall_contract::request::EnsureRequest,
     now: Timestamp,
@@ -352,8 +369,15 @@ pub fn forwarded_ask(
     }
     if request.scope.is_empty() {
         return Err(forward_usage(
-            "an ensure forwarded to a runner names its destination pairs (--pair): this \
-             controller records exactly the pairs it asked for",
+            "an ensure forwarded to a runner names its destination pairs (--pair), or a \
+             profile this controller holds a copy of: this controller records exactly the \
+             pairs it asked for",
+        ));
+    }
+    if !request.pair_issuers.is_empty() {
+        return Err(forward_usage(
+            "the issuing CA of a forwarded ensure is this controller's own; a request does \
+             not name it",
         ));
     }
     let Some(until) = &request.until else {
@@ -373,6 +397,49 @@ pub fn forwarded_ask(
     })
 }
 
+/// ⟨M06 W4 grant-e2e; m06-plan §2 "Also ruled"⟩ The pairs a forwarded `ensure` asks for:
+/// the ones it names, else the scope of **this controller's own copy** of the profile it
+/// names (the revision it names, else the latest here). The runner's profile is never
+/// asked: what is recorded and signed for is what this controller resolved.
+///
+/// # Errors
+///
+/// The store's (outer). Inner, `USAGE_ERROR`, nothing sent: the request names no pair and
+/// this controller holds no such profile (or revision), or the profile has no pair.
+pub fn forwarded_scope(
+    tx: &mut Txn<'_>,
+    request: &heimdall_contract::request::EnsureRequest,
+) -> heimdall_store::Result<Result<BTreeSet<AccessPairRef>, OpError>> {
+    if !request.scope.is_empty() {
+        return Ok(Ok(request.scope.clone()));
+    }
+    let unresolved = || {
+        forward_usage(
+            "the request names no destination pair and this controller holds no copy of \
+             the profile to resolve them from: name the pairs (--pair)",
+        )
+    };
+    let Some(profile) = &request.profile else {
+        return Ok(Err(unresolved()));
+    };
+    let revision = match request.profile_revision {
+        Some(r) => Some(r),
+        None => tx.profile(profile)?.map(|p| p.revision),
+    };
+    let pairs = match revision {
+        Some(r) => tx
+            .profile_snapshot(profile, r)?
+            .map(|s| s.scope.pairs)
+            .unwrap_or_default(),
+        None => BTreeSet::new(),
+    };
+    Ok(if pairs.is_empty() {
+        Err(unresolved())
+    } else {
+        Ok(pairs)
+    })
+}
+
 /// How a forwarded `ensure` stands at the runner ([`ControllerSync::forward_ensure`]).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Forwarded {
@@ -381,6 +448,8 @@ pub enum Forwarded {
     Pending {
         /// The grant the runner admitted.
         grant: GrantId,
+        /// The runner's operation, when its answer named one.
+        operation: Option<heimdall_contract::ids::OperationId>,
         /// The record (boxed: it is far larger than the other variant).
         record: Box<DeliveredGrant>,
     },
@@ -402,17 +471,63 @@ pub trait EnsureForwarding: Send + Sync {
         &self,
         request: &heimdall_contract::request::EnsureRequest,
     ) -> Option<crate::OpResult<serde_json::Value>>;
+
+    /// ⟨M06 W4⟩ `operation wait` for a forwarded `ensure` that answered pending: drive
+    /// `operation`, the runner's operation that answer named, for at most `wait_ms`, and
+    /// answer as [`Self::forward`] does. `None` when `operation` is not one this runtime
+    /// instance forwarded (the local `NOT_FOUND` stands).
+    async fn observe(
+        &self,
+        _operation: &heimdall_contract::ids::OperationId,
+        _wait_ms: Option<u64>,
+    ) -> Option<crate::OpResult<serde_json::Value>> {
+        None
+    }
 }
 
-/// The answer to the local caller for a forwarded `ensure` whose grant awaits issuance.
+/// ⟨M06 W4 grant-e2e; m06-plan §2 "Also ruled"⟩ Mark `data`, the `data` of an `ACCEPTED`
+/// answer for a grant that awaits its controller's issuer, with the pending state: the
+/// readiness field `refresh_dependency: controller` and the grant as a `remote_pending`
+/// entry. Nothing else of `data` changes; no reason is set.
+pub fn mark_pending(data: &mut serde_json::Value, grant: &GrantId) {
+    if let Some(map) = data.as_object_mut() {
+        map.insert(
+            "refresh_dependency".to_owned(),
+            serde_json::json!(heimdall_contract::request::RefreshDependency::Controller),
+        );
+        map.insert("remote_pending".to_owned(), serde_json::json!([grant]));
+    }
+}
+
+/// The answer to the local caller for a forwarded `ensure` whose grant awaits issuance:
+/// `ACCEPTED`, no reason, naming the grant and (when the runner named one) the operation
+/// `operation wait` drives, with [`mark_pending`]'s data.
 #[must_use]
-pub fn forwarded_pending(grant: &GrantId) -> OpError {
-    OpError::new(
+pub fn forwarded_pending(
+    grant: &GrantId,
+    operation: Option<&heimdall_contract::ids::OperationId>,
+) -> crate::error::Completed<serde_json::Value> {
+    let mut e = OpError::new(
         Code::Accepted,
         "the runner admitted the grant; it awaits this controller's issuer (see `environment \
-         status`), and repeating the request with the same request ID reads its state",
+         status`). `operation wait`, or the same request with the same request ID, reads \
+         its state",
     )
-    .with_resource("grant", Some(grant.to_string()))
+    .with_resource("grant", Some(grant.to_string()));
+    if let Some(op) = operation {
+        e = e.with_operation(op.clone());
+    }
+    let envelope = e.into_envelope();
+    let mut data = serde_json::to_value(&envelope.data).unwrap_or(serde_json::Value::Null);
+    mark_pending(&mut data, grant);
+    crate::error::Completed {
+        operation_id: envelope.operation_id,
+        state: envelope.state,
+        code: envelope.code,
+        data,
+        warnings: envelope.warnings,
+        next: envelope.next,
+    }
 }
 
 /// What one hosted pass over a runner did ([`ControllerSync::maintain`]).
@@ -442,6 +557,23 @@ const VALID_AFTER_SKEW: Duration = Duration::from_secs(60);
 /// so the ledger records exactly the bounds that are signed and never a later one.
 fn whole_second(t: Timestamp) -> Timestamp {
     Timestamp::from_second(t.as_second()).unwrap_or(t)
+}
+
+/// `t` rounded to the whole second at or after it. A certificate's `valid_after` is
+/// rounded this way: its span then never exceeds `valid_before - (now - skew)`, so a
+/// certificate issued in the same second its grant was delivered stays inside the issuer's
+/// validity ceiling (the delivered window plus the skew; `heimdall_issuer::check::
+/// validity_within_ceiling`). Rounding down added up to a second to the span, and the
+/// issuer refused a forwarded `ensure`'s first issue (⟨M06 W4⟩ found by the journey e2e).
+fn whole_second_up(t: Timestamp) -> Timestamp {
+    let floor = whole_second(t);
+    if floor == t {
+        t
+    } else {
+        floor
+            .checked_add(jiff::SignedDuration::from_secs(1))
+            .unwrap_or(t)
+    }
 }
 
 /// The controller's sync and issuance driver (module docs): this controller's store, clock
@@ -769,14 +901,29 @@ impl ControllerSync {
         pin: &RemoteEnvironmentPin,
         session: &mut dyn ManagementSession,
         request: &heimdall_contract::request::EnsureRequest,
+        ca: &CaFingerprint,
     ) -> Result<Forwarded, OpError> {
         if !role_may_issue(pin.role) {
             return Err(role_insufficient(
                 "this controller's role on the runner does not let it issue for its grants",
             ));
         }
-        let ask = forwarded_ask(request, self.clock.wall())?;
+        // The scope is this controller's: named, or resolved from its own profile.
         let mut sent = request.clone();
+        sent.scope = self
+            .store
+            .transaction(|tx| forwarded_scope(tx, request))??;
+        let ask = forwarded_ask(&sent, self.clock.wall())?;
+        // Each pair names the CA this controller will issue from: the runner resolves it
+        // to a managed certificate only under its `issuer_trust` for this controller.
+        sent.pair_issuers = sent
+            .scope
+            .iter()
+            .map(|pair| heimdall_contract::request::PairIssuer {
+                pair: pair.clone(),
+                ca_fingerprint: ca.clone(),
+            })
+            .collect();
         sent.environment = Some(pin.environment.clone());
         // A management session is never attended, and the runner answers at once: the
         // grant waits for this controller's issuer, which is this same driver.
@@ -785,6 +932,7 @@ impl ControllerSync {
             timeout_ms: FORWARD_WAIT_MS,
         };
         let answer = session.call(ManagementCall::Ensure(Box::new(sent))).await?;
+        let operation = answer.operation_id.clone();
         let (grant, ready) = match answer.code {
             Code::Ok | Code::AccessReady => {
                 let grant = answer
@@ -826,6 +974,7 @@ impl ControllerSync {
             Some(data) => Forwarded::Ready { grant, data },
             None => Forwarded::Pending {
                 grant,
+                operation,
                 record: Box::new(record),
             },
         })
@@ -858,9 +1007,8 @@ impl ControllerSync {
     /// this session's resynchronization read, issue for every grant this controller
     /// delivered to the runner that is not revoked or expired and that the report shows a
     /// pair without a live certificate for. Each grant is independent: one's failure is
-    /// recorded with it and the pass goes on. Nothing is renewed in place: the runner keeps
-    /// one certificate per pair and key, so a certificate runs to its `valid_before`, which
-    /// the issuance sets to the delivered grant's bound.
+    /// recorded with it and the pass goes on. ⟨M06 W4⟩ There is no routine renewal: a pair
+    /// with a live certificate is left alone, whatever that certificate's length.
     pub async fn maintain(
         &self,
         pin: &RemoteEnvironmentPin,
@@ -871,6 +1019,12 @@ impl ControllerSync {
         let mut out = Maintained::default();
         let environment = &pin.environment;
         let now = self.clock.wall();
+        // ⟨M06 W4; condition 8 (b)⟩ A pending grant a standing policy held here covers
+        // becomes a delivered record first; the loop below then issues for it as for any
+        // other. One it does not cover stays pending: nothing is recorded or asked.
+        let _ = self
+            .store
+            .transaction(|tx| adopt_under_standing_policy(tx, pin, report, now));
         let Ok(delivered) = self
             .store
             .transaction(|tx| tx.delivered_grants(Some(environment)))
@@ -885,15 +1039,15 @@ impl ControllerSync {
             if revoked || record.expires_at <= now {
                 continue;
             }
-            let covered = |pair: &AccessPairRef| {
-                report.certificates.iter().any(|c| {
+            let live = |pair: &AccessPairRef| {
+                report.certificates.iter().find(|c| {
                     c.grant == record.grant
                         && c.grant_generation == report.authority_generation
                         && c.pair == *pair
                         && c.valid_before > now
                 })
             };
-            if record.pairs.iter().all(covered) {
+            if record.pairs.iter().all(|p| live(p).is_some()) {
                 self.note_issuance(environment, &record.grant, None);
                 continue;
             }
@@ -965,7 +1119,7 @@ impl ControllerSync {
                     ask.grant.as_str()
                 ),
                 principal: principal_for(pair),
-                valid_after: whole_second(valid_after),
+                valid_after: whole_second_up(valid_after),
                 // ADR-0005 §3.5 condition 7: never past the grant's expiry or the runner's
                 // reported bound (the cutoff is applied with the permit, at the reserve).
                 valid_before: whole_second(wanted.min(subject.bound).min(delivered.expires_at)),
@@ -980,6 +1134,304 @@ impl ControllerSync {
             void_reason: None,
             continuing: false,
         })
+    }
+}
+
+// --- ⟨M06 W4⟩ record source (b): a standing policy held on this controller ----------------
+
+/// The standing policy held on this controller that authorizes issuance for `pending`, a
+/// grant the runner `environment` admitted and reported as waiting (ADR-0005 §3.5
+/// condition 8 (b)): a personal policy (no workspace) that **names that runner
+/// environment**, is not paused, whose cutoff has not passed, for the grant's profile, and
+/// whose scope holds **every** pair of the grant with the SSH-authentication capability.
+/// A grant with a pair outside the policy is not covered at all: the runner's prepare
+/// answer would name that pair, and an answer naming a pair outside the record is refused
+/// whole.
+fn covering_policy<'p>(
+    policies: &'p [heimdall_domain::policy::StandingPolicy],
+    environment: &EnvironmentId,
+    pending: &heimdall_store::ext_effects::ReportedPendingGrant,
+    now: Timestamp,
+) -> Option<&'p heimdall_domain::policy::StandingPolicy> {
+    policies.iter().find(|p| {
+        p.workspace.is_none()
+            && p.environments.contains(environment)
+            && matches!(p.pause, heimdall_domain::policy::PauseState::Active)
+            && p.cutoff_at.is_none_or(|c| c > now)
+            && p.profile == pending.profile
+            && !pending.pairs.is_empty()
+            && pending.pairs.is_subset(&p.scope.pairs)
+            && p.scope
+                .capabilities
+                .contains(&heimdall_domain::scope::Capability::SshAuthentication)
+    })
+}
+
+/// ⟨M06 W4; ADR-0005 §3.5 condition 8 (b); ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ Record source
+/// (b). For every grant `report` lists as waiting for its issuer that this controller
+/// holds no delivered record of: when a standing policy held **here** covers it
+/// ([`covering_policy`]), write the delivered record from this controller's own policy:
+/// the grant's pairs (all inside the policy's scope), the base extension profile, and an
+/// expiry no later than the grant's deadline, the policy's window from now, and its
+/// cutoff. A grant no policy here covers is left alone: it stays pending on the runner,
+/// whose readiness reports the controller dependency. Returns the grants recorded.
+///
+/// # Errors
+///
+/// The store's.
+pub fn adopt_under_standing_policy(
+    tx: &mut Txn<'_>,
+    pin: &RemoteEnvironmentPin,
+    report: &AuthorityReport,
+    now: Timestamp,
+) -> heimdall_store::Result<Vec<GrantId>> {
+    let mut adopted = Vec::new();
+    if report.pending_grants.is_empty() || !role_may_issue(pin.role) {
+        return Ok(adopted);
+    }
+    let policies = tx.policies()?;
+    for pending in &report.pending_grants {
+        let revoked = report
+            .tombstones
+            .iter()
+            .any(|t| t.grant == pending.grant || t.cascade.contains(&pending.grant));
+        if revoked
+            || tx
+                .delivered_grant(&pin.environment, &pending.grant)?
+                .is_some()
+        {
+            continue;
+        }
+        let Some(policy) = covering_policy(&policies, &pin.environment, pending, now) else {
+            continue;
+        };
+        let window = jiff::SignedDuration::try_from(policy.max_window)
+            .ok()
+            .and_then(|d| now.checked_add(d).ok());
+        let Some(window) = window else {
+            continue;
+        };
+        let mut expires_at = pending.expires_at.min(window);
+        if let Some(cutoff) = policy.cutoff_at {
+            expires_at = expires_at.min(cutoff);
+        }
+        let extensions: BTreeSet<String> = [heimdall_domain::issuance::EXTENSION_PTY.to_owned()]
+            .into_iter()
+            .collect();
+        if deliver_runner_grant(
+            tx,
+            pin,
+            &pending.grant,
+            &pending.pairs,
+            &extensions,
+            expires_at,
+            now,
+        )?
+        .is_ok()
+        {
+            adopted.push(pending.grant.clone());
+        }
+    }
+    Ok(adopted)
+}
+
+// --- ⟨M06 W4⟩ the owner's acknowledgement of a lift ---------------------------------------
+
+/// One pause or cutoff this controller produced for a runner ([`delivered_holds`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveredHold {
+    /// The effect.
+    pub key: EffectKey,
+    /// When the runner's acknowledgement of it was recorded; `None` while it is undelivered.
+    pub delivered_at: Option<Timestamp>,
+    /// When the owner acknowledged its lift on this controller, if they did.
+    pub lift_acknowledged_at: Option<Timestamp>,
+    /// Whether the runner's report this controller last read shows the effect lifted
+    /// there, and when that report was read. `None`: no such report is recorded, or the
+    /// effect is undelivered. An observation for the owner: the issuer's barrier judges on
+    /// the report of its own open session.
+    pub lift_reported: Option<LiftReported>,
+}
+
+/// What the last recorded report of a runner said about one delivered hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LiftReported {
+    /// Whether it showed the lift (`crate::remote_status_barrier::lift_shown`).
+    pub shown: bool,
+    /// When this controller read that report.
+    pub at: Timestamp,
+}
+
+/// Every pause and cutoff this controller produced for the runner `environment`, in the
+/// order produced: what `environment resume-issuance` shows the owner, who then names the
+/// delivered ones to acknowledge.
+///
+/// # Errors
+///
+/// The store's.
+pub fn delivered_holds(
+    tx: &mut Txn<'_>,
+    environment: &EnvironmentId,
+) -> heimdall_store::Result<Vec<DeliveredHold>> {
+    let report = tx
+        .remote_contact(environment)?
+        .last_report
+        .and_then(|r| r.standing.map(|standing| (r.at, standing)));
+    let mut out = Vec::new();
+    for row in tx.remote_effect_outbox(Some(environment), false)? {
+        if !matches!(
+            row.key.target,
+            EffectTarget::PolicyPause { .. } | EffectTarget::PolicyCutoff { .. }
+        ) {
+            continue;
+        }
+        let lift_acknowledged_at = tx.remote_lift_ack(&row.key)?;
+        let delivered_at = row.ack.as_ref().and(row.acknowledged_at);
+        let lift_reported = match (&report, delivered_at) {
+            (Some((at, standing)), Some(_)) => Some(LiftReported {
+                shown: crate::remote_status_barrier::lift_shown_among(standing, &row),
+                at: *at,
+            }),
+            _ => None,
+        };
+        out.push(DeliveredHold {
+            delivered_at,
+            lift_acknowledged_at,
+            lift_reported,
+            key: row.key,
+        });
+    }
+    Ok(out)
+}
+
+/// A hold in words, for the owner's confirmation and the command's output.
+#[must_use]
+pub fn hold_statement(hold: &DeliveredHold) -> String {
+    match &hold.key.target {
+        EffectTarget::PolicyPause { policy, .. } => format!("pause of policy {policy}"),
+        EffectTarget::PolicyCutoff { scope, at, .. } => {
+            let scope = heimdall_store::ext_effects::scope_key(scope)
+                .unwrap_or_else(|| "an unknown scope".to_owned());
+            format!("cutoff of {scope} at {at}")
+        }
+        _ => "an effect".to_owned(),
+    }
+}
+
+/// ⟨M06 W4; ADR-0012 §7.4 ⟨2026-11-21⟩ on M06-W3-R02; ADR-0006 §18.8 item 4: "the
+/// acknowledgement names the specific delivered effect and releases only that one; it never
+/// pre-acknowledges a later cutoff"⟩ `controller_record.resume_issuance`: record the
+/// owner's acknowledgement that **exactly the effects they were shown** (`named`, by effect
+/// ID) were lifted at the runner `environment`. Only a delivered, not yet acknowledged
+/// pause or cutoff of `environment` whose effect ID is in `named` gets a row. A pause or
+/// cutoff delivered after the owner read the list (so not named) is left as it is and
+/// keeps blocking: it is counted in `not_named`, and needs an acknowledgement of its own.
+/// There is no environment-wide acknowledgement.
+///
+/// The rows alone reopen nothing: the issuer's barrier also needs the runner's report to
+/// show each lift (`crate::remote_status_barrier`, "The way out is two-sided").
+///
+/// `attended`: whether the caller is the local owner in an attended session (the caller's
+/// check of who it is; the typed confirmation is the CLI's). Answers `{environment,
+/// acknowledged: [{effect, target}], already_acknowledged, undelivered, not_named}`.
+///
+/// # Errors
+///
+/// `INTERACTION_REQUIRED` unattended; `USAGE_ERROR` for an empty `named`; `NOT_FOUND` for
+/// an environment this controller holds no record of, and for a named ID that is not a
+/// delivered pause or cutoff this controller produced for `environment` (unknown, another
+/// environment's, another kind of effect, or not yet delivered): the whole request is
+/// refused and nothing is written, for any ID. `STATE_UNAVAILABLE` when the store fails.
+/// Effect `none` in each case.
+pub fn resume_issuance_named(
+    store: &Store,
+    environment: &EnvironmentId,
+    named: &[heimdall_contract::ids::EffectId],
+    attended: bool,
+    now: Timestamp,
+) -> Result<serde_json::Value, OpError> {
+    if !attended {
+        return Err(OpError::new(
+            Code::InteractionRequired,
+            "acknowledging a lift needs the owner in an attended session on this controller; \
+             nothing was recorded",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    if named.is_empty() {
+        return Err(OpError::new(
+            Code::UsageError,
+            "an acknowledgement names the delivered effects it is for; none was named and \
+             nothing was recorded",
+        )
+        .with_effect(EffectStatus::None));
+    }
+    enum Done {
+        Unrecorded,
+        NotDelivered,
+        Written(Vec<serde_json::Value>, usize, usize, usize),
+    }
+    let done = store
+        .transaction(|tx| {
+            if pin_of(tx, environment)?.is_none() {
+                return Ok(Done::Unrecorded);
+            }
+            let holds = delivered_holds(tx, environment)?;
+            // Every named ID is a delivered pause or cutoff of this runner, or nothing is
+            // written at all (the read is of this environment's outbox rows only, so an
+            // ID of another environment is unknown here).
+            if named.iter().any(|id| {
+                !holds
+                    .iter()
+                    .any(|h| h.key.effect == *id && h.delivered_at.is_some())
+            }) {
+                return Ok(Done::NotDelivered);
+            }
+            let mut acknowledged = Vec::new();
+            let (mut already, mut undelivered, mut not_named) = (0usize, 0usize, 0usize);
+            for hold in holds {
+                if hold.delivered_at.is_none() {
+                    undelivered += 1;
+                } else if hold.lift_acknowledged_at.is_some() {
+                    already += 1;
+                } else if !named.contains(&hold.key.effect) {
+                    // Delivered, but not one the owner confirmed: it keeps blocking.
+                    not_named += 1;
+                } else if tx.acknowledge_remote_lift(environment, &hold.key, now)? {
+                    acknowledged.push(serde_json::json!({
+                        "effect": hold.key.effect,
+                        "target": hold.key.target,
+                    }));
+                }
+            }
+            Ok(Done::Written(acknowledged, already, undelivered, not_named))
+        })
+        .map_err(|_| {
+            OpError::new(
+                Code::StateUnavailable,
+                "the controller's lift acknowledgements cannot be written",
+            )
+            .with_effect(EffectStatus::None)
+        })?;
+    match done {
+        Done::Unrecorded => Err(OpError::new(
+            Code::NotFound,
+            "this controller holds no record of that runner environment",
+        )
+        .with_effect(EffectStatus::None)),
+        Done::NotDelivered => Err(OpError::new(
+            Code::NotFound,
+            "a named effect is not a pause or cutoff this controller delivered to that \
+             runner environment; nothing was recorded",
+        )
+        .with_effect(EffectStatus::None)),
+        Done::Written(acknowledged, already, undelivered, not_named) => Ok(serde_json::json!({
+            "environment": environment,
+            "acknowledged": acknowledged,
+            "already_acknowledged": already,
+            "undelivered": undelivered,
+            "not_named": not_named,
+        })),
     }
 }
 
@@ -1389,4 +1841,406 @@ pub fn runner_deliveries(store: &Store, narrowings: &[RunnerNarrowing]) -> serde
         }
     }
     serde_json::json!({ "delivered": delivered, "pending": pending })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn at(text: &str) -> Timestamp {
+        text.parse().unwrap()
+    }
+
+    // --- ⟨M06 W4 `w4c`⟩ the lift acknowledgement names its effect ------------------------
+
+    use heimdall_contract::controller_record::{ManagementHop, ManagementRoute};
+    use heimdall_contract::ids::{AccountName, DestinationId, EffectId, KeyFingerprint};
+    use heimdall_store::ext_effects::{AppliedRecord, EffectAck, ReportedPolicy};
+
+    use crate::remote_status_barrier::{BarrierRefusal, IssuancePermit, Reconciliation};
+
+    /// A controller's store holding its record of one runner, and what the tests name.
+    struct Lifts {
+        store: Store,
+        env: EnvironmentId,
+        producer: ClientId,
+        policy: PolicyId,
+        grant: GrantId,
+        barrier: IssuerBarrier,
+    }
+
+    fn lifts() -> Lifts {
+        let store = Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap();
+        let env = EnvironmentId::from_random_bytes([3; 16]);
+        let producer = ClientId::from_random_bytes([1; 16]);
+        let pin = RemoteEnvironmentPin {
+            environment: env.clone(),
+            destination: DestinationId::parse("runner1").unwrap(),
+            route: ManagementRoute {
+                runner: ManagementHop {
+                    hostname: "runner.example".into(),
+                    port: None,
+                    account: AccountName::parse("deploy").unwrap(),
+                    host_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".into()],
+                },
+                jump: None,
+            },
+            client: producer.clone(),
+            role: Role::Owner,
+            key_fingerprint: KeyFingerprint::parse(&format!("SHA256:{}", "K".repeat(43))).unwrap(),
+            label: None,
+            pinned_at: at("2026-11-21T09:00:00Z"),
+        };
+        store
+            .transaction(|tx| {
+                tx.put_remote_environment_pin(
+                    &pin.environment,
+                    &pin.destination,
+                    &pin.route.runner.account,
+                    &pin.key_fingerprint,
+                    &serde_json::to_string(&pin).unwrap(),
+                    pin.pinned_at,
+                )
+            })
+            .unwrap();
+        Lifts {
+            store,
+            env,
+            producer,
+            policy: PolicyId::parse("pol").unwrap(),
+            grant: GrantId::from_random_bytes([9; 16]),
+            barrier: IssuerBarrier::default(),
+        }
+    }
+
+    impl Lifts {
+        /// A cutoff of the policy at `instant`, produced as effect `n`, revision `n`.
+        fn cutoff(&self, n: u8, instant: &str) -> EffectKey {
+            EffectKey {
+                producer: self.producer.clone(),
+                effect: EffectId::from_random_bytes([n; 16]),
+                target: EffectTarget::PolicyCutoff {
+                    scope: PolicyTarget::Policy {
+                        policy_id: self.policy.clone(),
+                    },
+                    at: at(instant),
+                    revision: u64::from(n),
+                },
+            }
+        }
+
+        /// A pause of the policy, produced as effect `n`, revision `n`.
+        fn pause(&self, n: u8) -> EffectKey {
+            EffectKey {
+                producer: self.producer.clone(),
+                effect: EffectId::from_random_bytes([n; 16]),
+                target: EffectTarget::PolicyPause {
+                    policy: self.policy.clone(),
+                    revision: u64::from(n),
+                },
+            }
+        }
+
+        /// `key` produced here and delivered: the runner's acknowledgement recorded at `now`.
+        fn deliver(&self, key: &EffectKey, now: &str) {
+            self.deliver_to(&self.env, key, now);
+        }
+
+        /// [`Self::deliver`] for the runner `env`.
+        fn deliver_to(&self, env: &EnvironmentId, key: &EffectKey, now: &str) {
+            let cutoff_at = match &key.target {
+                EffectTarget::PolicyCutoff { at, .. } => Some(*at),
+                _ => None,
+            };
+            let ack = EffectAck {
+                key: key.clone(),
+                applied_at: at(now),
+                record: AppliedRecord::PolicyRevision {
+                    scope_key: heimdall_store::ext_effects::policy_scope_key(&self.policy),
+                    runner_seq: key.target.generation(),
+                    policies: vec![self.policy.clone()],
+                    cutoff_at,
+                    fired: cutoff_at.is_some(),
+                },
+            };
+            self.store
+                .transaction(|tx| {
+                    assert!(tx.enqueue_remote_effect(env, key, at(now))?);
+                    assert!(tx.acknowledge_remote_effect(&ack, at(now))?);
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        /// The runner's report of this session, read at `now`: the policy as it stands
+        /// there (`paused`, `cutoff_at`), its time bounded.
+        fn report(&self, paused: bool, cutoff_at: Option<&str>, now: &str) {
+            self.barrier.admit(Reconciliation {
+                environment: self.env.clone(),
+                at: at(now),
+                report: AuthorityReport {
+                    environment: self.env.clone(),
+                    authority_generation: 1,
+                    tombstones: Vec::new(),
+                    policy_revisions: Vec::new(),
+                    policies: vec![ReportedPolicy {
+                        policy: self.policy.clone(),
+                        revision: 1,
+                        paused,
+                        cutoff_at: cutoff_at.map(at),
+                    }],
+                    certificates: Vec::new(),
+                    time_bounded: true,
+                    pending_grants: Vec::new(),
+                },
+                revoked: Vec::new(),
+            });
+        }
+
+        /// The barrier's answer for the grant under the policy at `now`.
+        fn permit(&self, now: &str) -> Result<IssuancePermit, BarrierRefusal> {
+            self.store
+                .transaction(|tx| {
+                    self.barrier.permit_answer(
+                        tx,
+                        &self.env,
+                        &self.grant,
+                        Some(&self.policy),
+                        at(now),
+                    )
+                })
+                .unwrap()
+        }
+
+        fn lift_ack(&self, key: &EffectKey) -> Option<Timestamp> {
+            self.store
+                .transaction(|tx| tx.remote_lift_ack(key))
+                .unwrap()
+        }
+    }
+
+    /// ⟨ADR-0006 §18.8 item 4⟩ A cutoff delivered after an acknowledgement still blocks.
+    /// The first cutoff is lifted at the runner and acknowledged here, and issuance
+    /// reopens. A second cutoff of the same policy is then delivered: it blocks, and it
+    /// keeps blocking when the runner's report shows it lifted too, because the earlier
+    /// acknowledgement named the first effect only. Naming the first effect again
+    /// acknowledges nothing; only the second effect's own acknowledgement reopens.
+    #[test]
+    fn a_cutoff_delivered_after_an_acknowledgement_still_blocks() {
+        let l = lifts();
+        let first = l.cutoff(1, "2026-11-21T10:00:00Z");
+        l.deliver(&first, "2026-11-21T10:00:01Z");
+        // Lifted at the runner; acknowledged here, by name.
+        l.report(false, None, "2026-11-21T10:05:00Z");
+        assert_eq!(
+            l.permit("2026-11-21T10:05:00Z"),
+            Err(BarrierRefusal::PolicyCutoff),
+            "the report alone reopens nothing"
+        );
+        let done = resume_issuance_named(
+            &l.store,
+            &l.env,
+            std::slice::from_ref(&first.effect),
+            true,
+            at("2026-11-21T10:06:00Z"),
+        )
+        .unwrap();
+        assert_eq!(done["acknowledged"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            l.permit("2026-11-21T10:06:00Z"),
+            Ok(IssuancePermit { bound: None })
+        );
+
+        // A later cutoff of the same policy, delivered after that acknowledgement.
+        let second = l.cutoff(2, "2026-11-21T11:00:00Z");
+        l.deliver(&second, "2026-11-21T11:00:01Z");
+        assert_eq!(l.lift_ack(&second), None, "nothing acknowledged it ahead");
+        l.report(false, Some("2026-11-21T11:00:00Z"), "2026-11-21T11:00:02Z");
+        assert_eq!(
+            l.permit("2026-11-21T11:00:02Z"),
+            Err(BarrierRefusal::PolicyCutoff)
+        );
+        // Lifted at the runner as well: still blocked, the owner has not acknowledged it.
+        l.report(false, None, "2026-11-21T11:05:00Z");
+        assert_eq!(
+            l.permit("2026-11-21T11:05:00Z"),
+            Err(BarrierRefusal::PolicyCutoff),
+            "the first effect's acknowledgement does not cover the second"
+        );
+        // Naming the first effect again releases nothing.
+        let again = resume_issuance_named(
+            &l.store,
+            &l.env,
+            std::slice::from_ref(&first.effect),
+            true,
+            at("2026-11-21T11:06:00Z"),
+        )
+        .unwrap();
+        assert_eq!(again["acknowledged"], serde_json::json!([]));
+        assert_eq!(again["already_acknowledged"], 1);
+        assert_eq!(again["not_named"], 1);
+        assert_eq!(l.lift_ack(&second), None);
+        assert_eq!(
+            l.permit("2026-11-21T11:06:00Z"),
+            Err(BarrierRefusal::PolicyCutoff)
+        );
+        // Its own acknowledgement, with the lift the report shows, reopens.
+        let done = resume_issuance_named(
+            &l.store,
+            &l.env,
+            std::slice::from_ref(&second.effect),
+            true,
+            at("2026-11-21T11:07:00Z"),
+        )
+        .unwrap();
+        assert_eq!(
+            done["acknowledged"][0]["effect"],
+            serde_json::json!(second.effect)
+        );
+        assert_eq!(
+            l.permit("2026-11-21T11:07:00Z"),
+            Ok(IssuancePermit { bound: None })
+        );
+    }
+
+    /// ⟨ADR-0006 §18.8 item 4⟩ The acknowledgement releases only the effect it names. The
+    /// owner is shown a delivered pause; a cutoff is delivered before the confirmation is
+    /// written. The named acknowledgement records the pause only: the cutoff has no row
+    /// and keeps blocking once both lifts show. Unattended, with no ID, or with an ID that
+    /// is no delivered pause or cutoff of this runner (unknown, another runner's, not yet
+    /// delivered), the whole request is refused and nothing is written.
+    #[test]
+    fn a_named_acknowledgement_releases_only_the_effect_it_names() {
+        let l = lifts();
+        let pause = l.pause(1);
+        l.deliver(&pause, "2026-11-21T10:00:01Z");
+        // What the owner was shown: the pause. Then a cutoff arrives.
+        let shown = vec![pause.effect.clone()];
+        let cutoff = l.cutoff(2, "2026-11-21T10:01:00Z");
+        l.deliver(&cutoff, "2026-11-21T10:01:01Z");
+        let undelivered = l.pause(3);
+        l.store
+            .transaction(|tx| {
+                tx.enqueue_remote_effect(&l.env, &undelivered, at("2026-11-21T10:01:02Z"))
+            })
+            .unwrap();
+        // Another runner this controller records, with a delivered cutoff of its own.
+        let other = EnvironmentId::from_random_bytes([4; 16]);
+        let pin = l
+            .store
+            .transaction(|tx| pin_of(tx, &l.env))
+            .unwrap()
+            .map(|p| RemoteEnvironmentPin {
+                environment: other.clone(),
+                destination: DestinationId::parse("runner2").unwrap(),
+                ..p
+            })
+            .unwrap();
+        l.store
+            .transaction(|tx| {
+                tx.put_remote_environment_pin(
+                    &pin.environment,
+                    &pin.destination,
+                    &pin.route.runner.account,
+                    &pin.key_fingerprint,
+                    &serde_json::to_string(&pin).unwrap(),
+                    pin.pinned_at,
+                )
+            })
+            .unwrap();
+        let elsewhere = l.cutoff(8, "2026-11-21T10:01:30Z");
+        l.deliver_to(&other, &elsewhere, "2026-11-21T10:01:31Z");
+        let stranger = l.cutoff(9, "2026-11-21T10:02:00Z");
+
+        let now = at("2026-11-21T10:02:00Z");
+        let e = resume_issuance_named(&l.store, &l.env, &shown, false, now).unwrap_err();
+        assert_eq!(e.code, Code::InteractionRequired);
+        let e = resume_issuance_named(&l.store, &l.env, &[], true, now).unwrap_err();
+        assert_eq!(e.code, Code::UsageError, "an empty list");
+        assert_eq!(e.effect_status, EffectStatus::None);
+        // Each named beside the pause the owner was shown: the pause gets no row either.
+        for (bad, why) in [
+            (&stranger, "an unknown ID"),
+            (&elsewhere, "another environment's effect"),
+            (&undelivered, "an effect not yet delivered"),
+        ] {
+            let named = [shown.clone(), vec![bad.effect.clone()]].concat();
+            let e = resume_issuance_named(&l.store, &l.env, &named, true, now).unwrap_err();
+            assert_eq!(e.code, Code::NotFound, "{why}");
+            assert_eq!(e.effect_status, EffectStatus::None, "{why}");
+            for key in [&pause, &cutoff, &undelivered, &elsewhere, &stranger] {
+                assert_eq!(l.lift_ack(key), None, "{why}: nothing was written");
+            }
+        }
+
+        let done = resume_issuance_named(&l.store, &l.env, &shown, true, now).unwrap();
+        assert_eq!(
+            done["acknowledged"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["effect"].clone())
+                .collect::<Vec<_>>(),
+            [serde_json::json!(pause.effect)]
+        );
+        assert_eq!(done["not_named"], 1, "the cutoff the owner was not shown");
+        assert_eq!(done["undelivered"], 1);
+        assert!(done.get("unknown").is_none());
+        assert!(l.lift_ack(&pause).is_some());
+        assert_eq!(l.lift_ack(&cutoff), None);
+        assert_eq!(l.lift_ack(&undelivered), None);
+        assert_eq!(l.lift_ack(&elsewhere), None);
+
+        // All lifted at the runner (the third effect delivered meanwhile): the cutoff
+        // blocks.
+        l.store
+            .transaction(|tx| {
+                let ack = EffectAck {
+                    key: undelivered.clone(),
+                    applied_at: at("2026-11-21T10:03:00Z"),
+                    record: AppliedRecord::PolicyRevision {
+                        scope_key: heimdall_store::ext_effects::policy_scope_key(&l.policy),
+                        runner_seq: 3,
+                        policies: vec![l.policy.clone()],
+                        cutoff_at: None,
+                        fired: false,
+                    },
+                };
+                tx.acknowledge_remote_effect(&ack, at("2026-11-21T10:03:00Z"))
+            })
+            .unwrap();
+        l.report(false, None, "2026-11-21T10:05:00Z");
+        assert_eq!(
+            l.permit("2026-11-21T10:05:00Z"),
+            Err(BarrierRefusal::PolicyCutoff),
+            "the cutoff the owner was not shown was never acknowledged"
+        );
+    }
+
+    /// ⟨M06 W4⟩ A certificate issued in the same second its grant was delivered (a
+    /// forwarded `ensure`: asked, recorded and issued within milliseconds) stays inside the
+    /// issuer's validity ceiling, which is the delivered window plus the 60 s skew.
+    /// `valid_after` rounded **down** made the span up to a second longer than that, and
+    /// the issuer refused the first issue; rounded up it never is.
+    #[test]
+    fn a_certificate_issued_right_after_delivery_stays_inside_the_delivered_window() {
+        let asked = at("2026-11-21T09:00:00.100Z");
+        let expires = at("2026-11-21T10:00:00.100Z"); // asked + 1 h
+        let delivered = at("2026-11-21T09:00:00.150Z");
+        let issued = at("2026-11-21T09:00:00.400Z");
+        assert!(asked < delivered && delivered < issued);
+        let skew = jiff::SignedDuration::try_from(VALID_AFTER_SKEW).unwrap();
+        let ceiling = expires.duration_since(delivered) + skew;
+        let valid_before = whole_second(expires);
+        let from = issued.checked_sub(skew).unwrap();
+        // The defect: rounding down overshoots the ceiling.
+        assert!(valid_before.duration_since(whole_second(from)) > ceiling);
+        // The fix: rounding up never does.
+        assert!(valid_before.duration_since(whole_second_up(from)) <= ceiling);
+        assert_eq!(whole_second_up(from), at("2026-11-21T08:59:01Z"));
+        // A whole second is left alone.
+        let whole = at("2026-11-21T08:59:01Z");
+        assert_eq!(whole_second_up(whole), whole);
+    }
 }

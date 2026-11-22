@@ -493,6 +493,7 @@ fn ctx_req_str(cwd: &str, rid: &str, work: &str, covered_only: bool) -> EnsureRe
             cwd: cwd.to_owned(),
         }),
         covered_only,
+        pair_issuers: Vec::new(),
     }
 }
 

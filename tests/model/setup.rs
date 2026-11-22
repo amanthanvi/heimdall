@@ -4439,6 +4439,7 @@ async fn remove_profile_refuses_new_work_and_keeps_pinned_snapshots() {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     let unknown_profile = |e: &OpError| {
         e.code == Code::NotFound && e.resource.as_ref().is_some_and(|r| r.kind == "profile")

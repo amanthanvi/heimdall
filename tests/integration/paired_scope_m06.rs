@@ -296,6 +296,7 @@ async fn a_paired_owner_is_scoped_to_its_own_client_on_every_path() {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await
@@ -923,6 +924,7 @@ async fn a_paired_owner_does_not_see_another_clients_open_operations() {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await
@@ -974,6 +976,7 @@ async fn a_paired_owner_cannot_reach_another_clients_unresolved_work_stop_or_del
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await

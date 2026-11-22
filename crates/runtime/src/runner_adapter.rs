@@ -39,7 +39,9 @@ use heimdall_app::ports::{
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{BindingId, GrantId};
 use heimdall_contract::provider::{CredentialAvailability, EndpointRef};
-use heimdall_contract::request::{Capability, ConsumerIntegration, RefreshDependency};
+use heimdall_contract::request::{
+    AccessPairRef, Capability, ConsumerIntegration, RefreshDependency,
+};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::operation::{AdapterIdentity, EffectReceipt};
 use heimdall_store::Store;
@@ -62,25 +64,42 @@ pub const BINDING_GENERATION: u64 = 1;
 /// activation (`crate::service::RunnerBindingEndpoints::with_pending`). An entry is added by
 /// the attempt and removed with the grant.
 #[derive(Debug, Clone, Default)]
-pub struct PendingBindings(Arc<Mutex<HashMap<BindingId, GrantId>>>);
+pub struct PendingBindings(Arc<Mutex<HashMap<BindingId, PendingBinding>>>);
+
+/// A binding in activation: its grant and, for a further binding attached to an issued
+/// grant, its own subset of the grant's pairs (`None`: the grant's own binding, every
+/// pair).
+type PendingBinding = (GrantId, Option<BTreeSet<AccessPairRef>>);
 
 impl PendingBindings {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<BindingId, GrantId>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<BindingId, PendingBinding>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The grant `binding` is being materialized for.
     #[must_use]
     pub fn grant_of(&self, binding: &BindingId) -> Option<GrantId> {
-        self.lock().get(binding).cloned()
+        self.lock().get(binding).map(|(g, _)| g.clone())
+    }
+
+    /// ⟨M06 W4⟩ The pairs `binding` is limited to, when it is an attached binding in
+    /// activation.
+    #[must_use]
+    pub fn pairs_of(&self, binding: &BindingId) -> Option<BTreeSet<AccessPairRef>> {
+        self.lock().get(binding).and_then(|(_, p)| p.clone())
     }
 
     fn note(&self, binding: &BindingId, grant: &GrantId) {
-        self.lock().insert(binding.clone(), grant.clone());
+        self.lock().insert(binding.clone(), (grant.clone(), None));
+    }
+
+    fn note_attached(&self, binding: &BindingId, grant: &GrantId, pairs: &BTreeSet<AccessPairRef>) {
+        self.lock()
+            .insert(binding.clone(), (grant.clone(), Some(pairs.clone())));
     }
 
     fn forget_grant(&self, grant: &GrantId) {
-        self.lock().retain(|_, g| g != grant);
+        self.lock().retain(|_, (g, _)| g != grant);
     }
 }
 
@@ -163,6 +182,13 @@ impl RunnerManagedAdapter {
 
     /// Bind the runner runtime (its signer) and where bindings are realized.
     pub fn bind(&self, runner: Arc<RunnerRuntime>, materializer: Arc<dyn RunnerMaterializer>) {
+        // ⟨M06 W4; the attach rule⟩ A further binding on an issued grant is realized the
+        // same way; it is known by its grant before its row is committed.
+        let (pending, attach) = (self.pending.clone(), Arc::clone(&materializer));
+        runner.set_binder(Arc::new(move |binding, grant, pairs| {
+            pending.note_attached(binding, grant, pairs);
+            attach.materialize(binding, grant)
+        }));
         *self.bound.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(Bound {
             runner,
             materializer,
@@ -233,36 +259,9 @@ fn issued_until(
     earliest
 }
 
-impl RunnerGrants for RunnerRuntime {
-    /// The runner's signer holds K_env and a certificate for every pair of the grant as the
-    /// store records it. A grant the store does not hold is never issued.
-    fn issued(&self, grant: &GrantId) -> bool {
-        let Ok(Some(pairs)) = self
-            .store()
-            .transaction(|tx| Ok(tx.grant(grant)?.map(|g| g.scope.pairs)))
-        else {
-            return false;
-        };
-        issued_until(self, grant, &pairs, self.wall(), None).is_some()
-    }
-}
-
-#[async_trait]
-impl CredentialAdapter for RunnerManagedAdapter {
-    fn descriptor(&self) -> &AdapterDescriptor {
-        &self.descriptor
-    }
-
-    async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
-        self.prepare_from(req, &IntegrationSnapshot::default())
-            .await
-    }
-
-    fn read_sources(&self, _pairs: &[PreparePair]) -> IntegrationSnapshot {
-        IntegrationSnapshot::default()
-    }
-
-    async fn prepare_from(
+impl RunnerManagedAdapter {
+    /// [`CredentialAdapter::prepare_from`]'s work (module docs).
+    async fn realize(
         &self,
         req: PrepareRequest<'_>,
         _sources: &IntegrationSnapshot,
@@ -311,6 +310,71 @@ impl CredentialAdapter for RunnerManagedAdapter {
                 ..ConsumerIntegration::default()
             },
             managed: None,
+        })
+    }
+}
+
+impl RunnerGrants for RunnerRuntime {
+    /// The runner's signer holds K_env and a certificate for every pair of the grant as the
+    /// store records it. A grant the store does not hold is never issued.
+    fn issued(&self, grant: &GrantId) -> bool {
+        let Ok(Some(pairs)) = self
+            .store()
+            .transaction(|tx| Ok(tx.grant(grant)?.map(|g| g.scope.pairs)))
+        else {
+            return false;
+        };
+        issued_until(self, grant, &pairs, self.wall(), None).is_some()
+    }
+
+    fn issued_grants(&self) -> Vec<GrantId> {
+        let mut all = self.issuance().keys().grants();
+        all.retain(|g| self.issued(g));
+        all.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        all
+    }
+
+    /// A further binding on an issued grant, for its own `pairs`, through the runner's
+    /// adapter (bound at the runtime's start); refused before then.
+    fn attach(
+        &self,
+        binding: &BindingId,
+        grant: &GrantId,
+        pairs: &BTreeSet<AccessPairRef>,
+    ) -> Result<EndpointRef, AdapterError> {
+        let binder = self
+            .binder()
+            .ok_or_else(|| AdapterError::Unavailable(RUNNER_UNAVAILABLE.to_owned()))?;
+        if !self.issued(grant) {
+            return Err(AdapterError::Unavailable(AWAITING_ISSUER.to_owned()));
+        }
+        binder(binding, grant, pairs)
+    }
+}
+
+#[async_trait]
+impl CredentialAdapter for RunnerManagedAdapter {
+    fn descriptor(&self) -> &AdapterDescriptor {
+        &self.descriptor
+    }
+
+    async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
+        self.prepare_from(req, &IntegrationSnapshot::default())
+            .await
+    }
+
+    fn read_sources(&self, _pairs: &[PreparePair]) -> IntegrationSnapshot {
+        IntegrationSnapshot::default()
+    }
+
+    async fn prepare_from(
+        &self,
+        req: PrepareRequest<'_>,
+        sources: &IntegrationSnapshot,
+    ) -> Result<PrepareOutcome, AdapterError> {
+        // The refusal's nonsecret code is logged: the caller's error text never echoes it.
+        self.realize(req, sources).await.inspect_err(|e| {
+            tracing::warn!(refusal = ?e, "a runner grant's binding was not realized");
         })
     }
 

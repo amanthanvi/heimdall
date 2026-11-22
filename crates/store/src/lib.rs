@@ -286,6 +286,8 @@ const REQUIRED_TABLES: &[&str] = &[
     "transport_keys",
     // schema version 10 (M06 wave 2: the runner-local widening records; ADR-0012 §3.10)
     "remote_widening",
+    // schema version 12 (M06 wave 4: the controller's lift acknowledgements; ADR-0006 §18.8)
+    "remote_lift_acks",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -2079,7 +2081,8 @@ mod tests {
         // ⟨M04/M05 wave 0⟩ 0007 and 0008 add tables, and 0008 one nullable column.
         // ⟨M06 wave 0⟩ 0009 adds tables only. ⟨M06 wave 2⟩ 0010 adds one table.
         // ⟨M06 wave 3⟩ 0011 adds one table and one defaulted column.
-        assert_eq!(migrations::SCHEMA_VERSION, 11);
+        // ⟨M06 wave 4⟩ 0012 adds one table.
+        assert_eq!(migrations::SCHEMA_VERSION, 12);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"

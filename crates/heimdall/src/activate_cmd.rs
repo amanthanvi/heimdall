@@ -246,6 +246,7 @@ fn hook_ensure(cwd: &str, work_id: WorkId, scope: BTreeSet<AccessPairRef>) -> Op
             cwd: cwd.to_owned(),
         }),
         covered_only: true,
+        pair_issuers: Vec::new(),
     }))
 }
 
@@ -566,6 +567,7 @@ pub(crate) fn activate(ctx: &Ctx, a: &ActivateArgs) -> ExitCode {
         connection: None,
         context: Some(WorkContext { cwd }),
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     let done = match crate::service_cmd::current_thread() {
         Ok(rt) => rt.block_on(async {

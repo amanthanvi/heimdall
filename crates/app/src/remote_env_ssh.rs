@@ -1147,12 +1147,20 @@ mod tests {
     /// refusal is a grant, a normal end a refusal, and a failed run is neither.
     #[test]
     fn the_confirming_probes_ask_one_thing_each_and_guess_nothing() {
-        let config = Path::new("/s/mgmt.conf");
-        let agent = Path::new("/s/probe-agent.sock");
+        // ⟨Windows job 23⟩ Paths absolute on the platform the test runs on: the disposable
+        // agent's socket must be absolute, and a rooted path without a drive (`/s/...`)
+        // is not absolute on Windows.
+        #[cfg(windows)]
+        let root = Path::new("C:\\s");
+        #[cfg(not(windows))]
+        let root = Path::new("/s");
+        let (config, agent) = (root.join("mgmt.conf"), root.join("probe-agent.sock"));
+        let (config, agent) = (config.as_path(), agent.as_path());
+        let (config_text, agent_text) = (config.to_str().unwrap(), agent.to_str().unwrap());
         let args = |kind| strings(&probe_args(config, "hm-env-env_aa", kind, agent).unwrap());
         let head = [
             "-F",
-            "/s/mgmt.conf",
+            config_text,
             "-o",
             "BatchMode=yes",
             "-o",
@@ -1169,18 +1177,43 @@ mod tests {
         assert_eq!(middle(ProbeKind::Forward), ["-W", "127.0.0.1:1"]);
         assert_eq!(
             middle(ProbeKind::AgentForward),
-            ["-T", "-o", "ForwardAgent=\"/s/probe-agent.sock\""]
+            [
+                "-T".to_owned(),
+                "-o".to_owned(),
+                format!("ForwardAgent=\"{agent_text}\"")
+            ]
         );
         assert_eq!(
             middle(ProbeKind::SetEnv),
             ["-T", "-o", "SetEnv=HEIMDALL_SETENV_PROBE=1"]
         );
-        for bad in ["relative.sock", "/s/a\"b.sock", "/s/a\nb.sock"] {
+        // A socket path that cannot be written as an option value is refused, and only the
+        // agent probe needs one: a relative path, a quote, a control character.
+        for bad in [
+            PathBuf::from("relative.sock"),
+            root.join("a\"b.sock"),
+            root.join("a\nb.sock"),
+        ] {
             assert!(
-                probe_args(config, "x", ProbeKind::AgentForward, Path::new(bad)).is_none(),
+                probe_args(config, "x", ProbeKind::AgentForward, &bad).is_none(),
                 "{bad:?}"
             );
+            assert!(probe_args(config, "x", ProbeKind::Pty, &bad).is_some());
         }
+        // On Windows a rooted path without a drive is not absolute, so it is refused too.
+        // No agent-forward probe is ever built there in the product: the disposable agent
+        // and the probe runner exist on Unix only, and no management session opens on
+        // Windows (U2-Q6).
+        #[cfg(windows)]
+        assert!(
+            probe_args(
+                config,
+                "x",
+                ProbeKind::AgentForward,
+                Path::new("/s/probe-agent.sock")
+            )
+            .is_none()
+        );
 
         let run = |exit, stdout: &str, stderr: &str| ProbeRun {
             exit,

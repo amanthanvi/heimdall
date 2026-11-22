@@ -293,4 +293,116 @@ mod tests {
         assert_eq!(store.load(&second).unwrap().endpoint_id(), second);
         store.destroy(&second).unwrap();
     }
+
+    /// ⟨M06-W2-R04; Windows job 23⟩ Mechanism evidence only (scratch directories; run only
+    /// on native Windows, compile-checked elsewhere), as the K_mgmt store's test: a blob
+    /// path that is not a regular file is `Corrupt` (a directory, a file symlink), a store
+    /// path that is not a plain directory is refused (a directory symlink, a junction), and
+    /// nothing is read through a link. Every sub-case is judged on its own; one that
+    /// cannot be set up says so on standard error.
+    #[test]
+    fn iroh_reparse_points_and_non_regular_entries_are_never_followed() {
+        use crate::mgmt::windows::test_links::{
+            SubCases, dir_symlink, file_symlink, junction, skipped,
+        };
+        const TEST: &str = "iroh_reparse_points_and_non_regular_entries_are_never_followed";
+        let mut cases = SubCases::default();
+        let scratch = tempfile::tempdir().unwrap();
+        let key = IrohKeyMaterial::generate().unwrap();
+        let endpoint = key.endpoint_id();
+        // A real store elsewhere, holding a valid blob for the same environment.
+        let real = scratch.path().join("real");
+        let real_store = WindowsDpapiIroh::in_dir(&real, &environment());
+        real_store.put(&endpoint, &key).unwrap();
+        let blob_name = real_store
+            .blob_path(&endpoint)
+            .file_name()
+            .unwrap()
+            .to_owned();
+        let load = |dir: &Path| {
+            WindowsDpapiIroh::in_dir(dir, &environment())
+                .load(&endpoint)
+                .map(|_| ())
+        };
+        cases.check("the real store loads", &load(&real), &Ok(()));
+
+        // A directory where the blob should be.
+        let odd = scratch.path().join("odd");
+        std::fs::create_dir_all(odd.join(&blob_name)).unwrap();
+        cases.check(
+            "a directory at the blob's name is corrupt",
+            &load(&odd),
+            &Err(IrohStoreError::Corrupt),
+        );
+
+        // A file symlink at the blob's name, to the real blob.
+        let via = scratch.path().join("via");
+        std::fs::create_dir(&via).unwrap();
+        if file_symlink(&real.join(&blob_name), &via.join(&blob_name)) {
+            cases.check(
+                "a file symlink at the blob's name is corrupt, never followed",
+                &load(&via),
+                &Err(IrohStoreError::Corrupt),
+            );
+        } else {
+            skipped(
+                TEST,
+                "file symlink at the blob's name",
+                "no privilege to create symbolic links",
+            );
+        }
+
+        // A directory symlink, and a junction, at the store directory's path.
+        let linked = scratch.path().join("linked");
+        if dir_symlink(&real, &linked) {
+            let store = WindowsDpapiIroh::in_dir(&linked, &environment());
+            cases.check(
+                "a directory symlink is refused",
+                &dir_state(&linked),
+                &DirState::Refused,
+            );
+            cases.check(
+                "a store behind a directory symlink is not loaded",
+                &store.load(&endpoint).map(|_| ()),
+                &Err(IrohStoreError::Failed),
+            );
+            cases.check(
+                "a store behind a directory symlink is not created into",
+                &store.ensure_dir(),
+                &Err(IrohStoreError::Failed),
+            );
+        } else {
+            skipped(
+                TEST,
+                "directory symlink at the store directory",
+                "no privilege to create symbolic links",
+            );
+        }
+        let joined = scratch.path().join("joined");
+        if junction(&real, &joined) {
+            let store = WindowsDpapiIroh::in_dir(&joined, &environment());
+            cases.check(
+                "a junction is refused",
+                &dir_state(&joined),
+                &DirState::Refused,
+            );
+            cases.check(
+                "a store behind a junction is not loaded",
+                &store.load(&endpoint).map(|_| ()),
+                &Err(IrohStoreError::Failed),
+            );
+            cases.check(
+                "a store behind a junction is not created into",
+                &store.ensure_dir(),
+                &Err(IrohStoreError::Failed),
+            );
+        } else {
+            skipped(
+                TEST,
+                "junction at the store directory",
+                "mklink /J did not create one",
+            );
+        }
+        cases.finish();
+    }
 }

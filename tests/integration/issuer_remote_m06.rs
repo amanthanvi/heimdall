@@ -124,6 +124,7 @@ fn report() -> AuthorityReport {
         policies: Vec::new(),
         certificates: Vec::new(),
         time_bounded: true,
+        pending_grants: Vec::new(),
     }
 }
 

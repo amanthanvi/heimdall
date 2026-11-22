@@ -775,9 +775,10 @@ impl Operations {
             scope: resolution.pairs.clone(),
             context: None,
             covered_only: false,
+            pair_issuers: Vec::new(),
             ..req.clone()
         };
-        let precheck = self.ensure_precheck(&resolved_req).await?;
+        let precheck = self.ensure_precheck(&caller.context, &resolved_req).await?;
         let hash = compute_hash(
             OperationKind::Ensure,
             &HashInput {

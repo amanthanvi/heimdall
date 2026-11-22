@@ -4413,6 +4413,9 @@ struct WorkSpec {
     /// ⟨M05⟩ U4: the resolution an `ensure` with `context` was admitted with (its
     /// capability restriction and route; `context_m05`). `None` for every other request.
     m05: Option<Box<context_m05::Resolution>>,
+    /// ⟨M06 W4⟩ The issuing CA a forwarded `ensure` names per pair
+    /// (`EnsureRequest::pair_issuers`); empty for every other request.
+    pair_issuers: BTreeMap<AccessPair, heimdall_contract::ids::CaFingerprint>,
 }
 
 impl WorkSpec {
@@ -4434,6 +4437,11 @@ impl WorkSpec {
                 parent_binding: None,
                 context: PolicyContext::Personal,
                 m05: None,
+                pair_issuers: r
+                    .pair_issuers
+                    .iter()
+                    .map(|i| (i.pair.clone(), i.ca_fingerprint.clone()))
+                    .collect(),
             }),
             Request::Delegate(r) => Some(Self {
                 kind: OperationKind::Delegate,
@@ -4448,6 +4456,7 @@ impl WorkSpec {
                 parent_binding: Some(r.parent_binding_id.clone()),
                 context: PolicyContext::Personal,
                 m05: None,
+                pair_issuers: BTreeMap::new(),
             }),
             _ => None,
         }
@@ -4467,6 +4476,10 @@ struct ResolveInput {
     /// ⟨M03⟩ ADR-0008 §17.17 item 4: the R3 session-lock floor in force
     /// (`Operations::session_lock_floor`), recorded in a new grant's origin.
     lock_floor: heimdall_contract::managed::LockBehavior,
+    /// ⟨M06 W4⟩ On a remote runner: the grants its controller has issued for now
+    /// (`runner_m06::RunnerGrants::issued_grants`), which an `ensure` may attach to. Empty
+    /// on every other installation.
+    runner_issued: Vec<GrantId>,
 }
 
 /// Outcome of resolution for a work request.
@@ -4622,7 +4635,25 @@ fn resolve_in(
     // ⟨M02⟩ U0b row 7: the catalog's mechanism decides the adapter; with no catalog
     // identity for the pairs, the M01 selection. ⟨M03⟩ U0b row 9 (O): per pair, the
     // stored preference first (`pair_mechanism_m03`); without one, exactly M02's rule.
-    let resolved_pairs = match pair_mechanism_m03::resolve_pairs(tx, &pairs)? {
+    let named = pair_mechanism_m03::NamedIssuers {
+        cas: inp.spec.pair_issuers.clone(),
+        controller: inp.caller.remote_client.clone(),
+        local_owner: inp.caller.has_global_access(),
+        // ⟨M06 W4⟩ The attach rule's mechanism: a live issued grant covers these pairs for
+        // this caller (the deadline is held against it once resolved, `attach_in`).
+        attach: inp.spec.kind == OperationKind::Ensure
+            && inp.spec.pair_issuers.is_empty()
+            && runner_m06::covering_grant(
+                tx,
+                &inp.runner_issued,
+                &inp.caller,
+                &profile.id,
+                &pairs,
+                None,
+            )?
+            .is_some(),
+    };
+    let resolved_pairs = match pair_mechanism_m03::resolve_pairs_named(tx, &pairs, &named)? {
         Ok(r) => r,
         // ⟨M05⟩ U4 (ADR-0011 §5.3): a `mixed_mechanisms` refusal names its groups.
         Err(e) => refuse!(context_m05::with_mechanism_groups(
@@ -6723,6 +6754,10 @@ impl Operations {
             adapters: self.adapter_infos(),
             grant_id: crate::ids::new_grant_id()?,
             lock_floor: self.session_lock_floor(),
+            runner_issued: self
+                .runner_grants()
+                .map(|r| r.issued_grants())
+                .unwrap_or_default(),
         };
         let decision_id = crate::ids::new_decision_id()?;
         // ⟨M03 wave 4, §17.21 item 1⟩ The binding ID of a `managed_certificate`
@@ -6825,7 +6860,7 @@ impl Operations {
                         // ⟨M05⟩ Ruling I-1 (U3, `stop_m05`): an `ensure` whose work ID
                         // holds an active grant with every pin equal attaches to it as a
                         // separate reference, in this transaction.
-                        stop_m05::reuse_in(
+                        let reused = stop_m05::reuse_in(
                             tx,
                             &inp.environment,
                             &inp.adapters,
@@ -6834,6 +6869,20 @@ impl Operations {
                             &inp.spec.work_id,
                             now,
                         )?;
+                        // ⟨M06 W4⟩ On a runner, the attach rule (`runner_m06`): a
+                        // further binding on a live grant the controller issued.
+                        if !reused {
+                            runner_m06::attach_in(
+                                tx,
+                                &inp.environment,
+                                &inp.adapters,
+                                &op,
+                                inp.spec.kind,
+                                &inp.spec.work_id,
+                                &inp.runner_issued,
+                                now,
+                            )?;
+                        }
                         Ok((Ok(Flow::Continue), none()))
                     }
                     Ok(Resolution::Approval(approval)) => {
@@ -8601,6 +8650,9 @@ impl Operations {
         } else {
             None
         };
+        // ⟨M06 W4; ADR-0012 §4.5⟩ A further binding on a runner's managed grant depends
+        // on the controller's issuer, as the grant's first binding does.
+        let runner_follower = attached && managed && self.runner_grants().is_some();
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
         let parent_binding = st
@@ -8660,6 +8712,9 @@ impl Operations {
                     None => Facts::conservative(&g, tx.grant_prepared_facts(&gid)?.as_ref(), now),
                 }
                 .with_eligibility(tx, &g, now)?;
+                if runner_follower {
+                    facts.refresh_dependency = RefreshDependency::Controller;
+                }
                 // ⟨W4-C02⟩ A managed follower reports, and is held to its minimum by, its
                 // own claim at this commit's time.
                 if let Some(scope) = &follower_scope {
@@ -10098,6 +10153,7 @@ impl Operations {
                 // ⟨M05⟩ A preview without a workspace context is personal.
                 context: PolicyContext::Personal,
                 m05: None,
+                pair_issuers: BTreeMap::new(),
             },
             caller: caller.context.clone(),
             operation: OperationId::from_random_bytes([0; 16]),
@@ -10107,6 +10163,7 @@ impl Operations {
             adapters: self.adapter_infos(),
             grant_id: GrantId::from_random_bytes([0; 16]),
             lock_floor: self.session_lock_floor(),
+            runner_issued: Vec::new(),
         };
         self.write(move |tx, _| {
             Ok(match resolve_in(tx, &inp)? {
@@ -10155,6 +10212,15 @@ impl Operations {
                     .with_effect(EffectStatus::None),
             );
         }
+        // ⟨M06 W4⟩ A request that names its pairs' issuing CAs is a controller's forwarded
+        // `ensure`: it names a profile and its pairs, never a working directory.
+        if !req.pair_issuers.is_empty() && (req.context.is_some() || req.scope.is_empty()) {
+            return Err(OpError::new(
+                Code::UsageError,
+                "a request naming issuing CAs names its pairs and no working directory",
+            )
+            .with_effect(EffectStatus::None));
+        }
         // ⟨M05⟩ U4: `ensure` with `context` (ADR-0011 §3.2; `context_m05`).
         if req.context.is_some() {
             return self.ensure_in_context(caller, req).await;
@@ -10192,7 +10258,7 @@ impl Operations {
         self.wsl_start_for_ensure(&environment).await?;
         // ⟨M03⟩ U0b row 9 (O): `connection: graceful` and a pair resolving to
         // `managed_certificate` (wave 0) are refused before any record is written.
-        let precheck = self.ensure_precheck(&req).await?;
+        let precheck = self.ensure_precheck(&caller.context, &req).await?;
         let hash = compute_hash(
             OperationKind::Ensure,
             &HashInput {
@@ -10463,6 +10529,7 @@ impl Operations {
         let env = self.inner.config.environment.clone();
         let retention = self.retention();
         let adapters = self.adapter_infos();
+        let on_runner = self.runner_grants().is_some();
         let none = Ended::default;
         let (r, ended) = self
             .write(move |tx, emit| {
@@ -10655,8 +10722,14 @@ impl Operations {
                 let bound = bound_of(tx, &g, Some(&b.profile))?;
                 // ⟨M02⟩ U0b rows 4 and 5: the grant's stored history, then fresh
                 // eligibility, in this settling transaction.
-                let facts = Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
-                    .with_eligibility(tx, &g, now)?;
+                let mut facts =
+                    Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)
+                        .with_eligibility(tx, &g, now)?;
+                // ⟨M06 W4; ADR-0012 §4.5⟩ A runner's managed binding depends on the
+                // controller's issuer.
+                if on_runner && b.mechanism == MANAGED_CERTIFICATE {
+                    facts.refresh_dependency = RefreshDependency::Controller;
+                }
                 let mut data = ensure_data(&b, &g, &facts, bound);
                 // ⟨M05⟩ U6: a managed launch that joined a shared slot is labelled
                 // `ordinary_aliases: shared_environment_default` (ADR-0011 §5.2).

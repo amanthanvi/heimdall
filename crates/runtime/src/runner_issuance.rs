@@ -296,6 +296,21 @@ impl RunnerKeys {
         true
     }
 
+    /// ⟨M06 W4; ADR-0012 §4 item 2 "Attach"⟩ [`Self::attach_binding`] limited to `pairs`:
+    /// the binding's endpoint lists the grant's certificates for its own pairs only.
+    pub fn attach_binding_pairs(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        grant: &GrantId,
+        pairs: &std::collections::BTreeSet<AccessPairRef>,
+    ) -> bool {
+        if self.table.slot(grant).is_none() {
+            return false;
+        }
+        self.table.attach_binding_pairs(binding, grant, pairs);
+        true
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<GrantId, PreparedKey>> {
         self.keys.lock().unwrap_or_else(PoisonError::into_inner)
     }

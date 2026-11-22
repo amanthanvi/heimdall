@@ -297,6 +297,10 @@ pub const TABLE_RECOVERY: &[(&str, RecoveryClass)] = &[
     // client's Iroh endpoint ID is the serve allowlist's source (admission authority), so the
     // rows compare.
     ("remote_client_endpoints", RecoveryClass::Rows),
+    // ⟨M06 W4⟩ Migration 0012, written by `crate::ext_effects` (ADR-0006 §18.8 item 4): the
+    // owner's acknowledgement that a delivered pause or cutoff was lifted is one of the two
+    // things that reopen issuance for a runner, so the rows compare.
+    ("remote_lift_acks", RecoveryClass::Rows),
 ];
 
 /// ⟨M06⟩ Why a migration-0009 table is `Discarded` in wave 0 ([`TABLE_RECOVERY`]).

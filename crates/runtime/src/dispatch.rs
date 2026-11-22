@@ -407,6 +407,30 @@ impl OperationsDispatcher {
                 "the controller's records are not available in this runtime",
             ));
         };
+        // ⟨rev6.4; ADR-0006 §18.8 item 4⟩ The owner's acknowledgement of a lift: attended
+        // only. The hosted driver's next pass then issues what the barrier now permits.
+        if let heimdall_contract::controller_record::ControllerRecordRequest::ResumeIssuance {
+            environment,
+            effects,
+        } = request
+        {
+            // Only the effects the owner was shown and named: one delivered since keeps
+            // blocking. An empty list or an ID that is no delivered pause or cutoff of
+            // this runner refuses the whole request, effect `none`.
+            let done = heimdall_app::remote_status_driver::resume_issuance_named(
+                store,
+                environment,
+                effects,
+                caller.is_attended(),
+                self.clock.wall(),
+            );
+            if done.is_ok()
+                && let Some(d) = &self.outbox_delivery
+            {
+                d.notify();
+            }
+            return render(done.map(|data| heimdall_app::error::Completed::ok(Code::Ok, data)));
+        }
         render(
             heimdall_app::remote_env::apply_controller_record(
                 store,
@@ -683,11 +707,43 @@ impl OperationsDispatcher {
                 {
                     return render(answer);
                 }
-                render(ops.ensure(&caller, r).await)
+                let mut answer = render(ops.ensure(&caller, r).await);
+                // ⟨M06 W4 grant-e2e⟩ On a runner, an admitted grant that waits for its
+                // issuer answers `ACCEPTED` with the pending state in its data.
+                if self.runner.is_some()
+                    && answer.code == Code::Accepted
+                    && let Some(operation) = &answer.operation_id
+                    && let Some(grant) = ops.awaiting_issuer_grant(operation).await
+                {
+                    heimdall_app::remote_status_driver::mark_pending(&mut answer.data, &grant);
+                }
+                answer
             }
             Request::Bind(r) => render(self.bind_result(ops.bind(&caller, r).await)),
             Request::Delegate(r) => render(ops.delegate(&caller, r).await),
-            Request::Observe(r) => render(ops.observe(&caller, r).await),
+            Request::Observe(r) => {
+                // ⟨M06 W4 grant-e2e⟩ `operation wait` on a forwarded `ensure` that answered
+                // pending names the runner's operation, which this installation does not
+                // hold: the forwarder drives it. Local owner only, never on a runner.
+                let forwarded = match &r {
+                    heimdall_contract::request::ObserveRequest::Operation {
+                        operation_id,
+                        wait_ms,
+                    } if self.runner_narrowing_store(&caller).is_some() => {
+                        Some((operation_id.clone(), *wait_ms))
+                    }
+                    _ => None,
+                };
+                let local = ops.observe(&caller, r).await;
+                if let (Err(e), Some((operation, wait_ms)), Some(forwarding)) =
+                    (&local, &forwarded, &self.ensure_forwarding)
+                    && e.code == Code::NotFound
+                    && let Some(answer) = forwarding.observe(operation, *wait_ms).await
+                {
+                    return render(answer);
+                }
+                render(local)
+            }
             Request::Cancel(r) => render(ops.cancel(&caller, r).await),
             Request::Release(r) => render(ops.release(&caller, r).await),
             Request::Revoke(r) => {
@@ -1646,10 +1702,27 @@ mod tests {
             ) -> Option<heimdall_app::OpResult<serde_json::Value>> {
                 self.offered.fetch_add(1, Ordering::SeqCst);
                 (request.environment.as_ref() == Some(&self.known)).then(|| {
-                    Err(forwarded_pending(
+                    Ok(forwarded_pending(
                         &heimdall_contract::ids::GrantId::from_random_bytes([4; 16]),
+                        Some(&heimdall_contract::ids::OperationId::from_random_bytes(
+                            [5; 16],
+                        )),
                     ))
                 })
+            }
+
+            async fn observe(
+                &self,
+                operation: &heimdall_contract::ids::OperationId,
+                _wait_ms: Option<u64>,
+            ) -> Option<heimdall_app::OpResult<serde_json::Value>> {
+                (*operation == heimdall_contract::ids::OperationId::from_random_bytes([5; 16]))
+                    .then(|| {
+                        Ok(heimdall_app::error::Completed::ok(
+                            Code::Ok,
+                            serde_json::json!({ "observed": true }),
+                        ))
+                    })
             }
         }
         let runner = EnvironmentId::from_random_bytes([7; 16]);
@@ -1684,13 +1757,49 @@ mod tests {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             })
         };
         // The recorded runner: the forwarder's answer, naming the grant.
         let env = d.handle_as(&owner(), ensure(Some(&runner), "r1")).await;
         assert_eq!(env.code, Code::Accepted, "{env:?}");
         assert_eq!(env.data["error"]["resource"]["kind"], "grant");
+        // ⟨M06 W4⟩ The pending state: no reason, the refresh dependency, the grant pending.
+        assert!(env.data["error"].get("reason").is_none(), "{env:?}");
+        assert_eq!(env.data["refresh_dependency"], "controller");
+        assert_eq!(
+            env.data["remote_pending"],
+            serde_json::json!([heimdall_contract::ids::GrantId::from_random_bytes([4; 16])])
+        );
         assert_eq!(forwarder.offered.load(Ordering::SeqCst), 1);
+        // `operation wait` on the operation that answer named is the forwarder's; any other
+        // unknown operation, and a paired caller's, keep the local NOT_FOUND.
+        let wait = |bytes: u8| {
+            Request::Observe(heimdall_contract::request::ObserveRequest::Operation {
+                operation_id: heimdall_contract::ids::OperationId::from_random_bytes([bytes; 16]),
+                wait_ms: Some(10),
+            })
+        };
+        assert_eq!(env.operation_id, {
+            let Request::Observe(heimdall_contract::request::ObserveRequest::Operation {
+                operation_id,
+                ..
+            }) = wait(5)
+            else {
+                unreachable!()
+            };
+            Some(operation_id)
+        });
+        let observed = d.handle_as(&owner(), wait(5)).await;
+        assert_eq!(observed.code, Code::Ok, "{observed:?}");
+        assert_eq!(observed.data["observed"], true);
+        assert_eq!(d.handle_as(&owner(), wait(6)).await.code, Code::NotFound);
+        let paired_wait = Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+            remote_client: Some(heimdall_contract::ids::ClientId::from_random_bytes([9; 16])),
+        });
+        assert_ne!(d.handle_as(&paired_wait, wait(5)).await.code, Code::Ok);
         // Another environment: offered, not taken; the local answer stands (not managed here).
         let other = EnvironmentId::from_random_bytes([8; 16]);
         let env = d.handle_as(&owner(), ensure(Some(&other), "r2")).await;
@@ -1797,9 +1906,105 @@ mod tests {
             serde_json::from_str::<RemoteEnvironmentPin>(&stored[0].1).unwrap(),
             pin
         );
+        // ⟨rev6.4; ADR-0006 §18.8 item 4⟩ `resume_issuance`: the local owner, attended,
+        // naming the delivered effects the owner was shown.
+        use heimdall_contract::ids::EffectId;
+        use heimdall_contract::remote::EffectTarget;
+        use heimdall_contract::trust::PolicyTarget;
+        use heimdall_store::ext_effects::{AppliedRecord, EffectAck, EffectKey};
+        let policy = heimdall_contract::ids::PolicyId::parse("pol").unwrap();
+        let cutoff = |n: u8| EffectKey {
+            producer: pin.client.clone(),
+            effect: EffectId::from_random_bytes([n; 16]),
+            target: EffectTarget::PolicyCutoff {
+                scope: PolicyTarget::Policy {
+                    policy_id: policy.clone(),
+                },
+                at: t0(),
+                revision: u64::from(n),
+            },
+        };
+        let deliver = |environment: &EnvironmentId, key: &EffectKey| {
+            let ack = EffectAck {
+                key: key.clone(),
+                applied_at: t0(),
+                record: AppliedRecord::PolicyRevision {
+                    scope_key: heimdall_store::ext_effects::policy_scope_key(&policy),
+                    runner_seq: key.target.generation(),
+                    policies: vec![policy.clone()],
+                    cutoff_at: Some(t0()),
+                    fired: true,
+                },
+            };
+            store
+                .transaction(|tx| {
+                    assert!(tx.enqueue_remote_effect(environment, key, t0())?);
+                    assert!(tx.acknowledge_remote_effect(&ack, t0())?);
+                    Ok(())
+                })
+                .unwrap();
+        };
+        let lift_ack = |key: &EffectKey| store.transaction(|tx| tx.remote_lift_ack(key)).unwrap();
+        let resume_of = |effects: &[&EffectKey]| {
+            Request::ControllerRecord(ControllerRecordRequest::ResumeIssuance {
+                environment: runner.clone(),
+                effects: effects.iter().map(|k| k.effect.clone()).collect(),
+            })
+        };
+        // The owner is shown `shown`; `later` is delivered before their `yes` arrives.
+        let (shown, later) = (cutoff(1), cutoff(2));
+        deliver(&runner, &shown);
+        let resume = resume_of(&[&shown]);
+        deliver(&runner, &later);
+        // A cutoff delivered to another runner, and one never produced.
+        let elsewhere = cutoff(3);
+        deliver(&EnvironmentId::from_random_bytes([6; 16]), &elsewhere);
+        let never = cutoff(4);
+
+        let env = d.handle_as(&paired, resume.clone()).await;
+        assert_eq!(
+            env.data["error"]["reason"],
+            heimdall_contract::envelope::reason::LOCAL_OWNER_REQUIRED
+        );
+        let env = d.handle_as(&owner(), resume.clone()).await;
+        assert_eq!(env.code, Code::InteractionRequired, "unattended: {env:?}");
+        assert_eq!(env.data["error"]["effect_status"], "none");
+        // An empty list, an unknown ID, another environment's ID: refused whole.
+        for (refused, code) in [
+            (resume_of(&[]), Code::UsageError),
+            (resume_of(&[&shown, &never]), Code::NotFound),
+            (resume_of(&[&shown, &elsewhere]), Code::NotFound),
+        ] {
+            let env = d.handle_as(&attended(), refused).await;
+            assert_eq!(env.code, code, "{env:?}");
+            assert_eq!(env.data["error"]["effect_status"], "none");
+            for key in [&shown, &later, &elsewhere] {
+                assert_eq!(lift_ack(key), None, "a refused request wrote nothing");
+            }
+        }
+        let env = d.handle_as(&attended(), resume.clone()).await;
+        assert_eq!(env.code, Code::Ok, "{env:?}");
+        assert_eq!(
+            env.data["acknowledged"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["effect"].clone())
+                .collect::<Vec<_>>(),
+            [serde_json::json!(shown.effect)]
+        );
+        assert_eq!(env.data["not_named"], 1);
+        assert!(lift_ack(&shown).is_some());
+        assert_eq!(
+            lift_ack(&later),
+            None,
+            "the cutoff delivered between the list and the yes is not acknowledged"
+        );
         let env = d.handle_as(&owner(), remove.clone()).await;
         assert_eq!(env.data["removed"], true, "{env:?}");
         assert!(rows().is_empty());
+        let env = d.handle_as(&attended(), resume).await;
+        assert_eq!(env.code, Code::NotFound, "an unrecorded runner: {env:?}");
         let env = d.handle_as(&owner(), remove).await;
         assert_eq!(env.data["removed"], false);
     }

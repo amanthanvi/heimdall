@@ -1034,6 +1034,7 @@ impl World {
                     connection: None,
                     context: None,
                     covered_only: false,
+                    pair_issuers: Vec::new(),
                 },
             )
             .await
@@ -4798,6 +4799,7 @@ async fn projection_pending_refused_only_for_managed_only_minimums() {
                 connection: None,
                 context: None,
                 covered_only: false,
+                pair_issuers: Vec::new(),
             },
         )
         .await

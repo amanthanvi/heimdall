@@ -90,6 +90,11 @@ pub enum EnvironmentCommand {
     /// send the runner what the probes observed. Owner only. Nothing is lifted here: the
     /// runner's owner lifts the downgrade at the runner, within 15 minutes.
     Recheck(EnvTargetArgs),
+    /// Confirm, on this controller, that the pauses and cutoffs it delivered to a runner
+    /// were lifted there. Lists each one awaiting this and acknowledges only those listed;
+    /// one delivered later needs its own. Needs a terminal and a typed yes. Issuance for the
+    /// runner resumes only when its report shows each lift as well; neither alone reopens it.
+    ResumeIssuance(EnvTargetArgs),
     /// This controller's view of its runners. Opens no connection.
     Status(EnvStatusArgs),
 }
@@ -277,7 +282,10 @@ pub enum TransportCommand {
     Enable(TransportEnableArgs),
     /// Disable the Iroh transport.
     ///
-    /// Stops serving, destroys the endpoint key and removes every route that names it.
+    /// Stops serving, destroys the endpoint key and removes every route that names it. It
+    /// forgets the enrolled clients' endpoints but does not revoke any client: a later
+    /// enable serves the clients still enrolled. To remove one client's Iroh access
+    /// permanently, revoke that client.
     Disable,
     /// Adopt an existing Pigeons roost as a route (a widening, confirmed locally).
     AdoptRoost(TransportAdoptArgs),
@@ -2000,6 +2008,9 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
     if let EnvironmentCommand::Join(EnvJoinArgs { show_key: true, .. }) = &command {
         return show_key(ctx);
     }
+    if let EnvironmentCommand::ResumeIssuance(a) = &command {
+        return environment_resume_issuance(ctx, &a.environment);
+    }
     // `add` needs the owner at a terminal: refused before any state is touched.
     if matches!(command, EnvironmentCommand::Add(_)) && !ctx.interactive() {
         return emit_error(
@@ -2143,6 +2154,11 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
                 let human = recheck_line(&environment, &data);
                 Ok((data, human))
             }
+            // Answered before the wiring (`environment_resume_issuance`).
+            EnvironmentCommand::ResumeIssuance(_) => Err(OpError::new(
+                Code::InternalError,
+                "environment resume-issuance was not dispatched",
+            )),
             EnvironmentCommand::Status(a) => {
                 let environment = a.environment.as_deref().map(parse_environment).transpose()?;
                 let mut report = controller.status(environment.as_ref())?;
@@ -2180,6 +2196,241 @@ pub(crate) fn environment(ctx: &Ctx, command: EnvironmentCommand) -> ExitCode {
         Ok((data, human)) => emit_ok(ctx, data, &human),
         Err(e) => emit_error(ctx, e),
     }
+}
+
+/// ⟨M06 W4; ADR-0006 §18.8 item 4; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ `environment resume-issuance
+/// <env>`: the owner's attended acknowledgement, on this controller, that the pauses and
+/// cutoffs it delivered to the runner were lifted there
+/// (`controller_record.resume_issuance`). A terminal and a typed `yes` to the list of
+/// those effects (each with its ID, what it is, when it was delivered and whether the
+/// runner's last recorded report shows it lifted); then rows are written for exactly the
+/// effect IDs shown, directly under the instance lock when no runtime runs, or by the
+/// running runtime over an attended local session. A pause or cutoff delivered after the
+/// list was read is not acknowledged and keeps blocking. Nothing is asked when there is
+/// nothing to acknowledge.
+fn environment_resume_issuance(ctx: &Ctx, environment: &str) -> ExitCode {
+    use heimdall_app::remote_status_driver::{DeliveredHold, delivered_holds, pin_of};
+    let environment = match parse_environment(environment) {
+        Ok(e) => e,
+        Err(e) => return emit_error(ctx, e),
+    };
+    if !ctx.interactive() {
+        return emit_error(
+            ctx,
+            OpError::new(
+                Code::InteractionRequired,
+                "resuming issuance needs the owner at this controller's terminal: nothing was \
+                 recorded",
+            )
+            .with_effect(EffectStatus::None),
+        );
+    }
+    let paths = match ctx.paths() {
+        Ok(p) => p,
+        Err(e) => {
+            let env = output::error_value(*e);
+            output::emit(&env, ctx.json);
+            return output::exit_code_for(env.code, false);
+        }
+    };
+    let db = paths
+        .state_dir
+        .join(heimdall_runtime::service::STATE_DB_FILE);
+    let unrecorded = || {
+        OpError::new(
+            Code::NotFound,
+            "this controller holds no record of that runner environment",
+        )
+        .with_effect(EffectStatus::None)
+    };
+    if !db.exists() {
+        // No state yet: no records.
+        return emit_error(ctx, unrecorded());
+    }
+    // What would be acknowledged, read without a lock (the write re-reads it).
+    let read = heimdall_store::Store::open_read_only(&db, Arc::new(heimdall_store::NoFaults))
+        .and_then(|state| {
+            state.transaction(|tx| {
+                if pin_of(tx, &environment)?.is_none() {
+                    return Ok(None);
+                }
+                delivered_holds(tx, &environment).map(Some)
+            })
+        });
+    let holds: Vec<DeliveredHold> = match read {
+        Ok(Some(holds)) => holds,
+        Ok(None) => return emit_error(ctx, unrecorded()),
+        Err(_) => {
+            return emit_error(
+                ctx,
+                state_refusal("the controller's records cannot be read"),
+            );
+        }
+    };
+    let undelivered = holds.iter().filter(|h| h.delivered_at.is_none()).count();
+    let open: Vec<&DeliveredHold> = holds
+        .iter()
+        .filter(|h| h.delivered_at.is_some() && h.lift_acknowledged_at.is_none())
+        .collect();
+    if open.is_empty() {
+        let already = holds.len() - undelivered;
+        let mut human = format!(
+            "nothing to acknowledge on {}: this controller delivered no pause or cutoff \
+             that still awaits it",
+            environment.as_str()
+        );
+        if undelivered > 0 {
+            human.push_str(&format!(
+                " ({undelivered} not yet delivered to the runner; see `heimdall environment \
+                 status`)"
+            ));
+        }
+        return emit_ok(
+            ctx,
+            serde_json::json!({
+                "environment": environment,
+                "acknowledged": [],
+                "already_acknowledged": already,
+                "undelivered": undelivered,
+            }),
+            &human,
+        );
+    }
+    // Exactly what the owner is shown is what is acknowledged: these IDs, nothing else.
+    let shown: Vec<heimdall_contract::ids::EffectId> =
+        open.iter().map(|h| h.key.effect.clone()).collect();
+    let text = resume_issuance_text(&environment, &open);
+    let confirm = || TerminalConfirm { interactive: true }.ask(&text);
+    let env = match heimdall_runtime::InstanceLock::try_acquire(&paths.state_dir) {
+        Ok(lock) => {
+            // No runtime: the direct write, holding the lock.
+            let applied = heimdall_store::Store::open(&db, Arc::new(heimdall_store::NoFaults))
+                .map_err(|_| state_refusal("the state database cannot be opened"))
+                .and_then(|store| acknowledge_shown(&store, &environment, &shown, confirm, now()));
+            drop(lock);
+            match applied {
+                Ok(data) => Envelope::ok(data),
+                Err(e) => output::error_value(e.into_envelope()),
+            }
+        }
+        Err(heimdall_runtime::instance::InstanceError::AlreadyRunning) => {
+            let rt = match crate::service_cmd::current_thread() {
+                Ok(rt) => rt,
+                Err(env) => {
+                    let env = output::error_value(env);
+                    output::emit(&env, ctx.json);
+                    return output::exit_code_for(env.code, false);
+                }
+            };
+            rt.block_on(async {
+                let mut client = match crate::client::connect(ctx, false).await {
+                    Ok(c) => c,
+                    Err(env) => return output::error_value(*env),
+                };
+                let attended = client.attend().await;
+                if !attended.code.is_success() {
+                    return attended;
+                }
+                if !confirm() {
+                    return output::error_value(lift_not_confirmed().into_envelope());
+                }
+                client
+                    .request(resume_issuance_request(&environment, &shown))
+                    .await
+            })
+        }
+        Err(_) => {
+            output::error_value(state_refusal("the instance lock cannot be taken").into_envelope())
+        }
+    };
+    let acknowledged = env.data["acknowledged"].as_array().map_or(0, Vec::len);
+    let mut human = format!(
+        "acknowledged {acknowledged} lifted effect(s) on {}; certificates are issued for it \
+         again once its report shows each lift",
+        environment.as_str()
+    );
+    if let Some(later) = env.data["not_named"].as_u64().filter(|n| *n > 0) {
+        human.push_str(&format!(
+            "\n{later} pause(s) or cutoff(s) delivered since the list was shown were not \
+             acknowledged and still block: run the command again to see them"
+        ));
+    }
+    emit_envelope(ctx, &env, &human)
+}
+
+/// `environment resume-issuance`'s confirmation: every delivered pause and cutoff that
+/// awaits the owner's acknowledgement (`open`), one per line with its effect ID, what it is
+/// (kind, policy or scope), when its delivery was recorded, and whether the runner's last
+/// recorded report shows it lifted.
+fn resume_issuance_text(
+    environment: &EnvironmentId,
+    open: &[&heimdall_app::remote_status_driver::DeliveredHold],
+) -> String {
+    use heimdall_app::remote_status_driver::hold_statement;
+    let mut text = format!(
+        "Resume issuance for runner {}.\nThis controller delivered to it:\n",
+        environment.as_str()
+    );
+    for hold in open {
+        let delivered = hold.delivered_at.map_or_else(
+            || "not delivered".to_owned(),
+            |at| format!("delivered {at}"),
+        );
+        let lift = match hold.lift_reported {
+            Some(r) if r.shown => format!("the runner's report read {} shows it lifted", r.at),
+            Some(r) => format!("the runner's report read {} does NOT show it lifted", r.at),
+            None => "no report of the runner is recorded: not known to be lifted".to_owned(),
+        };
+        text.push_str(&format!(
+            "    {}  {}; {delivered}; {lift}\n",
+            hold.key.effect.as_str(),
+            output::sanitize_for_terminal(&hold_statement(hold)),
+        ));
+    }
+    text.push_str(
+        "Confirm that you lifted each of these at the runner (its attended resume or cutoff \
+         clear).\nOnly the effects listed here are acknowledged; one delivered later keeps \
+         blocking until it is acknowledged itself.\nCertificates are issued for the runner \
+         again only once its report shows each lift as well.\nType yes to continue: ",
+    );
+    text
+}
+
+/// The acknowledgement's wire form for exactly the effects the owner was shown.
+fn resume_issuance_request(
+    environment: &EnvironmentId,
+    shown: &[heimdall_contract::ids::EffectId],
+) -> heimdall_contract::request::Request {
+    heimdall_contract::request::Request::ControllerRecord(
+        heimdall_contract::controller_record::ControllerRecordRequest::ResumeIssuance {
+            environment: environment.clone(),
+            effects: shown.to_vec(),
+        },
+    )
+}
+
+fn lift_not_confirmed() -> OpError {
+    OpError::new(
+        Code::InteractionRequired,
+        "the acknowledgement was not confirmed: nothing was recorded",
+    )
+    .with_effect(EffectStatus::None)
+}
+
+/// The direct write (no runtime; the caller holds the instance lock): after the owner's
+/// `confirm`, acknowledge exactly the `shown` effects in `store`. Whatever was delivered
+/// since the list was read is not among them and is left blocking.
+fn acknowledge_shown(
+    store: &heimdall_store::Store,
+    environment: &EnvironmentId,
+    shown: &[heimdall_contract::ids::EffectId],
+    confirm: impl FnOnce() -> bool,
+    now: heimdall_contract::Timestamp,
+) -> Result<serde_json::Value, OpError> {
+    if !confirm() {
+        return Err(lift_not_confirmed());
+    }
+    heimdall_app::remote_status_driver::resume_issuance_named(store, environment, shown, true, now)
 }
 
 /// ⟨M06 U4⟩ The controller's view of each of `environments` (`heimdall_app::remote_status`),
@@ -3306,7 +3557,6 @@ fn remote_time_source(ctx: &Ctx, command: TimeSourceCommand) -> ExitCode {
 /// is asked when the evidence would not lift it now; the lift judges it again, in its own
 /// transaction.
 fn remote_policy_recheck(ctx: &Ctx) -> ExitCode {
-    use heimdall_runtime::paired::{ClockReading, recheck_view};
     if !ctx.interactive() {
         return emit_error(
             ctx,
@@ -3318,28 +3568,17 @@ fn remote_policy_recheck(ctx: &Ctx) -> ExitCode {
             .with_effect(EffectStatus::None),
         );
     }
-    let reading = ClockReading::of(&heimdall_runtime::platform::SystemClock);
-    let view = match runner_read(ctx, |tx| recheck_view(tx, &reading)) {
-        Ok(v) => v,
+    let text = match policy_recheck_precheck(ctx) {
+        Ok(Some(text)) => text,
+        Ok(None) => {
+            return emit_ok(
+                ctx,
+                serde_json::json!({ "downgraded": false, "lifted": false }),
+                "this runner is not downgraded: there is nothing to lift",
+            );
+        }
         Err(e) => return emit_error(ctx, e),
     };
-    let Some(downgrade) = &view.downgrade else {
-        return emit_ok(
-            ctx,
-            serde_json::json!({ "downgraded": false, "lifted": false }),
-            "this runner is not downgraded: there is nothing to lift",
-        );
-    };
-    if let Err(refusal) = view.verdict {
-        return emit_error(ctx, refusal.to_error());
-    }
-    let (Some(evidence), Some(controller)) = (&view.evidence, &view.controller) else {
-        return emit_error(
-            ctx,
-            heimdall_runtime::paired::LiftRefusal::NoEvidence.to_error(),
-        );
-    };
-    let text = policy_recheck_confirmation(downgrade, evidence, &controller.key_fingerprint);
     let request = match heimdall_app::remote_env::new_request_id() {
         Ok(request_id) => {
             heimdall_contract::remote::RunnerLocalRequest::PolicyRecheck { request_id }
@@ -3353,6 +3592,44 @@ fn remote_policy_recheck(ctx: &Ctx) -> ExitCode {
         "the owner-only downgrade is lifted: limited roles are admitted again wherever this \
          runner's start check verifies its sshd policy",
     )
+}
+
+/// `remote policy recheck`'s read-only pre-check, before anything is asked: the
+/// confirmation to show when the recorded evidence would lift the standing downgrade now;
+/// `None` when this runner is not downgraded and no downgrade event is pending.
+///
+/// ⟨W3.1 re-check, low finding 2⟩ A downgrade the bridge could not record (its marker in
+/// this home's log directory, `heimdall_runtime::paired::unrecorded_downgrade`) is a
+/// downgrade although the store holds no row yet: with no row it is refused here, as the
+/// lift itself refuses it, instead of being reported as "not downgraded". Nothing is
+/// drained here (the runtime, or the lift under the instance lock, records the row).
+///
+/// # Errors
+/// The refusal: not a runner, unreadable state, a pending unrecorded downgrade, or
+/// evidence that would not lift the downgrade now.
+fn policy_recheck_precheck(ctx: &Ctx) -> Result<Option<String>, OpError> {
+    use heimdall_runtime::paired::{ClockReading, LiftRefusal, recheck_view, unrecorded_downgrade};
+    let reading = ClockReading::of(&heimdall_runtime::platform::SystemClock);
+    let view = runner_read(ctx, |tx| recheck_view(tx, &reading))?;
+    let Some(downgrade) = &view.downgrade else {
+        let pending = ctx
+            .paths()
+            .is_ok_and(|paths| unrecorded_downgrade(&paths.log_dir).is_some());
+        return if pending {
+            Err(LiftRefusal::MarkerPending.to_error())
+        } else {
+            Ok(None)
+        };
+    };
+    view.verdict.map_err(LiftRefusal::to_error)?;
+    let (Some(evidence), Some(controller)) = (&view.evidence, &view.controller) else {
+        return Err(LiftRefusal::NoEvidence.to_error());
+    };
+    Ok(Some(policy_recheck_confirmation(
+        downgrade,
+        evidence,
+        &controller.key_fingerprint,
+    )))
 }
 
 /// `remote policy recheck`'s attended confirmation: why the runner is owner-only, and the
@@ -3721,6 +3998,48 @@ mod tests {
         assert_eq!(policy.current(), ManagementPolicy::OwnerOnly);
     }
 
+    /// ⟨W3.1 re-check, low finding 2⟩ `remote policy recheck` with no runtime running: a
+    /// downgrade the bridge could not record (its marker is pending, the store holds no row
+    /// yet) is not reported as "not downgraded". The pre-check refuses, as the lift would;
+    /// without the marker the same runner reads as not downgraded.
+    #[test]
+    fn remote_policy_recheck_reports_a_pending_unrecorded_downgrade() {
+        use heimdall_runtime::paired::{self, OwnerOnlyCause};
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().canonicalize().unwrap();
+        let paths = heimdall_runtime::Paths::under(&home);
+        std::fs::create_dir_all(&paths.state_dir).unwrap();
+        let store = heimdall_store::Store::open(
+            &paired::state_db_of_home(&home),
+            std::sync::Arc::new(heimdall_store::NoFaults),
+        )
+        .unwrap();
+        paired::init_runner(&store).unwrap();
+        drop(store);
+        let ctx = Ctx {
+            json: true,
+            non_interactive: false,
+            home: Some(home.clone()),
+            stdin_tty: true,
+        };
+        assert_eq!(policy_recheck_precheck(&ctx).unwrap(), None);
+
+        paired::note_unrecorded_downgrade(
+            &paths.log_dir,
+            OwnerOnlyCause::SessionPty,
+            heimdall_contract::Timestamp::now(),
+        )
+        .unwrap();
+        let refused = policy_recheck_precheck(&ctx).unwrap_err();
+        assert_eq!(refused.code, Code::CapabilityUnavailable, "{refused:?}");
+        assert_eq!(
+            refused.message,
+            paired::LiftRefusal::MarkerPending.to_error().message
+        );
+        // Read-only: the marker stands for the runtime (or the lift) to record.
+        assert!(paired::unrecorded_downgrade(&paths.log_dir).is_some());
+    }
+
     /// ⟨M06 W3⟩ The route and transport command lines that are refused before the runtime is
     /// contacted or the home created: malformed typed inputs (`USAGE_ERROR`, exit 2, effect
     /// `none`), and the hidden helper and serve child with arguments other than their own.
@@ -3744,6 +4063,222 @@ mod tests {
             "127.0.0.1:1",
         ],
     ];
+
+    /// ⟨M06 W4 `w4d`; ADR-0006 §18.8 item 4⟩ `environment resume-issuance` names what it
+    /// shows. The confirmation lists each delivered, unacknowledged pause and cutoff with
+    /// its effect ID, what it is, its delivery time and what the runner's last recorded
+    /// report says of its lift. The request and the direct write carry exactly those IDs:
+    /// a cutoff delivered between the list and the `yes` gets no row, on either path's
+    /// input; an unconfirmed prompt writes nothing.
+    #[test]
+    fn resume_issuance_acknowledges_exactly_the_effects_it_showed() {
+        use heimdall_app::remote_status_driver::delivered_holds;
+        use heimdall_contract::controller_record::{
+            ControllerRecordRequest, ManagementHop, ManagementRoute, RemoteEnvironmentPin,
+        };
+        use heimdall_contract::ids::{
+            AccountName, ClientId, DestinationId, EffectId, KeyFingerprint, PolicyId,
+        };
+        use heimdall_contract::remote::EffectTarget;
+        use heimdall_contract::trust::PolicyTarget;
+        use heimdall_store::ext_effects::{
+            AppliedRecord, AuthorityReport, EffectAck, EffectKey, ReportedPolicy,
+        };
+        let at = |s: &str| s.parse::<heimdall_contract::Timestamp>().unwrap();
+        let store =
+            heimdall_store::Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap();
+        let env = EnvironmentId::from_random_bytes([3; 16]);
+        let producer = ClientId::from_random_bytes([1; 16]);
+        let (paused, cut) = (
+            PolicyId::parse("polpause").unwrap(),
+            PolicyId::parse("polcut").unwrap(),
+        );
+        let pin = RemoteEnvironmentPin {
+            environment: env.clone(),
+            destination: DestinationId::parse("runner1").unwrap(),
+            route: ManagementRoute {
+                runner: ManagementHop {
+                    hostname: "runner.example".into(),
+                    port: None,
+                    account: AccountName::parse("deploy").unwrap(),
+                    host_keys: vec!["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA".into()],
+                },
+                jump: None,
+            },
+            client: producer.clone(),
+            role: heimdall_contract::remote::Role::Owner,
+            key_fingerprint: KeyFingerprint::parse(&format!("SHA256:{}", "K".repeat(43))).unwrap(),
+            label: None,
+            pinned_at: at("2026-11-21T09:00:00Z"),
+        };
+        store
+            .transaction(|tx| {
+                tx.put_remote_environment_pin(
+                    &pin.environment,
+                    &pin.destination,
+                    &pin.route.runner.account,
+                    &pin.key_fingerprint,
+                    &serde_json::to_string(&pin).unwrap(),
+                    pin.pinned_at,
+                )
+            })
+            .unwrap();
+        let key = |n: u8, target: EffectTarget| EffectKey {
+            producer: producer.clone(),
+            effect: EffectId::from_random_bytes([n; 16]),
+            target,
+        };
+        let cutoff = |n: u8| {
+            key(
+                n,
+                EffectTarget::PolicyCutoff {
+                    scope: PolicyTarget::Policy {
+                        policy_id: cut.clone(),
+                    },
+                    at: at("2026-11-21T10:00:00Z"),
+                    revision: u64::from(n),
+                },
+            )
+        };
+        let deliver = |key: &EffectKey, policy: &PolicyId, now: &str| {
+            let ack = EffectAck {
+                key: key.clone(),
+                applied_at: at(now),
+                record: AppliedRecord::PolicyRevision {
+                    scope_key: heimdall_store::ext_effects::policy_scope_key(policy),
+                    runner_seq: key.target.generation(),
+                    policies: vec![policy.clone()],
+                    cutoff_at: None,
+                    fired: false,
+                },
+            };
+            store
+                .transaction(|tx| {
+                    assert!(tx.enqueue_remote_effect(&env, key, at(now))?);
+                    assert!(tx.acknowledge_remote_effect(&ack, at(now))?);
+                    Ok(())
+                })
+                .unwrap();
+        };
+        let holds = || store.transaction(|tx| delivered_holds(tx, &env)).unwrap();
+        let lift_ack = |key: &EffectKey| store.transaction(|tx| tx.remote_lift_ack(key)).unwrap();
+
+        let pause = key(
+            1,
+            EffectTarget::PolicyPause {
+                policy: paused.clone(),
+                revision: 1,
+            },
+        );
+        let first = cutoff(2);
+        deliver(&pause, &paused, "2026-11-21T10:00:01Z");
+        deliver(&first, &cut, "2026-11-21T10:00:02Z");
+
+        // No report recorded yet: the lift is not known.
+        let listed = holds();
+        let text = resume_issuance_text(&env, &listed.iter().collect::<Vec<_>>());
+        assert_eq!(
+            text.matches("no report of the runner is recorded").count(),
+            2
+        );
+        // The runner's report, read later: the pause lifted, the cutoff standing.
+        store
+            .transaction(|tx| {
+                tx.note_remote_report(
+                    &env,
+                    at("2026-11-21T10:05:00Z"),
+                    &AuthorityReport {
+                        environment: env.clone(),
+                        authority_generation: 1,
+                        tombstones: Vec::new(),
+                        policy_revisions: Vec::new(),
+                        policies: vec![
+                            ReportedPolicy {
+                                policy: paused.clone(),
+                                revision: 1,
+                                paused: false,
+                                cutoff_at: None,
+                            },
+                            ReportedPolicy {
+                                policy: cut.clone(),
+                                revision: 1,
+                                paused: false,
+                                cutoff_at: Some(at("2026-11-21T10:00:00Z")),
+                            },
+                        ],
+                        certificates: Vec::new(),
+                        time_bounded: true,
+                        pending_grants: Vec::new(),
+                    },
+                )
+            })
+            .unwrap();
+        let listed = holds();
+        let open: Vec<_> = listed.iter().collect();
+        let text = resume_issuance_text(&env, &open);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[2],
+            format!(
+                "    {}  pause of policy polpause; delivered 2026-11-21T10:00:01Z; the \
+                 runner's report read 2026-11-21T10:05:00Z shows it lifted",
+                pause.effect.as_str()
+            )
+        );
+        assert_eq!(
+            lines[3],
+            format!(
+                "    {}  cutoff of policy:polcut at 2026-11-21T10:00:00Z; delivered \
+                 2026-11-21T10:00:02Z; the runner's report read 2026-11-21T10:05:00Z does NOT \
+                 show it lifted",
+                first.effect.as_str()
+            )
+        );
+        assert!(text.ends_with("Type yes to continue: "));
+
+        // What is sent names exactly the effects shown.
+        let shown: Vec<EffectId> = open.iter().map(|h| h.key.effect.clone()).collect();
+        assert_eq!(shown, [pause.effect.clone(), first.effect.clone()]);
+        assert_eq!(
+            resume_issuance_request(&env, &shown),
+            heimdall_contract::request::Request::ControllerRecord(
+                ControllerRecordRequest::ResumeIssuance {
+                    environment: env.clone(),
+                    effects: shown.clone(),
+                }
+            )
+        );
+
+        // Not confirmed: nothing is written.
+        let now = at("2026-11-21T10:06:00Z");
+        let e = acknowledge_shown(&store, &env, &shown, || false, now).unwrap_err();
+        assert_eq!(e.code, Code::InteractionRequired);
+        assert_eq!(lift_ack(&pause), None);
+        // A cutoff is delivered while the owner reads the list; then they type yes.
+        let later = cutoff(3);
+        let done = acknowledge_shown(
+            &store,
+            &env,
+            &shown,
+            || {
+                deliver(&later, &cut, "2026-11-21T10:05:30Z");
+                true
+            },
+            now,
+        )
+        .unwrap();
+        assert_eq!(done["acknowledged"].as_array().unwrap().len(), 2);
+        assert_eq!(done["not_named"], 1);
+        assert!(lift_ack(&pause).is_some() && lift_ack(&first).is_some());
+        assert_eq!(lift_ack(&later), None, "delivered after the list: unseen");
+        // The next list shows the later cutoff alone.
+        let next: Vec<_> = holds()
+            .into_iter()
+            .filter(|h| h.delivered_at.is_some() && h.lift_acknowledged_at.is_none())
+            .map(|h| h.key.effect)
+            .collect();
+        assert_eq!(next, std::slice::from_ref(&later.effect));
+    }
 
     /// ⟨M06 W3⟩ The M06 route and transport commands are wired (no "planned for M06"
     /// refusal): each line parses into its typed arguments; malformed inputs are refused as

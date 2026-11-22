@@ -594,6 +594,7 @@ fn ensure_req(request_id: &str, work: &str, bits: u8) -> EnsureRequest {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

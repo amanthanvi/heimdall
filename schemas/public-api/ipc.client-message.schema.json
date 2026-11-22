@@ -835,7 +835,7 @@
       ]
     },
     "ControllerRecordRequest": {
-      "description": "`Request::ControllerRecord`, tagged by `action` (ADR-0006 §18.7 item 6): write the\ncontroller's own records of its runners through its runtime. Local owner only; a paired\nsession is refused. Neither form widens anything on a runner: the runner-side effects\n(enrollment, revocation) are the management session's, confirmed where ADR-0012 §3.10\nsays.",
+      "description": "`Request::ControllerRecord`, tagged by `action` (ADR-0006 §18.7 item 6): write the\ncontroller's own records of its runners through its runtime. Local owner only; a paired\nsession is refused. No form widens anything on a runner: the runner-side effects\n(enrollment, revocation) are the management session's, confirmed where ADR-0012 §3.10\nsays.",
       "oneOf": [
         {
           "description": "Insert or replace the record of `record.environment`. Kind\n`controller_record.put_environment`.",
@@ -871,6 +871,33 @@
           "required": [
             "action",
             "environment"
+          ]
+        },
+        {
+          "description": "⟨rev6.4; ADR-0006 §18.8 item 4; ADR-0012 §7.4 ⟨2026-11-21⟩⟩ Record the owner's\nacknowledgement that the pauses and cutoffs named in `effects`, which this controller\ndelivered to the runner `environment`, were lifted there (`heimdall environment\nresume-issuance`). It names the specific delivered effects the owner was shown and\nreleases only those: a pause or cutoff delivered later is not acknowledged by it.\nAttended: a local owner in an attended session, after the CLI's typed confirmation.\nAn empty list, or an ID that is not a pause or cutoff this controller delivered to\n`environment`, is refused whole with effect `none`. Issuance for that runner resumes\nonly when its authority report shows each lift as well; the acknowledgement alone\nreopens nothing. Kind `controller_record.resume_issuance`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "resume_issuance"
+            },
+            "effects": {
+              "description": "The delivered effects the owner was shown and confirmed lifted (at least one).",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EffectId"
+              },
+              "minItems": 1
+            },
+            "environment": {
+              "description": "The runner environment.",
+              "$ref": "#/$defs/EnvironmentId"
+            }
+          },
+          "required": [
+            "action",
+            "environment",
+            "effects"
           ]
         }
       ]
@@ -1669,6 +1696,13 @@
           "description": "Interaction mode.",
           "$ref": "#/$defs/InteractionMode",
           "default": "non_interactive"
+        },
+        "pair_issuers": {
+          "description": "⟨rev6.4; ADR-0006 §18.8 item 1; ADR-0012 §4 item 2 ⟨2026-11-21⟩⟩ Per\ndestination/account pair, the fingerprint of the CA the controller will issue from.\nSet by the forwarding controller, or by the runner's local owner for a CA already in\nthe runner's `issuer_trust` (that admits a pending grant only). A runner resolves a\nnamed pair to `managed_certificate` only when that CA is in its `issuer_trust` for\nthe party that named it, and refuses `issuer_untrusted` otherwise; nothing about\nsuch a pair comes from the runner's own catalog. Omitted when empty, so every\nearlier request and its canonical hash are unchanged.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PairIssuer"
+          }
         },
         "profile": {
           "description": "Profile, or a subset of it via `scope`. ⟨M05⟩ Revision 5: optional only when\n`context` is present (the workspace's manifest or trust record, else the personal\ndefault profile, names it); a request with neither is `USAGE_ERROR`. Every\nM01–M03 request carries it, so its wire form and hash are unchanged.",
@@ -2718,6 +2752,24 @@
     "OperationId": {
       "description": "Durable operation ID (spec §4.1 \"Operation\").",
       "type": "string"
+    },
+    "PairIssuer": {
+      "description": "⟨rev6.4; ADR-0006 §18.8 item 1⟩ One entry of [`EnsureRequest::pair_issuers`]: the CA a\ncontroller will issue `pair`'s certificate from.",
+      "type": "object",
+      "properties": {
+        "ca_fingerprint": {
+          "description": "The issuing CA's fingerprint.",
+          "$ref": "#/$defs/CaFingerprint"
+        },
+        "pair": {
+          "description": "The destination/account pair.",
+          "$ref": "#/$defs/AccessPairRef"
+        }
+      },
+      "required": [
+        "pair",
+        "ca_fingerprint"
+      ]
     },
     "PeerInfo": {
       "description": "Identifies the peer software; informational only, never authority (spec §4.2).",

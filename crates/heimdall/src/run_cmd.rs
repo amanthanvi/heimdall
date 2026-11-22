@@ -268,6 +268,7 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         connection: None,
         context,
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     let rt = crate::service_cmd::current_thread()
         .map_err(|e| none(Failure::of(output::error_value(e))))?;

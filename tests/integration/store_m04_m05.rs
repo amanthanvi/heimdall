@@ -407,7 +407,7 @@ fn migration_0006_to_0008_keeps_m01_m03_rows_byte_identical() {
 
     let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
     assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 11); // M06 wave 0: 0009 adds tables only; M06 wave 2: 0010 adds one table; M06 wave 3: 0011 adds one table and a defaulted column
+    assert_eq!(SCHEMA_VERSION, 12); // M06 wave 4: 0012 adds one table; M06 wave 0: 0009 adds tables only; M06 wave 2: 0010 adds one table; M06 wave 3: 0011 adds one table and a defaulted column
     let mut backup = db.as_os_str().to_owned();
     backup.push(".v6.backup");
     assert!(PathBuf::from(backup).exists(), "v6 file backed up first");

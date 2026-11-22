@@ -97,6 +97,7 @@ async fn fresh_work(r: &Rig, n: u32) -> Code {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     };
     match r.ops.ensure(&local_owner(), request).await {
         Ok(done) => done.code,

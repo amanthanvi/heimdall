@@ -611,6 +611,7 @@ fn trust_request(n: usize) -> heimdall_contract::request::EnsureRequest {
             cwd: repo_cwd().to_owned(),
         }),
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

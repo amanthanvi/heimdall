@@ -167,10 +167,27 @@ pub(crate) enum BlobOpenError {
 
 /// ⟨M06-W2-R04⟩ Open a sealed blob for reading: the entry itself
 /// (`FILE_FLAG_OPEN_REPARSE_POINT`, so a symlink or junction at the name is opened as the
-/// link, not its target), which must be a regular file and not a reparse point, judged on
-/// the opened handle.
+/// link, not its target), which must be a regular file and not a reparse point.
+///
+/// ⟨Windows job 23⟩ The entry is judged twice. First by `symlink_metadata`, before the
+/// open: a directory cannot be opened as a file at all (the open fails with access denied
+/// unless it asks for backup semantics), so without this a directory at the blob's name
+/// read as a generic failure instead of [`BlobOpenError::NotRegular`]. Then on the opened
+/// handle, which is what the read is allowed on: an entry swapped between the two is
+/// judged again there, so the first check never accepts anything by itself.
 pub(crate) fn open_blob(path: &Path) -> Result<std::fs::File, BlobOpenError> {
     use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+    let regular = |m: &std::fs::Metadata| {
+        m.is_file() && m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
+    };
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if regular(&m) => {}
+        Ok(_) => return Err(BlobOpenError::NotRegular),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(BlobOpenError::NotFound);
+        }
+        Err(_) => return Err(BlobOpenError::Failed),
+    }
     let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
@@ -183,10 +200,84 @@ pub(crate) fn open_blob(path: &Path) -> Result<std::fs::File, BlobOpenError> {
             }
         })?;
     let meta = file.metadata().map_err(|_| BlobOpenError::Failed)?;
-    if !meta.is_file() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+    if !regular(&meta) {
         return Err(BlobOpenError::NotRegular);
     }
     Ok(file)
+}
+
+/// Test fixtures for the stores' link sub-cases: a sub-case that cannot be set up says so
+/// on the test's real standard error (never captured), and every sub-case is judged on its
+/// own.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+pub(crate) mod test_links {
+    use std::path::Path;
+
+    /// The sub-cases that failed, each with what it saw.
+    #[derive(Debug, Default)]
+    pub(crate) struct SubCases(Vec<String>);
+
+    impl SubCases {
+        /// Judge one sub-case: record it when `got` is not `want`.
+        pub(crate) fn check<T: PartialEq + std::fmt::Debug>(
+            &mut self,
+            name: &str,
+            got: &T,
+            want: &T,
+        ) {
+            if got != want {
+                self.0.push(format!("{name}: got {got:?}, want {want:?}"));
+            }
+        }
+
+        /// Fail the test with every failed sub-case.
+        pub(crate) fn finish(self) {
+            assert!(
+                self.0.is_empty(),
+                "{} sub-case(s) failed:\n{}",
+                self.0.len(),
+                self.0.join("\n")
+            );
+        }
+    }
+
+    /// Say, on the uncaptured standard error, that a sub-case did not run and why.
+    pub(crate) fn skipped(test: &str, sub_case: &str, why: &str) {
+        use std::io::Write as _;
+        let _ = writeln!(
+            std::io::stderr(),
+            "SKIPPED sub-case (not evidence): {test}: {sub_case}: {why}"
+        );
+    }
+
+    /// A file symbolic link `link` to `target`; `false` when this account may not create
+    /// one (no developer mode and no `SeCreateSymbolicLinkPrivilege`).
+    pub(crate) fn file_symlink(target: &Path, link: &Path) -> bool {
+        std::os::windows::fs::symlink_file(target, link).is_ok()
+    }
+
+    /// A directory symbolic link `link` to `target`; `false` as [`file_symlink`].
+    pub(crate) fn dir_symlink(target: &Path, link: &Path) -> bool {
+        std::os::windows::fs::symlink_dir(target, link).is_ok()
+    }
+
+    /// A junction `link` to the directory `target` (needs no privilege), made by the
+    /// command processor's `mklink /J`; `false` when it could not be made.
+    pub(crate) fn junction(target: &Path, link: &Path) -> bool {
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+            && std::fs::symlink_metadata(link).is_ok()
+    }
 }
 
 impl MgmtKeyStore for WindowsDpapiMgmt {
@@ -332,13 +423,17 @@ mod tests {
         assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::NotFound));
     }
 
-    /// ⟨M06-W2-R04⟩ Fixture/mechanism evidence only (scratch directories; run only on
-    /// native Windows, compile-checked elsewhere): a blob path that is not a regular file
-    /// is `Corrupt`, a store path that is not a plain directory is refused, and, where
-    /// this account may create symbolic links, neither a linked store directory nor a
-    /// linked blob is followed.
+    /// ⟨M06-W2-R04; Windows job 23⟩ Fixture/mechanism evidence only (scratch directories;
+    /// run only on native Windows, compile-checked elsewhere): a blob path that is not a
+    /// regular file is `Corrupt` (a directory, a file symlink), a store path that is not a
+    /// plain directory is refused (a file, a directory symlink, a junction), and nothing is
+    /// read through a link. Every sub-case is judged on its own; one that cannot be set up
+    /// (this account may not create symbolic links) says so on standard error.
     #[test]
     fn reparse_points_and_non_regular_entries_are_never_followed() {
+        use super::test_links::{SubCases, dir_symlink, file_symlink, junction, skipped};
+        const TEST: &str = "mgmt reparse_points_and_non_regular_entries_are_never_followed";
+        let mut cases = SubCases::default();
         let scratch = tempfile::tempdir().unwrap();
         let key = MgmtKey::generate().unwrap();
         // A real store elsewhere, holding a valid blob for the same environment.
@@ -346,30 +441,115 @@ mod tests {
         WindowsDpapiMgmt::in_dir(&real, &environment())
             .put(&key)
             .unwrap();
+        let load = |dir: &Path| {
+            WindowsDpapiMgmt::in_dir(dir, &environment())
+                .load()
+                .map(|_| ())
+        };
+        cases.check("the real store loads", &load(&real), &Ok(()));
+
         // A directory where the blob should be.
         let odd = scratch.path().join("odd");
         std::fs::create_dir_all(odd.join(BLOB_FILE)).unwrap();
-        let store = WindowsDpapiMgmt::in_dir(&odd, &environment());
-        assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::Corrupt));
+        cases.check(
+            "a directory at the blob's name is corrupt",
+            &load(&odd),
+            &Err(MgmtStoreError::Corrupt),
+        );
+        cases.check(
+            "open_blob names a directory not regular",
+            &open_blob(&odd.join(BLOB_FILE)).map(|_| ()),
+            &Err(BlobOpenError::NotRegular),
+        );
+        cases.check(
+            "open_blob names an absent entry not found",
+            &open_blob(&odd.join("absent")).map(|_| ()),
+            &Err(BlobOpenError::NotFound),
+        );
+
         // A file where the store directory should be.
         let file = scratch.path().join("file");
         std::fs::write(&file, b"x").unwrap();
-        assert_eq!(dir_state(&file), DirState::Refused);
-        assert_eq!(dir_state(&real), DirState::Plain);
-        assert_eq!(dir_state(&scratch.path().join("absent")), DirState::Absent);
-        // Links, where the account may create them (developer mode or the privilege).
-        let linked_dir = scratch.path().join("linked");
-        if std::os::windows::fs::symlink_dir(&real, &linked_dir).is_ok() {
-            let store = WindowsDpapiMgmt::in_dir(&linked_dir, &environment());
-            assert_eq!(dir_state(&linked_dir), DirState::Refused);
-            assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::Failed));
-            assert_eq!(store.ensure_dir(), Err(MgmtStoreError::Failed));
-        }
+        cases.check(
+            "a file is no store directory",
+            &dir_state(&file),
+            &DirState::Refused,
+        );
+        cases.check("a plain directory", &dir_state(&real), &DirState::Plain);
+        cases.check(
+            "an absent directory",
+            &dir_state(&scratch.path().join("absent")),
+            &DirState::Absent,
+        );
+
+        // A file symlink at the blob's name, to the real blob.
         let via = scratch.path().join("via");
         std::fs::create_dir(&via).unwrap();
-        if std::os::windows::fs::symlink_file(real.join(BLOB_FILE), via.join(BLOB_FILE)).is_ok() {
-            let store = WindowsDpapiMgmt::in_dir(&via, &environment());
-            assert_eq!(store.load().map(|_| ()), Err(MgmtStoreError::Corrupt));
+        if file_symlink(&real.join(BLOB_FILE), &via.join(BLOB_FILE)) {
+            cases.check(
+                "a file symlink at the blob's name is corrupt, never followed",
+                &load(&via),
+                &Err(MgmtStoreError::Corrupt),
+            );
+        } else {
+            skipped(
+                TEST,
+                "file symlink at the blob's name",
+                "no privilege to create symbolic links",
+            );
         }
+
+        // A directory symlink, and a junction, at the store directory's path.
+        let linked = scratch.path().join("linked");
+        if dir_symlink(&real, &linked) {
+            let store = WindowsDpapiMgmt::in_dir(&linked, &environment());
+            cases.check(
+                "a directory symlink is refused",
+                &dir_state(&linked),
+                &DirState::Refused,
+            );
+            cases.check(
+                "a store behind a directory symlink is not loaded",
+                &store.load().map(|_| ()),
+                &Err(MgmtStoreError::Failed),
+            );
+            cases.check(
+                "a store behind a directory symlink is not created into",
+                &store.ensure_dir(),
+                &Err(MgmtStoreError::Failed),
+            );
+        } else {
+            skipped(
+                TEST,
+                "directory symlink at the store directory",
+                "no privilege to create symbolic links",
+            );
+        }
+        let joined = scratch.path().join("joined");
+        if junction(&real, &joined) {
+            let store = WindowsDpapiMgmt::in_dir(&joined, &environment());
+            cases.check(
+                "a junction is refused",
+                &dir_state(&joined),
+                &DirState::Refused,
+            );
+            cases.check(
+                "a store behind a junction is not loaded",
+                &store.load().map(|_| ()),
+                &Err(MgmtStoreError::Failed),
+            );
+            cases.check(
+                "a store behind a junction is not created into",
+                &store.ensure_dir(),
+                &Err(MgmtStoreError::Failed),
+            );
+        } else {
+            skipped(
+                TEST,
+                "junction at the store directory",
+                "mklink /J did not create one",
+            );
+        }
+        cases.finish();
     }
 }

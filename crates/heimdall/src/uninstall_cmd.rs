@@ -5521,6 +5521,13 @@ mod tests {
         .map(drop)
     }
 
+    /// ⟨M06 W4⟩ An outbox effect the runner acknowledged (what a lift is acknowledged for).
+    fn seed_delivered_effect(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
+        seed_outbox_effect(tx)?;
+        tx.acknowledge_remote_effect(&effect_ack(1, false), t0())
+            .map(drop)
+    }
+
     fn seed_policy_revision(tx: &mut heimdall_store::Txn<'_>) -> heimdall_store::Result<()> {
         tx.record_remote_policy_revision(&effect_revision(1, "2026-12-01T00:00:00Z"))
             .map(drop)
@@ -6135,6 +6142,35 @@ mod tests {
                     tx.forget_remote_effect_outbox(&effect_environment())
                         .map(drop)
                 }),
+            ],
+            // ⟨M06 W4⟩ Migration 0012, the controller's lift acknowledgements: one recorded
+            // (it is one of the two things that reopen issuance for a runner), and dropped
+            // with the environment's effects.
+            "remote_lift_acks" => vec![
+                case("acknowledge a lift", seed_delivered_effect, |tx| {
+                    tx.acknowledge_remote_lift(
+                        &effect_environment(),
+                        &effect_key(1, "2026-12-01T00:00:00Z"),
+                        t0(),
+                    )
+                    .map(drop)
+                }),
+                case(
+                    "drop it with the environment's effects",
+                    |tx| {
+                        seed_delivered_effect(tx)?;
+                        tx.acknowledge_remote_lift(
+                            &effect_environment(),
+                            &effect_key(1, "2026-12-01T00:00:00Z"),
+                            t0(),
+                        )
+                        .map(drop)
+                    },
+                    |tx| {
+                        tx.forget_remote_effect_outbox(&effect_environment())
+                            .map(drop)
+                    },
+                ),
             ],
             // ⟨M06 U4⟩ The runner's acknowledgements: a new one, and one whose enforcement
             // state a re-application rewrote.

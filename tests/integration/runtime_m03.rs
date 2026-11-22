@@ -400,6 +400,7 @@ fn ensure_req(request_id: &str) -> EnsureRequest {
         connection: None,
         context: None,
         covered_only: false,
+        pair_issuers: Vec::new(),
     }
 }
 

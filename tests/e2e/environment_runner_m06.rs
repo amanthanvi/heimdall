@@ -1873,6 +1873,23 @@ mod driver_e2e {
             std::fs::read_to_string(self.account.join("runtime.stderr")).unwrap_or_default()
         }
 
+        /// Stop the runtime this test started (`service stop`, then its own child is
+        /// waited for), leaving the installation for a later [`Self::start`].
+        fn runtime_stop(&mut self) {
+            if let Some(mut child) = self.runtime.take() {
+                let _ = self.command().args(["service", "stop"]).output();
+                let start = Instant::now();
+                while start.elapsed() < Duration::from_secs(30) {
+                    if matches!(child.try_wait(), Ok(Some(_))) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+
         /// This controller's entry for `environment` in `environment status --json`.
         fn status(&self, environment: &EnvironmentId) -> Value {
             let report = self.json(&["environment", "status"]);
@@ -2131,6 +2148,518 @@ mod driver_e2e {
         );
         assert!(gone.get("issuance_failures").is_none(), "{gone}");
         drop(controller);
+        drop(sshd);
+    }
+
+    // --- ⟨M06 W4 grant-e2e⟩ the journey with real binaries -----------------------------------
+
+    /// The runner's catalog as its owner set it up, written while no runtime runs: the
+    /// permissions of its own environment, one profile with one pair, the standing policy
+    /// that admits work for it, and the destination. **No grant**: the grant comes from the
+    /// controller's forwarded `ensure`.
+    fn seed_runner_catalog(home: &Path, now: Timestamp, pair: &AccessPairRef) -> EnvironmentId {
+        let store = Store::open(&state_db(home), Arc::new(NoFaults)).unwrap();
+        let profile = ProfileId::parse("runner-profile").unwrap();
+        let scope = Scope {
+            pairs: [pair.clone()].into_iter().collect(),
+            capabilities: [Capability::SshAuthentication].into_iter().collect(),
+        };
+        store
+            .transaction(|tx| {
+                let env = tx.self_environment()?.expect("a runner environment");
+                let mut e = tx.environment(&env)?.unwrap();
+                e.permissions = heimdall_domain::environment::EnvironmentPermissions {
+                    automatic_activation: true,
+                    managed_signing: true,
+                    issuer_access: true,
+                };
+                tx.upsert_environment(&e)?;
+                tx.upsert_profile(&ProfileDefinition {
+                    id: profile.clone(),
+                    revision: 1,
+                    scope: scope.clone(),
+                    label: None,
+                })?;
+                tx.upsert_policy(
+                    &StandingPolicy {
+                        id: PolicyId::parse("runner-pol").unwrap(),
+                        revision: PolicyRevision(1),
+                        profile: profile.clone(),
+                        workspace: None,
+                        scope: scope.clone(),
+                        environments: [env.clone()].into_iter().collect(),
+                        max_window: 4 * HOUR,
+                        pause: PauseState::Active,
+                        cutoff_at: None,
+                        source: PolicySource::SetupDefault,
+                        lock_behavior: LockBehavior::Continue,
+                        connection: ConnectionPolicy::default(),
+                        default: false,
+                    },
+                    false,
+                )?;
+                tx.upsert_destination(&DestinationRecord {
+                    id: pair.destination.clone(),
+                    alias: pair.destination.as_str().to_owned(),
+                    revision: 1,
+                    definition: DestinationDefinition::Observed,
+                    label: None,
+                    updated_at: now,
+                })?;
+                Ok(env)
+            })
+            .unwrap()
+    }
+
+    /// The identities an agent endpoint lists (`ssh-add -L`), one line each. An endpoint
+    /// that is gone, or lists nothing, gives none.
+    fn listed_identities(endpoint: &str) -> Vec<String> {
+        let out = Command::new(find_program("ssh-add").expect("ssh-add"))
+            .arg("-L")
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("SSH_AUTH_SOCK", endpoint)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| l.starts_with("ssh-") || l.starts_with("ecdsa-") || l.starts_with("sk-"))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// One onward login from the runner to the fixture destination through a binding's
+    /// endpoint, with the fixture isolation options: no configuration but an empty scratch
+    /// file, the binding's certificate as the only identity, the binding's endpoint as the
+    /// only agent, the destination's per-run host key pinned, no multiplexing. `(succeeded,
+    /// output)`.
+    fn onward_login(
+        dir: &Path,
+        destination: &LoopbackSshd,
+        account: &str,
+        endpoint: &str,
+        certificate_line: &str,
+    ) -> (bool, String) {
+        std::fs::create_dir_all(dir).unwrap();
+        let config = dir.join("ssh_config");
+        std::fs::write(&config, "").unwrap();
+        let known = dir.join("known_hosts");
+        std::fs::write(&known, format!("{}\n", destination.host_key_line)).unwrap();
+        let identity = dir.join("id-cert.pub");
+        std::fs::write(&identity, format!("{certificate_line}\n")).unwrap();
+        let out = Command::new(find_program("ssh").expect("an OpenSSH client"))
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", dir)
+            .arg("-F")
+            .arg(&config)
+            .args(["-T", "-o", "BatchMode=yes"])
+            .args(["-o", &format!("IdentityFile={}", identity.display())])
+            .args(["-o", "IdentitiesOnly=yes"])
+            .args(["-o", &format!("IdentityAgent={endpoint}")])
+            .args(["-o", "CertificateFile=none"])
+            .args(["-o", &format!("UserKnownHostsFile={}", known.display())])
+            .args(["-o", "GlobalKnownHostsFile=/dev/null"])
+            .args(["-o", "StrictHostKeyChecking=yes"])
+            .args(["-o", "ControlMaster=no", "-o", "ControlPath=none"])
+            .args(["-o", "PreferredAuthentications=publickey"])
+            .args(["-o", "ConnectTimeout=20"])
+            .args(["-p", &destination.port.to_string()])
+            .arg(format!("{account}@{}", destination.host))
+            .arg("echo hm-onward")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_no_canary(&text);
+        (out.status.success() && text.contains("hm-onward"), text)
+    }
+
+    /// ⟨M06 W4 `grant-e2e`; m06-plan §2 "What W3 carries" items 1 and 4; ADR-0012 §4 item 2
+    /// ⟨2026-11-21⟩, §7; ADR-0005 §3.5 "Remote reservations"; spec A24's core⟩ **The journey,
+    /// with real binaries on both sides.**
+    ///
+    /// 1. On the controller: `heimdall access ensure --environment <runner>` names no pair.
+    ///    The controller's runtime resolves the scope from its own copy of the profile,
+    ///    forwards the request (each pair naming the CA it will issue from), and records
+    ///    what it asked. The runner admits the grant under its own standing policy, resolves
+    ///    the pair to a managed certificate under its `issuer_trust` for that controller, and
+    ///    waits. The controller's production issuer child signs the `remote` reservation; the
+    ///    runner installs the certificate and its waiting `ensure` settles. The local caller
+    ///    gets the runner's result, or the pending state and then `operation wait`.
+    /// 2. On the runner: a local `access ensure` covered by that live grant attaches to it
+    ///    (a new binding on the same grant). Its endpoint lists exactly one identity: the
+    ///    certificate of the runner's K_env for that grant, signed by the controller's CA.
+    /// 3. **The controller is stopped.** An onward `ssh` from the runner through that
+    ///    endpoint to a fixture destination that trusts the CA succeeds.
+    /// 4. The controller comes back while the runner cannot be reached; the owner's
+    ///    `access revoke` answers `remote_pending`, and the runner still serves the grant.
+    ///    Once the runner is reachable again the revoke is applied: acknowledged in
+    ///    `environment status`, the endpoint lists nothing, and an onward login fails.
+    #[tokio::test]
+    async fn a_forwarded_ensure_reaches_onward_ssh_from_the_runner_with_the_controller_stopped() {
+        let scratch = Scratch::new().unwrap();
+        let destination_scratch = Scratch::new().unwrap();
+        let mut runner = Runner::new(&scratch);
+        let key = MgmtKey::generate().unwrap();
+        let public = key.public().unwrap();
+        let key_text = public
+            .openssh_line
+            .rsplit_once(' ')
+            .map(|(k, _)| k.to_owned())
+            .unwrap();
+        let client = ClientId::from_random_bytes([0x5e; 16]);
+        let ca = SecretCaKey::generate().unwrap();
+        let ca_line = ca.public_openssh().unwrap();
+        let ca_fingerprint = ca.fingerprint().unwrap();
+        let first = envelope(&runner.remote_init_with(
+            &client,
+            &key_text,
+            "yes",
+            &["--issuer-ca", ca_line.trim()],
+        ));
+        assert_eq!(first["code"], "OK", "{first}");
+        let clock: Arc<dyn Clock> = Arc::new(heimdall_runtime::platform::SystemClock);
+        let seeded_at = clock.wall();
+
+        // The management sshd (the runner account's authorized_keys) and the destination
+        // (it trusts the controller's CA for the pair's principal, as its administrator set).
+        let blocked = |why: &str| {
+            #[allow(clippy::print_stderr)] // the blocked row's reason
+            {
+                eprintln!("m06 grant e2e: blocked ({why})");
+            }
+        };
+        let sshd = match LoopbackSshd::start(
+            &scratch,
+            SshdConfig {
+                registry_seed: Some(Vec::new()),
+                ..SshdConfig::default()
+            },
+        ) {
+            Ok(s) => s,
+            Err(e) => return blocked(&format!("no fixture sshd: {e}")),
+        };
+        let Some(account) = sshd.login_account().or_else(current_account) else {
+            return blocked("the fixture account is unknown");
+        };
+        let Some(registry) = sshd.registry_path().map(Path::to_path_buf) else {
+            return blocked("the fixture sshd has no local registry");
+        };
+        let pair = AccessPairRef {
+            destination: DestinationId::parse("h1").unwrap(),
+            account: AccountName::parse(&account).unwrap(),
+        };
+        let principal = heimdall_domain::issuance::principal_for(&pair);
+        let ca_keys = destination_scratch
+            .subdir("ca-keys")
+            .unwrap()
+            .join("trusted_user_ca_keys");
+        std::fs::write(&ca_keys, b"").unwrap();
+        let destination = match LoopbackSshd::start(
+            &destination_scratch,
+            SshdConfig {
+                trusted_user_ca_keys: Some(ca_keys),
+                authorized_principals: Some(
+                    [(account.clone(), vec![principal.clone()])]
+                        .into_iter()
+                        .collect(),
+                ),
+                ..SshdConfig::default()
+            },
+        ) {
+            Ok(s) => s,
+            Err(e) => return blocked(&format!("no fixture destination sshd: {e}")),
+        };
+        destination.trust_user_ca(ca_line.trim()).unwrap();
+        // The management sshd reads the runner account's authorized_keys through its
+        // registry path; an empty file there makes the runner unreachable for new sessions.
+        let runner_keys = runner.account.join(".ssh/authorized_keys");
+        let reachable = |on: bool| {
+            let _ = std::fs::remove_file(&registry);
+            if on {
+                std::os::unix::fs::symlink(&runner_keys, &registry).unwrap();
+            } else {
+                std::fs::write(&registry, b"").unwrap();
+            }
+        };
+        reachable(true);
+
+        let environment = seed_runner_catalog(&runner.home, seeded_at, &pair);
+        assert_eq!(first["data"]["environment"], environment.as_str());
+        runner.start();
+
+        // The controller installation: K_mgmt, its CA, its record of the runner, and its
+        // own copy of the profile (the forwarded scope is resolved from it).
+        let mut controller = ControllerRuntime {
+            home: scratch.subdir("ch").unwrap(),
+            account: scratch.subdir("ca").unwrap(),
+            mgmt: scratch.subdir("cm").unwrap().join("k_mgmt.fixture"),
+            runtime: None,
+        };
+        {
+            use heimdall_credential::mgmt::MgmtKeyStore as _;
+            heimdall_credential::mgmt::fixture::FixtureMgmtStore::file(controller.mgmt.clone())
+                .put(&key)
+                .unwrap();
+        }
+        let paths = heimdall_runtime::Paths::under(&controller.home);
+        paths.ensure().unwrap();
+        let pin = RemoteEnvironmentPin {
+            environment: environment.clone(),
+            destination: DestinationId::parse("runner1").unwrap(),
+            route: ManagementRoute {
+                runner: ManagementHop {
+                    hostname: sshd.host.clone(),
+                    port: Some(sshd.port),
+                    account: AccountName::parse(&account).unwrap(),
+                    host_keys: vec![host_key(&sshd)],
+                },
+                jump: None,
+            },
+            client: client.clone(),
+            role: Role::Owner,
+            key_fingerprint: public.fingerprint.clone(),
+            label: None,
+            pinned_at: seeded_at,
+        };
+        {
+            let store = Store::open(
+                &paths
+                    .state_dir
+                    .join(heimdall_runtime::service::STATE_DB_FILE),
+                Arc::new(NoFaults),
+            )
+            .unwrap();
+            let secrets = paths.state_dir.join(SCRATCH_STORE_DIR);
+            std::fs::create_dir_all(&secrets).unwrap();
+            heimdall_testkit::scratch_store::ScratchSecretStore::new(secrets)
+                .put(&ca_fingerprint, &ca)
+                .unwrap();
+            store
+                .transaction(|tx| {
+                    tx.init_self_environment(&EnvironmentId::from_random_bytes([0x2e; 16]))?;
+                    tx.insert_issuer(&heimdall_store::IssuerRecord {
+                        ca_fingerprint: ca_fingerprint.clone(),
+                        public_key: ca.public_openssh().unwrap(),
+                        state: heimdall_contract::issuer::CaState::Active,
+                        store_kind: heimdall_contract::issuer::StoreKind::LinuxSecretService,
+                        backup_sha256: "ab".repeat(32),
+                        backup_created_at: seeded_at,
+                        restored_without_log: false,
+                        created_at: seeded_at,
+                        retired_at: None,
+                    })?;
+                    tx.upsert_profile(&ProfileDefinition {
+                        id: ProfileId::parse("runner-profile").unwrap(),
+                        revision: 1,
+                        scope: Scope {
+                            pairs: [pair.clone()].into_iter().collect(),
+                            capabilities: [Capability::SshAuthentication].into_iter().collect(),
+                        },
+                        label: None,
+                    })?;
+                    tx.put_remote_environment_pin(
+                        &pin.environment,
+                        &pin.destination,
+                        &pin.route.runner.account,
+                        &pin.key_fingerprint,
+                        &serde_json::to_string(&pin).unwrap(),
+                        pin.pinned_at,
+                    )
+                })
+                .unwrap();
+        }
+        drop(ca);
+        controller.start();
+
+        // 1. The owner's `ensure --environment <runner>`, naming no pair.
+        let forward = [
+            "access",
+            "ensure",
+            "--profile",
+            "runner-profile",
+            "--environment",
+            environment.as_str(),
+            "--work-id",
+            "job-1",
+            "--for",
+            "1h",
+            "--request-id",
+            "fwd-1",
+        ];
+        let mut answer = controller.json(&forward);
+        if answer["code"] == "ACCEPTED" {
+            // The pending state: no reason, the refresh dependency, the grant pending; the
+            // operation it names is driven by `operation wait`.
+            let data = &answer["data"];
+            assert!(data["error"].get("reason").is_none(), "{answer}");
+            assert_eq!(data["refresh_dependency"], "controller", "{answer}");
+            assert_eq!(
+                data["remote_pending"][0], data["error"]["resource"]["id"],
+                "{answer}"
+            );
+            let operation = answer["operation_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("the pending answer names no operation: {answer}"))
+                .to_owned();
+            answer = controller.json(&["operation", "wait", &operation, "--timeout-ms", "60000"]);
+        }
+        assert_eq!(
+            answer["code"],
+            "OK",
+            "{answer}\n{}\n{}\n{}",
+            controller.stderr(),
+            std::fs::read_to_string(runner.account.join("runtime.stderr")).unwrap_or_default(),
+            controller.status(&environment)
+        );
+        let ready = answer["data"].clone();
+        let grant = GrantId::parse(ready["grant_id"].as_str().unwrap()).unwrap();
+        assert_eq!(ready["environment_id"], environment.as_str());
+        assert_eq!(ready["credential_mechanism"], "managed_certificate");
+        assert_eq!(ready["refresh_dependency"], "controller");
+        // The same request again reads the same grant and reserves nothing more.
+        let again = controller.json(&forward);
+        assert_eq!(again["code"], "OK", "{again}");
+        assert_eq!(again["data"]["grant_id"], grant.as_str());
+        let status = controller.wait_for(&environment, "the grant is not reported", |e| {
+            e["last_known_readiness"]
+                .as_array()
+                .is_some_and(|r| r.iter().any(|g| g["grant"] == grant.as_str()))
+        });
+        assert_eq!(status["connectivity"]["state"], "connected", "{status}");
+        assert!(status.get("issuance_failures").is_none(), "{status}");
+
+        // 2. On the runner: a local `ensure` covered by the live grant attaches to it.
+        let local = runner
+            .command()
+            .args([
+                "--json",
+                "access",
+                "ensure",
+                "--profile",
+                "runner-profile",
+                "--pair",
+                &format!("h1:{account}"),
+                "--work-id",
+                "job-local",
+                "--for",
+                "30m",
+                "--request-id",
+                "local-1",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let local: Value = serde_json::from_slice(&local.stdout).unwrap_or_else(|_| {
+            panic!(
+                "{} {}",
+                String::from_utf8_lossy(&local.stdout),
+                String::from_utf8_lossy(&local.stderr)
+            )
+        });
+        assert!(
+            matches!(local["code"].as_str(), Some("OK" | "ACCESS_READY")),
+            "{local}"
+        );
+        assert_eq!(local["data"]["grant_id"], grant.as_str(), "the same grant");
+        assert_ne!(local["data"]["binding_id"], ready["binding_id"], "{local}");
+        assert_eq!(local["data"]["refresh_dependency"], "controller");
+        let endpoint = local["data"]["consumer"]["signing_endpoint"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the binding names no endpoint: {local}"))
+            .to_owned();
+        // The endpoint lists exactly the runner's K_env certificate for that grant.
+        let listed = listed_identities(&endpoint);
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert!(listed[0].starts_with("ssh-ed25519-cert-v01@openssh.com "));
+        let facts =
+            heimdall_issuer::remote::read_certificate(&listed[0]).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(facts.ca_fingerprint, ca_fingerprint);
+        assert_eq!(facts.principals, vec![principal.clone()]);
+        assert!(
+            facts.key_id.contains(environment.as_str()),
+            "{}",
+            facts.key_id
+        );
+        assert!(facts.key_id.contains(grant.as_str()), "{}", facts.key_id);
+        assert_ne!(
+            facts.subject_fingerprint,
+            public.fingerprint.as_str(),
+            "never K_mgmt"
+        );
+        // The binding the forwarded request created lists the same single identity.
+        let forwarded_endpoint = ready["consumer"]["signing_endpoint"].as_str().unwrap();
+        assert_eq!(listed_identities(forwarded_endpoint), listed);
+
+        // 3. The controller is stopped; the runner goes on.
+        controller.runtime_stop();
+        let dir = scratch.subdir("onward").unwrap();
+        let mark = destination.log_mark();
+        let (ok, out) = onward_login(&dir, &destination, &account, &endpoint, &listed[0]);
+        assert!(
+            ok,
+            "onward ssh with the controller stopped: {out}\n{}",
+            std::fs::read_to_string(runner.account.join("runtime.stderr")).unwrap_or_default()
+        );
+        let accepted = destination.accepted_certificates();
+        assert!(
+            accepted.iter().any(|c| c.key_id == facts.key_id
+                && c.serial == facts.serial
+                && c.ca_fingerprint == ca_fingerprint.as_str()),
+            "{accepted:?} {:?}",
+            destination.log_lines_since(mark, "Accepted")
+        );
+
+        // 4. The controller is back, the runner unreachable: the revoke is pending.
+        reachable(false);
+        controller.start();
+        let away = controller.wait_for(&environment, "the runner is still reachable", |e| {
+            e["connectivity"]["state"] != "connected"
+        });
+        assert_eq!(away["issuance"], "awaiting_resync", "{away}");
+        let revoked = controller.json(&["access", "revoke", grant.as_str()]);
+        assert_eq!(revoked["code"], "OK", "{revoked}");
+        assert_eq!(revoked["data"]["local_applied"], false);
+        assert_eq!(revoked["data"]["remote_pending"][0], grant.as_str());
+        let pending = controller.status(&environment);
+        assert_eq!(
+            pending["remote_pending"].as_array().unwrap().len(),
+            1,
+            "{pending}"
+        );
+        // Not applied yet: the runner still serves the grant.
+        assert_eq!(listed_identities(&endpoint), listed);
+        let (ok, out) = onward_login(&dir, &destination, &account, &endpoint, &listed[0]);
+        assert!(ok, "the revoke is only pending: {out}");
+
+        // Reachable again: an owner-awaited pass (the same forwarded request) reconnects
+        // at once; the reconnect order delivers the revoke before anything else.
+        reachable(true);
+        let _ = controller.json(&forward);
+        let applied = controller.wait_for(&environment, "the revoke was not applied", |e| {
+            e["residuals"]
+                .as_array()
+                .is_some_and(|r| r.iter().any(|x| x["acknowledged"] == true))
+        });
+        assert!(
+            applied["remote_pending"].as_array().unwrap().is_empty(),
+            "{applied}"
+        );
+        assert_eq!(applied["residuals"][0]["grant"], grant.as_str());
+        assert!(
+            listed_identities(&endpoint).is_empty(),
+            "nothing after the revoke"
+        );
+        let (ok, out) = onward_login(&dir, &destination, &account, &endpoint, &listed[0]);
+        assert!(!ok, "no onward login after the revoke: {out}");
+        drop(controller);
+        drop(destination);
         drop(sshd);
     }
 }

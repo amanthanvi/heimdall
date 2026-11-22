@@ -109,7 +109,26 @@ pub struct ControllerHost {
     held: tokio::sync::Mutex<HashMap<EnvironmentId, Box<dyn ManagementSession>>>,
     /// The unreachable runners (module docs, "Backoff").
     backoff: std::sync::Mutex<HashMap<EnvironmentId, Backoff>>,
+    /// ⟨M06 W4⟩ The forwarded `ensure`s that answered pending, by the runner's operation:
+    /// what `operation wait` drives ([`ControllerHost::observe_forwarded`]). Process state,
+    /// oldest forgotten past [`FORWARDED_REMEMBERED`]; after a restart the same request
+    /// with the same request ID reads the state instead.
+    forwarded: std::sync::Mutex<
+        std::collections::VecDeque<(
+            heimdall_contract::ids::OperationId,
+            heimdall_contract::request::EnsureRequest,
+        )>,
+    >,
 }
+
+/// The most pending forwarded requests remembered for `operation wait`.
+const FORWARDED_REMEMBERED: usize = 256;
+
+/// The pause between two rounds of an `operation wait` on a forwarded `ensure`.
+const OBSERVE_ROUND: Duration = Duration::from_millis(500);
+
+/// The longest an `operation wait` on a forwarded `ensure` is held.
+const OBSERVE_MAX: Duration = Duration::from_secs(120);
 
 impl std::fmt::Debug for ControllerHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -176,6 +195,7 @@ impl ControllerHost {
             wake: tokio::sync::Notify::new(),
             held: tokio::sync::Mutex::new(HashMap::new()),
             backoff: std::sync::Mutex::new(HashMap::new()),
+            forwarded: std::sync::Mutex::default(),
         })
     }
 
@@ -350,7 +370,12 @@ impl ControllerHost {
             Err(_) => return,
         };
         for (_, e) in &maintained.failed {
-            tracing::warn!(code = %e.code, "remote issuance for a delivered grant failed");
+            tracing::warn!(
+                code = %e.code,
+                reason = e.reason.as_deref().unwrap_or(""),
+                message = %e.message,
+                "remote issuance for a delivered grant failed"
+            );
         }
         // After an issuance the runner holds new certificates: its report is read again at
         // once, so the last-known readiness `environment status` shows is the current one
@@ -377,14 +402,15 @@ impl ControllerHost {
     /// Forward `request`, an `ensure` naming a runner's environment, and answer for it
     /// (module docs, "Forwarding"). `None`: the environment is not a runner this
     /// installation records, and nothing was done. Otherwise, under the pass lock:
-    /// resynchronize with that runner now, forward the request and record what was asked;
-    /// when the grant then awaits this controller's issuer, issue for it in the same turn
-    /// and read the request's state once more.
+    /// resynchronize with that runner now (the owner waits: the backoff is bypassed),
+    /// forward the request and record what was asked; when the grant then awaits this
+    /// controller's issuer, issue for it in the same turn and read the request's state once
+    /// more. A request still pending then answers `ACCEPTED` with the pending state
+    /// (`forwarded_pending`), and its operation is remembered for `operation wait`.
     pub async fn forward_ensure(
         &self,
         request: &heimdall_contract::request::EnsureRequest,
     ) -> Option<heimdall_app::OpResult<serde_json::Value>> {
-        use heimdall_app::remote_status_driver::{Forwarded, forwarded_pending};
         let environment = request.environment.as_ref()?;
         let pin = self
             .store()
@@ -392,25 +418,123 @@ impl ControllerHost {
             .ok()?
             .into_iter()
             .find(|p| p.environment == *environment)?;
+        Some(self.drive_forwarded(&pin, request).await)
+    }
+
+    /// One round of a forwarded `ensure` ([`Self::forward_ensure`]), under the pass lock.
+    async fn drive_forwarded(
+        &self,
+        pin: &RemoteEnvironmentPin,
+        request: &heimdall_contract::request::EnsureRequest,
+    ) -> heimdall_app::OpResult<serde_json::Value> {
+        use heimdall_app::remote_status_driver::{Forwarded, forwarded_pending, role_may_issue};
+        // Only a role the role table allows to issue forwards; nothing is sent otherwise.
+        if !role_may_issue(pin.role) {
+            return Err(heimdall_app::OpError::new(
+                heimdall_contract::Code::CapabilityUnavailable,
+                "this controller's role on the runner does not let it issue for its grants",
+            )
+            .with_reason(heimdall_contract::envelope::reason::ROLE_INSUFFICIENT)
+            .with_effect(heimdall_contract::EffectStatus::None));
+        }
         let mut held = self.held.lock().await;
-        Some(
-            async {
-                self.resynchronize(&pin, &mut held, true).await?;
-                let first = self.forward_over(&pin, &mut held, request).await?;
-                let grant = match first {
-                    Forwarded::Ready { data, .. } => return Ok(ready(data)),
-                    Forwarded::Pending { grant, .. } => grant,
-                };
-                // Issue now (the pass's own steps: resynchronize, issue, read the report
-                // again), then read the request's state once more.
-                self.visit(&pin, &mut held, true).await;
-                match self.forward_over(&pin, &mut held, request).await {
-                    Ok(Forwarded::Ready { data, .. }) => Ok(ready(data)),
-                    _ => Err(forwarded_pending(&grant)),
-                }
+        self.resynchronize(pin, &mut held, true).await?;
+        let first = self.forward_over(pin, &mut held, request).await?;
+        let (grant, operation) = match first {
+            Forwarded::Ready { data, .. } => {
+                self.forget_forwarded(request);
+                return Ok(ready(data));
             }
-            .await,
-        )
+            Forwarded::Pending {
+                grant, operation, ..
+            } => (grant, operation),
+        };
+        // Issue now (the pass's own steps: resynchronize, issue, read the report
+        // again), then read the request's state once more.
+        self.visit(pin, &mut held, true).await;
+        match self.forward_over(pin, &mut held, request).await {
+            Ok(Forwarded::Ready { data, .. }) => {
+                self.forget_forwarded(request);
+                Ok(ready(data))
+            }
+            _ => {
+                if let Some(op) = &operation {
+                    self.remember_forwarded(op, request);
+                }
+                Ok(forwarded_pending(&grant, operation.as_ref()))
+            }
+        }
+    }
+
+    fn forwarded(
+        &self,
+    ) -> std::sync::MutexGuard<
+        '_,
+        std::collections::VecDeque<(
+            heimdall_contract::ids::OperationId,
+            heimdall_contract::request::EnsureRequest,
+        )>,
+    > {
+        self.forwarded
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn remember_forwarded(
+        &self,
+        operation: &heimdall_contract::ids::OperationId,
+        request: &heimdall_contract::request::EnsureRequest,
+    ) {
+        let mut all = self.forwarded();
+        if all.iter().any(|(op, _)| op == operation) {
+            return;
+        }
+        all.push_back((operation.clone(), request.clone()));
+        while all.len() > FORWARDED_REMEMBERED {
+            all.pop_front();
+        }
+    }
+
+    fn forget_forwarded(&self, request: &heimdall_contract::request::EnsureRequest) {
+        self.forwarded().retain(|(_, r)| {
+            r.request_id != request.request_id || r.environment != request.environment
+        });
+    }
+
+    /// ⟨M06 W4⟩ `operation wait` on a forwarded `ensure` that answered pending: `operation`
+    /// is the runner's operation that answer named. Rounds of [`Self::forward_ensure`]'s
+    /// steps run until the runner's `ensure` succeeds, a round fails, or `wait_ms` (at most
+    /// [`OBSERVE_MAX`]) has passed, when the pending state is answered again. `None`: this
+    /// instance forwarded no such operation.
+    pub async fn observe_forwarded(
+        &self,
+        operation: &heimdall_contract::ids::OperationId,
+        wait_ms: Option<u64>,
+    ) -> Option<heimdall_app::OpResult<serde_json::Value>> {
+        let request = self
+            .forwarded()
+            .iter()
+            .find(|(op, _)| op == operation)
+            .map(|(_, r)| r.clone())?;
+        let environment = request.environment.clone()?;
+        let pin = self
+            .store()
+            .transaction(pins)
+            .ok()?
+            .into_iter()
+            .find(|p| p.environment == environment)?;
+        let wait = Duration::from_millis(wait_ms.unwrap_or(0)).min(OBSERVE_MAX);
+        let until = tokio::time::Instant::now() + wait;
+        loop {
+            let round = self.drive_forwarded(&pin, &request).await;
+            let pending = round
+                .as_ref()
+                .is_ok_and(|done| done.code == heimdall_contract::Code::Accepted);
+            if !pending || tokio::time::Instant::now() + OBSERVE_ROUND > until {
+                return Some(round);
+            }
+            tokio::time::sleep(OBSERVE_ROUND).await;
+        }
     }
 
     /// One forwarded `ensure` over the held session of `pin`'s runner.
@@ -420,6 +544,13 @@ impl ControllerHost {
         held: &mut HashMap<EnvironmentId, Box<dyn ManagementSession>>,
         request: &heimdall_contract::request::EnsureRequest,
     ) -> Result<heimdall_app::remote_status_driver::Forwarded, heimdall_app::OpError> {
+        // The CA this controller will issue from: a controller without an issuer forwards
+        // nothing (it could never issue for the grant).
+        let no_issuer = NoIssuer;
+        let ca = match &self.issuer {
+            Some(i) => i.ca(),
+            None => no_issuer.ca(),
+        }?;
         let Some(session) = held.get_mut(&pin.environment) else {
             return Err(heimdall_app::OpError::new(
                 heimdall_contract::Code::ServiceUnavailable,
@@ -428,7 +559,7 @@ impl ControllerHost {
         };
         let forwarded = self
             .sync
-            .forward_ensure(pin, session.as_mut(), request)
+            .forward_ensure(pin, session.as_mut(), request, &ca)
             .await;
         // A transport failure leaves the session in an unknown state: it is dropped, and
         // the next pass reconnects and resynchronizes before anything else.
@@ -508,6 +639,14 @@ impl heimdall_app::remote_status_driver::EnsureForwarding for HostDelivery {
         request: &heimdall_contract::request::EnsureRequest,
     ) -> Option<heimdall_app::OpResult<serde_json::Value>> {
         self.0.forward_ensure(request).await
+    }
+
+    async fn observe(
+        &self,
+        operation: &heimdall_contract::ids::OperationId,
+        wait_ms: Option<u64>,
+    ) -> Option<heimdall_app::OpResult<serde_json::Value>> {
+        self.0.observe_forwarded(operation, wait_ms).await
     }
 }
 
