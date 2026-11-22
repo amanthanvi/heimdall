@@ -425,6 +425,7 @@ def read_run_records(text):
 # --------------------------------------------------------------------------------------
 
 HOMES = ("HOME", "HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME")
+STORES = {"HEIMDALL_TEST_MGMT_STORE": "fixture-file:", "HEIMDALL_TEST_IROH_KEY_STORE": ""}
 
 
 def windows_launch_variables(system_root, fixture_home):
@@ -440,8 +441,8 @@ def windows_launch_variables(system_root, fixture_home):
 
 
 def launch_environment(root, given):
-    """The exact environment of every child: the three homes, each a separate directory
-    inside the scratch root, fixed PATH, LANG and TERM, and Windows system and scratch paths.
+    """The three separate homes and fixture stores inside the scratch root, fixed
+    PATH, LANG and TERM, and Windows system and scratch paths.
 
     The homes are checked by their real paths and passed on as they were given: a
     runtime is found under the spelling of the Heimdall home it was started with."""
@@ -462,6 +463,19 @@ def launch_environment(root, given):
                     f"{name} and {other_name} are not separate directories")
     env = {"LANG": "C", "TERM": "dumb"}
     env.update((name, given[name]) for name in HOMES)
+    for name, prefix in STORES.items():
+        value = given.get(name, "")
+        path = Path(value[len(prefix):])
+        require(value.startswith(prefix) and path.is_absolute(),
+                f"{name} is not set to {prefix}<absolute path>")
+        try:
+            real = path.resolve()
+        except (OSError, RuntimeError):
+            raise HarnessError(f"{name} could not be resolved") from None
+        require(real_root in real.parents and (not real.exists() or real.is_file()),
+                f"{name} is not a file path inside the scratch root")
+        env[name] = value
+    env["HEIMDALL_TEST_SECRET_STORE"] = "scratch"
     if os.name == "nt":
         env.update(windows_launch_variables(given.get("SystemRoot", ""), env["HOME"]))
     else:

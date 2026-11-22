@@ -48,9 +48,9 @@
 //!
 //! **Environment (m07-plan §0 rule 4).** Every `heimdall` child and every Python child gets a
 //! cleared environment holding `HOME`, `HEIMDALL_HOME` and `HEIMDALL_TEST_SSH_HOME`, three
-//! separate directories inside the test's scratch root, checked before each launch
-//! ([`launch_homes`]); no `SSH_AUTH_SOCK`. Every wait is bounded, and every process is stopped by
-//! its own handle.
+//! separate directories, plus management and transport fixture store paths inside the
+//! world's root. All are checked before each launch. No `SSH_AUTH_SOCK` is passed. Every
+//! wait is bounded, and every process is stopped by its own handle.
 //!
 //! **Python.** `HEIMDALL_E2E_PYTHON` names an absolute Python 3.9+ interpreter. The fallback
 //! looks for `python3` on Unix and `python.exe` or `python3.exe` on the Windows runner's PATH.
@@ -241,9 +241,28 @@ mod journey {
         python
     }
 
-    /// The three launch homes of `root`, checked (m07-plan §0 rule 4): each an existing
-    /// directory inside `scratch`, none equal to or inside another.
-    fn launch_homes(scratch: &Path, root: &Path) -> Result<[(&'static str, PathBuf); 3], String> {
+    const MGMT_STORE: &str = "HEIMDALL_TEST_MGMT_STORE";
+    const IROH_STORE: &str = "HEIMDALL_TEST_IROH_KEY_STORE";
+
+    fn fixture_stores(root: &Path) -> [(&'static str, PathBuf); 2] {
+        [
+            (MGMT_STORE, root.join("mgmt-store")),
+            (IROH_STORE, root.join("iroh-key-store")),
+        ]
+    }
+
+    fn assert_no_fixture_stores(root: &Path) {
+        for (name, path) in fixture_stores(root) {
+            assert!(
+                path.symlink_metadata()
+                    .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound),
+                "unexpected fixture store {name}"
+            );
+        }
+    }
+
+    /// Three separate launch directories and two fixture store paths (m07-plan §0 rule 4).
+    fn launch_paths(scratch: &Path, root: &Path) -> Result<Vec<(&'static str, OsString)>, String> {
         let inside = std::fs::canonicalize(scratch).map_err(|e| format!("scratch root: {e}"))?;
         let homes = [
             ("HOME", root.join("home")),
@@ -268,30 +287,78 @@ mod journey {
                 }
             }
         }
-        Ok(homes)
+        let real_root = root
+            .canonicalize()
+            .map_err(|e| format!("world root: {e}"))?;
+        if !root.is_absolute() || real_root == inside || !real_root.starts_with(&inside) {
+            return Err("world root is not inside the scratch root".into());
+        }
+        let mut env: Vec<_> = homes
+            .into_iter()
+            .map(|(name, path)| (name, path.into_os_string()))
+            .collect();
+        for (name, path) in fixture_stores(root) {
+            match path.symlink_metadata() {
+                Ok(meta) if meta.is_file() => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                _ => {
+                    return Err(format!(
+                        "{name} is not a fixture file path inside the world root"
+                    ));
+                }
+            }
+            let mut value = OsString::from(if name == MGMT_STORE {
+                "fixture-file:"
+            } else {
+                ""
+            });
+            value.push(path);
+            env.push((name, value));
+        }
+        Ok(env)
     }
 
     #[test]
-    fn a_missing_shared_or_foreign_home_fails_before_any_launch() {
+    fn an_unsafe_home_or_store_fails_before_any_launch() {
         let scratch = heimdall_testkit::home::Scratch::new().unwrap();
         let other = heimdall_testkit::home::Scratch::new().unwrap();
         let root = scratch.path().join("w");
         for dir in ["home", "heimdall-home"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
-        let missing = launch_homes(scratch.path(), &root).unwrap_err();
+        let missing = launch_paths(scratch.path(), &root).unwrap_err();
         assert!(missing.starts_with("HEIMDALL_TEST_SSH_HOME"), "{missing}");
         std::fs::create_dir(root.join("ssh-home")).unwrap();
-        assert!(launch_homes(scratch.path(), &root).is_ok());
+        let env = launch_paths(scratch.path(), &root).unwrap();
+        for (name, path) in fixture_stores(&root) {
+            let mut expected = OsString::from(if name == MGMT_STORE {
+                "fixture-file:"
+            } else {
+                ""
+            });
+            expected.push(&path);
+            assert!(env.contains(&(name, expected)));
+            std::fs::create_dir(&path).unwrap();
+            let error = launch_paths(scratch.path(), &root).unwrap_err();
+            assert!(error.starts_with(name), "{error}");
+            std::fs::remove_dir(&path).unwrap();
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(other.path().join("missing"), &path).unwrap();
+                let error = launch_paths(scratch.path(), &root).unwrap_err();
+                assert!(error.starts_with(name), "{error}");
+                std::fs::remove_file(&path).unwrap();
+            }
+        }
         // The same root is foreign to another test's scratch directory.
-        let foreign = launch_homes(other.path(), &root).unwrap_err();
+        let foreign = launch_paths(other.path(), &root).unwrap_err();
         assert!(foreign.contains("inside the scratch root"), "{foreign}");
         #[cfg(unix)]
         {
             // A home that is a link to another home is not a separate directory.
             std::fs::remove_dir(root.join("ssh-home")).unwrap();
             std::os::unix::fs::symlink(root.join("home"), root.join("ssh-home")).unwrap();
-            let shared = launch_homes(scratch.path(), &root).unwrap_err();
+            let shared = launch_paths(scratch.path(), &root).unwrap_err();
             assert!(shared.contains("not separate"), "{shared}");
         }
     }
@@ -388,9 +455,13 @@ mod journey {
 
         /// The allowlisted environment for pipes and the attended terminal alike.
         fn environment(&self, root: &Path) -> Vec<(&'static str, OsString)> {
-            let homes = launch_homes(&self.home.root, root)
+            let paths = launch_paths(&self.home.root, root)
                 .unwrap_or_else(|e| panic!("launch environment refused before launch: {e}"));
-            let mut env = vec![("LANG", "C".into()), ("TERM", "dumb".into())];
+            let mut env = vec![
+                ("LANG", "C".into()),
+                ("TERM", "dumb".into()),
+                ("HEIMDALL_TEST_SECRET_STORE", "scratch".into()),
+            ];
             #[cfg(unix)]
             env.push(("PATH", "/usr/bin:/bin:/usr/sbin:/sbin".into()));
             #[cfg(windows)]
@@ -414,7 +485,7 @@ mod journey {
                     env.push((name, home.clone()));
                 }
             }
-            env.extend(homes.map(|(name, path)| (name, path.into_os_string())));
+            env.extend(paths);
             env
         }
 
@@ -756,7 +827,7 @@ mod journey {
     impl ExistingAccess {
         async fn start(suite: &Suite, lab: &Lab, name: &str) -> ExistingAccess {
             let root = suite.root(name);
-            launch_homes(&suite.home.root, &root).expect("launch environment");
+            launch_paths(&suite.home.root, &root).expect("launch environment");
             let ssh_home = root.join("ssh-home");
             let ssh_dir = ssh_home.join(".ssh");
             std::fs::create_dir(&ssh_dir).unwrap();
@@ -912,7 +983,6 @@ mod journey {
             cmd.env("HEIMDALL_TEST_ADAPTER", "prepare")
                 .env("HEIMDALL_TEST_SLOW_PREPARE_MS", SLOW_PREPARE_MS)
                 .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
-                .env("HEIMDALL_TEST_SECRET_STORE", "scratch")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
@@ -949,6 +1019,7 @@ mod journey {
                 .expect("the fixture runtime exits after `service stop`")
                 .unwrap();
             assert!(status.success(), "the fixture runtime exited cleanly");
+            assert_no_fixture_stores(&self.root);
         }
     }
 
@@ -1099,6 +1170,7 @@ mod journey {
             suite.redact(diagnostics.as_bytes())
         );
         assert_eq!(text.lines().count(), 1, "one summary line");
+        assert_no_fixture_stores(root);
         summary
     }
 

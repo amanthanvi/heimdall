@@ -43,7 +43,14 @@ root = Path.cwd()
 for key, directory in (("HOME", "acct"), ("HEIMDALL_HOME", "hm"), ("HEIMDALL_TEST_SSH_HOME", "sshh")):
     assert Path(os.environ[key]).resolve() == root / directory, key
 assert "SSH_AUTH_SOCK" not in os.environ and "H2_TEST_FOREIGN_ENV" not in os.environ
-assert [key for key in os.environ if key.startswith("HEIMDALL_")] == ["HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME"]
+assert os.environ["HEIMDALL_TEST_SECRET_STORE"] == "scratch"
+assert os.environ["HEIMDALL_TEST_MGMT_STORE"].startswith("fixture-file:")
+assert Path(os.environ["HEIMDALL_TEST_MGMT_STORE"][len("fixture-file:"):]).resolve() == root / "mgmt-store"
+assert Path(os.environ["HEIMDALL_TEST_IROH_KEY_STORE"]).resolve() == root / "iroh-key-store"
+assert sorted(key for key in os.environ if key.startswith("HEIMDALL_")) == [
+    "HEIMDALL_HOME", "HEIMDALL_TEST_IROH_KEY_STORE", "HEIMDALL_TEST_MGMT_STORE",
+    "HEIMDALL_TEST_SECRET_STORE", "HEIMDALL_TEST_SSH_HOME",
+]
 if os.name == "nt":
     windows = Path(os.environ["SystemRoot"])
     system = windows / "System32"
@@ -470,6 +477,8 @@ class PlannerTests(unittest.TestCase):
         self.stub.write_text(STUB, encoding="utf-8")
         self.environment = {"HOME": str(self.root / "acct"), "HEIMDALL_HOME": str(self.root / "hm"),
                             "HEIMDALL_TEST_SSH_HOME": str(self.root / "sshh"),
+                            "HEIMDALL_TEST_MGMT_STORE": f"fixture-file:{self.root / 'mgmt-store'}",
+                            "HEIMDALL_TEST_IROH_KEY_STORE": str(self.root / "iroh-key-store"),
                             "SSH_AUTH_SOCK": "/nonexistent/parent-agent", "H2_TEST_FOREIGN_ENV": "x"}
         if os.name == "nt":
             self.environment["SystemRoot"] = os.environ["SystemRoot"]
@@ -1026,6 +1035,19 @@ class PlannerTests(unittest.TestCase):
             "shared": dict(self.environment, HEIMDALL_HOME=self.environment["HOME"]),
             "nested": dict(self.environment, HEIMDALL_HOME=str(self.root / "acct" / "nested")),
             "root": dict(self.environment, HOME=str(self.root)),
+            "missing management store": {key: value for key, value in self.environment.items()
+                                         if key != "HEIMDALL_TEST_MGMT_STORE"},
+            "missing transport store": {key: value for key, value in self.environment.items()
+                                        if key != "HEIMDALL_TEST_IROH_KEY_STORE"},
+            "bare management path": dict(self.environment,
+                                         HEIMDALL_TEST_MGMT_STORE=str(self.root / "mgmt-store")),
+            "relative management store": dict(self.environment,
+                                              HEIMDALL_TEST_MGMT_STORE="fixture-file:mgmt-store"),
+            "relative transport store": dict(self.environment, HEIMDALL_TEST_IROH_KEY_STORE="iroh"),
+            "foreign management store": dict(self.environment,
+                                             HEIMDALL_TEST_MGMT_STORE=f"fixture-file:{elsewhere.name}/mgmt"),
+            "foreign transport store": dict(self.environment,
+                                            HEIMDALL_TEST_IROH_KEY_STORE=f"{elsewhere.name}/iroh"),
         }
         for name, environment in cases.items():
             with self.subTest(case=name):
@@ -1042,13 +1064,22 @@ class PlannerTests(unittest.TestCase):
                              {"goal": "discover"})
         self.assertFalse(record["success"])
         self.assertEqual(self.calls(), [])
+        for key, prefix in h2.STORES.items():
+            with self.subTest(store=key):
+                record = h2.run_goal(self.planner(environment=dict(self.environment, **{
+                    key: f"{prefix}{link / 'missing'}",
+                })), {"goal": "discover"})
+                self.assertFalse(record["success"])
+                self.assertEqual(record["calls"], 0)
+                self.assertEqual(self.calls(), [])
         # A home reached through a link that stays inside the root is passed as it was given.
         inside = self.root / "alias"
         inside.symlink_to(self.root / "hm", target_is_directory=True)
         env = h2.launch_environment(self.root, dict(self.environment, HEIMDALL_HOME=str(inside)))
         self.assertEqual(env["HEIMDALL_HOME"], str(inside))
-        self.assertEqual(sorted(env), ["HEIMDALL_HOME", "HEIMDALL_TEST_SSH_HOME", "HOME", "LANG",
-                                       "PATH", "TERM"])
+        self.assertEqual(sorted(env), ["HEIMDALL_HOME", "HEIMDALL_TEST_IROH_KEY_STORE",
+                                       "HEIMDALL_TEST_MGMT_STORE", "HEIMDALL_TEST_SECRET_STORE",
+                                       "HEIMDALL_TEST_SSH_HOME", "HOME", "LANG", "PATH", "TERM"])
 
     def test_goals_are_checked_before_any_call(self):
         bad = [[], {"goal": "approve"}, {"goal": ["access"]}, {"goal": "access", "profile": "covered"},
@@ -1117,6 +1148,8 @@ class DiscoverySmoke(unittest.TestCase):
             (root / name).mkdir()
             environment[key] = str(root / name)
         (root / "sshh" / "etc-ssh").mkdir()
+        environment["HEIMDALL_TEST_MGMT_STORE"] = f"fixture-file:{root / 'mgmt-store'}"
+        environment["HEIMDALL_TEST_IROH_KEY_STORE"] = str(root / "iroh-key-store")
         if os.name == "nt":
             environment["SystemRoot"] = os.environ["SystemRoot"]
         planner = h2.Planner([os.environ["HEIMDALL_HARNESS_SMOKE_BIN"]], root, environment)
@@ -1133,6 +1166,8 @@ class DiscoverySmoke(unittest.TestCase):
         self.assertEqual((ours.pop("ACCEPTED"), theirs.pop("ACCEPTED")), (5, 0))
         self.assertEqual(ours, theirs)
         self.assertEqual(sorted(path.name for path in (root / "hm").iterdir()), [])
+        for name in ("mgmt-store", "iroh-key-store"):
+            self.assertFalse(os.path.lexists(root / name), name)
 
 
 if __name__ == "__main__":

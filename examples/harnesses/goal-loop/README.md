@@ -24,8 +24,13 @@ call H2 checks that each is an existing directory inside `--scratch-root`, and t
 none is the same as, or inside, another. A missing or foreign one fails the goal
 before anything is launched.
 
-Each `heimdall` child then gets exactly those three variables, as they were given,
-plus a fixed `PATH`, `LANG`, and `TERM`. On Windows, H2 requires an absolute
+The driver also sets `HEIMDALL_TEST_MGMT_STORE=fixture-file:<absolute path>` and
+`HEIMDALL_TEST_IROH_KEY_STORE=<absolute path>`. H2 checks that both paths resolve
+inside `--scratch-root`. The fixture store files may be absent.
+
+Each `heimdall` child then gets the checked homes and store paths as given,
+`HEIMDALL_TEST_SECRET_STORE=scratch`, and fixed `PATH`, `LANG`, and `TERM`.
+On Windows, H2 requires an absolute
 `SystemRoot` and builds `PATH` from the in-box OpenSSH directory, `System32`,
 and `SystemRoot`. It sets `USERPROFILE`, `ProgramData`, `ALLUSERSPROFILE`,
 `APPDATA`, `LOCALAPPDATA`, `TEMP`, and `TMP` to the checked fixture `HOME`.

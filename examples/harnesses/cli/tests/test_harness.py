@@ -34,6 +34,10 @@ root = Path.cwd()
 for key, directory in (("HOME", "home"), ("HEIMDALL_HOME", "heimdall-home"),
                        ("HEIMDALL_TEST_SSH_HOME", "ssh-home")):
     assert Path(os.environ[key]).resolve() == root / directory
+assert os.environ["HEIMDALL_TEST_SECRET_STORE"] == "scratch"
+assert os.environ["HEIMDALL_TEST_MGMT_STORE"].startswith("fixture-file:")
+assert Path(os.environ["HEIMDALL_TEST_MGMT_STORE"][len("fixture-file:"):]).resolve() == root / "mgmt-store"
+assert Path(os.environ["HEIMDALL_TEST_IROH_KEY_STORE"]).resolve() == root / "iroh-key-store"
 (root / "heimdall-home-seen").write_text(os.environ["HEIMDALL_HOME"], encoding="utf-8")
 assert "SSH_AUTH_SOCK" not in os.environ and "H1_TEST_FOREIGN_ENV" not in os.environ
 assert not any((root / "ssh-home" / "etc-ssh").iterdir())
@@ -156,6 +160,19 @@ class HarnessTests(unittest.TestCase):
 
     def calls(self):
         return [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+
+    @unittest.skipUnless(os.name == "posix", "requires fixture symlinks")
+    def test_redirected_fixture_store_prevents_spawn(self):
+        with tempfile.TemporaryDirectory() as outside:
+            for name in ("mgmt-store", "iroh-key-store"):
+                with self.subTest(store=name):
+                    path = self.root / name
+                    path.symlink_to(Path(outside) / "missing")
+                    result = run_task("discover", self.journey().discover)
+                    self.assertFalse(result["success"])
+                    self.assertEqual(result["calls"], 0)
+                    self.assertFalse((self.root / "calls.jsonl").exists())
+                    path.unlink()
 
     def test_discovery_counts_stdout_bytes_and_drops_parent_environment(self):
         with patch.dict(os.environ, SSH_AUTH_SOCK="fixture-parent", H1_TEST_FOREIGN_ENV="discard"):
@@ -313,3 +330,5 @@ class DiscoverySmoke(unittest.TestCase):
         check_reply(*journey.reply(metrics, "inspect", "capabilities"), 5, "SERVICE_UNAVAILABLE")
         self.assertEqual(metrics.calls, 2)
         self.assertGreater(metrics.discovery_bytes, 0)
+        for name in ("mgmt-store", "iroh-key-store"):
+            self.assertFalse(os.path.lexists(journey.root / name), name)

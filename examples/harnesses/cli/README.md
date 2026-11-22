@@ -13,7 +13,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 -I -B examples/harnesses/cli/harness.py \
 Pass an absolute executable path and a private, absolute scratch root containing
 separate `home`, `heimdall-home`, and `ssh-home` directories. `ssh-home/etc-ssh`
 must be empty. Each call checks these directories and starts in the scratch root
-with the fixture homes and fixed `PATH`, `LANG`, and `TERM`. The homes are checked
+with the fixture homes, scratch key stores, and fixed `PATH`, `LANG`, and `TERM`.
+H1 sets `HEIMDALL_TEST_SECRET_STORE=scratch` and checks that `mgmt-store` and
+`iroh-key-store` stay inside the root before passing them as
+`HEIMDALL_TEST_MGMT_STORE=fixture-file:<absolute path>` and
+`HEIMDALL_TEST_IROH_KEY_STORE=<absolute path>`. The homes are checked
 by their real paths and passed under the root as you gave it, so the calls reach
 the runtime the driver started under that same path. The fixture driver starts a
 ready debug runtime before the journey.

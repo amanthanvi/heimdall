@@ -84,6 +84,10 @@ def scratch_environment(root):
         require(directory.is_dir() and directory.resolve(strict=True) == directory,
                 "missing or redirected fixture home directory")
     require(not any(etc.iterdir()), "expected an empty fixture etc-ssh directory")
+    for name in ("mgmt-store", "iroh-key-store"):
+        store = real / name
+        require(not store.is_symlink() and (not store.exists() or store.is_file())
+                and store.resolve() == store, "missing or redirected fixture store path")
     # Checked by real path, passed under the root as given: a runtime is found under the
     # spelling of the Heimdall home it was started with.
     env = {
@@ -92,6 +96,9 @@ def scratch_environment(root):
         "HOME": str(root / "home"),
         "HEIMDALL_HOME": str(root / "heimdall-home"),
         "HEIMDALL_TEST_SSH_HOME": str(root / "ssh-home"),
+        "HEIMDALL_TEST_SECRET_STORE": "scratch",
+        "HEIMDALL_TEST_MGMT_STORE": f"fixture-file:{root / 'mgmt-store'}",
+        "HEIMDALL_TEST_IROH_KEY_STORE": str(root / "iroh-key-store"),
     }
     if os.name == "nt":
         env.update(windows_environment(os.environ.get("SystemRoot", ""), env["HOME"]))
