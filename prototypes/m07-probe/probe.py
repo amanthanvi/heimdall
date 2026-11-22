@@ -58,6 +58,7 @@ BASE_ENV = {
     "HEIMDALL_TEST_SSH_HOME": SSH_HOME,
     # Fixture key stores (AGENTS.md): without them a debug build that touches the management
     # or transport keys uses the real login keychain.
+    "HEIMDALL_TEST_SECRET_STORE": "scratch",
     "HEIMDALL_TEST_MGMT_STORE": "fixture-file:" + os.path.join(SCRATCH, "mgmt-store"),
     "HEIMDALL_TEST_IROH_KEY_STORE": os.path.join(SCRATCH, "iroh-key-store"),
 }
@@ -67,6 +68,13 @@ def env(extra=None):
     e = dict(BASE_ENV)
     if extra:
         e.update(extra)
+    # Checked before every launch (AGENTS.md; review M07-W4-R01): without these a debug build
+    # uses the account's real key stores, whatever HOME says.
+    assert e.get("HEIMDALL_TEST_SECRET_STORE") == "scratch", "the secret store is not scratch"
+    mgmt = e.get("HEIMDALL_TEST_MGMT_STORE", "")
+    assert mgmt.startswith("fixture-file:" + SCRATCH + os.sep), "the management store is not in the scratch root"
+    assert e.get("HEIMDALL_TEST_IROH_KEY_STORE", "").startswith(SCRATCH + os.sep), \
+        "the transport key store is not in the scratch root"
     return e
 
 
