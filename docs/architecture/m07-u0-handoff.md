@@ -67,7 +67,10 @@ Each has what today's build does (observed, with where), and a recommendation.
   or to skip `ensure` when `run` alone is enough (ruled for U4b).
 
 ### U0-Q3. Reasons under `CAPABILITY_UNAVAILABLE`
-- **Observed:** three different situations answer the same code with nothing typed to tell them
+- **The case that raised it (M06, reported by the contract owner; not observed by M07):** on
+  Windows, a refused confirming probe (a limited-role join, or a policy recheck) answers
+  `CAPABILITY_UNAVAILABLE` with no reason token.
+- **Observed by M07:** three more situations answer the same code with nothing typed to tell them
   apart: an `ensure` whose minimum the mechanism cannot meet (`--require-unattended` on existing
   access; effect `none`); an operation whose approval the person **denied** (`operation wait` then
   shows `data.code` `CAPABILITY_UNAVAILABLE`, exit 4); and the route pair D8 already names
@@ -75,17 +78,22 @@ Each has what today's build does (observed, with where), and a recommendation.
 - **Recommended:** D8's table gives each a reason token (for example `mechanism_minimum_unmet`,
   `decision_denied`, `route_undetermined`), so a consumer can tell "the person said no" (stop, do
   not ask again) from "ask for less". No new code.
-- **Note:** this item was named by the contract owner; the three cases above are what M07's
-  journeys saw, and may not be the whole list.
+- **Note:** the cases above may not be the whole list; D8's inventory over the emission sites
+  settles it.
 
-### U0-Q4. The provenance fields (H7)
-- **Question:** where the commit, target, profile and feature set appear (`--version`, `inspect
-  capabilities`, the hello), under which keys, and whether a debug or test-store build says so in
-  a typed field.
-- **Recommended:** one `build` object in `inspect capabilities` and in the hello, the same keys in
-  both; `profile` and a boolean for test configuration present, so the wrapper and the harnesses
-  can record exactly what they ran against in the A32 evidence, and the claims table's
-  release-profile rule can be checked from the binary's own answer.
+### U0-Q4. The field that carries launch provenance (M06)
+- **As reported by the contract owner (M06's behaviour; not observed by M07):** when runner work
+  is launched, an inherited agent is named `controller_dependency` or `unknown`, and an unattended
+  launch that depends on one is refused. Today that report is only a stderr line, in text and in
+  JSON mode.
+- **Question:** which contract field carries it, and where.
+- **Recommended:** a typed field in the launch's own record and in the answer a consumer already
+  reads, never stderr text: the run record (`launching` / `prelaunch_failed`, which H2 already
+  parses for `pid` and `binding_id`) carries a `launch_provenance` value, and the refusal carries
+  it as its reason under the code it already answers, listed in D8's table. Both harnesses decide
+  from typed fields only, so a stderr line is invisible to them by design.
+- **Not the same item as M08's H7** (build provenance in the version output and `inspect
+  capabilities`), which stays in §2.
 
 ### U0-Q5. How a CLI caller carries the request epoch (H13)
 - **Question:** H13 binds the epoch at mint time. A CLI caller that passes `--request-id` and
