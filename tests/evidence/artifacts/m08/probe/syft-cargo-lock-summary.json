@@ -1,0 +1,9 @@
+{
+ "tool": "syft 1.42.1",
+ "input": "a scratch copy of Cargo.lock at de097dac",
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.6",
+ "components": 322,
+ "components_with_licences": 0,
+ "component_names_sha256": "68154e0e213dff69644a5a4484b6770d3b5ee6965b5840597cc6953e53fbba30"
+}

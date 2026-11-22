@@ -1,0 +1,13 @@
+cargo tree --locked --offline -p heimdall --target aarch64-apple-darwin --edges normal,build --prefix none --format '{p}'  -> exit 0
+  ... --prune heimdall-testkit  -> exit 0
+  ... --edges normal  -> exit 0
+cargo tree --locked --offline -p heimdall --target x86_64-unknown-linux-gnu --edges normal,build --prefix none --format '{p}'  -> exit 0
+  ... --prune heimdall-testkit  -> exit 0
+  ... --edges normal  -> exit 0
+cargo tree --locked --offline -p heimdall --target aarch64-unknown-linux-gnu --edges normal,build --prefix none --format '{p}'  -> exit 0
+  ... --prune heimdall-testkit  -> exit 0
+  ... --edges normal  -> exit 0
+cargo tree --locked --offline -p heimdall --target x86_64-pc-windows-msvc --edges normal,build --prefix none --format '{p}'  -> exit 0
+  ... --prune heimdall-testkit  -> exit 0
+  ... --edges normal  -> exit 0
+syft scan dir:<scratch copy of Cargo.lock> -o cyclonedx-json=<scratch>/sbom.json -q  -> exit 0

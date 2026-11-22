@@ -1,11 +1,13 @@
 # ADR-0014: Hardening and release artifacts (M08)
 
-**Status:** proposed, revision 1 · **Date:** 2026-11-22 · **Milestone:** M08 (T01–T06) · **Gate:** plan §5 M08, "all technical gate decisions recorded"; it also closes ADR-0004 §1 Q-D for the candidate.
-**Decided by:** not yet. It awaits one independent design review, one scoped re-check and the orchestrator's rulings (ADR-0009 §2.8).
+**Status:** proposed, revision 2 · **Date:** 2026-11-22 · **Milestone:** M08 (T01–T06) · **Gate:** plan §5 M08, "all technical gate decisions recorded"; it also closes ADR-0004 §1 Q-D for the candidate.
+**Decided by:** not yet. Revision 2 applies the independent design review (Codex, REVISE, M08-D-R01–R10; `tests/evidence/artifacts/review-m08/design.md`) and the orchestrator's rulings of 2026-11-22 on Q1–Q11 and on each finding. It awaits one scoped re-check (ADR-0009 §2.8).
 **Plan:** `docs/architecture/m08-plan.md`. **Probe record:** `tests/evidence/m08-probe-inventory-and-release-binary.json`.
 **Affects:** R-RT-08, R-SE-05, R-SE-08, R-QU-03, R-QU-04, R-DI-01, R-DI-03, R-DI-04, R-DI-05, R-DI-07; through the exit cases also R-CR-03, R-CR-04, R-CR-06, R-RT-06 and R-AP-08.
 
-**What this ADR does not do:** it applies no change to the public contract. Everything that would change it is in §7, as a proposal for the contract owner. It decides no authority semantics: §3.6 is an escalation.
+**What this ADR does not do:** it applies no change to the public contract. Everything that would change it is in §7, as a proposal for the contract owner. §3.6 states the restore rule the orchestrator ruled; it becomes contract only when the contract owner lands delta H3.
+
+**G09's record (ruling on Q7).** Gate G09 (expiry, multiplexing, clocks and revocation) has no ADR of its own. Its decision record is ADR-0008's effect table and deadline rules, ADR-0010 §5 for routes and forwarding, and M03's A23 record with A05, A07 and A08. The gate table cites these three; a G09 question none of them answers is recorded as open, not closed by this sentence.
 
 ## 1. Context
 
@@ -58,7 +60,9 @@ For each target, on libFuzzer with its address sanitizer, an input length capped
 5. **The ceiling is 8 CPU-hours per target per candidate.** A target still finding coverage there stops anyway. Its coverage curve goes into the record as a residual, and the orchestrator decides whether it buys another round.
 6. **A second fix round on one target** means the parser is simplified or bounded more tightly before it is patched again (ADR-0009 §2.1).
 
-**Per candidate, not per commit.** Campaigns run on the W0 tree and again on the candidate. `check.sh` runs only the regressions.
+**Per candidate, and only where something changed.** Campaigns run on the W0 tree. On a candidate, a target is rerun only if its boundary's crate, a crate it parses through, or the fuzz build inputs changed since its last passing campaign; an unchanged target's earlier campaign is cited by commit. `check.sh` runs only the regressions.
+
+**The ceiling is not a waiver.** New coverage at the ceiling is a residual. A known crash, hang or bound violation is never left open by it.
 
 ### 2.4 What a finding blocks
 
@@ -71,8 +75,9 @@ For each target, on libFuzzer with its address sanitizer, an input length capped
 
 - **Update:** the user runs a newer archive's install script. Heimdall never updates itself (spec §15.3).
 - **Rollback:** the user puts the previous binary back.
-- **Restore:** the state store is replaced by one of its own backups.
-- **Reset:** the state store is discarded and a new installation begins, with a new environment identity.
+- **Restore:** the state store is replaced by one of **its own** backups, sanitized under §3.6.
+- **Reset:** the state store is set aside and a new installation begins, with a new environment identity.
+- **The store family:** the database file with its write-ahead log, shared-memory file and rollback journal.
 
 ### 3.2 Guaranteed, and tested (m08-plan §7.2)
 
@@ -84,10 +89,11 @@ For each target, on libFuzzer with its address sanitizer, an input length capped
 6. **An existing store is never read as empty.** A damaged store, a newer store and an unreadable one each stop unsafe operations with a distinct reason and a named next step. Nothing is rewritten (existing for the store; new for the commands).
 7. **An older binary refuses a newer store** and touches nothing (existing).
 8. **Rollback with an unchanged schema** is the previous binary serving the same store, under items 3 and 5.
-9. **Restore keeps identity and ends authority,** subject to §3.6.
-10. **Reset is never automatic.** It is attended, says that it creates a new identity, and first lists what it orphans: the remote enrollments and pairings read from the old store or, if that is unreadable, from the last recovery bundle.
-11. **Integration that names the executable keeps working after an update in place.** The login entry, the shell hook, the route helper and the WSL helper call a fixed install path (§4.3). An executable that has moved is a doctor finding with its repair command, never a silent break and never a silent rewrite of an entry Heimdall can no longer prove is its own.
-12. **Uninstall is unchanged** (ADR-0007 §5.5, ADR-0008 D4, ADR-0010): owned local integration is removed, the user's SSH and Git files are restored byte for byte, and what remains is listed.
+9. **Restore keeps identity and ends or quarantines every recovered authority** (§3.6). Every interruption of a restore leaves either the intact old store or a fully sanitized restored one.
+10. **Reset is never automatic.** It is attended, says that it creates a new identity, and first lists what it orphans: the remote enrollments, pairings and management lines read from the old store or, if that is unreadable, from the last recovery bundle. **When neither is readable, reset says so in plain words** ("Heimdall cannot list what this leaves behind on remote hosts"), names where such residue would live, and needs its own typed confirmation of that sentence. Under `--non-interactive` it refuses. The old family is moved aside, never deleted.
+11. **Replacing the executable is staged and recoverable** (§4.3): at every point of an interrupted install there is a complete, matching executable (and, on Windows, helper) at the install path or beside it, and the script says which.
+12. **Integration that names the executable keeps working after an update in place.** The login entry, the shell hook, the route helper and the WSL helper call a fixed install path (§4.3). An executable that has moved is a doctor finding with its repair command, never a silent break and never a silent rewrite of an entry Heimdall can no longer prove is its own.
+13. **Uninstall is unchanged** (ADR-0007 §5.5, ADR-0008 D4, ADR-0010): owned local integration is removed, the user's SSH and Git files are restored byte for byte, and what remains is listed.
 
 ### 3.3 Disclosed, not prevented
 
@@ -108,6 +114,7 @@ An emergency restart that cannot wait prints the same list (spec §15.2).
 | Residue | Where it is reported | Removed by |
 |---|---|---|
 | Migration backups (`<store>.v<N>.backup*`): old state with public metadata | `state status`; the stop preview; uninstall | `uninstall --purge-state`, or the user |
+| The store family set aside by a restore or a reset (`pre-restore`): the old state in full | `state status`; uninstall | the user, or `uninstall --purge-state` |
 | The previous binary (`heimdall.previous`) | the install script's output; uninstall | the next update, or uninstall |
 | An orphaned macOS keychain item after a restore | `issuer status` (existing) | the user, in Keychain Access |
 | A login entry or hook left at an old path | doctor (`executable_moved`) | the named repair command |
@@ -121,18 +128,53 @@ An emergency restart that cannot wait prints the same list (spec §15.2).
 - **Unix:** the replacement is an atomic rename in the install directory.
 - **WSL:** the Linux helper is replaced with the Windows executable, as one step. A helper that speaks another channel version is already refused at the hello (`wsl/src/client.rs`); the update journey checks that a stale helper is reported and not used.
 
-### 3.6 Escalated: what a restore does to authority
+### 3.6 The restore rule (authority; ruled 2026-11-22; contract delta H3)
 
-A backup is older than every stop, revocation, pause and cutoff made after it. Restoring it unchanged would revive them, which R-RT-07 and plan §5 M08 forbid. The options:
+A backup is older than every stop, revocation, pause, cutoff, consumption and unpairing made after it. Restoring it unchanged would revive them, which R-RT-07 and plan §5 M08 forbid. **A restore therefore recovers identity and configuration, and no authority.**
 
-| Option | Effect | Cost |
-|---|---|---|
-| **(a) Restore identity and configuration, end authority** | Every grant in the restored store is ended and every standing policy paused, in the restore's own transaction, with an event. The user approves again. Remote effects are reconciled from M06's runner report | One round of re-approval after a restore |
-| (b) Restore unchanged | Fast | Revives revoked and stopped access. Rejected by this ADR |
-| (c) No restore; reset only | Simple | Loses the environment identity and orphans every enrollment |
-| (d) Replay later tombstones onto the backup | Keeps live grants | Needs a second durable log outside the store; a new mechanism for a rare path |
+**What a restore keeps:** the environment ID; the catalog (destinations, identities, profiles, routes); the enrollment and CA records; projection and setup records; host-key and endpoint pins, **as identity information only**; the event and operation history up to the backup.
 
-**Recommendation: (a).** This is authority semantics, so the contract owner rules it (m08-plan Q1). U2b does not build restore until then.
+**What a restore ends or quarantines,** in the staged copy, before that copy can become the live store:
+
+| Recovered state | After the restore |
+|---|---|
+| Grants and their references, bindings, managed slots, owned connections | Ended, with a tombstone each. Remote effects of ending them go through M06's pending-effects path and are reported as pending until acknowledged. None is dropped silently |
+| Standing policies | Paused, with a cutoff at the restore time. Trust records for workspaces need a new attended trust |
+| Pending decisions, including pending widening decisions | Closed as stale. None can be approved |
+| Management clients (paired controllers, limited clients) | **Quarantined:** not admitted. Each needs explicit reauthorization at this machine, and for a runner, reconciliation with the runner's own record, before it is served |
+| Invitations, pending or consumed | Void. A recovered pending invitation cannot be joined; a recovered consumed one grants nothing |
+| Exposure and admission state (transport enablement, relay sets, allow-lists, serve leases) | Disabled. Enabling again is the same local decision as the first time |
+| Paired environments | Shown as `held` until reconciled; an environment the current state records as unpaired stays unpaired |
+| Issuers | A CA the current state records as retired stays retired. No issuance until the issuer's reconciliation barrier (ADR-0012 §7) has run |
+| Idempotency records | Kept, so an old request ID cannot be replayed into a new effect |
+
+**Carry-forward.** When the store being replaced is still readable (a rollback, not a corruption), the restore reads it first and **keeps the more restrictive of the two states** for every revocation, retirement, unpairing, consumption, cutoff, pause, `owner_only` marker and downgrade marker (M06's restore rule for those markers, extended to the rest). When it is not readable, everything recovered is treated as possibly revoked, which is what the table does.
+
+**Never, by any path:** a revoked grant active again; a retired issuer issuing; an unpaired environment paired; a revoked client's key, a consumed invitation or an old request accepted.
+
+**The protocol.**
+1. **Identity binding.** A backup carries the environment ID of the store it was taken from. Restore refuses a file whose environment ID differs from this installation's (read from the current store, or from the installation's identity record when the store is unreadable). Replacing the identity is reset, never restore. A file that is not a Heimdall backup, fails its integrity check, or is of a newer schema than the build is refused.
+2. **Exclusion.** Restore runs only with the runtime and the issuer stopped, confirmed, and holds the runtime's own exclusive instance lock from before it reads anything until after activation (the purge's rule, ADR-0008 §17.31 item 1). A replacement runtime cannot start meanwhile.
+3. **Staging.** The backup is copied to a staging file in the state directory. Integrity checks, migration to the build's schema and the whole sanitization above run **on the staging file**, in one transaction that also writes the restore record (H9). The staging file is checkpointed and closed, so it has no write-ahead log or journal of its own.
+4. **Preservation.** The current family is renamed, as a family, to a `pre-restore` name, and stays there until the user removes it. It is listed as residue.
+5. **Activation.** The staging file is renamed onto the store's name, and the directory is synced. A stale write-ahead log, shared-memory file or journal from the old family is never left beside the new database: they moved with the family in step 4, and activation refuses to proceed if any is present.
+6. **Recovery after an interruption.** Start-up inspects the three names under the instance lock:
+   - a staging file and an intact current family: the restore had not begun to replace anything; the staging file is removed;
+   - a `pre-restore` family and no current database: the old family is renamed back, intact;
+   - a `pre-restore` family and a current database carrying a restore record: the restore completed.
+
+   A current database without a restore record next to a `pre-restore` family is refused as inconsistent, with the choices named. No start-up serves a store that was restored and not sanitized, because sanitization precedes activation.
+7. **The report.** Restore lists what it ended, quarantined and voided, what remote effects are pending, and the remote residue it cannot remove.
+
+**Focused fault tests** (m08-plan U2b):
+- backup → revoke a grant → restore → the grant stays ended, and a fixture login with its material is refused;
+- backup → revoke a management client → restore → the client's key is refused until reauthorized;
+- backup → an invitation is consumed (and, separately, expires) → restore → a join and a replay are refused;
+- backup → a request completes → restore → the same request ID does not run again;
+- backup → retire an issuer, unpair an environment → restore → both stay so;
+- a backup from another environment is refused, and the store is untouched;
+- a kill or an I/O error at each durable boundary (after staging, after sanitization, after the family rename, after activation, before the directory sync): each ends in the intact old state or the fully sanitized restored state;
+- a stale write-ahead log beside the staging file refuses activation.
 
 ## 4. Artifacts, provenance, inventory and licences
 
@@ -147,10 +189,12 @@ One archive per target, named `heimdall-<version>-<target>`:
 - the executable (and, in the Windows archive, the Linux x86-64 executable as the WSL helper);
 - the install script for that platform;
 - `LICENSE`, `THIRD-PARTY-NOTICES.txt`, `SECURITY.md`;
-- `BUILD-RECORD.json`, the SBOM, `SHA256SUMS`;
+- `BUILD-RECORD.json`, the SBOM, and `MANIFEST.sha256` (§4.4);
 - the release notes with the limitation statement, and the install, update, recovery, unenrollment and uninstall runbooks;
-- `examples/` (M07's reference wrapper and harnesses) and `skills/heimdall/` (the optional skill, installed only by the user);
-- the public schemas and example payloads.
+- **the compatibility matrix as of the candidate** (every provider × client × environment × mechanism row with its label, versions, record and limitation) and **the compatibility and deprecation policy**;
+- **a reference configuration** (the documented `config.toml` with every default, and an example manifest) beside the public schemas and example payloads;
+- the urgent-fix disclosure procedure, in `SECURITY.md`;
+- `examples/` (M07's reference wrapper and harnesses) and `skills/heimdall/` (the optional skill, installed only by the user).
 
 **Not in it:** test binaries, fixtures, anything from `heimdall-testkit`'s data, debug symbols, build-host paths.
 
@@ -158,29 +202,47 @@ One archive per target, named `heimdall-<version>-<target>`:
 
 - **A fixed per-user location** on each platform, the same across versions, so nothing that names the executable changes on update.
 - **No elevation, no service installation, no edit of `PATH`, shell profiles or `~/.ssh`.** The script prints the line a user may add to their `PATH`. Everything else is `heimdall setup`, attended, as today.
-- **The script verifies `SHA256SUMS` before it copies anything.**
-- **An update** keeps the old executable as `heimdall.previous` and shows the stop preview first.
+- **Verification before installation is the user's step, against the external index** (§4.4): the runbook's first command checks the archive file against `SHA256SUMS` taken from the repository, before it is unpacked. The script cannot do this for itself: a replaced archive would carry a replaced script. The script does check the unpacked tree against `MANIFEST.sha256` before it copies anything, which catches a damaged or partial extraction, not tampering.
+- **Replacement is staged and recoverable:**
+  1. the new executable (and helper) are copied into the install directory under temporary names and synced;
+  2. their digests are checked against the manifest;
+  3. the current files are renamed to `heimdall.previous` (and the helper's equivalent), as a pair;
+  4. the new files are renamed into place, as a pair, and the directory is synced.
 
-### 4.4 Checksums and the build record
+  A failure in steps 1–2 leaves the installation untouched. A failure in steps 3–4 leaves a complete pair under one of the two names, and rerunning the script finishes or undoes the step. The executable and the WSL helper are never left at different versions without the script saying so.
+- **An update** shows the stop preview first.
 
-- **`SHA256SUMS`** covers every archive and every file inside one.
-- **`BUILD-RECORD.json`** states: the commit and whether the tree was clean; the toolchain, target, profile, feature set and flags; the `Cargo.lock` digest; the builder's operating system; every packaging tool with its pinned version; the times; each output's digest.
-- **The binary reports the same commit, target and feature set about itself,** and the artifact check compares them.
-- **Build-host paths are remapped,** and the artifact check fails on a home path, a user name or a checkout path (the probe found 297 on the unremapped macOS build).
-- **The digests and the record are committed to the repository.** The archives are not uploaded.
+### 4.4 Digests and the build record
+
+Three layers, none of which hashes itself:
+
+1. **`MANIFEST.sha256`, inside the archive,** lists every file in the archive **except itself**. It is the payload manifest.
+2. **`BUILD-RECORD.json`, inside the archive,** states the build inputs and the digests of the **executables only**: the commit and whether the tree was clean; the toolchain, target, profile, feature set and flags; the `Cargo.lock` digest; the builder's operating system; every packaging tool with its pinned version; the times. It holds no digest of itself, of the manifest or of the archive. The manifest lists it like any other file.
+3. **`SHA256SUMS`, outside every archive,** is the checksum index: one line per finalized archive, and one per external record (each archive's SBOM and build record, copied out). It is written after the archives are final and never placed inside one.
+
+- **The index and the external records are committed to the repository** under `tests/evidence/artifacts/m08/release/<version>/`. The archives are not uploaded. The repository's history is the anchor a user verifies against.
+- **The binary reports the same commit, target and feature set about itself** (H7), and the artifact check compares them once H7 exists.
+- **Build-host paths are remapped,** and the artifact check fails on a home path, a cargo or rustup path, or a checkout path (the probe recorded 297 on an unremapped macOS build). A bare user name is not a rule: the product's own identifiers may contain the repository owner's name.
 
 ### 4.5 The dependency inventory
 
 - **Format:** CycloneDX JSON, one per target.
-- **Source:** the resolved dependency graph for that target and feature set, not the lock file (the probe: a lock-file scan lists 322 components for every target and no licences).
-- **Scope:** every crate reached through normal and build edges, with its version, source, checksum and licence expression; the bundled SQLite; vendored code under `third_party/`.
-- **Test support:** the crates that reach the graph only through `heimdall-testkit` are listed with the property `built, not referenced by a release build`. They are not dropped: a scanner reading the build graph will see them, and the record should agree with it.
+- **Source:** the graph cargo selects for **this package, this target and this feature set** (`-p heimdall --target <triple> --features <set>`, normal and build edges). Not the lock file (322 components for every target, no licences), and not a workspace-wide resolution: a workspace resolution enables features the binary's own build does not, and on macOS listed 234 third-party packages where the selected graph holds 209 (review M08-D-R04).
+- **Tooling:** one pinned SBOM tool produces the document, and a small validation adapter checks it. The adapter compares the tool's component set with cargo's own selected graph for the same package, target and features, and with the packages the release build actually compiled. A component the selected graph lacks is removed and counted in the record; a selected package the tool missed fails the build. No new resolver is written.
+- **Compiled is not linked.** Each component carries one role:
+  - `target`: compiled for the target (it may or may not survive linking; the inventory does not claim to know);
+  - `host`: a proc macro, a build script, or a dependency of one. It runs on the build machine and is not in the binary;
+  - `test-support`: reaches the graph only through `heimdall-testkit` (14 to 16 crates today).
+
+  No string scan of the binary is used as evidence about linkage.
+- **Scope:** each component's version, source, checksum and licence expression; the bundled SQLite; vendored code under `third_party/`.
+- **Test support is removed from the release graph before the candidate** (ruling on Q8): a small, explicit debug-support feature under the manifest's owner, so that a release build no longer compiles the test-only crates; the same release gate then runs with the selected features. Until that lands, those crates stay in the inventory with their role.
 - **Advisories** stay with M06's audit gate. The candidate's record states the advisory database's date and every ignored advisory with its reason.
 
 ### 4.6 The licence policy
 
 - **Allowed for linked code:** MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, BSL-1.0, Unlicense, CC0-1.0. Where a crate offers a choice, a permitted alternative is selected and recorded.
-- **Where the list comes from:** every licence the probe found on `main`, plus ISC and CC0-1.0. M06's tree (iroh and its TLS stack) was not inventoried; U4a runs the policy on it, and any licence it needs beyond this list is a recorded decision, not a silent addition.
+- **Where the list comes from:** every licence the probe found on `main` (over a superset of the selected graph), plus ISC and CC0-1.0. M06's tree (iroh and its TLS stack) was not inventoried; U4a runs the policy on it, and any licence it needs beyond this list is a recorded decision, not a silent addition.
 - **Refused without a recorded decision:** any copyleft licence, any licence with a field-of-use or network clause, a crate with no licence, a git or path source outside `third_party/`.
 - **Enforced** by one pinned tool, on licences, sources and bans.
 - **Notices:** every linked crate's licence text, generated from the same graph. A missing text fails the build.
@@ -200,7 +262,7 @@ One archive per target, named `heimdall-<version>-<target>`:
 ### 4.8 What a release may say
 
 - "Signed", "notarized", "reproducible" and "clean-machine tested" appear only for a row where that was produced and checked, with the record's name.
-- A fresh account on a developer machine is called that, not a clean machine.
+- **A fresh account on a developer machine is called that, and never closes a clean-machine row** (ruling on M08-D-R06). Static import checks cannot show that no runtime or subprocess prerequisite is missing. The true clean-machine rows stay `blocked` until a clean VM exists; fresh-account runs are recorded beside them as separate evidence.
 - Without closed distribution and provenance rows, the release is `preview-only` (ADR-0004 §1 Q-D).
 
 ## 5. Support bundles and privacy defaults
@@ -208,19 +270,28 @@ One archive per target, named `heimdall-<version>-<target>`:
 ### 5.1 The bundle
 
 - **Opt-in.** A bundle exists only when the user runs the bundle command. Nothing collects one in the background, and nothing sends one anywhere: the output is a local file.
-- **Previewable.** The preview shows the manifest and the exact content of every file. The bundle written is byte-identical to what was previewed.
-- **Plain text.** UTF-8 text and JSON files with a manifest listing each file's digest and redaction counts. No binary blob, so the user can read all of it. At most 8 MiB.
-- **An allow-list, not a filter.** The collector takes typed inputs and writes named fields. A field not on the list is not collected:
-  - the version, commit, target and feature set; the platform and the SSH client's version and provenance;
-  - doctor's findings; the capability and claims table; setup and projection status with provenance;
-  - configuration **keys**, and the values of the non-identifying settings (durations, limits, booleans);
-  - the store's schema version, integrity result and row **counts**;
-  - the last operations as code, state, effect status and times;
-  - the log's tail, redacted again on the way in.
-- **Never collected:** private or public key material, certificates, the state database, backups, known-hosts content, the body of any SSH or Git configuration outside Heimdall's own managed block, environment variables, process arguments, shell history, session content.
-- **Identifiers are pseudonymized by default.** User names, host names, aliases, paths, fingerprints and Heimdall's own IDs become stable placeholders within one bundle (`host-1`, `user-1`). Keeping the real ones is a separate, explicit flag, shown in the preview.
-- **It works when Heimdall is broken:** with the runtime down, and with a store that will not open (it then reports the integrity result and nothing from inside).
-- **Redaction is tested with canaries in every input,** and does not rely on a prefix list (spec §13.6): the structural redactor (`telemetry::redact`) covers free text, and the allow-list covers everything else.
+- **No free text leaves the machine.** Every exported value is one of:
+  - an enumerated code (a result code, a reason, a finding ID, a state, a capability or claim key, a setup item kind);
+  - a typed safe value: a number, a boolean, a duration, a timestamp, a schema or protocol version, a build identifier, a count;
+  - a pseudonym (below).
+
+  Messages, log lines, diagnostics' detail text, error strings from the operating system or from `ssh`, command lines and file contents are **omitted**, not redacted. The log is exported as per-code counts with first and last times, never as lines. A diagnostic whose useful content is text is exported as its code and a note that detail was withheld.
+- **The structural redactor is not the guarantee.** `telemetry::redact` keeps ordinary words, short strings and Heimdall's own IDs by design, so it cannot promise to remove a short unmarked secret. It stays as it is, for local logs. The bundle's guarantee is that unsafe text is never collected.
+- **Every remaining string is pseudonymized.** User names, host names, aliases, labels, paths, fingerprints, key comments and Heimdall's own IDs become stable placeholders within one bundle (`host-1`, `user-1`, `id-7`). **The inverse map stays on the machine,** in a file beside the bundle that the bundle does not contain and the preview says not to send.
+- **Identifier inclusion is narrow.** `--include-identifiers` replaces pseudonyms by the real value only for fields typed as public identifiers (spec §13.6: user names, host names, paths, fingerprints). It never turns free text on, and every included value still passes the key-material, key-like-run and canary checks; a value that fails is withheld. It never applies to anything typed as secret or opaque.
+- **The preview is the bundle.** The command builds the bundle's bytes once, in memory, shows those bytes (the manifest and every file), and on confirmation writes **those same bytes**. Nothing is collected again between the preview and the write. The manifest's digest is printed in both places.
+- **Plain and bounded.** UTF-8 JSON files and a manifest with each file's digest and withheld-field counts. No binary blob. At most 8 MiB.
+- **What it holds:** the version, commit, target and feature set; the platform and the SSH client's version; doctor's finding codes with their typed fields; the capability and claims table; setup and projection status as kinds and states; configuration **keys** and the values of non-identifying settings; the store's schema version, integrity result and row **counts**; the last operations as code, state, effect status and times; log counts per code.
+- **Never collected:** private or public key material, certificates, the state database, backups, known-hosts content, any SSH or Git configuration text, environment variables, process arguments, shell history, session content, free-text messages.
+- **It works when Heimdall is broken:** with the runtime down, and with a store that will not open (it then reports the integrity result code and nothing from inside).
+- **Tests** (m08-plan U6a), none of which exports a planted value even on failure (a failing test reports the field name and a digest):
+  - secrets with **no marker**: short passwords, tokens that look like words, a passphrase in an error string;
+  - key material **split** across fields and lines, and multiline key blocks with altered armor;
+  - diagnostics whose text carries identifiers (a host name inside an error message, a path inside a finding);
+  - canaries in every input;
+  - `--include-identifiers` with a secret planted in an identifier-typed field;
+  - the previewed bytes equal the written bytes;
+  - the inverse map is not in the bundle.
 
 ### 5.2 Privacy defaults
 
@@ -265,7 +336,10 @@ The run of m08-plan §6.2 passes when all of these hold:
 3. **Descriptors and threads (lane S):** the final 6 hours' maximum is at most the maximum of hours 6–12 plus 4 descriptors and plus 2 threads.
 4. **Persistent state,** with retention set to 1 hour for events and 24 hours for operations: the database with its write-ahead log at 72 hours is at most 1.25 times its size at 48 hours; the log directory is at most 17 MiB; the file count under the home at 72 hours is at most the count at 24 hours plus 8. One more home runs the default retention and reports its growth per day, for the limitation statement.
 5. **Retries:** during every dependency outage, no two attempts toward the dependency that no caller asked for are less than 1 s apart, there are at most 12 such attempts in any 5 minutes, and the runtime's CPU over the outage is under 2 % of one core. After the dependency returns, the next request succeeds without a restart.
-6. **Authority:** zero successful fixture logins through Heimdall-held material after a grant's deadline, stop or revocation; zero grants whose scope or deadline exceeds the harness's ledger; zero pauses cleared by a restart; the environment ID identical at the start and the end of every lane, across every kill, update and rollback.
+6. **Authority,** stated as the revocation contract states it:
+   - **Local admission:** after a grant's deadline, stop or revocation, zero new signatures and zero new connections are admitted through Heimdall's endpoints, masters and helpers for that grant. This is the zero the soak asserts.
+   - **Already-issued credentials** are a different thing. A certificate issued before the end stays valid at a destination until its own `valid_before`, and a credential held by a disconnected runner until its bound; these are the accepted residual windows of ADR-0005 and ADR-0012 §7. The harness probes with material it kept from before the end: a login inside the residual window is **recorded and counted against the reported residual**, and fails the run only if it succeeds after the window Heimdall reported.
+   - Zero grants whose scope or deadline exceeds the harness's ledger; zero pauses cleared by a restart; the environment ID identical at the start and the end of every lane, across every kill, update and rollback.
 7. **Recovery (lane L):** after every stop and kill the next request is served within 30 s; no endpoint, signer, issuer child or bridge from the previous instance is alive 60 s later; an operation in flight at a kill is reported with an honest effect status; the full-volume fault is refused cleanly and leaves a store that passes its integrity check.
 8. **Cleanliness:** zero panics, zero `INTERNAL_ERROR`, zero canary strings in any log, output or sample.
 
@@ -273,11 +347,36 @@ The run of m08-plan §6.2 passes when all of these hold:
 
 The harness ends the run as failed at once on: any failure of item 6 or 8; resident memory above 300 MiB; more than 1024 descriptors; disk use above its budget; a heartbeat missing for 10 minutes.
 
-### 6.4 What the soak does not claim
+### 6.4 What the soak does and does not claim
 
-- **It runs on declared hardware, stated in the record.** A run in a container on the Mac is Linux arm64 in a virtual machine and is recorded as that.
-- **Lanes on a debug build are mechanism evidence** (ADR-0008 D12 item 3).
+- **It names its platform exactly** (ruling on Q2): a Linux arm64 container on a macOS host, with a 6-hour Linux x86-64 cross-check in a disposable WSL2 distribution. **No native macOS or Windows long run exists,** and the record says so as a limitation. Architecture independence of the result is not claimed.
+- **Lanes on a debug build are mechanism evidence** (ADR-0008 D12 item 3) and close no release row. The A34 record carries these rows as `blocked`, each with its input, unless a release run on a product store covers it:
+  - **release-managed:** the managed recipe on a release build with a product secret store, for 72 hours (needs a verified store where the soak runs: B3 or B11);
+  - **provider:** a real provider other than the disposable native agent (the 1Password row: B1);
+  - **route:** jump and Iroh routes, and the runner lane, on a release build (blocked if lane R runs on debug builds or cannot run in containers).
 - **It injects no clock change, no sleep and no reboot.** Those are A08's rows, on their own platforms.
+
+### 6.5 What invalidates a soak
+
+The soak belongs to **an executable and its build inputs.** After a change, the affected soak is reassessed:
+
+- **The 72-hour run is repeated** when the change can alter a long-lived process: any crate linked into the runtime, the issuer, a helper or a bridge (today `runtime`, `store`, `ipc`, `credential`, `issuer`, `app`, `domain`, `adapters`, `localenv`, `enroll`, `registry`, `sshconf`, `wsl`, and M06's `remote` and `transport-iroh`); the root manifest, the lock file, the feature set, the toolchain or the build flags.
+- **A 6-hour confirmation** covers a change confined to short-lived command paths (CLI parsing, output, the TUI's rendering), shown by the diff.
+- **Nothing is rerun** for documentation, packaging metadata that does not enter the executable, and tests.
+- The orchestrator records which case applied and why. An unchanged executable digest needs no reassessment.
+
+### 6.6 The soak's supervision rule (an exception to ADR-0009 §2.6, for the soak only)
+
+ADR-0009 §2.6 says the agent that starts a long command blocks on it in the same turn. No turn can block for 72 hours. **For the 72-hour soak and its 6-hour cross-checks, and for nothing else:**
+
+1. **The run is detached and supervises itself.** Its container holds the harness, which needs no agent to continue.
+2. **It stops itself** on every threshold of §6.3.
+3. **It writes a status file** every 30 seconds: the heartbeat, the phase, the lanes' states, the latest measures against their thresholds, and on ending a `DONE` or `FAILED` marker with the reason.
+4. **It records real start and stop times,** from the container's clock and from the host's, in the status file and the evidence record. No time is filled in afterwards.
+5. **The orchestrator owns the scheduled checks** (at start, +1 h, +6 h, +24 h, +48 h, +72 h). Each check reads the status file; none waits on the run. A heartbeat missing for ten minutes makes the run invalid.
+6. **No worker is left waiting on it,** and a worker that starts any other long command still blocks on it.
+
+Accepting this ADR is the authorization for this exception.
 
 ## 7. Proposed contract deltas (for the contract owner; none applied)
 
@@ -285,16 +384,18 @@ The harness ends the run as failed at once on: any failure of item 6 or 8; resid
 |---|---|---|---|
 | H1 | `heimdall support bundle [--preview] --out <file> [--include-identifiers]`; schema `heimdall-support-bundle/1` for the manifest | new command and schema | §5.1; R-SE-08 |
 | H2 | `heimdall service stop --preview`: a read-only list of what stopping interrupts; a schema for it | new flag and schema | §3.2 item 2; R-DI-03 |
-| H3 | `heimdall state status`, `heimdall state restore --backup <file>`, `heimdall state reset`: attended, each with a typed confirmation | new commands | §3.2 items 6, 9, 10; R-RT-08. `restore`'s semantics wait on §3.6 |
+| H3 | `heimdall state status`, `heimdall state restore --backup <file>`, `heimdall state reset`: attended, each with a typed confirmation. **With it, §3.6 as an authority rule of the contract:** what a restore keeps, ends, quarantines and voids; the carry-forward of the more restrictive state; identity binding; the refusals; reset's inventory-unavailable disclosure | new commands **and an authority rule** | §3.2 items 6, 9, 10; §3.6; R-RT-08, R-RT-07 |
 | H4 | Reasons under `STATE_UNAVAILABLE`: `state_corrupt`, `state_newer_than_build`; an event and a reason for `state_restored_authority_ended` | new reasons | Today both read as one message with no next step |
-| H5 | A doctor finding `executable_moved`, with its repair command | new finding | §3.2 item 11 |
-| H6 | Residue kinds: `migration_backup`, `previous_binary`, `git_block_moved` | new enum values | §3.4; R-DI-04 |
+| H5 | A doctor finding `executable_moved`, with its repair command | new finding | §3.2 item 12 |
+| H6 | Residue kinds: `migration_backup`, `pre_restore_store`, `previous_binary`, `git_block_moved` | new enum values | §3.4; R-DI-04 |
 | H7 | Build provenance in the version output and `inspect capabilities`: commit, target, profile, feature set | new fields | §4.4; "release claims match the shipped builds" |
 | H8 | The candidate's version string, replacing `0.1.0-m01` | value | It is carried in the hello |
-| H9 | A store migration recording a restore and its time | migration | H3, if §3.6 (a) is ruled |
+| H9 | A store migration: the restore record (time, source backup's schema, counts ended and quarantined); the backup's environment binding; a quarantine state for management clients and a void state for invitations, if M06's tables lack them | migration | H3 |
+| H10 | Reasons for the quarantine: `client_quarantined_after_restore`, `invitation_void_after_restore`, `exposure_disabled_after_restore`; a `restore` event | new reasons and event | §3.6 |
+| H11 | A debug-support cargo feature that keeps test-only crates out of release builds | manifest change, under the manifest's owner | §4.5; ruling on Q8 |
 
 **Proposed text changes outside ADR-0006:**
-- **ADR-0002 §9:** Linux artifacts are dynamic against a glibc 2.31 floor, not static musl (m08-plan Q4).
+- **ADR-0002 §9 (ruled, Q4):** Linux artifacts are dynamic against a glibc 2.31 floor, not static musl. ADR-0002 is amended explicitly at merge; the artifact check enforces the imports and symbol versions; the declared distributions are run.
 - **Spec §15.1:** none. The budgets stand until a measurement says otherwise.
 - **Spec §13.6:** none. The seven-day default stands; a storage bound is proposed only if §6.2 item 4's default-retention report asks for one.
 
@@ -313,14 +414,22 @@ The harness ends the run as failed at once on: any failure of item 6 or 8; resid
 | Uploading bundles | No service exists, and none is promised |
 | The soak on the Windows PC, the devbox or the VPS | m08-plan §6.2's table |
 | A soak on a debug build with injected faults only | The leak and retry claims are about the shipped build |
-| Restoring a backup unchanged | §3.6 (b) |
+| Restoring a backup unchanged | It revives revoked and stopped access (§3.6) |
+| Restore that only ends grants and pauses policies | A recovered management client, invitation or exposure setting is authority too (review M08-D-R01) |
+| No restore, reset only | Loses the environment identity and orphans every enrollment |
+| Replaying later tombstones onto the backup from a second log | A new durable mechanism for a rare path; the carry-forward from a readable store gives the same result where it is possible |
+| A filtered log tail in the bundle | Free text cannot be made safe by a redactor that keeps ordinary words (review M08-D-R03) |
+| `SHA256SUMS` inside the archive covering the archive | Self-referential (review M08-D-R07) |
+| A hand-written dependency resolver | A pinned tool with a validation adapter is enough (review M08-D-R04) |
+| Fresh-account rows closing the clean-machine claim | Machine-wide runtimes remain (review M08-D-R06) |
 
 ## 9. Consequences
 
 - **The release's weakest rows are named in advance:** unsigned Windows and Linux artifacts, an ad-hoc macOS build with the update limitation, and Windows and macOS release rows that need a disposable account each.
-- **A restore costs the user one round of approvals,** if §3.6 (a) is ruled.
+- **A restore costs the user one round of approvals, and one reauthorization per remote client.**
 - **Two toolchains exist in the project,** one of them only inside a fuzz container.
-- **The inventory names crates that are built and not linked.** The alternative is a later change to how the release binary is built (m08-plan Q8).
+- **The release graph loses its test-only crates before the candidate** (H11); until then the inventory names them.
+- **The bundle is less useful to a maintainer than a log tail would be.** That is the price of sending no free text; a user can still read their own local log.
 - **Migration consequences:** H9 is the only schema change proposed. No existing record changes meaning.
 
 ## 10. Reopen conditions
@@ -329,5 +438,6 @@ The harness ends the run as failed at once on: any failure of item 6 or 8; resid
 - A benchmark row misses on a measured platform.
 - The soak fails item 2, 3 or 4 with a cause that is a designed cache or log rather than a leak.
 - The owner supplies a signing key, a Developer ID or a publishing channel: §4.7 and m08-plan §10 are then revised.
-- The contract owner rules §3.6 other than (a).
+- M06's exit changes what counts as recovered remote authority (a new durable admission record): §3.6's table gains a row.
+- A release run on a product store becomes possible where the soak runs: the release-managed row of §6.4 is then run, not blocked.
 - M06's exit changes the transport's V1 scope, and with it the feature set and the inventory.
