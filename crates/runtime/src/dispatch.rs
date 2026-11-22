@@ -1859,7 +1859,7 @@ mod tests {
                 store.clone(),
                 supervisor,
                 keys,
-                Arc::new(heimdall_app::transport::NoPeerEnrollments),
+                Arc::new(heimdall_app::transport::StorePeerEnrollments),
             ),
         ));
         let offer = d.offered_capabilities();

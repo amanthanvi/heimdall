@@ -275,23 +275,27 @@ pub trait ServeControl: Send + Sync {
     async fn stop(&self) -> AdmissionReport;
 }
 
-/// The serve allowlist's enrollments (the clients' Iroh endpoint IDs). ⟨U56 DONE Q1⟩ The
-/// schema has no table for them yet; the runtime supplies the implementation.
+/// The serve allowlist's enrollments (the clients' Iroh endpoint IDs).
 pub trait PeerEnrollments: Send + Sync {
-    /// Remove every entry (ADR-0012 §2.5). Returns how many were removed.
+    /// Remove every entry (ADR-0012 §2.5) **inside `tx`**, the narrowing write's
+    /// transaction, moving the admission authority generation there when any entry went
+    /// (⟨M06-W3-R01⟩: the entries and the generation commit together or not at all).
+    /// Returns how many were removed.
     ///
     /// # Errors
-    /// The store's, as text never echoed to peers.
-    fn clear(&self) -> Result<usize, OpError>;
+    /// The store's (the whole narrowing write rolls back).
+    fn clear(&self, tx: &mut Txn<'_>, now: Timestamp) -> heimdall_store::Result<usize>;
 }
 
-/// No enrollments are recorded (the default until the schema has them): nothing to clear.
+/// ⟨M06-W3-R01⟩ The enrollments in the state store: the runner's `remote_client_endpoints`
+/// table, the same rows the serve child's allowlist is built from. Every product wiring
+/// uses this one (an installation with no paired client has no rows to clear).
 #[derive(Debug, Clone, Copy, Default)]
-pub struct NoPeerEnrollments;
+pub struct StorePeerEnrollments;
 
-impl PeerEnrollments for NoPeerEnrollments {
-    fn clear(&self) -> Result<usize, OpError> {
-        Ok(0)
+impl PeerEnrollments for StorePeerEnrollments {
+    fn clear(&self, tx: &mut Txn<'_>, now: Timestamp) -> heimdall_store::Result<usize> {
+        tx.clear_remote_client_endpoints(now)
     }
 }
 
@@ -605,46 +609,46 @@ impl TransportOps<'_> {
     /// # Errors
     /// The store's (nothing is withdrawn then).
     pub async fn disable(&self, now: Timestamp) -> Result<DisableResult, OpError> {
-        let (withdrawn, routes_removed, consents_removed) = self.store.transaction(|tx| {
-            let keys = tx.transport_keys()?;
-            let mut endpoints = Vec::new();
-            for k in &keys {
-                tx.destroy_transport_key(&k.endpoint, now)?;
-                endpoints.push(k.endpoint.clone());
-            }
-            let mut consents = tx.remove_route_consents(None, now)?;
-            // ⟨ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The recorded serve port goes with the endpoint: a
-            // later `enable` binds afresh (changing the port is disable then enable).
-            tx.clear_transport_serve_port()?;
-            // ⟨rev6.3⟩ A rotation still being announced ends with the endpoint: every
-            // reference, the withdrawn one it kept included, is destroyed below.
-            tx.clear_transport_rotation()?;
-            let ours: BTreeSet<&IrohEndpointId> = endpoints.iter().collect();
-            let mut removed = Vec::new();
-            for (destination, routes) in tx.all_destination_routes()? {
-                let (gone, kept): (Vec<_>, Vec<_>) = routes.into_iter().partition(|r| {
+        let (withdrawn, routes_removed, consents_removed, allowlist_entries_removed) =
+            self.store.transaction(|tx| {
+                let keys = tx.transport_keys()?;
+                let mut endpoints = Vec::new();
+                for k in &keys {
+                    tx.destroy_transport_key(&k.endpoint, now)?;
+                    endpoints.push(k.endpoint.clone());
+                }
+                let mut consents = tx.remove_route_consents(None, now)?;
+                // ⟨ADR-0012 §2.1 ⟨2026-11-21⟩⟩ The recorded serve port goes with the endpoint: a
+                // later `enable` binds afresh (changing the port is disable then enable).
+                tx.clear_transport_serve_port()?;
+                // ⟨rev6.3⟩ A rotation still being announced ends with the endpoint: every
+                // reference, the withdrawn one it kept included, is destroyed below.
+                tx.clear_transport_rotation()?;
+                let ours: BTreeSet<&IrohEndpointId> = endpoints.iter().collect();
+                let mut removed = Vec::new();
+                for (destination, routes) in tx.all_destination_routes()? {
+                    let (gone, kept): (Vec<_>, Vec<_>) = routes.into_iter().partition(|r| {
                     matches!(&r.route, RouteSpec::Iroh { endpoint, .. } if ours.contains(endpoint))
                 });
-                if gone.is_empty() {
-                    continue;
+                    if gone.is_empty() {
+                        continue;
+                    }
+                    if kept.is_empty() {
+                        tx.remove_destination_routes(&destination)?;
+                    } else {
+                        tx.put_destination_routes(&destination, &kept, now)?;
+                    }
+                    for r in gone {
+                        consents += tx.remove_route_consents(Some(&r.id), now)?;
+                        removed.push(r.id);
+                    }
                 }
-                if kept.is_empty() {
-                    tx.remove_destination_routes(&destination)?;
-                } else {
-                    tx.put_destination_routes(&destination, &kept, now)?;
-                }
-                for r in gone {
-                    consents += tx.remove_route_consents(Some(&r.id), now)?;
-                    removed.push(r.id);
-                }
-            }
-            if endpoints.is_empty() && consents == 0 && removed.is_empty() {
-                // Nothing narrowed: no generation moved.
-                return Ok((Vec::new(), removed, 0));
-            }
-            Ok((keys, removed, consents))
-        })?;
-        let allowlist_entries_removed = self.peers.clear()?;
+                // ⟨M06-W3-R01⟩ The serve allowlist's entries go in this same write: they and the
+                // generation they move commit together, before the child is stopped.
+                let cleared = self.peers.clear(tx, now)?;
+                // With nothing above narrowed and no entry cleared, no generation moved.
+                Ok((keys, removed, consents, cleared))
+            })?;
         // The generation moved in the commit above; stop the child (§2.5, §2.3 item 4).
         let admission = self.serve.stop().await;
         let mut keys_pending = Vec::new();

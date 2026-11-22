@@ -29,6 +29,24 @@
 //!    every policy has passed (a fresh work ID cannot pass a reconciled pause or cutoff). A
 //!    future cutoff bounds the certificate ([`IssuancePermit::bound`]).
 //!
+//! ⟨M06-W3-R02⟩ **The runner's prepare answer cannot talk its way past a pause or cutoff**
+//! ([`IssuerBarrier::permit_answer`], which the reserve and the publish use). The policy a
+//! prepare answer names is the runner's word, so:
+//!
+//! * a cutoff of **every** policy that this controller itself delivered to the runner (its
+//!   own outbox row, pending rows already refuse under rule 2) applies to all issuance for
+//!   that runner whatever the report or the answer says;
+//! * a pause or a single-policy cutoff this controller delivered applies to an answer naming
+//!   that policy whatever the report says;
+//! * while **any** pause or cutoff holds for the runner (in its report's policies or
+//!   delivered revisions, or in an effect this controller delivered: the controller keeps no
+//!   record of a lift, so every delivered pause or cutoff counts until the environment is
+//!   forgotten), an answer that names no policy, or one the report does not list, is refused
+//!   ([`BarrierRefusal::PolicyUnnamed`]).
+//!
+//! Which standing policy a grant really belongs to is still the runner's statement until the
+//! controller holds its own policy record (m06-plan W4, record source (b)).
+//!
 //! The runner applies the same rules to what it installs; this barrier keeps the issuer from
 //! signing what the runner would have to refuse, and keeps the residual counted.
 //!
@@ -47,6 +65,8 @@ use heimdall_contract::code::Code;
 use heimdall_contract::envelope::{EffectStatus, reason};
 use heimdall_contract::ids::{EnvironmentId, GrantId, IssuanceId, PolicyId};
 use heimdall_contract::managed::{AuthenticationResidual, DestinationClock};
+use heimdall_contract::remote::EffectTarget;
+use heimdall_contract::trust::PolicyTarget;
 use heimdall_domain::issuance::{IssuanceEntry, IssuanceRefusal, IssuanceState};
 use heimdall_domain::policy::AuthorityGeneration;
 use heimdall_domain::revocation::{RevocationCause, Tombstone};
@@ -155,10 +175,12 @@ pub struct Reconciliation {
 }
 
 /// Read `report` against this controller's ledger, in the caller's transaction (module
-/// docs): every tombstoned grant (and each descendant its tombstone covers) that this ledger
-/// has an issuance entry for gets this ledger's tombstone when it has none, and its counted
-/// residual is returned. Reserved entries are left to the publish, which voids them on the
-/// tombstone. A report for another environment than `environment` is not read: `None`,
+/// docs): every tombstoned grant (and each descendant its tombstone covers) gets this
+/// ledger's tombstone when it has none, ⟨M06-W3-R02⟩ whether or not this ledger holds an
+/// issuance entry for it (the issuer child's own check reads this ledger, so a grant another
+/// controller revoked is refused there too, and stays refused after this session). The
+/// counted residual of each grant this ledger has entries for is returned. Reserved entries
+/// are left to the publish, which voids them on the tombstone. A report for another environment than `environment` is not read: `None`,
 /// nothing written (the caller holds the environment, `environment_identity_mismatch`).
 ///
 /// # Errors
@@ -181,11 +203,6 @@ pub fn reconcile_in(
                 continue;
             }
             let residual = counted_residual(tx, grant)?;
-            if residual == CountedResidual::Unknown {
-                // Not this issuer's grant: nothing in this ledger to mark. The barrier still
-                // refuses it from the report.
-                continue;
-            }
             let marked_now = tx.tombstone(grant)?.is_none();
             if marked_now {
                 tx.insert_tombstone(&Tombstone {
@@ -196,6 +213,11 @@ pub fn reconcile_in(
                     remote_pending: Vec::new(),
                     cause: RevocationCause::AuthorityWithdrawn,
                 })?;
+            }
+            if residual == CountedResidual::Unknown {
+                // No counted history here: the tombstone above denies the ID, and there is
+                // no residual of this ledger's to report.
+                continue;
             }
             revoked.push(RevokedByReport {
                 grant: grant.clone(),
@@ -227,6 +249,13 @@ pub enum BarrierRefusal {
     PolicyPaused,
     /// A cutoff of the grant's scope has passed.
     PolicyCutoff,
+    /// ⟨M06-W3-R02⟩ A pause or cutoff holds for the runner and its prepare answer names no
+    /// policy, or one its report does not list: the answer cannot show the grant is outside
+    /// the hold.
+    PolicyUnnamed {
+        /// Whether a pause is among what holds (else only cutoffs are).
+        paused: bool,
+    },
 }
 
 impl BarrierRefusal {
@@ -261,6 +290,15 @@ impl BarrierRefusal {
             BarrierRefusal::PolicyCutoff => OpError::new(
                 Code::PolicyCutoff,
                 "a policy cutoff is in effect on the runner",
+            ),
+            BarrierRefusal::PolicyUnnamed { paused } => OpError::new(
+                if *paused {
+                    Code::PolicyPaused
+                } else {
+                    Code::PolicyCutoff
+                },
+                "a pause or cutoff holds on the runner, and its answer names no policy its \
+                 report lists; nothing is issued",
             ),
         };
         e.with_effect(EffectStatus::None)
@@ -334,9 +372,10 @@ impl IssuerBarrier {
             .map(|o| o.reconciliation.clone())
     }
 
-    /// Whether a reserve or publish for `grant` (under the runner's `policy`, when this
-    /// controller knows it) is permitted now (module docs, rules 1–5), judged in the
-    /// caller's transaction.
+    /// Whether issuance for `grant` (under the runner's `policy`, when this controller knows
+    /// it) is permitted now (module docs, rules 1–5), judged in the caller's transaction.
+    /// This is the check **before the runner was asked**: no policy is claimed yet, so a
+    /// missing one is not held against the grant ([`Self::permit_answer`] does that).
     ///
     /// # Errors
     ///
@@ -347,6 +386,37 @@ impl IssuerBarrier {
         environment: &EnvironmentId,
         grant: &GrantId,
         policy: Option<&PolicyId>,
+        now: Timestamp,
+    ) -> heimdall_store::Result<Result<IssuancePermit, BarrierRefusal>> {
+        self.judge(tx, environment, grant, policy, false, now)
+    }
+
+    /// ⟨M06-W3-R02⟩ [`Self::permit`] for a reserve or a publish, where `policy` is what the
+    /// runner's **prepare answer** named: while any pause or cutoff holds for the runner, an
+    /// answer that names no policy, or one the runner's report does not list, is refused
+    /// (module docs).
+    ///
+    /// # Errors
+    ///
+    /// The store's (outer); the refusal (inner).
+    pub fn permit_answer(
+        &self,
+        tx: &mut Txn<'_>,
+        environment: &EnvironmentId,
+        grant: &GrantId,
+        policy: Option<&PolicyId>,
+        now: Timestamp,
+    ) -> heimdall_store::Result<Result<IssuancePermit, BarrierRefusal>> {
+        self.judge(tx, environment, grant, policy, true, now)
+    }
+
+    fn judge(
+        &self,
+        tx: &mut Txn<'_>,
+        environment: &EnvironmentId,
+        grant: &GrantId,
+        policy: Option<&PolicyId>,
+        answered: bool,
         now: Timestamp,
     ) -> heimdall_store::Result<Result<IssuancePermit, BarrierRefusal>> {
         let Some(open) = self.lock().get(environment).cloned() else {
@@ -374,6 +444,36 @@ impl IssuerBarrier {
             bound = Some(bound.map_or(at, |b| b.min(at)));
             false
         };
+        // ⟨M06-W3-R02⟩ What this controller itself delivered (its outbox; every row is
+        // acknowledged here, a pending one refused above). The runner's report and answer
+        // cannot hide these.
+        let mut held_pause = false;
+        let mut held_cutoff = false;
+        for row in tx.remote_effect_outbox(Some(environment), false)? {
+            match &row.key.target {
+                EffectTarget::PolicyPause { policy: paused, .. } => {
+                    held_pause = true;
+                    if policy == Some(paused) {
+                        return Ok(Err(BarrierRefusal::PolicyPaused));
+                    }
+                }
+                EffectTarget::PolicyCutoff { scope, at, .. } => {
+                    held_cutoff = true;
+                    let applies = match scope {
+                        // Every policy: all issuance for this runner.
+                        PolicyTarget::All => true,
+                        PolicyTarget::Policy { policy_id } => policy == Some(policy_id),
+                        // Another scope: which policies it covers is the runner's to say
+                        // (the naming rule below then holds the answer to the report).
+                        _ => false,
+                    };
+                    if applies && cut(*at) {
+                        return Ok(Err(BarrierRefusal::PolicyCutoff));
+                    }
+                }
+                _ => {}
+            }
+        }
         // A delivered cutoff of every policy applies whatever the grant's policy.
         for row in &report.policy_revisions {
             if row.kind == PolicyRevisionKind::Cutoff
@@ -382,6 +482,23 @@ impl IssuerBarrier {
                 && cut(at)
             {
                 return Ok(Err(BarrierRefusal::PolicyCutoff));
+            }
+        }
+        if answered {
+            // ⟨M06-W3-R02⟩ While anything holds, the answer must name a listed policy.
+            held_pause |= report.policies.iter().any(|p| p.paused)
+                || report
+                    .policy_revisions
+                    .iter()
+                    .any(|r| r.kind == PolicyRevisionKind::Pause);
+            held_cutoff |= report.policies.iter().any(|p| p.cutoff_at.is_some())
+                || report
+                    .policy_revisions
+                    .iter()
+                    .any(|r| r.kind == PolicyRevisionKind::Cutoff);
+            let listed = policy.is_some_and(|id| report.policies.iter().any(|p| p.policy == *id));
+            if (held_pause || held_cutoff) && !listed {
+                return Ok(Err(BarrierRefusal::PolicyUnnamed { paused: held_pause }));
             }
         }
         if let Some(policy) = policy {
@@ -433,7 +550,7 @@ impl IssuerBarrier {
         entry: &IssuanceEntry,
         now: Timestamp,
     ) -> heimdall_store::Result<Result<(), BarrierRefusal>> {
-        match self.permit(tx, environment, &entry.grant, policy, now)? {
+        match self.permit_answer(tx, environment, &entry.grant, policy, now)? {
             Err(r) => Ok(Err(r)),
             Ok(permit) if permit.bound.is_some_and(|b| entry.bounds.valid_before > b) => {
                 Ok(Err(BarrierRefusal::PolicyCutoff))
@@ -466,7 +583,7 @@ impl IssuerBarrier {
                 "issuance {id} is not reserved"
             )));
         };
-        let refusal = match self.permit(tx, environment, &entry.grant, policy, now)? {
+        let refusal = match self.permit_answer(tx, environment, &entry.grant, policy, now)? {
             Err(r) => r,
             Ok(permit) if permit.bound.is_some_and(|b| entry.bounds.valid_before > b) => {
                 BarrierRefusal::PolicyCutoff
@@ -479,8 +596,12 @@ impl IssuerBarrier {
         if entry.state == IssuanceState::Reserved {
             let reason = match refusal {
                 BarrierRefusal::GrantRevoked => Some(IssuanceRefusal::Tombstoned),
-                BarrierRefusal::PolicyPaused => Some(IssuanceRefusal::PausedActivation),
-                BarrierRefusal::PolicyCutoff => Some(IssuanceRefusal::CutoffPassed),
+                BarrierRefusal::PolicyPaused | BarrierRefusal::PolicyUnnamed { paused: true } => {
+                    Some(IssuanceRefusal::PausedActivation)
+                }
+                BarrierRefusal::PolicyCutoff | BarrierRefusal::PolicyUnnamed { paused: false } => {
+                    Some(IssuanceRefusal::CutoffPassed)
+                }
                 _ => None,
             };
             if let Some(reason) = reason {

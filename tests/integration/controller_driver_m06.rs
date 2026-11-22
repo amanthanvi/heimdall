@@ -438,6 +438,191 @@ async fn the_prepared_policy_lets_the_barrier_refuse_a_paused_scope_before_reser
     assert!(r.w.runner.issuance().keys().installed().is_empty());
 }
 
+/// A compromised runner's side of a management session: it strips the policy from its
+/// prepare answers and, when `hide_report` is set, every policy and delivered revision from
+/// its authority reports.
+struct Lying<'a> {
+    inner: Session<'a>,
+    hide_report: bool,
+    /// Prepare answers that carried a policy and lost it.
+    stripped: usize,
+    /// Prepare requests seen.
+    prepares: usize,
+}
+
+#[async_trait::async_trait]
+impl RunnerChannel for Lying<'_> {
+    fn environment(&self) -> &heimdall_contract::ids::EnvironmentId {
+        self.inner.environment()
+    }
+
+    fn client(&self) -> Option<&heimdall_contract::ids::ClientId> {
+        self.inner.client()
+    }
+
+    async fn call(
+        &mut self,
+        request: RunnerRequest,
+    ) -> Result<Envelope<serde_json::Value>, OpError> {
+        let prepare = matches!(request, RunnerRequest::PrepareRemoteGrant { .. });
+        let report = matches!(request, RunnerRequest::AuthorityReport);
+        let mut env = self.inner.call(request).await?;
+        if let Some(data) = env.data.as_object_mut() {
+            if prepare {
+                self.prepares += 1;
+                self.stripped += usize::from(data.remove("policy").is_some());
+            }
+            if report && self.hide_report {
+                data.insert("policy_revisions".into(), serde_json::json!([]));
+                data.insert("policies".into(), serde_json::json!([]));
+            }
+        }
+        Ok(env)
+    }
+}
+
+/// ⟨M06-W3-R02⟩ The policy a prepare answer names is the runner's word, and a compromised
+/// runner can leave it out. While a pause holds for the runner, an answer without a policy
+/// is refused before anything is reserved or signed.
+#[tokio::test]
+async fn a_prepare_answer_stripped_of_its_policy_cannot_pass_a_pause() {
+    let r = rig().await;
+    r.w.trust(&r.w.ca_a, &controller_a());
+    r.w.designate(&controller_a());
+    let a = controller(&r, &controller_a(), Role::Owner);
+    deliver_all(&a, &r);
+    let d = driver(&a);
+    r.deliver(
+        &controller_b(),
+        &effect(7),
+        &EffectTarget::PolicyPause {
+            policy: policy_id(),
+            revision: 1,
+        },
+    )
+    .await
+    .unwrap();
+    let mut s = Lying {
+        inner: r.session(&controller_a()),
+        hide_report: false,
+        stripped: 0,
+        prepares: 0,
+    };
+    resync(d.store(), a.clock.as_ref(), d.barrier(), &a.pin, &mut s)
+        .await
+        .unwrap();
+    let e = d
+        .issue(
+            &a.pin,
+            &mut s,
+            &FixtureIssuer { ca: &r.w.ca_a },
+            &input(&r, &r.w.grant),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        s.stripped, 1,
+        "the answer reached the driver without its policy"
+    );
+    assert_eq!(e.code, Code::PolicyPaused);
+    assert!(
+        a.store
+            .transaction(|tx| tx.issuance_entries(&r.w.grant))
+            .unwrap()
+            .is_empty(),
+        "nothing was reserved"
+    );
+    assert!(r.w.runner.issuance().keys().installed().is_empty());
+}
+
+/// ⟨M06-W3-R02⟩ A cutoff of every policy that this controller delivered blocks all issuance
+/// for that runner from the controller's own record of the delivery: a runner whose report
+/// hides every policy and revision is not even asked to prepare.
+#[tokio::test]
+async fn a_delivered_cutoff_of_every_policy_holds_whatever_the_runner_reports() {
+    let r = rig().await;
+    r.w.trust(&r.w.ca_a, &controller_a());
+    r.w.designate(&controller_a());
+    let a = controller(&r, &controller_a(), Role::Owner);
+    record_pin(&a);
+    deliver_all(&a, &r);
+    let d = driver(&a);
+    let sent = cutoff_all_on_runners(&a.store, a.now(), a.now()).unwrap();
+    assert_eq!(sent.len(), 1);
+    // Delivered and acknowledged at the reconnect.
+    let mut s = r.session(&controller_a());
+    resync_with(&d, &a, &mut s).await;
+    assert_eq!(a.pending(), 0);
+    // A later session with a runner that hides the cutoff.
+    let mut s = Lying {
+        inner: r.session(&controller_a()),
+        hide_report: true,
+        stripped: 0,
+        prepares: 0,
+    };
+    s.inner.connection = 11;
+    let outcome = resync(d.store(), a.clock.as_ref(), d.barrier(), &a.pin, &mut s)
+        .await
+        .unwrap();
+    assert!(outcome.report.policies.is_empty() && outcome.report.policy_revisions.is_empty());
+    let e = d
+        .issue(
+            &a.pin,
+            &mut s,
+            &FixtureIssuer { ca: &r.w.ca_a },
+            &input(&r, &r.w.grant),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::PolicyCutoff);
+    assert_eq!(s.prepares, 0, "the runner was not asked to prepare");
+    assert!(
+        a.store
+            .transaction(|tx| tx.issuance_entries(&r.w.grant))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// ⟨M06-W3-R02⟩ A grant another controller revoked on the runner is tombstoned in this
+/// controller's ledger at the reconciliation even when this ledger holds no issuance entry
+/// for it (the issuer child's own check reads this ledger).
+#[tokio::test]
+async fn a_reported_tombstone_is_recorded_without_any_counted_history() {
+    let r = rig().await;
+    let a = controller(&r, &controller_a(), Role::Owner);
+    let d = driver(&a);
+    r.deliver(
+        &controller_b(),
+        &effect(8),
+        &EffectTarget::GrantRevoke {
+            grant: r.w.grant.clone(),
+            grant_generation: r.w.generation(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        a.store
+            .transaction(|tx| tx.issuance_entries(&r.w.grant))
+            .unwrap()
+            .is_empty()
+    );
+    let mut s = r.session(&controller_a());
+    let outcome = d.on_channel(&a, &mut s).await;
+    assert!(
+        outcome.revoked.is_empty(),
+        "no residual of this ledger's to report"
+    );
+    assert!(
+        a.store
+            .transaction(|tx| tx.tombstone(&r.w.grant))
+            .unwrap()
+            .is_some(),
+        "the reported tombstone is in this ledger"
+    );
+}
+
 /// ADR-0012 §7.4 (ruling of 2026-11-21): the generation a revoke carries is for idempotency
 /// and audit only. A revoke naming an older generation, delivered after the runner's
 /// authority moved on, revokes the grant as it is now; so does one naming a later generation.

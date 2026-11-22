@@ -999,7 +999,7 @@ fn transport_rotate(ctx: &Ctx) -> ExitCode {
             store: &w.store,
             keys: &keys,
             serve: &NoServe,
-            peers: &heimdall_app::transport::NoPeerEnrollments,
+            peers: &heimdall_app::transport::StorePeerEnrollments,
         }
         .rotate(Some(&announcer), now())
         .await?;
@@ -2585,21 +2585,22 @@ fn remote_init_plan(ctx: &Ctx, a: &RemoteInitArgs) -> Result<InitPlan, OpError> 
     })
 }
 
-/// The two forms `--issuer-ca` adds, for the effective owner client.
+/// The two forms `--issuer-ca` adds, for the effective owner client. ⟨M06-W3-R04⟩ Each
+/// request carries its own `request_id` (one ID names one request); the forms themselves are
+/// advisory and convergent on the runner (ADR-0006 §18.7: nothing is journaled by ID).
 fn issuer_forms(
     owner: &ClientId,
     ca_line: &str,
 ) -> Result<[heimdall_contract::remote::RunnerLocalRequest; 2], OpError> {
-    let request_id = heimdall_app::remote_env::new_request_id()?;
     Ok([
         heimdall_contract::remote::RunnerLocalRequest::TrustIssuer {
             controller: owner.clone(),
             ca_public_key: ca_line.to_owned(),
-            request_id: request_id.clone(),
+            request_id: heimdall_app::remote_env::new_request_id()?,
         },
         heimdall_contract::remote::RunnerLocalRequest::DesignateTimeSource {
             client: owner.clone(),
-            request_id,
+            request_id: heimdall_app::remote_env::new_request_id()?,
         },
     ])
 }
@@ -3420,9 +3421,11 @@ fn sole_owner(ctx: &Ctx) -> Result<ClientId, OpError> {
     }
 }
 
-/// A small text file (at most 16 KiB): a public key line.
+/// A small text file (at most 16 KiB): a public key line. A regular file only
+/// (`input_file::open_regular`: a FIFO or a device is refused, never waited on).
 fn read_small_file(path: &Path) -> Result<String, OpError> {
-    let file = std::fs::File::open(path).map_err(|_| usage("the file cannot be read"))?;
+    let file =
+        crate::input_file::open_regular(path).map_err(|_| usage("the file cannot be read"))?;
     let mut text = String::new();
     file.take(16 * 1024 + 1)
         .read_to_string(&mut text)
@@ -3572,6 +3575,22 @@ mod tests {
 
     use super::*;
     use crate::cli::{Cli, Command, dispatch};
+
+    /// ⟨M06-W3-R04⟩ `--issuer-ca`'s two requests each carry their own `request_id`.
+    #[test]
+    fn the_issuer_forms_carry_distinct_request_ids() {
+        use heimdall_contract::remote::RunnerLocalRequest;
+        let owner = ClientId::from_random_bytes([7; 16]);
+        let forms = issuer_forms(&owner, "ssh-ed25519 AAAA").unwrap();
+        let (
+            RunnerLocalRequest::TrustIssuer { request_id: a, .. },
+            RunnerLocalRequest::DesignateTimeSource { request_id: b, .. },
+        ) = (&forms[0], &forms[1])
+        else {
+            panic!("the two forms are trust_issuer then designate_time_source");
+        };
+        assert_ne!(a, b);
+    }
 
     /// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ The bridge refuses a faulty session
     /// whether or not its downgrade can be recorded. On a runner's home the row is written

@@ -650,13 +650,14 @@ impl ControllerSync {
             let now = self.clock.wall();
             let entry = self.entry(&ask, &subject, &delivered, pair, input, now)?;
             let reserved = self.store.transaction(|tx| {
-                let permit = match self
-                    .barrier
-                    .permit(tx, environment, &ask.grant, policy, now)?
-                {
-                    Ok(p) => p,
-                    Err(r) => return Ok(Err(r.to_error())),
-                };
+                let permit =
+                    match self
+                        .barrier
+                        .permit_answer(tx, environment, &ask.grant, policy, now)?
+                    {
+                        Ok(p) => p,
+                        Err(r) => return Ok(Err(r.to_error())),
+                    };
                 // Re-read in this transaction: the record may have been narrowed or
                 // forgotten since.
                 let Some(mut record) = tx.delivered_grant(environment, &ask.grant)? else {

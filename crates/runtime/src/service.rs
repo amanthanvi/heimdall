@@ -960,7 +960,7 @@ impl Service {
                     runner_options.transport = Some(crate::paired::RunnerTransport {
                         keys: keys.clone(),
                         serve: supervisor.clone(),
-                        peers: Arc::new(heimdall_app::transport::NoPeerEnrollments),
+                        peers: Arc::new(heimdall_app::transport::StorePeerEnrollments),
                     });
                 }
             }
@@ -1227,7 +1227,7 @@ impl Service {
                 store.clone(),
                 supervisor.clone(),
                 keys,
-                Arc::new(heimdall_app::transport::NoPeerEnrollments),
+                Arc::new(heimdall_app::transport::StorePeerEnrollments),
             );
             // ⟨rev6.3⟩ `transport.rotate` tells the recorded runners through it.
             if let Some(a) = transport_announcer {

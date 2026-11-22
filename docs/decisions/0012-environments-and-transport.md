@@ -185,6 +185,11 @@ Passive inspection binds nothing (spec §9.2).
 
 A26 verifies removal. G06 made no uninstall claim.
 
+⟨2026-11-21; M06-W3-R01 (`tests/evidence/artifacts/review-m06/w3.md`) and the ruling on it⟩ **`disable` forgets endpoints; it does not revoke clients.**
+- **What it clears:** every `remote_client_endpoints` row, in the narrowing write, with the generation bump.
+- **What it keeps:** each client's Iroh admission. A later `enable` is the runner-local approved widening that resumes serving to clients still enrolled and admitted; they record an endpoint again as a first set.
+- **To remove one client's Iroh access permanently, revoke that client.**
+
 ### 2.6 ⟨r2⟩ Windows, decided per path (the ruling on Q5; R12)
 
 **A path with no evidence gets no support label.** The firewall is never touched.
@@ -639,6 +644,11 @@ This text replaces nothing else in ADR-0010 §5.
      - **A cutoff under unbounded uncertain time** fires at once, since it only narrows. Once fired it stays fired even after time becomes certain; only a runner-local attended action lifts it. `environment status` and `doctor` say it fired early because time was uncertain.
      - **Lifting:** a runner-local attended `resume` or `clear_cutoff` lifts a delivered pause or cutoff. The revision rows stay as the record.
      - **Coverage:** a cutoff covers the policies that exist when it is delivered. A policy the runner-local owner creates later is that owner's own attended widening.
+   - ⟨2026-11-21; M06-W3-R02 and the ruling on it⟩ **The controller's own delivered effects gate issuance, whatever the runner says.**
+     - A cutoff with scope `all` that this controller delivered blocks all issuance for that runner.
+     - While the runner's report, or any undrained or unlifted effect this controller delivered, holds a pause or cutoff, a prepare answer that names no policy, or one the report does not list as active, is refused.
+     - **This is sticky until a lift is acknowledged on the controller** (W4): issuance resumes only when the runner's report shows the lift and the owner confirms it on the controller, recorded as a controller-held row. Neither alone reopens issuance.
+     - **Residual:** a runner that lies in both its report and its answer passes the report-side checks; only this controller's own delivered effects are independent of it.
 5. **Identity is not reset.**
    - **A changed host key,** or an environment ID that does not match the pin, gives `held`, with `environment_identity_mismatch`.
    - **Repair** goes through independently host-verified access (§3.3).

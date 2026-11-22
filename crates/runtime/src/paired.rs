@@ -678,6 +678,45 @@ fn marker_cleared(log_dir: &Path) -> bool {
     }
 }
 
+/// What one attempt to record the pending marker did ([`drain_marker`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Drained {
+    /// No marker is pending.
+    Nothing,
+    /// The row is recorded with the marker's cause and the marker is gone.
+    Recorded(OwnerOnlyCause),
+    /// The row could not be written: the marker stays.
+    RowFailed,
+    /// The row is recorded; the marker could not be removed (or its directory is refused).
+    MarkerStuck(OwnerOnlyCause),
+}
+
+impl Drained {
+    /// Whether no marker is left pending.
+    fn cleared(self) -> bool {
+        matches!(self, Drained::Nothing | Drained::Recorded(_))
+    }
+}
+
+/// ⟨ADR-0012 §3.2 "How the downgrade is kept"⟩ Record the pending marker of `dir`, if any,
+/// as a downgrade row of `store` (the marker's cause), and remove the marker only once the
+/// row committed. The caller holds the instance lock. Never call it inside a transaction of
+/// the same store.
+fn drain_marker(dir: &Path, store: &Store, now: Timestamp) -> Drained {
+    let Some(pending) = unrecorded_downgrade(dir) else {
+        return Drained::Nothing;
+    };
+    let aside = set_marker_aside(dir);
+    if record_owner_only(store, pending.cause, now).is_err() {
+        return Drained::RowFailed;
+    }
+    if aside && marker_cleared(dir) {
+        Drained::Recorded(pending.cause)
+    } else {
+        Drained::MarkerStuck(pending.cause)
+    }
+}
+
 /// The marker directory of the home whose state database is `db` (the bridge's own rule,
 /// [`state_db_of_home`], read backwards); `None` for a database that is not a home's.
 fn marker_dir_of_db(db: &Path) -> Option<PathBuf> {
@@ -746,22 +785,24 @@ impl RunnerPolicy {
         if self.marker_stuck.load(SeqCst) {
             return;
         }
-        let Some(pending) = unrecorded_downgrade(dir) else {
-            return;
-        };
-        let aside = set_marker_aside(dir);
-        if record_owner_only(store, pending.cause, now).is_err() {
-            tracing::warn!("a pending owner-only downgrade could not be recorded");
-            self.lower_in_process();
-            return;
-        }
-        tracing::warn!(
-            cause = pending.cause.token(),
-            "a downgrade the bridge could not record is recorded now: this runner is owner-only"
-        );
-        if !(aside && marker_cleared(dir)) {
-            tracing::warn!("the pending-downgrade marker could not be removed");
-            self.marker_stuck.store(true, SeqCst);
+        let outcome = drain_marker(dir, store, now);
+        match outcome {
+            Drained::Nothing => {}
+            Drained::RowFailed => {
+                tracing::warn!("a pending owner-only downgrade could not be recorded");
+                self.lower_in_process();
+            }
+            Drained::Recorded(cause) | Drained::MarkerStuck(cause) => {
+                tracing::warn!(
+                    cause = cause.token(),
+                    "a downgrade the bridge could not record is recorded now: this runner is \
+                     owner-only"
+                );
+                if outcome == Drained::MarkerStuck(cause) {
+                    tracing::warn!("the pending-downgrade marker could not be removed");
+                    self.marker_stuck.store(true, SeqCst);
+                }
+            }
         }
     }
 
@@ -1008,6 +1049,10 @@ pub enum LiftRefusal {
     /// Its age cannot be established (another boot, a clock that went backwards, or a
     /// continuous clock available at only one of the two readings).
     AgeUncertain,
+    /// ⟨M06-W3-R03⟩ A downgrade the bridge could not record is still pending in the home's
+    /// log directory and could not be recorded and removed now: lifting would be undone at
+    /// once.
+    MarkerPending,
 }
 
 impl LiftRefusal {
@@ -1030,6 +1075,11 @@ impl LiftRefusal {
             Self::AgeUncertain => {
                 "the age of the recorded recheck cannot be established (run `heimdall \
                  environment recheck` on the owner's controller again)"
+            }
+            Self::MarkerPending => {
+                "a downgrade that could not be recorded is still pending in this home's log \
+                 directory and cannot be recorded now (see `heimdall doctor`, then run \
+                 `heimdall environment recheck` on the owner's controller again)"
             }
         }
     }
@@ -1156,6 +1206,17 @@ pub fn lift_downgrade(
             "lifting the owner-only downgrade needs the owner attending at this runner's terminal",
         )
         .with_effect(EffectStatus::None));
+    }
+    // ⟨M06-W3-R03⟩ A pending marker is a downgrade event not yet in the store: record it
+    // first (its row moves the epoch, so evidence from before it lifts nothing below). A
+    // marker that cannot be recorded and removed refuses the lift: the runner would be
+    // lowered again at once.
+    if let Some(dir) = store.database_path().as_deref().and_then(marker_dir_of_db)
+        && unrecorded_downgrade(&dir).is_some()
+        && store.transaction(is_runner)?
+        && !drain_marker(&dir, store, now.wall).cleared()
+    {
+        return Err(LiftRefusal::MarkerPending.to_error());
     }
     store
         .transaction(|tx| {
@@ -2332,6 +2393,9 @@ impl PairedRunner {
                     .into_envelope(),
             );
         }
+        // ⟨M06-W3-R03⟩ A pending marker is recorded first, so the evidence below is for the
+        // epoch that includes it (and never for one a marker is about to move).
+        self.policy.drain_pending(self.clock.wall());
         let standing = match self.store.transaction(|tx| tx.runner_downgrade()) {
             Ok(d) => d,
             Err(_) => return refused(Refusal::State),
@@ -2944,6 +3008,87 @@ mod tests {
         assert_eq!(
             unrecorded_downgrade(&log2).map(|n| n.cause),
             Some(OwnerOnlyCause::SessionAgent)
+        );
+    }
+
+    /// ⟨M06-W3-R03⟩ The attended lift records a pending marker before it judges anything:
+    /// evidence from before the marker's event lifts nothing (never `lifted: true` while a
+    /// marker would lower the runner again), the marker's row stands, and fresh evidence for
+    /// that row's epoch then lifts for good.
+    #[test]
+    fn a_pending_marker_is_recorded_before_a_lift_and_never_lifted_over() {
+        use heimdall_store::ext_runner::PolicyRecheckEvidence;
+        let (_dir, store, log_dir) = scratch_home();
+        init_runner(&store).unwrap();
+        let at: Timestamp = "2026-11-21T09:00:00Z".parse().unwrap();
+        let owner = ClientId::from_random_bytes([6; 16]);
+        let record = RemoteClientRecord {
+            client: owner.clone(),
+            role: heimdall_contract::remote::Role::Owner,
+            key_fingerprint: heimdall_contract::ids::KeyFingerprint::parse(&format!(
+                "SHA256:{}",
+                "L".repeat(43)
+            ))
+            .unwrap(),
+            public_key: "ssh-ed25519 AAAA".into(),
+            state: ClientState::Active,
+            invitation: None,
+            revoked_generation: None,
+            revocation: None,
+            created_at: at,
+            updated_at: at,
+            line: AppliedLine::Absent,
+        };
+        store
+            .transaction(|tx| tx.enroll_bootstrap_owner(&record, at).map(drop))
+            .unwrap();
+        let now = ClockReading {
+            wall: at,
+            boot_id: "boot-a".into(),
+            continuous: Some(Duration::from_secs(1)),
+        };
+        let recheck = |epoch: u64| {
+            let evidence = PolicyRecheckEvidence {
+                controller: owner.clone(),
+                epoch,
+                recorded_at: at,
+                boot_id: "boot-a".into(),
+                continuous_ms: Some(1_000),
+                probe: AGREES,
+            };
+            store
+                .transaction(|tx| tx.record_policy_recheck(&evidence))
+                .unwrap()
+        };
+        record_owner_only(&store, OwnerOnlyCause::Probe, at).unwrap();
+        assert!(recheck(1), "evidence that would lift epoch 1");
+
+        // The bridge queues an event it could not record.
+        note_unrecorded_downgrade(&log_dir, OwnerOnlyCause::SessionPty, at).unwrap();
+        let refused = lift_downgrade(&store, &now, true).unwrap_err();
+        assert_eq!(
+            refused.reason.as_deref(),
+            Some(heimdall_contract::envelope::reason::MANAGEMENT_SSHD_UNVERIFIED)
+        );
+        // The standing row keeps its first cause; the marker's event moved its epoch.
+        assert_eq!(standing(&store).map(|(_, epoch)| epoch), Some(2));
+        assert!(
+            unrecorded_downgrade(&log_dir).is_none(),
+            "the marker is recorded"
+        );
+        assert_eq!(
+            RunnerPolicy::with_store(ManagementPolicy::Verified, store.clone()).current(),
+            ManagementPolicy::OwnerOnly
+        );
+
+        // Fresh evidence for the marker's epoch: lifted, and nothing lowers it again.
+        assert!(recheck(2));
+        let lifted = lift_downgrade(&store, &now, true).unwrap();
+        assert_eq!(lifted.data["lifted"], true);
+        assert_eq!(standing(&store), None);
+        assert_eq!(
+            RunnerPolicy::with_store(ManagementPolicy::Verified, store.clone()).current(),
+            ManagementPolicy::Verified
         );
     }
 

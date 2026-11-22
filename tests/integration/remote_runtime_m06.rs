@@ -1649,8 +1649,12 @@ impl heimdall_app::transport::ServeControl for TransportFakes {
 }
 
 impl heimdall_app::transport::PeerEnrollments for TransportFakes {
-    fn clear(&self) -> Result<usize, heimdall_app::OpError> {
-        Ok(0)
+    fn clear(
+        &self,
+        tx: &mut heimdall_store::Txn<'_>,
+        now: Timestamp,
+    ) -> heimdall_store::Result<usize> {
+        heimdall_app::transport::StorePeerEnrollments.clear(tx, now)
     }
 }
 

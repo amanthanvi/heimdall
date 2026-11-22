@@ -94,7 +94,7 @@ impl ServeControl for Fakes {
 }
 
 impl PeerEnrollments for Fakes {
-    fn clear(&self) -> Result<usize, OpError> {
+    fn clear(&self, _tx: &mut Txn<'_>, _now: Timestamp) -> heimdall_store::Result<usize> {
         self.calls.lock().unwrap().cleared += 1;
         Ok(2)
     }

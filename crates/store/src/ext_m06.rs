@@ -712,6 +712,19 @@ impl Txn<'_> {
         Ok(out)
     }
 
+    /// ⟨M06-W3-R01⟩ `transport disable`'s part of the serve allowlist (ADR-0012 §2.5): delete
+    /// **every** client's endpoint ID, whatever the client's state, and move the admission
+    /// authority generation when any row went, in the caller's transaction (the narrowing
+    /// write's). Returns how many rows went. A client is admitted again only by recording an
+    /// endpoint anew over its K_mgmt session (its rotation form).
+    pub fn clear_remote_client_endpoints(&mut self, now: Timestamp) -> Result<usize> {
+        let n = self.tx.execute("DELETE FROM remote_client_endpoints", [])?;
+        if n > 0 {
+            self.bump_remote_authority_generation(now)?;
+        }
+        Ok(n)
+    }
+
     // --- the admission authority generation ---------------------------------------------
 
     /// The runner's admission authority generation (0 before the first change).

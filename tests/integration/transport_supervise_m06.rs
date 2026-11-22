@@ -38,7 +38,9 @@ use std::time::{Duration, Instant};
 use heimdall_app::routes::failover::{ClientIdentification, FailoverConfig, run_failover};
 use heimdall_app::routes::legs::{RouteLegDialer, TokioLegDialer};
 use heimdall_app::routes::{LegPlan, PlannedRoute};
-use heimdall_app::transport::{AdmissionReport, ApprovedWidening, NoPeerEnrollments, TransportOps};
+use heimdall_app::transport::{
+    AdmissionReport, ApprovedWidening, StorePeerEnrollments, TransportOps,
+};
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{
     AccountName, ClientId, DecisionId, DestinationId, EnvironmentId, InvitationId, IrohEndpointId,
@@ -54,12 +56,13 @@ use heimdall_credential::iroh::{
     UnsupportedIrohStore, doctor_finding,
 };
 use heimdall_domain::time::BootId;
+#[cfg(unix)]
+use heimdall_runtime::supervise_transport::NoPeerEndpoints;
+use heimdall_runtime::supervise_transport::read_authority;
 use heimdall_runtime::supervise_transport::{
     CredentialKeys, IrohRouteLeg, KeyRef, PeerEndpoints, ServeSpawn, Serving, StoreKeySource,
     SupervisorConfig, TransportSupervisor, serve_child_stdio,
 };
-#[cfg(unix)]
-use heimdall_runtime::supervise_transport::{NoPeerEndpoints, read_authority};
 use heimdall_store::ext_m06::{
     AppliedLine, ClientState, InvitationState, JoinRecord, RemoteClientRecord,
     RemoteInvitationRecord, RevocationCause,
@@ -281,6 +284,11 @@ fn now() -> Timestamp {
 
 /// An active client of the role table (invited, then joined), with a distinct key.
 fn seed_client(store: &Store, n: u8) -> ClientId {
+    seed_client_admitting(store, n, false)
+}
+
+/// [`seed_client`], with the consumed invitation's Iroh admission as given.
+fn seed_client_admitting(store: &Store, n: u8, iroh_admission: bool) -> ClientId {
     let at = now();
     let client = ClientId::from_random_bytes([n; 16]);
     let invitation = InvitationId::from_random_bytes([n; 16]);
@@ -317,7 +325,7 @@ fn seed_client(store: &Store, n: u8) -> ClientId {
         state: InvitationState::Pending,
         consumed_at: None,
         join: None,
-        iroh_admission: false,
+        iroh_admission,
     };
     let join = JoinRecord {
         environment: EnvironmentId::from_random_bytes([9; 16]),
@@ -471,7 +479,7 @@ impl World {
             store: &self.store,
             keys: &keys,
             serve,
-            peers: &NoPeerEnrollments,
+            peers: &StorePeerEnrollments,
         };
         let delta = ops.enable_delta(true, None).unwrap();
         let approved = ApprovedWidening {
@@ -682,7 +690,7 @@ fn rotation_replaces_the_child_under_a_new_endpoint() {
             store: &w.store,
             keys: &keys,
             serve: sup.as_ref(),
-            peers: &NoPeerEnrollments,
+            peers: &StorePeerEnrollments,
         };
         let g = w.generation();
         let rotated = ops.rotate(None, now()).await.unwrap();
@@ -707,6 +715,96 @@ fn rotation_replaces_the_child_under_a_new_endpoint() {
             Err(_) => false,
         };
         assert!(!reached, "the withdrawn endpoint does not serve");
+        assert_eq!(sup.stop().await, AdmissionReport::Applied);
+    });
+}
+
+/// ⟨M06-W3-R01⟩ `transport disable` through the runtime's own form
+/// (`RouteTransport::transport` with `TransportRequest::Disable`, wired as the product wires
+/// it: the store's enrollments, and the store's `remote_client_endpoints` as the serve
+/// allowlist) removes every client's recorded endpoint in the narrowing write, with the
+/// admission authority generation. After a later `enable`, a client that did not record its
+/// endpoint again is refused; one that did (its rotation form's write) is served.
+fn transport_disable_clears_the_client_allowlist_before_any_re_enable() {
+    use heimdall_runtime::paired_endpoints::StorePeerEndpoints;
+    use heimdall_runtime::supervise_transport::RouteTransport;
+    rt().block_on(async {
+        let w = World::new().await;
+        let c3 = seed_client_admitting(&w.store, 3, true);
+        let c4 = seed_client_admitting(&w.store, 4, true);
+        let (k3, e3) = client_key();
+        let (k4, e4) = client_key();
+        w.store
+            .transaction(|tx| {
+                tx.set_remote_client_endpoint(&c3, &e3, now())?;
+                tx.set_remote_client_endpoint(&c4, &e4, now()).map(drop)
+            })
+            .unwrap();
+        let sup = Arc::new(TransportSupervisor::new(
+            w.store.clone(),
+            Arc::new(StorePeerEndpoints),
+            config(w.target.port, w.keydir.as_os_str(), "child"),
+        ));
+        w.enable_serving(&sup).await;
+        let serving = sup.serving().await.unwrap();
+        let mut s3 = dial_serving(&k3, &serving).await.unwrap();
+        assert!(session(&mut s3, "c3").await, "c3 is admitted while enabled");
+        let _ = s3.close().await;
+
+        let service = RouteTransport::new(
+            w.store.clone(),
+            sup.clone(),
+            Arc::new(w.keys()),
+            Arc::new(StorePeerEnrollments),
+        );
+        let owner = heimdall_app::Caller::unattended(heimdall_domain::principal::CallerContext {
+            principal: heimdall_domain::principal::PrincipalRef::UnixUser { uid: 501 },
+            role: heimdall_domain::principal::ClientRole::Owner,
+            remote_client: None,
+        });
+        let before = w.generation();
+        let done = service
+            .transport(&owner, &TransportRequest::Disable, now())
+            .await
+            .unwrap();
+        assert_eq!(done["allowlist_entries_removed"], 2, "{done}");
+        assert!(
+            w.generation() > before,
+            "the narrowing moved the generation"
+        );
+        let listed = w
+            .store
+            .transaction(|tx| tx.remote_client_endpoints())
+            .unwrap();
+        assert!(
+            listed.is_empty(),
+            "no endpoint survives disable: {listed:?}"
+        );
+        assert!(
+            read_authority(&w.store, &StorePeerEndpoints)
+                .unwrap()
+                .admitted
+                .is_empty(),
+            "the allowlist's source is empty"
+        );
+        assert!(sup.serving().await.is_none(), "the child was stopped");
+
+        // Re-enable. c4 records its endpoint again over its management session; c3 does not.
+        w.store
+            .transaction(|tx| tx.set_remote_client_endpoint(&c4, &e4, now()).map(drop))
+            .unwrap();
+        w.enable_serving(&sup).await;
+        let serving = sup.serving().await.unwrap();
+        let mut s4 = dial_serving(&k4, &serving).await.unwrap();
+        assert!(
+            session(&mut s4, "c4").await,
+            "the re-recorded client is served"
+        );
+        let _ = s4.close().await;
+        assert!(
+            refused(&k3, &serving).await,
+            "an endpoint enrolled before disable is refused after re-enable"
+        );
         assert_eq!(sup.stop().await, AdmissionReport::Applied);
     });
 }
@@ -772,7 +870,7 @@ fn the_serve_port_is_stable_and_an_unbindable_one_fails_closed() {
             store: &w.store,
             keys: &keys,
             serve: held.as_ref(),
-            peers: &NoPeerEnrollments,
+            peers: &StorePeerEnrollments,
         };
         ops.disable(now()).await.unwrap();
         assert_eq!(recorded(&w), (None, None));
@@ -870,7 +968,7 @@ fn the_runtime_killed_mid_revocation_orphan_exits_and_closure_is_replayed() {
             store: &w.store,
             keys: &keys,
             serve: recorder.as_ref(),
-            peers: &NoPeerEnrollments,
+            peers: &StorePeerEnrollments,
         };
         let delta = ops.enable_delta(true, None).unwrap();
         let err = ops
@@ -1017,7 +1115,7 @@ fn no_verified_store_is_transport_key_store_unavailable_and_direct_routes_still_
             store: &w.store,
             keys: &none,
             serve: sup.as_ref(),
-            peers: &NoPeerEnrollments,
+            peers: &StorePeerEnrollments,
         };
         let err = ops.enable(false, None, None, now()).await.unwrap_err();
         assert_eq!(
@@ -1041,7 +1139,7 @@ fn no_verified_store_is_transport_key_store_unavailable_and_direct_routes_still_
             store: &w.store,
             keys: &keys,
             serve: unsupported.as_ref(),
-            peers: &NoPeerEnrollments,
+            peers: &StorePeerEnrollments,
         };
         let approved = ApprovedWidening {
             decision: DecisionId::from_random_bytes([0x60; 16]),
@@ -1732,6 +1830,10 @@ fn main() {
         (
             "rotation_replaces_the_child_under_a_new_endpoint",
             rotation_replaces_the_child_under_a_new_endpoint,
+        ),
+        (
+            "transport_disable_clears_the_client_allowlist_before_any_re_enable",
+            transport_disable_clears_the_client_allowlist_before_any_re_enable,
         ),
         (
             "the_serve_port_is_stable_and_an_unbindable_one_fails_closed",
