@@ -1,11 +1,15 @@
 # M08 plan: harden and package what is actually supported
 
-**Status:** draft, revision 2 (2026-11-22), from the M08 design unit. It awaits one scoped re-check (ADR-0009 §2.8). No production code was written for the design.
+**Status:** draft, revision 3 (2026-11-22), from the M08 design unit. ADR-0009 allows no further independent re-check: the orchestrator reviews this revision's diff against revision 2. No production code was written for the design.
+
+**Revision 3:**
+- **What it applies:** the scoped re-check (Codex, NOT CLOSED: R01 and R02 open, RC-N01 new, R10 low; `tests/evidence/artifacts/review-m08/design-recheck.md`) under the orchestrator's rulings of 2026-11-22: a restore epoch and replay fence, one durable generation switch, a per-generation operation record, and P2 relabelled.
+- **Where to find the changes:** §13's last four rows.
 
 **Revision 2:**
 - **What it applies:** the independent design review (Codex, REVISE, M08-D-R01–R10; `tests/evidence/artifacts/review-m08/design.md`) and the orchestrator's rulings of 2026-11-22 on Q1–Q11 and on each finding (§0a).
 - **Where to find the changes:** §13 maps each finding to its place.
-**Design ADR:** ADR-0014 (proposed, revision 2): the fuzz boundary list and stopping rule, the update and recovery contract, the artifact and provenance policy, the support-bundle and privacy defaults, and the benchmark and soak thresholds. ADR-0014 wins wherever this plan differs.
+**Design ADR:** ADR-0014 (proposed, revision 3): the fuzz boundary list and stopping rule, the update and recovery contract, the artifact and provenance policy, the support-bundle and privacy defaults, and the benchmark and soak thresholds. ADR-0014 wins wherever this plan differs.
 **Basis:** `main` at `de097dac` (the M01–M05 exits, M03's claim gating, M04's claims update, the accepted M06 design, the M07 design). Read for write sets only: `origin/m06/w4` at `c4e9a5b5` and `origin/m07/w2` at `8e5bb1d6`.
 **Delivery rules:** ADR-0009.
 
@@ -27,7 +31,7 @@
 
 | Ruling | Where it lands |
 |---|---|
-| **Q1, with D-R01 and D-R02:** a restore keeps identity and configuration and recovers no authority. It ends grants (remote effects through M06's pending-effects path), pauses policies, and quarantines management clients, invitations, exposure and admission state and pending widening decisions until reauthorized and reconciled. It keeps the more restrictive of the two states where the old store is readable, and never revives a revoked grant, a retired issuer or an unpaired environment. Pins stay as identity information. It is identity-bound, excludes runtimes and issuers, sanitizes a staged copy, activates atomically and keeps the old family. Reset discloses or refuses when no inventory is readable | ADR-0014 §3.2, §3.6, H3, H9, H10; U2b |
+| **Q1, with D-R01 and D-R02:** a restore keeps identity and configuration and recovers no authority. It ends grants (remote effects through M06's pending-effects path), pauses policies, and quarantines management clients, invitations, exposure and admission state and pending widening decisions until reauthorized and reconciled. It keeps the more restrictive of the two states where the old store is readable, and never revives a revoked grant, a retired issuer or an unpaired environment. Pins stay as identity information. It is identity-bound, excludes runtimes and issuers, sanitizes a staged copy, activates by one pointer switch and keeps the old generation (revision 3). Reset discloses or refuses when no inventory is readable | ADR-0014 §3.2, §3.6, H3, H9, H10; U2b |
 | **Q2:** the container soak is accepted, named exactly, with the absence of a native macOS or Windows long run stated | ADR-0014 §6.4; §6.2, §7.4 |
 | **Q3, reversed by D-R06:** the true clean-machine rows stay `blocked` on B15. Fresh-account runs are separate evidence and close nothing | ADR-0014 §4.8; §4.1, §4.2, §7.2 |
 | **Q4:** the glibc 2.31 floor; ADR-0002 §9 amended at merge | ADR-0014 §7; §4 |
@@ -45,6 +49,9 @@
 | **D-R08:** the blocked A34 rows named; invalidation by executable, paths and build inputs; "zero after revoke" stated as local admission against already-issued credentials | ADR-0014 §6.2 item 6, §6.4, §6.5; §6.3, §7.4 |
 | **D-R09:** the final matrix and a reference configuration packaged; the compatibility and deprecation policy and the urgent-fix procedure assigned; a populated candidate worksheet handed to M09 | ADR-0014 §4.2; U7, U8, §12 |
 | **D-R10:** real invocations and exits recorded where they exist; the rest labelled as not reproducible | the probe record; §9 |
+| **Re-check R01 (ruled): a restore epoch.** Restore raises it; everything minted before belongs to the old epoch; later terminal operations and idempotency facts carry forward when the old store is readable; otherwise every pre-restore request without a terminal record is refused as stale; reauthorization revives nothing; the runner's effect ledger is the authority for later remote effects | ADR-0014 §3.6 "The restore epoch and the replay fence", H9, H13; U2b |
+| **Re-check R02 and RC-N01 (ruled): one durable generation switch.** Each family in its own generation directory; a `CURRENT` pointer written, synced and renamed; start-up trusts only the pointer; earlier generations kept under unique names with an operation record (install, adopt, restore, reset; migrations appended) | ADR-0014 §3.6 "Store generations", H12; U2b |
+| **Re-check R10 (ruled):** P2 is a recorded summary, not independently checked | §9; the probe record |
 | **Economy (the review's answer 6):** an unchanged fuzz target is not rerun on a candidate; minimized cases extend existing seeds where a suite has them | ADR-0014 §2.3; U1 |
 
 ## 0. Rules
@@ -148,7 +155,7 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 
 - **Starts** on the contract owner's explicit handoff (rule 2), which names the files.
 - **Owns:** `crates/contract/**`, `schemas/**`, `tests/contracts/**`, the `cli.rs` subcommand table, the store migration, `check.sh` steps, the root manifest; ADR-0006's next revision section; the version string (`1.0.0-rc.1`, set once).
-- **Builds:** ADR-0014 §7's deltas as accepted by the contract owner, each as an addition that fails closed until its unit lands (the M05 skeleton rule): the support-bundle command and schema; the stop preview; the state commands **with §3.6's restore rule as an authority rule of the contract**; the restore record, the backup's environment binding and the quarantine states (H9, H10); the new reasons, doctor findings and residue kinds; the build-provenance fields.
+- **Builds:** ADR-0014 §7's deltas as accepted by the contract owner, each as an addition that fails closed until its unit lands (the M05 skeleton rule): the support-bundle command and schema; the stop preview; the state commands **with §3.6's restore rule as an authority rule of the contract**; the restore epoch, the backup's environment binding and the quarantine states (H9, H10); **the storage layout of H12** (generation directories, the pointer, the operation record, the request ledger), which M06 and M07 own the files of today, so it is named in the handoff; the epoch in the hello and the stale-request refusals (H13); the new reasons, doctor findings and residue kinds; the build-provenance fields.
 - **Tests:** schema goldens; the command-tree golden; migration up; every new command answers its "not available in this build" envelope until its unit replaces it.
 - **Native:** Windows and the devbox at the merge candidate.
 
@@ -185,31 +192,39 @@ Each unit lists its marking, owner role, owned paths, what it builds, its tests 
 - **Native:** rehearsals in the Mac container and a disposable WSL distribution.
 
 **U2b — after the contract handoff.**
-- **Owns:** new `crates/heimdall/src/state_cmd.rs` and the stop-preview code in `service_cmd.rs`; the restore path in `crates/store` (staging, sanitization, activation, start-up recovery); the doctor finding for a moved executable; the residue rows in `uninstall_cmd.rs`; the moved-block report in `crates/localenv/src/projection/`.
-- **Depends:** U0; M06's exit (its client, invitation, exposure and pending-effect records are what §3.6 quarantines).
-- **Builds:** ADR-0014 §3 in full, with §3.6's protocol: identity binding, exclusion under the instance lock, staging, sanitization, preservation of the old family, atomic activation, start-up recovery, the report.
+- **Owns:** new `crates/heimdall/src/state_cmd.rs` and the stop-preview code in `service_cmd.rs`; **in `crates/store` and `crates/runtime` (the store and path files, M06's and M07's today, named in the handoff):** the generation layout, the pointer, the operation record, adoption by copy, the request ledger, the restore staging and sanitization; the doctor finding for a moved executable; the residue rows in `uninstall_cmd.rs` and the purge sweep's handling of generations; the moved-block report in `crates/localenv/src/projection/`.
+- **Depends:** U0; M06's exit (its client, invitation, exposure, pending-effect and effect-ledger records are what §3.6 quarantines and reconciles).
+- **Builds:** ADR-0014 §3 in full, with §3.6: the generation switch, the restore epoch and replay fence, identity binding, exclusion under the instance lock, staging, sanitization, the report; reset as a generation.
 - **Tests:**
-  - **`migration_ladder_keeps_identity_and_authority`:** over M07 U0's replay corpus (stores written by the M02, M03, M04/M05 and M06 exit builds), after migration to the candidate schema the environment ID, tombstones, cutoffs, pauses, grant deadlines and the authority generation are unchanged, and no grant is more active than before. The corpus is M07's; this test adds only these assertions;
+  - **`migration_ladder_keeps_identity_and_authority`:** over M07 U0's replay corpus (stores written by the M02, M03, M04/M05 and M06 exit builds), after adoption and migration to the candidate schema the environment ID, tombstones, cutoffs, pauses, grant deadlines and the authority generation are unchanged, and no grant is more active than before. The corpus is M07's; this test adds only these assertions;
   - `corrupt_store_stops_unsafe_operations_and_offers_recovery` (real binary: `status`, `ensure` and `doctor` each name the recovery choices; nothing is written);
   - **the restore fault set of ADR-0014 §3.6,** each a focused case:
     - `restore_keeps_a_later_revoked_grant_ended` (the fixture login with its material is refused);
     - `restore_quarantines_a_later_revoked_management_client` (its key is refused until reauthorized);
     - `restore_voids_consumed_and_expired_invitations` (a join and a replay are refused);
-    - `restore_does_not_rerun_a_completed_request`;
+    - **`request_completed_after_the_backup_is_never_run_again`:** backup → the request completes → the store is made unreadable → restore → reauthorize → retry with the same request ID. It is answered `REQUEST_STALE` from the fence record, and the fixture adapter's ledger shows no second execution. Checked **after reopening and reauthorization.** A second variant keeps the old store readable: the retry gets the carried terminal answer;
+    - `old_decision_reference_is_refused_after_restore_and_reauthorization`;
+    - `quiet_period_when_ledger_and_store_are_both_unreadable` (a non-interactive mutating request is refused; an attended one proceeds; the report gives the end time);
+    - `runner_effect_applied_after_the_backup_is_adopted_not_resent`;
     - `restore_keeps_a_retired_issuer_retired_and_an_unpaired_environment_unpaired`;
     - `restore_disables_exposure_and_closes_pending_widening_decisions`;
-    - `restore_refuses_another_environments_backup_and_touches_nothing`;
-    - `restore_interrupted_at_each_durable_boundary` (a kill and an I/O error after staging, after sanitization, after the family rename, after activation and before the directory sync: each ends in the intact old state or the fully sanitized restored state, checked by reopening);
-    - `restore_refuses_activation_beside_a_stale_log`;
+    - `restore_refuses_another_environments_backup_and_changes_nothing`;
     - `restore_is_refused_while_a_runtime_or_issuer_runs`;
+  - **the generation-switch fault set:**
+    - **`switch_interrupted_before_and_after_each_sync_and_the_rename`:** a kill and an injected I/O error at each of: the staged database's sync, the operation record's sync, the generation directory's sync, the temporary pointer's sync, the rename, the state directory's sync. After restart each ends in the intact old generation or the complete new one, and a staged leftover is removed;
+    - `unreadable_or_dangling_pointer_stops_and_never_picks_another_generation`;
+    - **`reset_then_restart_serves_the_new_generation`;**
+    - **`restore_restore_reset_keeps_every_earlier_generation`** (unique names, one record each, none overwritten; start-up serves the last);
+    - `adoption_by_copy_interrupted_before_and_after_the_switch`, and `older_executable_refuses_the_adopted_from_store`;
+    - `ledger_append_precedes_the_first_store_write` (a kill between them leaves a ledger entry and no record; an ordinary restart ignores it; a restore fences it);
   - `reset_is_attended_and_says_it_creates_a_new_identity`;
   - `reset_without_any_readable_inventory_says_so_and_refuses_non_interactive`;
   - `older_build_on_newer_store_refuses_and_touches_nothing` (two real binaries: the candidate and a test-configuration build one schema version ahead);
   - `stop_preview_lists_what_stopping_interrupts` (read-only: the store and the endpoints are unchanged after it);
   - `moved_executable_is_a_doctor_finding_and_never_a_silent_break`;
-  - `uninstall_lists_backups_pre_restore_family_previous_binary_and_remote_pairings`;
+  - `uninstall_lists_backups_earlier_generations_previous_binary_and_remote_pairings`, and `purge_removes_every_generation_under_the_lock`;
   - `rollback_reports_a_moved_git_block`.
-- **Native:** the A31 journeys of §7.2, at the merge candidate and again at the exit build.
+- **Native:** the A31 journeys of §7.2, at the merge candidate and again at the exit build. **The switch's fault set runs natively on macOS, the devbox and Windows:** the rename and sync calls differ per platform, and Windows has no directory sync. Power loss is not tested anywhere, and the record says so.
 
 ### U3: Release artifacts (T03)
 
@@ -532,8 +547,8 @@ Records live in `tests/evidence/m08-*.json`. The lowest-row rule applies. "All" 
   1. **Verify, install and start:** the archive checked against the external index before it is unpacked; then from the archive alone. An install interrupted at each step leaves a complete executable pair.
   2. **Update with active work:** the stop preview names the held run and the live session; the update keeps the environment ID, policies, cutoffs, pauses and enrollments; unexpired grants are served again after restart under the existing re-issue rule; nothing expired or stopped returns.
   3. **Rollback, same schema:** the previous binary serves the same store.
-  4. **Rollback across a schema change:** the older binary refuses the newer store and touches nothing; the restore follows ADR-0014 §3.6: nothing revoked, consumed, retired or unpaired after the backup returns; recovered clients, invitations and exposure are quarantined; another environment's backup is refused; an interruption at each durable boundary ends in the old state or the sanitized one.
-  5. **Recover:** a damaged store stops unsafe operations; `doctor` names the choices; a restore keeps the identity and recovers no authority; a reset says it creates a new identity and lists what it orphans, or says that it cannot list it.
+  4. **Rollback across a schema change:** the older binary refuses the newer store and touches nothing; the restore follows ADR-0014 §3.6: nothing revoked, consumed, retired or unpaired after the backup returns; recovered clients, invitations and exposure are quarantined; a request that completed after the backup is never run again, also after reauthorization; another environment's backup is refused; an interruption before or after each sync and the pointer rename ends in the old generation or the new one.
+  5. **Recover:** a damaged store stops unsafe operations; `doctor` names the choices; a restore keeps the identity and recovers no authority; a reset says it creates a new identity and lists what it orphans, or says that it cannot list it; after a reset, a restart serves the new generation; repeated restores and a reset keep every earlier generation.
   6. **Uninstall:** the preexisting SSH and Git configuration is byte-identical to before install; the remaining remote enrollments and pairings are listed; backups and the previous binary are listed.
   7. **Provenance:** the archive matches the external index and every file matches the inner manifest; the SBOM matches the selected graph; the notices are complete; the signature status printed in the release notes equals what `codesign` and the Windows signature check report.
 - **Passing means:** no hidden build dependency; truthful checksums and signature statements; the SSH setup preserved; no identity reset; the remaining remote enrollment explicit.
@@ -581,7 +596,7 @@ Records live in `tests/evidence/m08-*.json`. The lowest-row rule applies. "All" 
 
 ## 8. Contract deltas
 
-ADR-0014 §7 lists them for the contract owner. None is applied by this plan. In brief: the support-bundle command and schema (H1); a stop preview (H2); state status, restore and reset, **with the restore rule as an authority rule** (H3); reasons for a corrupt and a newer store (H4); a doctor finding for a moved executable (H5); residue kinds (H6); build-provenance fields (H7); the candidate's version string (H8); the restore record, the backup's environment binding and the quarantine states (H9); the quarantine reasons and the restore event (H10); the debug-support feature that keeps test-only crates out of release builds (H11).
+ADR-0014 §7 lists them for the contract owner. None is applied by this plan. In brief: the support-bundle command and schema (H1); a stop preview (H2); state status, restore and reset, **with the restore rule as an authority rule** (H3), the store's generation layout and request ledger as a storage delta (H12), the epoch and the stale-request refusals (H13); reasons for a corrupt and a newer store (H4); a doctor finding for a moved executable (H5); residue kinds (H6); build-provenance fields (H7); the candidate's version string (H8); the restore record, the backup's environment binding and the quarantine states (H9); the quarantine reasons and the restore event (H10); the debug-support feature that keeps test-only crates out of release builds (H11).
 
 ## 9. Probes run in this design unit
 
@@ -591,7 +606,7 @@ ADR-0014 §7 lists them for the contract owner. None is applied by this plan. In
 |---|---|---|---|---|
 | P1 | What does the binary's dependency graph hold per target? | **Revision 2, cargo's package-selected graph** (`cargo tree -p heimdall --target <triple> --edges normal,build`, exit 0 for each): 206 (Windows), 209 (macOS), 254 (Linux arm64) and 255 (Linux x86-64) third-party crates. Revision 1's 221 to 265 came from `cargo metadata`, which resolves features for the whole workspace, and is withdrawn | Reproducible: commands and exits recorded | The inventory is selected by package, target and features, through a pinned tool and an adapter (U4a) |
 | P1b | Is anything unlicensed or non-permissive? | Every crate in the metadata graph, a superset of the selected one, has a licence field and offers a permissive choice; `libsqlite3-sys` is the only crate that bundles a native library; no git or path source | Reproducible from the saved summaries | The licence policy is an allow-list of what is already there |
-| P2 | Does a lock-file scan give the same answer? | No: 322 components for every target and no licences (rerun in revision 2, exit 0) | Reproducible | The SBOM does not come from the lock file |
+| P2 | Does a lock-file scan give the same answer? | No: 322 components for every target and no licences (rerun in revision 2, exit 0) | **A recorded summary, not independently checked:** only the counts and a digest of the component list were kept, not the list | The SBOM does not come from the lock file |
 | P3 | What reaches the graph only through the test kit? | **Revision 2:** 14 to 16 crates (proptest, rusty-fork, tempfile, rand and others), from `cargo tree` with and without `--prune heimdall-testkit`. Revision 1's list of 16 to 20 is withdrawn. Nothing was established about what the linker keeps; the absence of a `proptest` string in the binary is not evidence | Reproducible | The edge is cut before the candidate (U3c); the inventory labels those crates until then |
 | P4 | What does the macOS release binary need, and what does it carry? | System libraries only; ad-hoc signature; 13,810,096 bytes; the build host's home path 297 times; no private-key armor found | **Recorded, not reproducible:** the binary was deleted, and the individual commands' exits were not kept | Path remapping and the artifact scan are part of U3a |
 
@@ -617,9 +632,13 @@ ADR-0014 §7 lists them for the contract owner. None is applied by this plan. In
 
 ## 11. Questions for the orchestrator
 
-**None is open.** Q1–Q11 were ruled on 2026-11-22 and are folded in §0a; Q3 was reversed by the ruling on D-R06. Two things revision 2 decides within the rulings, for the re-check to look at:
-- **the carry-forward rule** (ADR-0014 §3.6): when the store being replaced is readable, the restore keeps the more restrictive state for every revocation, retirement, unpairing, consumption, cutoff and pause, not only for `owner_only` and downgrade markers;
-- **reset with no readable inventory** (ADR-0014 §3.2 item 10): it discloses and asks for a typed confirmation when attended, and refuses under `--non-interactive`. The ruling allowed either; this is both, by mode.
+**None is open.** Q1–Q11 were ruled on 2026-11-22 (§0a); Q3 was reversed by the ruling on D-R06; the re-check's R01, R02, RC-N01 and R10 were ruled the same day. **The choices revision 3 makes within those rulings, for the orchestrator's review:**
+- **A request ledger outside the store** (ADR-0014 §3.6, fence step 3). The ruling says every pre-restore request without a terminal record is refused when the old store is unreadable. A request made after the backup leaves nothing in the backup, and its ID is minted by the caller, so the server cannot recognize it from the restored store or from an epoch. The ledger (an epoch and a digest per request, synced before the request's first store write) is what lets the restore write a refusal for it. Its cost is one more synced append per mutating request.
+- **A quiet period when the ledger is lost too** (fence step 4): non-interactive mutating requests are refused for the idempotency retention; attended ones proceed.
+- **Adoption by copy** of a store in today's layout, with the old family then fenced against older executables by its schema version, so that no family member is ever moved.
+- **Migration stays in place** inside a generation, recorded in the generation's operation record; it does not switch generations.
+- **The carry-forward** covers every revocation, retirement, unpairing, consumption, cutoff and pause (revision 2), and now every terminal operation and idempotency record.
+- **Reset with no readable inventory** discloses and asks for a typed confirmation when attended, and refuses under `--non-interactive` (revision 2).
 
 One observation for the owner's list, not a question: the macOS login entry's label embeds the repository owner's account name, so it is part of the naming decision (B17).
 
@@ -663,7 +682,7 @@ One observation for the owner's list, not a question: the macOS login entry's la
 | Finding | Where it is addressed |
 |---|---|
 | **D-R01** (blocking): a restore must not recover remote authority | ADR-0014 §3.6 (the table: management clients quarantined, invitations void, exposure disabled, pending decisions closed, pins as identity only; the carry-forward; "never, by any path"); H3, H9, H10; U2b's restore fault set; §7.2 journey 4 |
-| **D-R02** (blocking): restore and reset at the dangerous boundaries | ADR-0014 §3.6 "The protocol" (identity binding, exclusion, staging, preservation, activation, start-up recovery) and §3.2 items 9–10 (reset's inventory-unavailable disclosure); U2b's `restore_refuses_another_environments_backup…`, `restore_interrupted_at_each_durable_boundary`, `restore_refuses_activation_beside_a_stale_log`, `reset_without_any_readable_inventory…` |
+| **D-R02** (blocking): restore and reset at the dangerous boundaries | ADR-0014 §3.6 "The protocol" (identity binding, exclusion, staging, preservation, activation, start-up recovery) and §3.2 items 9–10 (reset's inventory-unavailable disclosure); U2b's `restore_refuses_another_environments_backup…`, `reset_without_any_readable_inventory…`; the activation and recovery steps were replaced in revision 3 by the generation switch (the re-check R02 row below) |
 | **D-R03** (blocking): the bundle's free-text channels | ADR-0014 §5.1 (codes, typed values and pseudonyms only; free text omitted; the redactor is not the guarantee; the inverse map kept out; the preview is the bundle; narrow identifier inclusion); U6a's and U6b's tests; §7.3 |
 | **D-R04:** the inventory graph | ADR-0014 §4.5; U4a (a pinned tool and a validation adapter; `target`, `host`, `test-support`); §1.1 and §9 corrected (206–255; 14–16); the probe record's revision 2 block |
 | **D-R05:** the trigger for shared edits | Rule 2; U0 "Starts"; §3 "The trigger is a message, not a state" and "provisional, to be integrated" |
@@ -673,3 +692,7 @@ One observation for the owner's list, not a question: the macOS login entry's la
 | **D-R09:** release artifacts and the handoff to M09 | ADR-0014 §4.2 (the matrix, the reference configuration, the policy, the procedure); U7a, U7b; U8's populated worksheet and the M09 steps; §12 |
 | **D-R10:** the probe evidence | The record: `commands-r2.txt` with exits; revision 1's static observations and counts labelled "recorded, not reproducible"; the withdrawn figures marked; §9's "Standing" column |
 | **The review's answers on Q6, Q8, economy** | ADR-0014 §6.6 (the soak's supervision rule); U3c and H11; ADR-0014 §2.3 and U1a (no rerun of an unchanged target) |
+| **Re-check R01:** a request completed after the backup could be retried after a restore | ADR-0014 §3.6 "The restore epoch and the replay fence" (the epoch in every server-minted reference; carried terminal records; the request ledger and fence records; the quiet period; reauthorization reopens nothing; the runner's effect ledger); H9, H13; U2b's `request_completed_after_the_backup_is_never_run_again`, `old_decision_reference_is_refused…`, `quiet_period_…`, `runner_effect_applied_after_the_backup…`; §7.2 journey 4 |
+| **Re-check R02:** recovery from a crash between family members | ADR-0014 §3.6 "Store generations: one durable switch" (no member is ever renamed; the staged generation durable before the pointer moves; start-up trusts only the pointer; platforms and what is not tested); H12; U2b's `switch_interrupted_before_and_after_each_sync_and_the_rename`, `unreadable_or_dangling_pointer_…`, the adoption cases |
+| **Re-check RC-N01:** a completed reset looked like an inconsistent restore | ADR-0014 §3.6 (the per-generation operation record; "Reset is the same switch"); U2b's `reset_then_restart_serves_the_new_generation`, `restore_restore_reset_keeps_every_earlier_generation` |
+| **Re-check R10:** P2's standing | §9 P2 ("a recorded summary, not independently checked"); the probe record's limitation |

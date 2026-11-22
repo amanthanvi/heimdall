@@ -1,7 +1,7 @@
 # ADR-0014: Hardening and release artifacts (M08)
 
-**Status:** proposed, revision 2 · **Date:** 2026-11-22 · **Milestone:** M08 (T01–T06) · **Gate:** plan §5 M08, "all technical gate decisions recorded"; it also closes ADR-0004 §1 Q-D for the candidate.
-**Decided by:** not yet. Revision 2 applies the independent design review (Codex, REVISE, M08-D-R01–R10; `tests/evidence/artifacts/review-m08/design.md`) and the orchestrator's rulings of 2026-11-22 on Q1–Q11 and on each finding. It awaits one scoped re-check (ADR-0009 §2.8).
+**Status:** proposed, revision 3 · **Date:** 2026-11-22 · **Milestone:** M08 (T01–T06) · **Gate:** plan §5 M08, "all technical gate decisions recorded"; it also closes ADR-0004 §1 Q-D for the candidate.
+**Decided by:** not yet. Revision 2 applies the independent design review (Codex, REVISE, M08-D-R01–R10; `tests/evidence/artifacts/review-m08/design.md`) and the orchestrator's rulings of 2026-11-22 on Q1–Q11 and on each finding. Revision 3 applies the scoped re-check (Codex, NOT CLOSED: R01 and R02 open, RC-N01 new, R10 low; `tests/evidence/artifacts/review-m08/design-recheck.md`) under the orchestrator's rulings of 2026-11-22: a restore epoch with a replay fence, one durable generation switch, and a per-generation operation record. ADR-0009 allows no further independent re-check; the orchestrator reviews this revision's diff.
 **Plan:** `docs/architecture/m08-plan.md`. **Probe record:** `tests/evidence/m08-probe-inventory-and-release-binary.json`.
 **Affects:** R-RT-08, R-SE-05, R-SE-08, R-QU-03, R-QU-04, R-DI-01, R-DI-03, R-DI-04, R-DI-05, R-DI-07; through the exit cases also R-CR-03, R-CR-04, R-CR-06, R-RT-06 and R-AP-08.
 
@@ -75,9 +75,11 @@ For each target, on libFuzzer with its address sanitizer, an input length capped
 
 - **Update:** the user runs a newer archive's install script. Heimdall never updates itself (spec §15.3).
 - **Rollback:** the user puts the previous binary back.
-- **Restore:** the state store is replaced by one of **its own** backups, sanitized under §3.6.
-- **Reset:** the state store is set aside and a new installation begins, with a new environment identity.
-- **The store family:** the database file with its write-ahead log, shared-memory file and rollback journal.
+- **Restore:** a new store generation is built from one of this installation's **own** backups, sanitized under §3.6, and made current.
+- **Reset:** a new, empty store generation with a new environment identity is made current.
+- **The store family:** the database file with its write-ahead log, shared-memory file and rollback journal. They are separate directory entries, so a family is never moved or renamed member by member.
+- **A generation:** one directory holding exactly one store family and its operation record. **The pointer** (`CURRENT`) names the active generation.
+- **The restore epoch:** a counter that every restore raises. Everything minted before a restore belongs to an older epoch.
 
 ### 3.2 Guaranteed, and tested (m08-plan §7.2)
 
@@ -89,8 +91,8 @@ For each target, on libFuzzer with its address sanitizer, an input length capped
 6. **An existing store is never read as empty.** A damaged store, a newer store and an unreadable one each stop unsafe operations with a distinct reason and a named next step. Nothing is rewritten (existing for the store; new for the commands).
 7. **An older binary refuses a newer store** and touches nothing (existing).
 8. **Rollback with an unchanged schema** is the previous binary serving the same store, under items 3 and 5.
-9. **Restore keeps identity and ends or quarantines every recovered authority** (§3.6). Every interruption of a restore leaves either the intact old store or a fully sanitized restored one.
-10. **Reset is never automatic.** It is attended, says that it creates a new identity, and first lists what it orphans: the remote enrollments, pairings and management lines read from the old store or, if that is unreadable, from the last recovery bundle. **When neither is readable, reset says so in plain words** ("Heimdall cannot list what this leaves behind on remote hosts"), names where such residue would live, and needs its own typed confirmation of that sentence. Under `--non-interactive` it refuses. The old family is moved aside, never deleted.
+9. **Restore keeps identity and ends or quarantines every recovered authority** (§3.6). Every interruption of a restore or a reset leaves either the intact old generation or the complete new one, decided by one pointer. **No request, operation or decision from before a restore runs or is approved after it.**
+10. **Reset is never automatic.** It is attended, says that it creates a new identity, and first lists what it orphans: the remote enrollments, pairings and management lines read from the old store or, if that is unreadable, from the last recovery bundle. **When neither is readable, reset says so in plain words** ("Heimdall cannot list what this leaves behind on remote hosts"), names where such residue would live, and needs its own typed confirmation of that sentence. Under `--non-interactive` it refuses. The old generation is kept, never deleted or overwritten.
 11. **Replacing the executable is staged and recoverable** (§4.3): at every point of an interrupted install there is a complete, matching executable (and, on Windows, helper) at the install path or beside it, and the script says which.
 12. **Integration that names the executable keeps working after an update in place.** The login entry, the shell hook, the route helper and the WSL helper call a fixed install path (§4.3). An executable that has moved is a doctor finding with its repair command, never a silent break and never a silent rewrite of an entry Heimdall can no longer prove is its own.
 13. **Uninstall is unchanged** (ADR-0007 §5.5, ADR-0008 D4, ADR-0010): owned local integration is removed, the user's SSH and Git files are restored byte for byte, and what remains is listed.
@@ -114,7 +116,8 @@ An emergency restart that cannot wait prints the same list (spec §15.2).
 | Residue | Where it is reported | Removed by |
 |---|---|---|
 | Migration backups (`<store>.v<N>.backup*`): old state with public metadata | `state status`; the stop preview; uninstall | `uninstall --purge-state`, or the user |
-| The store family set aside by a restore or a reset (`pre-restore`): the old state in full | `state status`; uninstall | the user, or `uninstall --purge-state` |
+| Earlier store generations kept by a restore or a reset: the old state in full, each with a record saying what it is | `state status`; uninstall | `uninstall --purge-state`, or the user |
+| A staged generation that never became current (an interrupted restore) | `state status` | start-up removes it; it holds nothing the current generation lacks |
 | The previous binary (`heimdall.previous`) | the install script's output; uninstall | the next update, or uninstall |
 | An orphaned macOS keychain item after a restore | `issuer status` (existing) | the user, in Keychain Access |
 | A login entry or hook left at an old path | doctor (`executable_moved`) | the named repair command |
@@ -132,49 +135,78 @@ An emergency restart that cannot wait prints the same list (spec §15.2).
 
 A backup is older than every stop, revocation, pause, cutoff, consumption and unpairing made after it. Restoring it unchanged would revive them, which R-RT-07 and plan §5 M08 forbid. **A restore therefore recovers identity and configuration, and no authority.**
 
-**What a restore keeps:** the environment ID; the catalog (destinations, identities, profiles, routes); the enrollment and CA records; projection and setup records; host-key and endpoint pins, **as identity information only**; the event and operation history up to the backup.
+**What a restore keeps:** the environment ID; the catalog (destinations, identities, profiles, routes); the enrollment and CA records; projection and setup records; host-key and endpoint pins, **as identity information only**; the event and operation history the backup holds, as history.
 
-**What a restore ends or quarantines,** in the staged copy, before that copy can become the live store:
+**What a restore ends or quarantines,** in the staged generation, before it can become current:
 
 | Recovered state | After the restore |
 |---|---|
 | Grants and their references, bindings, managed slots, owned connections | Ended, with a tombstone each. Remote effects of ending them go through M06's pending-effects path and are reported as pending until acknowledged. None is dropped silently |
 | Standing policies | Paused, with a cutoff at the restore time. Trust records for workspaces need a new attended trust |
-| Pending decisions, including pending widening decisions | Closed as stale. None can be approved |
+| Pending decisions, including pending widening decisions | Closed as stale. None can be approved, and their references belong to the old epoch |
+| Operations that were not terminal | Closed as stale (`restored_before_completion`). None resumes |
 | Management clients (paired controllers, limited clients) | **Quarantined:** not admitted. Each needs explicit reauthorization at this machine, and for a runner, reconciliation with the runner's own record, before it is served |
 | Invitations, pending or consumed | Void. A recovered pending invitation cannot be joined; a recovered consumed one grants nothing |
 | Exposure and admission state (transport enablement, relay sets, allow-lists, serve leases) | Disabled. Enabling again is the same local decision as the first time |
 | Paired environments | Shown as `held` until reconciled; an environment the current state records as unpaired stays unpaired |
 | Issuers | A CA the current state records as retired stays retired. No issuance until the issuer's reconciliation barrier (ADR-0012 §7) has run |
-| Idempotency records | Kept, so an old request ID cannot be replayed into a new effect |
 
-**Carry-forward.** When the store being replaced is still readable (a rollback, not a corruption), the restore reads it first and **keeps the more restrictive of the two states** for every revocation, retirement, unpairing, consumption, cutoff, pause, `owner_only` marker and downgrade marker (M06's restore rule for those markers, extended to the rest). When it is not readable, everything recovered is treated as possibly revoked, which is what the table does.
+**Carry-forward.** When the generation being replaced is still readable (a rollback, not a corruption), the restore reads it first, read-only, and:
+- **keeps the more restrictive of the two states** for every revocation, retirement, unpairing, consumption, cutoff, pause, `owner_only` marker and downgrade marker (M06's restore rule for those markers, extended to the rest);
+- **carries forward every terminal operation and idempotency record made after the backup,** so a retry of a request that completed gets its real recorded answer.
 
-**Never, by any path:** a revoked grant active again; a retired issuer issuing; an unpaired environment paired; a revoked client's key, a consumed invitation or an old request accepted.
+When it is not readable, everything recovered is treated as possibly revoked, which is what the table does, and the replay fence below takes the place of the missing records.
 
-**The protocol.**
-1. **Identity binding.** A backup carries the environment ID of the store it was taken from. Restore refuses a file whose environment ID differs from this installation's (read from the current store, or from the installation's identity record when the store is unreadable). Replacing the identity is reset, never restore. A file that is not a Heimdall backup, fails its integrity check, or is of a newer schema than the build is refused.
-2. **Exclusion.** Restore runs only with the runtime and the issuer stopped, confirmed, and holds the runtime's own exclusive instance lock from before it reads anything until after activation (the purge's rule, ADR-0008 §17.31 item 1). A replacement runtime cannot start meanwhile.
-3. **Staging.** The backup is copied to a staging file in the state directory. Integrity checks, migration to the build's schema and the whole sanitization above run **on the staging file**, in one transaction that also writes the restore record (H9). The staging file is checkpointed and closed, so it has no write-ahead log or journal of its own.
-4. **Preservation.** The current family is renamed, as a family, to a `pre-restore` name, and stays there until the user removes it. It is listed as residue.
-5. **Activation.** The staging file is renamed onto the store's name, and the directory is synced. A stale write-ahead log, shared-memory file or journal from the old family is never left beside the new database: they moved with the family in step 4, and activation refuses to proceed if any is present.
-6. **Recovery after an interruption.** Start-up inspects the three names under the instance lock:
-   - a staging file and an intact current family: the restore had not begun to replace anything; the staging file is removed;
-   - a `pre-restore` family and no current database: the old family is renamed back, intact;
-   - a `pre-restore` family and a current database carrying a restore record: the restore completed.
+**The restore epoch and the replay fence** (the ruling on re-check R01).
 
-   A current database without a restore record next to a `pre-restore` family is refused as inconsistent, with the choices named. No start-up serves a store that was restored and not sanitized, because sanitization precedes activation.
-7. **The report.** Restore lists what it ended, quarantined and voided, what remote effects are pending, and the remote residue it cannot remove.
+1. **Every restore raises `restore_epoch`,** durably, in the staged generation and in its operation record, before the pointer moves. The hello reports it.
+2. **Everything the server mints carries its epoch:** operation IDs, decision references and effect IDs. A reference from an older epoch that has no carried record is answered as stale (`restore_epoch_stale`), never as "not found" and never acted on. Approving an old decision reference is refused whatever happened in between.
+3. **Request IDs are minted by callers,** so the server cannot read an epoch out of one. A request made after the backup leaves no trace in the backup. The fence therefore needs a record that survives the loss of the store:
+   - **the request ledger:** an append-only file in the state directory, **outside every generation.** Before a request's first durable store write, the runtime appends and syncs one fixed-size record: the epoch and a SHA-256 over the caller's principal and request ID. It holds no request content and no identifier in the clear. It is trimmed at the idempotency retention, by rewrite and rename under the instance lock;
+   - **at a restore,** every ledger entry of the current or an older epoch that has no terminal record in the staged generation (after the carry-forward, where that was possible) is written into the staged generation as an idempotency record whose stored answer is the refusal `REQUEST_STALE`, reason `restored_before_completion`, next action "send a new request with a new request ID". The ordinary idempotency path then answers a retry from that record. **It is never executed again.**
+4. **If the ledger is also unreadable or absent** while the old generation is unreadable, the fence cannot name the requests. The restore then sets a **quiet period** equal to the idempotency retention: until it ends, a mutating request on a non-interactive session is refused (`restore_replay_fence`), and attended requests proceed, because a person at the terminal is not a blind retry. The restore's report says so and gives the end time.
+5. **Reauthorization and reconciliation do not reopen anything.** Reauthorizing a quarantined client admits its **new** requests. Its pre-restore request IDs stay answered by their fence records, its old decision references stay stale, and the quiet period, if set, is not shortened by it.
+6. **Remote effects made after the backup:** the runner's own effect ledger is the authority during reconciliation (ADR-0012 §7). An effect the runner applied and the restored controller does not know is adopted as a fact, never sent again and never undone. Effect IDs minted after the restore carry the new epoch, so they cannot collide with one the runner already holds.
+
+**Never, by any path:** a revoked grant active again; a retired issuer issuing; an unpaired environment paired; a revoked client's key, a consumed invitation, or a pre-restore request or decision reference accepted or run.
+
+**Store generations: one durable switch** (the ruling on re-check R02 and RC-N01).
+
+- **Layout.** Each store family lives alone in its own generation directory under the state directory, with a unique name that is never reused. A small pointer file, `CURRENT`, names the active generation. The instance lock and the request ledger stay in the state directory, outside every generation.
+- **The operation record.** Every generation holds a small record, written and synced before the generation can become current: which operation created it (`install`, `adopt`, `restore` or `reset`), when, from which earlier generation and which backup (by digest), its environment ID and its restore epoch. Each migration applied to a generation is appended to its record. **The record is what distinguishes a completed reset from a completed restore and from a staged generation that never became current.** A generation without a complete record is not a candidate for anything.
+- **Start-up trusts only the pointer.** It opens the generation `CURRENT` names, checks that generation's record, and serves it. It never chooses a generation by name, time or content, and never falls back to another one. A pointer that is unreadable or names a missing or record-less generation is `state_corrupt`: unsafe operations stop and the choices are named.
+- **The switch.** The new pointer is written to a temporary file in the state directory, synced, and renamed over `CURRENT`. The rename is the only step that changes which state is live. On POSIX the state directory is then synced. **Before the switch,** the staged generation is complete and durable: its database is checkpointed and closed so that it has no write-ahead log or journal, the file and its record are synced, and its directory is synced.
+- **No member is ever renamed or moved.** The earlier generation stays where it is, whole, under its own name. Nothing overwrites it. Repeated restores and resets accumulate generations, each with its record; all but the current one are residue.
+- **Interruption.** Before the rename, `CURRENT` names the old generation, which was never touched: start-up serves it and removes the staged generation (and any leftover temporary pointer) as garbage. After the rename, `CURRENT` names the new generation, which was complete before the rename. There is no third state.
+- **Platforms.** A same-volume rename over an existing file is atomic on POSIX file systems and on NTFS. Windows has no directory sync; there the rename is made with write-through, and the files are flushed before it. Either pointer value is a complete, safe state, so the design does not depend on which one survives a crash at the boundary. **Not established by any test:** durability across power loss. The fault tests kill the process and inject I/O errors; they cut no power. No reason was found that the single switch fails on macOS, Linux, WSL or Windows, so no per-member intent log is specified.
+- **Adoption of today's layout.** A store written by an earlier build sits directly in the state directory, with no pointer. The first start of a build that knows generations adopts it **by copy:** it stages a generation from a consistent copy of that store, writes its record (`adopt`), and switches the pointer. The old family is left where it is, and its schema version is then set, in one SQLite transaction, to a value no earlier build accepts, so an older executable refuses it instead of serving the pre-adoption state. Every released build knows the pointer, so this path serves pre-release stores only.
+- **Migration stays in place.** A schema migration runs inside its generation, in one SQLite transaction, after the existing backup, as today (tested). It is recorded in the generation's record. It does not create a generation.
+
+**The restore protocol.**
+1. **Identity binding.** A backup carries the environment ID of the store it was taken from. Restore refuses a file whose environment ID differs from the one in the current generation's operation record. Replacing the identity is reset, never restore. A file that is not a Heimdall backup, fails its integrity check, or is of a newer schema than the build is refused. For a store not yet adopted and unreadable, there is no record to bind to: restore is then attended only, shows the backup's environment ID, and accepts only a backup found under this installation's own backup names.
+2. **Exclusion.** Restore runs only with the runtime and the issuer stopped, confirmed, and holds the runtime's own exclusive instance lock from before it reads anything until after the switch (the purge's rule, ADR-0008 §17.31 item 1).
+3. **Staging.** A new generation directory is created. The backup is copied into it. Integrity checks, migration to the build's schema, the carry-forward, the whole sanitization above, the raised epoch and the fence records are applied **in the staged generation**, in one transaction.
+4. **Completion.** The staged database is checkpointed and closed; the file, the operation record (`restore`) and the directory are synced.
+5. **The switch,** as above.
+6. **The report.** Restore lists what it ended, quarantined and voided, the requests it fenced (a count), the quiet period if one was set, what remote effects are pending, the remote residue it cannot remove, and the earlier generation it left behind.
+
+**Reset** is the same switch with a different staged generation: an empty store, a new environment ID, epoch zero, and a record saying `reset` and naming the generation it replaced. A completed reset is a completed generation; nothing about it resembles an interrupted restore.
 
 **Focused fault tests** (m08-plan U2b):
 - backup → revoke a grant → restore → the grant stays ended, and a fixture login with its material is refused;
 - backup → revoke a management client → restore → the client's key is refused until reauthorized;
 - backup → an invitation is consumed (and, separately, expires) → restore → a join and a replay are refused;
-- backup → a request completes → restore → the same request ID does not run again;
+- **backup → a request completes → the store becomes unreadable → restore → reauthorize → retry with the same request ID:** answered `REQUEST_STALE` from the fence record, never executed. The same with the old store readable: answered from the carried terminal record, never executed. Both are checked **after reopening and reauthorization,** not only while quarantined;
+- backup → a decision is raised → restore → reauthorize → approving the old decision reference is refused;
+- the ledger and the old generation both unreadable → the quiet period refuses a non-interactive mutating request and admits an attended one;
+- a runner applied an effect after the backup → restore → reconciliation adopts it, sends nothing twice;
 - backup → retire an issuer, unpair an environment → restore → both stay so;
-- a backup from another environment is refused, and the store is untouched;
-- a kill or an I/O error at each durable boundary (after staging, after sanitization, after the family rename, after activation, before the directory sync): each ends in the intact old state or the fully sanitized restored state;
-- a stale write-ahead log beside the staging file refuses activation.
+- a backup from another environment is refused, and nothing changes;
+- **a kill and an I/O error before and after each sync and before and after the pointer rename** (the staged database's sync, the record's sync, the generation directory's sync, the temporary pointer's sync, the rename, the state directory's sync): each ends, after restart, in the intact old generation or the complete new one, and a staged leftover is removed;
+- an unreadable pointer, and a pointer naming a missing or record-less generation, stop unsafe operations and never select another generation;
+- **reset → restart** serves the new generation;
+- **restore → restore → reset,** with every earlier generation retained: each has its own name and record, none is overwritten, start-up serves the last one;
+- adoption of an earlier build's store, interrupted before and after the switch; an older executable then refuses the adopted-from family.
 
 ## 4. Artifacts, provenance, inventory and licences
 
@@ -387,10 +419,12 @@ Accepting this ADR is the authorization for this exception.
 | H3 | `heimdall state status`, `heimdall state restore --backup <file>`, `heimdall state reset`: attended, each with a typed confirmation. **With it, §3.6 as an authority rule of the contract:** what a restore keeps, ends, quarantines and voids; the carry-forward of the more restrictive state; identity binding; the refusals; reset's inventory-unavailable disclosure | new commands **and an authority rule** | §3.2 items 6, 9, 10; §3.6; R-RT-08, R-RT-07 |
 | H4 | Reasons under `STATE_UNAVAILABLE`: `state_corrupt`, `state_newer_than_build`; an event and a reason for `state_restored_authority_ended` | new reasons | Today both read as one message with no next step |
 | H5 | A doctor finding `executable_moved`, with its repair command | new finding | §3.2 item 12 |
-| H6 | Residue kinds: `migration_backup`, `pre_restore_store`, `previous_binary`, `git_block_moved` | new enum values | §3.4; R-DI-04 |
+| H6 | Residue kinds: `migration_backup`, `earlier_store_generation`, `previous_binary`, `git_block_moved` | new enum values | §3.4; R-DI-04 |
 | H7 | Build provenance in the version output and `inspect capabilities`: commit, target, profile, feature set | new fields | §4.4; "release claims match the shipped builds" |
 | H8 | The candidate's version string, replacing `0.1.0-m01` | value | It is carried in the hello |
-| H9 | A store migration: the restore record (time, source backup's schema, counts ended and quarantined); the backup's environment binding; a quarantine state for management clients and a void state for invitations, if M06's tables lack them | migration | H3 |
+| H9 | A store migration: `restore_epoch`; the epoch on operations, idempotency records and decision references; the backup's environment binding; a quarantine state for management clients and a void state for invitations, if M06's tables lack them; the quiet-period record | migration | H3; §3.6 |
+| H12 | **A storage-layout change:** generation directories, the `CURRENT` pointer, the per-generation operation record, the request ledger outside the generations, and adoption of today's layout by copy. Every reader of the state path follows the pointer: the runtime, the read-only opens of `doctor` and the CLI, uninstall and the purge sweep, the Windows state-directory protection. **M06 and M07 own the store and path files today,** so this is built in U2b after the handoff | storage delta, for the contract owner | §3.6; R-RT-08 |
+| H13 | The epoch in the hello and in server-minted references; the refusal `REQUEST_STALE` with reasons `restored_before_completion`, `restore_epoch_stale` and `restore_replay_fence` | new field, code and reasons | §3.6 |
 | H10 | Reasons for the quarantine: `client_quarantined_after_restore`, `invitation_void_after_restore`, `exposure_disabled_after_restore`; a `restore` event | new reasons and event | §3.6 |
 | H11 | A debug-support cargo feature that keeps test-only crates out of release builds | manifest change, under the manifest's owner | §4.5; ruling on Q8 |
 
@@ -417,7 +451,11 @@ Accepting this ADR is the authorization for this exception.
 | Restoring a backup unchanged | It revives revoked and stopped access (§3.6) |
 | Restore that only ends grants and pauses policies | A recovered management client, invitation or exposure setting is authority too (review M08-D-R01) |
 | No restore, reset only | Loses the environment identity and orphans every enrollment |
-| Replaying later tombstones onto the backup from a second log | A new durable mechanism for a rare path; the carry-forward from a readable store gives the same result where it is possible |
+| Replaying later tombstones onto the backup from a second log | Not needed: without them the restore ends all authority anyway. The request ledger is the one record kept outside the store, because a caller-minted request ID made after the backup cannot be recognized any other way |
+| Renaming the old family aside and the new one into place | A family is four directory entries; a crash between renames leaves a state no rule covers (re-check R02) |
+| A per-member intent log with ordered moves | More states to recover than one pointer; kept only as the fallback if a platform could not do the switch, and none was found |
+| Asking clients to remember the epoch of each request | A blind retry would not; the fence must hold without the caller's help |
+| Migrating by generation switch too | The in-place transactional migration with its backup is built and tested; a second mechanism would add recovery cases for no gain |
 | A filtered log tail in the bundle | Free text cannot be made safe by a redactor that keeps ordinary words (review M08-D-R03) |
 | `SHA256SUMS` inside the archive covering the archive | Self-referential (review M08-D-R07) |
 | A hand-written dependency resolver | A pinned tool with a validation adapter is enough (review M08-D-R04) |
@@ -427,10 +465,13 @@ Accepting this ADR is the authorization for this exception.
 
 - **The release's weakest rows are named in advance:** unsigned Windows and Linux artifacts, an ad-hoc macOS build with the update limitation, and Windows and macOS release rows that need a disposable account each.
 - **A restore costs the user one round of approvals, and one reauthorization per remote client.**
+- **Every mutating request costs one more synced append** (the request ledger). The benchmarks of §6.1 measure it; if it breaks a budget, the ledger's write is the thing to revisit, not the fence.
+- **The store's location changes** (H12). Every tool and test that opens the store by path follows the pointer.
+- **Earlier generations accumulate** until the user purges them; each holds a full old state and is listed as residue.
 - **Two toolchains exist in the project,** one of them only inside a fuzz container.
 - **The release graph loses its test-only crates before the candidate** (H11); until then the inventory names them.
 - **The bundle is less useful to a maintainer than a log tail would be.** That is the price of sending no free text; a user can still read their own local log.
-- **Migration consequences:** H9 is the only schema change proposed. No existing record changes meaning.
+- **Migration consequences:** H9 is the schema change and H12 the layout change. No existing record changes meaning; a store in today's layout is adopted by copy and left in place.
 
 ## 10. Reopen conditions
 

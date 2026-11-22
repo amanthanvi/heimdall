@@ -223,6 +223,7 @@
     "The release binary was inspected statically and never executed, so nothing here shows that it runs on a clean machine.",
     "Revision 1's commands kept no exit codes, and its started_at is the date of the run, not a measured start time. Only the revision 2 commands listed in commands-r2.txt have recorded exits.",
     "The cargo tree output is sanitized: workspace crates' paths are replaced by '(workspace)' and the '(proc-macro)' and '(*)' markers are removed.",
-    "No finding here is evidence about what the linker retained, about the absence of secrets or test code in the binary, or about clean-machine execution."
+    "No finding here is evidence about what the linker retained, about the absence of secrets or test code in the binary, or about clean-machine execution.",
+    "The lock-file scan (syft) is a recorded summary that was not independently checked: syft-cargo-lock-summary.json keeps the counts and a SHA-256 over the sorted 'name@version' lines of the component list, not the list itself (re-check R10)."
   ]
 }
